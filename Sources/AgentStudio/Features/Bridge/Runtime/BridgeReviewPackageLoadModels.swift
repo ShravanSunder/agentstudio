@@ -1,6 +1,9 @@
 struct BridgeReviewPackageLoadData {
-    let package: BridgeReviewPackage
-    let delta: BridgeReviewDelta?
+    let preparedPublication: BridgeReviewPreparedPublication
+    let changeIndexLoad: BridgeChangeIndexPreparedLoad
+
+    var package: BridgeReviewPackage { preparedPublication.package }
+    var delta: BridgeReviewDelta? { preparedPublication.delta }
 }
 
 struct ReviewEndpointSelection {

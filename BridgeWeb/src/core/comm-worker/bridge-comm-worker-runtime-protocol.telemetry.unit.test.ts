@@ -290,6 +290,7 @@ function telemetryReviewSnapshotEvent(
 		],
 		itemWindow: { finalWindow: true, itemCount: 2, startIndex: 0, totalItemCount: 2 },
 		packageId: baseDescriptor.packageId,
+		publicationId: '00000000-0000-7000-8000-000000000001',
 		query: {
 			baseEndpointId: 'base-endpoint',
 			comparisonSemantics: 'threeDot',

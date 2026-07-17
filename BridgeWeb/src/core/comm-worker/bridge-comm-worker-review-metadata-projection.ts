@@ -1,3 +1,4 @@
+import { reviewMetadataSnapshotEventFromCompleteSnapshot } from './bridge-comm-worker-review-publication-transaction.js';
 import type { BridgeProductReviewContentSourceDescriptor } from './bridge-product-content-contracts.js';
 import type {
 	BridgeProductReviewExtentFact,
@@ -26,6 +27,7 @@ type ReviewMetadataSnapshotEvent = Extract<
 export interface BridgeCommWorkerReviewMetadataIdentity {
 	readonly generation: number;
 	readonly packageId: string;
+	readonly publicationId: string;
 	readonly sourceIdentity: string;
 }
 
@@ -65,6 +67,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 	readonly #itemMetadataById = new Map<string, BridgeProductReviewItemMetadata>();
 	#headEndpoint: ReviewMetadataSnapshotEvent['headEndpoint'] | null = null;
 	#identity: BridgeCommWorkerReviewMetadataIdentity | null = null;
+	#itemFinalWindowReceived = false;
 	#itemIdsByIndex: Array<string | undefined> = [];
 	#projectionRevision = 0;
 	#query: ReviewMetadataSnapshotEvent['query'] | null = null;
@@ -72,6 +75,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 	#summary: ReviewMetadataPayloadEvent['summary'] | null = null;
 	#totalItemCount: number | null = null;
 	#totalTreeRowCount: number | null = null;
+	#treeFinalWindowReceived = false;
 	readonly #treeRowIndexById = new Map<string, number>();
 	#treeRows: Array<BridgeProductReviewTreeRow | undefined> = [];
 
@@ -113,7 +117,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 				invalidation = event;
 				break;
 			case 'review.reset':
-				this.#assertCurrentIdentity(event);
+				if (this.#identity !== null) this.#assertCurrentIdentity(event);
 				this.#resetProjection();
 				this.#identity = reviewMetadataIdentity(event);
 				this.#revision = event.revision;
@@ -129,6 +133,65 @@ export class BridgeCommWorkerReviewMetadataProjection {
 			projectionRevision: this.#projectionRevision,
 			reset,
 		};
+	}
+
+	cloneComplete(): BridgeCommWorkerReviewMetadataProjection {
+		this.assertCompleteFinalBarrier();
+		const clone = new BridgeCommWorkerReviewMetadataProjection();
+		clone.apply(reviewMetadataSnapshotEventFromCompleteSnapshot(this.snapshot()));
+		return clone;
+	}
+
+	assertCompleteFinalBarrier(): void {
+		if (!this.#itemFinalWindowReceived || !this.#treeFinalWindowReceived) {
+			throw new Error('Bridge Review metadata final barrier has not received both final windows.');
+		}
+		if (!this.isComplete()) {
+			throw new Error(
+				'Bridge Review metadata final barrier is incomplete or contains ordered holes.',
+			);
+		}
+	}
+
+	isComplete(): boolean {
+		return (
+			this.#itemFinalWindowReceived &&
+			this.#treeFinalWindowReceived &&
+			this.#baseEndpoint !== null &&
+			this.#headEndpoint !== null &&
+			this.#identity !== null &&
+			this.#query !== null &&
+			this.#revision !== null &&
+			this.#summary !== null &&
+			this.#totalItemCount !== null &&
+			this.#itemIdsByIndex.length === this.#totalItemCount &&
+			everyOrderedIndexIsDefined(this.#itemIdsByIndex) &&
+			this.#itemIdsByIndex.every(
+				(itemId) => itemId !== undefined && this.#itemMetadataById.has(itemId),
+			) &&
+			this.#totalTreeRowCount !== null &&
+			this.#treeRows.length === this.#totalTreeRowCount &&
+			everyOrderedIndexIsDefined(this.#treeRows)
+		);
+	}
+
+	hasFinalBarrier(): boolean {
+		return this.#itemFinalWindowReceived && this.#treeFinalWindowReceived;
+	}
+
+	matchesEvent(event: BridgeProductReviewMetadataEvent): boolean {
+		return this.#matchesIdentity(event) && this.#revision === event.revision;
+	}
+
+	canApplySuccessorDelta(event: ReviewMetadataDeltaEvent): boolean {
+		return (
+			this.#identity !== null &&
+			this.#identity.generation === event.generation &&
+			this.#identity.packageId === event.packageId &&
+			this.#identity.publicationId !== event.publicationId &&
+			this.#identity.sourceIdentity === event.sourceIdentity &&
+			this.#revision === event.fromRevision
+		);
 	}
 
 	snapshot(): BridgeCommWorkerReviewMetadataSnapshot {
@@ -195,6 +258,8 @@ export class BridgeCommWorkerReviewMetadataProjection {
 
 	#applyPayload(event: ReviewMetadataPayloadEvent, affectedItemIds: Set<string>): void {
 		this.#summary = event.summary;
+		this.#itemFinalWindowReceived ||= event.itemWindow.finalWindow;
+		this.#treeFinalWindowReceived ||= event.treeWindow.finalWindow;
 		this.#applyItemWindow(event, affectedItemIds);
 		this.#applyTreeWindow(event);
 		for (const item of event.itemMetadata) {
@@ -254,7 +319,11 @@ export class BridgeCommWorkerReviewMetadataProjection {
 	}
 
 	#applyDelta(event: ReviewMetadataDeltaEvent, affectedItemIds: Set<string>): void {
-		this.#assertCurrentIdentity(event);
+		if (!this.canApplySuccessorDelta(event)) {
+			throw new Error(
+				'Bridge Review metadata delta does not identify the active publication predecessor.',
+			);
+		}
 		this.#assertCurrentRevision(event.fromRevision);
 		this.#upsertContentSources(event.contentSources, affectedItemIds);
 		this.#summary = event.summary;
@@ -299,6 +368,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 					assertNeverReviewMetadataOperation(operation);
 			}
 		}
+		this.#identity = reviewMetadataIdentity(event);
 		this.#revision = event.toRevision;
 	}
 
@@ -391,6 +461,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 			this.#identity !== null &&
 			this.#identity.generation === event.generation &&
 			this.#identity.packageId === event.packageId &&
+			this.#identity.publicationId === event.publicationId &&
 			this.#identity.sourceIdentity === event.sourceIdentity
 		);
 	}
@@ -405,15 +476,24 @@ export class BridgeCommWorkerReviewMetadataProjection {
 		this.#itemMetadataById.clear();
 		this.#headEndpoint = null;
 		this.#identity = null;
+		this.#itemFinalWindowReceived = false;
 		this.#itemIdsByIndex = [];
 		this.#query = null;
 		this.#revision = null;
 		this.#summary = null;
 		this.#totalItemCount = null;
 		this.#totalTreeRowCount = null;
+		this.#treeFinalWindowReceived = false;
 		this.#treeRowIndexById.clear();
 		this.#treeRows = [];
 	}
+}
+
+function everyOrderedIndexIsDefined(values: readonly unknown[]): boolean {
+	for (let index = 0; index < values.length; index += 1) {
+		if (values[index] === undefined) return false;
+	}
+	return true;
 }
 
 function reviewMetadataIdentity(
@@ -422,6 +502,7 @@ function reviewMetadataIdentity(
 	return {
 		generation: event.generation,
 		packageId: event.packageId,
+		publicationId: event.publicationId,
 		sourceIdentity: event.sourceIdentity,
 	};
 }

@@ -257,6 +257,10 @@ enum BridgeProductReviewMetadataEvent: Codable, Equatable, Sendable {
         identity.packageId
     }
 
+    var publicationId: UUID {
+        identity.publicationId
+    }
+
     var revision: Int {
         identity.revision
     }

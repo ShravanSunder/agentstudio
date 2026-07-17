@@ -42,8 +42,9 @@ final class BridgePaneController {
     var onRuntimeEvent: (@MainActor @Sendable (PaneRuntimeEvent, UUID?, UUID?) -> Void)?
     // MARK: - Domain State
 
-    let reviewContentStore: BridgeContentStore
+    let reviewContentLoaderCache: BridgeReviewContentLoaderCache
     let productAdmissionGate: BridgeProductAdmissionGate
+    let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
     let productSessionOwner: BridgePaneProductSessionOwner
     let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
     let productSchemeProvider: BridgePaneProductSchemeProvider?
@@ -55,7 +56,6 @@ final class BridgePaneController {
     var activeReviewRefreshTask: Task<Void, Never>?
     var hasPendingReviewRefresh = false
     var pendingReviewPackageBuildReasons: Set<BridgeReviewPackageBuildReason> = []
-    var reviewContentAuthorityLifetime = 0
     var activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
 
     // MARK: - Private State
@@ -119,8 +119,12 @@ final class BridgePaneController {
         self.telemetrySessionOwner = telemetryDependencies.sessionDependencies?.owner
         self.traceContextFactory = traceContextFactory
         let resolvedReviewSourceProvider = reviewSourceProvider ?? BridgeUnavailableReviewSourceProvider()
-        let resolvedReviewContentStore = BridgeContentStore(provider: resolvedReviewSourceProvider)
-        self.reviewContentStore = resolvedReviewContentStore
+        let resolvedReviewContentLoaderCache = BridgeReviewContentLoaderCache(
+            provider: resolvedReviewSourceProvider
+        )
+        self.reviewContentLoaderCache = resolvedReviewContentLoaderCache
+        let resolvedReviewPublicationCoordinator = BridgeReviewPublicationCoordinator()
+        self.reviewPublicationCoordinator = resolvedReviewPublicationCoordinator
         self.reviewPipeline = BridgeReviewPipeline(provider: resolvedReviewSourceProvider)
         let runtimePaneId = PaneId(uuid: paneId)
         let defaultMetadata = Self.makeDefaultRuntimeMetadata(paneId: runtimePaneId, state: state)
@@ -139,7 +143,8 @@ final class BridgePaneController {
                 paneSessionId: paneId.uuidString,
                 runtime: resolvedRuntime,
                 state: state,
-                reviewContentStore: resolvedReviewContentStore,
+                reviewContentLoaderCache: resolvedReviewContentLoaderCache,
+                reviewPublicationCoordinator: resolvedReviewPublicationCoordinator,
                 telemetryRecorder: telemetryDependencies.recorder
             )
         self.productSessionOwner = resolvedProductSessionDependencies.owner
@@ -320,15 +325,15 @@ final class BridgePaneController {
         if !isTeardownStarted {
             isTeardownStarted = true
             productAdmissionGate.close()
+            reviewPublicationCoordinator.close()
             activeReviewRefreshTask?.cancel()
             activeReviewRefreshTask = nil
             hasPendingReviewRefresh = false
-            revokeReviewContentAuthoritySynchronously()
-            let reviewContentStore = reviewContentStore
+            let reviewContentLoaderCache = reviewContentLoaderCache
             let productSchemeProvider = productSchemeProvider
             teardownCleanupTask = Task {
                 async let contentDemandDrain: Void? = productSchemeProvider?.closeAndDrain()
-                await reviewContentStore.deactivate()
+                await reviewContentLoaderCache.closeAndDrain()
                 _ = await contentDemandDrain
             }
             runtime.resetForControllerTeardown()

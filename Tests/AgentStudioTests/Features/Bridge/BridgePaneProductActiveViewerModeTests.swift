@@ -69,7 +69,13 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let reviewPackage = try productActiveViewerReviewPackageFixture()
-            controller.paneState.diff.setPackageMetadata(reviewPackage)
+            #expect(
+                await controller.commitReviewPackageLoad(
+                    try await productActiveViewerPreparedLoad(package: reviewPackage, delta: nil),
+                    productAdmission: productAdmission,
+                    traceContext: nil
+                ) == .committed
+            )
             let activeSource = BridgeActiveViewerSource(
                 protocolId: .review,
                 streamId: controller.reviewProtocolStreamId(),
@@ -96,7 +102,13 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let reviewPackage = try productActiveViewerReviewPackageFixture()
-            controller.paneState.diff.setPackageMetadata(reviewPackage)
+            #expect(
+                await controller.commitReviewPackageLoad(
+                    try await productActiveViewerPreparedLoad(package: reviewPackage, delta: nil),
+                    productAdmission: productAdmission,
+                    traceContext: nil
+                ) == .committed
+            )
 
             await controller.handleCommittedProductActiveViewerModeUpdate(
                 sessionId: "product-review-session",
@@ -120,7 +132,13 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let reviewPackage = try productActiveViewerReviewPackageFixture()
-            controller.paneState.diff.setPackageMetadata(reviewPackage)
+            #expect(
+                await controller.commitReviewPackageLoad(
+                    try await productActiveViewerPreparedLoad(package: reviewPackage, delta: nil),
+                    productAdmission: productAdmission,
+                    traceContext: nil
+                ) == .committed
+            )
 
             await controller.handleCommittedProductActiveViewerModeUpdate(
                 sessionId: "product-review-session",
@@ -154,8 +172,12 @@ extension WebKitSerializedTests {
             )
 
             // Act
+            let load = try await productActiveViewerPreparedLoad(
+                package: reviewPackage,
+                delta: reviewDelta
+            )
             let commitDisposition = await harness.controller.commitReviewPackageLoad(
-                BridgeReviewPackageLoadData(package: reviewPackage, delta: reviewDelta),
+                load,
                 productAdmission: openedSubscription.productAdmission,
                 traceContext: nil
             )
@@ -165,8 +187,8 @@ extension WebKitSerializedTests {
             #expect(commitDisposition == .committed)
             let observation = try #require(observations.last)
             #expect(observations.count == 1)
-            #expect(observation.availability == .ready(reviewPackage))
-            #expect(observation.packageMetadata == reviewPackage)
+            #expect(observation.deliveredPackage == load.package)
+            #expect(observation.packageMetadata == load.package)
             #expect(observation.packageDelta == reviewDelta)
             #expect(observation.status == .ready)
             try await closeBridgeProductSessionProducer(
@@ -193,7 +215,10 @@ extension WebKitSerializedTests {
 
             // Act
             let commitDisposition = await controller.commitReviewPackageLoad(
-                BridgeReviewPackageLoadData(package: reviewPackage, delta: reviewDelta),
+                try await productActiveViewerPreparedLoad(
+                    package: reviewPackage,
+                    delta: reviewDelta
+                ),
                 productAdmission: productAdmission,
                 traceContext: nil
             )
@@ -447,7 +472,7 @@ private struct ProductActiveViewerReviewPublicationHarness {
 }
 
 private struct ProductActiveViewerReviewPublicationObservation: Equatable, Sendable {
-    let availability: BridgePaneProductReviewMetadataAvailability
+    let deliveredPackage: BridgeReviewPackage
     let packageMetadata: BridgeReviewPackage?
     let packageDelta: BridgeReviewDelta?
     let status: DiffStatus
@@ -458,11 +483,11 @@ private final class ProductActiveViewerControllerBox {
     weak var controller: BridgePaneController?
 
     func observation(
-        availability: BridgePaneProductReviewMetadataAvailability
+        deliveredPackage: BridgeReviewPackage
     ) -> ProductActiveViewerReviewPublicationObservation? {
         guard let controller else { return nil }
         return ProductActiveViewerReviewPublicationObservation(
-            availability: availability,
+            deliveredPackage: deliveredPackage,
             packageMetadata: controller.paneState.diff.packageMetadata,
             packageDelta: controller.paneState.diff.packageDelta,
             status: controller.paneState.diff.status
@@ -496,20 +521,59 @@ private actor ProductActiveViewerReviewMetadataRecorder:
         emit _: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {}
 
-    func publish(
-        availability: BridgePaneProductReviewMetadataAvailability,
+    func reserve(
+        package: BridgeReviewPackage,
+        publicationId: UUID,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async throws -> BridgeReviewMetadataPublicationReservation {
+        BridgeReviewMetadataPublicationReservation(
+            reservationId: UUIDv7.generate(),
+            packageId: package.packageId,
+            publicationId: publicationId,
+            reviewGeneration: package.reviewGeneration,
+            revision: package.revision
+        )
+    }
+
+    func deliver(
+        package: BridgeReviewPackage,
+        reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
-        guard let observation = await controllerBox.observation(availability: availability) else {
+        guard let observation = await controllerBox.observation(deliveredPackage: package) else {
             throw ProductActiveViewerReviewMetadataRecorderError.controllerUnavailable
         }
         return productAdmission.withValidAdmission {
             observations.append(observation)
-            return .loading(retained: 0)
-        } ?? .failed(retained: 0)
+            return .deferred(retained: 0)
+        } ?? .deferred(retained: 0)
     }
 
     func cancel(subscriptionId _: String) {}
+}
+
+private func productActiveViewerPreparedLoad(
+    package: BridgeReviewPackage,
+    delta: BridgeReviewDelta?
+) async throws -> BridgeReviewPackageLoadData {
+    let preparedPackage = package.withRevision(delta?.revision ?? package.revision)
+    let contentHandles = preparedPackage.itemsById.values.flatMap(\.contentRoles.allHandles)
+    let preparedPublication = try #require(
+        await BridgeReviewPreparedPublication.prepare(
+            BridgeReviewPublicationCandidate(
+                package: preparedPackage,
+                delta: delta,
+                contentHandles: contentHandles
+            )
+        )
+    )
+    return BridgeReviewPackageLoadData(
+        preparedPublication: preparedPublication,
+        changeIndexLoad: BridgeChangeIndexPreparedLoad(
+            package: preparedPackage,
+            delta: delta
+        )
+    )
 }
 
 private func productActiveViewerWorkerOpenRequest(

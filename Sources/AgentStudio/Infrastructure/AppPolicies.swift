@@ -23,9 +23,9 @@ enum AppPolicies {
     enum Bridge {
         /// Retention cap for one content body: a single item must never evict
         /// the whole byte cache, and larger bodies render as oversized.
-        static let contentMaxBytesPerItem: Int = 4 * 1024 * 1024
+        static let contentMaxBytesPerItem: Int = 16 * 1024 * 1024
         /// Desktop byte-cache residency target. At 128MB this keeps at least
-        /// 32 max-size content bodies warm, avoiding re-fetch/re-highlight
+        /// 8 max-size content bodies warm, avoiding re-fetch/re-highlight
         /// churn without letting one item define total retention.
         static let contentCacheMaxBytes: Int = 128 * 1024 * 1024
         static let defaultGitDataPlaneReadTimeout: Duration = .seconds(30)

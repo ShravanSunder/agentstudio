@@ -83,6 +83,34 @@ describe('Bridge Review presentation adapter', () => {
 		);
 	});
 
+	test('keeps a complete stale worker display mounted while replacement metadata is pending', () => {
+		// Arrange
+		const displayItem = reviewDisplayItem('item-active', 'Sources/App/Active.swift');
+		const readySource = readyReviewSourceSlice({ itemCount: 1, treeRowCount: 1 });
+
+		// Act
+		const presentationSnapshot = bridgeReviewPresentationSnapshotForDisplay({
+			catalogSnapshot: catalogSnapshot({ itemCount: 1, revision: 7, treeRowCount: 1 }),
+			displayStore: displayStore({
+				items: [displayItem],
+				rawTreeRows: [
+					{
+						depth: 0,
+						isDirectory: false,
+						itemId: displayItem.metadata.itemId,
+						path: displayItem.metadata.headPath ?? displayItem.metadata.itemId,
+						rowId: 'row-item-active',
+					},
+				],
+			}),
+			reviewSourceSlice: { ...readySource, status: 'stale' },
+		});
+
+		// Assert
+		expect(presentationSnapshot).not.toBeNull();
+		expect(presentationSnapshot?.reviewPackage.orderedItemIds).toEqual(['item-active']);
+	});
+
 	test.each([
 		['absent', null],
 		[
@@ -422,7 +450,9 @@ function readyReviewSourceSlice(props: {
 	readonly itemCount: number;
 	readonly metadataWindowIdentity?: string;
 	readonly treeRowCount: number;
-}): BridgeMainReviewSourceDisplaySlice {
+}): Exclude<BridgeMainReviewSourceDisplaySlice, { readonly status: 'failed' }> & {
+	readonly status: 'ready';
+} {
 	return {
 		metadataWindowIdentity: props.metadataWindowIdentity ?? 'review-window-ready',
 		status: 'ready',

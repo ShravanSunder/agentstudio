@@ -129,10 +129,13 @@ extension BridgePaneController {
             return source.protocolId == .worktreeFile
         }
         guard source.protocolId == .review,
-            let package = paneState.diff.packageMetadata
+            let productAdmission = productAdmissionGate.acquire(),
+            let publication = reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )
         else { return false }
         return source.streamId == reviewProtocolStreamId()
-            && source.generation == package.reviewGeneration.rawValue
+            && source.generation == publication.package.reviewGeneration.rawValue
     }
 
 }

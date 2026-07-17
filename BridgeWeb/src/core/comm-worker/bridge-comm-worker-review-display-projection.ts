@@ -240,6 +240,7 @@ function reviewMetadataWindowIdentity(
 		'bridge-review-metadata-window-v1',
 		snapshot.identity.sourceIdentity,
 		snapshot.identity.generation,
+		snapshot.identity.publicationId,
 		snapshot.revision,
 		...(itemId === undefined ? [] : [itemId]),
 	]);

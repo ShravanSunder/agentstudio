@@ -7,6 +7,7 @@ import {
 	bridgeProductFileSourceCurrentRequestSchema,
 	bridgeProductFileSourceCurrentResultSchema,
 	bridgeProductReviewIntakeReadyRequestSchema,
+	bridgeProductReviewPublicationAppliedRequestSchema,
 } from './bridge-product-call-contracts.js';
 
 const currentFileSource = {
@@ -66,19 +67,10 @@ describe('Bridge product call contracts', () => {
 	});
 
 	test('defines strict Review intake readiness request and null result contracts', () => {
-		const request = {
-			method: 'review.intake.ready',
-			request: { reason: 'sequence_gap', streamId: 'review:stream-1' },
-		} as const;
-		const nullRequest = {
-			method: 'review.intake.ready',
-			request: { reason: null, streamId: null },
-		} as const;
-		const result = { method: 'review.intake.ready', result: null } as const;
-
-		expect(bridgeProductCallRequestSchema.parse(request)).toEqual(request);
-		expect(bridgeProductCallRequestSchema.parse(nullRequest)).toEqual(nullRequest);
-		expect(bridgeProductCallResultSchema.parse(result)).toEqual(result);
+		for (const testCase of validProductSessionCorpus.reviewIntakeReadyCases) {
+			expect(bridgeProductCallRequestSchema.parse(testCase.request)).toEqual(testCase.request);
+			expect(bridgeProductCallResultSchema.parse(testCase.result)).toEqual(testCase.result);
+		}
 		for (const invalidRequest of [
 			{ reason: null },
 			{ streamId: null },
@@ -98,5 +90,29 @@ describe('Bridge product call contracts', () => {
 				result: {},
 			}).success,
 		).toBe(false);
+	});
+
+	test('defines an exact strict Review publication application receipt', () => {
+		for (const testCase of validProductSessionCorpus.reviewPublicationAppliedCases) {
+			expect(
+				bridgeProductReviewPublicationAppliedRequestSchema.parse(testCase.request.request),
+			).toEqual(testCase.request.request);
+			expect(bridgeProductCallRequestSchema.parse(testCase.request)).toEqual(testCase.request);
+			expect(bridgeProductCallResultSchema.parse(testCase.result)).toEqual(testCase.result);
+		}
+		for (const invalidRequest of [
+			{},
+			{ publicationId: '' },
+			{ publicationId: 'contains spaces' },
+			{ publicationId: '00000000-0000-7000-8000-00000000001A' },
+			{ publicationId: '00000000-0000-4000-8000-000000000017' },
+			{ publicationId: '00000000-0000-9000-8000-000000000017' },
+			{ publicationId: '00000000-0000-7000-7000-000000000017' },
+			{ extra: true, publicationId: '00000000-0000-7000-8000-000000000017' },
+		]) {
+			expect(
+				bridgeProductReviewPublicationAppliedRequestSchema.safeParse(invalidRequest).success,
+			).toBe(false);
+		}
 	});
 });

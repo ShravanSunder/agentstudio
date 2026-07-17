@@ -550,6 +550,59 @@ describe('Bridge comm worker command handler', () => {
 		expect(scheduledPreparations[0]?.store.getState().demandByKey.get('item-1')).toBe('selected:7');
 	});
 
+	test('Review metadata transaction rollback restores runtime source, store, and pending patches', () => {
+		// Arrange
+		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
+		const updatedRuntimeItemIds: string[][] = [];
+		let scheduledResetCount = 0;
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [makeWorkerReviewContentMetadata('item-a')],
+			rows: [{ id: 'item-a', parentId: null, index: 0 }],
+			scheduleReviewMetadataReset: (): void => {
+				scheduledResetCount += 1;
+			},
+			scheduleSelectedReviewContentReadyPreparation:
+				pushScheduledSelectedReviewPreparation(scheduledPreparations),
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
+			updateReviewRuntimeSource: (source): void => {
+				updatedRuntimeItemIds.push(source.contentItems.map(({ itemId }) => itemId));
+			},
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-before-transaction',
+				epoch: 7,
+				surface: 'review',
+				selectedItemId: 'item-a',
+				selectedSource: 'user',
+			}),
+		);
+		const reviewStore = scheduledPreparations[0]?.store;
+		if (reviewStore === undefined) throw new Error('expected selected Review store');
+		reviewStore.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 41 });
+
+		// Act
+		const transaction = handler.prepareReviewMetadataApplication(
+			reviewMetadataApplication({
+				contentItems: [makeWorkerReviewContentMetadata('item-b')],
+				contentRequestDescriptors: [],
+				renderSemantics: [],
+				reset: true,
+				rows: [{ id: 'item-b', parentId: null, index: 0 }],
+				sourceEpoch: 8,
+			}),
+		);
+		expect([...reviewStore.getState().contentMetadataByItemId.keys()]).toEqual(['item-b']);
+		transaction.rollback();
+
+		// Assert
+		expect(updatedRuntimeItemIds).toEqual([['item-b'], ['item-a']]);
+		expect([...reviewStore.getState().contentMetadataByItemId.keys()]).toEqual(['item-a']);
+		expect([...reviewStore.getState().rowById.keys()]).toEqual(['item-a']);
+		expect(reviewStore.actions.takePendingSlicePatchEvent({ epoch: 8, sequence: 42 })).toBeNull();
+		expect(scheduledResetCount).toBe(0);
+	});
+
 	test('unsupported commands return degraded health instead of silent success', () => {
 		const handler = createBridgeCommWorkerCommandHandler({
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
@@ -1125,6 +1178,7 @@ function reviewMetadataApplication(props: {
 	readonly contentRequestDescriptors: BridgeCommWorkerReviewMetadataApplication['source']['contentRequestDescriptors'];
 	readonly renderSemantics: BridgeCommWorkerReviewMetadataApplication['source']['renderSemantics'];
 	readonly rows: BridgeCommWorkerReviewMetadataApplication['source']['rows'];
+	readonly reset?: boolean;
 	readonly sourceEpoch: number;
 }): BridgeCommWorkerReviewMetadataApplication {
 	return {
@@ -1134,7 +1188,7 @@ function reviewMetadataApplication(props: {
 		completeRowIds: props.rows.map((row) => row.id),
 		projectionRevision: 1,
 		removedItemIds: [],
-		reset: false,
+		reset: props.reset ?? false,
 		rowMutation: { removedRowIds: [], rowUpserts: props.rows },
 		source: {
 			contentItems: props.contentItems,

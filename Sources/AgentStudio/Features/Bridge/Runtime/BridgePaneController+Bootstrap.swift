@@ -88,9 +88,7 @@ final class BridgePaneProductCommittedCallTarget {
             mode = .review
             sourceProtocol = .review
             update = request
-        case .reviewIntakeReady:
-            return
-        case .reviewMarkFileViewed:
+        case .reviewIntakeReady, .reviewMarkFileViewed, .reviewPublicationApplied:
             return
         }
         let activeSource = update.activeSource.map {
@@ -127,7 +125,7 @@ extension BridgePaneController {
         productAdmission: BridgeProductAdmissionContext
     ) async {
         let currentStreamId = reviewProtocolStreamId()
-        guard request.streamId == currentStreamId else {
+        guard request.streamId == nil || request.streamId == currentStreamId else {
             await recordReviewIntakeReadyTelemetry(phase: "dropped")
             return
         }
@@ -400,7 +398,8 @@ extension BridgePaneController {
         paneSessionId: String,
         runtime: BridgeRuntime,
         state: BridgePaneState,
-        reviewContentStore: BridgeContentStore,
+        reviewContentLoaderCache: BridgeReviewContentLoaderCache,
+        reviewPublicationCoordinator: BridgeReviewPublicationCoordinator,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
     ) -> BridgePaneProductSessionDependencies {
         let productAdmissionGate = BridgeProductAdmissionGate()
@@ -416,14 +415,43 @@ extension BridgePaneController {
                 BridgeUnavailablePaneProductFileMetadataSource()
             }
         let reviewContentSource = BridgePaneProductReviewContentSource(
-            contentStore: reviewContentStore
+            loaderCache: reviewContentLoaderCache,
+            acquireContentLease: { descriptor, productAdmission in
+                reviewPublicationCoordinator.acquireContentLease(
+                    handleId: descriptor.descriptorId,
+                    packageId: descriptor.packageId,
+                    requestedGeneration: BridgeReviewGeneration(
+                        descriptor.reviewGeneration
+                    ),
+                    sourceIdentity: descriptor.sourceIdentity,
+                    productAdmission: productAdmission
+                )
+            },
+            settleContentLease: { lease in
+                reviewPublicationCoordinator.settleContentLease(lease)
+            }
         )
         let provider = BridgePaneProductSchemeProvider(
             fileMetadataSource: fileMetadataSource,
-            reviewMetadataSource: BridgePaneProductReviewMetadataSource(
-                initialAvailability: .loading
-            ),
+            reviewMetadataSource: BridgePaneProductReviewMetadataSource(),
             reviewContentSource: reviewContentSource,
+            reviewPublicationReplay: { productAdmission in
+                reviewPublicationCoordinator.committedPublicationForReplay(
+                    productAdmission: productAdmission
+                )
+            },
+            isReviewPublicationCurrent: { publicationId, productAdmission in
+                reviewPublicationCoordinator.isCurrentPublication(
+                    publicationId: publicationId,
+                    productAdmission: productAdmission
+                )
+            },
+            recordReviewPublicationApplication: { publicationId, productAdmission in
+                reviewPublicationCoordinator.recordWorkerApplication(
+                    publicationId: publicationId,
+                    productAdmission: productAdmission
+                )
+            },
             markReviewItemViewed: { itemId, productAdmission in
                 _ = productAdmission.withValidAdmission {
                     runtime.paneState.review.markFileViewed(itemId)

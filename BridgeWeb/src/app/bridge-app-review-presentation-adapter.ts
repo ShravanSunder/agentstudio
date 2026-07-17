@@ -34,11 +34,11 @@ type BridgeReviewSourceUpsertDisplaySlice = Exclude<
 	{ readonly status: 'failed' }
 >;
 
-type BridgeReadyReviewSourceDisplaySlice = Omit<
+type BridgePresentableReviewSourceDisplaySlice = Omit<
 	BridgeReviewSourceUpsertDisplaySlice,
 	'status' | 'summary' | 'totalItemCount' | 'totalTreeRowCount'
 > & {
-	readonly status: 'ready';
+	readonly status: 'ready' | 'stale';
 	readonly summary: NonNullable<BridgeReviewSourceUpsertDisplaySlice['summary']>;
 	readonly totalItemCount: number;
 	readonly totalTreeRowCount: number;
@@ -80,7 +80,7 @@ export function bridgeReviewPresentationSnapshotForDisplay(props: {
 	readonly reviewSourceSlice: BridgeMainReviewSourceDisplaySlice | null;
 }): BridgeReviewPresentationSnapshot | null {
 	const reviewSourceSlice = props.reviewSourceSlice;
-	if (!isReadyReviewSourceDisplaySlice(reviewSourceSlice)) return null;
+	if (!isPresentableReviewSourceDisplaySlice(reviewSourceSlice)) return null;
 	const previousLedger = presentationLedgerByDisplayStore.get(props.displayStore);
 	if (previousLedger === undefined || previousLedger.epoch !== props.catalogSnapshot.epoch) {
 		return rebuildBridgeReviewPresentationLedger({
@@ -120,7 +120,7 @@ export function bridgeReviewPresentationSnapshotForDisplay(props: {
 function rebuildBridgeReviewPresentationLedger(props: {
 	readonly catalogSnapshot: BridgeMainReviewCatalogSnapshot;
 	readonly displayStore: BridgeReviewDirectDisplayStore;
-	readonly reviewSourceSlice: BridgeReadyReviewSourceDisplaySlice;
+	readonly reviewSourceSlice: BridgePresentableReviewSourceDisplaySlice;
 }): BridgeReviewPresentationSnapshot | null {
 	const orderedDisplayItems = orderedReviewDisplayItems(props);
 	const reviewTreeRows = orderedReviewTreeRows(props);
@@ -172,7 +172,7 @@ function applyBridgeReviewPresentationChanges(props: {
 	readonly changes: readonly BridgeMainReviewCatalogChange[];
 	readonly displayStore: BridgeReviewDirectDisplayStore;
 	readonly ledger: BridgeReviewPresentationLedger;
-	readonly reviewSourceSlice: BridgeReadyReviewSourceDisplaySlice;
+	readonly reviewSourceSlice: BridgePresentableReviewSourceDisplaySlice;
 }): BridgeReviewPresentationSnapshot {
 	const previousSnapshot = props.ledger.snapshot;
 	const itemProjectionUpdates = emptyBridgeReviewItemProjectionUpdates();
@@ -700,7 +700,7 @@ function presentationPackageForDisplay(props: {
 	readonly orderedItemIds: readonly string[];
 	readonly presentationKey: string;
 	readonly reviewGeneration: number;
-	readonly reviewSourceSlice: BridgeReadyReviewSourceDisplaySlice;
+	readonly reviewSourceSlice: BridgePresentableReviewSourceDisplaySlice;
 	readonly revision: number;
 }): BridgeReviewPackage {
 	const baseEndpointId = `${props.presentationKey}:base`;
@@ -744,12 +744,12 @@ function presentationPackageForDisplay(props: {
 	};
 }
 
-function isReadyReviewSourceDisplaySlice(
+function isPresentableReviewSourceDisplaySlice(
 	sourceSlice: BridgeMainReviewSourceDisplaySlice | null,
-): sourceSlice is BridgeReadyReviewSourceDisplaySlice {
+): sourceSlice is BridgePresentableReviewSourceDisplaySlice {
 	return (
 		sourceSlice !== null &&
-		sourceSlice.status === 'ready' &&
+		(sourceSlice.status === 'ready' || sourceSlice.status === 'stale') &&
 		sourceSlice.summary !== null &&
 		sourceSlice.totalItemCount !== null &&
 		sourceSlice.totalTreeRowCount !== null

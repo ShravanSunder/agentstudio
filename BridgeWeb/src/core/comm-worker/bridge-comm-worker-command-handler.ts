@@ -16,7 +16,7 @@ import { buildBridgeWorkerReadyHealthEvent } from './bridge-comm-worker-protocol
 import {
 	applyBridgeCommWorkerReviewMetadataApplication,
 	type BridgeCommWorkerReviewMetadataApplication,
-} from './bridge-comm-worker-review-metadata-applicator.js';
+} from './bridge-comm-worker-review-runtime-application.js';
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import {
 	createBridgeCommWorkerStore,
@@ -25,11 +25,6 @@ import {
 	type BridgeCommWorkerViewportRange,
 } from './bridge-comm-worker-store.js';
 import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
-import {
-	BridgeWorkerRenderFulfillmentRegistry,
-	type BridgeWorkerRenderFulfillmentIdentifierPurpose,
-	type BridgeWorkerRenderFulfillmentRegistryContext,
-} from './bridge-worker-render-fulfillment-registry.js';
 import {
 	isBridgeWorkerFileViewContentMetadata,
 	type BridgeWorkerFileViewContentMetadata,
@@ -45,6 +40,11 @@ import {
 	type BridgeWorkerServerToMainMessage,
 	type BridgeWorkerViewportCommand,
 } from './bridge-worker-contracts.js';
+import {
+	BridgeWorkerRenderFulfillmentRegistry,
+	type BridgeWorkerRenderFulfillmentIdentifierPurpose,
+	type BridgeWorkerRenderFulfillmentRegistryContext,
+} from './bridge-worker-render-fulfillment-registry.js';
 
 export type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 
@@ -62,10 +62,8 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 		purpose: BridgeWorkerRenderFulfillmentIdentifierPurpose,
 	) => string;
 	readonly now?: () => number;
-	readonly renderFulfillmentContext?: Omit<
-		BridgeWorkerRenderFulfillmentRegistryContext,
-		'surface'
-	>;
+	readonly onReviewMetadataPostCommitFailure?: (error: unknown) => void;
+	readonly renderFulfillmentContext?: Omit<BridgeWorkerRenderFulfillmentRegistryContext, 'surface'>;
 	readonly renderReceiptLeaseDurationMilliseconds?: number;
 	readonly renderRetryBackoffMilliseconds?: number;
 	readonly scheduleDemandExecution?: (
@@ -129,6 +127,9 @@ export interface BridgeCommWorkerCommandHandler {
 	readonly applyReviewMetadataApplication: (
 		application: BridgeCommWorkerReviewMetadataApplication,
 	) => readonly BridgeWorkerServerToMainMessage[];
+	readonly prepareReviewMetadataApplication: (
+		application: BridgeCommWorkerReviewMetadataApplication,
+	) => BridgeCommWorkerReviewMetadataApplicationTransaction;
 	readonly applyFileViewRuntimeSource: (props: {
 		readonly epoch: number;
 		readonly source: BridgeCommWorkerFileViewRuntimeSource;
@@ -140,6 +141,13 @@ export interface BridgeCommWorkerCommandHandler {
 	readonly handleMessage: (
 		message: BridgeWorkerMainToServerMessage,
 	) => readonly BridgeWorkerServerToMainMessage[];
+}
+
+export interface BridgeCommWorkerReviewMetadataApplicationTransaction {
+	readonly commit: () => void;
+	readonly messages: readonly BridgeWorkerServerToMainMessage[];
+	readonly rollback: () => void;
+	readonly runPostCommitEffects: () => void;
 }
 
 export function createBridgeCommWorkerCommandHandler(
@@ -158,8 +166,7 @@ export function createBridgeCommWorkerCommandHandler(
 				? {}
 				: { createIdentifier: props.createRenderIdentifier }),
 			...(props.now === undefined ? {} : { now: props.now }),
-			receiptLeaseDurationMilliseconds:
-				props.renderReceiptLeaseDurationMilliseconds ?? 5000,
+			receiptLeaseDurationMilliseconds: props.renderReceiptLeaseDurationMilliseconds ?? 5000,
 			retryBackoffMilliseconds: props.renderRetryBackoffMilliseconds ?? 25,
 		});
 	const reviewStore = createBridgeCommWorkerStore({
@@ -196,26 +203,95 @@ export function createBridgeCommWorkerCommandHandler(
 		pane: 0,
 		review: 0,
 	};
-
-	return {
-		applyReviewMetadataApplication: (application) =>
-			applyBridgeCommWorkerReviewMetadataApplication({
+	const reportReviewMetadataPostCommitFailure = (error: unknown): void => {
+		try {
+			props.onReviewMetadataPostCommitFailure?.(error);
+		} catch {
+			// Post-commit diagnostics cannot invalidate an already committed Review publication.
+		}
+	};
+	const prepareReviewMetadataApplication = (
+		application: BridgeCommWorkerReviewMetadataApplication,
+	): BridgeCommWorkerReviewMetadataApplicationTransaction => {
+		const previousRuntimeSource = reviewRuntimeSource;
+		const storeRollbackSnapshot = reviewStore.captureRollbackSnapshot();
+		const postCommitEffects: Array<() => void> = [];
+		let state: 'committed' | 'pending' | 'rolledBack' = 'pending';
+		let postCommitEffectsRan = false;
+		const rollback = (): void => {
+			if (state !== 'pending') return;
+			state = 'rolledBack';
+			reviewRuntimeSource = previousRuntimeSource;
+			reviewStore.restoreRollbackSnapshot(storeRollbackSnapshot);
+			try {
+				props.updateReviewRuntimeSource?.(previousRuntimeSource);
+			} catch (error) {
+				reportReviewMetadataPostCommitFailure(error);
+			}
+		};
+		try {
+			const messages = applyBridgeCommWorkerReviewMetadataApplication({
 				application,
 				createSequence,
 				readRuntimeSource: (): BridgeCommWorkerReviewRuntimeSource => reviewRuntimeSource,
 				...(props.scheduleDemandExecution === undefined
 					? {}
-					: { scheduleDemandExecution: props.scheduleDemandExecution }),
+					: {
+							scheduleDemandExecution: (request): void => {
+								postCommitEffects.push((): void => props.scheduleDemandExecution?.(request));
+							},
+						}),
 				...(props.scheduleReviewMetadataReset === undefined
 					? {}
-					: { scheduleReset: props.scheduleReviewMetadataReset }),
-				scheduleSelectedPreparation: props.scheduleSelectedReviewContentReadyPreparation,
+					: {
+							scheduleReset: (request): void => {
+								postCommitEffects.push((): void => props.scheduleReviewMetadataReset?.(request));
+							},
+						}),
+				scheduleSelectedPreparation: (request): void => {
+					postCommitEffects.push((): void =>
+						props.scheduleSelectedReviewContentReadyPreparation(request),
+					);
+				},
 				store: reviewStore,
 				updateRuntimeSource: (source): void => {
 					reviewRuntimeSource = source;
 					props.updateReviewRuntimeSource?.(source);
 				},
-			}),
+			});
+			return {
+				commit: (): void => {
+					if (state !== 'pending') return;
+					state = 'committed';
+				},
+				messages,
+				rollback,
+				runPostCommitEffects: (): void => {
+					if (state !== 'committed' || postCommitEffectsRan) return;
+					postCommitEffectsRan = true;
+					for (const effect of postCommitEffects) {
+						try {
+							effect();
+						} catch (error) {
+							reportReviewMetadataPostCommitFailure(error);
+						}
+					}
+				},
+			};
+		} catch (error) {
+			rollback();
+			throw error;
+		}
+	};
+
+	return {
+		applyReviewMetadataApplication: (application) => {
+			const transaction = prepareReviewMetadataApplication(application);
+			transaction.commit();
+			transaction.runPostCommitEffects();
+			return transaction.messages;
+		},
+		prepareReviewMetadataApplication,
 		applyFileViewRuntimeSource: ({ epoch, source }) =>
 			applyBridgeCommWorkerFileViewRuntimeSource({
 				createSequence,

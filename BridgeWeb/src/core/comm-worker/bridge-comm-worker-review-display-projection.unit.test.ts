@@ -118,6 +118,7 @@ describe('Bridge comm worker Review display projection', () => {
 			identity: {
 				generation: reviewIdentity.generation,
 				packageId: reviewIdentity.packageId,
+				publicationId: reviewIdentity.publicationId,
 				sourceIdentity: reviewIdentity.sourceIdentity,
 			},
 			itemMetadata: countedItemMetadata.values,
@@ -159,7 +160,7 @@ describe('Bridge comm worker Review display projection', () => {
 				semanticDocumentRevision: expect.stringMatching(/\S/u),
 			},
 		]);
-		expect(firstProjectedItem['metadataWindowIdentity']).toEqual(expect.stringMatching(/\S/u));
+		expect(firstProjectedItem['metadataWindowIdentity']).toContain(reviewIdentity.publicationId);
 		expect(firstProjectedItem).not.toHaveProperty('contentSources');
 		expect(firstProjectedItem).not.toHaveProperty('windowKey');
 		const totalArrayIndexReads =
@@ -215,6 +216,7 @@ function countArrayIndexReads<TValue>(values: readonly TValue[]): CountedArray<T
 const reviewIdentity = {
 	generation: 7,
 	packageId: 'package-1',
+	publicationId: '00000000-0000-7000-8000-000000000012',
 	sourceIdentity: 'source-1',
 } as const;
 

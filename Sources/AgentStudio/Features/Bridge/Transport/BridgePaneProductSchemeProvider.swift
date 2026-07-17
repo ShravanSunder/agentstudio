@@ -22,12 +22,20 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         @MainActor @Sendable (BridgeProductReviewIntakeReadyRequest, BridgeProductAdmissionContext) async -> Void
     private let markReviewItemViewed: @MainActor @Sendable (String, BridgeProductAdmissionContext) -> Void
     private let metadataCoordinator: BridgePaneProductMetadataCoordinator
+    private let recordReviewPublicationApplication: @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool
     private let reviewContentSource: any BridgePaneProductReviewContentProducing
 
     init(
         fileMetadataSource: any BridgePaneProductFileMetadataProducing,
         reviewMetadataSource: any BridgePaneProductReviewMetadataProducing,
         reviewContentSource: any BridgePaneProductReviewContentProducing,
+        reviewPublicationReplay:
+            @escaping @MainActor @Sendable (BridgeProductAdmissionContext) ->
+            BridgeReviewCommittedPublication? = { _ in nil },
+        isReviewPublicationCurrent:
+            @escaping @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool = { _, _ in true },
+        recordReviewPublicationApplication:
+            @escaping @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool = { _, _ in false },
         markReviewItemViewed: @escaping @MainActor @Sendable (String, BridgeProductAdmissionContext) -> Void,
         handleReviewIntakeReady:
             @escaping @MainActor @Sendable (
@@ -52,9 +60,12 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             fileMetadataSource: fileMetadataSource,
             reviewMetadataSource: reviewMetadataSource,
             reviewContentSource: reviewContentSource,
+            reviewPublicationReplay: reviewPublicationReplay,
+            isReviewPublicationCurrent: isReviewPublicationCurrent,
             lifecycleTraceRecorder: lifecycleTraceRecorder
         )
         self.markReviewItemViewed = markReviewItemViewed
+        self.recordReviewPublicationApplication = recordReviewPublicationApplication
         self.reviewContentSource = reviewContentSource
         self.applyActiveViewerModeUpdate = applyActiveViewerModeUpdate
     }
@@ -92,6 +103,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                     return try .callCompleted(
                         correlating: request,
                         result: .reviewIntakeReady
+                    )
+                case .reviewPublicationApplied:
+                    return try .callCompleted(
+                        correlating: request,
+                        result: .reviewPublicationApplied
                     )
                 }
             case .subscriptionOpen(let openRequest):
@@ -157,6 +173,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 await markReviewItemViewed(markRequest.itemId, productAdmission)
             case .reviewIntakeReady(let intakeRequest):
                 await handleReviewIntakeReady(intakeRequest, productAdmission)
+            case .reviewPublicationApplied(let appliedRequest):
+                _ = await recordReviewPublicationApplication(
+                    appliedRequest.publicationId,
+                    productAdmission
+                )
             }
             return
         }
@@ -166,13 +187,27 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         )
     }
 
-    func publish(
-        availability: BridgePaneProductReviewMetadataAvailability,
+    func reserveReviewPublication(
+        package: BridgeReviewPackage,
+        publicationId: UUID,
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> BridgeReviewMetadataPublicationReservation {
+        try await metadataCoordinator.reserveReviewPublication(
+            package: package,
+            publicationId: publicationId,
+            productAdmission: productAdmission
+        )
+    }
+
+    func deliverReviewPublication(
+        _ publication: BridgeReviewCommittedPublication,
+        reservation: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext,
         traceContext: BridgeTraceContext? = nil
-    ) async {
-        await metadataCoordinator.publish(
-            availability: availability,
+    ) async -> BridgeReviewPublicationDeliveryDisposition {
+        await metadataCoordinator.deliverReviewPublication(
+            publication,
+            reservation: reservation,
             productAdmission: productAdmission,
             traceContext: traceContext
         )
@@ -603,6 +638,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     }
 
     func closeAndDrain() async {
+        await metadataCoordinator.closeAndDrain()
         await contentDemandAdmission.closeAndDrain()
     }
 

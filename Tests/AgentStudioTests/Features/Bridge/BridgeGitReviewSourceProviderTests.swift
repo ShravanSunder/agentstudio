@@ -760,21 +760,14 @@ private func makeLazyContentFixture() async throws -> GitAdapterLazyContentFixtu
     let item = try #require(package.itemsById["item-source"])
     let baseHandle = try #require(item.contentRoles.base)
     let headHandle = try #require(item.contentRoles.head)
-    let contentStore = BridgeContentStore(provider: provider)
+    let contentLoaderCache = BridgeReviewContentLoaderCache(provider: provider)
     let productAdmission = try BridgeProductAdmissionTestContext.make()
-    await contentStore.activate(
-        handles: package.itemsById.values.flatMap(\.contentRoles.allHandles),
-        reviewGeneration: 9,
+    let loadedBaseContent = try await contentLoaderCache.load(
+        handle: baseHandle,
         productAdmission: productAdmission.context
     )
-    let loadedBaseContent = try await contentStore.load(
-        handleId: baseHandle.handleId,
-        requestedGeneration: 9,
-        productAdmission: productAdmission.context
-    )
-    let loadedContent = try await contentStore.load(
-        handleId: headHandle.handleId,
-        requestedGeneration: 9,
+    let loadedContent = try await contentLoaderCache.load(
+        handle: headHandle,
         productAdmission: productAdmission.context
     )
     return GitAdapterLazyContentFixture(

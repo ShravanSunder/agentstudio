@@ -8,6 +8,11 @@ struct BridgeChangeIndexSnapshot: Equatable, Sendable {
     let packagesById: [String: BridgeReviewPackage]
 }
 
+struct BridgeChangeIndexPreparedLoad: Equatable, Sendable {
+    let package: BridgeReviewPackage
+    let delta: BridgeReviewDelta?
+}
+
 enum BridgeChangeIndexError: Error, Equatable {
     case admissionClosed
 }
@@ -49,13 +54,17 @@ actor BridgeChangeIndex {
         activeReviewGeneration = max(activeReviewGeneration, package.reviewGeneration)
     }
 
-    func ingestExplicitLoad(
+    func prepareExplicitLoad(
         _ package: BridgeReviewPackage,
+        fallbackRevision: Int? = nil,
         productAdmission: BridgeProductAdmissionContext
-    ) throws -> BridgeReviewDelta? {
+    ) throws -> BridgeChangeIndexPreparedLoad {
         guard
             let admittedResult = try productAdmission.withValidAdmission({
-                try ingestAdmittedExplicitLoad(package)
+                try prepareAdmittedExplicitLoad(
+                    package,
+                    fallbackRevision: fallbackRevision
+                )
             })
         else {
             throw BridgeChangeIndexError.admissionClosed
@@ -63,20 +72,44 @@ actor BridgeChangeIndex {
         return admittedResult
     }
 
-    private func ingestAdmittedExplicitLoad(_ package: BridgeReviewPackage) throws -> BridgeReviewDelta? {
+    func recordCommittedLoad(
+        _ preparedLoad: BridgeChangeIndexPreparedLoad,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> Bool {
+        productAdmission.withValidAdmission {
+            recordPackage(
+                preparedLoad.package,
+                revision: preparedLoad.delta?.revision ?? preparedLoad.package.revision
+            )
+            if let delta = preparedLoad.delta {
+                recordDelta(delta)
+            }
+            return true
+        } == true
+    }
+
+    private func prepareAdmittedExplicitLoad(
+        _ package: BridgeReviewPackage,
+        fallbackRevision: Int?
+    ) throws -> BridgeChangeIndexPreparedLoad {
         guard package.reviewGeneration >= activeReviewGeneration else {
-            return nil
+            return BridgeChangeIndexPreparedLoad(
+                package: package.withRevision(fallbackRevision ?? package.revision),
+                delta: nil
+            )
         }
 
         guard let currentPackage = packagesById[package.packageId] else {
-            recordPackage(package)
-            return nil
+            return BridgeChangeIndexPreparedLoad(
+                package: package.withRevision(fallbackRevision ?? package.revision),
+                delta: nil
+            )
         }
         guard package.reviewGeneration == currentPackage.reviewGeneration else {
-            if package.reviewGeneration > currentPackage.reviewGeneration {
-                recordPackage(package, revision: package.revision)
-            }
-            return nil
+            return BridgeChangeIndexPreparedLoad(
+                package: package.withRevision(fallbackRevision ?? package.revision),
+                delta: nil
+            )
         }
 
         let currentRevision = packageRevisionsById[package.packageId] ?? currentPackage.revision
@@ -89,13 +122,16 @@ actor BridgeChangeIndex {
                 )
             )
         else {
-            recordPackage(package, revision: currentRevision)
-            return nil
+            return BridgeChangeIndexPreparedLoad(
+                package: package.withRevision(fallbackRevision ?? currentRevision),
+                delta: nil
+            )
         }
 
-        packagesById[package.packageId] = package.withRevision(delta.revision)
-        recordDelta(delta)
-        return delta
+        return BridgeChangeIndexPreparedLoad(
+            package: package.withRevision(delta.revision),
+            delta: delta
+        )
     }
 
     func recordDelta(_ delta: BridgeReviewDelta) {

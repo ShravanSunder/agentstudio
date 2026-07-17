@@ -68,6 +68,32 @@ struct BridgeProductReviewMetadataContractTests {
         #expect(deltaEvent.operations.count == 6)
     }
 
+    @Test("every Review metadata event requires one lowercase UUIDv7 publication identity")
+    func reviewMetadataRequiresExactPublicationUUIDv7() throws {
+        let validPublicationId = "aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa"
+        let decoded = try decodeReviewMetadataEvent(
+            reviewIdentityObject(eventKind: "review.sourceAccepted")
+        )
+        #expect(decoded.publicationId.uuidString.lowercased() == validPublicationId)
+
+        for invalidPublicationId in [
+            validPublicationId.uppercased(),
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "00000000-0000-0000-0000-000000000000",
+        ] {
+            var invalidEvent = reviewIdentityObject(eventKind: "review.sourceAccepted")
+            invalidEvent["publicationId"] = invalidPublicationId
+            #expect(throws: (any Error).self) {
+                try decodeReviewMetadataEvent(invalidEvent)
+            }
+        }
+        var missingPublicationId = reviewIdentityObject(eventKind: "review.sourceAccepted")
+        missingPublicationId.removeValue(forKey: "publicationId")
+        #expect(throws: (any Error).self) {
+            try decodeReviewMetadataEvent(missingPublicationId)
+        }
+    }
+
     @Test("rejects deep unknown keys, legacy fields, and retired tree operations")
     func rejectsUnknownAndLegacyReviewMetadata() throws {
         var snapshot = reviewSnapshotObject()
@@ -232,6 +258,7 @@ private func reviewIdentityObject(eventKind: String) -> [String: Any] {
         "eventKind": eventKind,
         "generation": 7,
         "packageId": "review-package-1",
+        "publicationId": "aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa",
         "revision": 11,
         "sourceIdentity": "review-query-1",
     ]

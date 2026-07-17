@@ -36,6 +36,45 @@ afterEach(() => {
 });
 
 describe('Bridge product transport', () => {
+	test('acknowledges Review data immediately after routing without waiting for consumer application', async () => {
+		const harness = createTransportHarness();
+		const subscription = harness.transport.subscribe('review.metadata', { interests: [] });
+		await harness.server.waitForMetadataStream();
+		const request = harness.server.requiredMetadataRequest();
+		const emptyHash = emptyInterestHash('review.metadata');
+		harness.server.emitMetadata(metadataAccepted(request, 0));
+		harness.server.emitMetadata(
+			subscriptionAccepted({
+				epoch: 0,
+				interestHash: emptyHash,
+				kind: 'review.metadata',
+				request,
+				streamSequence: 1,
+				subscriptionId: subscription.subscriptionId,
+			}),
+		);
+		await waitForCondition(() => harness.server.frameAcknowledgements.length === 2);
+
+		harness.server.emitMetadata(
+			reviewData({
+				epoch: 0,
+				interestHash: emptyHash,
+				request,
+				streamSequence: 2,
+				subscriptionId: subscription.subscriptionId,
+				subscriptionSequence: 1,
+			}),
+		);
+		await waitForCondition(() => harness.server.frameAcknowledgements.length === 3);
+		expect(harness.server.frameAcknowledgements.at(-1)).toMatchObject({
+			kind: 'stream.frameObserved',
+			streamKind: 'metadata',
+			streamSequence: 2,
+		});
+		const eventResult = await subscription.events[Symbol.asyncIterator]().next();
+		expect(eventResult.done).toBe(false);
+	});
+
 	test('keeps a File subscription alive through its initial source event', async () => {
 		const harness = createTransportHarness();
 		const subscription = harness.transport.subscribe('file.metadata', {
@@ -646,6 +685,7 @@ function reviewData(props: {
 				eventKind: 'review.sourceAccepted',
 				generation: 1,
 				packageId: 'package-1',
+				publicationId: '00000000-0000-7000-8000-000000000001',
 				revision: 1,
 				sourceIdentity: 'source-1',
 			},

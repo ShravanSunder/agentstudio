@@ -18,10 +18,9 @@ enum BridgeContentRangeError: Error, Equatable, Sendable {
     case startByteBeyondContent(startByte: Int, wholeByteLength: Int)
 }
 
-extension BridgeContentStore {
+extension BridgeReviewContentLoaderCache {
     func loadRangeObserved(
-        handleId: String,
-        requestedGeneration: BridgeReviewGeneration,
+        handle: BridgeContentHandle,
         startByte: Int,
         maximumBytes: Int,
         productAdmission: BridgeProductAdmissionContext
@@ -38,8 +37,7 @@ extension BridgeContentStore {
         }
 
         let observedLoad = try await loadObserved(
-            handleId: handleId,
-            requestedGeneration: requestedGeneration,
+            handle: handle,
             productAdmission: productAdmission
         )
         try Task.checkCancellation()
@@ -65,7 +63,7 @@ extension BridgeContentStore {
                     observation: observedLoad.observation
                 )
             })
-        else { throw BridgeContentStoreError.productAdmissionRejected }
+        else { throw BridgeReviewContentLoaderCacheError.productAdmissionRejected }
         try Task.checkCancellation()
         return range
     }

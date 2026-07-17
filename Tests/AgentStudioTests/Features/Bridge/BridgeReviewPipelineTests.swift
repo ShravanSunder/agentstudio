@@ -39,7 +39,7 @@ struct BridgeReviewPipelineTests {
                 headHandle.handleId: makeContentResult(handle: headHandle, data: "new"),
             ]
         )
-        let contentStore = BridgeContentStore(provider: provider)
+        let contentLoaderCache = BridgeReviewContentLoaderCache(provider: provider)
         let pipeline = BridgeReviewPipeline(provider: provider)
         let productAdmission = try BridgeProductAdmissionTestContext.make()
 
@@ -61,14 +61,8 @@ struct BridgeReviewPipelineTests {
         #expect(result.package.packageId == "package")
         #expect(result.package.orderedItemIds == ["item-source"])
         #expect(await provider.recordedContentRequestsCount() == 0)
-        await contentStore.activate(
-            handles: result.registeredContentHandles,
-            reviewGeneration: 5,
-            productAdmission: productAdmission.context
-        )
-        let loaded = try await contentStore.load(
-            handleId: headHandle.handleId,
-            requestedGeneration: 5,
+        let loaded = try await contentLoaderCache.load(
+            handle: headHandle,
             productAdmission: productAdmission.context
         )
         #expect(loaded.data == Data("new".utf8))
@@ -129,7 +123,7 @@ struct BridgeReviewPipelineTests {
                 hiddenHeadHandle.handleId: makeContentResult(handle: hiddenHeadHandle, data: "new-hidden"),
             ]
         )
-        let contentStore = BridgeContentStore(provider: provider)
+        let contentLoaderCache = BridgeReviewContentLoaderCache(provider: provider)
         let pipeline = BridgeReviewPipeline(provider: provider)
         let productAdmission = try BridgeProductAdmissionTestContext.make()
 
@@ -151,14 +145,8 @@ struct BridgeReviewPipelineTests {
 
         #expect(result.package.orderedItemIds == ["item-source", "item-generated"])
         #expect(result.registeredContentHandles.contains(hiddenHeadHandle))
-        await contentStore.activate(
-            handles: result.registeredContentHandles,
-            reviewGeneration: 5,
-            productAdmission: productAdmission.context
-        )
-        let loaded = try await contentStore.load(
-            handleId: hiddenHeadHandle.handleId,
-            requestedGeneration: 5,
+        let loaded = try await contentLoaderCache.load(
+            handle: hiddenHeadHandle,
             productAdmission: productAdmission.context
         )
         #expect(loaded.data == Data("new-hidden".utf8))

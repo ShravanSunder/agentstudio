@@ -313,8 +313,13 @@ Purpose:
 - retain readable A while staging isolated B;
 - commit native B before worker-visible B;
 - stage complete B in the comm worker and swap once at the validated barrier;
+- acknowledge routed metadata frames immediately for transport pacing, then
+  report exact application separately through `review.publication.applied` and
+  the native `publicationId` carried by every B metadata event;
 - retry/resync post-commit B without native rollback;
-- retire A after B observation or admitted A-lease settlement;
+- retire A after exact B application receipt or admitted A-lease settlement;
+- treat equal revision within one lineage as exact replay of the existing
+  publication ID; only a strictly newer revision may mint a successor;
 - replay committed native B after worker-stream reinstall.
 
 Native write sublane:
@@ -323,14 +328,15 @@ Native write sublane:
 - off-main Review candidate preparation/indexing, the state-only MainActor
   publication coordinator and the authority-free loader cache;
 - metadata/content sources and delivery coordinator;
+- product-call contracts and exact current-publication receipt admission;
 - focused Swift authority, lease, failure and replay tests.
 
 Worker write sublane:
 
 - Review metadata projection/applicator;
 - extracted Review runtime helper from S0a;
-- bridge-product-review-metadata-contracts and codecs only if barrier inspection
-  proves a contract change necessary;
+- bridge-product-review-metadata and call contracts/codecs for the exact
+  `publicationId` plus `review.publication.applied` boundary;
 - focused pending-B, gap, stale identity, replay and disposition tests.
 
 Protected surfaces:
@@ -343,9 +349,13 @@ Protected surfaces:
 Permanent RED matrix:
 
 - staging, delivery reservation, native commit, first frame, partial delivery,
-  final barrier, observation, retry and uninstall/reinstall failures;
+  final barrier, application receipt, retry and uninstall/reinstall failures;
 - no partial B paint, no gapped completion and no B-to-A snapback;
 - pre-commit failure preserves A; post-commit failure retains native B;
+- transport ACK cannot retire A, application failure reopens Review only, and
+  exact replay swaps B at most once before its accepted receipt retires A;
+- runtime/store/display failure restores exact A, while demand, ancillary slice
+  and drain failures after the critical B display cannot roll B back;
 - terminal residue includes coordinator/source tasks, observations, producers,
   leases, queued bytes and lifecycle acknowledgements.
 

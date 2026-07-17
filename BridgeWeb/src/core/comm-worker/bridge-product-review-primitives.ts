@@ -4,6 +4,12 @@ import { bridgeProductNonnegativeSequenceSchema } from './bridge-product-contrac
 
 export const bridgeProductReviewContentRoleSchema = z.enum(['base', 'head', 'diff', 'file']);
 
+export const bridgeProductReviewPublicationIdSchema = z
+	.uuidv7()
+	.refine((publicationId) => publicationId === publicationId.toLowerCase(), {
+		message: 'Review publication identities must use canonical lowercase UUIDv7 text.',
+	});
+
 export const bridgeProductReviewContentLineCountsByRoleSchema = z
 	.object({
 		base: bridgeProductNonnegativeSequenceSchema.nullable().optional(),

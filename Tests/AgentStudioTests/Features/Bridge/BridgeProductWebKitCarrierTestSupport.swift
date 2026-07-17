@@ -54,6 +54,7 @@ struct BridgeProductWebKitCarrierDOMSnapshot: Decodable, Equatable, Sendable {
     let hasReviewMetadataLoadingShell: Bool
     let hasReviewShell: Bool
     let paintedElementCount: Int
+    let fileReadableText: String
     let hasReviewCodeViewPanel: Bool
     let reviewSelectedContentLineCount: Int
     let reviewSelectedContentState: String?
@@ -73,6 +74,7 @@ struct BridgeProductWebKitCarrierDOMSnapshot: Decodable, Equatable, Sendable {
         hasReviewMetadataLoadingShell: false,
         hasReviewShell: false,
         paintedElementCount: 0,
+        fileReadableText: "",
         hasReviewCodeViewPanel: false,
         reviewSelectedContentLineCount: 0,
         reviewSelectedContentState: nil,
@@ -90,12 +92,15 @@ struct BridgeProductWebKitCarrierNativeSnapshot: Equatable, Sendable {
     let inFlightControlRequestSequence: Int?
     let inFlightFrameReceiptCount: Int
     let lifecycle: String
+    let fileWorkerDerivationEpoch: Int
     let nextControlRequestSequence: Int
     let nextMetadataStreamSequence: Int
     let pendingFrameWaiterCount: Int
     let pendingLifecycleAcknowledgementCount: Int
     let queuedByteCount: Int
     let queuedFrameCount: Int
+    let reviewWorkerDerivationEpoch: Int
+    let workerInstanceId: String?
 
     static let unavailable = Self(
         activeContentLeaseCount: 0,
@@ -106,12 +111,15 @@ struct BridgeProductWebKitCarrierNativeSnapshot: Equatable, Sendable {
         inFlightControlRequestSequence: nil,
         inFlightFrameReceiptCount: 0,
         lifecycle: "unavailable",
+        fileWorkerDerivationEpoch: 0,
         nextControlRequestSequence: 0,
         nextMetadataStreamSequence: 0,
         pendingFrameWaiterCount: 0,
         pendingLifecycleAcknowledgementCount: 0,
         queuedByteCount: 0,
-        queuedFrameCount: 0
+        queuedFrameCount: 0,
+        reviewWorkerDerivationEpoch: 0,
+        workerInstanceId: nil
     )
 }
 
@@ -135,8 +143,286 @@ struct BridgeProductWebKitCarrierTrace: Equatable, Sendable, CustomStringConvert
             && reviewMetadataPhases.contains("metadata_window_enqueued")
     }
 
+    var completedReviewPublicationCount: Int {
+        reviewPublicationPhases.count(where: { $0 == "review_metadata_publication_completed" })
+    }
+
     var description: String {
         "file=\(fileMetadataPhases),review=\(reviewMetadataPhases),publication=\(reviewPublicationPhases)"
+    }
+}
+
+struct BridgeProductWebKitCarrierSubscriptionIdentity: Equatable, Sendable {
+    let subscriptionId: String
+    let workerDerivationEpoch: Int
+}
+
+struct BridgeProductWebKitCarrierFileSubscriptionSnapshot: Equatable, Sendable {
+    let cancelledSubscriptionIds: [String]
+    let openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity]
+}
+
+actor BridgeWebKitTrackingFileMetadataSource:
+    BridgePaneProductFileMetadataProducing
+{
+    private let source: BridgePaneProductFileMetadataSource
+    private var cancelledSubscriptionIds: [String] = []
+    private var openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity] = []
+
+    init(source: BridgePaneProductFileMetadataSource) {
+        self.source = source
+    }
+
+    func currentSource() async -> BridgeProductFileSourceCurrentResult {
+        await source.currentSource()
+    }
+
+    func open(
+        subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext,
+        emit: @escaping BridgePaneProductFileMetadataEventSink
+    ) async throws {
+        openedSubscriptions.append(Self.identity(subscription))
+        try await source.open(
+            subscription: subscription,
+            productAdmission: productAdmission,
+            emit: emit
+        )
+    }
+
+    func update(
+        subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext,
+        emit: @escaping BridgePaneProductFileMetadataEventSink
+    ) async throws {
+        try await source.update(
+            subscription: subscription,
+            productAdmission: productAdmission,
+            emit: emit
+        )
+    }
+
+    func cancel(subscriptionId: String) async {
+        cancelledSubscriptionIds.append(subscriptionId)
+        await source.cancel(subscriptionId: subscriptionId)
+    }
+
+    func publish(
+        status: GitWorkingTreeStatus,
+        productAdmission: BridgeProductAdmissionContext
+    ) async -> [BridgePaneProductFileMetadataEmission] {
+        await source.publish(status: status, productAdmission: productAdmission)
+    }
+
+    func publish(
+        changeset: FileChangeset,
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> [BridgePaneProductFileMetadataEmission] {
+        try await source.publish(changeset: changeset, productAdmission: productAdmission)
+    }
+
+    func authoritativePath(
+        for request: BridgeProductFileContentRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async -> String? {
+        await source.authoritativePath(for: request, productAdmission: productAdmission)
+    }
+
+    func contentReadPlan(
+        for request: BridgeProductFileContentRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async -> BridgePaneProductFileContentReadPlan? {
+        await source.contentReadPlan(for: request, productAdmission: productAdmission)
+    }
+
+    func snapshot() -> BridgeProductWebKitCarrierFileSubscriptionSnapshot {
+        BridgeProductWebKitCarrierFileSubscriptionSnapshot(
+            cancelledSubscriptionIds: cancelledSubscriptionIds,
+            openedSubscriptions: openedSubscriptions
+        )
+    }
+
+    private static func identity(
+        _ subscription: BridgeProductSubscriptionSnapshot
+    ) -> BridgeProductWebKitCarrierSubscriptionIdentity {
+        BridgeProductWebKitCarrierSubscriptionIdentity(
+            subscriptionId: subscription.subscriptionId,
+            workerDerivationEpoch: subscription.workerDerivationEpoch
+        )
+    }
+}
+
+struct BridgeProductWebKitCarrierReviewDeliveryAttempt: Equatable, Sendable {
+    let package: BridgeReviewPackage
+    let publicationId: UUID
+}
+
+struct BridgeProductWebKitCarrierReviewMetadataSnapshot: Equatable, Sendable {
+    let cancelledSubscriptionIds: [String]
+    let corruptedPublicationId: UUID?
+    let didCorruptFinalWindow: Bool
+    let deliveryAttempts: [BridgeProductWebKitCarrierReviewDeliveryAttempt]
+    let openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity]
+    let replayIsBlocked: Bool
+}
+
+actor BridgeWebKitFailingReviewMetadataSource:
+    BridgePaneProductReviewMetadataProducing
+{
+    private let source = BridgePaneProductReviewMetadataSource()
+    private var armedPredecessorPublicationId: UUID?
+    private var cancelledSubscriptionIds: [String] = []
+    private var corruptedPublicationId: UUID?
+    private var didCorruptFinalWindow = false
+    private var deliveryAttempts: [BridgeProductWebKitCarrierReviewDeliveryAttempt] = []
+    private var openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity] = []
+    private var replayIsBlocked = false
+    private var replayIsReleased = false
+    private var replayRelease: CheckedContinuation<Void, Never>?
+
+    func open(
+        subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext,
+        emit: @escaping BridgePaneProductReviewMetadataEventSink
+    ) async throws {
+        openedSubscriptions.append(
+            BridgeProductWebKitCarrierSubscriptionIdentity(
+                subscriptionId: subscription.subscriptionId,
+                workerDerivationEpoch: subscription.workerDerivationEpoch
+            )
+        )
+        try await source.open(
+            subscription: subscription,
+            productAdmission: productAdmission
+        ) { event, emittedAdmission in
+            try await self.emitPossiblyCorrupted(
+                event,
+                productAdmission: emittedAdmission,
+                emit: emit
+            )
+        }
+    }
+
+    func update(
+        subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext,
+        emit: @escaping BridgePaneProductReviewMetadataEventSink
+    ) async throws {
+        try await source.update(
+            subscription: subscription,
+            productAdmission: productAdmission
+        ) { event, emittedAdmission in
+            try await self.emitPossiblyCorrupted(
+                event,
+                productAdmission: emittedAdmission,
+                emit: emit
+            )
+        }
+    }
+
+    func reserve(
+        package: BridgeReviewPackage,
+        publicationId: UUID,
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> BridgeReviewMetadataPublicationReservation {
+        try await source.reserve(
+            package: package,
+            publicationId: publicationId,
+            productAdmission: productAdmission
+        )
+    }
+
+    func deliver(
+        package: BridgeReviewPackage,
+        reservation: BridgeReviewMetadataPublicationReservation,
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
+        deliveryAttempts.append(
+            BridgeProductWebKitCarrierReviewDeliveryAttempt(
+                package: package,
+                publicationId: reservation.publicationId
+            )
+        )
+        if corruptedPublicationId == reservation.publicationId,
+            deliveryAttempts.count(where: { $0.publicationId == reservation.publicationId }) == 2
+        {
+            replayIsBlocked = true
+            if !replayIsReleased {
+                await withCheckedContinuation { continuation in
+                    replayRelease = continuation
+                }
+            }
+        } else if let armedPredecessorPublicationId,
+            reservation.publicationId != armedPredecessorPublicationId,
+            corruptedPublicationId == nil
+        {
+            corruptedPublicationId = reservation.publicationId
+        }
+        return try await source.deliver(
+            package: package,
+            reservation: reservation,
+            productAdmission: productAdmission
+        )
+    }
+
+    func cancel(subscriptionId: String) async {
+        cancelledSubscriptionIds.append(subscriptionId)
+        await source.cancel(subscriptionId: subscriptionId)
+    }
+
+    func armFailure(after publicationId: UUID) {
+        armedPredecessorPublicationId = publicationId
+    }
+
+    func releaseReplay() {
+        replayIsReleased = true
+        replayRelease?.resume()
+        replayRelease = nil
+    }
+
+    func snapshot() -> BridgeProductWebKitCarrierReviewMetadataSnapshot {
+        BridgeProductWebKitCarrierReviewMetadataSnapshot(
+            cancelledSubscriptionIds: cancelledSubscriptionIds,
+            corruptedPublicationId: corruptedPublicationId,
+            didCorruptFinalWindow: didCorruptFinalWindow,
+            deliveryAttempts: deliveryAttempts,
+            openedSubscriptions: openedSubscriptions,
+            replayIsBlocked: replayIsBlocked
+        )
+    }
+
+    private func emitPossiblyCorrupted(
+        _ event: BridgeProductReviewMetadataEvent,
+        productAdmission: BridgeProductAdmissionContext,
+        emit: BridgePaneProductReviewMetadataEventSink
+    ) async throws -> BridgeProductProducerEnqueueResult {
+        guard event.publicationId == corruptedPublicationId,
+            !didCorruptFinalWindow,
+            case .window(let window) = event,
+            window.itemWindow.finalWindow,
+            window.treeWindow.finalWindow,
+            window.itemMetadata.count > 1
+        else {
+            return try await emit(event, productAdmission)
+        }
+        let gappedItemWindow = try BridgeProductReviewItemWindow(
+            finalWindow: true,
+            itemCount: window.itemWindow.itemCount - 1,
+            startIndex: window.itemWindow.startIndex + 1,
+            totalItemCount: window.itemWindow.totalItemCount
+        )
+        let gappedFinalWindow = try BridgeProductReviewWindowEvent(
+            identity: window.identity,
+            contentSources: window.contentSources,
+            extentFacts: window.extentFacts,
+            itemMetadata: Array(window.itemMetadata.dropFirst()),
+            itemWindow: gappedItemWindow,
+            summary: window.summary,
+            treeRows: window.treeRows,
+            treeWindow: window.treeWindow
+        )
+        didCorruptFinalWindow = true
+        return try await emit(.window(gappedFinalWindow), productAdmission)
     }
 }
 
@@ -319,6 +605,7 @@ enum BridgeProductWebKitCarrierTestSupport {
                   codeViewPanel?.getAttribute('data-selected-content-line-count') ?? '0'
                 );
                 const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
+                const fileModeHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
                 const readableTextIncludingOpenShadowRoots = (root) => {
                   const textParts = [];
                   const visit = (node) => {
@@ -377,8 +664,7 @@ enum BridgeProductWebKitCarrierTestSupport {
                   frameLivenessRafScheduledCount:
                     globalThis.__bridgeFrameLivenessProbe?.rafScheduledCount ?? 0,
                   hasAppRoot: appRoot !== null,
-                  hasFileModeHost:
-                    document.querySelector('[data-testid="bridge-viewer-mode-host-file"]') !== null,
+                  hasFileModeHost: fileModeHost !== null,
                   hasReviewModeHost:
                     document.querySelector('[data-testid="bridge-viewer-mode-host-review"]') !== null,
                   hasReviewMetadataFailedShell:
@@ -387,6 +673,7 @@ enum BridgeProductWebKitCarrierTestSupport {
                     document.querySelector('[data-testid="bridge-review-metadata-loading-shell"]') !== null,
                   hasReviewShell: reviewShell !== null,
                   paintedElementCount: paintedElements.length,
+                  fileReadableText: readableTextIncludingOpenShadowRoots(fileModeHost ?? document.createDocumentFragment()),
                   hasReviewCodeViewPanel: codeViewPanel !== null,
                   reviewSelectedContentLineCount:
                     Number.isSafeInteger(selectedContentLineCount) && selectedContentLineCount >= 0
@@ -486,12 +773,15 @@ enum BridgeProductWebKitCarrierTestSupport {
             inFlightControlRequestSequence: sessionSnapshot.controlReplay.inFlightRequestSequence,
             inFlightFrameReceiptCount: ownerSnapshot.inFlightFrameReceiptCount,
             lifecycle: lifecycleName(sessionSnapshot.lifecycle),
+            fileWorkerDerivationEpoch: sessionSnapshot.workerDerivationEpochBySurface[.file] ?? 0,
             nextControlRequestSequence: sessionSnapshot.controlReplay.nextExpectedRequestSequence,
             nextMetadataStreamSequence: ownerSnapshot.nextMetadataStreamSequence,
             pendingFrameWaiterCount: ownerSnapshot.pendingFrameWaiterCount,
             pendingLifecycleAcknowledgementCount: ownerSnapshot.pendingLifecycleAcknowledgementCount,
             queuedByteCount: ownerSnapshot.queuedByteCount,
-            queuedFrameCount: ownerSnapshot.queuedFrameCount
+            queuedFrameCount: ownerSnapshot.queuedFrameCount,
+            reviewWorkerDerivationEpoch: sessionSnapshot.workerDerivationEpochBySurface[.review] ?? 0,
+            workerInstanceId: installation.bootstrap.workerInstanceId
         )
     }
 
@@ -502,6 +792,12 @@ enum BridgeProductWebKitCarrierTestSupport {
         let retirementTask = controller.teardown()
         _ = await retirementTask.value
         controller.page.stopLoading()
+        if let blankURL = URL(string: "about:blank") {
+            _ = controller.page.load(blankURL)
+        }
+        for _ in 0..<10_000 where controller.page.isLoading {
+            await Task.yield()
+        }
         window.orderOut(nil)
         window.contentView = nil
         await settleAsyncCallbacks()

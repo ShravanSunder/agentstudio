@@ -5,14 +5,14 @@ import Testing
 
 @Suite(.serialized)
 final class AppPoliciesBridgeTests {
-    @Test("Bridge content byte cache keeps per-item cap far below total capacity")
-    func bridgeContentByteCacheKeepsPerItemCapBelowTotalCapacity() {
-        #expect(AppPolicies.Bridge.contentMaxBytesPerItem == 4 * 1024 * 1024)
+    @Test("Bridge content byte cache uses the approved 16 MiB per-item safety cap")
+    func bridgeContentByteCacheUsesApprovedPerItemSafetyCap() {
+        #expect(AppPolicies.Bridge.contentMaxBytesPerItem == 16 * 1024 * 1024)
         #expect(AppPolicies.Bridge.contentCacheMaxBytes == 128 * 1024 * 1024)
         #expect(AppPolicies.Bridge.contentMaxBytesPerItem < AppPolicies.Bridge.contentCacheMaxBytes)
         #expect(
             AppPolicies.Bridge.contentCacheMaxBytes / AppPolicies.Bridge.contentMaxBytesPerItem
-                >= 32
+                >= 8
         )
     }
 
@@ -37,18 +37,12 @@ final class AppPoliciesBridgeTests {
                 handle.handleId: makeContentResult(handle: handle, data: oversizedBody)
             ]
         )
-        let store = BridgeContentStore(provider: provider)
+        let loaderCache = BridgeReviewContentLoaderCache(provider: provider)
         let productAdmission = try BridgeProductAdmissionTestContext.make()
-        await store.activate(
-            handles: [handle],
-            reviewGeneration: 7,
-            productAdmission: productAdmission.context
-        )
 
         do {
-            _ = try await store.load(
-                handleId: handle.handleId,
-                requestedGeneration: 7,
+            _ = try await loaderCache.load(
+                handle: handle,
                 productAdmission: productAdmission.context
             )
             Issue.record("Expected oversized content failure")

@@ -16,15 +16,21 @@ struct BridgePaneProductReviewContentBody: Equatable, Sendable {
     let wholeByteLength: Int
 }
 
+typealias BridgeReviewContentLeaseAcquirer =
+    @MainActor @Sendable (
+        _ descriptor: BridgeProductReviewContentDescriptor,
+        _ productAdmission: BridgeProductAdmissionContext
+    ) -> BridgeReviewContentAuthorityLease?
+
+typealias BridgeReviewContentLeaseSettler =
+    @MainActor @Sendable (_ lease: BridgeReviewContentAuthorityLease) -> Bool
+
 protocol BridgePaneProductReviewContentProducing: Sendable {
-    func replaceAuthority(
-        with availability: BridgePaneProductReviewMetadataAvailability,
-        productAdmission: BridgeProductAdmissionContext
-    ) async throws
     func authoritativeItemId(
         for request: BridgeProductReviewContentRequest,
         productAdmission: BridgeProductAdmissionContext
     ) async -> String?
+
     func contentBody(
         for request: BridgeProductReviewContentRequest,
         productAdmission: BridgeProductAdmissionContext
@@ -32,11 +38,6 @@ protocol BridgePaneProductReviewContentProducing: Sendable {
 }
 
 struct BridgeUnavailablePaneProductReviewContentSource: BridgePaneProductReviewContentProducing {
-    func replaceAuthority(
-        with _: BridgePaneProductReviewMetadataAvailability,
-        productAdmission _: BridgeProductAdmissionContext
-    ) async throws {}
-
     func authoritativeItemId(
         for _: BridgeProductReviewContentRequest,
         productAdmission _: BridgeProductAdmissionContext
@@ -50,157 +51,124 @@ struct BridgeUnavailablePaneProductReviewContentSource: BridgePaneProductReviewC
     }
 }
 
+/// Translates coordinator-issued content leases into validated loader-cache reads.
+///
+/// Publication and descriptor authority remain on the MainActor coordinator. This
+/// actor retains no authority snapshot across calls or suspensions.
 actor BridgePaneProductReviewContentSource: BridgePaneProductReviewContentProducing {
-    private struct IssuedDescriptorAuthority: Equatable, Sendable {
-        let handle: BridgeContentHandle
-        let packageId: String
-        let reviewGeneration: Int
-        let sourceIdentity: String
-    }
+    private let loaderCache: BridgeReviewContentLoaderCache
+    private let acquireContentLease: BridgeReviewContentLeaseAcquirer
+    private let settleContentLease: BridgeReviewContentLeaseSettler
 
-    private let contentStore: BridgeContentStore
-    private var authorityByDescriptorId: [String: IssuedDescriptorAuthority] = [:]
-    private var hasAvailableAuthority = false
-
-    init(contentStore: BridgeContentStore) {
-        self.contentStore = contentStore
-    }
-
-    func replaceAuthority(
-        with availability: BridgePaneProductReviewMetadataAvailability,
-        productAdmission: BridgeProductAdmissionContext
-    ) async throws {
-        guard case .ready(let package) = availability else {
-            hasAvailableAuthority = false
-            authorityByDescriptorId.removeAll(keepingCapacity: false)
-            return
-        }
-        guard (productAdmission.withValidAdmission { true }) == true else { return }
-
-        var replacement: [String: IssuedDescriptorAuthority] = [:]
-        for itemId in package.itemsById.keys.sorted() {
-            guard let item = package.itemsById[itemId] else { continue }
-            for handle in item.contentRoles.allHandles {
-                guard replacement[handle.handleId] == nil else {
-                    hasAvailableAuthority = false
-                    authorityByDescriptorId.removeAll(keepingCapacity: false)
-                    throw BridgePaneProductReviewContentSourceError.descriptorMismatch
-                }
-                replacement[handle.handleId] = IssuedDescriptorAuthority(
-                    handle: handle,
-                    packageId: package.packageId,
-                    reviewGeneration: package.reviewGeneration.rawValue,
-                    sourceIdentity: package.query.queryId
-                )
-            }
-        }
-        _ = productAdmission.withValidAdmission {
-            authorityByDescriptorId = replacement
-            hasAvailableAuthority = true
-        }
+    init(
+        loaderCache: BridgeReviewContentLoaderCache,
+        acquireContentLease: @escaping BridgeReviewContentLeaseAcquirer,
+        settleContentLease: @escaping BridgeReviewContentLeaseSettler
+    ) {
+        self.loaderCache = loaderCache
+        self.acquireContentLease = acquireContentLease
+        self.settleContentLease = settleContentLease
     }
 
     func authoritativeItemId(
         for request: BridgeProductReviewContentRequest,
         productAdmission: BridgeProductAdmissionContext
     ) async -> String? {
-        guard
-            let admittedItemId = productAdmission.withValidAdmission({
-                matchingAuthority(for: request.descriptor)?.handle.itemId
-            })
-        else { return nil }
-        return admittedItemId
+        guard (productAdmission.withValidAdmission { true }) == true,
+            let lease = await acquireContentLease(request.descriptor, productAdmission)
+        else {
+            return nil
+        }
+        let itemId =
+            Self.matchesAuthority(
+                descriptor: request.descriptor,
+                lease: lease
+            ) ? lease.handle.itemId : nil
+        _ = await settleContentLease(lease)
+        return itemId
     }
 
     func contentBody(
         for request: BridgeProductReviewContentRequest,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewContentBody {
-        let descriptor = request.descriptor
-        guard (productAdmission.withValidAdmission { true }) == true,
-            hasAvailableAuthority
-        else {
-            throw BridgePaneProductReviewContentSourceError.unavailablePackage
-        }
-        guard
-            let admittedAuthority = productAdmission.withValidAdmission({
-                matchingAuthority(for: descriptor)
-            })
-        else {
-            throw BridgePaneProductReviewContentSourceError.descriptorMismatch
-        }
-        guard let authority = admittedAuthority else {
-            throw BridgePaneProductReviewContentSourceError.descriptorMismatch
-        }
-        let handle = authority.handle
-
-        let range = try await contentStore.loadRangeObserved(
-            handleId: handle.handleId,
-            requestedGeneration: BridgeReviewGeneration(authority.reviewGeneration),
-            startByte: descriptor.window.startByte,
-            maximumBytes: descriptor.window.maximumBytes,
-            productAdmission: productAdmission
-        )
         try Task.checkCancellation()
-        guard
-            let admittedBody = try productAdmission.withValidAdmission({
-                () throws -> BridgePaneProductReviewContentBody? in
-                guard hasAvailableAuthority,
-                    authorityByDescriptorId[descriptor.descriptorId] == authority,
-                    range.handle == handle
-                else { return nil }
-                if let declaredByteLength = descriptor.declaredByteLength,
-                    declaredByteLength != range.bytes.count
-                {
-                    throw BridgePaneProductReviewContentSourceError.declaredByteLengthMismatch(
-                        expected: declaredByteLength,
-                        actual: range.bytes.count
-                    )
-                }
-                if let expectedSHA256 = descriptor.expectedSha256,
-                    expectedSHA256 != range.sha256
-                {
-                    throw BridgePaneProductReviewContentSourceError.expectedSHA256Mismatch(
-                        expected: expectedSHA256,
-                        actual: range.sha256
-                    )
-                }
-                if let expectedWholeByteLength = descriptor.wholeByteLength,
-                    expectedWholeByteLength != range.wholeByteLength
-                {
-                    throw BridgePaneProductReviewContentSourceError.wholeByteLengthMismatch(
-                        expected: expectedWholeByteLength,
-                        actual: range.wholeByteLength
-                    )
-                }
-                return BridgePaneProductReviewContentBody(
-                    data: range.bytes,
-                    descriptor: descriptor,
-                    isFinalRange: range.isFinalRange,
-                    sha256: range.sha256,
-                    wholeByteLength: range.wholeByteLength
-                )
-            })
-        else {
+        guard (productAdmission.withValidAdmission { true }) == true else {
             throw BridgePaneProductReviewContentSourceError.unavailablePackage
         }
-        guard let body = admittedBody else {
-            throw BridgePaneProductReviewContentSourceError.descriptorMismatch
+        let descriptor = request.descriptor
+        guard let lease = await acquireContentLease(descriptor, productAdmission) else {
+            throw BridgePaneProductReviewContentSourceError.unavailablePackage
+        }
+
+        let body: BridgePaneProductReviewContentBody
+        do {
+            guard Self.matchesAuthority(descriptor: descriptor, lease: lease) else {
+                throw BridgePaneProductReviewContentSourceError.descriptorMismatch
+            }
+            let handle = lease.handle
+            let range = try await loaderCache.loadRangeObserved(
+                handle: handle,
+                startByte: descriptor.window.startByte,
+                maximumBytes: descriptor.window.maximumBytes,
+                productAdmission: productAdmission
+            )
+            try Task.checkCancellation()
+            guard range.handle == handle else {
+                throw BridgePaneProductReviewContentSourceError.descriptorMismatch
+            }
+            if let declaredByteLength = descriptor.declaredByteLength,
+                declaredByteLength != range.bytes.count
+            {
+                throw BridgePaneProductReviewContentSourceError.declaredByteLengthMismatch(
+                    expected: declaredByteLength,
+                    actual: range.bytes.count
+                )
+            }
+            if let expectedSHA256 = descriptor.expectedSha256,
+                expectedSHA256 != range.sha256
+            {
+                throw BridgePaneProductReviewContentSourceError.expectedSHA256Mismatch(
+                    expected: expectedSHA256,
+                    actual: range.sha256
+                )
+            }
+            if let expectedWholeByteLength = descriptor.wholeByteLength,
+                expectedWholeByteLength != range.wholeByteLength
+            {
+                throw BridgePaneProductReviewContentSourceError.wholeByteLengthMismatch(
+                    expected: expectedWholeByteLength,
+                    actual: range.wholeByteLength
+                )
+            }
+            body = BridgePaneProductReviewContentBody(
+                data: range.bytes,
+                descriptor: descriptor,
+                isFinalRange: range.isFinalRange,
+                sha256: range.sha256,
+                wholeByteLength: range.wholeByteLength
+            )
+        } catch let failure as BridgeContentLoadObservedFailure {
+            _ = await settleContentLease(lease)
+            throw failure.underlyingError
+        } catch {
+            _ = await settleContentLease(lease)
+            throw error
+        }
+
+        guard await settleContentLease(lease) else {
+            throw BridgePaneProductReviewContentSourceError.unavailablePackage
         }
         return body
     }
 
-    private func matchingAuthority(
-        for descriptor: BridgeProductReviewContentDescriptor
-    ) -> IssuedDescriptorAuthority? {
-        guard hasAvailableAuthority,
-            let authority = authorityByDescriptorId[descriptor.descriptorId],
-            descriptor.packageId == authority.packageId,
-            descriptor.reviewGeneration == authority.reviewGeneration,
-            descriptor.sourceIdentity == authority.sourceIdentity,
-            Self.matchesAuthority(descriptor: descriptor, handle: authority.handle)
-        else { return nil }
-        return authority
+    private static func matchesAuthority(
+        descriptor: BridgeProductReviewContentDescriptor,
+        lease: BridgeReviewContentAuthorityLease
+    ) -> Bool {
+        descriptor.packageId == lease.packageId
+            && descriptor.sourceIdentity == lease.sourceIdentity
+            && matchesAuthority(descriptor: descriptor, handle: lease.handle)
     }
 
     private static func matchesAuthority(

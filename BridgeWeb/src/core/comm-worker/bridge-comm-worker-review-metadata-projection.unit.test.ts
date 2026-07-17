@@ -29,7 +29,12 @@ describe('Bridge comm worker Review metadata projection', () => {
 		expect(firstResult).toMatchObject({ affectedItemIds: ['item-1'], reset: true });
 		expect(finalResult).toMatchObject({ affectedItemIds: ['item-2'], reset: false });
 		expect(projection.snapshot()).toMatchObject({
-			identity: { generation: 7, packageId: 'package-1', sourceIdentity: 'source-1' },
+			identity: {
+				generation: 7,
+				packageId: 'package-1',
+				publicationId: '00000000-0000-7000-8000-000000000011',
+				sourceIdentity: 'source-1',
+			},
 			orderedItemIds: ['item-1', 'item-2'],
 			totalItemCount: 2,
 			totalTreeRowCount: 2,
@@ -62,6 +67,7 @@ describe('Bridge comm worker Review metadata projection', () => {
 					startIndex: 0,
 				},
 			],
+			publicationId: '00000000-0000-7000-8000-000000000012',
 			revision: 12,
 			summary: reviewSummary,
 			toRevision: 12,
@@ -80,6 +86,7 @@ describe('Bridge comm worker Review metadata projection', () => {
 					rowId: 'row-2',
 					treeStartIndex: 1,
 				}),
+				publicationId: '00000000-0000-7000-8000-000000000012',
 				revision: 11,
 			}),
 		).toThrow(/revision/i);
@@ -164,6 +171,7 @@ describe('Bridge comm worker Review metadata projection', () => {
 					operationKind: 'upsertItem',
 				},
 			],
+			publicationId: '00000000-0000-7000-8000-000000000012',
 			revision: 12,
 			summary: { ...reviewSummary, filesChanged: totalItemCount, visibleFileCount: totalItemCount },
 			toRevision: 12,
@@ -178,11 +186,44 @@ describe('Bridge comm worker Review metadata projection', () => {
 		expect(snapshot.itemMetadata[1_700]?.headPath).toBe('src/changed-1700.ts');
 		expect(deltaResult.affectedItemIds).toEqual(['item-1700']);
 	});
+
+	test('rejects a final barrier when cumulative item and tree windows still contain holes', () => {
+		// Arrange
+		const projection = new BridgeCommWorkerReviewMetadataProjection();
+		projection.apply({
+			...reviewSnapshot(),
+			itemWindow: { finalWindow: false, itemCount: 1, startIndex: 0, totalItemCount: 3 },
+			treeWindow: { finalWindow: false, rowCount: 1, startIndex: 0, totalRowCount: 3 },
+		});
+
+		// Act
+		projection.apply({
+			...reviewWindow({
+				itemId: 'item-3',
+				itemStartIndex: 2,
+				rowId: 'row-3',
+				treeStartIndex: 2,
+			}),
+			itemWindow: { finalWindow: true, itemCount: 1, startIndex: 2, totalItemCount: 3 },
+			treeWindow: { finalWindow: true, rowCount: 1, startIndex: 2, totalRowCount: 3 },
+		});
+		const snapshot = projection.snapshot();
+
+		// Assert
+		expect(projection.isComplete()).toBe(false);
+		expect(snapshot).toMatchObject({
+			orderedItemIds: ['item-1', 'item-3'],
+			totalItemCount: 3,
+			totalTreeRowCount: 3,
+		});
+		expect(() => projection.assertCompleteFinalBarrier()).toThrow(/incomplete|hole/iu);
+	});
 });
 
 const reviewIdentity = {
 	generation: 7,
 	packageId: 'package-1',
+	publicationId: '00000000-0000-7000-8000-000000000011',
 	revision: 11,
 	sourceIdentity: 'source-1',
 } as const;
@@ -199,7 +240,7 @@ function reviewSourceAccepted(): BridgeProductReviewMetadataEvent {
 	return { ...reviewIdentity, eventKind: 'review.sourceAccepted' };
 }
 
-function reviewSnapshot(): BridgeProductReviewMetadataEvent {
+function reviewSnapshot(): ReviewSnapshotEvent {
 	return {
 		...reviewIdentity,
 		baseEndpoint: reviewEndpoint('base', 'gitRef'),
@@ -221,7 +262,7 @@ function reviewWindow(props: {
 	readonly itemStartIndex: number;
 	readonly rowId: string;
 	readonly treeStartIndex: number;
-}): BridgeProductReviewMetadataEvent {
+}): Extract<BridgeProductReviewMetadataEvent, { readonly eventKind: 'review.window' }> {
 	const path = `src/${props.itemId}.ts`;
 	return {
 		...reviewIdentity,

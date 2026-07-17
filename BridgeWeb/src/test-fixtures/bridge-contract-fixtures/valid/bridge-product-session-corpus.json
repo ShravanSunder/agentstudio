@@ -307,6 +307,51 @@
       }
     }
   ],
+  "reviewIntakeReadyCases": [
+    {
+      "name": "cold-intake",
+      "request": {
+        "method": "review.intake.ready",
+        "request": {
+          "reason": null,
+          "streamId": null
+        }
+      },
+      "result": {
+        "method": "review.intake.ready",
+        "result": null
+      }
+    },
+    {
+      "name": "established-stream",
+      "request": {
+        "method": "review.intake.ready",
+        "request": {
+          "reason": "sequence_gap",
+          "streamId": "review:stream-1"
+        }
+      },
+      "result": {
+        "method": "review.intake.ready",
+        "result": null
+      }
+    }
+  ],
+  "reviewPublicationAppliedCases": [
+    {
+      "name": "lowercase-uuidv7",
+      "request": {
+        "method": "review.publication.applied",
+        "request": {
+          "publicationId": "00000000-0000-7000-8000-000000000017"
+        }
+      },
+      "result": {
+        "method": "review.publication.applied",
+        "result": null
+      }
+    }
+  ],
   "controlRequests": [
     {
       "kind": "workerSession.open",
@@ -628,6 +673,7 @@
           "eventKind": "review.sourceAccepted",
           "sourceIdentity": "review-source-1",
           "packageId": "review-package-1",
+          "publicationId": "11111111-1111-7111-8111-111111111111",
           "generation": 7,
           "revision": 1
         }

@@ -12,6 +12,7 @@ const reviewSourceIdentity = {
 	eventKind: 'review.sourceAccepted',
 	generation: 7,
 	packageId: 'review-package-1',
+	publicationId: '00000000-0000-7000-8000-000000000011',
 	revision: 11,
 	sourceIdentity: 'review-query-1',
 } as const;
@@ -54,6 +55,19 @@ describe('Bridge product Review metadata contracts', () => {
 		expect(bridgeProductReviewMetadataEventSchema.parse(reviewSourceIdentity)).toEqual(
 			reviewSourceIdentity,
 		);
+		for (const publicationId of [
+			'00000000-0000-7000-8000-00000000001A',
+			'00000000-0000-4000-8000-000000000011',
+			'00000000-0000-9000-8000-000000000011',
+			'00000000-0000-7000-7000-000000000011',
+		]) {
+			expect(
+				bridgeProductReviewMetadataEventSchema.safeParse({
+					...reviewSourceIdentity,
+					publicationId,
+				}).success,
+			).toBe(false);
+		}
 	});
 
 	test('admits a bounded snapshot with worker projection facts and URL-free sources', () => {
@@ -218,6 +232,7 @@ describe('Bridge product Review metadata contracts', () => {
 					totalItemCount: 4,
 				},
 				packageId: snapshot.packageId,
+				publicationId: snapshot.publicationId,
 				revision: snapshot.revision,
 				sourceIdentity: snapshot.sourceIdentity,
 				summary: snapshot.summary,

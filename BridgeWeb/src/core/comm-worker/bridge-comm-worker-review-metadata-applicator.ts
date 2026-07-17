@@ -2,23 +2,57 @@ import { bridgeCommWorkerReviewDisplayPatches } from './bridge-comm-worker-revie
 import type { BridgeCommWorkerReviewMetadataApplyResult } from './bridge-comm-worker-review-metadata-projection.js';
 import { BridgeCommWorkerReviewMetadataProjection } from './bridge-comm-worker-review-metadata-projection.js';
 import {
+	assertEquivalentReviewPublicationSnapshots,
+	compareReviewMetadataLineages,
+	requiredReviewPublicationId,
+	reviewMetadataEventCompletesProjection,
+	reviewMetadataInvalidatedEventFromSnapshot,
+	reviewMetadataLineage,
+	reviewMetadataSnapshotEventFromCompleteSnapshot,
+	reviewDeltaPublicationFingerprint,
+	type ReviewMetadataLineage,
+	type ReviewMetadataLineageRelationship,
+	type ReviewMetadataSnapshotEvent,
+} from './bridge-comm-worker-review-publication-transaction.js';
+import type { BridgeCommWorkerReviewMetadataApplication } from './bridge-comm-worker-review-runtime-application.js';
+import {
+	removeIndexedValue,
+	reviewContentRequestKey,
+	reviewRuntimeItemSignatures,
+	reviewTreeParentPath,
+	upsertIndexedValue,
+} from './bridge-comm-worker-review-runtime-index.js';
+import {
 	bridgeCommWorkerReviewRuntimeSourceFromMetadataSnapshot,
 	bridgeCommWorkerReviewRuntimeSourceItemsFromMetadataSnapshot,
 } from './bridge-comm-worker-review-runtime-source-mapper.js';
-import {
-	isReviewRuntimeSourceExecutableForItem,
-	type BridgeCommWorkerReviewRuntimeSource,
-} from './bridge-comm-worker-review-source-diff.js';
-import type {
-	BridgeCommWorkerReviewRowMutation,
-	BridgeCommWorkerStore,
-} from './bridge-comm-worker-store.js';
+import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
+import type { BridgeCommWorkerReviewRowMutation } from './bridge-comm-worker-store.js';
 import type { BridgeProductReviewMetadataEvent } from './bridge-product-review-metadata-contracts.js';
 import type {
 	BridgeWorkerReviewDisplayPatch,
 	BridgeWorkerReviewSourceDisplayPayload,
-	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
+
+export {
+	applyBridgeCommWorkerReviewMetadataApplication,
+	type BridgeCommWorkerReviewMetadataApplication,
+} from './bridge-comm-worker-review-runtime-application.js';
+
+type ReviewMetadataRoutedEvent = Extract<
+	BridgeProductReviewMetadataEvent,
+	{ readonly eventKind: 'review.delta' | 'review.invalidated' | 'review.window' }
+>;
+type ReviewMetadataActiveEvent = Extract<
+	BridgeProductReviewMetadataEvent,
+	{ readonly eventKind: 'review.invalidated' | 'review.window' }
+>;
+type ReviewMetadataPendingEvent = Extract<
+	BridgeProductReviewMetadataEvent,
+	{
+		readonly eventKind: 'review.delta' | 'review.invalidated' | 'review.snapshot' | 'review.window';
+	}
+>;
 
 interface MutableBridgeCommWorkerReviewRuntimeSource extends BridgeCommWorkerReviewRuntimeSource {
 	readonly contentItems: BridgeCommWorkerReviewRuntimeSource['contentItems'][number][];
@@ -27,159 +61,43 @@ interface MutableBridgeCommWorkerReviewRuntimeSource extends BridgeCommWorkerRev
 	readonly rows: BridgeCommWorkerReviewRuntimeSource['rows'][number][];
 }
 
-export interface BridgeCommWorkerReviewMetadataApplication {
-	readonly affectedItemIds: readonly string[];
-	readonly affectedRowIds: readonly string[];
-	readonly completeContentItemIds?: readonly string[];
-	readonly completeRowIds?: readonly string[];
-	readonly projectionRevision: number;
-	readonly removedItemIds: readonly string[];
-	readonly reset: boolean;
-	readonly rowMutation: BridgeCommWorkerReviewRowMutation;
-	readonly source: BridgeCommWorkerReviewRuntimeSource;
+interface BridgeCommWorkerReviewApplicatorRollbackSnapshot {
+	readonly acceptedLineageFloor: ReviewMetadataLineage | null;
+	readonly activeDeltaPublicationFingerprint: string | null;
+	readonly activeProjection: BridgeCommWorkerReviewMetadataProjection | null;
+	readonly contentItemIndexById: ReadonlyMap<string, number>;
+	readonly contentRequestIndexByKey: ReadonlyMap<string, number>;
+	readonly contentRequestKeysByItemId: ReadonlyMap<string, ReadonlySet<string>>;
+	readonly directoryIdByPath: ReadonlyMap<string, string>;
+	readonly itemSignatureById: ReadonlyMap<string, string>;
+	readonly pendingProjection: BridgeCommWorkerReviewMetadataProjection | null;
+	readonly renderSemanticsIndexById: ReadonlyMap<string, number>;
+	readonly rowIndexById: ReadonlyMap<string, number>;
+	readonly runtimeSource: MutableBridgeCommWorkerReviewRuntimeSource;
+	readonly sourceDisplayStatus: BridgeWorkerReviewSourceDisplayPayload['status'];
 	readonly sourceEpoch: number;
-	readonly workerDerivationEpoch: number;
+	readonly treePathByRowId: ReadonlyMap<string, string>;
 }
 
-export function applyBridgeCommWorkerReviewMetadataApplication(props: {
-	readonly application: BridgeCommWorkerReviewMetadataApplication;
-	readonly createSequence: () => number;
-	readonly readRuntimeSource: () => BridgeCommWorkerReviewRuntimeSource;
-	readonly scheduleDemandExecution?: (request: {
-		readonly affectedItemIds: readonly string[];
-		readonly cause: 'reviewMetadata';
-		readonly epoch: number;
-		readonly sourceChurnRevision?: number;
-		readonly store: BridgeCommWorkerStore;
-	}) => void;
-	readonly scheduleReset?: (request: {
-		readonly affectedItemIds: readonly string[];
-		readonly cause: 'reviewMetadata';
-		readonly epoch: number;
-		readonly readReviewRuntimeSource: () => BridgeCommWorkerReviewRuntimeSource;
-		readonly store: BridgeCommWorkerStore;
-	}) => void;
-	readonly scheduleSelectedPreparation: (request: {
-		readonly epoch: number;
-		readonly itemId: string;
-		readonly store: BridgeCommWorkerStore;
-	}) => void;
-	readonly store: BridgeCommWorkerStore;
-	readonly updateRuntimeSource: (source: BridgeCommWorkerReviewRuntimeSource) => void;
-}): readonly BridgeWorkerServerToMainMessage[] {
-	const { application } = props;
-	props.updateRuntimeSource(application.source);
-	applyUnavailableReviewMetadataTerminals({
-		affectedItemIds: application.affectedItemIds,
-		epoch: application.sourceEpoch,
-		source: application.source,
-		store: props.store,
-	});
-	if (application.reset && props.scheduleReset !== undefined) {
-		props.scheduleReset({
-			affectedItemIds: application.affectedItemIds,
-			cause: 'reviewMetadata',
-			epoch: application.sourceEpoch,
-			readReviewRuntimeSource: props.readRuntimeSource,
-			store: props.store,
-		});
-		const resetPatch = props.store.actions.takePendingSlicePatchEvent({
-			epoch: application.sourceEpoch,
-			sequence: props.createSequence(),
-		});
-		return resetPatch === null ? [] : [resetPatch];
-	}
-	const affectedItemIds = new Set(application.affectedItemIds);
-	props.store.actions.applyReviewSourceUpdateFact({
-		...(application.completeContentItemIds === undefined
-			? {}
-			: { completeContentItemIds: application.completeContentItemIds }),
-		...(application.completeRowIds === undefined
-			? {}
-			: { completeRowIds: application.completeRowIds }),
-		contentItems: application.source.contentItems.filter((item) =>
-			affectedItemIds.has(item.itemId),
-		),
-		epoch: application.sourceEpoch,
-		removedContentItemIds: application.removedItemIds,
-		resetComplete: false,
-		rows: application.completeRowIds === undefined ? [] : application.source.rows,
-	});
-	if (application.completeRowIds === undefined) {
-		props.store.actions.applyReviewRowMutationFact({
-			epoch: application.sourceEpoch,
-			mutation: application.rowMutation,
-		});
-	}
-	const selectedId = props.store.getState().selectedId;
-	if (
-		selectedId !== null &&
-		affectedItemIds.has(selectedId) &&
-		isReviewRuntimeSourceExecutableForItem(application.source, selectedId)
-	) {
-		const selectedDemand = props.store.actions.applySelectedSourceChurnFact({
-			itemId: selectedId,
-		});
-		if (selectedDemand.selectedDemandEpoch !== null) {
-			props.scheduleSelectedPreparation({
-				epoch: selectedDemand.selectedDemandEpoch,
-				itemId: selectedId,
-				store: props.store,
-			});
-		}
-	}
-	if (application.affectedItemIds.length > 0) {
-		props.scheduleDemandExecution?.({
-			affectedItemIds: application.affectedItemIds,
-			cause: 'reviewMetadata',
-			epoch: application.sourceEpoch,
-			sourceChurnRevision: application.projectionRevision,
-			store: props.store,
-		});
-	}
-	const slicePatch = props.store.actions.takePendingSlicePatchEvent({
-		epoch: application.sourceEpoch,
-		sequence: props.createSequence(),
-	});
-	return slicePatch === null ? [] : [slicePatch];
+export type BridgeCommWorkerReviewMetadataFailureDisposition =
+	| 'ignored'
+	| 'noActive'
+	| 'retainedActive';
+
+export interface BridgeCommWorkerReviewPublicationApplicationReceipt {
+	readonly publicationId: string;
 }
 
-function applyUnavailableReviewMetadataTerminals(props: {
-	readonly affectedItemIds: readonly string[];
-	readonly epoch: number;
-	readonly source: BridgeCommWorkerReviewRuntimeSource;
-	readonly store: BridgeCommWorkerStore;
-}): void {
-	const state = props.store.getState();
-	const visibleItemIds = new Set(state.visibleIds);
-	const terminalItemIds = props.affectedItemIds.filter(
-		(itemId) =>
-			!isReviewRuntimeSourceExecutableForItem(props.source, itemId) &&
-			(state.paintReadyByItemId.has(itemId) ||
-				state.selectedId === itemId ||
-				visibleItemIds.has(itemId)),
-	);
-	if (terminalItemIds.length === 0) return;
-
-	props.store.actions.applyReviewInvalidationFact({
-		epoch: props.epoch,
-		itemIds: terminalItemIds,
-		pathHints: [],
-		reason: 'sourceChanged',
-		scope: 'items',
-	});
-	for (const itemId of terminalItemIds) {
-		props.store.actions.applyContentTerminalAvailability({
-			itemId,
-			reason: 'source_reset',
-			sourceEpoch: props.epoch,
-			state: 'unavailable',
-		});
-	}
+export interface BridgeCommWorkerReviewRuntimeApplicationTransaction {
+	readonly commit: () => void;
+	readonly rollback: () => void;
+	readonly runPostCommitEffects: () => void;
 }
 
 export class BridgeCommWorkerReviewMetadataApplicator {
-	readonly #applyRuntimeSource: (application: BridgeCommWorkerReviewMetadataApplication) => void;
+	readonly #applyRuntimeSource: (
+		application: BridgeCommWorkerReviewMetadataApplication,
+	) => BridgeCommWorkerReviewRuntimeApplicationTransaction | void;
 	readonly #currentWorkerDerivationEpoch: () => number;
 	readonly #publishDisplayPatches:
 		| ((publication: {
@@ -188,7 +106,10 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		  }) => void)
 		| undefined;
 	readonly #recordIncrementalItemMapping: ((itemCount: number) => void) | undefined;
-	readonly #projection = new BridgeCommWorkerReviewMetadataProjection();
+	#activeProjection: BridgeCommWorkerReviewMetadataProjection | null = null;
+	#acceptedLineageFloor: ReviewMetadataLineage | null = null;
+	#activeDeltaPublicationFingerprint: string | null = null;
+	#pendingProjection: BridgeCommWorkerReviewMetadataProjection | null = null;
 	readonly #contentItemIndexById = new Map<string, number>();
 	readonly #contentRequestIndexByKey = new Map<string, number>();
 	readonly #contentRequestKeysByItemId = new Map<string, Set<string>>();
@@ -202,7 +123,9 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 	#sourceDisplayStatus: BridgeWorkerReviewSourceDisplayPayload['status'] = 'loading';
 
 	constructor(props: {
-		readonly applyRuntimeSource: (application: BridgeCommWorkerReviewMetadataApplication) => void;
+		readonly applyRuntimeSource: (
+			application: BridgeCommWorkerReviewMetadataApplication,
+		) => BridgeCommWorkerReviewRuntimeApplicationTransaction | void;
 		readonly currentWorkerDerivationEpoch: () => number;
 		readonly publishDisplayPatches?: (publication: {
 			readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
@@ -216,22 +139,217 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		this.#recordIncrementalItemMapping = props.recordIncrementalItemMapping;
 	}
 
-	apply(event: BridgeProductReviewMetadataEvent, workerDerivationEpoch: number): void {
-		if (workerDerivationEpoch !== this.#currentWorkerDerivationEpoch()) return;
+	apply(
+		event: BridgeProductReviewMetadataEvent,
+		workerDerivationEpoch: number,
+	): BridgeCommWorkerReviewPublicationApplicationReceipt | null {
+		if (workerDerivationEpoch !== this.#currentWorkerDerivationEpoch()) return null;
+		switch (event.eventKind) {
+			case 'review.reset':
+			case 'review.sourceAccepted':
+				this.#applyCandidateBoundaryEvent(event, workerDerivationEpoch);
+				return null;
+			case 'review.snapshot':
+				return this.#applySnapshotEvent(event, workerDerivationEpoch);
+			case 'review.window':
+			case 'review.delta':
+			case 'review.invalidated':
+				return this.#applyRoutedEvent(event, workerDerivationEpoch);
+			default:
+				return assertNeverReviewMetadataEvent(event);
+		}
+	}
+
+	handleMetadataFailure(
+		workerDerivationEpoch: number,
+	): BridgeCommWorkerReviewMetadataFailureDisposition {
+		if (workerDerivationEpoch !== this.#currentWorkerDerivationEpoch()) return 'ignored';
+		this.#pendingProjection = null;
+		if (this.#activeProjection === null) return 'noActive';
+		this.#publishActiveSourceStale(workerDerivationEpoch);
+		return 'retainedActive';
+	}
+
+	#applyCandidateBoundaryEvent(
+		event: Extract<
+			BridgeProductReviewMetadataEvent,
+			{ readonly eventKind: 'review.reset' | 'review.sourceAccepted' }
+		>,
+		workerDerivationEpoch: number,
+	): void {
+		const existingPendingProjection = this.#pendingProjection;
+		if (existingPendingProjection !== null && existingPendingProjection.matchesEvent(event)) {
+			existingPendingProjection.apply(event);
+			return;
+		}
+		if (!this.#admitCandidateLineage(event)) return;
+
+		const pendingProjection = new BridgeCommWorkerReviewMetadataProjection();
+		pendingProjection.apply(event);
+		this.#pendingProjection = pendingProjection;
+		if (
+			existingPendingProjection === null &&
+			this.#activeProjection !== null &&
+			!this.#activeProjection.matchesEvent(event)
+		) {
+			this.#publishActiveSourceStale(workerDerivationEpoch);
+		}
+	}
+
+	#applySnapshotEvent(
+		event: ReviewMetadataSnapshotEvent,
+		workerDerivationEpoch: number,
+	): BridgeCommWorkerReviewPublicationApplicationReceipt | null {
+		if (this.#pendingProjection?.matchesEvent(event) === true) {
+			return this.#applyPendingEvent(event, workerDerivationEpoch);
+		}
+		if (!this.#admitCandidateLineage(event)) return null;
+
+		const pendingProjection = new BridgeCommWorkerReviewMetadataProjection();
+		const projectionResult = pendingProjection.apply(event);
+		this.#pendingProjection = pendingProjection;
+		if (pendingProjection.hasFinalBarrier()) {
+			pendingProjection.assertCompleteFinalBarrier();
+			return this.#commitPendingProjection({ projectionResult, workerDerivationEpoch });
+		}
+		if (this.#activeProjection !== null && !this.#activeProjection.matchesEvent(event)) {
+			this.#publishActiveSourceStale(workerDerivationEpoch);
+		}
+		return null;
+	}
+
+	#applyRoutedEvent(
+		event: ReviewMetadataRoutedEvent,
+		workerDerivationEpoch: number,
+	): BridgeCommWorkerReviewPublicationApplicationReceipt | null {
+		if (this.#pendingProjection?.matchesEvent(event) === true) {
+			return this.#applyPendingEvent(event, workerDerivationEpoch);
+		}
+		if (this.#activeProjection?.matchesEvent(event) === true) {
+			if (event.eventKind === 'review.delta') {
+				if (this.#activeDeltaPublicationFingerprint !== reviewDeltaPublicationFingerprint(event)) {
+					throw new Error(
+						'Bridge Review delta replay changed payload for an active publication identity.',
+					);
+				}
+				return { publicationId: event.publicationId };
+			}
+			if (reviewMetadataEventCompletesProjection(event)) {
+				const activeProjection = this.#activeProjection;
+				if (activeProjection === null) {
+					throw new Error('Bridge Review replay validation requires an active projection.');
+				}
+				const replayProjection = activeProjection.cloneComplete();
+				replayProjection.apply(event);
+				replayProjection.assertCompleteFinalBarrier();
+				assertEquivalentReviewPublicationSnapshots(
+					activeProjection.snapshot(),
+					replayProjection.snapshot(),
+				);
+				return { publicationId: event.publicationId };
+			}
+			this.#applyActiveEvent(event, workerDerivationEpoch);
+			return null;
+		}
+		if (
+			event.eventKind === 'review.delta' &&
+			this.#activeProjection?.canApplySuccessorDelta(event) === true
+		) {
+			const lineageRelationship = this.#lineageRelationshipToAcceptedFloor(event);
+			if (lineageRelationship === 'older') return null;
+			if (lineageRelationship === 'ambiguous') {
+				throw new Error(
+					'Bridge Review metadata cannot order distinct sources within one generation.',
+				);
+			}
+			return this.#applySuccessorDelta(event, workerDerivationEpoch);
+		}
+
+		const lineageRelationship = this.#lineageRelationshipToAcceptedFloor(event);
+		if (lineageRelationship === 'older') return null;
+		if (lineageRelationship === 'ambiguous') {
+			throw new Error(
+				'Bridge Review metadata cannot order distinct sources within one generation.',
+			);
+		}
+		throw new Error('Bridge Review metadata event does not continue the active or pending source.');
+	}
+
+	#applyPendingEvent(
+		event: ReviewMetadataPendingEvent,
+		workerDerivationEpoch: number,
+	): BridgeCommWorkerReviewPublicationApplicationReceipt | null {
+		const pendingProjection = this.#pendingProjection;
+		if (pendingProjection === null || !pendingProjection.matchesEvent(event)) {
+			throw new Error('Bridge Review metadata payload does not match the pending worker source.');
+		}
+		const projectionResult = pendingProjection.apply(event);
+		this.#recordIncrementalItemMapping?.(projectionResult.affectedItemIds.length);
+		if (!pendingProjection.hasFinalBarrier()) return null;
+		pendingProjection.assertCompleteFinalBarrier();
+		return this.#commitPendingProjection({ projectionResult, workerDerivationEpoch });
+	}
+
+	#admitCandidateLineage(event: BridgeProductReviewMetadataEvent): boolean {
+		const lineageRelationship = this.#lineageRelationshipToAcceptedFloor(event);
+		if (lineageRelationship === 'older') return false;
+		if (lineageRelationship === 'ambiguous') {
+			throw new Error(
+				'Bridge Review metadata cannot order distinct sources within one generation.',
+			);
+		}
+		if (lineageRelationship === null || lineageRelationship === 'newer') {
+			this.#acceptedLineageFloor = reviewMetadataLineage(event);
+		}
+		return true;
+	}
+
+	#lineageRelationshipToAcceptedFloor(
+		event: BridgeProductReviewMetadataEvent,
+	): ReviewMetadataLineageRelationship | null {
+		if (this.#acceptedLineageFloor === null) return null;
+		return compareReviewMetadataLineages(reviewMetadataLineage(event), this.#acceptedLineageFloor);
+	}
+
+	#commitPendingProjection(props: {
+		readonly projectionResult: BridgeCommWorkerReviewMetadataApplyResult;
+		readonly workerDerivationEpoch: number;
+	}): BridgeCommWorkerReviewPublicationApplicationReceipt {
+		const pendingProjection = this.#pendingProjection;
+		if (pendingProjection === null) {
+			throw new Error('Bridge Review metadata commit requires a pending worker projection.');
+		}
+		pendingProjection.assertCompleteFinalBarrier();
+		const snapshot = pendingProjection.snapshot();
+		const publicationId = requiredReviewPublicationId(snapshot);
+		if (
+			this.#activeProjection?.matchesEvent(
+				reviewMetadataSnapshotEventFromCompleteSnapshot(snapshot),
+			)
+		) {
+			assertEquivalentReviewPublicationSnapshots(this.#activeProjection.snapshot(), snapshot);
+			this.#pendingProjection = null;
+			if (this.#sourceDisplayStatus === 'stale') {
+				this.#publishActiveSourceReady(props.workerDerivationEpoch);
+			}
+			return { publicationId };
+		}
 		const previousItemIds = [...this.#itemSignatureById.keys()];
 		const previousRowIds = this.#runtimeSource.rows.map((row) => row.id);
-		const projectionResult = this.#projection.apply(event);
-		this.#updateSourceDisplayStatus(event);
-		if (projectionResult.reset) {
-			const snapshot = this.#projection.snapshot();
+		const nextItemIds = new Set(snapshot.orderedItemIds);
+		const rollbackSnapshot = this.#captureRollbackSnapshot();
+		try {
 			this.#sourceEpoch += 1;
 			this.#replaceRuntimeSource(
 				bridgeCommWorkerReviewRuntimeSourceFromMetadataSnapshot(snapshot),
 				snapshot.treeRows,
 			);
-			const nextItemIds = new Set(this.#itemSignatureById.keys());
+			this.#activeProjection = pendingProjection;
+			this.#activeDeltaPublicationFingerprint = null;
+			this.#pendingProjection = null;
+			this.#sourceDisplayStatus = 'ready';
 			this.#publishApplication({
-				affectedItemIds: [...new Set([...previousItemIds, ...projectionResult.affectedItemIds])],
+				affectedItemIds: [...new Set([...previousItemIds, ...snapshot.orderedItemIds])],
 				affectedRowIds: [
 					...new Set([
 						...previousRowIds,
@@ -240,23 +358,34 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 				],
 				completeContentItemIds: snapshot.orderedItemIds,
 				completeRowIds: snapshot.treeRows.map((row) => row.itemId ?? row.rowId),
-				event,
-				projectionResult,
+				event: reviewMetadataSnapshotEventFromCompleteSnapshot(snapshot),
+				projectionResult: props.projectionResult,
 				removedItemIds: previousItemIds.filter((itemId) => !nextItemIds.has(itemId)),
 				reset: true,
 				rowMutation: { removedRowIds: [], rowUpserts: [] },
 				snapshot,
-				workerDerivationEpoch,
+				workerDerivationEpoch: props.workerDerivationEpoch,
 			});
-			return;
+		} catch (error) {
+			this.#restoreRollbackSnapshot(rollbackSnapshot);
+			throw error;
 		}
+		return { publicationId };
+	}
 
+	#applySuccessorDelta(
+		event: Extract<BridgeProductReviewMetadataEvent, { readonly eventKind: 'review.delta' }>,
+		workerDerivationEpoch: number,
+	): BridgeCommWorkerReviewPublicationApplicationReceipt {
+		const activeProjection = this.#activeProjection;
+		if (activeProjection === null || !activeProjection.canApplySuccessorDelta(event)) {
+			throw new Error('Bridge Review delta publication requires its exact active predecessor.');
+		}
+		const candidateProjection = activeProjection.cloneComplete();
+		const projectionResult = candidateProjection.apply(event);
+		candidateProjection.assertCompleteFinalBarrier();
+		const snapshot = candidateProjection.snapshot();
 		const candidateItemIds = [...new Set(projectionResult.affectedItemIds)];
-		this.#recordIncrementalItemMapping?.(candidateItemIds.length);
-		const completesProjection = reviewMetadataEventCompletesProjection(event);
-		const snapshot = completesProjection
-			? this.#projection.snapshot()
-			: this.#projection.snapshotItems(candidateItemIds);
 		const itemSource = bridgeCommWorkerReviewRuntimeSourceItemsFromMetadataSnapshot({
 			itemIds: candidateItemIds,
 			snapshot,
@@ -268,53 +397,152 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		const affectedItemIds = candidateItemIds.filter(
 			(itemId) => this.#itemSignatureById.get(itemId) !== nextSignaturesByItemId.get(itemId),
 		);
-		const rowMutation = this.#applyTreeRowMutation(event);
-		if (completesProjection) {
-			this.#replaceRuntimeSource(
-				bridgeCommWorkerReviewRuntimeSourceFromMetadataSnapshot(snapshot),
-				snapshot.treeRows,
-			);
-		} else {
+		const rollbackSnapshot = this.#captureRollbackSnapshot();
+		try {
+			const rowMutation = this.#applyTreeRowMutation(event);
 			this.#upsertRuntimeSourceItems(itemSource, candidateItemIds);
+			this.#activeProjection = candidateProjection;
+			this.#activeDeltaPublicationFingerprint = reviewDeltaPublicationFingerprint(event);
+			this.#pendingProjection = null;
+			this.#acceptedLineageFloor = reviewMetadataLineage(event);
+			this.#sourceDisplayStatus = 'ready';
+			this.#publishApplication({
+				affectedItemIds,
+				affectedRowIds: rowMutation.rowUpserts.map((row) => row.id),
+				event,
+				projectionResult,
+				removedItemIds,
+				reset: false,
+				rowMutation,
+				snapshot,
+				workerDerivationEpoch,
+			});
+		} catch (error) {
+			this.#restoreRollbackSnapshot(rollbackSnapshot);
+			throw error;
 		}
-		this.#publishApplication({
-			affectedItemIds,
-			affectedRowIds: rowMutation.rowUpserts.map((row) => row.id),
-			...(completesProjection
-				? {
-						completeContentItemIds: snapshot.orderedItemIds,
-						completeRowIds: snapshot.treeRows.map((row) => row.itemId ?? row.rowId),
-					}
-				: {}),
-			event,
-			projectionResult,
-			removedItemIds,
-			reset: false,
-			rowMutation,
+		return { publicationId: event.publicationId };
+	}
+
+	#applyActiveEvent(event: ReviewMetadataActiveEvent, workerDerivationEpoch: number): void {
+		const activeProjection = this.#activeProjection;
+		if (activeProjection === null || !activeProjection.matchesEvent(event)) {
+			throw new Error('Bridge Review metadata event does not continue the active worker source.');
+		}
+		const candidateProjection = activeProjection.cloneComplete();
+		const projectionResult = candidateProjection.apply(event);
+
+		const candidateItemIds = [...new Set(projectionResult.affectedItemIds)];
+		this.#recordIncrementalItemMapping?.(candidateItemIds.length);
+		const completesProjection = reviewMetadataEventCompletesProjection(event);
+		const snapshot = completesProjection
+			? candidateProjection.snapshot()
+			: candidateProjection.snapshotItems(candidateItemIds);
+		const itemSource = bridgeCommWorkerReviewRuntimeSourceItemsFromMetadataSnapshot({
+			itemIds: candidateItemIds,
 			snapshot,
+		});
+		const nextSignaturesByItemId = reviewRuntimeItemSignatures(itemSource);
+		const removedItemIds = candidateItemIds.filter(
+			(itemId) => this.#itemSignatureById.has(itemId) && !nextSignaturesByItemId.has(itemId),
+		);
+		const affectedItemIds = candidateItemIds.filter(
+			(itemId) => this.#itemSignatureById.get(itemId) !== nextSignaturesByItemId.get(itemId),
+		);
+		const rollbackSnapshot = this.#captureRollbackSnapshot();
+		try {
+			if (this.#pendingProjection === null) this.#updateSourceDisplayStatus(event);
+			const rowMutation = this.#applyTreeRowMutation(event);
+			if (completesProjection) {
+				this.#replaceRuntimeSource(
+					bridgeCommWorkerReviewRuntimeSourceFromMetadataSnapshot(snapshot),
+					snapshot.treeRows,
+				);
+			} else {
+				this.#upsertRuntimeSourceItems(itemSource, candidateItemIds);
+			}
+			this.#activeProjection = candidateProjection;
+			this.#publishApplication({
+				affectedItemIds,
+				affectedRowIds: rowMutation.rowUpserts.map((row) => row.id),
+				...(completesProjection
+					? {
+							completeContentItemIds: snapshot.orderedItemIds,
+							completeRowIds: snapshot.treeRows.map((row) => row.itemId ?? row.rowId),
+						}
+					: {}),
+				event,
+				projectionResult,
+				removedItemIds,
+				reset: false,
+				rowMutation,
+				snapshot,
+				workerDerivationEpoch,
+			});
+		} catch (error) {
+			this.#restoreRollbackSnapshot(rollbackSnapshot);
+			throw error;
+		}
+	}
+
+	#publishActiveSourceStale(workerDerivationEpoch: number): void {
+		const activeProjection = this.#activeProjection;
+		if (activeProjection === null) return;
+		this.#sourceDisplayStatus = 'stale';
+		if (this.#publishDisplayPatches === undefined) return;
+		const snapshot = activeProjection.snapshot();
+		const event = reviewMetadataInvalidatedEventFromSnapshot(snapshot);
+		this.#publishDisplayPatches({
+			patches: bridgeCommWorkerReviewDisplayPatches({
+				event,
+				projectionResult: {
+					affectedItemIds: [],
+					invalidation: event,
+					projectionRevision: 0,
+					reset: false,
+				},
+				snapshot,
+				sourceStatus: 'stale',
+			}),
 			workerDerivationEpoch,
 		});
 	}
 
+	#publishActiveSourceReady(workerDerivationEpoch: number): void {
+		const activeProjection = this.#activeProjection;
+		if (activeProjection === null) return;
+		this.#sourceDisplayStatus = 'ready';
+		if (this.#publishDisplayPatches === undefined) return;
+		const snapshot = activeProjection.snapshot();
+		const event = reviewMetadataSnapshotEventFromCompleteSnapshot(snapshot);
+		const sourcePatches = bridgeCommWorkerReviewDisplayPatches({
+			event,
+			projectionResult: {
+				affectedItemIds: [],
+				invalidation: null,
+				projectionRevision: 0,
+				reset: false,
+			},
+			snapshot,
+			sourceStatus: 'ready',
+		}).filter((patch) => patch.slice === 'reviewSource');
+		this.#publishDisplayPatches({ patches: sourcePatches, workerDerivationEpoch });
+	}
+
 	#updateSourceDisplayStatus(event: BridgeProductReviewMetadataEvent): void {
 		switch (event.eventKind) {
-			case 'review.sourceAccepted':
-			case 'review.reset':
-				this.#sourceDisplayStatus = 'loading';
-				break;
 			case 'review.invalidated':
 				this.#sourceDisplayStatus = 'stale';
-				break;
-			case 'review.snapshot':
-				this.#sourceDisplayStatus = reviewMetadataEventCompletesProjection(event)
-					? 'ready'
-					: 'loading';
 				break;
 			case 'review.window':
 				if (reviewMetadataEventCompletesProjection(event)) this.#sourceDisplayStatus = 'ready';
 				break;
 			case 'review.delta':
 				break;
+			case 'review.sourceAccepted':
+			case 'review.reset':
+			case 'review.snapshot':
+				throw new Error('Candidate Review metadata cannot update active display status.');
 			default:
 				assertNeverReviewMetadataEvent(event);
 		}
@@ -522,7 +750,13 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		readonly snapshot: ReturnType<BridgeCommWorkerReviewMetadataProjection['snapshot']>;
 		readonly workerDerivationEpoch: number;
 	}): void {
-		this.#applyRuntimeSource({
+		const displayPatches = bridgeCommWorkerReviewDisplayPatches({
+			event: props.event,
+			projectionResult: props.projectionResult,
+			snapshot: props.snapshot,
+			sourceStatus: this.#sourceDisplayStatus,
+		});
+		const runtimeApplicationResult = this.#applyRuntimeSource({
 			affectedItemIds: props.affectedItemIds,
 			affectedRowIds: props.affectedRowIds,
 			...(props.completeContentItemIds === undefined
@@ -537,93 +771,75 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 			sourceEpoch: this.#sourceEpoch,
 			workerDerivationEpoch: props.workerDerivationEpoch,
 		});
-		this.#publishDisplayPatches?.({
-			patches: bridgeCommWorkerReviewDisplayPatches({
-				event: props.event,
-				projectionResult: props.projectionResult,
-				snapshot: props.snapshot,
-				sourceStatus: this.#sourceDisplayStatus,
-			}),
-			workerDerivationEpoch: props.workerDerivationEpoch,
-		});
+		const runtimeApplication = runtimeApplicationResult ?? undefined;
+		try {
+			this.#publishDisplayPatches?.({
+				patches: displayPatches,
+				workerDerivationEpoch: props.workerDerivationEpoch,
+			});
+		} catch (error) {
+			runtimeApplication?.rollback();
+			throw error;
+		}
+		runtimeApplication?.commit();
+		runtimeApplication?.runPostCommitEffects();
+	}
+
+	#captureRollbackSnapshot(): BridgeCommWorkerReviewApplicatorRollbackSnapshot {
+		return {
+			acceptedLineageFloor: this.#acceptedLineageFloor,
+			activeDeltaPublicationFingerprint: this.#activeDeltaPublicationFingerprint,
+			activeProjection: this.#activeProjection,
+			contentItemIndexById: new Map(this.#contentItemIndexById),
+			contentRequestIndexByKey: new Map(this.#contentRequestIndexByKey),
+			contentRequestKeysByItemId: new Map(
+				[...this.#contentRequestKeysByItemId].map(([itemId, keys]) => [itemId, new Set(keys)]),
+			),
+			directoryIdByPath: new Map(this.#directoryIdByPath),
+			itemSignatureById: new Map(this.#itemSignatureById),
+			pendingProjection: this.#pendingProjection,
+			renderSemanticsIndexById: new Map(this.#renderSemanticsIndexById),
+			rowIndexById: new Map(this.#rowIndexById),
+			runtimeSource: {
+				contentItems: [...this.#runtimeSource.contentItems],
+				contentRequestDescriptors: [...this.#runtimeSource.contentRequestDescriptors],
+				renderSemantics: [...this.#runtimeSource.renderSemantics],
+				rows: [...this.#runtimeSource.rows],
+			},
+			sourceDisplayStatus: this.#sourceDisplayStatus,
+			sourceEpoch: this.#sourceEpoch,
+			treePathByRowId: new Map(this.#treePathByRowId),
+		};
+	}
+
+	#restoreRollbackSnapshot(snapshot: BridgeCommWorkerReviewApplicatorRollbackSnapshot): void {
+		this.#acceptedLineageFloor = snapshot.acceptedLineageFloor;
+		this.#activeDeltaPublicationFingerprint = snapshot.activeDeltaPublicationFingerprint;
+		this.#activeProjection = snapshot.activeProjection;
+		replaceMapContents(this.#contentItemIndexById, snapshot.contentItemIndexById);
+		replaceMapContents(this.#contentRequestIndexByKey, snapshot.contentRequestIndexByKey);
+		this.#contentRequestKeysByItemId.clear();
+		for (const [itemId, keys] of snapshot.contentRequestKeysByItemId) {
+			this.#contentRequestKeysByItemId.set(itemId, new Set(keys));
+		}
+		replaceMapContents(this.#directoryIdByPath, snapshot.directoryIdByPath);
+		replaceMapContents(this.#itemSignatureById, snapshot.itemSignatureById);
+		this.#pendingProjection = snapshot.pendingProjection;
+		replaceMapContents(this.#renderSemanticsIndexById, snapshot.renderSemanticsIndexById);
+		replaceMapContents(this.#rowIndexById, snapshot.rowIndexById);
+		this.#runtimeSource = snapshot.runtimeSource;
+		this.#sourceDisplayStatus = snapshot.sourceDisplayStatus;
+		this.#sourceEpoch = snapshot.sourceEpoch;
+		replaceMapContents(this.#treePathByRowId, snapshot.treePathByRowId);
 	}
 }
 
-function upsertIndexedValue<TKey, TValue>(
-	values: TValue[],
-	indexByKey: Map<TKey, number>,
-	key: TKey,
-	value: TValue,
+function replaceMapContents<TKey, TValue>(
+	target: Map<TKey, TValue>,
+	source: ReadonlyMap<TKey, TValue>,
 ): void {
-	const existingIndex = indexByKey.get(key);
-	if (existingIndex === undefined) {
-		indexByKey.set(key, values.length);
-		values.push(value);
-		return;
-	}
-	values[existingIndex] = value;
-}
-
-function removeIndexedValue<TKey, TValue>(
-	values: TValue[],
-	indexByKey: Map<TKey, number>,
-	key: TKey,
-	keyForValue: (value: TValue) => TKey,
-): void {
-	const removedIndex = indexByKey.get(key);
-	if (removedIndex === undefined) return;
-	const lastValue = values.pop();
-	indexByKey.delete(key);
-	if (lastValue === undefined || removedIndex === values.length) return;
-	values[removedIndex] = lastValue;
-	indexByKey.set(keyForValue(lastValue), removedIndex);
-}
-
-function reviewRuntimeItemSignatures(
-	source: BridgeCommWorkerReviewRuntimeSource,
-): ReadonlyMap<string, string> {
-	type ReviewRuntimeItemSignatureInput = {
-		contentItem: BridgeCommWorkerReviewRuntimeSource['contentItems'][number] | null;
-		contentRequests: BridgeCommWorkerReviewRuntimeSource['contentRequestDescriptors'][number][];
-		renderSemantics: BridgeCommWorkerReviewRuntimeSource['renderSemantics'][number] | null;
-	};
-	const signaturesByItemId = new Map<string, ReviewRuntimeItemSignatureInput>();
-	const signatureForItem = (itemId: string): ReviewRuntimeItemSignatureInput => {
-		const existing = signaturesByItemId.get(itemId);
-		if (existing !== undefined) return existing;
-		const created = { contentItem: null, contentRequests: [], renderSemantics: null };
-		signaturesByItemId.set(itemId, created);
-		return created;
-	};
-	for (const item of source.contentItems) signatureForItem(item.itemId).contentItem = item;
-	for (const descriptor of source.contentRequestDescriptors) {
-		signatureForItem(descriptor.itemId).contentRequests.push(descriptor);
-	}
-	for (const semantics of source.renderSemantics) {
-		signatureForItem(semantics.itemId).renderSemantics = semantics;
-	}
-	return new Map(
-		[...signaturesByItemId].map(([itemId, signature]) => [itemId, JSON.stringify(signature)]),
-	);
-}
-
-function reviewContentRequestKey(
-	descriptor: BridgeCommWorkerReviewRuntimeSource['contentRequestDescriptors'][number],
-): string {
-	return `${descriptor.itemId}\u0000${descriptor.role}`;
-}
-
-function reviewTreeParentPath(path: string): string | null {
-	const separatorIndex = path.lastIndexOf('/');
-	return separatorIndex < 0 ? null : path.slice(0, separatorIndex);
-}
-
-function reviewMetadataEventCompletesProjection(event: BridgeProductReviewMetadataEvent): boolean {
-	return (
-		(event.eventKind === 'review.snapshot' || event.eventKind === 'review.window') &&
-		event.itemWindow.finalWindow &&
-		event.treeWindow.finalWindow
-	);
+	target.clear();
+	for (const [key, value] of source) target.set(key, value);
 }
 
 function assertNeverReviewMetadataEvent(event: never): never {

@@ -56,8 +56,8 @@ extension WebKitSerializedTests {
             }
         }
 
-        @Test("loadDiff revokes previous content authority before failed reload")
-        func loadDiff_revokes_previous_content_authority_before_failed_reload() async throws {
+        @Test("loadDiff preserves previous package and content authority after failed reload")
+        func loadDiff_preserves_previous_package_and_content_authority_after_failed_reload() async throws {
             let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
             let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
             let changedFile = makeBridgeEndpointChangedFile(
@@ -107,6 +107,8 @@ extension WebKitSerializedTests {
                 contentHandleId: headHandle.handleId,
                 reviewGeneration: 1
             )
+            let initialPackage = try #require(controller.paneState.diff.packageMetadata)
+            let initialDelta = controller.paneState.diff.packageDelta
 
             let secondResult = await controller.handleDiffCommand(
                 .loadDiff(
@@ -121,7 +123,9 @@ extension WebKitSerializedTests {
             )
 
             #expect(secondResult == .failure(.backendUnavailable(backend: "BridgeReviewSourceProvider")))
-            await #expect(throws: BridgeIPCProjectionError.self) {
+            #expect(controller.paneState.diff.packageMetadata == initialPackage)
+            #expect(controller.paneState.diff.packageDelta == initialDelta)
+            await #expect(throws: Never.self) {
                 _ = try await controller.loadContentForIPC(
                     contentHandleId: headHandle.handleId,
                     reviewGeneration: 1
@@ -129,8 +133,8 @@ extension WebKitSerializedTests {
             }
         }
 
-        @Test("loadDiff synchronously revokes previous content authority while reload is in flight")
-        func loadDiff_synchronously_revokes_previous_content_authority_while_reload_is_in_flight() async throws {
+        @Test("loadDiff keeps previous package and content authority while reload is in flight")
+        func loadDiff_keeps_previous_package_and_content_authority_while_reload_is_in_flight() async throws {
             let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
             let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
             let initialFile = makeBridgeEndpointChangedFile(
@@ -187,6 +191,8 @@ extension WebKitSerializedTests {
                 contentHandleId: initialHandle.handleId,
                 reviewGeneration: 1
             )
+            let initialPackage = try #require(controller.paneState.diff.packageMetadata)
+            let initialDelta = controller.paneState.diff.packageDelta
 
             let reloadGate = BridgeComparisonGate()
             await provider.setComparisonGate(reloadGate)
@@ -211,7 +217,9 @@ extension WebKitSerializedTests {
             }
             await reloadGate.waitForStartedComparisonCount(1)
 
-            await #expect(throws: BridgeIPCProjectionError.self) {
+            #expect(controller.paneState.diff.packageMetadata == initialPackage)
+            #expect(controller.paneState.diff.packageDelta == initialDelta)
+            await #expect(throws: Never.self) {
                 _ = try await controller.loadContentForIPC(
                     contentHandleId: initialHandle.handleId,
                     reviewGeneration: 1
@@ -222,6 +230,7 @@ extension WebKitSerializedTests {
             let reloadResult = await reloadTask.value
 
             #expect(reloadResult == .success(commandId: secondCommandId))
+            #expect(controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-new"])
         }
 
         @Test("refresh preserves previous content authority when new metadata is invalid")

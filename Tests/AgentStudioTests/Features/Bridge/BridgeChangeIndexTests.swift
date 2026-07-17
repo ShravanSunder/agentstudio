@@ -90,23 +90,28 @@ struct BridgeChangeIndexTests {
             )
         )
 
-        let firstDelta = try await index.ingestExplicitLoad(
+        let firstLoad = try await index.prepareExplicitLoad(
             currentPackage,
             productAdmission: productAdmission
         )
-        let secondDelta = try await index.ingestExplicitLoad(
+        #expect(await index.snapshot().packagesById.isEmpty)
+        #expect(await index.recordCommittedLoad(firstLoad, productAdmission: productAdmission))
+        let secondLoad = try await index.prepareExplicitLoad(
             nextPackage,
             productAdmission: productAdmission
         )
+        let snapshotBeforeSecondCommit = await index.snapshot()
+        #expect(await index.recordCommittedLoad(secondLoad, productAdmission: productAdmission))
 
-        #expect(firstDelta == nil)
-        let delta = try #require(secondDelta)
+        #expect(firstLoad.delta == nil)
+        let delta = try #require(secondLoad.delta)
         #expect(delta.packageId == "package")
         #expect(delta.reviewGeneration == 4)
         #expect(delta.revision == 1)
         #expect(delta.operations.addItems.map(\.itemId) == ["item-new"])
         #expect(delta.operations.removeItems == ["item-old"])
         #expect(delta.operations.updateSummary?.additions == 2)
+        #expect(snapshotBeforeSecondCommit.packagesById["package"]?.orderedItemIds == ["item-old"])
         let snapshot = await index.snapshot()
         #expect(snapshot.packageRevisionsById["package"] == 1)
         #expect(snapshot.packagesById["package"]?.revision == 1)
@@ -132,17 +137,19 @@ struct BridgeChangeIndexTests {
             orderedItemIds: ["item-new"]
         )
 
-        let firstDelta = try await index.ingestExplicitLoad(
+        let firstLoad = try await index.prepareExplicitLoad(
             currentPackage,
             productAdmission: productAdmission
         )
-        let secondDelta = try await index.ingestExplicitLoad(
+        #expect(await index.recordCommittedLoad(firstLoad, productAdmission: productAdmission))
+        let secondLoad = try await index.prepareExplicitLoad(
             nextPackage,
             productAdmission: productAdmission
         )
+        #expect(await index.recordCommittedLoad(secondLoad, productAdmission: productAdmission))
 
-        #expect(firstDelta == nil)
-        #expect(secondDelta == nil)
+        #expect(firstLoad.delta == nil)
+        #expect(secondLoad.delta == nil)
         let snapshot = await index.snapshot()
         #expect(snapshot.activeReviewGeneration == 5)
         #expect(snapshot.packageRevisionsById["package"] == 0)
@@ -161,12 +168,12 @@ struct BridgeChangeIndexTests {
             reviewGeneration: 9
         )
 
-        let delta = try await index.ingestExplicitLoad(
+        let preparedLoad = try await index.prepareExplicitLoad(
             stalePackage,
             productAdmission: productAdmission
         )
 
-        #expect(delta == nil)
+        #expect(preparedLoad.delta == nil)
         let snapshot = await index.snapshot()
         #expect(snapshot.activeReviewGeneration == 10)
         #expect(snapshot.packagesById["package"] == nil)
@@ -188,11 +195,38 @@ struct BridgeChangeIndexTests {
         productAdmissionGate.close()
 
         await #expect(throws: BridgeChangeIndexError.admissionClosed) {
-            try await index.ingestExplicitLoad(
+            try await index.prepareExplicitLoad(
                 package,
                 productAdmission: productAdmission
             )
         }
+        #expect(await index.snapshot() == beforeClose)
+    }
+
+    @Test("closed admission suppresses post-commit index recording without mutation")
+    func closedAdmissionSuppressesPostCommitRecordingWithoutMutation() async throws {
+        let index = BridgeChangeIndex()
+        let productAdmissionGate = BridgeProductAdmissionGate()
+        let productAdmission = try #require(productAdmissionGate.acquire())
+        let package = makeBridgeReviewPackage(
+            baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+            headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+            reviewGeneration: 1,
+            orderedItemIds: ["item"]
+        )
+        let preparedLoad = try await index.prepareExplicitLoad(
+            package,
+            productAdmission: productAdmission
+        )
+        let beforeClose = await index.snapshot()
+
+        productAdmissionGate.close()
+        let wasRecorded = await index.recordCommittedLoad(
+            preparedLoad,
+            productAdmission: productAdmission
+        )
+
+        #expect(!wasRecorded)
         #expect(await index.snapshot() == beforeClose)
     }
 }

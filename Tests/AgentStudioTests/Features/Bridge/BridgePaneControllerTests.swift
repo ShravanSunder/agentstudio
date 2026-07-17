@@ -230,11 +230,10 @@ extension WebKitSerializedTests {
             #expect(controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-source"])
             #expect(controller.paneState.diff.packageMetadata?.summary.filesChanged == 1)
             #expect(await provider.recordedContentRequestsCount() == 0)
-            let productAdmission = try BridgeProductAdmissionTestContext.make()
-            let registered = try await controller.reviewContentStore.load(
-                handleId: headHandle.handleId,
-                requestedGeneration: 1,
-                productAdmission: productAdmission.context
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let registered = try await controller.reviewContentLoaderCache.load(
+                handle: headHandle,
+                productAdmission: productAdmission
             )
             #expect(registered.handle == headHandle)
         }

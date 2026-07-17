@@ -240,22 +240,15 @@ struct BridgeProductSessionContractTests {
 
     @Test("Review intake readiness requires strict nullable identifiers and a null result")
     func reviewIntakeReadyRequiresStrictNullableIdentifiersAndNullResult() throws {
-        let requestObject: [String: Any] = [
-            "method": "review.intake.ready",
-            "request": ["reason": "sequence_gap", "streamId": "review:stream-1"],
-        ]
-        let nullRequestObject: [String: Any] = [
-            "method": "review.intake.ready",
-            "request": ["reason": NSNull(), "streamId": NSNull()],
-        ]
-        let resultObject: [String: Any] = [
-            "method": "review.intake.ready",
-            "result": NSNull(),
-        ]
-
-        #expect(!decodingFails(BridgeProductCallRequest.self, object: requestObject))
-        #expect(!decodingFails(BridgeProductCallRequest.self, object: nullRequestObject))
-        #expect(!decodingFails(BridgeProductCallResult.self, object: resultObject))
+        let corpus = try fixtureJSONObject(
+            relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-session-corpus.json"
+        )
+        for testCase in try fixtureArray(named: "reviewIntakeReadyCases", in: corpus) {
+            let request = try #require(testCase["request"] as? [String: Any])
+            let result = try #require(testCase["result"] as? [String: Any])
+            _ = try decodeAndVerifyRoundTrips(BridgeProductCallRequest.self, from: [request])
+            _ = try decodeAndVerifyRoundTrips(BridgeProductCallResult.self, from: [result])
+        }
 
         for invalidRequest in [
             ["reason": NSNull()],
@@ -277,6 +270,42 @@ struct BridgeProductSessionContractTests {
             decodingFails(
                 BridgeProductCallResult.self,
                 object: ["method": "review.intake.ready", "result": [:]]
+            )
+        )
+    }
+
+    @Test("Review publication application uses the shared UUIDv7 call corpus")
+    func reviewPublicationAppliedUsesSharedUUIDv7CallCorpus() throws {
+        let corpus = try fixtureJSONObject(
+            relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-session-corpus.json"
+        )
+        for testCase in try fixtureArray(named: "reviewPublicationAppliedCases", in: corpus) {
+            let request = try #require(testCase["request"] as? [String: Any])
+            let result = try #require(testCase["result"] as? [String: Any])
+            _ = try decodeAndVerifyRoundTrips(BridgeProductCallRequest.self, from: [request])
+            _ = try decodeAndVerifyRoundTrips(BridgeProductCallResult.self, from: [result])
+        }
+
+        for invalidPublicationId in [
+            "00000000-0000-7000-8000-00000000001A",
+            "00000000-0000-4000-8000-000000000017",
+            "00000000-0000-9000-8000-000000000017",
+            "00000000-0000-7000-7000-000000000017",
+        ] {
+            #expect(
+                decodingFails(
+                    BridgeProductCallRequest.self,
+                    object: [
+                        "method": "review.publication.applied",
+                        "request": ["publicationId": invalidPublicationId],
+                    ]
+                )
+            )
+        }
+        #expect(
+            decodingFails(
+                BridgeProductCallResult.self,
+                object: ["method": "review.publication.applied", "result": [:]]
             )
         )
     }

@@ -96,7 +96,13 @@ struct BridgeProductMetadataLifecycleTraceRecorderTests {
             retained: 2,
             publishedSubscriptions: 1,
             emittedEvents: 3,
-            superseded: 1
+            superseded: 1,
+            finalFrames: [
+                BridgeReviewMetadataFinalFrame(
+                    sequence: 3,
+                    subscriptionId: "review-subscription-1"
+                )
+            ]
         )
 
         // Act

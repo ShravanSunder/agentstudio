@@ -152,6 +152,7 @@ const surfaceByCallKind = {
 	'review.activeViewerMode.update': 'review',
 	'review.intake.ready': 'review',
 	'review.markFileViewed': 'review',
+	'review.publication.applied': 'review',
 } as const satisfies {
 	readonly [TCallKind in BridgeProductCallKind]: BridgeProductCallRegistry[TCallKind]['surface'];
 };
@@ -171,6 +172,9 @@ const surfaceByContentKind = {
 const reviewCallSurface: 'review' = bridgeProductSurfaceForCallKind('review.markFileViewed');
 const reviewIntakeReadyCallSurface: 'review' =
 	bridgeProductSurfaceForCallKind('review.intake.ready');
+const reviewPublicationAppliedCallSurface: 'review' = bridgeProductSurfaceForCallKind(
+	'review.publication.applied',
+);
 const reviewActiveModeCallSurface: 'review' = bridgeProductSurfaceForCallKind(
 	'review.activeViewerMode.update',
 );
@@ -190,6 +194,7 @@ const allMappedSurfaces: readonly BridgeProductSurface[] = [
 ];
 void reviewCallSurface;
 void reviewIntakeReadyCallSurface;
+void reviewPublicationAppliedCallSurface;
 void reviewActiveModeCallSurface;
 void fileActiveModeCallSurface;
 void fileSourceCurrentCallSurface;
@@ -222,6 +227,11 @@ const intakeReadyResult: Promise<null> = productTransport.call('review.intake.re
 	streamId: 'review-stream-1',
 });
 void intakeReadyResult;
+const reviewPublicationAppliedResult: Promise<null> = productTransport.call(
+	'review.publication.applied',
+	{ publicationId: '00000000-0000-7000-8000-000000000017' },
+);
+void reviewPublicationAppliedResult;
 
 const currentFileSourceResult = productTransport.call('file.source.current', {});
 const availableCurrentFileSourceResult: BridgeProductCallResult<'file.source.current'> = {

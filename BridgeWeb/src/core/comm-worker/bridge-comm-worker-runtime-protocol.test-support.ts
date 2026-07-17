@@ -30,7 +30,11 @@ export const reviewContentFixtureByDescriptorId = new Map<
 	{ readonly itemId: string; readonly text: string }
 >();
 
-export function createRecordingBridgeCommWorkerPort(): {
+export function createRecordingBridgeCommWorkerPort(
+	props: {
+		readonly beforePostMessage?: (message: BridgeWorkerServerToMainMessage) => void;
+	} = {},
+): {
 	readonly dispatch: {
 		readonly message: (data: unknown) => void;
 		readonly port: BridgeCommWorkerPort;
@@ -52,6 +56,7 @@ export function createRecordingBridgeCommWorkerPort(): {
 					message: BridgeWorkerServerToMainMessage,
 					transferList?: Transferable[],
 				): void => {
+					props.beforePostMessage?.(message);
 					postedMessages.push({ message, transferList });
 				},
 				addEventListener: (

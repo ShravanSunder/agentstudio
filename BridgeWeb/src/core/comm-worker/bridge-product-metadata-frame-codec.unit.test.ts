@@ -168,6 +168,7 @@ describe('Bridge product metadata frame decoder', () => {
 						eventKind: 'review.sourceAccepted',
 						generation: 7,
 						packageId: 'review-package-1',
+						publicationId: '00000000-0000-7000-8000-000000000001',
 						revision: 1,
 						sourceIdentity: 'review-source-1',
 					},

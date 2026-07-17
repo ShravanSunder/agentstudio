@@ -22,7 +22,11 @@ type ReviewMetadataEvent = BridgeProductSubscriptionEvent<'review.metadata'>;
 type ReviewMetadataEventHandler = (
 	event: ReviewMetadataEvent,
 	workerDerivationEpoch: number,
-) => void;
+) =>
+	| Promise<{ readonly publicationId: string } | null | void>
+	| { readonly publicationId: string }
+	| null
+	| void;
 type ReviewMetadataFailureHandler = (error: unknown, workerDerivationEpoch: number) => void;
 type ReviewMetadataInterest = Parameters<
 	ReviewMetadataSubscription['update']
@@ -67,6 +71,7 @@ export class BridgeCommWorkerProductController {
 	readonly #reviewInterestItemIdsByLane = new Map<ReviewMetadataInterestLane, readonly string[]>();
 	#reviewInterestUpdate: Promise<void> = Promise.resolve();
 	#reviewDesiredInterestSignature: string | null = null;
+	#reviewRecoveryPublicationId: string | null = null;
 	#reviewWorkerDerivationEpoch = 0;
 
 	constructor(props: {
@@ -196,7 +201,29 @@ export class BridgeCommWorkerProductController {
 		try {
 			for await (const event of subscription.events) {
 				if (subscription !== this.#reviewSubscription) return;
-				this.#onReviewMetadataEvent(event, workerDerivationEpoch);
+				try {
+					const applicationReceipt = await this.#onReviewMetadataEvent(
+						event,
+						workerDerivationEpoch,
+					);
+					if (
+						applicationReceipt === null ||
+						applicationReceipt === undefined ||
+						subscription !== this.#reviewSubscription
+					) {
+						continue;
+					}
+					await this.#productTransport.call('review.publication.applied', applicationReceipt);
+					this.#reviewRecoveryPublicationId = null;
+				} catch (error) {
+					await this.#recoverReviewMetadataApplicationFailure(
+						subscription,
+						workerDerivationEpoch,
+						error,
+						event.publicationId,
+					);
+					return;
+				}
 			}
 		} catch (error) {
 			if (subscription === this.#reviewSubscription) {
@@ -212,6 +239,33 @@ export class BridgeCommWorkerProductController {
 			this.#reviewDesiredInterestSignature = null;
 			this.#onReviewMetadataFailure(error, workerDerivationEpoch);
 			throw error;
+		}
+	}
+
+	async #recoverReviewMetadataApplicationFailure(
+		subscription: ReviewMetadataSubscription,
+		workerDerivationEpoch: number,
+		error: unknown,
+		publicationId: string,
+	): Promise<void> {
+		if (subscription !== this.#reviewSubscription) return;
+		this.#onReviewMetadataFailure(error, workerDerivationEpoch);
+		const shouldReopen = this.#reviewRecoveryPublicationId !== publicationId;
+		this.#reviewRecoveryPublicationId = publicationId;
+		try {
+			await subscription.cancel();
+		} catch {
+			// Reopening with a new derivation epoch supersedes the failed subscription locally.
+		}
+		if (subscription !== this.#reviewSubscription) return;
+		this.#reviewSubscription = null;
+		this.#reviewDesiredInterestSignature = null;
+		this.#reviewInterestUpdate = Promise.resolve();
+		if (!shouldReopen) return;
+		try {
+			this.ensureReviewMetadata();
+		} catch {
+			// ensureReviewMetadata publishes the typed failure through the injected callback.
 		}
 	}
 
@@ -486,6 +540,8 @@ function ignoreFileMetadataFailure(_error: unknown, _workerDerivationEpoch: numb
 function ignoreReviewMetadataEvent(
 	_event: ReviewMetadataEvent,
 	_workerDerivationEpoch: number,
-): void {}
+): null {
+	return null;
+}
 
 function ignoreReviewMetadataFailure(_error: unknown, _workerDerivationEpoch: number): void {}

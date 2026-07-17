@@ -1842,13 +1842,15 @@ Publication is one transaction:
 active A -> stage isolated candidate B beside readable A
   pre-commit failure: discard B; A remains native- and worker-visible
   commit: atomically make B native authority before emitting worker-visible B
-  delivery: worker stages complete B, then swaps A -> B at the commit barrier
-  post-commit failure: retain worker-visible A, retry/resync B; never roll back B
-  retire A: after B observation or settlement of every admitted A lease
+  delivery: route and transport-ack each B frame for stream pacing
+  application: worker stages complete B, then swaps A -> B at the commit barrier
+  receipt: worker sends review.publication.applied for B's exact publicationId
+  post-commit failure: retain worker-visible A, reopen/resync Review B; never roll back B
+  retire A: after exact B application receipt or settlement of every admitted A lease
   teardown: synchronously invalidate A, B, and retiring leases, then drain
 ```
 
-Candidate B is invisible to pane presentation and worker render slices until its native commit. Multi-frame B metadata remains worker-pending until its final commit barrier, so partial B cannot paint. A pre-commit delivery reservation may fail and preserve A; after native commit, delivery failure keeps A visibly stale with surface-scoped updating/health while native remains B and retries B. Pane presentation, descriptor authority, and worker metadata therefore never expose B -> A snapback. `BridgeReviewContentLoaderCache` owns provider I/O, validation, coalescing, cache, and eviction only. Permanent proof injects staging, reservation, commit, partial-delivery, and observation failures; covers immediate and in-flight post-close rejection; and proves worker uninstall/reinstall replays the committed native package.
+Candidate B is invisible to pane presentation and worker render slices until its native commit. Multi-frame B metadata carries one stable native `publicationId` and remains worker-pending until its final commit barrier, so partial B cannot paint. Within one generation/package/query/source lineage, a distinct publication strictly advances revision; equal revision is exact replay and retains the existing `publicationId`. `stream.frameObserved` acknowledges safe transport routing immediately and controls stream pacing only; it never proves Review application and never retires A. The worker application transaction covers projection, runtime indexes, worker store, and the single B-bearing display publication. All fallible construction precedes that critical publication; demand, preparation, ancillary slices, and drain scheduling are post-commit derived effects and cannot roll back an applied B. After the atomic worker swap, the worker sends the typed `review.publication.applied` call with B's exact `publicationId`; native accepts only the current publication and then retires A. If B application fails, the worker keeps A readable, cancels and reopens only the Review subscription, and native replays the currently committed publication without resetting File or the shared metadata stream. A pre-commit delivery reservation may fail and preserve A; after native commit, delivery failure keeps A visibly stale with surface-scoped updating/health while native remains B and repairs/retries B. Pane presentation, descriptor authority, and worker metadata therefore never expose B -> A snapback. `BridgeReviewContentLoaderCache` owns provider I/O, validation, coalescing, cache, and eviction only. Permanent proof injects staging, reservation, commit, partial-delivery, application-receipt, and repair failures; covers immediate and in-flight post-close rejection; and proves worker uninstall/reinstall replays the committed native package.
 
 ### R68. Native pane activity controls work without erasing retained product state.
 

@@ -201,9 +201,7 @@ extension BridgeProductProducerRegistry {
         if frame.requiredOpening {
             state.openingFrameState = .delivered
         }
-        if state.key.isContent {
-            state.producerObservedSequenceReplay = receipt.sequence
-        }
+        state.producerObservedSequenceReplay = receipt.sequence
         producersByLeaseId[lease.id] = state
         return true
     }
@@ -214,7 +212,6 @@ extension BridgeProductProducerRegistry {
         waiterToken: UUID
     ) -> BridgeProductProducerObservationPacingPreparation {
         guard var state = producersByLeaseId[lease.id],
-            state.key.isContent,
             state.lifecycle != .stopped
         else {
             return .rejected

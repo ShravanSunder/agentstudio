@@ -187,8 +187,8 @@ struct BridgePaneProductMetadataCoordinatorTests {
         #expect(await pump.cancel())
     }
 
-    @Test("committed Review open publishes source data after the accepted lifecycle frame")
-    func committedReviewOpenPublishesDataAfterAcceptedLifecycle() async throws {
+    @Test("committed Review publication waits for its exact final frame observation")
+    func committedReviewPublicationWaitsForExactFinalFrameObservation() async throws {
         // Arrange
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let lease = try await harness.admitMetadataFrames(through: 0)
@@ -199,7 +199,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
             acknowledgeLifecycle: { _ in true }
         )
         let reviewPackage = try coordinatorReviewPackageFixture()
-        let reviewSource = BridgePaneProductReviewMetadataSource(initialAvailability: .ready(reviewPackage))
+        let reviewSource = CoordinatorTrackingReviewMetadataSource()
         let coordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: reviewSource
@@ -230,24 +230,59 @@ struct BridgePaneProductMetadataCoordinatorTests {
             effect,
             productAdmission: harness.productAdmission.context
         )
-        let dataFrame = try await pullMetadataFrame(from: pump)
+        await reviewSource.waitUntilOpenRegistered()
+        let publication = coordinatorCommittedReviewPublication(reviewPackage)
+        let reservation = try await coordinator.reserveReviewPublication(
+            package: reviewPackage,
+            publicationId: publication.publicationId,
+            productAdmission: harness.productAdmission.context
+        )
+        let deliveryProbe = CoordinatorReviewDeliveryDispositionProbe()
+        let delivery = Task {
+            let disposition = await coordinator.deliverReviewPublication(
+                publication,
+                reservation: reservation,
+                productAdmission: harness.productAdmission.context
+            )
+            await deliveryProbe.record(disposition)
+            return disposition
+        }
+        let publicationReceipt = await reviewSource.waitUntilPublicationReceipt()
+        let sourceAcceptedFrame = try await pullMetadataFrame(from: pump)
+        #expect(await deliveryProbe.disposition == nil)
+        let snapshotFrame = try await pullMetadataFrame(from: pump)
+        let deliveryDisposition = await delivery.value
         await harness.session.settleControlProviderDispatch(token: token)
 
         // Assert
         guard case .subscriptionAccepted(let accepted) = acceptedFrame,
-            case .subscriptionData(let data) = dataFrame,
-            case .reviewMetadata(let event) = data.data
+            case .subscriptionData(let sourceAcceptedData) = sourceAcceptedFrame,
+            case .reviewMetadata(.sourceAccepted(let sourceAccepted)) = sourceAcceptedData.data,
+            case .subscriptionData(let snapshotData) = snapshotFrame,
+            case .reviewMetadata(.snapshot(let snapshot)) = snapshotData.data
         else {
-            Issue.record("Expected Review accepted followed by source-accepted data")
+            Issue.record("Expected Review accepted followed by source-accepted and snapshot data")
             return
         }
         #expect(accepted.frameIdentity.streamSequence == 1)
-        #expect(data.frameIdentity.streamSequence == 2)
-        #expect(data.subscriptionIdentity.subscriptionSequence == 1)
-        #expect(event.generation == 42)
-        #expect(event.packageId == "package-42")
-        #expect(event.revision == 1)
-        #expect(event.sourceIdentity == "query-42")
+        #expect(sourceAcceptedData.frameIdentity.streamSequence == 2)
+        #expect(sourceAcceptedData.subscriptionIdentity.subscriptionSequence == 1)
+        #expect(snapshotData.frameIdentity.streamSequence == 3)
+        #expect(snapshotData.subscriptionIdentity.subscriptionSequence == 2)
+        #expect(sourceAccepted.identity.generation == 42)
+        #expect(sourceAccepted.identity.packageId == "package-42")
+        #expect(sourceAccepted.identity.revision == 1)
+        #expect(sourceAccepted.identity.sourceIdentity == "query-42")
+        #expect(snapshot.identity == sourceAccepted.identity)
+        #expect(deliveryDisposition == .transportAcknowledged)
+        #expect(
+            publicationReceipt.finalFrames == [
+                BridgeReviewMetadataFinalFrame(
+                    sequence: 3,
+                    subscriptionId: "review-subscription-1"
+                )
+            ]
+        )
         await coordinator.uninstall(lease: lease)
         #expect(await pump.cancel())
     }
@@ -706,7 +741,7 @@ private actor CoordinatorReviewMetadataSource: BridgePaneProductReviewMetadataPr
     ) async throws {
         guard let event else { throw CoordinatorReviewMetadataSourceError.unavailable }
         activeSubscriptionIds.insert(subscription.subscriptionId)
-        try await emit(event, productAdmission)
+        _ = try await emit(event, productAdmission)
     }
 
     func update(
@@ -723,14 +758,31 @@ private actor CoordinatorReviewMetadataSource: BridgePaneProductReviewMetadataPr
             throw CoordinatorReviewMetadataSourceError.unavailable
         }
         updatedItemIds = interests.flatMap(\.itemIds)
-        try await emit(event, productAdmission)
+        _ = try await emit(event, productAdmission)
     }
 
-    func publish(
-        availability _: BridgePaneProductReviewMetadataAvailability,
-        productAdmission _: BridgeProductAdmissionContext
+    func reserve(
+        package: BridgeReviewPackage,
+        publicationId: UUID,
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> BridgeReviewMetadataPublicationReservation {
+        guard (productAdmission.withValidAdmission { true }) == true else {
+            throw CancellationError()
+        }
+        return coordinatorReviewReservation(for: package, publicationId: publicationId)
+    }
+
+    func deliver(
+        package: BridgeReviewPackage,
+        reservation: BridgeReviewMetadataPublicationReservation,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
-        .loading(retained: activeSubscriptionIds.count)
+        guard reservation.packageId == package.packageId,
+            reservation.reviewGeneration == package.reviewGeneration,
+            reservation.revision == package.revision,
+            (productAdmission.withValidAdmission { true }) == true
+        else { throw CoordinatorReviewMetadataSourceError.unavailable }
+        return .deferred(retained: activeSubscriptionIds.count)
     }
 
     func cancel(subscriptionId: String) {
@@ -758,19 +810,9 @@ private func coordinatorReviewSourceAcceptedEvent() throws -> BridgeProductRevie
     try .init(
         generation: 7,
         packageId: "review-package-1",
+        publicationId: UUID(uuidString: "11111111-1111-7111-8111-111111111111")!,
         revision: 11,
         sourceIdentity: "review-query-1"
-    )
-}
-
-private func coordinatorReviewPackageFixture() throws -> BridgeReviewPackage {
-    let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-    let fixtureURL = projectRoot.appending(
-        path: "Tests/BridgeContractFixtures/valid/bridge-review-package.json"
-    )
-    return try JSONDecoder().decode(
-        BridgeReviewPackage.self,
-        from: Data(contentsOf: fixtureURL)
     )
 }
 

@@ -33,11 +33,27 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             addedItemIds: ["item-new"],
             removedItemIds: ["item-old"]
         )
+        let productAdmission = try #require(fixture.controller.productAdmissionGate.acquire())
+        let changedPublication = try #require(
+            fixture.controller.reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )
+        )
+        let changedPackageMetadata = fixture.controller.paneState.diff.packageMetadata
+        let changedPackageDelta = fixture.controller.paneState.diff.packageDelta
 
         await postRefreshEvent(fixture, path: "Sources/App/New.swift", batchSeq: 11)
-        #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-new"])
-        #expect(fixture.controller.paneState.diff.packageMetadata?.revision == 1)
-        #expect(fixture.controller.paneState.diff.packageDelta == nil)
+        let unchangedPublication = try #require(
+            fixture.controller.reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )
+        )
+        #expect(unchangedPublication.publicationId == changedPublication.publicationId)
+        #expect(unchangedPublication == changedPublication)
+        #expect(fixture.controller.reviewPublicationCoordinator.diagnosticSnapshot.pending == nil)
+        #expect(fixture.controller.paneState.diff.status == .ready)
+        #expect(fixture.controller.paneState.diff.packageMetadata == changedPackageMetadata)
+        #expect(fixture.controller.paneState.diff.packageDelta == changedPackageDelta)
 
         await setRefreshComparison(fixture, changedFile: fixture.secondRefreshedFile)
         await postRefreshEvent(fixture, path: "Sources/App/Newer.swift", batchSeq: 12)
@@ -352,34 +368,43 @@ private actor DiffLoadReadyPublicationGate: BridgePaneProductReviewMetadataProdu
         emit _: @escaping BridgePaneProductReviewMetadataEventSink
     ) async throws {}
 
-    func publish(
-        availability: BridgePaneProductReviewMetadataAvailability,
+    func reserve(
+        package: BridgeReviewPackage,
+        publicationId: UUID,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async throws -> BridgeReviewMetadataPublicationReservation {
+        BridgeReviewMetadataPublicationReservation(
+            reservationId: UUIDv7.generate(),
+            packageId: package.packageId,
+            publicationId: publicationId,
+            reviewGeneration: package.reviewGeneration,
+            revision: package.revision
+        )
+    }
+
+    func deliver(
+        package _: BridgeReviewPackage,
+        reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
-        switch availability {
-        case .loading:
-            return .loading(retained: 0)
-        case .failed:
-            return .failed(retained: 0)
-        case .ready:
-            readyPublicationStarted = true
-            let startedWaiters = readyPublicationStartedWaiters
-            readyPublicationStartedWaiters.removeAll(keepingCapacity: false)
-            for waiter in startedWaiters {
-                waiter.resume()
-            }
-            await withCheckedContinuation { continuation in
-                readyPublicationRelease = continuation
-            }
-            return .ready(
-                BridgeReviewMetadataPublicationReceipt(
-                    retained: 0,
-                    publishedSubscriptions: 0,
-                    emittedEvents: 0,
-                    superseded: 0
-                )
-            )
+        readyPublicationStarted = true
+        let startedWaiters = readyPublicationStartedWaiters
+        readyPublicationStartedWaiters.removeAll(keepingCapacity: false)
+        for waiter in startedWaiters {
+            waiter.resume()
         }
+        await withCheckedContinuation { continuation in
+            readyPublicationRelease = continuation
+        }
+        return .delivered(
+            BridgeReviewMetadataPublicationReceipt(
+                retained: 0,
+                publishedSubscriptions: 0,
+                emittedEvents: 0,
+                superseded: 0,
+                finalFrames: []
+            )
+        )
     }
 
     func cancel(subscriptionId _: String) {}

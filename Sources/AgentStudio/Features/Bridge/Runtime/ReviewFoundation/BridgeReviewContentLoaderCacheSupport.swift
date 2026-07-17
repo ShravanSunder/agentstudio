@@ -1,15 +1,16 @@
 import CryptoKit
 import Foundation
 
-enum BridgeContentStoreError: Error, Equatable, Sendable {
+enum BridgeReviewContentLoaderCacheError: Error, Equatable, Sendable {
     case productAdmissionRejected
+    case closed
 }
 
-struct BridgeContentStoreDiagnosticSnapshot: Equatable, Sendable {
-    let activeHandleCount: Int
+struct BridgeReviewContentLoaderCacheDiagnosticSnapshot: Equatable, Sendable {
     let cachedContentCount: Int
     let inFlightLoadCount: Int
     let totalCachedBytes: Int
+    let isClosed: Bool
 }
 
 func bridgeComputedContentHash(for data: Data, algorithm: String) throws -> String {
@@ -28,7 +29,7 @@ func bridgeComputedContentHash(for data: Data, algorithm: String) throws -> Stri
     }
 }
 
-extension BridgeContentStore {
+extension BridgeReviewContentLoaderCache {
     func emitContentDataChunks(
         _ data: Data,
         chunkByteCount: Int,
@@ -39,7 +40,7 @@ extension BridgeContentStore {
         while offset < data.count {
             let endOffset = min(offset + chunkByteCount, data.count)
             guard (productAdmission.withValidAdmission { true }) == true else {
-                throw BridgeContentStoreError.productAdmissionRejected
+                throw BridgeReviewContentLoaderCacheError.productAdmissionRejected
             }
             try await emitChunk(data.subdata(in: offset..<endOffset))
             offset = endOffset

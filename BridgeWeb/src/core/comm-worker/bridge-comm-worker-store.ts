@@ -1,6 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
-import type { BridgeProductSurface } from './bridge-product-contract-primitives.js';
 import type { BridgeCommWorkerFileViewRuntimeMutation } from './bridge-comm-worker-file-metadata-projection.js';
 import {
 	applyBridgeCommWorkerFileViewSourceMutationFact,
@@ -17,6 +16,7 @@ import {
 	type BridgeCommWorkerTelemetryLane,
 	type BridgeCommWorkerTelemetryRecorder,
 } from './bridge-comm-worker-telemetry.js';
+import type { BridgeProductSurface } from './bridge-product-contract-primitives.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerSlicePatchEventSchema,
@@ -55,6 +55,11 @@ export interface BridgeCommWorkerStoreState {
 	readonly paintReadyByItemId: Map<string, string>;
 	readonly availabilityByItemId: Map<string, BridgeWorkerContentAvailabilityPatchPayload['state']>;
 	readonly contentMetadataByItemId: Map<string, BridgeWorkerContentMetadata>;
+}
+
+export interface BridgeCommWorkerStoreRollbackSnapshot {
+	readonly pendingSlicePatches: readonly BridgeWorkerSlicePatch[];
+	readonly state: BridgeCommWorkerStoreState;
 }
 
 export interface CreateBridgeCommWorkerStoreProps {
@@ -159,8 +164,10 @@ export interface TakePendingBridgeCommWorkerSlicePatchEventProps {
 }
 
 export interface BridgeCommWorkerStore {
+	readonly captureRollbackSnapshot: () => BridgeCommWorkerStoreRollbackSnapshot;
 	readonly getState: () => BridgeCommWorkerStoreState;
 	readonly renderFulfillmentRegistry: BridgeWorkerRenderFulfillmentRegistry;
+	readonly restoreRollbackSnapshot: (snapshot: BridgeCommWorkerStoreRollbackSnapshot) => void;
 	readonly subscribe: StoreApi<BridgeCommWorkerStoreState>['subscribe'];
 	readonly actions: {
 		readonly applySelectedFact: (
@@ -222,8 +229,16 @@ export function createBridgeCommWorkerStore(
 		});
 
 	const workerStore: BridgeCommWorkerStore = {
+		captureRollbackSnapshot: (): BridgeCommWorkerStoreRollbackSnapshot => ({
+			pendingSlicePatches: [...pendingSlicePatches],
+			state: cloneBridgeCommWorkerStoreState(store.getState()),
+		}),
 		getState: store.getState,
 		renderFulfillmentRegistry,
+		restoreRollbackSnapshot: (snapshot): void => {
+			store.setState(cloneBridgeCommWorkerStoreState(snapshot.state), true);
+			pendingSlicePatches.splice(0, pendingSlicePatches.length, ...snapshot.pendingSlicePatches);
+		},
 		subscribe: store.subscribe,
 		actions: {
 			applySelectedFact: (
@@ -613,6 +628,29 @@ export function createBridgeCommWorkerStore(
 			pendingSlicePatches,
 			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 		}),
+	};
+}
+
+function cloneBridgeCommWorkerStoreState(
+	state: BridgeCommWorkerStoreState,
+): BridgeCommWorkerStoreState {
+	return {
+		availabilityByItemId: new Map(state.availabilityByItemId),
+		byteCache: new Map(state.byteCache),
+		childrenByParentId: new Map(
+			[...state.childrenByParentId].map(([parentId, childIds]) => [parentId, new Set(childIds)]),
+		),
+		contentMetadataByItemId: new Map(state.contentMetadataByItemId),
+		demandByKey: new Map(state.demandByKey),
+		indexById: new Map(state.indexById),
+		orderedIds: [...state.orderedIds],
+		paintReadyByItemId: new Map(state.paintReadyByItemId),
+		rowById: new Map(state.rowById),
+		selectedDemandEnabled: state.selectedDemandEnabled,
+		selectedEpoch: state.selectedEpoch,
+		selectedId: state.selectedId,
+		viewportRange: state.viewportRange === null ? null : { ...state.viewportRange },
+		visibleIds: [...state.visibleIds],
 	};
 }
 

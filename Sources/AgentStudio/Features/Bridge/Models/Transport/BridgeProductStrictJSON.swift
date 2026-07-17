@@ -175,6 +175,7 @@ enum BridgeProductStrictJSON {
             "provenance",
             "provenanceFilter",
             "providerIdentity",
+            "publicationId",
             "query",
             "queryId",
             "queryKind",

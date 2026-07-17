@@ -167,6 +167,7 @@ describe('Bridge comm worker Review product runtime', () => {
 							'bridge-review-metadata-window-v1',
 							'source-1',
 							7,
+							'00000000-0000-7000-8000-000000000011',
 							11,
 						]),
 						status: 'ready',
@@ -305,6 +306,7 @@ const reviewSnapshotEvent = {
 	itemMetadata: [reviewItemMetadata],
 	itemWindow: { finalWindow: true, itemCount: 1, startIndex: 0, totalItemCount: 1 },
 	packageId: 'package-1',
+	publicationId: '00000000-0000-7000-8000-000000000011',
 	query: {
 		baseEndpointId: 'base',
 		comparisonSemantics: 'threeDot',

@@ -34,6 +34,7 @@ extension BridgeProductReviewMetadataEvent {
     init(
         generation: Int,
         packageId: String,
+        publicationId: UUID,
         revision: Int,
         sourceIdentity: String
     ) throws {
@@ -42,6 +43,7 @@ extension BridgeProductReviewMetadataEvent {
                 identity: try BridgeProductReviewMetadataIdentity(
                     generation: generation,
                     packageId: packageId,
+                    publicationId: publicationId,
                     revision: revision,
                     sourceIdentity: sourceIdentity
                 )

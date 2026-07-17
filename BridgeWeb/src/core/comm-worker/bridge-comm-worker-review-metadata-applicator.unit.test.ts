@@ -193,6 +193,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 					{ itemIds: ['item-1'], operationKind: 'removeItems' },
 					{ deleteCount: 1, operationKind: 'spliceTreeRows', rows: [], startIndex: 1 },
 				],
+				publicationId: '00000000-0000-7000-8000-000000000012',
 				revision: 12,
 				toRevision: 12,
 			},
@@ -204,7 +205,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 		expect(store.getState().contentMetadataByItemId.has('item-1')).toBe(false);
 	});
 
-	test('gives source acceptance and its snapshot distinct reset epochs', () => {
+	test('stages a fresh replay until its complete snapshot and publishes one reset epoch', () => {
 		// Arrange
 		const applications: BridgeCommWorkerReviewMetadataApplication[] = [];
 		const applicator = new BridgeCommWorkerReviewMetadataApplicator({
@@ -220,6 +221,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 				eventKind: 'review.sourceAccepted',
 				generation: 7,
 				packageId: 'package-1',
+				publicationId: '00000000-0000-7000-8000-000000000011',
 				revision: 11,
 				sourceIdentity: 'source-1',
 			},
@@ -228,8 +230,8 @@ describe('Bridge comm worker Review metadata applicator', () => {
 		applicator.apply(reviewSnapshotEvent(), 12);
 
 		// Assert
-		expect(applications.map(({ sourceEpoch }) => sourceEpoch)).toEqual([1, 2]);
-		expect(applications.every(({ reset }) => reset)).toBe(true);
+		expect(applications).toHaveLength(1);
+		expect(applications[0]).toMatchObject({ reset: true, sourceEpoch: 1 });
 	});
 
 	test('applies structural deltas as closed row removal and upsert mutations', () => {
@@ -258,6 +260,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 						startIndex: 0,
 					},
 				],
+				publicationId: '00000000-0000-7000-8000-000000000012',
 				revision: 12,
 				toRevision: 12,
 			},
@@ -294,6 +297,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 					{ itemIds: ['item-1'], operationKind: 'removeItems' },
 					{ deleteCount: 1, operationKind: 'spliceTreeRows', rows: [], startIndex: 0 },
 				],
+				publicationId: '00000000-0000-7000-8000-000000000012',
 				revision: 12,
 				toRevision: 12,
 			},
@@ -314,7 +318,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 		});
 	});
 
-	test('carries prior item identity through a full metadata reset', () => {
+	test('retains prior item identity while a same-source metadata reset is pending', () => {
 		// Arrange
 		const applications: BridgeCommWorkerReviewMetadataApplication[] = [];
 		const applicator = new BridgeCommWorkerReviewMetadataApplicator({
@@ -330,6 +334,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 			{
 				...reviewPayloadIdentity,
 				eventKind: 'review.reset',
+				publicationId: '00000000-0000-7000-8000-000000000012',
 				reason: 'subscriptionReset',
 				revision: 12,
 			},
@@ -337,11 +342,10 @@ describe('Bridge comm worker Review metadata applicator', () => {
 		);
 
 		// Assert
-		expect(applications[1]).toMatchObject({
-			affectedItemIds: ['item-1'],
-			removedItemIds: ['item-1'],
+		expect(applications).toHaveLength(1);
+		expect(applications[0]).toMatchObject({
 			reset: true,
-			source: { contentItems: [], rows: [] },
+			source: { contentItems: [{ itemId: 'item-1' }], rows: [{ id: 'item-1' }] },
 		});
 	});
 
@@ -365,6 +369,7 @@ describe('Bridge comm worker Review metadata applicator', () => {
 					eventKind: 'review.delta',
 					fromRevision: 10,
 					operations: [],
+					publicationId: '00000000-0000-7000-8000-000000000012',
 					revision: 12,
 					toRevision: 12,
 				},
@@ -598,6 +603,7 @@ const reviewPayloadIdentity = {
 		worktreeId: 'worktree-1',
 	},
 	packageId: 'package-1',
+	publicationId: '00000000-0000-7000-8000-000000000011',
 	query: {
 		baseEndpointId: 'base',
 		comparisonSemantics: 'threeDot',

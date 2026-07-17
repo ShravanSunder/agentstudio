@@ -17,6 +17,7 @@ import {
 	bridgeProductReviewGroupingKindSchema,
 	bridgeProductReviewPackageSummarySchema,
 	bridgeProductReviewPrioritySchema,
+	bridgeProductReviewPublicationIdSchema,
 	bridgeProductReviewSourceEndpointKindSchema,
 } from './bridge-product-review-primitives.js';
 
@@ -211,6 +212,7 @@ export const bridgeProductReviewExtentFactSchema = z
 const bridgeProductReviewMetadataIdentityShape = {
 	generation: bridgeProductNonnegativeSequenceSchema,
 	packageId: bridgeProductIdentifierSchema,
+	publicationId: bridgeProductReviewPublicationIdSchema,
 	revision: bridgeProductNonnegativeSequenceSchema,
 	sourceIdentity: bridgeProductIdentifierSchema,
 } as const;

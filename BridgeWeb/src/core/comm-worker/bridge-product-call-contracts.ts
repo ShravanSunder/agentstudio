@@ -6,6 +6,7 @@ import {
 	type BridgeProductRegistryValue,
 	type BridgeProductTypeSetsEqual,
 } from './bridge-product-contract-primitives.js';
+import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
 import { bridgeProductFileSourceConfigurationSchema } from './bridge-product-subscription-contracts.js';
 
 export const bridgeProductFileSourceCurrentRequestSchema = z.object({}).strict();
@@ -35,6 +36,10 @@ export const bridgeProductReviewIntakeReadyRequestSchema = z
 	})
 	.strict();
 export const bridgeProductReviewIntakeReadyResultSchema = z.null();
+export const bridgeProductReviewPublicationAppliedRequestSchema = z
+	.object({ publicationId: bridgeProductReviewPublicationIdSchema })
+	.strict();
+export const bridgeProductReviewPublicationAppliedResultSchema = z.null();
 
 const bridgeProductActiveViewerSourceBaseSchema = z
 	.object({
@@ -80,6 +85,11 @@ export type BridgeProductCallRegistry = {
 		readonly result: z.infer<typeof bridgeProductReviewIntakeReadyResultSchema>;
 		readonly surface: 'review';
 	};
+	readonly 'review.publication.applied': {
+		readonly request: z.infer<typeof bridgeProductReviewPublicationAppliedRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductReviewPublicationAppliedResultSchema>;
+		readonly surface: 'review';
+	};
 	readonly 'review.activeViewerMode.update': {
 		readonly request: z.infer<typeof bridgeProductReviewActiveViewerModeUpdateRequestSchema>;
 		readonly result: z.infer<typeof bridgeProductActiveViewerModeUpdateResultSchema>;
@@ -99,6 +109,7 @@ const bridgeProductSurfaceByCallKind = {
 	'review.activeViewerMode.update': 'review',
 	'review.intake.ready': 'review',
 	'review.markFileViewed': 'review',
+	'review.publication.applied': 'review',
 } as const satisfies {
 	readonly [TCallKind in BridgeProductCallKind]: BridgeProductCallRegistry[TCallKind]['surface'];
 };
@@ -140,6 +151,12 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 			request: bridgeProductReviewIntakeReadyRequestSchema,
 		})
 		.strict(),
+	z
+		.object({
+			method: z.literal('review.publication.applied'),
+			request: bridgeProductReviewPublicationAppliedRequestSchema,
+		})
+		.strict(),
 ]);
 
 export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
@@ -171,6 +188,12 @@ export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('review.intake.ready'),
 			result: bridgeProductReviewIntakeReadyResultSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.publication.applied'),
+			result: bridgeProductReviewPublicationAppliedResultSchema,
 		})
 		.strict(),
 ]);

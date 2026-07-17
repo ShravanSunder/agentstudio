@@ -65,6 +65,69 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
         #expect(await recorder.itemIds == ["item-1"])
     }
 
+    @Test("exact Review publication application mutates only after committed completion")
+    func reviewPublicationApplicationRequiresCommittedCompletion() async throws {
+        // Arrange
+        let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
+        let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes)
+        let session = try BridgeProductSession(
+            paneSessionId: bridgeProductTestPaneSessionId,
+            workerInstanceId: bridgeProductTestWorkerInstanceId,
+            capabilityBytes: capabilityBytes
+        )
+        let recorder = await MainActor.run { BridgeProductCallMutationRecorder() }
+        let provider = BridgePaneProductSchemeProvider(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
+            recordReviewPublicationApplication: { publicationId, _ in
+                recorder.record(publicationId)
+                return true
+            },
+            markReviewItemViewed: { _, _ in }
+        )
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
+        let dispatcher = makeBridgeProductSchemeControlDispatcher(
+            session: session,
+            provider: provider,
+            productAdmission: productAdmission
+        )
+        let callBody = bridgeProductCompletionEffectsPublicationAppliedBody()
+        let decodedCall = try BridgeProductStrictJSON.decode(
+            BridgeProductControlRequest.self,
+            from: callBody
+        )
+
+        // Act
+        let response = await provider.response(for: decodedCall)
+        let idsAfterProviderResponse = await recorder.publicationIds
+        _ = try await dispatcher.dispatch(
+            exactRequestBytes: bridgeProductSchemeWorkerOpenBody(),
+            presentedCapability: capabilityHeader
+        )
+        _ = try await dispatcher.dispatch(
+            exactRequestBytes: callBody,
+            presentedCapability: capabilityHeader
+        )
+        _ = try await dispatcher.dispatch(
+            exactRequestBytes: callBody,
+            presentedCapability: capabilityHeader
+        )
+
+        // Assert
+        guard case .callCompleted(let completed) = response,
+            completed.call == .reviewPublicationApplied
+        else {
+            Issue.record("Expected a typed Review publication application completion")
+            return
+        }
+        #expect(idsAfterProviderResponse.isEmpty)
+        #expect(
+            await recorder.publicationIds
+                == [UUID(uuidString: "11111111-1111-7111-8111-111111111111")!]
+        )
+    }
+
     @Test("committed effects reach the provider after mutation and only once across replay")
     func committedEffectsAreDeliveredAfterSessionMutation() async throws {
         // Arrange
@@ -416,11 +479,36 @@ private func installCompletionEffectsMetadataStream(
 @MainActor
 private final class BridgeProductCallMutationRecorder {
     private(set) var itemIds: [String] = []
+    private(set) var publicationIds: [UUID] = []
     var count: Int { itemIds.count }
 
     func record(_ itemId: String) {
         itemIds.append(itemId)
     }
+
+    func record(_ publicationId: UUID) {
+        publicationIds.append(publicationId)
+    }
+}
+
+private func bridgeProductCompletionEffectsPublicationAppliedBody() -> Data {
+    Data(
+        """
+        {
+          "call": {
+            "method": "review.publication.applied",
+            "request": { "publicationId": "11111111-1111-7111-8111-111111111111" }
+          },
+          "kind": "product.call",
+          "paneSessionId": "\(bridgeProductTestPaneSessionId)",
+          "requestId": "review-publication-applied-1",
+          "requestSequence": 2,
+          "wireVersion": 2,
+          "workerDerivationEpoch": 0,
+          "workerInstanceId": "\(bridgeProductTestWorkerInstanceId)"
+        }
+        """.utf8
+    )
 }
 
 private func bridgeProductCompletionEffectsMarkViewedBody() -> Data {

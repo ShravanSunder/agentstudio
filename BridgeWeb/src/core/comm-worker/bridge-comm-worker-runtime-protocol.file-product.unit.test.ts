@@ -143,16 +143,12 @@ describe('Bridge comm worker File product runtime', () => {
 			eventKind: 'review.sourceAccepted',
 			generation: 1,
 			packageId: 'review-package-cross-surface-store-isolation',
+			publicationId: '00000000-0000-7000-8000-000000000001',
 			revision: 1,
 			sourceIdentity: 'review-source-cross-surface-store-isolation',
 		});
 		await flushBridgeWorkerRuntimeContinuations();
-		const reviewResetDrain = scheduledDrains.shift();
-		if (reviewResetDrain === undefined) {
-			throw new Error('Expected concurrent Review source reset preparation.');
-		}
-		await reviewResetDrain();
-		await flushBridgeWorkerRuntimeContinuations();
+		expect(scheduledDrains).toHaveLength(0);
 
 		// Act
 		dispatch.message(

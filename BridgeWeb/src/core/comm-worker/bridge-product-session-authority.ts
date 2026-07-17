@@ -431,6 +431,7 @@ function bridgeProductCallResultForMethod<TCallKind extends BridgeProductCallKin
 		case 'review.activeViewerMode.update':
 		case 'review.intake.ready':
 		case 'review.markFileViewed':
+		case 'review.publication.applied':
 			if (call.result !== null) {
 				throw new Error('Bridge product null-result call returned a non-null result.');
 			}

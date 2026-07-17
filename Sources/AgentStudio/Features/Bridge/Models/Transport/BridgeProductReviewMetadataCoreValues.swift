@@ -7,10 +7,38 @@ enum BridgeProductReviewMetadataLimits {
     static let maximumProvenanceSourceKindCount = 64
 }
 
+enum BridgeProductReviewPublicationIdContract {
+    static func decode(
+        _ value: String,
+        codingPath: [any CodingKey]
+    ) throws -> UUID {
+        try BridgeProductContractDecoding.validateUUID(value, codingPath: codingPath)
+        let bytes = Array(value.utf8)
+        guard value == value.lowercased(),
+            bytes.count == 36,
+            bytes[14] == 0x37,
+            let publicationId = UUID(uuidString: value)
+        else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Review publicationId must be a lowercase canonical UUIDv7",
+                codingPath: codingPath
+            )
+        }
+        return publicationId
+    }
+
+    static func encode(_ publicationId: UUID) -> String {
+        let value = publicationId.uuidString.lowercased()
+        precondition(Array(value.utf8)[14] == 0x37, "Review publicationId must be UUIDv7")
+        return value
+    }
+}
+
 struct BridgeProductReviewMetadataIdentity: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey, CaseIterable {
         case generation
         case packageId
+        case publicationId
         case revision
         case sourceIdentity
     }
@@ -19,14 +47,26 @@ struct BridgeProductReviewMetadataIdentity: Codable, Equatable, Sendable {
 
     let generation: Int
     let packageId: String
+    let publicationId: UUID
     let revision: Int
     let sourceIdentity: String
 
-    init(generation: Int, packageId: String, revision: Int, sourceIdentity: String) throws {
+    init(
+        generation: Int,
+        packageId: String,
+        publicationId: UUID,
+        revision: Int,
+        sourceIdentity: String
+    ) throws {
         self.generation = generation
         self.packageId = packageId
+        self.publicationId = publicationId
         self.revision = revision
         self.sourceIdentity = sourceIdentity
+        _ = try BridgeProductReviewPublicationIdContract.decode(
+            publicationId.uuidString.lowercased(),
+            codingPath: []
+        )
         try BridgeProductContractDecoding.validateNonnegative(generation, name: "generation", codingPath: [])
         try BridgeProductContractDecoding.validateIdentifier(packageId, codingPath: [])
         try BridgeProductContractDecoding.validateNonnegative(revision, name: "revision", codingPath: [])
@@ -37,6 +77,11 @@ struct BridgeProductReviewMetadataIdentity: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.generation = try container.decode(Int.self, forKey: .generation)
         self.packageId = try container.decode(String.self, forKey: .packageId)
+        let publicationIdValue = try container.decode(String.self, forKey: .publicationId)
+        self.publicationId = try BridgeProductReviewPublicationIdContract.decode(
+            publicationIdValue,
+            codingPath: decoder.codingPath
+        )
         self.revision = try container.decode(Int.self, forKey: .revision)
         self.sourceIdentity = try container.decode(String.self, forKey: .sourceIdentity)
         try BridgeProductContractDecoding.validateNonnegative(
@@ -57,6 +102,10 @@ struct BridgeProductReviewMetadataIdentity: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(generation, forKey: .generation)
         try container.encode(packageId, forKey: .packageId)
+        try container.encode(
+            BridgeProductReviewPublicationIdContract.encode(publicationId),
+            forKey: .publicationId
+        )
         try container.encode(revision, forKey: .revision)
         try container.encode(sourceIdentity, forKey: .sourceIdentity)
     }

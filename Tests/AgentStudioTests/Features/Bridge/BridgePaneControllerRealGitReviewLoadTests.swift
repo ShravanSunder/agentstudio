@@ -22,7 +22,7 @@ extension WebKitSerializedTests {
             let repoURL = try FilesystemTestGitRepo.create(named: "bridge-review-controller-load")
             defer { FilesystemTestGitRepo.destroy(repoURL) }
             try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
-            let harness = try RealGitReviewLoadHarness.make(repositoryURL: repoURL)
+            let harness = try await RealGitReviewLoadHarness.make(repositoryURL: repoURL)
             defer { harness.controller.teardown() }
             let metadataLease = try await harness.openReviewMetadataSubscription()
 
@@ -65,32 +65,8 @@ private struct RealGitReviewLoadHarness {
     let productAdmission: BridgeProductAdmissionContext
     let productProvider: BridgePaneProductSchemeProvider
 
-    static func make(repositoryURL: URL) throws -> Self {
+    static func make(repositoryURL: URL) async throws -> Self {
         let paneId = UUIDv7.generate()
-        let reviewMetadataSource = BridgePaneProductReviewMetadataSource(
-            initialAvailability: .loading
-        )
-        let productAdmissionGate = BridgeProductAdmissionGate()
-        let productAdmission = try #require(productAdmissionGate.acquire())
-        let productProvider = BridgePaneProductSchemeProvider(
-            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
-            reviewMetadataSource: reviewMetadataSource,
-            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
-            markReviewItemViewed: { _, _ in }
-        )
-        let installation = BridgePaneController.makeInitialProductSessionInstallation(
-            paneSessionId: paneId.uuidString,
-            provider: productProvider,
-            productAdmissionGate: productAdmissionGate
-        )
-        let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
-            installation.capabilityBytes
-        )
-        let controlDispatcher = BridgeProductSchemeControlDispatcher(
-            session: installation.session,
-            provider: productProvider,
-            productAdmission: productAdmission
-        )
         let controller = BridgePaneController(
             paneId: paneId,
             state: BridgePaneState(
@@ -113,17 +89,20 @@ private struct RealGitReviewLoadHarness {
             ),
             reviewSourceProvider: BridgeReviewSourceProviderFactory.gitProvider(
                 repositoryPath: repositoryURL
-            ),
-            productSessionDependencies: BridgePaneProductSessionDependencies(
-                installation: installation,
-                owner: BridgePaneController.makeProductSessionOwner(
-                    paneSessionId: paneId.uuidString,
-                    provider: productProvider,
-                    productAdmissionGate: productAdmissionGate,
-                    activeInstallation: installation
-                ),
-                productProvider: productProvider
             )
+        )
+        let productProvider = try #require(controller.productSchemeProvider)
+        let installation = try #require(
+            await controller.productSessionOwner.activeInstallation
+        )
+        let productAdmission = try #require(controller.productAdmissionGate.acquire())
+        let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
+            installation.capabilityBytes
+        )
+        let controlDispatcher = BridgeProductSchemeControlDispatcher(
+            session: installation.session,
+            provider: productProvider,
+            productAdmission: productAdmission
         )
         #expect(controller.handleBridgeReady())
         return Self(

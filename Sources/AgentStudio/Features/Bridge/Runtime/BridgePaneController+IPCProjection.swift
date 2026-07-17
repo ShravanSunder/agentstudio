@@ -252,26 +252,33 @@ extension BridgePaneController {
             throw BridgeIPCProjectionError(reason: .contentUnavailable)
         }
         let requestedGeneration = BridgeReviewGeneration(reviewGeneration)
-        let capturedAuthorityLifetime = reviewContentAuthorityLifetime
-        guard paneState.diff.packageMetadata?.reviewGeneration == requestedGeneration else {
+        guard
+            let publication = reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            ),
+            publication.package.reviewGeneration == requestedGeneration,
+            let contentLease = reviewPublicationCoordinator.acquireContentLease(
+                handleId: contentHandleId,
+                packageId: publication.package.packageId,
+                requestedGeneration: requestedGeneration,
+                sourceIdentity: publication.package.query.queryId,
+                productAdmission: productAdmission
+            )
+        else {
             throw BridgeIPCProjectionError(reason: .contentUnavailable)
         }
-        let handle: BridgeContentHandle
-        do {
-            handle = try await reviewContentStore.metadata(
-                handleId: contentHandleId,
-                requestedGeneration: requestedGeneration
-            )
-        } catch {
+        defer { reviewPublicationCoordinator.settleContentLease(contentLease) }
+        let handle = contentLease.handle
+        guard
+            reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )?.publicationId == publication.publicationId
+        else {
             throw BridgeIPCProjectionError(reason: .contentUnavailable)
         }
         guard
             let ipcResult = try productAdmission.withValidAdmission({ () throws -> IPCBridgeContentGetResult in
-                guard
-                    reviewContentAuthorityLifetime == capturedAuthorityLifetime,
-                    paneState.diff.packageMetadata?.reviewGeneration == requestedGeneration,
-                    handle.reviewGeneration == requestedGeneration
-                else {
+                guard handle.reviewGeneration == requestedGeneration else {
                     throw BridgeIPCProjectionError(reason: .contentUnavailable)
                 }
 

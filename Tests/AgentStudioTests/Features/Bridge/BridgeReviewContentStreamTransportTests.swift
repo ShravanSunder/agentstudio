@@ -75,12 +75,8 @@ extension WebKitSerializedTests {
                 return
             }
             let package = try #require(controller.paneState.diff.packageMetadata)
-            let contentSource = BridgePaneProductReviewContentSource(contentStore: controller.reviewContentStore)
+            let contentSource = Self.contentSource(controller: controller)
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
-            try await contentSource.replaceAuthority(
-                with: .ready(package),
-                productAdmission: productAdmission
-            )
             let baseRequest = try Self.contentRequest(
                 handle: expectedBaseHandle,
                 package: package,
@@ -111,6 +107,26 @@ extension WebKitSerializedTests {
             #expect(headBody.isFinalRange)
             #expect(await provider.recordedContentRequestsCount(handleId: expectedBaseHandle.handleId) == 1)
             #expect(await provider.recordedContentRequestsCount(handleId: expectedHeadHandle.handleId) == 1)
+        }
+
+        private static func contentSource(
+            controller: BridgePaneController
+        ) -> BridgePaneProductReviewContentSource {
+            BridgePaneProductReviewContentSource(
+                loaderCache: controller.reviewContentLoaderCache,
+                acquireContentLease: { descriptor, admission in
+                    controller.reviewPublicationCoordinator.acquireContentLease(
+                        handleId: descriptor.descriptorId,
+                        packageId: descriptor.packageId,
+                        requestedGeneration: BridgeReviewGeneration(descriptor.reviewGeneration),
+                        sourceIdentity: descriptor.sourceIdentity,
+                        productAdmission: admission
+                    )
+                },
+                settleContentLease: { lease in
+                    controller.reviewPublicationCoordinator.settleContentLease(lease)
+                }
+            )
         }
 
         private static func contentRequest(

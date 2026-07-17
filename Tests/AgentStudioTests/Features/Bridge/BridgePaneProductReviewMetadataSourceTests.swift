@@ -10,16 +10,20 @@ struct BridgePaneProductReviewMetadataSourceTests {
     func opensWithCompleteOrderedWindows() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         let package = makeReviewPackage(itemCount: 3420)
-        let packageBox = ReviewPackageBox(package)
-        let source = BridgePaneProductReviewMetadataSource(initialAvailability: packageBox.availability)
+        let source = BridgePaneProductReviewMetadataSource()
         let collector = ReviewMetadataEventCollector()
 
         try await source.open(
             subscription: try reviewSubscription(), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            await collector.append(event)
+            return try await collector.append(event)
         }
+        let outcome = try await deliverReviewPackage(
+            package,
+            through: source,
+            productAdmission: productAdmission.context
+        )
         let events = await collector.events
 
         #expect(events.count > 2)
@@ -28,6 +32,8 @@ struct BridgePaneProductReviewMetadataSourceTests {
             return
         }
         #expect(accepted.identity == reviewIdentity(for: package))
+        let receipt = try deliveredReviewReceipt(outcome)
+        #expect(receipt.finalFrames == [.init(sequence: events.count, subscriptionId: "review-subscription-1")])
 
         let windowPayloads = try events.dropFirst().map(reviewWindowPayload)
         #expect(windowPayloads.first?.isSnapshot == true)
@@ -57,35 +63,40 @@ struct BridgePaneProductReviewMetadataSourceTests {
     func updatesWithMinimalLineageCorrectDelta() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         let initialPackage = makeReviewPackage(itemCount: 32)
-        let packageBox = ReviewPackageBox(initialPackage)
-        let source = BridgePaneProductReviewMetadataSource(initialAvailability: packageBox.availability)
+        let source = BridgePaneProductReviewMetadataSource()
         let collector = ReviewMetadataEventCollector()
         let initialSubscription = try reviewSubscription()
         try await source.open(
             subscription: initialSubscription, productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            await collector.append(event)
+            return try await collector.append(event)
         }
+        _ = try await deliverReviewPackage(
+            initialPackage,
+            through: source,
+            productAdmission: productAdmission.context
+        )
         await collector.removeAll()
 
         try await source.update(
             subscription: try reviewSubscription(interestRevision: 1), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            await collector.append(event)
+            return try await collector.append(event)
         }
         #expect(await collector.events.isEmpty)
 
         let changedItemId = try #require(initialPackage.orderedItemIds.first)
-        packageBox.package = replacingReviewItem(
+        let changedPackage = replacingReviewItem(
             in: initialPackage,
             itemId: changedItemId,
             fileClass: .config,
             revision: initialPackage.revision + 1
         )
-        _ = try await source.publish(
-            availability: packageBox.availability,
+        _ = try await deliverReviewPackage(
+            changedPackage,
+            through: source,
             productAdmission: productAdmission.context
         )
         let events = await collector.events
@@ -96,7 +107,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             return
         }
         #expect(delta.fromRevision == initialPackage.revision)
-        #expect(delta.toRevision == packageBox.package.revision)
+        #expect(delta.toRevision == changedPackage.revision)
         #expect(delta.identity.revision == delta.toRevision)
         let upsertedItemIds = delta.operations.compactMap { operation -> String? in
             guard case .upsertItem(let item) = operation else { return nil }
@@ -107,29 +118,96 @@ struct BridgePaneProductReviewMetadataSourceTests {
         #expect(try JSONEncoder().encode(BridgeProductReviewMetadataEvent.delta(delta)).count <= 128 * 1024)
     }
 
+    @Test("delta and replay retain the exact committed successor publication identity")
+    func deltaAndReplayRetainExactSuccessorPublicationIdentity() async throws {
+        // Arrange
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let source = BridgePaneProductReviewMetadataSource()
+        let collector = ReviewMetadataEventCollector()
+        let subscription = try reviewSubscription()
+        let publicationAId = reviewMetadataTestPublicationId
+        let publicationBId = UUID(uuidString: "33333333-3333-7333-8333-333333333333")!
+        let publicationA = makeReviewPackage(itemCount: 4)
+        let changedItemId = try #require(publicationA.orderedItemIds.first)
+        let publicationB = replacingReviewItem(
+            in: publicationA,
+            itemId: changedItemId,
+            fileClass: .config,
+            revision: publicationA.revision + 1
+        )
+        try await source.open(
+            subscription: subscription,
+            productAdmission: productAdmission.context
+        ) { event, _ in
+            try await collector.append(event)
+        }
+        _ = try await deliverReviewPackage(
+            publicationA,
+            publicationId: publicationAId,
+            through: source,
+            productAdmission: productAdmission.context
+        )
+        await collector.removeAll()
+
+        // Act
+        _ = try await deliverReviewPackage(
+            publicationB,
+            publicationId: publicationBId,
+            through: source,
+            productAdmission: productAdmission.context
+        )
+        let deltaEvents = await collector.events
+        await source.cancel(subscriptionId: subscription.subscriptionId)
+        await collector.removeAll()
+        try await source.open(
+            subscription: subscription,
+            productAdmission: productAdmission.context
+        ) { event, _ in
+            try await collector.append(event)
+        }
+        _ = try await deliverReviewPackage(
+            publicationB,
+            publicationId: publicationBId,
+            through: source,
+            productAdmission: productAdmission.context
+        )
+        let replayEvents = await collector.events
+
+        // Assert
+        #expect(deltaEvents.count == 1)
+        #expect(deltaEvents.allSatisfy { $0.publicationId == publicationBId })
+        #expect(replayEvents.count == 2)
+        #expect(replayEvents.allSatisfy { $0.publicationId == publicationBId })
+    }
+
     @Test("source identity replacement resets, accepts, and snapshots the replacement")
     func resetsAndSnapshotsReplacementSource() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         let initialPackage = makeReviewPackage(itemCount: 4)
-        let packageBox = ReviewPackageBox(initialPackage)
-        let source = BridgePaneProductReviewMetadataSource(initialAvailability: packageBox.availability)
+        let source = BridgePaneProductReviewMetadataSource()
         let collector = ReviewMetadataEventCollector()
         try await source.open(
             subscription: try reviewSubscription(), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            await collector.append(event)
+            return try await collector.append(event)
         }
+        _ = try await deliverReviewPackage(
+            initialPackage,
+            through: source,
+            productAdmission: productAdmission.context
+        )
         await collector.removeAll()
 
-        packageBox.package = replacingReviewSource(
+        let replacementPackage = replacingReviewSource(
             initialPackage,
             packageId: "review-package-2",
             queryId: "review-query-2",
             generation: initialPackage.reviewGeneration.rawValue + 1
         )
-        _ = try await source.publish(
-            availability: packageBox.availability,
+        _ = try await deliverReviewPackage(
+            replacementPackage,
+            through: source,
             productAdmission: productAdmission.context
         )
         let events = await collector.events
@@ -142,7 +220,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
             Issue.record("Expected reset, sourceAccepted, then replacement snapshot")
             return
         }
-        let replacementIdentity = reviewIdentity(for: packageBox.package)
+        let replacementIdentity = reviewIdentity(for: replacementPackage)
         #expect(reset.identity == replacementIdentity)
         #expect(accepted.identity == replacementIdentity)
         #expect(snapshot.identity == replacementIdentity)
@@ -152,24 +230,29 @@ struct BridgePaneProductReviewMetadataSourceTests {
     func resetsInsteadOfEmittingOversizedDeltaMembers() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         let initialPackage = makeReviewPackage(itemCount: 4097, includesContentRoles: false)
-        let packageBox = ReviewPackageBox(initialPackage)
-        let source = BridgePaneProductReviewMetadataSource(initialAvailability: packageBox.availability)
+        let source = BridgePaneProductReviewMetadataSource()
         let collector = ReviewMetadataEventCollector()
         try await source.open(
             subscription: try reviewSubscription(), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            await collector.append(event)
+            return try await collector.append(event)
         }
+        _ = try await deliverReviewPackage(
+            initialPackage,
+            through: source,
+            productAdmission: productAdmission.context
+        )
         await collector.removeAll()
 
-        packageBox.package = replacingReviewPackage(
+        let replacementPackage = replacingReviewPackage(
             initialPackage,
             revision: initialPackage.revision + 1,
             itemsById: [:]
         )
-        _ = try await source.publish(
-            availability: packageBox.availability,
+        _ = try await deliverReviewPackage(
+            replacementPackage,
+            through: source,
             productAdmission: productAdmission.context
         )
         let events = await collector.events
@@ -185,8 +268,8 @@ struct BridgePaneProductReviewMetadataSourceTests {
     @Test("cancellation during source acceptance prevents later window emission")
     func cancellationStopsWindowEmission() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
-        let packageBox = ReviewPackageBox(makeReviewPackage(itemCount: 128))
-        let source = BridgePaneProductReviewMetadataSource(initialAvailability: packageBox.availability)
+        let package = makeReviewPackage(itemCount: 128)
+        let source = BridgePaneProductReviewMetadataSource()
         let collector = ReviewMetadataEventCollector()
         let subscription = try reviewSubscription()
 
@@ -194,11 +277,17 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: subscription, productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            await collector.append(event)
+            let enqueueResult = try await collector.append(event)
             if case .sourceAccepted = event {
                 await source.cancel(subscriptionId: subscription.subscriptionId)
             }
+            return enqueueResult
         }
+        _ = try await deliverReviewPackage(
+            package,
+            through: source,
+            productAdmission: productAdmission.context
+        )
 
         #expect(await collector.events.count == 1)
     }
@@ -207,8 +296,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
     func openBeforePackagePublicationPublishesInitialMetadataLater() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         // Arrange
-        let packageBox = OptionalReviewPackageBox()
-        let source = BridgePaneProductReviewMetadataSource(initialAvailability: packageBox.availability)
+        let source = BridgePaneProductReviewMetadataSource()
         let collector = ReviewMetadataEventCollector()
         let subscription = try reviewSubscription()
 
@@ -217,19 +305,21 @@ struct BridgePaneProductReviewMetadataSourceTests {
             subscription: subscription, productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            await collector.append(event)
+            return try await collector.append(event)
         }
         let eventsBeforePublication = await collector.events
         let reviewPackage = makeReviewPackage(itemCount: 4)
-        packageBox.package = reviewPackage
-        let outcome = try await source.publish(
-            availability: .ready(reviewPackage), productAdmission: productAdmission.context)
+        let outcome = try await deliverReviewPackage(
+            reviewPackage,
+            through: source,
+            productAdmission: productAdmission.context
+        )
         let eventsAfterPublication = await collector.events
 
         // Assert
         #expect(eventsBeforePublication.isEmpty)
-        guard case .ready(let receipt) = outcome else {
-            Issue.record("Expected ready Review metadata publication receipt")
+        guard case .delivered(let receipt) = outcome else {
+            Issue.record("Expected delivered Review metadata publication receipt")
             return
         }
         #expect(receipt.retained == 1)
@@ -250,44 +340,38 @@ struct BridgePaneProductReviewMetadataSourceTests {
     func cancellationBeforePackagePublicationLeavesNoPendingResidue() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         // Arrange
-        let packageBox = OptionalReviewPackageBox()
-        let source = BridgePaneProductReviewMetadataSource(initialAvailability: packageBox.availability)
+        let source = BridgePaneProductReviewMetadataSource()
         let collector = ReviewMetadataEventCollector()
         let subscription = try reviewSubscription()
         try await source.open(
             subscription: subscription, productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            await collector.append(event)
+            return try await collector.append(event)
         }
 
         // Act
         await source.cancel(subscriptionId: subscription.subscriptionId)
         let initialPackage = makeReviewPackage(itemCount: 4)
-        packageBox.package = initialPackage
-        let outcome = try await source.publish(
-            availability: .ready(initialPackage), productAdmission: productAdmission.context)
+        let outcome = try await deliverReviewPackage(
+            initialPackage,
+            through: source,
+            productAdmission: productAdmission.context
+        )
         let replacementPackage = replacingReviewSource(
             initialPackage,
             packageId: "review-package-after-cancel",
             queryId: "review-query-after-cancel",
             generation: initialPackage.reviewGeneration.rawValue + 1
         )
-        packageBox.package = replacementPackage
-        _ = try await source.publish(
-            availability: .ready(replacementPackage),
+        _ = try await deliverReviewPackage(
+            replacementPackage,
+            through: source,
             productAdmission: productAdmission.context
         )
 
         // Assert
-        guard case .ready(let receipt) = outcome else {
-            Issue.record("Expected ready Review metadata publication receipt")
-            return
-        }
-        #expect(receipt.retained == 0)
-        #expect(receipt.publishedSubscriptions == 0)
-        #expect(receipt.emittedEvents == 0)
-        #expect(receipt.superseded == 0)
+        #expect(outcome == .deferred(retained: 0))
         #expect(await collector.events.isEmpty)
     }
 
@@ -295,28 +379,27 @@ struct BridgePaneProductReviewMetadataSourceTests {
     func newerPendingOpenSupersedesOlderSink() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         // Arrange
-        let packageBox = OptionalReviewPackageBox()
-        let source = BridgePaneProductReviewMetadataSource(initialAvailability: packageBox.availability)
+        let source = BridgePaneProductReviewMetadataSource()
         let supersededCollector = ReviewMetadataEventCollector()
         let currentCollector = ReviewMetadataEventCollector()
         try await source.open(
             subscription: try reviewSubscription(), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            await supersededCollector.append(event)
+            return try await supersededCollector.append(event)
         }
         try await source.open(
             subscription: try reviewSubscription(interestRevision: 1), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            await currentCollector.append(event)
+            return try await currentCollector.append(event)
         }
 
         // Act
         let reviewPackage = makeReviewPackage(itemCount: 4)
-        packageBox.package = reviewPackage
-        _ = try await source.publish(
-            availability: .ready(reviewPackage),
+        _ = try await deliverReviewPackage(
+            reviewPackage,
+            through: source,
             productAdmission: productAdmission.context
         )
 
@@ -332,22 +415,21 @@ struct BridgePaneProductReviewMetadataSourceTests {
     func samePackageRetryAfterSecondFrameFailureReplaysCompletePublication() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         // Arrange
-        let packageBox = OptionalReviewPackageBox()
-        let source = BridgePaneProductReviewMetadataSource(initialAvailability: packageBox.availability)
+        let source = BridgePaneProductReviewMetadataSource()
         let sink = ReviewMetadataSecondFrameFailureSink()
         try await source.open(
             subscription: try reviewSubscription(), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            try await sink.receive(event)
+            return try await sink.receive(event)
         }
         let reviewPackage = makeReviewPackage(itemCount: 4)
-        packageBox.package = reviewPackage
 
         // Act
         do {
-            _ = try await source.publish(
-                availability: .ready(reviewPackage),
+            _ = try await deliverReviewPackage(
+                reviewPackage,
+                through: source,
                 productAdmission: productAdmission.context
             )
             Issue.record("Expected the injected second-frame sink failure")
@@ -355,8 +437,9 @@ struct BridgePaneProductReviewMetadataSourceTests {
             #expect(error as? ReviewMetadataInjectedSinkError == .secondFrame)
         }
         let successfulEventCountAfterFailure = await sink.successfulEvents.count
-        _ = try await source.publish(
-            availability: .ready(reviewPackage),
+        _ = try await deliverReviewPackage(
+            reviewPackage,
+            through: source,
             productAdmission: productAdmission.context
         )
         let retryEvents = await sink.successfulEvents.dropFirst(successfulEventCountAfterFailure)
@@ -370,33 +453,32 @@ struct BridgePaneProductReviewMetadataSourceTests {
         }
     }
 
-    @Test("loading update preserves published identity for replacement reset")
-    func loadingUpdatePreservesPublishedIdentityForReplacementReset() async throws {
+    @Test("subscription update preserves its delivered cursor for replacement reset")
+    func subscriptionUpdatePreservesDeliveredCursorForReplacementReset() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         // Arrange
         let initialPackage = makeReviewPackage(itemCount: 4)
-        let packageBox = OptionalReviewPackageBox(initialPackage)
-        let source = BridgePaneProductReviewMetadataSource(initialAvailability: packageBox.availability)
+        let source = BridgePaneProductReviewMetadataSource()
         let collector = ReviewMetadataEventCollector()
         try await source.open(
             subscription: try reviewSubscription(), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            await collector.append(event)
+            return try await collector.append(event)
         }
+        _ = try await deliverReviewPackage(
+            initialPackage,
+            through: source,
+            productAdmission: productAdmission.context
+        )
         await collector.removeAll()
 
         // Act
-        packageBox.package = nil
-        _ = try await source.publish(
-            availability: .loading,
-            productAdmission: productAdmission.context
-        )
         try await source.update(
             subscription: try reviewSubscription(interestRevision: 1), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            await collector.append(event)
+            return try await collector.append(event)
         }
         let replacementPackage = replacingReviewSource(
             initialPackage,
@@ -404,9 +486,9 @@ struct BridgePaneProductReviewMetadataSourceTests {
             queryId: "review-query-after-loading",
             generation: initialPackage.reviewGeneration.rawValue + 1
         )
-        packageBox.package = replacementPackage
-        _ = try await source.publish(
-            availability: .ready(replacementPackage),
+        _ = try await deliverReviewPackage(
+            replacementPackage,
+            through: source,
             productAdmission: productAdmission.context
         )
         let events = await collector.events
@@ -416,37 +498,45 @@ struct BridgePaneProductReviewMetadataSourceTests {
             case .sourceAccepted(let accepted) = events.dropFirst().first,
             case .snapshot = events.dropFirst(2).first
         else {
-            Issue.record("Expected replacement reset after a package-less loading update")
+            Issue.record("Expected replacement reset from the subscription delivery cursor")
             return
         }
         #expect(reset.identity == reviewIdentity(for: replacementPackage))
         #expect(accepted.identity == reviewIdentity(for: replacementPackage))
     }
 
-    @Test("actor-owned availability cannot lose ready publication racing open")
-    func actorOwnedAvailabilityCannotLoseReadyPublicationRacingOpen() async throws {
+    @Test("reservation does not create global package availability before explicit delivery")
+    func reservationDoesNotCreateGlobalPackageAvailability() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         // Arrange
-        let source = BridgePaneProductReviewMetadataSource(initialAvailability: .loading)
+        let source = BridgePaneProductReviewMetadataSource()
         let collector = ReviewMetadataEventCollector()
         let subscription = try reviewSubscription()
         let reviewPackage = makeReviewPackage(itemCount: 4)
 
+        let reservation = try await source.reserve(
+            package: reviewPackage,
+            publicationId: reviewMetadataTestPublicationId,
+            productAdmission: productAdmission.context
+        )
+
         // Act
-        async let open: Void = source.open(
+        try await source.open(
             subscription: subscription, productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            await collector.append(event)
+            return try await collector.append(event)
         }
-        _ = try await source.publish(
-            availability: .ready(reviewPackage),
+        let eventsBeforeDelivery = await collector.events
+        _ = try await source.deliver(
+            package: reviewPackage,
+            reservation: reservation,
             productAdmission: productAdmission.context
         )
-        try await open
         let events = await collector.events
 
         // Assert
+        #expect(eventsBeforeDelivery.isEmpty)
         guard case .sourceAccepted(let accepted) = events.first,
             case .snapshot(let snapshot) = events.dropFirst().first
         else {
@@ -462,14 +552,19 @@ struct BridgePaneProductReviewMetadataSourceTests {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         // Arrange
         let initialPackage = makeReviewPackage(itemCount: 4)
-        let source = BridgePaneProductReviewMetadataSource(initialAvailability: .ready(initialPackage))
+        let source = BridgePaneProductReviewMetadataSource()
         let sink = ReviewMetadataOverlappingPublicationSink()
         try await source.open(
             subscription: try reviewSubscription(), productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
             #expect(emittedProductAdmission.matches(productAdmission.context))
-            await sink.receive(event)
+            return try await sink.receive(event)
         }
+        _ = try await deliverReviewPackage(
+            initialPackage,
+            through: source,
+            productAdmission: productAdmission.context
+        )
         await sink.removeAll()
         let publicationA = replacingReviewSource(
             initialPackage,
@@ -487,14 +582,16 @@ struct BridgePaneProductReviewMetadataSourceTests {
 
         // Act
         let publishingA = Task {
-            _ = try await source.publish(
-                availability: .ready(publicationA),
+            _ = try await deliverReviewPackage(
+                publicationA,
+                through: source,
                 productAdmission: productAdmission.context
             )
         }
         await sink.waitUntilSuspended()
-        _ = try await source.publish(
-            availability: .ready(publicationB),
+        _ = try await deliverReviewPackage(
+            publicationB,
+            through: source,
             productAdmission: productAdmission.context
         )
         await sink.releaseSuspendedEvent()
@@ -508,8 +605,9 @@ struct BridgePaneProductReviewMetadataSourceTests {
             .dropFirst(firstPublicationBIndex + 1)
             .contains { $0.packageId == publicationA.packageId }
         let eventCountBeforeRepublishingB = overlappingEvents.count
-        _ = try await source.publish(
-            availability: .ready(publicationB),
+        _ = try await deliverReviewPackage(
+            publicationB,
+            through: source,
             productAdmission: productAdmission.context
         )
         let eventCountAfterRepublishingB = await sink.events.count
@@ -519,25 +617,57 @@ struct BridgePaneProductReviewMetadataSourceTests {
         #expect(eventCountAfterRepublishingB == eventCountBeforeRepublishingB)
     }
 
+    @Test("reservation rejects an invalid package before any delivery")
+    func reservationRejectsInvalidPackageBeforeDelivery() async throws {
+        // Arrange
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let source = BridgePaneProductReviewMetadataSource()
+        let collector = ReviewMetadataEventCollector()
+        try await source.open(
+            subscription: try reviewSubscription(),
+            productAdmission: productAdmission.context
+        ) { event, _ in
+            try await collector.append(event)
+        }
+        let validPackage = makeReviewPackage(itemCount: 4)
+        let invalidPackage = replacingReviewSource(
+            validPackage,
+            packageId: "review-package-invalid-reservation",
+            queryId: "review-query-invalid-reservation",
+            generation: -1
+        )
+
+        // Act / Assert
+        await #expect(throws: DecodingError.self) {
+            _ = try await source.reserve(
+                package: invalidPackage,
+                publicationId: reviewMetadataTestPublicationId,
+                productAdmission: productAdmission.context
+            )
+        }
+        #expect(await collector.events.isEmpty)
+    }
+
     @Test("closing admission while the metadata sink is suspended prevents its commit")
     func closeDuringMetadataSinkPreventsCommit() async throws {
         // Arrange
         let productAdmission = try BridgeProductAdmissionTestContext.make()
-        let source = BridgePaneProductReviewMetadataSource(initialAvailability: .loading)
+        let source = BridgePaneProductReviewMetadataSource()
         let sink = ReviewMetadataAdmissionFencedSink()
         let subscription = try reviewSubscription()
         try await source.open(
             subscription: subscription,
             productAdmission: productAdmission.context
         ) { event, emittedProductAdmission in
-            await sink.receive(event, productAdmission: emittedProductAdmission)
+            try await sink.receive(event, productAdmission: emittedProductAdmission)
         }
         let reviewPackage = makeReviewPackage(itemCount: 4)
 
         // Act
         let publication = Task {
-            try await source.publish(
-                availability: .ready(reviewPackage),
+            try await deliverReviewPackage(
+                reviewPackage,
+                through: source,
                 productAdmission: productAdmission.context
             )
         }
@@ -549,37 +679,13 @@ struct BridgePaneProductReviewMetadataSourceTests {
 
         // Assert
         #expect(await sink.committedEvents.isEmpty)
-        guard case .ready(let receipt) = outcome else {
-            Issue.record("Expected a superseded ready publication receipt")
+        guard case .delivered(let receipt) = outcome else {
+            Issue.record("Expected a superseded delivered publication receipt")
             return
         }
         #expect(receipt.publishedSubscriptions == 0)
         #expect(receipt.emittedEvents == 0)
         #expect(receipt.superseded == 1)
-    }
-}
-
-@MainActor
-private final class ReviewPackageBox {
-    var package: BridgeReviewPackage
-
-    var availability: BridgePaneProductReviewMetadataAvailability { .ready(package) }
-
-    init(_ package: BridgeReviewPackage) {
-        self.package = package
-    }
-}
-
-@MainActor
-private final class OptionalReviewPackageBox {
-    var package: BridgeReviewPackage?
-
-    var availability: BridgePaneProductReviewMetadataAvailability {
-        package.map(BridgePaneProductReviewMetadataAvailability.ready) ?? .loading
-    }
-
-    init(_ package: BridgeReviewPackage? = nil) {
-        self.package = package
     }
 }
 
@@ -591,32 +697,38 @@ private actor ReviewMetadataSecondFrameFailureSink {
     private var receivedEventCount = 0
     private(set) var successfulEvents: [BridgeProductReviewMetadataEvent] = []
 
-    func receive(_ event: BridgeProductReviewMetadataEvent) throws {
+    func receive(_ event: BridgeProductReviewMetadataEvent) throws -> BridgeProductProducerEnqueueResult {
         receivedEventCount += 1
         if receivedEventCount == 2 {
             throw ReviewMetadataInjectedSinkError.secondFrame
         }
         successfulEvents.append(event)
+        return try reviewMetadataEnqueueResult(event, sequence: receivedEventCount)
     }
 }
 
 private actor ReviewMetadataOverlappingPublicationSink {
     private(set) var events: [BridgeProductReviewMetadataEvent] = []
+    private var nextSequence = 0
     private var suspendedPackageId: String?
     private var suspensionStarted = false
     private var suspensionStartedWaiters: [CheckedContinuation<Void, Never>] = []
     private var suspensionRelease: CheckedContinuation<Void, Never>?
 
-    func receive(_ event: BridgeProductReviewMetadataEvent) async {
+    func receive(_ event: BridgeProductReviewMetadataEvent) async throws -> BridgeProductProducerEnqueueResult {
+        nextSequence += 1
+        let sequence = nextSequence
         events.append(event)
-        guard event.packageId == suspendedPackageId, !suspensionStarted else { return }
-        suspensionStarted = true
-        let waiters = suspensionStartedWaiters
-        suspensionStartedWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters { waiter.resume() }
-        await withCheckedContinuation { continuation in
-            suspensionRelease = continuation
+        if event.packageId == suspendedPackageId, !suspensionStarted {
+            suspensionStarted = true
+            let waiters = suspensionStartedWaiters
+            suspensionStartedWaiters.removeAll(keepingCapacity: false)
+            for waiter in waiters { waiter.resume() }
+            await withCheckedContinuation { continuation in
+                suspensionRelease = continuation
+            }
         }
+        return try reviewMetadataEnqueueResult(event, sequence: sequence)
     }
 
     func removeAll() {
@@ -642,6 +754,7 @@ private actor ReviewMetadataOverlappingPublicationSink {
 
 private actor ReviewMetadataAdmissionFencedSink {
     private(set) var committedEvents: [BridgeProductReviewMetadataEvent] = []
+    private var nextSequence = 0
     private var suspensionStarted = false
     private var suspensionStartedWaiters: [CheckedContinuation<Void, Never>] = []
     private var suspensionRelease: CheckedContinuation<Void, Never>?
@@ -649,7 +762,8 @@ private actor ReviewMetadataAdmissionFencedSink {
     func receive(
         _ event: BridgeProductReviewMetadataEvent,
         productAdmission: BridgeProductAdmissionContext
-    ) async {
+    ) async throws -> BridgeProductProducerEnqueueResult {
+        nextSequence += 1
         suspensionStarted = true
         let waiters = suspensionStartedWaiters
         suspensionStartedWaiters.removeAll(keepingCapacity: false)
@@ -660,6 +774,7 @@ private actor ReviewMetadataAdmissionFencedSink {
         _ = productAdmission.withValidAdmission {
             committedEvents.append(event)
         }
+        return try reviewMetadataEnqueueResult(event, sequence: nextSequence)
     }
 
     func waitUntilSuspended() async {
@@ -677,77 +792,17 @@ private actor ReviewMetadataAdmissionFencedSink {
 
 private actor ReviewMetadataEventCollector {
     private(set) var events: [BridgeProductReviewMetadataEvent] = []
+    private var nextSequence = 0
 
-    func append(_ event: BridgeProductReviewMetadataEvent) {
+    func append(_ event: BridgeProductReviewMetadataEvent) throws -> BridgeProductProducerEnqueueResult {
+        nextSequence += 1
         events.append(event)
+        return try reviewMetadataEnqueueResult(event, sequence: nextSequence)
     }
 
     func removeAll() {
         events.removeAll()
     }
-}
-
-private struct ReviewWindowPayload {
-    let isSnapshot: Bool
-    let itemStartIndex: Int
-    let itemFinalWindow: Bool
-    let itemMetadata: [BridgeProductReviewItemMetadataValue]
-    let treeStartIndex: Int
-    let treeFinalWindow: Bool
-    let treeRows: [BridgeProductReviewTreeRowValue]
-}
-
-private func reviewWindowPayload(_ event: BridgeProductReviewMetadataEvent) throws -> ReviewWindowPayload {
-    switch event {
-    case .snapshot(let snapshot):
-        ReviewWindowPayload(
-            isSnapshot: true,
-            itemStartIndex: snapshot.itemWindow.startIndex,
-            itemFinalWindow: snapshot.itemWindow.finalWindow,
-            itemMetadata: snapshot.itemMetadata,
-            treeStartIndex: snapshot.treeWindow.startIndex,
-            treeFinalWindow: snapshot.treeWindow.finalWindow,
-            treeRows: snapshot.treeRows
-        )
-    case .window(let window):
-        ReviewWindowPayload(
-            isSnapshot: false,
-            itemStartIndex: window.itemWindow.startIndex,
-            itemFinalWindow: window.itemWindow.finalWindow,
-            itemMetadata: window.itemMetadata,
-            treeStartIndex: window.treeWindow.startIndex,
-            treeFinalWindow: window.treeWindow.finalWindow,
-            treeRows: window.treeRows
-        )
-    default:
-        throw ReviewMetadataSourceTestError.unexpectedEvent
-    }
-}
-
-private func assertContiguousReviewWindows(
-    _ windows: [ReviewWindowPayload],
-    package: BridgeReviewPackage,
-    sourceLocation: SourceLocation = #_sourceLocation
-) {
-    var nextItemIndex = 0
-    var nextTreeIndex = 0
-    for window in windows {
-        #expect(window.itemStartIndex == nextItemIndex, sourceLocation: sourceLocation)
-        #expect(window.treeStartIndex == nextTreeIndex, sourceLocation: sourceLocation)
-        nextItemIndex += window.itemMetadata.count
-        nextTreeIndex += window.treeRows.count
-    }
-    #expect(nextItemIndex == package.orderedItemIds.count, sourceLocation: sourceLocation)
-    #expect(nextTreeIndex >= package.orderedItemIds.count, sourceLocation: sourceLocation)
-}
-
-private func reviewIdentity(for package: BridgeReviewPackage) -> BridgeProductReviewMetadataIdentity {
-    try! BridgeProductReviewMetadataIdentity(
-        generation: package.reviewGeneration.rawValue,
-        packageId: package.packageId,
-        revision: package.revision,
-        sourceIdentity: package.query.queryId
-    )
 }
 
 private func reviewSubscription(interestRevision: Int = 0) throws -> BridgeProductSubscriptionSnapshot {
@@ -916,8 +971,4 @@ private func replacingReviewPackage(
         generatedAtUnixMilliseconds: package.generatedAtUnixMilliseconds,
         changesetCluster: package.changesetCluster
     )
-}
-
-private enum ReviewMetadataSourceTestError: Error {
-    case unexpectedEvent
 }

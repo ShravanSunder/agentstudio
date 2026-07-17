@@ -153,20 +153,20 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
 		readonly workerDerivationEpoch: number;
 	}): void => {
-		reviewDisplayProjectionRevision += 1;
-		port.postMessage(
-			bridgeWorkerReviewDisplayPatchEventSchema.parse({
-				direction: 'serverWorkerToMain',
-				epoch: publication.workerDerivationEpoch,
-				kind: 'reviewDisplayPatch',
-				patches: publication.patches,
-				projectionRevision: reviewDisplayProjectionRevision,
-				sequence: createSequence(),
-				surface: 'review',
-				transferDescriptors: [],
-				wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-			}),
-		);
+		const nextProjectionRevision = reviewDisplayProjectionRevision + 1;
+		const message = bridgeWorkerReviewDisplayPatchEventSchema.parse({
+			direction: 'serverWorkerToMain',
+			epoch: publication.workerDerivationEpoch,
+			kind: 'reviewDisplayPatch',
+			patches: publication.patches,
+			projectionRevision: nextProjectionRevision,
+			sequence: createSequence(),
+			surface: 'review',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+		port.postMessage(message);
+		reviewDisplayProjectionRevision = nextProjectionRevision;
 	};
 	const fileQueryProjection = new BridgeCommWorkerFileQueryProjection();
 	let updateFileMetadataDemand: ((demand: BridgeCommWorkerFileMetadataDemand) => void) | null =
@@ -217,6 +217,13 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		usesProductTransport: productTransport !== undefined,
 	});
 
+	const publishReviewMetadataPostCommitFailure = (): void => {
+		try {
+			port.postMessage(buildBridgeWorkerRuntimeDegradedHealthEvent());
+		} catch {
+			// A closed main port cannot invalidate committed worker metadata authority.
+		}
+	};
 	const handler = createBridgeCommWorkerCommandHandler({
 		contentItems: [],
 		contentRequestDescriptors: [],
@@ -227,6 +234,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			? {}
 			: { renderFulfillmentContext: props.renderFulfillmentContext }),
 		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
+		onReviewMetadataPostCommitFailure: publishReviewMetadataPostCommitFailure,
 		scheduleSelectedReviewContentReadyPreparation:
 			reviewDemandScheduling.scheduleSelectedContentReadyPreparation,
 		scheduleReviewMetadataReset: reviewDemandScheduling.scheduleMetadataReset,
@@ -310,11 +318,27 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	if (productTransport !== undefined) {
 		const fileMetadataProjection = new BridgeCommWorkerFileMetadataProjection();
 		const reviewMetadataApplicator = new BridgeCommWorkerReviewMetadataApplicator({
-			applyRuntimeSource: (application): void => {
-				for (const message of handler.applyReviewMetadataApplication(application)) {
-					port.postMessage(message);
-				}
-				if (pump.getPendingWorkIds().length > 0) requestPreparationDrain();
+			applyRuntimeSource: (application) => {
+				const transaction = handler.prepareReviewMetadataApplication(application);
+				return {
+					commit: transaction.commit,
+					rollback: transaction.rollback,
+					runPostCommitEffects: (): void => {
+						transaction.runPostCommitEffects();
+						for (const message of transaction.messages) {
+							try {
+								port.postMessage(message);
+							} catch {
+								publishReviewMetadataPostCommitFailure();
+							}
+						}
+						try {
+							if (pump.getPendingWorkIds().length > 0) requestPreparationDrain();
+						} catch {
+							publishReviewMetadataPostCommitFailure();
+						}
+					},
+				};
 			},
 			currentWorkerDerivationEpoch: () => productTransport.workerDerivationEpoch('review'),
 			publishDisplayPatches: publishReviewDisplayPatches,
@@ -389,22 +413,26 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					),
 				);
 			},
-			onReviewMetadataEvent: (event, workerDerivationEpoch): void => {
+			onReviewMetadataEvent: (event, workerDerivationEpoch) => {
 				reviewDemandScheduling.updateWorkerDerivationEpoch(workerDerivationEpoch);
-				reviewMetadataApplicator.apply(event, workerDerivationEpoch);
+				return reviewMetadataApplicator.apply(event, workerDerivationEpoch);
 			},
 			onReviewMetadataFailure: (_error, workerDerivationEpoch): void => {
 				reviewDemandScheduling.updateWorkerDerivationEpoch(workerDerivationEpoch);
-				publishReviewDisplayPatches({
-					patches: [
-						{
-							operation: 'failed',
-							payload: { error: 'metadataUnavailable', status: 'failed' },
-							slice: 'reviewSource',
-						},
-					],
-					workerDerivationEpoch,
-				});
+				const failureDisposition =
+					reviewMetadataApplicator.handleMetadataFailure(workerDerivationEpoch);
+				if (failureDisposition === 'noActive') {
+					publishReviewDisplayPatches({
+						patches: [
+							{
+								operation: 'failed',
+								payload: { error: 'metadataUnavailable', status: 'failed' },
+								slice: 'reviewSource',
+							},
+						],
+						workerDerivationEpoch,
+					});
+				}
 			},
 			productTransport,
 		});
