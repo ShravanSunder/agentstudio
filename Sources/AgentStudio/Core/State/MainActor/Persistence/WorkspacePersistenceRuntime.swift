@@ -72,6 +72,7 @@ final class WorkspacePersistenceRuntime {
     let preparedCompositionApplier: WorkspacePreparedCompositionApplier
     let preparedTopologyApplier: WorkspacePreparedTopologyApplier
     let mutationCoordinator: WorkspacePersistenceMutationCoordinator
+    let paneResidencyLifecycleOwner: WorkspacePaneResidencyLifecycleOwner
     let paneCreationGateway: WorkspacePaneCreationGateway
     let snapshotPagerState = WorkspacePersistenceSnapshotPagerState
         .unavailableAwaitingDomainParticipantInstallation
@@ -122,6 +123,9 @@ final class WorkspacePersistenceRuntime {
             workspaceWindowMemoryAtom: atomOwners.workspaceWindowMemory
         )
         self.mutationCoordinator = mutationCoordinator
+        paneResidencyLifecycleOwner = WorkspacePaneResidencyLifecycleOwner(
+            persistenceMutationCoordinator: mutationCoordinator
+        )
         paneCreationGateway = WorkspacePaneCreationGateway(
             contextBuilder: WorkspacePaneCreationContextBuilder(
                 workspacePaneGraphAtom: atomOwners.workspacePaneGraph,
