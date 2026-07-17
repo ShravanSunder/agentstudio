@@ -7,6 +7,7 @@ enum WorkspacePersistenceMutationFailure: Equatable, Sendable {
     case drawerCursorApplication(WorkspaceDrawerCursorApplyRejection)
     case drawerCursorCapture(WorkspaceDrawerCursorPersistenceCaptureError)
     case drawerTogglePlanning(WorkspaceDrawerToggleRejection)
+    case paneContextPlanning(WorkspacePaneContextTransitionRejection)
     case paneGraphCapture(WorkspacePaneGraphPersistenceCaptureError)
     case paneIdentityMismatch(requestedPaneID: UUID, currentPaneID: UUID)
     case paneMissing(UUID)
@@ -268,6 +269,28 @@ final class WorkspacePersistenceMutationCoordinator {
                     currentPaneID: currentPaneID
                 )
             )
+        }
+    }
+
+    func updatePaneContext(
+        _ request: WorkspacePaneContextUpdateRequest
+    ) -> WorkspacePersistenceMutationResult {
+        guard case .installed = adapters.compositionLifecyclePhase else {
+            return .rejected(
+                .compositionDomainNotInstalled(phase: adapters.compositionLifecyclePhase)
+            )
+        }
+
+        switch WorkspacePaneContextTransitionPlanner.plan(
+            request,
+            currentPaneState: workspacePaneGraphAtom.paneState(request.paneID)
+        ) {
+        case .changed(let transition):
+            return performPaneTransition(transition)
+        case .unchanged:
+            return .unchanged(revision: revisionOwner.committedRevision)
+        case .rejected(let rejection):
+            return .rejected(.paneContextPlanning(rejection))
         }
     }
 

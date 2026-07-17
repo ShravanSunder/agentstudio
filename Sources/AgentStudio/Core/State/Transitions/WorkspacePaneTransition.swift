@@ -131,3 +131,70 @@ enum WorkspacePaneMetadataTransitionPlanner {
         )
     }
 }
+
+enum WorkspacePaneResolvedContext: Equatable, Sendable {
+    case unresolved
+    case resolved(repoID: UUID, worktreeID: UUID)
+}
+
+struct WorkspacePaneContextUpdateRequest: Equatable, Sendable {
+    let paneID: UUID
+    let cwd: URL?
+    let resolvedContext: WorkspacePaneResolvedContext
+}
+
+enum WorkspacePaneContextTransitionRejection: Equatable, Sendable {
+    case paneMissing(UUID)
+    case paneIdentityMismatch(requestedPaneID: UUID, currentPaneID: UUID)
+}
+
+enum WorkspacePaneContextTransitionDecision: Equatable, Sendable {
+    case changed(WorkspacePaneGraphTransition)
+    case unchanged
+    case rejected(WorkspacePaneContextTransitionRejection)
+}
+
+enum WorkspacePaneContextTransitionPlanner {
+    static func plan(
+        _ request: WorkspacePaneContextUpdateRequest,
+        currentPaneState: PaneGraphState?
+    ) -> WorkspacePaneContextTransitionDecision {
+        guard let currentPaneState else {
+            return .rejected(.paneMissing(request.paneID))
+        }
+        guard currentPaneState.id == request.paneID else {
+            return .rejected(
+                .paneIdentityMismatch(
+                    requestedPaneID: request.paneID,
+                    currentPaneID: currentPaneState.id
+                )
+            )
+        }
+
+        var replacementState = currentPaneState
+        replacementState.metadata.facets.cwd = request.cwd
+        switch request.resolvedContext {
+        case .unresolved:
+            replacementState.metadata.facets.repoId = nil
+            replacementState.metadata.facets.worktreeId = nil
+        case .resolved(let repoID, let worktreeID):
+            replacementState.metadata.facets.repoId = repoID
+            replacementState.metadata.facets.worktreeId = worktreeID
+        }
+        guard replacementState != currentPaneState else {
+            return .unchanged
+        }
+
+        return .changed(
+            WorkspacePaneGraphTransition(
+                replacements: [
+                    WorkspacePaneStateTransitionReplacement(
+                        paneID: request.paneID,
+                        expectedCurrentState: currentPaneState,
+                        replacementState: replacementState
+                    )
+                ]
+            )
+        )
+    }
+}

@@ -191,6 +191,109 @@ struct WorkspacePaneTransitionTests {
         )
     }
 
+    @Test("pane context planner replaces cwd and correlated resolved identifiers only")
+    func paneContextPlannerReplacesExactFacets() throws {
+        // Arrange
+        let originalState = makePaneTransitionState(
+            title: "Context",
+            facets: PaneContextFacets(
+                repoId: UUIDv7.generate(),
+                worktreeId: UUIDv7.generate(),
+                cwd: URL(filePath: "/tmp/before")
+            )
+        )
+        let replacementRepoID = UUIDv7.generate()
+        let replacementWorktreeID = UUIDv7.generate()
+        let request = WorkspacePaneContextUpdateRequest(
+            paneID: originalState.id,
+            cwd: URL(filePath: "/tmp/after"),
+            resolvedContext: .resolved(
+                repoID: replacementRepoID,
+                worktreeID: replacementWorktreeID
+            )
+        )
+
+        // Act
+        let decision = WorkspacePaneContextTransitionPlanner.plan(
+            request,
+            currentPaneState: originalState
+        )
+
+        // Assert
+        guard case .changed(let transition) = decision else {
+            Issue.record("expected changed pane context transition")
+            return
+        }
+        let replacement = try #require(transition.replacements.onlyElement)
+        #expect(replacement.expectedCurrentState == originalState)
+        #expect(replacement.replacementState.metadata.facets.cwd == request.cwd)
+        #expect(replacement.replacementState.metadata.facets.repoId == replacementRepoID)
+        #expect(replacement.replacementState.metadata.facets.worktreeId == replacementWorktreeID)
+        #expect(replacement.replacementState.metadata.title == originalState.metadata.title)
+        #expect(replacement.replacementState.content == originalState.content)
+        #expect(originalState.metadata.facets.cwd == URL(filePath: "/tmp/before"))
+    }
+
+    @Test("pane context planner clears both resolved identifiers and returns strict no-op and rejection decisions")
+    func paneContextPlannerClearsAndRejectsStrictly() throws {
+        // Arrange
+        let originalState = makePaneTransitionState(
+            title: "Context",
+            facets: PaneContextFacets(
+                repoId: UUIDv7.generate(),
+                worktreeId: UUIDv7.generate(),
+                cwd: URL(filePath: "/tmp/current")
+            )
+        )
+        let unresolvedRequest = WorkspacePaneContextUpdateRequest(
+            paneID: originalState.id,
+            cwd: nil,
+            resolvedContext: .unresolved
+        )
+
+        // Act
+        let clearDecision = WorkspacePaneContextTransitionPlanner.plan(
+            unresolvedRequest,
+            currentPaneState: originalState
+        )
+
+        // Assert
+        guard case .changed(let clearTransition) = clearDecision else {
+            Issue.record("expected unresolved pane context to clear persisted facets")
+            return
+        }
+        let clearedState = try #require(clearTransition.replacements.onlyElement?.replacementState)
+        #expect(clearedState.metadata.facets.cwd == nil)
+        #expect(clearedState.metadata.facets.repoId == nil)
+        #expect(clearedState.metadata.facets.worktreeId == nil)
+        #expect(
+            WorkspacePaneContextTransitionPlanner.plan(
+                unresolvedRequest,
+                currentPaneState: clearedState
+            ) == .unchanged
+        )
+        let missingPaneID = UUIDv7.generate()
+        let mismatchedPaneID = UUIDv7.generate()
+        #expect(
+            WorkspacePaneContextTransitionPlanner.plan(
+                .init(paneID: missingPaneID, cwd: nil, resolvedContext: .unresolved),
+                currentPaneState: nil
+            ) == .rejected(.paneMissing(missingPaneID))
+        )
+        #expect(
+            WorkspacePaneContextTransitionPlanner.plan(
+                .init(paneID: mismatchedPaneID, cwd: nil, resolvedContext: .unresolved),
+                currentPaneState: originalState
+            )
+                == .rejected(
+                    .paneIdentityMismatch(
+                        requestedPaneID: mismatchedPaneID,
+                        currentPaneID: originalState.id
+                    )
+                )
+        )
+    }
+
 }
 
 private func makePaneTransitionState(
