@@ -91,7 +91,7 @@ private final class SharedComponentStateVisitor: SyntaxVisitor {
                 return false
             }
             let identifier = property.declName.baseName.text
-            return identifier == "atom" || identifier.hasSuffix("Atom")
+            return identifier == "atomScope" || identifier == "atom" || identifier.hasSuffix("Atom")
                 || identifier == "store" || identifier.hasSuffix("Store")
                 || identifier == "registry" || identifier.hasSuffix("Registry")
         }

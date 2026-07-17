@@ -41,6 +41,19 @@ struct RuleParityTests {
         #expect(diagnostics.contains { $0.line == 2 })
     }
 
+    @Test("shared components reject atom scope environment reads")
+    func sharedComponentsRejectAtomScopeEnvironmentReads() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent("Bad/Sources/AgentStudio/SharedComponents/BadSharedComponent.swift")
+            .path
+
+        let diagnostics = try lint(files: [fixture]).filter {
+            $0.ruleID == "agentstudio_shared_components_are_stateless"
+        }
+
+        #expect(diagnostics.contains { $0.line == 8 })
+    }
+
     @Test("forbidden architecture marker has dedicated fixture coverage")
     func forbiddenArchitectureMarkerHasDedicatedFixtureCoverage() throws {
         let markerFixture = fixtureRoot()
