@@ -1,3 +1,4 @@
+import { compileBridgeFileTreeSearchPattern } from '../models/bridge-file-tree-search.js';
 import type { BridgeCommWorkerFileDisplayEventAuthority } from './bridge-comm-worker-file-display-event-authority.js';
 import {
 	BRIDGE_WORKER_FILE_DISPLAY_PATCH_LIMIT,
@@ -170,7 +171,7 @@ export class BridgeCommWorkerFileQueryProjection {
 		publish: (result: BridgeCommWorkerFileQueryProjectionResult) => void,
 	): void {
 		this.#queryGeneration += 1;
-		const searchPattern = makeBridgeWorkerFileSearchPattern(query);
+		const searchPattern = compileBridgeFileTreeSearchPattern(query);
 		const pendingQuery: PendingFileQueryProjection = {
 			evaluatedRowCount: 0,
 			generation: this.#queryGeneration,
@@ -357,7 +358,9 @@ export class BridgeCommWorkerFileQueryProjection {
 		querySearchError: string | null,
 	): boolean {
 		if (querySearchError !== null) return false;
-		if (queryPattern !== null && !queryPattern.test(row.path)) return false;
+		if (queryPattern !== null) {
+			if (row.isDirectory || !queryPattern.test(row.path)) return false;
+		}
 		if (row.isDirectory || query.filterMode === 'all') return true;
 		const availability = row.fileId === null ? undefined : this.#fileItemsById.get(row.fileId);
 		if (query.filterMode === 'fetchable') {
@@ -512,32 +515,6 @@ function fileTreeOperationBatches(
 		});
 	}
 	return patches;
-}
-
-function makeBridgeWorkerFileSearchPattern(query: BridgeWorkerFileQuery): {
-	readonly pattern: RegExp | null;
-	readonly searchError: string | null;
-} {
-	const searchText = query.searchText.trim();
-	if (searchText.length === 0) return { pattern: null, searchError: null };
-	try {
-		return {
-			pattern: new RegExp(
-				query.searchMode === 'text' ? escapeRegularExpression(searchText) : searchText,
-				'iu',
-			),
-			searchError: null,
-		};
-	} catch (error) {
-		return {
-			pattern: null,
-			searchError: error instanceof Error ? error.message : 'Invalid regular expression',
-		};
-	}
-}
-
-function escapeRegularExpression(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 function fileQueriesEqual(left: BridgeWorkerFileQuery, right: BridgeWorkerFileQuery): boolean {

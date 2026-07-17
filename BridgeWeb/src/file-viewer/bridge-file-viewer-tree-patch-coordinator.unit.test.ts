@@ -91,6 +91,22 @@ describe('Bridge File viewer tree patch coordinator', () => {
 		expect(active.resetCalls).toEqual([]);
 	});
 
+	test('removes an obsolete synthesized ancestor branch when a query has no descendant there', () => {
+		const active = createRecordingTreeModel(['Sources/App/Current.swift']);
+		const coordinator = createBridgeFileViewerTreePatchCoordinator({
+			initialPaths: active.paths,
+			model: active.model,
+			onQueryTransactionReady: (): boolean => true,
+		});
+
+		coordinator.applyEntry(queryBegin(1, 'query-empty'));
+		coordinator.applyEntry(queryCommit(2, 'query-empty'));
+
+		expect(active.paths).toEqual([]);
+		expect(active.batchCalls).toEqual([[{ path: 'Sources', recursive: true, type: 'remove' }]]);
+		expect(active.resetCalls).toEqual([]);
+	});
+
 	test('holds replacement reset until commit while an explicit clear empties the stable model', () => {
 		const active = createRecordingTreeModel(
 			['Sources/Current.swift'],
@@ -205,7 +221,12 @@ function createRecordingTreeModel(
 							paths.push(operation.path);
 							break;
 						case 'remove':
-							paths = paths.filter((path) => path !== operation.path);
+							paths = paths.filter(
+								(path) =>
+									path !== operation.path &&
+									(operation.recursive !== true ||
+										!path.startsWith(`${operation.path.replace(/\/$/u, '')}/`)),
+							);
 							break;
 						case 'move':
 							paths = paths.map((path) => (path === operation.from ? operation.to : path));

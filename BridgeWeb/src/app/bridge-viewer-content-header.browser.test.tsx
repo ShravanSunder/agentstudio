@@ -143,7 +143,7 @@ describe('BridgeReviewProjectionMenu Browser Mode', () => {
 		render(
 			<BridgeReviewProjectionMenu
 				onProjectionModeChange={modeChanges}
-				projectionMode={{ kind: 'guidedReview' }}
+				projectionMode={{ kind: 'normalReview' }}
 			/>,
 		);
 
@@ -177,18 +177,23 @@ describe('BridgeReviewProjectionMenu Browser Mode', () => {
 			'11px',
 		]);
 		expect(segments.map((segment) => segment.getAttribute('aria-checked'))).toEqual([
-			'false',
 			'true',
+			'false',
 			'false',
 		]);
 		expect(segments.map((segment) => segment.getAttribute('aria-pressed'))).toEqual([
-			'false',
 			'true',
 			'false',
+			'false',
+		]);
+		expect(segments.map((segment) => segment.hasAttribute('disabled'))).toEqual([
+			false,
+			true,
+			true,
 		]);
 
 		segments[2]?.click();
-		expect(modeChanges).toHaveBeenCalledExactlyOnceWith({ kind: 'plansAndSpecs' });
+		expect(modeChanges).not.toHaveBeenCalled();
 	});
 });
 

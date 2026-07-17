@@ -1,10 +1,12 @@
-import { FolderIcon, SlidersHorizontalIcon, XIcon } from 'lucide-react';
+import { FolderIcon, XIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
 import {
-	bridgeViewerChromeIconButtonClassName,
-	bridgeViewerChromeLucideIconClassName,
-} from '../../app/bridge-viewer-chrome.js';
+	BridgeViewerFilterTrigger,
+	bridgeViewerFilterClearClassName,
+	bridgeViewerFilterMenuSurfaceClassName,
+	bridgeViewerFilterOptionClassName,
+} from '../../app/bridge-viewer-filter-menu.js';
 import { cn } from '../../app/class-name.js';
 import {
 	DropdownMenu,
@@ -12,7 +14,6 @@ import {
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuSeparator,
-	DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
 import type {
 	BridgeFileChangeKind,
@@ -42,43 +43,17 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 
 	return (
 		<DropdownMenu>
-			<DropdownMenuTrigger
-				aria-label="Filter review files"
-				className={cn(
-					'flex shrink-0 items-center justify-center border border-transparent bg-transparent px-0',
-					bridgeViewerChromeIconButtonClassName,
-					'text-[12px] text-[var(--bridge-text-secondary)] transition-colors',
-					'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
-					'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
-					'data-popup-open:bg-[var(--bridge-header-control-active-bg)] data-popup-open:text-[var(--bridge-text-primary)]',
-				)}
-				data-testid="bridge-review-facet-menu-control"
-				title="Filter review files"
-			>
-				<span className="relative flex items-center">
-					<SlidersHorizontalIcon
-						aria-hidden="true"
-						className={bridgeViewerChromeLucideIconClassName}
-					/>
-					{hasActiveFacet ? (
-						<span
-							className={cn(
-								'absolute -right-0.5 -top-0.5 size-1.5 rounded-full',
-								'bg-[var(--bridge-focus-border)] shadow-[var(--bridge-focus-dot-shadow)]',
-							)}
-							data-testid="bridge-review-facet-active-indicator"
-						/>
-					) : null}
-				</span>
-			</DropdownMenuTrigger>
+			<BridgeViewerFilterTrigger
+				activeIndicatorTestId="bridge-review-facet-active-indicator"
+				hasActiveFilter={hasActiveFacet}
+				label="Filter review files"
+				selectedLabel="Review filters"
+				testId="bridge-review-facet-menu-control"
+				triggerGlyphTestId="bridge-review-facet-trigger-glyph"
+			/>
 			<DropdownMenuContent
 				align="end"
-				className={cn(
-					'z-[80] w-[min(520px,calc(100vw-32px))] rounded-[10px]',
-					'border border-[var(--bridge-menu-border)] bg-[var(--bridge-menu-bg)] p-2',
-					'text-[var(--bridge-text-secondary)] shadow-[var(--bridge-menu-shadow)]',
-					'ring-1 ring-[var(--bridge-menu-ring)]',
-				)}
+				className={cn(bridgeViewerFilterMenuSurfaceClassName, 'w-[min(520px,calc(100vw-32px))]')}
 				data-testid="bridge-review-facet-popover"
 				sideOffset={6}
 			>
@@ -109,11 +84,7 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 				</div>
 				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
 				<DropdownMenuItem
-					className={cn(
-						'h-8 gap-2 rounded-[7px] px-2 py-0 text-[13px]',
-						'text-[var(--bridge-text-muted)] focus:bg-[var(--bridge-list-hover-bg)]',
-						'focus:text-[var(--bridge-text-primary)] data-disabled:cursor-default data-disabled:opacity-55',
-					)}
+					className={bridgeViewerFilterClearClassName}
 					data-testid="bridge-review-facet-clear"
 					disabled={!hasActiveFacet}
 					onClick={() => {
@@ -153,9 +124,8 @@ function BridgeReviewFacetGroup<TValue extends string>(props: {
 						<DropdownMenuCheckboxItem
 							checked={option.value === props.activeValue}
 							className={cn(
-								'min-h-10 gap-2 rounded-[7px] px-2 py-1.5 pr-8 text-[13px]',
-								'text-[var(--bridge-text-secondary)] focus:bg-[var(--bridge-list-hover-bg)]',
-								'focus:text-[var(--bridge-text-primary)]',
+								bridgeViewerFilterOptionClassName,
+								'min-h-10 py-1.5',
 								option.value === props.activeValue && 'text-[var(--bridge-text-primary)]',
 							)}
 							data-testid="bridge-review-facet-option"

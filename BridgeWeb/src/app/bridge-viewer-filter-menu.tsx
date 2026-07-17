@@ -1,4 +1,4 @@
-import { ChevronDownIcon, FolderIcon, SlidersHorizontalIcon, XIcon } from 'lucide-react';
+import { SlidersHorizontalIcon, XIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
 import {
@@ -9,7 +9,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu.js';
-import { BridgeViewerIcon } from './bridge-viewer-button.js';
 import {
 	bridgeViewerChromeIconButtonClassName,
 	bridgeViewerChromeLucideIconClassName,
@@ -32,6 +31,63 @@ export interface BridgeViewerFilterMenuProps<TValue extends string> {
 	readonly onChange: (value: TValue) => void;
 }
 
+export const bridgeViewerFilterMenuSurfaceClassName = cn(
+	'z-[80] rounded-[10px] border border-[var(--bridge-menu-border)]',
+	'bg-[var(--bridge-menu-bg)] p-2 text-[var(--bridge-text-secondary)]',
+	'shadow-[var(--bridge-menu-shadow)] ring-1 ring-[var(--bridge-menu-ring)]',
+);
+
+export const bridgeViewerFilterOptionClassName = cn(
+	'gap-2 rounded-[7px] px-2 pr-8 text-[13px]',
+	'text-[var(--bridge-text-secondary)] focus:bg-[var(--bridge-list-hover-bg)]',
+	'focus:text-[var(--bridge-text-primary)]',
+);
+
+export const bridgeViewerFilterClearClassName = cn(
+	'h-8 gap-2 rounded-[7px] px-2 py-0 text-[13px]',
+	'text-[var(--bridge-text-muted)] focus:bg-[var(--bridge-list-hover-bg)]',
+	'focus:text-[var(--bridge-text-primary)] data-disabled:cursor-default data-disabled:opacity-55',
+);
+
+export function BridgeViewerFilterTrigger(props: {
+	readonly activeIndicatorTestId: string;
+	readonly hasActiveFilter: boolean;
+	readonly label: string;
+	readonly selectedLabel: string;
+	readonly testId: string;
+	readonly triggerGlyphTestId: string;
+}): ReactElement {
+	return (
+		<DropdownMenuTrigger
+			aria-label={props.label}
+			className={cn(
+				'flex shrink-0 items-center justify-center border border-transparent bg-transparent px-0',
+				bridgeViewerChromeIconButtonClassName,
+				'text-[12px] text-[var(--bridge-text-secondary)] transition-colors',
+				'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
+				'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
+				'data-popup-open:bg-[var(--bridge-header-control-active-bg)] data-popup-open:text-[var(--bridge-text-primary)]',
+			)}
+			data-testid={props.testId}
+			title={props.label}
+		>
+			<span className="relative flex min-w-0 items-center truncate">
+				<FilterTriggerGlyph testId={props.triggerGlyphTestId} />
+				{props.hasActiveFilter ? (
+					<span
+						className={cn(
+							'absolute -right-0.5 -top-0.5 size-1.5 rounded-full',
+							'bg-[var(--bridge-focus-border)] shadow-[var(--bridge-focus-dot-shadow)]',
+						)}
+						data-testid={props.activeIndicatorTestId}
+					/>
+				) : null}
+				<span className="sr-only">{props.selectedLabel}</span>
+			</span>
+		</DropdownMenuTrigger>
+	);
+}
+
 export function BridgeViewerFilterMenu<TValue extends string>(
 	props: BridgeViewerFilterMenuProps<TValue>,
 ): ReactElement {
@@ -49,44 +105,19 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 
 	return (
 		<DropdownMenu>
-			<DropdownMenuTrigger
-				aria-label={titleForFilterLabel(props.label)}
-				className={cn(
-					'flex shrink-0 items-center justify-center gap-0',
-					bridgeViewerChromeIconButtonClassName,
-					'border border-transparent bg-transparent px-0',
-					'text-[12px] text-[var(--bridge-text-secondary)] transition-colors',
-					'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
-					'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
-					'data-popup-open:bg-[var(--bridge-header-control-active-bg)] data-popup-open:text-[var(--bridge-text-primary)]',
-				)}
-				data-testid={props.testId}
-				title={props.label}
-			>
-				<span className="relative flex min-w-0 items-center truncate">
-					<FilterTriggerGlyph label={props.label} testId={testIds.triggerGlyph} />
-					{isDefaultSelection ? null : (
-						<span
-							className={cn(
-								'absolute -right-0.5 -top-0.5 size-1.5 rounded-full',
-								'bg-[var(--bridge-focus-border)] shadow-[var(--bridge-focus-dot-shadow)]',
-							)}
-							data-testid={testIds.activeIndicator}
-						/>
-					)}
-					<span className="sr-only">{selectedLabel}</span>
-				</span>
-				<BridgeViewerIcon className="sr-only">
-					<ChevronDownIcon aria-hidden="true" className="size-3" data-testid={testIds.chevron} />
-				</BridgeViewerIcon>
-			</DropdownMenuTrigger>
+			<BridgeViewerFilterTrigger
+				activeIndicatorTestId={testIds.activeIndicator}
+				hasActiveFilter={!isDefaultSelection}
+				label={titleForFilterLabel(props.label)}
+				selectedLabel={selectedLabel}
+				testId={props.testId}
+				triggerGlyphTestId={testIds.triggerGlyph}
+			/>
 			<DropdownMenuContent
 				align="end"
 				className={cn(
-					'z-[80] w-64 rounded-[10px] border border-[var(--bridge-menu-border)]',
-					'max-h-[min(460px,calc(100vh-96px))] bg-[var(--bridge-menu-bg)] p-2',
-					'text-[var(--bridge-text-secondary)] shadow-[var(--bridge-menu-shadow)]',
-					'ring-1 ring-[var(--bridge-menu-ring)]',
+					bridgeViewerFilterMenuSurfaceClassName,
+					'w-64 max-h-[min(460px,calc(100vh-96px))]',
 				)}
 				data-testid={testIds.popover}
 				sideOffset={6}
@@ -105,9 +136,8 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 						<DropdownMenuCheckboxItem
 							checked={option.value === props.value}
 							className={cn(
-								'h-8 gap-2 rounded-[7px] px-2 py-0 pr-8 text-[13px]',
-								'text-[var(--bridge-text-secondary)] focus:bg-[var(--bridge-list-hover-bg)]',
-								'focus:text-[var(--bridge-text-primary)]',
+								bridgeViewerFilterOptionClassName,
+								'h-8 py-0',
 								option.value === props.value && 'text-[var(--bridge-text-primary)]',
 							)}
 							data-testid={testIds.option}
@@ -133,11 +163,7 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 				)}
 				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
 				<DropdownMenuItem
-					className={cn(
-						'h-8 gap-2 rounded-[7px] px-2 py-0 text-[13px]',
-						'text-[var(--bridge-text-muted)] focus:bg-[var(--bridge-list-hover-bg)]',
-						'focus:text-[var(--bridge-text-primary)] data-disabled:cursor-default data-disabled:opacity-55',
-					)}
+					className={bridgeViewerFilterClearClassName}
 					data-testid={testIds.clear}
 					disabled={!canClear}
 					onClick={() => {
@@ -156,19 +182,7 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 	);
 }
 
-function FilterTriggerGlyph(props: {
-	readonly label: string;
-	readonly testId: string;
-}): ReactElement {
-	if (props.label === 'File class filter') {
-		return (
-			<FolderIcon
-				aria-hidden="true"
-				className={cn(bridgeViewerChromeLucideIconClassName, 'text-[var(--bridge-text-secondary)]')}
-				data-testid={props.testId}
-			/>
-		);
-	}
+function FilterTriggerGlyph(props: { readonly testId: string }): ReactElement {
 	return (
 		<SlidersHorizontalIcon
 			aria-hidden="true"

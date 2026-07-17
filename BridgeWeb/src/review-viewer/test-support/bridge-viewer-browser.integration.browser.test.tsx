@@ -109,27 +109,22 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		if (!(searchInput instanceof HTMLInputElement)) {
 			throw new Error('J1 REVIEW SEARCH INPUT MISSING');
 		}
-		const searchRoot = searchInput.getRootNode();
-		expect(searchRoot).toBeInstanceOf(ShadowRoot);
-		if (!(searchRoot instanceof ShadowRoot)) throw new Error('J1 REVIEW SEARCH ROOT MISSING');
-		expect(searchRoot.activeElement).toBe(searchInput);
+		expect(document.activeElement).toBe(searchInput);
 
 		// Act
 		const expectedMatch = files[4];
 		if (expectedMatch === undefined) throw new Error('J1 REVIEW SEARCH FIXTURE MISSING');
 		await act(async (): Promise<void> => {
-			searchInput.value = 'RecoveryFile005';
-			searchInput.dispatchEvent(new InputEvent('input', { bubbles: true }));
-			await Promise.resolve();
+			await harness.renderResult.getByTestId('bridge-review-search-input').fill('RecoveryFile005');
 		});
 		await advanceBridgeReviewRecoveryWitnessFrames(2);
 
 		// Assert
-		expect(searchInput.value).toBe('recoveryfile005');
-		const activeDescendantId = searchInput.getAttribute('aria-activedescendant');
-		expect(activeDescendantId).not.toBeNull();
-		const activeDescendant = searchRoot.getElementById(activeDescendantId ?? '');
-		expect(activeDescendant?.getAttribute('data-item-path')).toBe(expectedMatch.path);
+		expect(searchInput.value).toBe('RecoveryFile005');
+		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toEqual([
+			'Sources/RecoveryGroup02',
+			expectedMatch.path,
+		]);
 
 		// Act
 		await act(async (): Promise<void> => {
@@ -140,6 +135,44 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		await expect
 			.element(harness.renderResult.getByTestId('bridge-review-regex-toggle'))
 			.toHaveAttribute('aria-pressed', 'true');
+		const regexSearchInput = harness.pierreSearchInput();
+		if (!(regexSearchInput instanceof HTMLInputElement)) {
+			throw new Error('Review regex search input is missing after the source reset.');
+		}
+
+		// Act: apply a real regex that spans two directory branches.
+		await act(async (): Promise<void> => {
+			await harness.renderResult
+				.getByTestId('bridge-review-search-input')
+				.fill(String.raw`RecoveryFile00[24]\.swift$`);
+		});
+		await advanceBridgeReviewRecoveryWitnessFrames(2);
+
+		// Assert: retain only matching files and the ancestors required to reach them.
+		expect(harness.pierreSearchInput()?.value).toBe(String.raw`RecoveryFile00[24]\.swift$`);
+		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toEqual([
+			'Sources',
+			'Sources/RecoveryGroup01',
+			'Sources/RecoveryGroup01/RecoveryFile002.swift',
+			'Sources/RecoveryGroup02',
+			'Sources/RecoveryGroup02/RecoveryFile004.swift',
+		]);
+		const invalidRegexSearchInput = harness.pierreSearchInput();
+		if (!(invalidRegexSearchInput instanceof HTMLInputElement)) {
+			throw new Error('Review regex search input is missing before invalid-regex proof.');
+		}
+
+		// Act: invalid regex must fail closed without losing the query input.
+		await act(async (): Promise<void> => {
+			await harness.renderResult.getByTestId('bridge-review-search-input').fill('[');
+		});
+		await advanceBridgeReviewRecoveryWitnessFrames(2);
+
+		// Assert
+		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toEqual([]);
+		await expect
+			.element(harness.renderResult.getByTestId('bridge-review-tree-search-status'))
+			.toHaveTextContent('Invalid regex');
 	});
 
 	test('reveals ancestors for explicit Review navigation without changing fresh disclosure', async () => {
@@ -519,6 +552,15 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		expect(harness.pierreTreePath(files[5]?.path ?? '')).not.toBeNull();
 	});
 });
+
+function mountedReviewTreePaths(treeHost: HTMLElement | null): readonly string[] {
+	if (treeHost?.shadowRoot === null || treeHost?.shadowRoot === undefined) return [];
+	return [...treeHost.shadowRoot.querySelectorAll<HTMLElement>('[data-item-path]')]
+		.map((row): string => row.dataset['itemPath']?.replace(/\/$/u, '') ?? '')
+		.filter((path): boolean => path.length > 0)
+		.filter((path, index, paths): boolean => paths.indexOf(path) === index)
+		.toSorted();
+}
 
 function expectedExpandedRecoveryTreePaths(): readonly string[] {
 	return ['Sources', 'Sources/RecoveryGroup01', 'Sources/RecoveryGroup02'];

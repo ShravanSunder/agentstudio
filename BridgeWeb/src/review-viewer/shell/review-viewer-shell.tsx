@@ -5,9 +5,11 @@ import { BridgeViewerRailToolbar } from '../../app/bridge-viewer-rail-toolbar.js
 import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizable-rail-layout.js';
 import { BridgeViewerRightRailShell } from '../../app/bridge-viewer-right-rail-shell.js';
 import { BridgeViewerSearchControl } from '../../app/bridge-viewer-search-control.js';
+import { BridgeViewerSearchField } from '../../app/bridge-viewer-search-field.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeWorkerPanelChromePatchPayload } from '../../core/comm-worker/bridge-worker-contracts.js';
+import { compileBridgeFileTreeSearchPattern } from '../../core/models/bridge-file-tree-search.js';
 import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
 import {
 	type BridgeReviewItemRegistry,
@@ -108,6 +110,12 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const treeSearchText = props.treeSearchText ?? '';
 	const treeSearchMode = props.treeSearchMode ?? { kind: 'text' };
 	const treeSearchOpen = props.treeSearchOpen === true || treeSearchText.length > 0;
+	const treeSearchCompilation = compileBridgeFileTreeSearchPattern({
+		searchMode: treeSearchMode.kind,
+		searchText: treeSearchText,
+	});
+	const treeSearchErrorMessage =
+		treeSearchCompilation.searchError === null ? null : 'Invalid regex';
 	const projection = props.projection;
 	const selectedItem =
 		props.selectedItemId === null
@@ -360,13 +368,10 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								{...(props.onTreeVisibleItemIdsChange === undefined
 									? {}
 									: { onVisibleItemIdsChange: props.onTreeVisibleItemIdsChange })}
-								{...(props.onTreeSearchTextChange === undefined
-									? {}
-									: { onSearchTextChange: props.onTreeSearchTextChange })}
 								projection={projection}
 								reviewPackage={props.reviewPackage}
 								reviewTreeRows={props.reviewTreeRows ?? []}
-								searchOpen={treeSearchOpen}
+								searchMode={treeSearchMode}
 								searchText={treeSearchText}
 								selectedItemId={props.selectedItemId}
 								selectionRevealRequest={props.treeSelectionRevealRequest ?? null}
@@ -387,6 +392,18 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 					border: 'opaque',
 					layout: 'stack',
 					testId: 'bridge-review-sidebar',
+					toolbarBelow: treeSearchOpen ? (
+						<BridgeViewerSearchField
+							errorMessage={treeSearchErrorMessage}
+							inputTestId="bridge-review-search-input"
+							onChange={(value): void => props.onTreeSearchTextChange?.(value)}
+							onSearchModeChange={(mode): void => props.onTreeSearchModeChange?.(mode)}
+							regexToggleTestId="bridge-review-regex-toggle"
+							searchMode={treeSearchMode}
+							statusTestId="bridge-review-tree-search-status"
+							value={treeSearchText}
+						/>
+					) : null,
 					toolbar: BridgeViewerRailToolbar({
 						leading: (
 							<BridgeReviewProjectionMenu
@@ -414,9 +431,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								<BridgeViewerSearchControl
 									isActive={treeSearchOpen}
 									onOpenSearch={(): void => props.onTreeSearchOpen?.()}
-									onSearchModeChange={(mode): void => props.onTreeSearchModeChange?.(mode)}
-									regexToggleTestId="bridge-review-regex-toggle"
-									searchMode={treeSearchMode}
 									searchToggleTestId="bridge-review-search-toggle"
 									testId="bridge-review-search-control"
 								/>

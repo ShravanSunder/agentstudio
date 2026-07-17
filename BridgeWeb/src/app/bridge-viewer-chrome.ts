@@ -22,6 +22,3 @@ export const bridgeViewerChromeSegmentIconButtonClassName =
 
 export const bridgeViewerChromeSegmentButtonClassName =
 	'h-5 min-h-5 gap-1 rounded-[5px] px-1.5 !text-[11px] !leading-none';
-
-export const bridgeViewerChromeSearchInputClassName =
-	'h-6 min-h-6 w-[calc(100%-1rem)] rounded-md border-[var(--bridge-border-subtle)] bg-[var(--bridge-header-control-bg)] px-2 py-0 !text-[11px] !leading-none text-[var(--bridge-text-primary)] placeholder:text-[var(--bridge-text-muted)] focus-visible:border-[var(--bridge-focus-border)] focus-visible:ring-1 focus-visible:ring-[var(--bridge-focus-ring)]';

@@ -495,11 +495,7 @@ function bridgeReviewRecoveryWitnessPierreTreeHost(container: HTMLElement): HTML
 function bridgeReviewRecoveryWitnessPierreSearchInput(
 	container: HTMLElement,
 ): HTMLInputElement | null {
-	const treeHost = bridgeReviewRecoveryWitnessPierreTreeHost(container);
-	const searchContainer = treeHost?.shadowRoot?.querySelector(
-		'[data-file-tree-search-container][data-open="true"]',
-	);
-	const searchInput = searchContainer?.querySelector('[data-file-tree-search-input]');
+	const searchInput = container.querySelector('[data-testid="bridge-review-search-input"]');
 	return searchInput instanceof HTMLInputElement ? searchInput : null;
 }
 

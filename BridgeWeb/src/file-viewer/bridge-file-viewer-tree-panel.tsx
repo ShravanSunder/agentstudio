@@ -1,7 +1,6 @@
 import { FileTree } from '@pierre/trees/react';
 import { useState, type ReactElement } from 'react';
 
-import { bridgeViewerChromeSearchInputClassName } from '../app/bridge-viewer-chrome.js';
 import {
 	BridgeViewerFilterMenu,
 	type BridgeViewerFilterOption,
@@ -9,9 +8,8 @@ import {
 import { BridgeViewerRailToolbar } from '../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerRightRailShell } from '../app/bridge-viewer-right-rail-shell.js';
 import { BridgeViewerSearchControl } from '../app/bridge-viewer-search-control.js';
+import { BridgeViewerSearchField } from '../app/bridge-viewer-search-field.js';
 import { bridgeViewerTreeStyle } from '../app/bridge-viewer-tree-theme.js';
-import { cn } from '../app/class-name.js';
-import { Input } from '../components/ui/input.js';
 import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
@@ -143,12 +141,6 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 								onOpenSearch={() => {
 									setIsSearchOpen(true);
 								}}
-								onSearchModeChange={(searchMode) => {
-									setIsSearchOpen(true);
-									props.onSearchModeChange(searchMode.kind);
-								}}
-								regexToggleTestId="worktree-file-regex-toggle"
-								searchMode={{ kind: props.searchMode }}
 								searchToggleTestId="worktree-file-search-toggle"
 								testId="worktree-file-search-control"
 							/>
@@ -158,24 +150,20 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 					trailingTestId: 'bridge-file-viewer-rail-toolbar-trailing',
 				}),
 				toolbarBelow: shouldShowSearchInput ? (
-					<Input
-						aria-label="Search files"
-						className={cn('mx-2 mb-1', bridgeViewerChromeSearchInputClassName)}
-						data-testid="worktree-file-search-input"
-						onChange={(event) => {
-							props.onSearchTextChange(event.currentTarget.value);
+					<BridgeViewerSearchField
+						errorMessage={props.searchError === null ? null : 'Invalid regex'}
+						inputTestId="worktree-file-search-input"
+						onChange={props.onSearchTextChange}
+						onSearchModeChange={(searchMode) => {
+							props.onSearchModeChange(searchMode.kind);
 						}}
-						placeholder="Search files"
-						spellCheck={false}
-						type="search"
+						regexToggleTestId="worktree-file-regex-toggle"
+						searchMode={{ kind: props.searchMode }}
+						statusTestId="worktree-file-filter-status"
 						value={props.searchText}
 					/>
 				) : null,
-				toolbarFooter: (
-					<div className="sr-only" data-testid="worktree-file-filter-status">
-						{visibleCountLabel}
-					</div>
-				),
+				toolbarFooter: null,
 			})}
 		</>
 	);

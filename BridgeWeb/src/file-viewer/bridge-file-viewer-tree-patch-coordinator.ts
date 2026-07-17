@@ -144,12 +144,19 @@ function replacementOperationsBetween(
 	nextPaths: ReadonlySet<string>,
 ): readonly FileTreeBatchOperation[] {
 	const removedRoots: string[] = [];
+	const nextPathAndAncestorSet = pathAndAncestorSet(nextPaths);
 	const removalCandidates = [...committedPaths]
 		.filter((path) => !nextPaths.has(path))
 		.toSorted((left, right) => left.length - right.length || left.localeCompare(right));
 	for (const path of removalCandidates) {
-		if (removedRoots.some((rootPath) => pathIsSameOrDescendant(path, rootPath))) continue;
-		removedRoots.push(path);
+		const removalRoot = shallowestObsoleteAncestor(path, nextPathAndAncestorSet);
+		if (
+			removalRoot === null ||
+			removedRoots.some((rootPath) => pathIsSameOrDescendant(removalRoot, rootPath))
+		) {
+			continue;
+		}
+		removedRoots.push(removalRoot);
 	}
 	const operations: FileTreeBatchOperation[] = removedRoots.map((path) => ({
 		path,
@@ -163,6 +170,35 @@ function replacementOperationsBetween(
 		if (!committedPaths.has(path) || removedWithAncestor) operations.push({ path, type: 'add' });
 	}
 	return operations;
+}
+
+function shallowestObsoleteAncestor(
+	path: string,
+	nextPathAndAncestorSet: ReadonlySet<string>,
+): string | null {
+	const pathSegments = path
+		.replace(/\/$/u, '')
+		.split('/')
+		.filter((segment): boolean => segment.length > 0);
+	for (let segmentCount = 1; segmentCount <= pathSegments.length; segmentCount += 1) {
+		const candidatePath = pathSegments.slice(0, segmentCount).join('/');
+		if (!nextPathAndAncestorSet.has(candidatePath)) return candidatePath;
+	}
+	return null;
+}
+
+function pathAndAncestorSet(paths: ReadonlySet<string>): ReadonlySet<string> {
+	const pathsAndAncestors = new Set<string>();
+	for (const path of paths) {
+		const pathSegments = path
+			.replace(/\/$/u, '')
+			.split('/')
+			.filter((segment): boolean => segment.length > 0);
+		for (let segmentCount = 1; segmentCount <= pathSegments.length; segmentCount += 1) {
+			pathsAndAncestors.add(pathSegments.slice(0, segmentCount).join('/'));
+		}
+	}
+	return pathsAndAncestors;
 }
 
 function pathIsSameOrDescendant(path: string, rootPath: string): boolean {

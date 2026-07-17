@@ -89,6 +89,7 @@ export function useBridgeFileViewerPierreTreeRuntime(
 	};
 	const { model } = useFileTree({
 		paths: [],
+		density: 'compact',
 		flattenEmptyDirectories: true,
 		initialExpansion: 'open',
 		initialSelectedPaths: props.selectedPath === null ? [] : [props.selectedPath],

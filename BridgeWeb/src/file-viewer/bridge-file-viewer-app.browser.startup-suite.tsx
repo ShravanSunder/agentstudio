@@ -160,19 +160,38 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		).not.toBeNull();
 		expect(document.querySelector('[data-testid="worktree-file-search-control"]')).not.toBeNull();
 		expect(document.querySelector('[data-testid="worktree-file-search-toggle"]')).not.toBeNull();
-		expect(document.querySelector('[data-testid="worktree-file-regex-toggle"]')).not.toBeNull();
+		expect(document.querySelector('[data-testid="worktree-file-regex-toggle"]')).toBeNull();
 		expect(document.querySelector('[data-testid="worktree-file-filter-menu"]')).not.toBeNull();
 		expect(document.querySelector('[data-testid="worktree-file-search-input"]')).toBeNull();
+		const filterMenu = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-filter-menu"]'),
+		);
 		const searchToggle = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="worktree-file-search-toggle"]'),
 		);
-		const regexToggle = requireBridgeViewerHTMLElement(
-			document.querySelector('[data-testid="worktree-file-regex-toggle"]'),
+		const filterGlyph = document.querySelector(
+			'[data-testid="worktree-file-filter-menu-trigger-glyph"]',
 		);
-		expect(Math.round(searchToggle.getBoundingClientRect().height)).toBe(24);
-		expect(Math.round(regexToggle.getBoundingClientRect().height)).toBe(24);
+		if (!(filterGlyph instanceof SVGElement)) {
+			throw new Error('Expected the File filter trigger SVG glyph.');
+		}
+		const filterBox = filterMenu.getBoundingClientRect();
+		const searchBox = searchToggle.getBoundingClientRect();
+		const filterGlyphBox = filterGlyph.getBoundingClientRect();
+		for (const controlBox of [filterBox, searchBox]) {
+			expect(Math.round(controlBox.width)).toBe(24);
+			expect(Math.round(controlBox.height)).toBe(24);
+			expect(Math.abs(controlBox.top - filterBox.top)).toBeLessThanOrEqual(1);
+			expect(
+				Math.abs(controlBox.y + controlBox.height / 2 - (filterBox.y + filterBox.height / 2)),
+			).toBeLessThanOrEqual(1);
+		}
+		expect(Math.abs(searchBox.left - filterBox.right - 4)).toBeLessThanOrEqual(1);
+		expect(filterBox.left).toBeLessThan(searchBox.left);
+		expect(Math.round(filterGlyphBox.width)).toBe(14);
+		expect(Math.round(filterGlyphBox.height)).toBe(14);
+		expect(filterGlyph.classList.contains('lucide-sliders-horizontal')).toBe(true);
 		expect(getComputedStyle(searchToggle).fontSize).toBe('11px');
-		expect(getComputedStyle(regexToggle).fontSize).toBe('11px');
 		const filterCount = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="worktree-file-filter-count"]'),
 		);
@@ -189,7 +208,21 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const searchInput = await waitForFileViewerHTMLElement({
 			selector: '[data-testid="worktree-file-search-input"]',
 		});
+		const regexToggle = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-regex-toggle"]'),
+		);
+		const searchField = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-bridge-viewer-search-field="true"]'),
+		);
 		expect(Math.round(searchInput.getBoundingClientRect().height)).toBe(24);
+		expect(Math.round(searchField.getBoundingClientRect().height)).toBe(28);
+		expect(Math.round(regexToggle.getBoundingClientRect().width)).toBe(20);
+		expect(regexToggle.getBoundingClientRect().left).toBeGreaterThan(
+			searchInput.getBoundingClientRect().left,
+		);
+		expect(regexToggle.getBoundingClientRect().right).toBeLessThanOrEqual(
+			searchField.getBoundingClientRect().right,
+		);
 		expect(getComputedStyle(searchInput).fontSize).toBe('11px');
 		expect(searchInput.className).toContain('h-6');
 		expect(searchInput.className).toContain('!text-[11px]');
@@ -255,6 +288,22 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(treeBox.height).toBeGreaterThan(150);
 		expect(appButton.getAttribute('data-item-path')).toBe('src/app.ts');
 		expect(readmeButton.getAttribute('data-item-path')).toBe('docs/readme.md');
+		const pierreTreeHost = treePanel.querySelector('file-tree-container');
+		if (!(pierreTreeHost instanceof HTMLElement) || pierreTreeHost.shadowRoot === null) {
+			throw new Error('Expected the real File Pierre tree host with an open shadow root.');
+		}
+		const renderedTreeRow = pierreTreeHost.shadowRoot.querySelector(
+			'button[data-item-path="src/app.ts"]',
+		);
+		if (!(renderedTreeRow instanceof HTMLButtonElement)) {
+			throw new Error('Expected the real rendered File Pierre tree row.');
+		}
+		expect(pierreTreeHost.style.getPropertyValue('--trees-density-override')).toBe('0.8');
+		expect(
+			getComputedStyle(pierreTreeHost).getPropertyValue('--trees-density-override').trim(),
+		).toBe('0.8');
+		expect(pierreTreeHost.style.getPropertyValue('--trees-item-height')).toBe('24px');
+		expect(Math.round(renderedTreeRow.getBoundingClientRect().height)).toBe(24);
 		expect(railWidthRatio).toBeGreaterThan(0.24);
 		expect(railWidthRatio).toBeLessThan(0.32);
 	});

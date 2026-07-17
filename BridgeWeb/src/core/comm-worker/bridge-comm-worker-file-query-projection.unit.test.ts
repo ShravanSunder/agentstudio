@@ -10,6 +10,9 @@ import type { BridgeWorkerFileQuery } from './bridge-worker-file-query-contracts
 describe('Bridge comm worker File query projection', () => {
 	test('owns text, regex, availability filtering, and invalid regex errors', () => {
 		expect(projectedPaths(resultForQuery(query({ searchText: 'readme' })))).toEqual(['README.md']);
+		expect(projectedPaths(resultForQuery(query({ searchText: 'assets' })))).toEqual([
+			'assets/logo.bin',
+		]);
 		expect(
 			projectedPaths(resultForQuery(query({ searchMode: 'regex', searchText: '\\.bin$' }))),
 		).toEqual(['assets/logo.bin']);

@@ -13,12 +13,16 @@ import {
 	appendedOnlyPierreTreePaths,
 	expandAncestorDirectoriesForPierreTreePaths,
 } from '../../app/bridge-pierre-tree-adapter.js';
+import { compileBridgeFileTreeSearchPattern } from '../../core/models/bridge-file-tree-search.js';
 import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
 import { recordBridgeTreeScrollToPathTelemetrySample } from '../../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
-import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
+import type {
+	BridgeReviewProjectionResult,
+	BridgeReviewSearchMode,
+} from '../models/review-projection-models.js';
 
 export interface BridgeTreesModel {
 	readonly resetPaths: (paths: readonly string[], options?: FileTreeResetOptions) => void;
@@ -42,6 +46,7 @@ export interface BridgeTreesSource {
 	readonly initialExpandedPaths: readonly string[];
 	readonly gitStatusEntries: readonly GitStatusEntry[];
 	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
+	readonly searchError: string | null;
 	readonly gitStatusSignature: string;
 }
 
@@ -60,6 +65,8 @@ export interface CreateBridgeTreesSourceProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly reviewTreeRows?: readonly ReviewTreeRowMetadata[];
 	readonly projection: BridgeReviewProjectionResult;
+	readonly searchMode?: BridgeReviewSearchMode;
+	readonly searchText?: string;
 }
 
 export interface PlanBridgeTreesUpdateProps {
@@ -81,15 +88,22 @@ export function createBridgeTreesSource(props: CreateBridgeTreesSourceProps): Br
 		projection: props.projection,
 		reviewTreeRows: props.reviewTreeRows ?? [],
 	});
-	const sourcePaths =
+	const unfilteredSourcePaths =
 		treeRowsSource === null ? props.projection.orderedPaths : treeRowsSource.orderedPaths;
-	const preparedInput = prepareBridgeTreeInput(sourcePaths);
-	const treePaths = preparedInput.paths;
-	const initialExpandedPaths = expandedDirectoryPathsForBridgeTreePaths(treePaths);
-	const primaryItemIdByTreePath =
+	const unfilteredPrimaryItemIdByTreePath =
 		treeRowsSource === null
 			? props.projection.primaryItemIdByTreePath
 			: treeRowsSource.primaryItemIdByTreePath;
+	const searchProjection = projectBridgeTreeSourceForSearch({
+		orderedPaths: unfilteredSourcePaths,
+		primaryItemIdByTreePath: unfilteredPrimaryItemIdByTreePath,
+		searchMode: props.searchMode ?? { kind: 'text' },
+		searchText: props.searchText ?? '',
+	});
+	const preparedInput = prepareBridgeTreeInput(searchProjection.orderedPaths);
+	const treePaths = preparedInput.paths;
+	const initialExpandedPaths = expandedDirectoryPathsForBridgeTreePaths(treePaths);
+	const primaryItemIdByTreePath = searchProjection.primaryItemIdByTreePath;
 	const gitStatusEntries = createGitStatusEntries({
 		primaryItemIdByTreePath,
 		reviewPackage: props.reviewPackage,
@@ -113,8 +127,45 @@ export function createBridgeTreesSource(props: CreateBridgeTreesSourceProps): Br
 		initialExpandedPaths,
 		gitStatusEntries,
 		primaryItemIdByTreePath,
+		searchError: searchProjection.searchError,
 		gitStatusSignature: gitStatusSignature(gitStatusEntries),
 	};
+}
+
+function projectBridgeTreeSourceForSearch(props: {
+	readonly orderedPaths: readonly string[];
+	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
+	readonly searchMode: BridgeReviewSearchMode;
+	readonly searchText: string;
+}): {
+	readonly orderedPaths: readonly string[];
+	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
+	readonly searchError: string | null;
+} {
+	const compilation = compileBridgeFileTreeSearchPattern({
+		searchMode: props.searchMode.kind,
+		searchText: props.searchText,
+	});
+	if (compilation.searchError !== null) {
+		return { orderedPaths: [], primaryItemIdByTreePath: {}, searchError: compilation.searchError };
+	}
+	if (compilation.pattern === null) {
+		return {
+			orderedPaths: props.orderedPaths,
+			primaryItemIdByTreePath: props.primaryItemIdByTreePath,
+			searchError: null,
+		};
+	}
+
+	const orderedPaths: string[] = [];
+	const primaryItemIdByTreePath: Record<string, string> = {};
+	for (const path of props.orderedPaths) {
+		const itemId = props.primaryItemIdByTreePath[path];
+		if (itemId === undefined || !compilation.pattern.test(path)) continue;
+		orderedPaths.push(path);
+		primaryItemIdByTreePath[path] = itemId;
+	}
+	return { orderedPaths, primaryItemIdByTreePath, searchError: null };
 }
 
 function reviewTreeRowsSourceForProjection(props: {
@@ -334,13 +385,18 @@ export class BridgeTreesController {
 		});
 	}
 
-	revealFirstSearchMatch(searchText: string): string | null {
+	revealFirstSearchMatch(
+		searchText: string,
+		searchMode: BridgeReviewSearchMode = { kind: 'text' },
+	): string | null {
 		const currentSource = this.#currentSource;
 		if (currentSource === null) {
 			return null;
 		}
 		const matchedPath = firstBridgeTreeSearchMatchPath({
 			orderedPaths: currentSource.orderedPaths,
+			primaryItemIdByTreePath: currentSource.primaryItemIdByTreePath,
+			searchMode,
 			searchText,
 		});
 		if (matchedPath === null) {
@@ -350,7 +406,13 @@ export class BridgeTreesController {
 		return matchedPath;
 	}
 
-	modelSearchTextForFirstSearchMatch(searchText: string): string {
+	modelSearchTextForFirstSearchMatch(
+		searchText: string,
+		searchMode: BridgeReviewSearchMode = { kind: 'text' },
+	): string {
+		if (searchMode.kind === 'regex') {
+			return searchText;
+		}
 		if (!searchText.includes('/') && !searchText.includes('\\')) {
 			return searchText;
 		}
@@ -360,6 +422,8 @@ export class BridgeTreesController {
 		}
 		const matchedPath = firstBridgeTreeSearchMatchPath({
 			orderedPaths: currentSource.orderedPaths,
+			primaryItemIdByTreePath: currentSource.primaryItemIdByTreePath,
+			searchMode,
 			searchText,
 		});
 		if (matchedPath === null) {
@@ -420,15 +484,22 @@ export class BridgeTreesController {
 
 function firstBridgeTreeSearchMatchPath(props: {
 	readonly orderedPaths: readonly string[];
+	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
+	readonly searchMode: BridgeReviewSearchMode;
 	readonly searchText: string;
 }): string | null {
-	const normalizedSearchText = props.searchText.trim().toLocaleLowerCase();
-	if (normalizedSearchText.length === 0) {
+	const compilation = compileBridgeFileTreeSearchPattern({
+		searchMode: props.searchMode.kind,
+		searchText: props.searchText,
+	});
+	if (compilation.pattern === null || compilation.searchError !== null) {
 		return null;
 	}
+	const pattern = compilation.pattern;
 	return (
-		props.orderedPaths.find((path: string): boolean =>
-			path.toLocaleLowerCase().includes(normalizedSearchText),
+		props.orderedPaths.find(
+			(path: string): boolean =>
+				props.primaryItemIdByTreePath[path] !== undefined && pattern.test(path),
 		) ?? null
 	);
 }

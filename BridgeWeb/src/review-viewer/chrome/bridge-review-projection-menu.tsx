@@ -13,6 +13,8 @@ export function BridgeReviewProjectionMenu(props: {
 	readonly projectionMode: BridgeReviewProjectionMode;
 	readonly onProjectionModeChange?: (mode: BridgeReviewProjectionMode) => void;
 }): ReactElement {
+	const activeProjectionKind =
+		props.projectionMode.kind === 'normalReview' ? props.projectionMode.kind : 'normalReview';
 	return (
 		<ToggleGroup
 			aria-label="Review mode"
@@ -22,7 +24,8 @@ export function BridgeReviewProjectionMenu(props: {
 			size="sm"
 		>
 			{projectionButtonSpecs.map((spec) => {
-				const isSelected = spec.mode.kind === props.projectionMode.kind;
+				const isSelected = spec.mode.kind === activeProjectionKind;
+				const isEnabled = spec.mode.kind === 'normalReview';
 				return (
 					<ToggleGroupItem
 						aria-checked={isSelected ? 'true' : 'false'}
@@ -32,9 +35,10 @@ export function BridgeReviewProjectionMenu(props: {
 							isSelected ? 'shadow-none' : undefined,
 						)}
 						data-testid="bridge-review-mode-segment"
+						disabled={!isEnabled}
 						key={spec.value}
 						onClick={(): void => {
-							if (!isSelected) {
+							if (isEnabled && !isSelected) {
 								props.onProjectionModeChange?.(spec.mode);
 							}
 						}}

@@ -271,7 +271,7 @@ describe('review viewer shell', () => {
 		const requestedModes: string[] = [];
 		const element = requireTestElement(
 			BridgeReviewProjectionMenu({
-				projectionMode: { kind: 'guidedReview' },
+				projectionMode: { kind: 'normalReview' },
 				onProjectionModeChange: (mode): void => {
 					requestedModes.push(mode.kind);
 				},
@@ -285,10 +285,11 @@ describe('review viewer shell', () => {
 		expect(segmentedControl?.props['aria-label']).toBe('Review mode');
 		expect(modeButtons).toHaveLength(3);
 		expect(modeButtons.map((button) => button.props['aria-checked'])).toEqual([
-			'false',
 			'true',
 			'false',
+			'false',
 		]);
+		expect(modeButtons.map((button) => button.props.disabled)).toEqual([false, true, true]);
 		expect(findElementByTestId(element, 'bridge-review-projection-menu')).toBeNull();
 
 		const plansButton = modeButtons[2];
@@ -296,7 +297,7 @@ describe('review viewer shell', () => {
 			throw new Error('expected plans/specs mode button');
 		}
 		plansButton.props.onClick();
-		expect(requestedModes).toEqual(['plansAndSpecs']);
+		expect(requestedModes).toEqual([]);
 	});
 
 	test('renders custom review controls without native select widgets', () => {

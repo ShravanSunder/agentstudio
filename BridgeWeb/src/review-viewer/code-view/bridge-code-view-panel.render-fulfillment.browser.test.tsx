@@ -116,7 +116,19 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 		const firstPublicationItem = requireExactReviewPierreDiffItem(
 			firstPublication.job.payload.item,
 		);
-		const reviewPackage = makeBridgeReviewPackage();
+		const defaultReviewPackage = makeBridgeReviewPackage();
+		const defaultReviewItem = defaultReviewPackage.itemsById['item-source'];
+		if (defaultReviewItem === undefined) {
+			throw new Error('Expected the Review fixture descriptor.');
+		}
+		const reviewPackage = {
+			...defaultReviewPackage,
+			itemsById: {
+				...defaultReviewPackage.itemsById,
+				'item-source': { ...defaultReviewItem, additions: 17, deletions: 9 },
+			},
+			summary: { ...defaultReviewPackage.summary, additions: 17, deletions: 9 },
+		};
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
 			request: { facets: [], mode: { kind: 'normalReview' } },
@@ -183,6 +195,48 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 				(): boolean => hasPostRenderForItem(capturedPostRenders, firstFinalItem),
 				'Expected Pierre onPostRender callback for the exact first final Review object.',
 			);
+			await settleBridgeCodeViewState(
+				(): boolean =>
+					document.querySelector('[data-testid="bridge-code-view-header-metadata"]') !== null,
+				'Expected the Bridge descriptor header metadata to render.',
+			);
+			const metadata = document.querySelector('[data-testid="bridge-code-view-header-metadata"]');
+			if (!(metadata instanceof HTMLElement)) {
+				throw new Error('Expected mounted Bridge descriptor header metadata.');
+			}
+			const metadataCounts = [...metadata.querySelectorAll(':scope > span')].filter(
+				(element): boolean => element.textContent === '-9' || element.textContent === '+17',
+			);
+			expect(metadataCounts.map((element): string | null => element.textContent)).toEqual([
+				'-9',
+				'+17',
+			]);
+			for (const metadataCount of metadataCounts) {
+				const metadataCountBox = metadataCount.getBoundingClientRect();
+				expect(getComputedStyle(metadataCount).display).not.toBe('none');
+				expect(metadataCountBox.width).toBeGreaterThan(0);
+				expect(metadataCountBox.height).toBeGreaterThan(0);
+			}
+			const pierreContainer = document.querySelector('diffs-container');
+			if (!(pierreContainer instanceof HTMLElement) || pierreContainer.shadowRoot === null) {
+				throw new Error('Expected mounted Pierre diffs-container shadow DOM.');
+			}
+			const pierreAdditionCounters = [
+				...pierreContainer.shadowRoot.querySelectorAll('[data-additions-count]'),
+			];
+			const pierreDeletionCounters = [
+				...pierreContainer.shadowRoot.querySelectorAll('[data-deletions-count]'),
+			];
+			expect(pierreAdditionCounters).toHaveLength(1);
+			expect(pierreDeletionCounters).toHaveLength(1);
+			for (const pierreCounter of [...pierreAdditionCounters, ...pierreDeletionCounters]) {
+				const counterBox = pierreCounter.getBoundingClientRect();
+				expect(
+					getComputedStyle(pierreCounter).display === 'none' ||
+						counterBox.width === 0 ||
+						counterBox.height === 0,
+				).toBe(true);
+			}
 			const firstPostRender = requirePostRenderForItem(capturedPostRenders, firstFinalItem);
 
 			// The exact main-adapted item is both Pierre's current record and rendered member. The raw

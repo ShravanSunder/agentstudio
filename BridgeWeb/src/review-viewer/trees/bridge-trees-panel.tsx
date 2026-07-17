@@ -27,6 +27,7 @@ import {
 	recordBridgeTreeVisibleIdsCaptureTelemetrySample,
 } from '../../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
+import type { BridgeReviewSearchMode } from '../models/review-projection-models.js';
 import { BridgeTreesController, createBridgeTreesSource } from './bridge-trees-controller.js';
 import { createBridgeReviewTreeVisibleItemPublisher } from './bridge-trees-visible-item-publisher.js';
 
@@ -70,11 +71,10 @@ export interface BridgeReviewTreesPanelProps {
 	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
 	readonly projection: BridgeReviewProjectionResult;
 	readonly selectedItemId: string | null;
-	readonly searchOpen: boolean;
+	readonly searchMode: BridgeReviewSearchMode;
 	readonly searchText: string;
 	readonly selectionRevealRequest?: BridgeReviewTreeSelectionRevealRequest | null;
 	readonly onSelectItem: (itemId: string) => void;
-	readonly onSearchTextChange?: (searchText: string) => void;
 	readonly onVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryTraceContext?: BridgeTraceContext | null;
@@ -88,30 +88,30 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 				reviewPackage: props.reviewPackage,
 				reviewTreeRows: props.reviewTreeRows,
 				projection: props.projection,
+				searchMode: props.searchMode,
+				searchText: props.searchText,
 			}),
-		[props.presentationPositionKey, props.projection, props.reviewPackage, props.reviewTreeRows],
+		[
+			props.presentationPositionKey,
+			props.projection,
+			props.reviewPackage,
+			props.reviewTreeRows,
+			props.searchMode,
+			props.searchText,
+		],
 	);
 	const sourceRef = useRef(source);
 	sourceRef.current = source;
 	const initialSourceRef = useRef(source);
 	const onSelectItemRef = useRef(props.onSelectItem);
 	onSelectItemRef.current = props.onSelectItem;
-	const onSearchTextChangeRef = useRef(props.onSearchTextChange);
-	onSearchTextChangeRef.current = props.onSearchTextChange;
 	const onVisibleItemIdsChange = props.onVisibleItemIdsChange;
 	const telemetryRecorder = props.telemetryRecorder;
 	const telemetryTraceContext = props.telemetryTraceContext ?? null;
 	const isSyncingClickedSelectionRef = useRef(false);
-	const isSyncingControlledSearchRef = useRef(false);
-	const isActiveRef = useRef(props.isActive);
-	isActiveRef.current = props.isActive;
-	const explicitSearchCloseIntentRef = useRef(false);
-	const modelRef = useRef<ReturnType<typeof useFileTree>['model'] | null>(null);
 	const controllerRef = useRef<BridgeTreesController | null>(null);
 	const firstInteractionMountStartedAtRef = useRef(performance.now());
 	const hasRecordedFirstInteractionRef = useRef(false);
-	const searchTextRef = useRef(props.searchText);
-	searchTextRef.current = props.searchText;
 	const onSelectionChange = useCallback((selectedPaths: readonly string[]): void => {
 		if (isSyncingClickedSelectionRef.current) {
 			return;
@@ -128,33 +128,6 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			onSelectItemRef.current(itemId);
 		}
 	}, []);
-	const onSearchChange = useCallback((value: string | null): void => {
-		if (isSyncingControlledSearchRef.current) {
-			return;
-		}
-		if (value === null && !explicitSearchCloseIntentRef.current) {
-			queueMicrotask((): void => {
-				if (!isActiveRef.current || searchTextRef.current.length === 0) {
-					return;
-				}
-				const searchText = searchTextRef.current;
-				const modelSearchText =
-					controllerRef.current?.modelSearchTextForFirstSearchMatch(searchText) ?? searchText;
-				isSyncingControlledSearchRef.current = true;
-				try {
-					modelRef.current?.openSearch(modelSearchText);
-				} finally {
-					isSyncingControlledSearchRef.current = false;
-				}
-			});
-			return;
-		}
-		const nextSearchText = value ?? '';
-		if (searchTextRef.current === nextSearchText) {
-			return;
-		}
-		onSearchTextChangeRef.current?.(nextSearchText);
-	}, []);
 	const { model } = useFileTree({
 		paths: initialSourceRef.current.orderedPaths,
 		preparedInput: initialSourceRef.current.preparedInput,
@@ -162,19 +135,15 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		initialExpandedPaths: initialSourceRef.current.initialExpandedPaths,
 		gitStatus: initialSourceRef.current.gitStatusEntries,
 		sort: preserveInputOrderSort,
-		search: true,
-		searchBlurBehavior: 'retain',
-		fileTreeSearchMode: 'expand-matches',
+		search: false,
 		flattenEmptyDirectories: true,
 		density: 'compact',
-		onSearchChange,
 		initialVisibleRowCount: bridgeReviewTreeInitialVisibleRowCount,
 		overscan: bridgeReviewTreeOverscan,
 		onSelectionChange,
 		stickyFolders: true,
 		unsafeCSS: bridgeViewerTreeUnsafeCSS,
 	});
-	modelRef.current = model;
 	const scrollActiveRef = useRef(false);
 	const scrollIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	controllerRef.current ??= new BridgeTreesController({
@@ -193,68 +162,11 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	} | null>(null);
 
 	useEffect((): void => {
-		isSyncingControlledSearchRef.current = true;
-		try {
-			controllerRef.current?.applySource(source);
-		} finally {
-			isSyncingControlledSearchRef.current = false;
+		controllerRef.current?.applySource(source);
+		if (props.isActive && props.searchText.length > 0 && source.searchError === null) {
+			controllerRef.current?.revealFirstSearchMatch(props.searchText, props.searchMode);
 		}
-		if (props.isActive && props.searchOpen && props.searchText.length > 0) {
-			const modelSearchText =
-				controllerRef.current?.modelSearchTextForFirstSearchMatch(props.searchText) ??
-				props.searchText;
-			const revealActiveSearchMatch = (): void => {
-				isSyncingControlledSearchRef.current = true;
-				try {
-					model.openSearch(modelSearchText);
-					model.setSearch(modelSearchText);
-					model.focusNextSearchMatch();
-					controllerRef.current?.revealFirstSearchMatch(props.searchText);
-				} finally {
-					isSyncingControlledSearchRef.current = false;
-				}
-			};
-			revealActiveSearchMatch();
-			queueMicrotask(revealActiveSearchMatch);
-			requestAnimationFrame(revealActiveSearchMatch);
-			setTimeout(revealActiveSearchMatch, 0);
-		}
-	}, [model, props.isActive, props.searchOpen, props.searchText, source]);
-
-	useEffect((): void => {
-		if (!props.isActive) {
-			return;
-		}
-		isSyncingControlledSearchRef.current = true;
-		try {
-			if (!props.searchOpen) {
-				model.setSearch(null);
-				model.closeSearch();
-				return;
-			}
-			model.openSearch(props.searchText);
-			if (props.searchText.length > 0) {
-				const modelSearchText =
-					controllerRef.current?.modelSearchTextForFirstSearchMatch(props.searchText) ??
-					props.searchText;
-				model.setSearch(modelSearchText);
-				model.focusNextSearchMatch();
-				controllerRef.current?.revealFirstSearchMatch(props.searchText);
-			}
-		} finally {
-			isSyncingControlledSearchRef.current = false;
-		}
-	}, [model, props.isActive, props.searchOpen, props.searchText]);
-
-	const markExplicitSearchCloseIntent = useCallback((event: Event): void => {
-		if (!isPierreSearchCloseKey(event)) {
-			return;
-		}
-		explicitSearchCloseIntentRef.current = true;
-		queueMicrotask((): void => {
-			explicitSearchCloseIntentRef.current = false;
-		});
-	}, []);
+	}, [props.isActive, props.searchMode, props.searchText, source]);
 
 	useEffect((): void => {
 		const selectionRevealRequest = props.selectionRevealRequest;
@@ -443,25 +355,12 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			className="h-full min-h-0 overflow-hidden bg-[var(--bridge-surface-bg)] text-[var(--bridge-text-secondary)]"
 			data-testid="bridge-review-trees-panel"
 			onClickCapture={(event): void => selectClickedFileRow(event.nativeEvent)}
-			onKeyDownCapture={(event): void => markExplicitSearchCloseIntent(event.nativeEvent)}
 			onPointerOverCapture={(event): void => measureHoverToRender(event.nativeEvent)}
 			onPointerMoveCapture={(event): void => measureHoverToRender(event.nativeEvent)}
 		>
 			<FileTree model={model} style={bridgeViewerTreeStyle} />
 		</div>
 	);
-}
-
-function isPierreSearchCloseKey(event: Event): boolean {
-	if (!(event instanceof KeyboardEvent) || (event.key !== 'Enter' && event.key !== 'Escape')) {
-		return false;
-	}
-	return event
-		.composedPath()
-		.some(
-			(target): boolean =>
-				target instanceof HTMLElement && target.hasAttribute('data-file-tree-search-input'),
-		);
 }
 
 export function reviewTreeItemIdForEventTarget(props: {

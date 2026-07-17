@@ -61,6 +61,11 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 			cursor: pointer;
 		}
 
+		[data-diffs-header] [data-additions-count],
+		[data-diffs-header] [data-deletions-count] {
+			display: none;
+		}
+
 		[data-diffs-header='default'] {
 			border-block: 1px solid var(--bridge-border-subtle);
 			color: var(--bridge-text-secondary);
