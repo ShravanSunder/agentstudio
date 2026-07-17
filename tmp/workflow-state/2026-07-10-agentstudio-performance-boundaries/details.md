@@ -1190,3 +1190,27 @@ by permanent stale non-target selection and keyed unrelated-owner preservation
 tests. Production callsites remain unchanged and composition remains preinstall.
 Continue W4.5p with the next bounded pane lifecycle family before the atomic
 production writer cutover.
+
+Commit `abab50d1` adds the pure pane-residency lifecycle substrate for
+backgrounding and reactivating layout panes without activating a production
+route. The strict planners classify changed, unchanged, and typed rejection;
+validate the complete parent-plus-drawer-child ownership family, tab graph,
+shell suffix, tab and arrangement cursors, pane selections, drawer cursors,
+zoom, and retained runtime payload; and preserve the surviving tab's exact
+active-arrangement cursor. The MainActor applier preflights every owner and a
+fresh retained-payload witness before making only narrow residency, index, and
+cursor assignments. Atoms contain no persistence, planning, revision, pager,
+or workflow behavior.
+
+Parent proof passed 29 tests across four suites on the exact final source and
+`mise run build`; scoped formatting, SwiftLint, architecture lint, and staged
+diff checks passed. The focused review's ownership, atom breadth, payload,
+cursor, shell-delta, and stale-witness findings were handled in its one allowed
+remediation cycle. Full `mise run lint` passed formatting, SwiftLint across
+1,734 files, architecture lint, compiler contracts, and the other mutation
+controls, but its unrelated `AdmissionDoorbellTests` runtime control missed a
+transient `.consumerWaiting` observation and left the repo-wide lint gate open.
+Production callsites remain zero and composition remains preinstall. Continue
+W4.5p by adding the installed-only pane-residency persistence gateway with one
+fixed-revision capture and one atomic application; runtime retained-payload
+ownership and production cutover remain separate later slices.
