@@ -80,8 +80,12 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/tagged-command-repo"))
         let main = try #require(store.repos.first?.worktrees.first)
-        try store.repositoryTopologyAtom.setRepoTags(["client-alpha"], repoId: repo.id)
-        try store.repositoryTopologyAtom.setWorktreeTags(["review-slice"], worktreeId: main.id)
+        installTaggedTopology(
+            atom: store.repositoryTopologyAtom,
+            repository: repo,
+            repositoryTags: ["client-alpha"],
+            worktreeTags: ["review-slice"]
+        )
 
         let items = CommandBarDataSource.items(
             scope: .repos,
@@ -465,5 +469,29 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         let item = items.first { $0.id == "repo-\(repo.id.uuidString)" }
 
         #expect(item?.subtitle == "● Tab 1 · 1 pane")
+    }
+}
+
+@MainActor
+private func installTaggedTopology(
+    atom: RepositoryTopologyAtom,
+    repository: Repo,
+    repositoryTags: [String],
+    worktreeTags: [String]
+) {
+    var taggedRepository = repository
+    taggedRepository.tags = repositoryTags
+    for worktreeIndex in taggedRepository.worktrees.indices {
+        taggedRepository.worktrees[worktreeIndex].tags = worktreeTags
+    }
+    switch RepositoryTopologyReplacement.prepare(
+        repositories: [taggedRepository],
+        watchedPaths: atom.watchedPaths,
+        unavailableRepositoryIDs: atom.unavailableRepoIds
+    ) {
+    case .prepared(let replacement):
+        atom.replaceTopology(replacement)
+    case .rejected(let rejection):
+        Issue.record("invalid tagged topology fixture: \(rejection)")
     }
 }

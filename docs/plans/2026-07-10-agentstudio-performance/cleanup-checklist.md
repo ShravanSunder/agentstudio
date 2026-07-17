@@ -258,35 +258,35 @@ Focused proof:
 
 ### Atom pruning
 
-- [ ] Remove atom mutation helpers whose last caller was a deleted applier.
-- [ ] Keep keyed entity/reverse indexes used by real UI, coordinators, derived
+- [x] Remove atom mutation helpers whose last caller was a deleted applier.
+- [x] Keep keyed entity/reverse indexes used by real UI, coordinators, derived
       readers, SQLite projection, or startup installation.
-- [ ] Keep equal-write suppression and index maintenance.
-- [ ] Confirm no atom imports or names persistence revision, lease, pager,
+- [x] Keep equal-write suppression and index maintenance.
+- [x] Confirm no atom imports or names persistence revision, lease, pager,
       participant, transaction, SQLite, repository I/O, or preparation custody.
 
 ### `RepositoryTopologyAtom`
 
-- [ ] Move worktree reconciliation planning outside the atom.
-- [ ] Move repository/worktree UUID generation outside the atom.
-- [ ] Move performance trace recording outside the atom.
-- [ ] Move topology validation/preparation types outside the atom folder.
-- [ ] Leave the atom with accepted state replacement, keyed lookup, index
+- [x] Move worktree reconciliation planning outside the atom.
+- [x] Move repository/worktree UUID generation outside the atom.
+- [x] Move performance trace recording outside the atom.
+- [x] Move topology validation/preparation types outside the atom folder.
+- [x] Leave the atom with accepted state replacement, keyed lookup, index
       maintenance, equal-write suppression, and pure derivation.
-- [ ] Preserve consumed-existing-ID uniqueness.
-- [ ] Preserve duplicate repo/worktree/watched-path rejection before assignment.
-- [ ] Preserve the production duplicate-worktree crash regression test.
+- [x] Preserve consumed-existing-ID uniqueness.
+- [x] Preserve duplicate repo/worktree/watched-path rejection before assignment.
+- [x] Preserve the production duplicate-worktree crash regression test.
 
 Focused proof:
 
-- [ ] Atom persistence-boundary architecture test passes.
-- [ ] Topology identity/reconciliation tests pass.
-- [ ] Duplicate-worktree live-state regression passes.
-- [ ] Keyed lookup and owner-index tests pass.
-- [ ] `mise run build` passes.
-- [ ] `mise run lint` passes.
-- [ ] `git diff --check` passes.
-- [ ] Commit C4.
+- [x] Atom persistence-boundary architecture test passes.
+- [x] Topology identity/reconciliation tests pass.
+- [x] Duplicate-worktree live-state regression passes.
+- [x] Keyed lookup and owner-index tests pass.
+- [x] `mise run build` passes.
+- [x] `mise run lint` passes.
+- [x] `git diff --check` passes.
+- [x] Commit C4.
 
 ## C5 — Delete dormant admission and diagnostic systems
 

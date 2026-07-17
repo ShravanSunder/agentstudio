@@ -262,7 +262,19 @@ final class WorkspaceSurfaceCoordinator {
 
     private func updatePaneCWDAndResolvedContext(paneId: UUID, cwd: URL?) {
         let previousWorktreeId = store.paneAtom.pane(paneId)?.worktreeId
+        let lookupClock = ContinuousClock()
+        let lookupStartedAt = lookupClock.now
         let resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: cwd)
+        performanceTraceRecorder?.recordDuration(
+            .repoAndWorktreeLookup,
+            duration: lookupStartedAt.duration(to: lookupClock.now),
+            attributes: [
+                "agentstudio.performance.topology.index.count": .int(
+                    store.repositoryTopologyAtom.worktreePathIndexCount
+                ),
+                "agentstudio.performance.topology.has_match": .bool(resolvedContext != nil),
+            ]
+        )
         let updateResult = store.paneAtom.updatePaneCWDAndResolvedContext(
             paneId,
             cwd: cwd,

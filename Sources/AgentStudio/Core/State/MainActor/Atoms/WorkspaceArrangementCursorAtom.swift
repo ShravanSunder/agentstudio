@@ -40,93 +40,12 @@ final class WorkspaceArrangementCursorAtom {
         activeArrangementIdsByTabId[tabId]
     }
 
-    func hasActiveArrangementCursor(tabID: UUID) -> Bool {
-        activeArrangementIdsByTabId[tabID] != nil
-    }
-
     func activePaneId(forArrangement arrangementId: UUID) -> UUID? {
         paneCursorsByArrangementId[arrangementId]?.activePaneId
     }
 
-    func hasPaneCursor(arrangementID: UUID) -> Bool {
-        paneCursorsByArrangementId[arrangementID] != nil
-    }
-
     func activeChildId(forArrangement arrangementId: UUID, drawerId: UUID) -> UUID? {
         drawerCursorsByKey[ArrangementDrawerCursorKey(arrangementId: arrangementId, drawerId: drawerId)]?.activeChildId
-    }
-
-    func hasDrawerCursor(_ key: ArrangementDrawerCursorKey) -> Bool {
-        drawerCursorsByKey[key] != nil
-    }
-
-    func insertActiveArrangementId(_ arrangementId: UUID, forTab tabId: UUID) {
-        precondition(
-            activeArrangementIdsByTabId[tabId] == nil,
-            "active arrangement cursor must be absent before insertion"
-        )
-        activeArrangementIdsByTabId[tabId] = arrangementId
-    }
-
-    func insertPaneCursor(_ state: ArrangementPaneCursorState, forArrangement arrangementId: UUID) {
-        precondition(
-            paneCursorsByArrangementId[arrangementId] == nil,
-            "active pane cursor must be absent before insertion"
-        )
-        paneCursorsByArrangementId[arrangementId] = state
-    }
-
-    func insertDrawerCursor(
-        _ state: ArrangementDrawerCursorState,
-        for key: ArrangementDrawerCursorKey
-    ) {
-        precondition(
-            drawerCursorsByKey[key] == nil,
-            "active drawer cursor must be absent before insertion"
-        )
-        drawerCursorsByKey[key] = state
-    }
-
-    func setActiveArrangementId(_ arrangementId: UUID, forTab tabId: UUID) {
-        guard activeArrangementIdsByTabId[tabId] != arrangementId else { return }
-        activeArrangementIdsByTabId[tabId] = arrangementId
-    }
-
-    func setPaneCursor(
-        _ state: ArrangementPaneCursorState,
-        forArrangement arrangementId: UUID
-    ) {
-        guard paneCursorsByArrangementId[arrangementId] != state else { return }
-        paneCursorsByArrangementId[arrangementId] = state
-    }
-
-    func removeActiveArrangementId(forTab tabID: UUID) {
-        precondition(
-            activeArrangementIdsByTabId.removeValue(forKey: tabID) != nil,
-            "active arrangement cursor must exist before keyed removal"
-        )
-    }
-
-    func removePaneCursor(forArrangement arrangementID: UUID) {
-        precondition(
-            paneCursorsByArrangementId.removeValue(forKey: arrangementID) != nil,
-            "active pane cursor must exist before keyed removal"
-        )
-    }
-
-    func setDrawerCursor(
-        _ state: ArrangementDrawerCursorState,
-        for key: ArrangementDrawerCursorKey
-    ) {
-        guard drawerCursorsByKey[key] != state else { return }
-        drawerCursorsByKey[key] = state
-    }
-
-    func removeDrawerCursor(for key: ArrangementDrawerCursorKey) {
-        precondition(
-            drawerCursorsByKey.removeValue(forKey: key) != nil,
-            "active drawer cursor must exist before keyed removal"
-        )
     }
 
 }

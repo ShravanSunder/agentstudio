@@ -146,7 +146,7 @@ final class WorkspaceCacheCoordinator {
             repoId = repo.id
             shouldInitializeRepoEnrichment = repoCache.repoEnrichment(for: repo.id) == nil
         } else {
-            let repo = repositoryTopology.addRepo(at: normalizedRepoPath)
+            let repo = workspaceStore.mutationCoordinator.addRepo(at: normalizedRepoPath)
             repoId = repo.id
             shouldInitializeRepoEnrichment = true
         }
@@ -258,7 +258,7 @@ final class WorkspaceCacheCoordinator {
             }
         }
 
-        let reconciliation = repositoryTopology.reconcileScannedWorktrees(
+        let reconciliation = workspaceStore.mutationCoordinator.reconcileScannedWorktrees(
             repo.id,
             scannedWorktrees: scannedWorktrees,
             traceId: eventId
@@ -276,9 +276,8 @@ final class WorkspaceCacheCoordinator {
         eventId: UUID
     ) {
         guard !repositories.isEmpty else { return }
-        let repositoryTopology = workspaceStore.repositoryTopologyAtom
         var topologyDeltas: [WorktreeTopologyDelta] = []
-        repositoryTopology.performBatchedTopologyMutation {
+        workspaceStore.mutationCoordinator.performBatchedTopologyMutation {
             for repository in repositories {
                 if let delta = handleRepoDiscovered(
                     repoPath: repository.repoPath,
@@ -307,7 +306,7 @@ final class WorkspaceCacheCoordinator {
             })
         else { return }
 
-        repositoryTopology.markRepoUnavailable(repo.id)
+        workspaceStore.mutationCoordinator.markRepoUnavailable(repo.id)
         let unavailablePathByWorktreeId = Dictionary(
             uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.path.path) }
         )
@@ -346,7 +345,10 @@ final class WorkspaceCacheCoordinator {
                     isMainWorktree: false
                 )
             )
-            let reconciliation = repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
+            let reconciliation = workspaceStore.mutationCoordinator.reconcileDiscoveredWorktrees(
+                repo.id,
+                worktrees: worktrees
+            )
             switch reconciliation {
             case .accepted:
                 refreshTraceIdentity()
@@ -362,7 +364,10 @@ final class WorkspaceCacheCoordinator {
         let repositoryTopology = workspaceStore.repositoryTopologyAtom
         guard let repo = repositoryTopology.repos.first(where: { $0.id == repoId }) else { return }
         let worktrees = repo.worktrees.filter { $0.id != worktreeId }
-        let reconciliation = repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
+        let reconciliation = workspaceStore.mutationCoordinator.reconcileDiscoveredWorktrees(
+            repo.id,
+            worktrees: worktrees
+        )
         switch reconciliation {
         case .accepted:
             repoCache.removeWorktree(worktreeId)
@@ -526,7 +531,7 @@ final class WorkspaceCacheCoordinator {
         }
 
         // 4. Hard-delete from store (removes from repos array + persistence)
-        workspaceStore.repositoryTopologyAtom.removeRepo(repoId)
+        workspaceStore.mutationCoordinator.removeRepo(repoId)
         refreshTraceIdentity()
     }
 

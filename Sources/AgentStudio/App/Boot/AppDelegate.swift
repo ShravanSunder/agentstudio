@@ -540,8 +540,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             rootURL = selectedURL.standardizedFileURL
         }
 
-        // 1. Persist the watched path (direct store mutation)
-        _ = store.repositoryTopologyAtom.addWatchedPath(rootURL)
+        // 1. Persist the watched path through the topology mutation owner.
+        _ = store.mutationCoordinator.addWatchedPath(rootURL)
 
         // 2. Signal scanning state for UI. Sidebar stays collapsed until
         //    the first repo is discovered — never show an empty sidebar.

@@ -141,7 +141,6 @@ extension AppDelegate {
 
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
-        atomStore.workspaceRepositoryTopology.setPerformanceTraceRecorder(performanceTraceRecorder)
         AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
         AtomScope.setUp(atomStore)
         let sqliteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)

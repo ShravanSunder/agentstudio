@@ -82,7 +82,7 @@ struct WorkspaceTabBoundaryTests {
             presentationAtom: presentationAtom
         )
         replaceTabComposition([tab], in: arrangementAtom)
-        presentationAtom.setZoomedPaneId(targetPaneId, forTab: tab.id)
+        arrangementAtom.toggleZoom(paneId: targetPaneId, inTab: tab.id)
 
         let didInsert = arrangementAtom.insertPane(
             insertedPaneId,
@@ -229,7 +229,7 @@ struct WorkspaceTabBoundaryTests {
             activeArrangementId: arrangement.id
         )
         replaceTabComposition([hydratedTab], in: arrangementAtom)
-        presentationAtom.setZoomedPaneId(paneId, forTab: hydratedTab.id)
+        arrangementAtom.toggleZoom(paneId: paneId, inTab: hydratedTab.id)
 
         arrangementAtom.removePaneReferences(Set([paneId]))
 
@@ -275,8 +275,8 @@ struct WorkspaceTabBoundaryTests {
             presentationAtom: presentationAtom
         )
         replaceTabComposition([hydratedSourceTab, destinationTab], in: arrangementAtom)
-        presentationAtom.setZoomedPaneId(movingPaneId, forTab: hydratedSourceTab.id)
-        presentationAtom.setZoomedPaneId(destinationPaneId, forTab: destinationTab.id)
+        arrangementAtom.toggleZoom(paneId: movingPaneId, inTab: hydratedSourceTab.id)
+        arrangementAtom.toggleZoom(paneId: destinationPaneId, inTab: destinationTab.id)
 
         let result = arrangementAtom.movePaneAcrossTabs(
             CrossTabPaneMoveMutation(

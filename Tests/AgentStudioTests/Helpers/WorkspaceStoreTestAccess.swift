@@ -424,13 +424,11 @@ extension WorkspaceStore {
         )
     }
     @discardableResult
-    func addRepo(at path: URL) -> Repo { repositoryTopologyAtom.addRepo(at: path) }
-    func removeRepo(_ repoId: UUID) { repositoryTopologyAtom.removeRepo(repoId) }
-    func markRepoUnavailable(_ repoId: UUID) { repositoryTopologyAtom.markRepoUnavailable(repoId) }
-    func markRepoAvailable(_ repoId: UUID) { repositoryTopologyAtom.markRepoAvailable(repoId) }
+    func addRepo(at path: URL) -> Repo { mutationCoordinator.addRepo(at: path) }
+    func removeRepo(_ repoId: UUID) { mutationCoordinator.removeRepo(repoId) }
+    func markRepoUnavailable(_ repoId: UUID) { mutationCoordinator.markRepoUnavailable(repoId) }
     @discardableResult
-    func addWatchedPath(_ path: URL) -> WatchedPath? { repositoryTopologyAtom.addWatchedPath(path) }
-    func removeWatchedPath(_ id: UUID) { repositoryTopologyAtom.removeWatchedPath(id) }
+    func addWatchedPath(_ path: URL) -> WatchedPath? { mutationCoordinator.addWatchedPath(path) }
     @discardableResult
     func orphanPanesForRepo(_ repoId: UUID) -> [UUID] {
         guard let repo = repositoryTopologyAtom.repo(repoId) else { return [] }
@@ -452,7 +450,7 @@ extension WorkspaceStore {
         mutationCoordinator.reassociateRepo(repoId, to: newPath, discoveredWorktrees: discoveredWorktrees)
     }
     func reconcileDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
-        repositoryTopologyAtom.reconcileDiscoveredWorktrees(repoId, worktrees: worktrees)
+        mutationCoordinator.reconcileDiscoveredWorktrees(repoId, worktrees: worktrees)
     }
     func setSidebarWidth(_ sidebarWidth: CGFloat) { windowMemoryAtom.setSidebarWidth(sidebarWidth) }
     func setWindowFrame(_ windowFrame: CGRect?) { windowMemoryAtom.setWindowFrame(windowFrame) }

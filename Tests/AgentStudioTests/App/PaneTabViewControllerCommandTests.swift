@@ -19,7 +19,7 @@ struct PaneTabViewControllerCommandTests {
 
         let watchedFolder = harness.tempDir.appending(path: "watched-root")
         try? FileManager.default.createDirectory(at: watchedFolder, withIntermediateDirectories: true)
-        _ = harness.store.repositoryTopologyAtom.addWatchedPath(watchedFolder)
+        _ = harness.store.mutationCoordinator.addWatchedPath(watchedFolder)
         harness.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 600))
         let initialPaneIds = Set(harness.store.panes.keys)
 

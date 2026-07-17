@@ -60,14 +60,6 @@ final class WorkspaceTabShellAtom {
         cursorAtom.removeTab(tabId, remainingTabIds: tabShells.map(\.id))
     }
 
-    func removeTabShellPreservingCursor(_ tabID: UUID) {
-        guard let removedIndex = tabIndexByID.removeValue(forKey: tabID) else {
-            preconditionFailure("tab shell identity must exist before keyed removal")
-        }
-        tabShells.remove(at: removedIndex)
-        reindexTabs(in: removedIndex..<tabShells.count)
-    }
-
     func insertTabShell(_ shell: TabShell, at index: Int) {
         guard tabIndexByID[shell.id] == nil else { return }
         let clampedIndex = min(index, tabShells.count)

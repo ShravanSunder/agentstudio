@@ -61,11 +61,11 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         )
         try await harness.datastore.saveWorkspaceSnapshotBundle(.emptyTopologyFixture(workspace: snapshot))
         let repositoryTopologyAtom = RepositoryTopologyAtom()
-        let preservedRepository = repositoryTopologyAtom.addRepo(
-            at: URL(filePath: "/tmp/topology-must-remain-independent")
-        )
         let store = harness.makeStore(
             repositoryTopologyAtom: repositoryTopologyAtom
+        )
+        let preservedRepository = store.mutationCoordinator.addRepo(
+            at: URL(filePath: "/tmp/topology-must-remain-independent")
         )
 
         let result = await store.loadCanonicalComposition()

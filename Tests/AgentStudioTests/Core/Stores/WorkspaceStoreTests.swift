@@ -989,14 +989,40 @@ final class WorkspaceStoreTests {
     }
 
     @Test
-    func test_repositoryTopologyStore_isDirty_setOnDirectTopologyAtomMutation() async {
+    func test_repositoryTopologyStore_isDirty_setOnAcceptedTopologyReplacement() async {
         let topologyAtom = RepositoryTopologyAtom()
         let topologyStore = RepositoryTopologyStore(atom: topologyAtom)
         await topologyStore.restoreAsync(for: UUID())
         topologyStore.startObserving()
         #expect(!topologyStore.isDirty)
 
-        _ = topologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/direct-topology"))
+        let repositoryID = UUIDv7.generate()
+        let repositoryPath = URL(fileURLWithPath: "/tmp/direct-topology")
+        let repository = Repo(
+            id: repositoryID,
+            name: repositoryPath.lastPathComponent,
+            repoPath: repositoryPath,
+            worktrees: [
+                Worktree(
+                    id: UUIDv7.generate(),
+                    repoId: repositoryID,
+                    name: repositoryPath.lastPathComponent,
+                    path: repositoryPath,
+                    isMainWorktree: true
+                )
+            ]
+        )
+        guard
+            case .prepared(let replacement) = RepositoryTopologyReplacement.prepare(
+                repositories: [repository],
+                watchedPaths: [],
+                unavailableRepositoryIDs: []
+            )
+        else {
+            Issue.record("expected valid repository topology fixture")
+            return
+        }
+        topologyAtom.replaceTopology(replacement)
 
         for _ in 0..<10 where !topologyStore.isDirty {
             await Task.yield()
@@ -1848,16 +1874,6 @@ final class WorkspaceStoreTests {
         #expect(store.watchedPaths.count == 1)
     }
 
-    @Test func removeWatchedPath_removesById() {
-        // Arrange
-        let watchedPath = store.addWatchedPath(URL(fileURLWithPath: "/projects"))!
-
-        // Act
-        store.removeWatchedPath(watchedPath.id)
-
-        // Assert
-        #expect(store.watchedPaths.isEmpty)
-    }
 }
 
 private actor WorkspaceSQLiteSaveProbe {

@@ -3,6 +3,22 @@ import Testing
 
 @Suite("RepositoryTopologyHotPathArchitectureTests")
 struct RepositoryTopologyHotPathArchitectureTests {
+    @Test("topology atom contains state and indexes, not mutation planning or tracing")
+    func topologyAtomExcludesMutationPlanningAndTracing() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Core/State/MainActor/Atoms/RepositoryTopologyAtom.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(!source.contains("UUIDv7.generate"))
+        #expect(!source.contains("WorktreeReconciliationCandidate"))
+        #expect(!source.contains("RepositoryTopologyReplacementPreparation"))
+        #expect(!source.contains("recordDuration"))
+    }
+
     @Test("repoAndWorktree lookup uses the precomputed path index")
     func repoAndWorktreeLookupUsesPrecomputedPathIndex() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
@@ -16,7 +32,7 @@ struct RepositoryTopologyHotPathArchitectureTests {
         let body = try #require(
             source.slice(
                 from: "func repoAndWorktree(containing cwd: URL?)",
-                to: "@discardableResult\n    func addRepo"
+                to: "func isRepoUnavailable"
             )
         )
 

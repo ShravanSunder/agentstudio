@@ -79,7 +79,7 @@ struct WorkspaceLauncherProjectorTests {
     func project_emptyFolderScanWithRepos_returnsLauncherState() {
         withTestAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
-            _ = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+            _ = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             atoms.welcome.completeFolderScan(
                 rootPath: URL(fileURLWithPath: "/tmp/empty-root"),
                 discoveredRepoCount: 0
@@ -121,7 +121,7 @@ struct WorkspaceLauncherProjectorTests {
     func project_launcherWinsWhenReposExistEvenIfChoosingFolderIsTrue() {
         withTestAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
-            _ = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+            _ = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             atoms.welcome.beginChoosingFolder()
 
             let result = WorkspaceLauncherProjector.project(store: store)
@@ -141,7 +141,7 @@ struct WorkspaceLauncherProjectorTests {
                 tabLayoutAtom: atoms.workspaceTabLayout,
                 mutationCoordinator: atoms.workspaceMutationCoordinator
             )
-            let repo = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+            let repo = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
                 Issue.record("Expected main worktree")
                 return
@@ -232,7 +232,7 @@ struct WorkspaceLauncherProjectorTests {
                 tabLayoutAtom: atoms.workspaceTabLayout,
                 mutationCoordinator: atoms.workspaceMutationCoordinator
             )
-            let repo = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+            let repo = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
                 Issue.record("Expected main worktree")
                 return
@@ -259,7 +259,7 @@ struct WorkspaceLauncherProjectorTests {
     func project_launcherCapsAtFifteenAndShowsOpenAllForTwoOrMoreTargets() {
         withTestAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
-            let repo = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+            let repo = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
                 Issue.record("Expected main worktree")
                 return
@@ -287,7 +287,7 @@ struct WorkspaceLauncherProjectorTests {
     func project_unresolvedRecentTarget_isDroppedFromLauncherCards() {
         withTestAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
-            _ = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+            _ = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
 
             let cache = atoms.repoCache
             cache.recordRecentTarget(.forCwd(URL(fileURLWithPath: "/tmp/missing-project")))
