@@ -234,7 +234,6 @@ export class BridgeCommWorkerFileQueryProjection {
 
 	#finishPendingQuery(pendingQuery: PendingFileQueryProjection): void {
 		if (this.#pendingQuery?.generation !== pendingQuery.generation) return;
-		this.#includeRequiredAncestorRows(pendingQuery.nextProjectedRowsById);
 		for (const row of [...pendingQuery.nextProjectedRowsById.values()].toSorted(
 			(left, right) => left.projectionIndex - right.projectionIndex,
 		)) {
@@ -251,22 +250,6 @@ export class BridgeCommWorkerFileQueryProjection {
 			patches: [...pendingQuery.operationBatches, this.#publishedQueryStatusPatch()],
 			queryTransactionId: `file-query-${String(pendingQuery.generation)}`,
 		});
-	}
-
-	#includeRequiredAncestorRows(projectedRowsById: Map<string, FileTreeRow>): void {
-		const requiredDirectoryPaths = new Set<string>();
-		for (const row of projectedRowsById.values()) {
-			if (row.isDirectory) continue;
-			const pathSegments = row.path.split('/').filter((segment) => segment.length > 0);
-			for (let segmentCount = 1; segmentCount < pathSegments.length; segmentCount += 1) {
-				requiredDirectoryPaths.add(pathSegments.slice(0, segmentCount).join('/'));
-			}
-		}
-		for (const row of this.#rawRowsById.values()) {
-			if (row.isDirectory && requiredDirectoryPaths.has(row.path)) {
-				projectedRowsById.set(row.rowId, row);
-			}
-		}
 	}
 
 	#applyFileTreePatch(

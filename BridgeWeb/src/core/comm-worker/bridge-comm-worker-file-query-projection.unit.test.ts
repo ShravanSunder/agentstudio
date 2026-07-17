@@ -11,17 +11,15 @@ describe('Bridge comm worker File query projection', () => {
 	test('owns text, regex, availability filtering, and invalid regex errors', () => {
 		expect(projectedPaths(resultForQuery(query({ searchText: 'readme' })))).toEqual(['README.md']);
 		expect(projectedPaths(resultForQuery(query({ searchText: 'assets' })))).toEqual([
-			'assets',
 			'assets/logo.bin',
 		]);
 		expect(
 			projectedPaths(resultForQuery(query({ searchMode: 'regex', searchText: '\\.bin$' }))),
-		).toEqual(['assets', 'assets/logo.bin']);
+		).toEqual(['assets/logo.bin']);
 		expect(projectedPaths(resultForQuery(query({ filterMode: 'fetchable' })))).toEqual([
 			'README.md',
 		]);
 		expect(projectedPaths(resultForQuery(query({ filterMode: 'unavailable' })))).toEqual([
-			'assets',
 			'assets/logo.bin',
 		]);
 
@@ -63,6 +61,32 @@ describe('Bridge comm worker File query projection', () => {
 			projectedRowCount: 1,
 			totalRowCount: 4,
 		});
+	});
+
+	test('does not retain orphaned ancestor rows when the last matching file disappears', () => {
+		// Arrange
+		const scheduler = new DeterministicFileQueryScheduler();
+		const projection = makeProjection(scheduler);
+		projection.applyDisplayPatches(baseDisplayPatches());
+		applyQueryAndDrain(
+			projection,
+			scheduler,
+			query({ searchMode: 'regex', searchText: '\\.bin$' }),
+		);
+
+		// Act
+		projection.applyDisplayPatches([
+			fileTreeBatch([{ operation: 'remove', path: 'assets/logo.bin', rowId: 'row-logo' }]),
+		]);
+
+		// Assert
+		const snapshot = projection.snapshotDisplayPatches();
+		expect(
+			projectedPaths({ evaluatedRowCount: 0, patches: snapshot, queryTransactionId: null }),
+		).toEqual([]);
+		expect(
+			queryStatus({ evaluatedRowCount: 0, patches: snapshot, queryTransactionId: null }),
+		).toMatchObject({ projectedRowCount: 0, totalRowCount: 2 });
 	});
 
 	test('keeps replacement commit behind every projected row batch from the same publication', () => {

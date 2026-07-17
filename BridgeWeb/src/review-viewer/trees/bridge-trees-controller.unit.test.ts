@@ -801,6 +801,10 @@ describe('Bridge Trees controller', () => {
 		controller.applySource(
 			makeSource({
 				orderedPaths: ['BridgeWeb/src/review-viewer/test-support/review-viewer-fixtures.ts'],
+				primaryItemIdByTreePath: {
+					'BridgeWeb/src/review-viewer/test-support/review-viewer-fixtures.ts':
+						'review-viewer-fixtures',
+				},
 				gitStatusEntries: [
 					{
 						path: 'BridgeWeb/src/review-viewer/test-support/review-viewer-fixtures.ts',

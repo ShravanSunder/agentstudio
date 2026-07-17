@@ -197,6 +197,17 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			'Sources/RecoveryGroup02',
 			'Sources/RecoveryGroup02/RecoveryFile004.swift',
 		]);
+
+		// Act: a valid regex with no matching file must render an empty tree.
+		await act(async (): Promise<void> => {
+			await harness.renderResult
+				.getByTestId('bridge-review-search-input')
+				.fill(String.raw`RecoveryFile999\.swift$`);
+		});
+		await advanceBridgeReviewRecoveryWitnessFrames(2);
+
+		// Assert
+		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toEqual([]);
 		const invalidRegexSearchInput = harness.pierreSearchInput();
 		if (!(invalidRegexSearchInput instanceof HTMLInputElement)) {
 			throw new Error('Review regex search input is missing before invalid-regex proof.');
