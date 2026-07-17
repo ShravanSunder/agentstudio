@@ -294,6 +294,88 @@ struct WorkspacePaneTransitionTests {
         )
     }
 
+    @Test("webview state planner replaces only existing webview content")
+    func webviewStatePlannerReplacesOnlyWebviewContent() throws {
+        // Arrange
+        let originalState = makeWebviewPaneTransitionState(
+            state: WebviewState(
+                url: URL(string: "https://before.example")!,
+                title: "Before",
+                showNavigation: true
+            )
+        )
+        let replacementWebviewState = WebviewState(
+            url: URL(string: "https://after.example")!,
+            title: "After",
+            showNavigation: false
+        )
+
+        // Act
+        let decision = WorkspacePaneWebviewStateTransitionPlanner.plan(
+            .init(paneID: originalState.id, state: replacementWebviewState),
+            currentPaneState: originalState
+        )
+
+        // Assert
+        guard case .changed(let transition) = decision else {
+            Issue.record("expected changed webview state transition")
+            return
+        }
+        let replacement = try #require(transition.replacements.onlyElement)
+        #expect(replacement.expectedCurrentState == originalState)
+        #expect(replacement.replacementState.content == .webview(replacementWebviewState))
+        #expect(replacement.replacementState.metadata == originalState.metadata)
+        #expect(replacement.replacementState.residency == originalState.residency)
+        #expect(replacement.replacementState.kind == originalState.kind)
+        guard case .webview(let unchangedOriginalWebviewState) = originalState.content else {
+            Issue.record("expected original webview state")
+            return
+        }
+        #expect(unchangedOriginalWebviewState.title == "Before")
+    }
+
+    @Test("webview state planner returns strict unchanged and typed rejection decisions")
+    func webviewStatePlannerReturnsStrictDecisions() {
+        // Arrange
+        let webviewState = WebviewState(url: URL(string: "https://example.com")!)
+        let currentState = makeWebviewPaneTransitionState(state: webviewState)
+        let missingPaneID = UUIDv7.generate()
+        let mismatchedPaneID = UUIDv7.generate()
+        let nonWebviewState = makePaneTransitionState(title: "Terminal")
+
+        // Act / Assert
+        #expect(
+            WorkspacePaneWebviewStateTransitionPlanner.plan(
+                .init(paneID: currentState.id, state: webviewState),
+                currentPaneState: currentState
+            ) == .unchanged
+        )
+        #expect(
+            WorkspacePaneWebviewStateTransitionPlanner.plan(
+                .init(paneID: missingPaneID, state: webviewState),
+                currentPaneState: nil
+            ) == .rejected(.paneMissing(missingPaneID))
+        )
+        #expect(
+            WorkspacePaneWebviewStateTransitionPlanner.plan(
+                .init(paneID: mismatchedPaneID, state: webviewState),
+                currentPaneState: currentState
+            )
+                == .rejected(
+                    .paneIdentityMismatch(
+                        requestedPaneID: mismatchedPaneID,
+                        currentPaneID: currentState.id
+                    )
+                )
+        )
+        #expect(
+            WorkspacePaneWebviewStateTransitionPlanner.plan(
+                .init(paneID: nonWebviewState.id, state: webviewState),
+                currentPaneState: nonWebviewState
+            ) == .rejected(.paneContentIsNotWebview(nonWebviewState.id))
+        )
+    }
+
 }
 
 private func makePaneTransitionState(
@@ -313,6 +395,23 @@ private func makePaneTransitionState(
                 )
             ),
             metadata: PaneMetadata(title: title, facets: facets, note: note)
+        )
+    )
+}
+
+private func makeWebviewPaneTransitionState(
+    paneID: UUID = UUIDv7.generate(),
+    state: WebviewState
+) -> PaneGraphState {
+    PaneGraphState(
+        pane: Pane(
+            id: paneID,
+            content: .webview(state),
+            metadata: PaneMetadata(
+                title: "Webview",
+                facets: PaneContextFacets(cwd: URL(filePath: "/tmp/webview")),
+                note: "Preserve"
+            )
         )
     )
 }

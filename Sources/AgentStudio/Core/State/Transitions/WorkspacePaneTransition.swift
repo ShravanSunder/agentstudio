@@ -198,3 +198,59 @@ enum WorkspacePaneContextTransitionPlanner {
         )
     }
 }
+
+struct WorkspacePaneWebviewStateUpdateRequest: Equatable, Sendable {
+    let paneID: UUID
+    let state: WebviewState
+}
+
+enum WorkspacePaneWebviewStateTransitionRejection: Equatable, Sendable {
+    case paneMissing(UUID)
+    case paneIdentityMismatch(requestedPaneID: UUID, currentPaneID: UUID)
+    case paneContentIsNotWebview(UUID)
+}
+
+enum WorkspacePaneWebviewStateTransitionDecision: Equatable, Sendable {
+    case changed(WorkspacePaneGraphTransition)
+    case unchanged
+    case rejected(WorkspacePaneWebviewStateTransitionRejection)
+}
+
+enum WorkspacePaneWebviewStateTransitionPlanner {
+    static func plan(
+        _ request: WorkspacePaneWebviewStateUpdateRequest,
+        currentPaneState: PaneGraphState?
+    ) -> WorkspacePaneWebviewStateTransitionDecision {
+        guard let currentPaneState else {
+            return .rejected(.paneMissing(request.paneID))
+        }
+        guard currentPaneState.id == request.paneID else {
+            return .rejected(
+                .paneIdentityMismatch(
+                    requestedPaneID: request.paneID,
+                    currentPaneID: currentPaneState.id
+                )
+            )
+        }
+        guard case .webview(let currentWebviewState) = currentPaneState.content else {
+            return .rejected(.paneContentIsNotWebview(request.paneID))
+        }
+        guard currentWebviewState != request.state else {
+            return .unchanged
+        }
+
+        var replacementState = currentPaneState
+        replacementState.content = .webview(request.state)
+        return .changed(
+            WorkspacePaneGraphTransition(
+                replacements: [
+                    WorkspacePaneStateTransitionReplacement(
+                        paneID: request.paneID,
+                        expectedCurrentState: currentPaneState,
+                        replacementState: replacementState
+                    )
+                ]
+            )
+        )
+    }
+}

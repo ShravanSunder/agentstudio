@@ -12,6 +12,7 @@ enum WorkspacePersistenceMutationFailure: Equatable, Sendable {
     case paneIdentityMismatch(requestedPaneID: UUID, currentPaneID: UUID)
     case paneMissing(UUID)
     case paneTabApplication(WorkspacePaneTabTransitionApplicationRejection)
+    case paneWebviewStatePlanning(WorkspacePaneWebviewStateTransitionRejection)
     case revisionOwner(WorkspacePersistenceRevisionOwnerError)
     case tabLeafApplication(WorkspaceTabLeafTransitionApplicationRejection)
     case tabLeafPlanning(WorkspaceTabLeafTransitionRejection)
@@ -339,6 +340,28 @@ final class WorkspacePersistenceMutationCoordinator {
             return .unchanged(revision: revisionOwner.committedRevision)
         case .rejected(let rejection):
             return .rejected(.paneContextPlanning(rejection))
+        }
+    }
+
+    func updatePaneWebviewState(
+        _ request: WorkspacePaneWebviewStateUpdateRequest
+    ) -> WorkspacePersistenceMutationResult {
+        guard case .installed = adapters.compositionLifecyclePhase else {
+            return .rejected(
+                .compositionDomainNotInstalled(phase: adapters.compositionLifecyclePhase)
+            )
+        }
+
+        switch WorkspacePaneWebviewStateTransitionPlanner.plan(
+            request,
+            currentPaneState: workspacePaneGraphAtom.paneState(request.paneID)
+        ) {
+        case .changed(let transition):
+            return performPaneTransition(transition)
+        case .unchanged:
+            return .unchanged(revision: revisionOwner.committedRevision)
+        case .rejected(let rejection):
+            return .rejected(.paneWebviewStatePlanning(rejection))
         }
     }
 
