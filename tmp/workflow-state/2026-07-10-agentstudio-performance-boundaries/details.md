@@ -1086,3 +1086,20 @@ state. The exact standalone selector immediately passed 11/11 tests in 0.002s.
 Continue W4.5p with typed semantic planners and the complete same-domain writer
 cutover. Composition installation remains prohibited until its checked writer
 inventory reaches zero bypasses; there is no startup repair or migration path.
+
+Commit `6d3f7253` adds the next pure composition-domain substrate without
+activating it. Tab selection, rename, delta movement, and reorder-plus-selection
+now plan strict changed/unchanged/rejected outcomes with exact displaced-shell
+index preimages and correlated cursor replacements. Drawer toggle planning
+produces exactly one planner-constructed expand, collapse, or switch transition;
+its narrow MainActor applier rejects stale cursor state before one simple atom
+assignment. Transition construction is planner-owned, so ordinary module callers
+cannot fabricate correlated transition values.
+
+Parent proof passed 13 tests across three suites, `mise run build`, scoped
+strict swift-format and SwiftLint with zero violations, staged diff checks, and
+the staged pre-commit gate. No atom, persistence adapter, coordinator, runtime,
+production callsite, startup path, or domain lifecycle was changed. Continue
+W4.5p by wiring these accepted transitions through the dormant persistence
+mutation coordinator, proving fixed-base capture, and expanding pure planners
+until the complete writer inventory can cut over atomically.
