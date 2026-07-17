@@ -1160,3 +1160,16 @@ the parent rerun passed. Resize/drag paths are deliberately absent because
 per-sample synchronous revisions would recreate the amplification this goal is
 removing. Their later production boundary must render immediately and persist
 one settled checkpoint.
+
+Commit `bd6fc1ae` adds the safe dormant webview-state planner and installed-only
+pane-graph gateway. It requires existing webview content, returns typed missing/
+identity/content mismatch rejection, treats equality as no-op, and replaces only
+the webview content through one pane preimage and one revision.
+
+Parent proof passed 13 tests across two suites, scoped strict swift-format and
+SwiftLint, and staged diff checks; the implementation lane passed `mise run
+build`. Independent Luna xhigh review returned READY with no findings. No
+checkpoint owner, save hook, atom, App caller, or production route changed. The
+later atomic production cut must replace save-time fleet scanning with a keyed
+latest checkpoint owner; saves and acknowledgements may never mint revisions or
+mutate atoms.
