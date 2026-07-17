@@ -723,6 +723,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						{...props}
 						fileViewClient={paneRuntimeHost.fileViewClient}
 						isActive={activeViewerState.viewerMode === 'file'}
+						controlTarget={target}
 						onActiveSourceChange={reportFileActiveSource}
 						telemetryRecorder={telemetryRecorder}
 						viewerHeaderControls={
@@ -750,6 +751,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					<BridgeReviewViewerMode
 						{...props}
 						isActive={activeViewerState.viewerMode === 'review'}
+						target={target}
 						onActiveSourceChange={reportReviewActiveSource}
 						reviewClient={paneRuntimeHost.reviewClient}
 						telemetryRecorderRef={telemetryRecorderRef}

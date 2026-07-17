@@ -104,6 +104,7 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(package.paneId == paneId)
         #expect(package.packageId == "package-test")
         #expect(package.reviewGeneration == 1)
+        #expect(package.items.isEmpty)
 
         let contentResponse = try sendRequest(
             socketPath: fixture.paths.socketURL.path,
@@ -167,6 +168,82 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(renderState.diagnostics.productSession.inFlightFrameReceiptCount == 1)
         #expect(renderState.diagnostics.productSession.pendingLifecycleAcknowledgementCount == 0)
         #expect(renderState.diagnostics.productSession.nextMetadataStreamSequence == 5)
+    }
+
+    @Test("Bridge render state preserves bounded native activity diagnostics through JSON-RPC")
+    func bridgeRenderStatePreservesBoundedNativeActivityDiagnosticsThroughJSONRPC() throws {
+        let paneId = UUID()
+        let fixtureResult = try JSONDecoder().decode(
+            IPCBridgeRenderStateResult.self,
+            from: Data(
+                """
+                {
+                  "paneId": "\(paneId.uuidString)",
+                  "summary": {
+                    "pageTitle": "AgentStudio Bridge",
+                    "hasAppRoot": true,
+                    "hasEmptyShell": false,
+                    "hasReviewShell": true
+                  },
+                  "diagnostics": {
+                    "evaluateSucceeded": true,
+                    "pageErrorCount": 0,
+                    "pageErrorKinds": [],
+                    "pageErrorMessages": [],
+                    "nativeActivity": "loadedHidden",
+                    "foregroundWorkEpoch": 7,
+                    "dirtyFactPresent": true,
+                    "activeRefreshPassPresent": false,
+                    "refreshPassCount": 3,
+                    "productSession": {
+                      "activeProducerCount": 0,
+                      "activeProducerTaskCount": 0,
+                      "activeContentLeaseCount": 0,
+                      "queuedFrameCount": 0,
+                      "queuedByteCount": 0,
+                      "pendingFrameWaiterCount": 0,
+                      "inFlightFrameReceiptCount": 0,
+                      "pendingLifecycleAcknowledgementCount": 0,
+                      "nextMetadataStreamSequence": 0
+                    }
+                  }
+                }
+                """.utf8
+            )
+        )
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)],
+            bridgePort: FakeBridgePort(paneId: paneId, renderStateResult: fixtureResult)
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let response = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(72),
+                method: "bridge.diff.renderState",
+                params: .object(["handle": .string("pane:1")])
+            )
+        )
+
+        #expect(response.id == .number(72))
+        #expect(response.error == nil)
+        guard case .object(let result)? = response.result,
+            case .object(let diagnostics)? = result["diagnostics"]
+        else {
+            Issue.record("expected Bridge render-state diagnostics object")
+            return
+        }
+        #expect(diagnostics["nativeActivity"] == .string("loadedHidden"))
+        #expect(diagnostics["foregroundWorkEpoch"] == .number(7))
+        #expect(diagnostics["dirtyFactPresent"] == .bool(true))
+        #expect(diagnostics["activeRefreshPassPresent"] == .bool(false))
+        #expect(diagnostics["refreshPassCount"] == .number(3))
     }
 
     @Test("debug unsafe no-auth serves Bridge telemetry snapshot method")

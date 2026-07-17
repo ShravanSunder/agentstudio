@@ -890,11 +890,15 @@ private enum BridgeProductPaintProjectionKeys {
     static let booleanKeys: Set<String> = Set(
         [
             "document_visible",
+            "file_identity_chain_matched",
             "file_mode_activated",
             "file_selected_identity_matched",
             "file_source_matched",
             "frame_live",
+            "review_identity_chain_matched",
             "review_selected_identity_matched",
             "review_source_matched",
+            "reload_replay_succeeded",
+            "worker_replacement_observed",
         ].map { "\(prefix).\($0)" })
 }

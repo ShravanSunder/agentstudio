@@ -9,6 +9,7 @@ export interface BridgeFileViewerAppProps {
 	readonly autoOpenInitialFile?: boolean;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
+	readonly controlTarget?: EventTarget;
 	readonly isActive?: boolean;
 	readonly navigationCommand?: BridgeViewerNavigationCommand;
 	readonly onDisplaySourceChange?: (source: BridgeFileViewerDisplaySource | null) => void;

@@ -64,6 +64,7 @@ export interface BridgeReviewTreeSelectionRevealRequest {
 }
 
 export interface BridgeReviewTreesPanelProps {
+	readonly isActive: boolean;
 	readonly presentationPositionKey: string;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
@@ -101,6 +102,12 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	const telemetryRecorder = props.telemetryRecorder;
 	const telemetryTraceContext = props.telemetryTraceContext ?? null;
 	const isSyncingClickedSelectionRef = useRef(false);
+	const isSyncingControlledSearchRef = useRef(false);
+	const isActiveRef = useRef(props.isActive);
+	isActiveRef.current = props.isActive;
+	const explicitSearchCloseIntentRef = useRef(false);
+	const modelRef = useRef<ReturnType<typeof useFileTree>['model'] | null>(null);
+	const controllerRef = useRef<BridgeTreesController | null>(null);
 	const firstInteractionMountStartedAtRef = useRef(performance.now());
 	const hasRecordedFirstInteractionRef = useRef(false);
 	const searchTextRef = useRef(props.searchText);
@@ -122,6 +129,26 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		}
 	}, []);
 	const onSearchChange = useCallback((value: string | null): void => {
+		if (isSyncingControlledSearchRef.current) {
+			return;
+		}
+		if (value === null && !explicitSearchCloseIntentRef.current) {
+			queueMicrotask((): void => {
+				if (!isActiveRef.current || searchTextRef.current.length === 0) {
+					return;
+				}
+				const searchText = searchTextRef.current;
+				const modelSearchText =
+					controllerRef.current?.modelSearchTextForFirstSearchMatch(searchText) ?? searchText;
+				isSyncingControlledSearchRef.current = true;
+				try {
+					modelRef.current?.openSearch(modelSearchText);
+				} finally {
+					isSyncingControlledSearchRef.current = false;
+				}
+			});
+			return;
+		}
 		const nextSearchText = value ?? '';
 		if (searchTextRef.current === nextSearchText) {
 			return;
@@ -136,6 +163,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		gitStatus: initialSourceRef.current.gitStatusEntries,
 		sort: preserveInputOrderSort,
 		search: true,
+		searchBlurBehavior: 'retain',
 		fileTreeSearchMode: 'expand-matches',
 		flattenEmptyDirectories: true,
 		density: 'compact',
@@ -146,9 +174,9 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		stickyFolders: true,
 		unsafeCSS: bridgeViewerTreeUnsafeCSS,
 	});
+	modelRef.current = model;
 	const scrollActiveRef = useRef(false);
 	const scrollIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const controllerRef = useRef<BridgeTreesController | null>(null);
 	controllerRef.current ??= new BridgeTreesController({
 		isProgrammaticScrollActive: (): boolean => scrollActiveRef.current,
 		model,
@@ -165,40 +193,68 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	} | null>(null);
 
 	useEffect((): void => {
-		controllerRef.current?.applySource(source);
-		if (props.searchOpen && props.searchText.length > 0) {
+		isSyncingControlledSearchRef.current = true;
+		try {
+			controllerRef.current?.applySource(source);
+		} finally {
+			isSyncingControlledSearchRef.current = false;
+		}
+		if (props.isActive && props.searchOpen && props.searchText.length > 0) {
 			const modelSearchText =
 				controllerRef.current?.modelSearchTextForFirstSearchMatch(props.searchText) ??
 				props.searchText;
 			const revealActiveSearchMatch = (): void => {
-				model.openSearch(modelSearchText);
-				model.setSearch(modelSearchText);
-				model.focusNextSearchMatch();
-				controllerRef.current?.revealFirstSearchMatch(props.searchText);
+				isSyncingControlledSearchRef.current = true;
+				try {
+					model.openSearch(modelSearchText);
+					model.setSearch(modelSearchText);
+					model.focusNextSearchMatch();
+					controllerRef.current?.revealFirstSearchMatch(props.searchText);
+				} finally {
+					isSyncingControlledSearchRef.current = false;
+				}
 			};
 			revealActiveSearchMatch();
 			queueMicrotask(revealActiveSearchMatch);
 			requestAnimationFrame(revealActiveSearchMatch);
 			setTimeout(revealActiveSearchMatch, 0);
 		}
-	}, [model, props.searchOpen, props.searchText, source]);
+	}, [model, props.isActive, props.searchOpen, props.searchText, source]);
 
 	useEffect((): void => {
-		if (!props.searchOpen) {
-			model.setSearch(null);
-			model.closeSearch();
+		if (!props.isActive) {
 			return;
 		}
-		model.openSearch(props.searchText);
-		if (props.searchText.length > 0) {
-			const modelSearchText =
-				controllerRef.current?.modelSearchTextForFirstSearchMatch(props.searchText) ??
-				props.searchText;
-			model.setSearch(modelSearchText);
-			model.focusNextSearchMatch();
-			controllerRef.current?.revealFirstSearchMatch(props.searchText);
+		isSyncingControlledSearchRef.current = true;
+		try {
+			if (!props.searchOpen) {
+				model.setSearch(null);
+				model.closeSearch();
+				return;
+			}
+			model.openSearch(props.searchText);
+			if (props.searchText.length > 0) {
+				const modelSearchText =
+					controllerRef.current?.modelSearchTextForFirstSearchMatch(props.searchText) ??
+					props.searchText;
+				model.setSearch(modelSearchText);
+				model.focusNextSearchMatch();
+				controllerRef.current?.revealFirstSearchMatch(props.searchText);
+			}
+		} finally {
+			isSyncingControlledSearchRef.current = false;
 		}
-	}, [model, props.searchOpen, props.searchText]);
+	}, [model, props.isActive, props.searchOpen, props.searchText]);
+
+	const markExplicitSearchCloseIntent = useCallback((event: Event): void => {
+		if (!isPierreSearchCloseKey(event)) {
+			return;
+		}
+		explicitSearchCloseIntentRef.current = true;
+		queueMicrotask((): void => {
+			explicitSearchCloseIntentRef.current = false;
+		});
+	}, []);
 
 	useEffect((): void => {
 		const selectionRevealRequest = props.selectionRevealRequest;
@@ -387,12 +443,25 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			className="h-full min-h-0 overflow-hidden bg-[var(--bridge-surface-bg)] text-[var(--bridge-text-secondary)]"
 			data-testid="bridge-review-trees-panel"
 			onClickCapture={(event): void => selectClickedFileRow(event.nativeEvent)}
+			onKeyDownCapture={(event): void => markExplicitSearchCloseIntent(event.nativeEvent)}
 			onPointerOverCapture={(event): void => measureHoverToRender(event.nativeEvent)}
 			onPointerMoveCapture={(event): void => measureHoverToRender(event.nativeEvent)}
 		>
 			<FileTree model={model} style={bridgeViewerTreeStyle} />
 		</div>
 	);
+}
+
+function isPierreSearchCloseKey(event: Event): boolean {
+	if (!(event instanceof KeyboardEvent) || (event.key !== 'Enter' && event.key !== 'Escape')) {
+		return false;
+	}
+	return event
+		.composedPath()
+		.some(
+			(target): boolean =>
+				target instanceof HTMLElement && target.hasAttribute('data-file-tree-search-input'),
+		);
 }
 
 export function reviewTreeItemIdForEventTarget(props: {

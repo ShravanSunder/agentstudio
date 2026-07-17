@@ -22,6 +22,11 @@ private struct BridgePageRenderSnapshot: Decodable {
     let worktreeCommandCount: Int?
     let worktreeOpenSourceCommandCount: Int?
     let worktreeCodeTextLength: Int?
+    let activeViewerMode: String?
+    let documentVisibilityState: String?
+    let frameLivenessRafAlive: String?
+    let reviewSelectedItemId: String?
+    let reviewCodeTextLength: Int?
     let pageErrorCount: Int
     let pageErrorKinds: [String]
     let pageErrorMessages: [String]
@@ -52,6 +57,7 @@ private struct BridgePageControlRenderModeSnapshot: Decodable {
 extension BridgePaneController {
     func ipcReviewPackageSnapshot() throws -> IPCBridgeReviewPackageResult {
         let package = paneState.diff.packageMetadata
+        let items = try package.map(ipcReviewItemSummaries) ?? []
         let result = IPCBridgeReviewPackageResult(
             paneId: paneId,
             status: paneState.diff.status.rawValue,
@@ -60,7 +66,8 @@ extension BridgePaneController {
             packageId: package?.packageId,
             reviewGeneration: package?.reviewGeneration.rawValue,
             revision: package?.revision,
-            summary: package.map(ipcPackageSummary)
+            summary: package.map(ipcPackageSummary),
+            items: items
         )
         try BridgeIPCResponseBudget.validate(result)
         return result
@@ -101,13 +108,15 @@ extension BridgePaneController {
 
     func renderStateForIPC() async throws -> IPCBridgeRenderStateResult {
         let productSession = await productSessionDiagnosticForIPC()
+        let refreshAdmission = refreshAdmissionCoordinator.diagnosticSnapshot
         do {
             let result = try await page.callJavaScript(Self.renderStateJavaScript)
             guard let json = result as? String, let data = json.data(using: .utf8) else {
                 return makeRenderStateFailureResult(
                     reason: "render_state_result_not_string",
                     detail: String(describing: result),
-                    productSession: productSession
+                    productSession: productSession,
+                    refreshAdmission: refreshAdmission
                 )
             }
             let snapshot = try JSONDecoder().decode(BridgePageRenderSnapshot.self, from: data)
@@ -134,6 +143,11 @@ extension BridgePaneController {
                     worktreeCommandCount: snapshot.worktreeCommandCount,
                     worktreeOpenSourceCommandCount: snapshot.worktreeOpenSourceCommandCount,
                     worktreeCodeTextLength: snapshot.worktreeCodeTextLength,
+                    activeViewerMode: snapshot.activeViewerMode,
+                    documentVisibilityState: snapshot.documentVisibilityState,
+                    frameLivenessRafAlive: snapshot.frameLivenessRafAlive,
+                    reviewSelectedItemId: snapshot.reviewSelectedItemId,
+                    reviewCodeTextLength: snapshot.reviewCodeTextLength,
                     visibleHydrationStateProbe: snapshot.visibleHydrationStateProbe,
                     visibleHydrationDiscardProbe: snapshot.visibleHydrationDiscardProbe,
                     frameJankProbe: snapshot.frameJankProbe
@@ -143,6 +157,11 @@ extension BridgePaneController {
                     pageErrorCount: snapshot.pageErrorCount,
                     pageErrorKinds: snapshot.pageErrorKinds,
                     pageErrorMessages: snapshot.pageErrorMessages,
+                    nativeActivity: ipcNativeActivity(refreshAdmission.activity),
+                    foregroundWorkEpoch: refreshAdmission.foregroundWorkEpoch,
+                    dirtyFactPresent: refreshAdmission.dirtyFact != nil,
+                    activeRefreshPassPresent: refreshAdmission.activeRefreshPass != nil,
+                    refreshPassCount: refreshAdmission.refreshPassCount,
                     productMetadataStream: snapshot.productMetadataStreamDiagnostic,
                     productSession: productSession
                 ),
@@ -154,7 +173,8 @@ extension BridgePaneController {
             return makeRenderStateFailureResult(
                 reason: "render_state_evaluation_failed",
                 detail: "\(error)",
-                productSession: productSession
+                productSession: productSession,
+                refreshAdmission: refreshAdmission
             )
         }
     }
@@ -413,6 +433,14 @@ extension BridgePaneController {
             return integer === null || integer < 0 ? null : integer;
           };
           const booleanOrNull = (value) => typeof value === 'boolean' ? value : null;
+          const enumStringOrNull = (value, allowedValues) => {
+            return typeof value === 'string' && allowedValues.includes(value) ? value : null;
+          };
+          const clippedNonemptyStringOrNull = (value, limit) => {
+            if (typeof value !== 'string') return null;
+            const clippedValue = value.slice(0, limit);
+            return clippedValue.length > 0 ? clippedValue : null;
+          };
           const objectOrNull = (value) => {
             return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
           };
@@ -538,6 +566,35 @@ extension BridgePaneController {
           const codeViewShadowText = diffContainers
             .map((element) => element.shadowRoot?.textContent || '')
             .join(' ');
+          const activeViewerModeHost = document.querySelector(
+            '[data-bridge-viewer-mode-active="true"]'
+          );
+          const activeViewerMode = enumStringOrNull(
+            activeViewerModeHost?.getAttribute('data-bridge-viewer-mode-host'),
+            ['review', 'file']
+          );
+          const documentVisibilityState = enumStringOrNull(
+            document.visibilityState,
+            ['visible', 'hidden']
+          );
+          const frameLivenessRafAlive = enumStringOrNull(
+            objectOrNull(window.__bridgeFrameLivenessProbe)?.rafAlive,
+            ['true', 'false', 'unknown']
+          );
+          const reviewCodePanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+          const reviewSelectedItemId = clippedNonemptyStringOrNull(
+            reviewCodePanel?.getAttribute('data-selected-item-id'),
+            512
+          );
+          const reviewDiffContainers = reviewCodePanel === null
+            ? []
+            : [...reviewCodePanel.querySelectorAll('diffs-container')];
+          const reviewCodeTextLength = reviewCodePanel === null
+            ? null
+            : reviewDiffContainers
+                .map((element) => element.shadowRoot?.textContent || '')
+                .join(' ')
+                .length;
           const fileCodeText = `${fileCodeCanvas?.textContent || ''} ${codeViewShadowText}`;
           const pageErrorKinds = Array.from(new Set(errorProbe.slice(-8).map((entry) => {
             return clip(entry.kind, 80);
@@ -569,6 +626,11 @@ extension BridgePaneController {
             worktreeCommandCount: commandProbe.length,
             worktreeOpenSourceCommandCount: 0,
             worktreeCodeTextLength: fileCodeText.length,
+            activeViewerMode,
+            documentVisibilityState,
+            frameLivenessRafAlive,
+            reviewSelectedItemId,
+            reviewCodeTextLength,
             pageErrorCount: errorProbe.length,
             pageErrorKinds,
             pageErrorMessages,
@@ -584,7 +646,8 @@ extension BridgePaneController {
     private func makeRenderStateFailureResult(
         reason: String,
         detail: String,
-        productSession: IPCBridgeProductSessionDiagnostic
+        productSession: IPCBridgeProductSessionDiagnostic,
+        refreshAdmission: BridgePaneRefreshAdmissionSnapshot
     ) -> IPCBridgeRenderStateResult {
         IPCBridgeRenderStateResult(
             paneId: paneId,
@@ -600,6 +663,11 @@ extension BridgePaneController {
                 pageErrorCount: 1,
                 pageErrorKinds: [reason],
                 pageErrorMessages: [detail],
+                nativeActivity: ipcNativeActivity(refreshAdmission.activity),
+                foregroundWorkEpoch: refreshAdmission.foregroundWorkEpoch,
+                dirtyFactPresent: refreshAdmission.dirtyFact != nil,
+                activeRefreshPassPresent: refreshAdmission.activeRefreshPass != nil,
+                refreshPassCount: refreshAdmission.refreshPassCount,
                 productSession: productSession
             )
         )
@@ -620,6 +688,21 @@ extension BridgePaneController {
         )
     }
 
+    private func ipcNativeActivity(
+        _ activity: BridgePaneActivity
+    ) -> IPCBridgeNativeActivity {
+        switch activity {
+        case .foreground:
+            .foreground
+        case .loadedHidden:
+            .loadedHidden
+        case .dormant:
+            .dormant
+        case .closed:
+            .closed
+        }
+    }
+
     private func ipcPackageSummary(_ package: BridgeReviewPackage) -> IPCBridgeReviewPackageSummary {
         IPCBridgeReviewPackageSummary(
             filesChanged: package.summary.filesChanged,
@@ -628,6 +711,25 @@ extension BridgePaneController {
             visibleFileCount: package.summary.visibleFileCount,
             hiddenFileCount: package.summary.hiddenFileCount
         )
+    }
+
+    private func ipcReviewItemSummaries(
+        _ package: BridgeReviewPackage
+    ) throws -> [IPCBridgeReviewItemSummary] {
+        try package.orderedItemIds.map { itemId in
+            guard let descriptor = package.itemsById[itemId],
+                let displayPath = descriptor.headPath ?? descriptor.basePath
+            else {
+                throw BridgeIPCProjectionError(reason: .validationRejected)
+            }
+            return IPCBridgeReviewItemSummary(
+                itemId: descriptor.itemId,
+                displayPath: displayPath,
+                itemKind: descriptor.itemKind.rawValue,
+                changeKind: descriptor.changeKind.rawValue,
+                collapsed: descriptor.collapsed
+            )
+        }
     }
 
     private func ipcContentHandle(_ handle: BridgeContentHandle) -> IPCBridgeContentHandleSummary {

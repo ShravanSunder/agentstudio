@@ -591,6 +591,14 @@ run = "/bin/bash scripts/verify-bridge-mode-idle-smoke.sh"
 description = "Verify real-current-worktree Bridge source-to-DOM paint correlation"
 run = "/bin/bash scripts/verify-bridge-product-paint-correlation.sh"
 
+[tasks.run-bridge-packaged-product-journey]
+description = "Build and launch the strict Bridge packaged product journey"
+run = "/bin/bash scripts/run-bridge-packaged-product-journey.sh"
+
+[tasks.verify-bridge-packaged-product-journey]
+description = "Verify the strict Bridge packaged LaunchServices journey"
+run = "/bin/bash scripts/verify-bridge-packaged-product-journey.sh"
+
 [tasks.verify-bridge-review-momentum-scroll-state-probe]
 description = "Verify Review momentum-scroll hydration state probe"
 run = "/bin/bash scripts/verify-bridge-review-momentum-scroll-state-probe.sh"

@@ -20,6 +20,7 @@ struct BridgeIPCResponseBudget: Sendable {
         var byteCount = 512
         byteCount += estimatedJSONStringBytes(value.paneId.uuidString)
         byteCount += estimatedJSONStringBytes(value.status)
+        byteCount += estimatedOptionalJSONStringBytes(value.error)
         byteCount += estimatedOptionalJSONStringBytes(value.selectedItemId)
         byteCount += estimatedOptionalJSONStringBytes(value.packageId)
         if let reviewGeneration = value.reviewGeneration {
@@ -35,6 +36,14 @@ struct BridgeIPCResponseBudget: Sendable {
             byteCount += estimatedJSONIntegerBytes(summary.deletions)
             byteCount += estimatedJSONIntegerBytes(summary.visibleFileCount)
             byteCount += estimatedJSONIntegerBytes(summary.hiddenFileCount)
+        }
+        for item in value.items {
+            byteCount += 96
+            byteCount += estimatedJSONStringBytes(item.itemId)
+            byteCount += estimatedJSONStringBytes(item.displayPath)
+            byteCount += estimatedJSONStringBytes(item.itemKind)
+            byteCount += estimatedJSONStringBytes(item.changeKind)
+            byteCount += estimatedJSONBooleanBytes(item.collapsed)
         }
         return byteCount
     }
@@ -89,5 +98,9 @@ struct BridgeIPCResponseBudget: Sendable {
 
     private static func estimatedJSONIntegerBytes(_ value: Int) -> Int {
         String(value).utf8.count
+    }
+
+    private static func estimatedJSONBooleanBytes(_ value: Bool) -> Int {
+        value ? 4 : 5
     }
 }

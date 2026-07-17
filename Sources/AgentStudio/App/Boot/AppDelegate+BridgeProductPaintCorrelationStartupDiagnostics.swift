@@ -6,29 +6,51 @@ import Foundation
     private struct BridgeProductPaintCorrelationSnapshot: Decodable {
         let documentVisibilityState: String
         let fileModeActivated: Bool
+        let fileIdentityChainMatched: Bool
         let filePaintedSourceMatched: Bool
         let filePaintedSourceMatchCount: Int
         let fileSelectedPathMatched: Bool
         let frameLivenessRafAlive: String
+        let reviewIdentityChainMatched: Bool
         let reviewPaintedSourceMatched: Bool
         let reviewPaintedSourceMatchCount: Int
         let reviewSelectedPathMatched: Bool
     }
 
     private struct BridgeProductPaintCorrelationProof {
+        let reloadReplaySucceeded: Bool
         let snapshot: BridgeProductPaintCorrelationSnapshot?
+        let workerReplacementObserved: Bool
 
-        var succeeded: Bool {
+        init(
+            snapshot: BridgeProductPaintCorrelationSnapshot?,
+            reloadReplaySucceeded: Bool = false,
+            workerReplacementObserved: Bool = false
+        ) {
+            self.reloadReplaySucceeded = reloadReplaySucceeded
+            self.snapshot = snapshot
+            self.workerReplacementObserved = workerReplacementObserved
+        }
+
+        var surfaceCorrelationSucceeded: Bool {
             guard let snapshot else { return false }
             return snapshot.documentVisibilityState == "visible"
                 && snapshot.frameLivenessRafAlive == "true"
                 && snapshot.reviewSelectedPathMatched
+                && snapshot.reviewIdentityChainMatched
                 && snapshot.reviewPaintedSourceMatched
-                && snapshot.reviewPaintedSourceMatchCount > 0
+                && snapshot.reviewPaintedSourceMatchCount == 1
                 && snapshot.fileModeActivated
                 && snapshot.fileSelectedPathMatched
+                && snapshot.fileIdentityChainMatched
                 && snapshot.filePaintedSourceMatched
-                && snapshot.filePaintedSourceMatchCount > 0
+                && snapshot.filePaintedSourceMatchCount == 1
+        }
+
+        var succeeded: Bool {
+            surfaceCorrelationSucceeded
+                && reloadReplaySucceeded
+                && workerReplacementObserved
         }
 
         var attributes: [String: AgentStudioTraceValue] {
@@ -38,6 +60,8 @@ import Foundation
                     snapshot?.documentVisibilityState == "visible"),
                 "agentstudio.startup_diagnostic.bridge.product_paint.file_mode_activated": .bool(
                     snapshot?.fileModeActivated == true),
+                "agentstudio.startup_diagnostic.bridge.product_paint.file_identity_chain_matched": .bool(
+                    snapshot?.fileIdentityChainMatched == true),
                 "agentstudio.startup_diagnostic.bridge.product_paint.file_source_matched": .bool(
                     snapshot?.filePaintedSourceMatched == true),
                 "agentstudio.startup_diagnostic.bridge.product_paint.file_source_match.count": .int(
@@ -46,12 +70,18 @@ import Foundation
                     snapshot?.fileSelectedPathMatched == true),
                 "agentstudio.startup_diagnostic.bridge.product_paint.frame_live": .bool(
                     snapshot?.frameLivenessRafAlive == "true"),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_identity_chain_matched": .bool(
+                    snapshot?.reviewIdentityChainMatched == true),
                 "agentstudio.startup_diagnostic.bridge.product_paint.review_source_matched": .bool(
                     snapshot?.reviewPaintedSourceMatched == true),
                 "agentstudio.startup_diagnostic.bridge.product_paint.review_source_match.count": .int(
                     snapshot?.reviewPaintedSourceMatchCount ?? 0),
                 "agentstudio.startup_diagnostic.bridge.product_paint.review_selected_identity_matched": .bool(
                     snapshot?.reviewSelectedPathMatched == true),
+                "agentstudio.startup_diagnostic.bridge.product_paint.reload_replay_succeeded": .bool(
+                    reloadReplaySucceeded),
+                "agentstudio.startup_diagnostic.bridge.product_paint.worker_replacement_observed": .bool(
+                    workerReplacementObserved),
                 "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(succeeded),
             ]
         }
@@ -114,16 +144,74 @@ import Foundation
                 return
             }
 
+            paneTabViewController()?.execute(.focusPane, target: pane.id, targetType: .pane)
+            guard await waitForBridgeProductPaintHostVisibility(controller: bridgeView.controller) else {
+                recordBridgeProductPaintCorrelationResult(
+                    action: action,
+                    proof: BridgeProductPaintCorrelationProof(snapshot: nil)
+                )
+                return
+            }
+
             let javaScript = Self.bridgeProductPaintCorrelationJavaScript(
                 relativePath: Self.bridgeProductPaintFixtureRelativePath,
                 sha256: oracle.sha256,
                 canary: Self.bridgeProductPaintFixtureCanary
             )
-            let proof = await waitForBridgeProductPaintCorrelation(
+            let initialProof = await waitForBridgeProductPaintCorrelation(
                 controller: bridgeView.controller,
                 javaScript: javaScript
             )
-            recordBridgeProductPaintCorrelationResult(action: action, proof: proof)
+            guard initialProof.surfaceCorrelationSucceeded,
+                let initialWorkerInstanceId = await bridgeView.controller.productSessionOwner
+                    .activeBootstrap()?.workerInstanceId
+            else {
+                recordBridgeProductPaintCorrelationResult(action: action, proof: initialProof)
+                return
+            }
+
+            bridgeView.controller.loadApp()
+            guard bridgeView.controller.requestViewerSurface(.review) else {
+                recordBridgeProductPaintCorrelationResult(action: action, proof: initialProof)
+                return
+            }
+            let replayProof = await waitForBridgeProductPaintCorrelation(
+                controller: bridgeView.controller,
+                javaScript: javaScript
+            )
+            let replayWorkerInstanceId = await bridgeView.controller.productSessionOwner
+                .activeBootstrap()?.workerInstanceId
+            recordBridgeProductPaintCorrelationResult(
+                action: action,
+                proof: BridgeProductPaintCorrelationProof(
+                    snapshot: replayProof.snapshot,
+                    reloadReplaySucceeded: replayProof.surfaceCorrelationSucceeded,
+                    workerReplacementObserved: replayWorkerInstanceId != nil
+                        && replayWorkerInstanceId != initialWorkerInstanceId
+                )
+            )
+        }
+
+        private func waitForBridgeProductPaintHostVisibility(
+            controller: BridgePaneController
+        ) async -> Bool {
+            let start = ContinuousClock.now
+            while start.duration(to: ContinuousClock.now)
+                < AppPolicies.StartupDiagnostic.bridgeFileViewSmokeReadinessTimeout
+            {
+                do {
+                    let result = try await controller.page.callJavaScript(
+                        "return document.visibilityState === 'visible'"
+                    )
+                    if result as? Bool == true {
+                        return true
+                    }
+                } catch {
+                    // The page may still be attaching after pane activation.
+                }
+                try? await Task.sleep(nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
+            }
+            return false
         }
 
         private func waitForBridgeProductPaintCorrelation(
@@ -135,7 +223,7 @@ import Foundation
                 controller: controller,
                 javaScript: javaScript
             )
-            while !proof.succeeded
+            while !proof.surfaceCorrelationSucceeded
                 && start.duration(to: ContinuousClock.now)
                     < AppPolicies.StartupDiagnostic.bridgeFileViewSmokeReadinessTimeout
             {
@@ -265,24 +353,61 @@ import Foundation
                       const values = JSON.parse(
                         element.getAttribute('data-bridge-painted-source-correlations') ?? '[]'
                       );
+                      const paintedPublicationId =
+                        element.getAttribute('data-bridge-painted-publication-id') ?? '';
                       const text = readableText(element);
-                      return Array.isArray(values) ? values.map((value) => ({ ...value, text })) : [];
+                      return Array.isArray(values)
+                        ? values.map((value) => ({ ...value, paintedPublicationId, text }))
+                        : [];
                     } catch {
                       return [];
                     }
                   });
-                  const sourceMatches = (correlation, surface, role) =>
+                  const identityChainMatches = (correlation) => {
+                    const paintedPublicationId = correlation?.paintedPublicationId;
+                    return typeof correlation?.descriptorId === 'string' &&
+                      correlation.descriptorId.length > 0 &&
+                      typeof correlation?.requestId === 'string' &&
+                      correlation.requestId.length > 0 &&
+                      typeof correlation?.sourceIdentity === 'string' &&
+                      correlation.sourceIdentity.length > 0 &&
+                      typeof correlation?.position === 'string' &&
+                      correlation.position.length > 0 &&
+                      Number.isSafeInteger(correlation?.sourceGeneration) &&
+                      correlation.sourceGeneration >= 0 &&
+                      typeof correlation?.itemId === 'string' &&
+                      correlation.itemId.length > 0 &&
+                      correlation?.semanticItemId === correlation?.itemId &&
+                      typeof correlation?.pierreItemId === 'string' &&
+                      correlation.pierreItemId.length > 0 &&
+                      correlation.pierreItemId === correlation.itemId &&
+                      typeof paintedPublicationId === 'string' &&
+                      paintedPublicationId.length > 0 &&
+                      correlation?.publicationId === paintedPublicationId;
+                  };
+                  const sourceMatches = (correlation, surface, role, selectedItemId) =>
+                    identityChainMatches(correlation) &&
+                    correlation?.itemId === selectedItemId &&
+                    correlation?.position === 'whole' &&
                     correlation?.surface === surface &&
                     correlation?.role === role &&
                     correlation?.observedSha256 === expectedSha256 &&
                     correlation?.disposition === 'painted' &&
                     correlation?.text?.includes(expectedCanary);
-                  const reviewMatches = correlations.filter((value) => sourceMatches(value, 'review', 'head'));
                   const reviewSelectedPath =
                     document.querySelector('[data-testid="review-viewer-shell"]')
                       ?.getAttribute('data-selected-display-path') ?? '';
+                  const reviewSelectedItemId =
+                    document.querySelector('[data-testid="bridge-code-view-panel"]')
+                      ?.getAttribute('data-selected-item-id') ?? '';
+                  const reviewMatches = correlations.filter((value) =>
+                    sourceMatches(value, 'review', 'head', reviewSelectedItemId)
+                  );
                   const reviewPaintedSourceMatched =
                     prior.reviewPaintedSourceMatched === true || reviewMatches.length > 0;
+                  const reviewIdentityChainMatched =
+                    prior.reviewIdentityChainMatched === true ||
+                    reviewMatches.some(identityChainMatches);
                   const reviewPaintedSourceMatchCount = Math.max(
                     Number(prior.reviewPaintedSourceMatchCount ?? 0),
                     reviewMatches.length
@@ -293,15 +418,23 @@ import Foundation
                   if (reviewPaintedSourceMatched && fileButton instanceof HTMLElement) fileButton.click();
                   const fileShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
                   const fileSelectedPath = fileShell?.getAttribute('data-selected-display-path') ?? '';
+                  const fileSelectedItemId =
+                    document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]')
+                      ?.getAttribute('data-worktree-rendered-item-id') ?? '';
                   if (reviewPaintedSourceMatched && fileSelectedPath !== relativePath) {
                     const selector =
                       `button[data-type="item"][data-item-type="file"][data-item-path="${CSS.escape(relativePath)}"]`;
                     const row = queryOpenRoots(document, selector);
                     if (row instanceof HTMLElement) row.click();
                   }
-                  const fileMatches = correlations.filter((value) => sourceMatches(value, 'file', 'file'));
+                  const fileMatches = correlations.filter((value) =>
+                    sourceMatches(value, 'file', 'file', fileSelectedItemId)
+                  );
                   const filePaintedSourceMatched =
                     prior.filePaintedSourceMatched === true || fileMatches.length > 0;
+                  const fileIdentityChainMatched =
+                    prior.fileIdentityChainMatched === true ||
+                    fileMatches.some(identityChainMatches);
                   const filePaintedSourceMatchCount = Math.max(
                     Number(prior.filePaintedSourceMatchCount ?? 0),
                     fileMatches.length
@@ -310,9 +443,11 @@ import Foundation
                     prior.fileSelectedPathMatched === true || fileSelectedPath === relativePath;
                   const next = {
                     reviewPaintedSourceMatched,
+                    reviewIdentityChainMatched,
                     reviewPaintedSourceMatchCount,
                     reviewSelectedPathMatched,
                     filePaintedSourceMatched,
+                    fileIdentityChainMatched,
                     filePaintedSourceMatchCount,
                     fileSelectedPathMatched
                   };
@@ -321,11 +456,13 @@ import Foundation
                     documentVisibilityState: document.visibilityState,
                     fileModeActivated:
                       fileButton?.getAttribute('data-bridge-viewer-context-selected') === 'true',
+                    fileIdentityChainMatched,
                     filePaintedSourceMatched,
                     filePaintedSourceMatchCount,
                     fileSelectedPathMatched,
                     frameLivenessRafAlive:
                       globalThis.__bridgeFrameLivenessProbe?.rafAlive ?? 'missing',
+                    reviewIdentityChainMatched,
                     reviewPaintedSourceMatched,
                     reviewPaintedSourceMatchCount,
                     reviewSelectedPathMatched

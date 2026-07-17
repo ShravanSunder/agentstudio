@@ -87,6 +87,28 @@ public struct IPCBridgeReviewRefreshResult: Codable, Equatable, Sendable {
     }
 }
 
+public struct IPCBridgeReviewItemSummary: Codable, Equatable, Sendable {
+    public let itemId: String
+    public let displayPath: String
+    public let itemKind: String
+    public let changeKind: String
+    public let collapsed: Bool
+
+    public init(
+        itemId: String,
+        displayPath: String,
+        itemKind: String,
+        changeKind: String,
+        collapsed: Bool
+    ) {
+        self.itemId = itemId
+        self.displayPath = displayPath
+        self.itemKind = itemKind
+        self.changeKind = changeKind
+        self.collapsed = collapsed
+    }
+}
+
 public struct IPCBridgeReviewPackageResult: Codable, Equatable, Sendable {
     public let paneId: UUID
     public let status: String
@@ -96,6 +118,7 @@ public struct IPCBridgeReviewPackageResult: Codable, Equatable, Sendable {
     public let reviewGeneration: Int?
     public let revision: Int?
     public let summary: IPCBridgeReviewPackageSummary?
+    public let items: [IPCBridgeReviewItemSummary]
 
     public init(
         paneId: UUID,
@@ -105,7 +128,8 @@ public struct IPCBridgeReviewPackageResult: Codable, Equatable, Sendable {
         packageId: String?,
         reviewGeneration: Int?,
         revision: Int?,
-        summary: IPCBridgeReviewPackageSummary?
+        summary: IPCBridgeReviewPackageSummary?,
+        items: [IPCBridgeReviewItemSummary] = []
     ) {
         self.paneId = paneId
         self.status = status
@@ -115,6 +139,7 @@ public struct IPCBridgeReviewPackageResult: Codable, Equatable, Sendable {
         self.reviewGeneration = reviewGeneration
         self.revision = revision
         self.summary = summary
+        self.items = items
     }
 }
 
@@ -164,6 +189,11 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
     public let worktreeCommandCount: Int?
     public let worktreeOpenSourceCommandCount: Int?
     public let worktreeCodeTextLength: Int?
+    public let activeViewerMode: String?
+    public let documentVisibilityState: String?
+    public let frameLivenessRafAlive: String?
+    public let reviewSelectedItemId: String?
+    public let reviewCodeTextLength: Int?
     public let visibleHydrationStateProbe: IPCBridgeVisibleHydrationStateProbe?
     public let visibleHydrationDiscardProbe: IPCBridgeVisibleHydrationDiscardProbe?
     public let frameJankProbe: IPCBridgeFrameJankProbe?
@@ -189,6 +219,11 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
         worktreeCommandCount: Int? = nil,
         worktreeOpenSourceCommandCount: Int? = nil,
         worktreeCodeTextLength: Int? = nil,
+        activeViewerMode: String? = nil,
+        documentVisibilityState: String? = nil,
+        frameLivenessRafAlive: String? = nil,
+        reviewSelectedItemId: String? = nil,
+        reviewCodeTextLength: Int? = nil,
         visibleHydrationStateProbe: IPCBridgeVisibleHydrationStateProbe? = nil,
         visibleHydrationDiscardProbe: IPCBridgeVisibleHydrationDiscardProbe? = nil,
         frameJankProbe: IPCBridgeFrameJankProbe? = nil
@@ -213,6 +248,11 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
         self.worktreeCommandCount = worktreeCommandCount
         self.worktreeOpenSourceCommandCount = worktreeOpenSourceCommandCount
         self.worktreeCodeTextLength = worktreeCodeTextLength
+        self.activeViewerMode = activeViewerMode
+        self.documentVisibilityState = documentVisibilityState
+        self.frameLivenessRafAlive = frameLivenessRafAlive
+        self.reviewSelectedItemId = reviewSelectedItemId
+        self.reviewCodeTextLength = reviewCodeTextLength
         self.visibleHydrationStateProbe = visibleHydrationStateProbe
         self.visibleHydrationDiscardProbe = visibleHydrationDiscardProbe
         self.frameJankProbe = frameJankProbe
@@ -317,11 +357,23 @@ public struct IPCBridgeFrameJankDroppedFrameSummary: Codable, Equatable, Sendabl
     }
 }
 
+public enum IPCBridgeNativeActivity: String, Codable, Equatable, Sendable {
+    case foreground
+    case loadedHidden
+    case dormant
+    case closed
+}
+
 public struct IPCBridgeRenderDiagnostics: Codable, Equatable, Sendable {
     public let evaluateSucceeded: Bool
     public let pageErrorCount: Int
     public let pageErrorKinds: [String]
     public let pageErrorMessages: [String]
+    public let nativeActivity: IPCBridgeNativeActivity
+    public let foregroundWorkEpoch: UInt64
+    public let dirtyFactPresent: Bool
+    public let activeRefreshPassPresent: Bool
+    public let refreshPassCount: Int
     public let productMetadataStream: IPCBridgeProductMetadataStreamDiagnostic?
     public let productSession: IPCBridgeProductSessionDiagnostic
 
@@ -330,6 +382,11 @@ public struct IPCBridgeRenderDiagnostics: Codable, Equatable, Sendable {
         pageErrorCount: Int,
         pageErrorKinds: [String],
         pageErrorMessages: [String],
+        nativeActivity: IPCBridgeNativeActivity,
+        foregroundWorkEpoch: UInt64,
+        dirtyFactPresent: Bool,
+        activeRefreshPassPresent: Bool,
+        refreshPassCount: Int,
         productMetadataStream: IPCBridgeProductMetadataStreamDiagnostic? = nil,
         productSession: IPCBridgeProductSessionDiagnostic
     ) {
@@ -337,6 +394,11 @@ public struct IPCBridgeRenderDiagnostics: Codable, Equatable, Sendable {
         self.pageErrorCount = pageErrorCount
         self.pageErrorKinds = pageErrorKinds
         self.pageErrorMessages = pageErrorMessages
+        self.nativeActivity = nativeActivity
+        self.foregroundWorkEpoch = foregroundWorkEpoch
+        self.dirtyFactPresent = dirtyFactPresent
+        self.activeRefreshPassPresent = activeRefreshPassPresent
+        self.refreshPassCount = refreshPassCount
         self.productMetadataStream = productMetadataStream
         self.productSession = productSession
     }

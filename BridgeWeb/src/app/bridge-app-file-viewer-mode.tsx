@@ -15,6 +15,7 @@ import { recordBridgeFrameJankTelemetrySample } from '../foundation/telemetry/br
 import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
 
 export interface BridgeFileViewerModeProps {
+	readonly controlTarget: EventTarget;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly fileViewClient: BridgePaneSurfaceClient;
@@ -81,6 +82,7 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 					? {}
 					: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
 				isActive={props.isActive}
+				controlTarget={props.controlTarget}
 				{...(props.navigationCommand === undefined
 					? {}
 					: { navigationCommand: props.navigationCommand })}

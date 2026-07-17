@@ -183,9 +183,10 @@ PY
 prefix="agentstudio.startup_diagnostic.bridge.product_paint"
 render_proof_field="agentstudio.startup_diagnostic.render_proof.succeeded"
 proof_fields="$prefix.document_visible,$prefix.frame_live,$prefix.review_selected_identity_matched"
-proof_fields="$proof_fields,$prefix.review_source_matched,$prefix.review_source_match.count"
+proof_fields="$proof_fields,$prefix.review_identity_chain_matched,$prefix.review_source_matched,$prefix.review_source_match.count"
 proof_fields="$proof_fields,$prefix.file_mode_activated,$prefix.file_selected_identity_matched"
-proof_fields="$proof_fields,$prefix.file_source_matched,$prefix.file_source_match.count,$render_proof_field"
+proof_fields="$proof_fields,$prefix.file_identity_chain_matched,$prefix.file_source_matched,$prefix.file_source_match.count,$render_proof_field"
+proof_fields="$proof_fields,$prefix.reload_replay_succeeded,$prefix.worker_replacement_observed"
 
 marker_filter="$(logsql_exact_filter agent.proof.marker "$MARKER")"
 proof_token_filter="$(logsql_exact_filter agent.proof.launch "$PROOF_TOKEN")"
@@ -200,8 +201,8 @@ if [ "$dry_run" = true ]; then
   redacted_completed_query="$redacted_base_query _msg:app.startup_diagnostic_action.completed"
   echo "dry-run ok: requires exactly one launch-bound completed event"
   echo "dry-run ok: rejects any launch-bound blocked event"
-  echo "dry-run ok: requires all paint-correlation booleans true: document_visible, frame_live, review_selected_identity_matched, review_source_matched, file_mode_activated, file_selected_identity_matched, file_source_matched, render_proof.succeeded"
-  echo "dry-run ok: requires review and file source match counts greater than zero"
+  echo "dry-run ok: requires all paint-correlation booleans true, including exact Review/File identity chains, reload replay, and worker replacement"
+  echo "dry-run ok: requires exactly one selected Review source match and one selected File source match"
   echo "marker=$MARKER"
   echo "startup_action=$STARTUP_DIAGNOSTIC_ACTION"
   echo "query=$redacted_completed_query | fields _msg,$proof_fields | limit 20"
@@ -283,10 +284,14 @@ required_boolean_fields = [
     f"{prefix}.document_visible",
     f"{prefix}.frame_live",
     f"{prefix}.review_selected_identity_matched",
+    f"{prefix}.review_identity_chain_matched",
     f"{prefix}.review_source_matched",
     f"{prefix}.file_mode_activated",
     f"{prefix}.file_selected_identity_matched",
+    f"{prefix}.file_identity_chain_matched",
     f"{prefix}.file_source_matched",
+    f"{prefix}.reload_replay_succeeded",
+    f"{prefix}.worker_replacement_observed",
     render_proof_field,
 ]
 required_positive_count_fields = [
@@ -295,10 +300,7 @@ required_positive_count_fields = [
 ]
 
 booleans_match = all(normalized_bool(record.get(field)) is True for field in required_boolean_fields)
-counts_match = all(
-    (normalized_int(record.get(field)) or 0) > 0
-    for field in required_positive_count_fields
-)
+counts_match = all(normalized_int(record.get(field)) == 1 for field in required_positive_count_fields)
 if booleans_match and counts_match:
     sys.exit(0)
 
@@ -309,5 +311,5 @@ PY
 echo "real-current-worktree Bridge product paint correlation proof PASS"
 echo "marker=$MARKER"
 echo "query_window=$QUERY_START..$QUERY_END"
-echo "review_source_match_count=positive"
-echo "file_source_match_count=positive"
+echo "review_source_match_count=exactly_one"
+echo "file_source_match_count=exactly_one"

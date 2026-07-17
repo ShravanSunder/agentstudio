@@ -353,6 +353,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 							data-testid="bridge-review-rail-tree-slot"
 						>
 							<BridgeReviewTreesPanel
+								isActive={props.isActive === true}
 								key={bridgeTreesDisclosurePolicyIdentity}
 								presentationPositionKey={props.presentationPositionKey}
 								onSelectItem={props.onSelectItem}

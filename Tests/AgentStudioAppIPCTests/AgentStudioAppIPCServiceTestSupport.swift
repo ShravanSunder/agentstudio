@@ -117,19 +117,22 @@ struct FakeBridgePort: AppIPCBridgePort {
     let contentHandleId: String
     let pageControlStatus: String
     let pageControlReason: String?
+    let renderStateResult: IPCBridgeRenderStateResult?
 
     nonisolated init(
         paneId: UUID = UUID(),
         itemId: String = "item-source",
         contentHandleId: String = "handle-head",
         pageControlStatus: String = "accepted",
-        pageControlReason: String? = nil
+        pageControlReason: String? = nil,
+        renderStateResult: IPCBridgeRenderStateResult? = nil
     ) {
         self.paneId = paneId
         self.itemId = itemId
         self.contentHandleId = contentHandleId
         self.pageControlStatus = pageControlStatus
         self.pageControlReason = pageControlReason
+        self.renderStateResult = renderStateResult
     }
 
     func openReview(_ params: IPCBridgeReviewOpenParams) throws -> IPCBridgeReviewOpenResult {
@@ -178,7 +181,10 @@ struct FakeBridgePort: AppIPCBridgePort {
     }
 
     func renderState(_: IPCHandle) async throws -> IPCBridgeRenderStateResult {
-        IPCBridgeRenderStateResult(
+        if let renderStateResult {
+            return renderStateResult
+        }
+        return IPCBridgeRenderStateResult(
             paneId: paneId,
             summary: IPCBridgeRenderSummary(
                 pageTitle: "AgentStudio Bridge",
@@ -192,6 +198,11 @@ struct FakeBridgePort: AppIPCBridgePort {
                 pageErrorCount: 0,
                 pageErrorKinds: [],
                 pageErrorMessages: [],
+                nativeActivity: .foreground,
+                foregroundWorkEpoch: 0,
+                dirtyFactPresent: false,
+                activeRefreshPassPresent: false,
+                refreshPassCount: 0,
                 productSession: IPCBridgeProductSessionDiagnostic(
                     activeProducerCount: 2,
                     activeProducerTaskCount: 2,

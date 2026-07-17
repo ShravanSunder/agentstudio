@@ -60,8 +60,8 @@ extension WebKitSerializedTests {
             #expect(await provider.recordedContentRequestsCount() == 0)
         }
 
-        @Test("IPC package snapshot omits materialized package payload")
-        func ipcPackageSnapshot_omitsMaterializedPackagePayload() async throws {
+        @Test("IPC package snapshot projects authoritative ordered item summaries")
+        func ipcPackageSnapshot_projectsAuthoritativeOrderedItemSummaries() async throws {
             let worktreeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
             let provider = BridgeReviewSourceProviderFake(
                 comparison: BridgeEndpointComparison(
@@ -105,8 +105,93 @@ extension WebKitSerializedTests {
             #expect(result.packageId == controller.paneState.diff.packageMetadata?.packageId)
             #expect(result.reviewGeneration == controller.paneState.diff.packageMetadata?.reviewGeneration.rawValue)
             #expect(result.summary?.filesChanged == 1)
+            #expect(
+                result.items == [
+                    IPCBridgeReviewItemSummary(
+                        itemId: "item-source",
+                        displayPath: "Sources/App/View.swift",
+                        itemKind: "diff",
+                        changeKind: "modified",
+                        collapsed: false
+                    )
+                ]
+            )
             #expect(encodedPayload.contains("\"package\"") == false)
-            #expect(encodedPayload.contains("\"items\"") == false)
+            #expect(encodedPayload.contains("\"contentRoles\"") == false)
+            #expect(encodedPayload.contains("\"provenance\"") == false)
+        }
+
+        @Test("IPC package summaries preserve package order and descriptor fields")
+        func ipcPackageSnapshot_preservesPackageOrderAndDescriptorFields() throws {
+            let controller = makeIPCForegroundController()
+            defer { controller.teardown() }
+            let descriptors = [
+                makeIPCReviewItemDescriptor(
+                    itemId: "middle",
+                    itemKind: .file,
+                    basePath: "Sources/OldMiddle.swift",
+                    headPath: "Sources/Middle.swift",
+                    changeKind: .renamed,
+                    collapsed: true
+                ),
+                makeIPCReviewItemDescriptor(
+                    itemId: "final",
+                    itemKind: .diff,
+                    basePath: "Sources/Final.swift",
+                    headPath: nil,
+                    changeKind: .deleted,
+                    collapsed: false
+                ),
+                makeIPCReviewItemDescriptor(
+                    itemId: "early",
+                    itemKind: .diff,
+                    basePath: nil,
+                    headPath: "Sources/Early.swift",
+                    changeKind: .added,
+                    collapsed: false
+                ),
+            ]
+            controller.paneState.diff.setPackageMetadata(
+                makeIPCReviewPackage(
+                    descriptors: descriptors,
+                    orderedItemIds: ["early", "middle", "final"]
+                )
+            )
+
+            let result = try controller.ipcReviewPackageSnapshot()
+
+            #expect(result.items.map(\.itemId) == ["early", "middle", "final"])
+            #expect(
+                result.items.map(\.displayPath) == [
+                    "Sources/Early.swift", "Sources/Middle.swift", "Sources/Final.swift",
+                ])
+            #expect(result.items.map(\.itemKind) == ["diff", "file", "diff"])
+            #expect(result.items.map(\.changeKind) == ["added", "renamed", "deleted"])
+            #expect(result.items.map(\.collapsed) == [false, true, false])
+        }
+
+        @Test("IPC package summary rejects a descriptor without a display path")
+        func ipcPackageSnapshot_rejectsDescriptorWithoutDisplayPath() {
+            let controller = makeIPCForegroundController()
+            defer { controller.teardown() }
+            let descriptor = makeIPCReviewItemDescriptor(
+                itemId: "pathless",
+                itemKind: .diff,
+                basePath: nil,
+                headPath: nil,
+                changeKind: .modified,
+                collapsed: false
+            )
+            controller.paneState.diff.setPackageMetadata(
+                makeIPCReviewPackage(
+                    descriptors: [descriptor],
+                    orderedItemIds: [descriptor.itemId]
+                )
+            )
+
+            #expect(throws: BridgeIPCProjectionError(reason: .validationRejected)) {
+                try controller.ipcReviewPackageSnapshot()
+            }
         }
 
         @Test("IPC content descriptor returns metadata without loading body bytes")
@@ -279,7 +364,11 @@ extension WebKitSerializedTests {
             )
             #expect(initialResult.byteCount == 9)
 
-            try await installIPCContentDescriptorPackage(tightenedHandle, in: controller)
+            try await installIPCContentDescriptorPackage(
+                tightenedHandle,
+                revision: 1,
+                in: controller
+            )
 
             let tightenedResult = try await controller.loadContentForIPC(
                 contentHandleId: handle.handleId,
@@ -330,8 +419,8 @@ extension WebKitSerializedTests {
             #expect(await provider.recordedContentRequestsCount() == 0)
         }
 
-        @Test("IPC package snapshot omits oversized item projections before frame encoding")
-        func ipcPackageSnapshot_omitsOversizedItemProjectionsBeforeFrameEncoding() async throws {
+        @Test("IPC package snapshot rejects oversized ordered item summaries before frame encoding")
+        func ipcPackageSnapshot_rejectsOversizedOrderedItemSummariesBeforeFrameEncoding() async throws {
             let worktreeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
             let longPathSegment = String(repeating: "very-long-folder-name/", count: 180)
             let changedFiles = (0..<260).map { index in
@@ -369,192 +458,8 @@ extension WebKitSerializedTests {
 
             _ = try await controller.refreshReviewForIPC(correlationId: nil)
 
-            let result = try controller.ipcReviewPackageSnapshot()
-            let encodedResult = try JSONEncoder().encode(result)
-            let encodedPayload = try #require(String(data: encodedResult, encoding: .utf8))
-
-            #expect(result.packageId == controller.paneState.diff.packageMetadata?.packageId)
-            #expect(result.summary?.filesChanged == changedFiles.count)
-            #expect(encodedPayload.contains(longPathSegment) == false)
-            #expect(encodedPayload.contains("\"items\"") == false)
-        }
-
-        @Test("IPC render state maps bridge diagnostics probes and bounds discard records")
-        func ipcRenderState_mapsBridgeDiagnosticsProbesAndBoundsDiscardRecords() async throws {
-            let controller = makeIPCForegroundController()
-            defer { controller.teardown() }
-
-            try await WebPageTestHarness.withManagedPage(controller.page) { page in
-                _ = try await page.callJavaScript(
-                    """
-                    window.__bridgeVisibleHydrationStateProbe = {
-                      reportedVisibleItemCount: 24,
-                      trackedVisibleItemCount: 12,
-                      truncatedVisibleItemCount: 12,
-                      untrackedItemCount: 3,
-                      loadingItemCount: 4,
-                      readyItemCount: 5,
-                      failedItemCount: 6,
-                      deferredItemCount: 7,
-                      abortedItemCount: 8,
-                      pausedNow: true
-                    };
-                    window.__bridgeVisibleHydrationDiscardProbe = {
-                      readyResultDiscardCount: 25,
-                      records: Array.from({ length: 25 }, (_, index) => ({
-                        hadState: index >= 5,
-                        pausedNow: index % 2 === 0
-                      }))
-                    };
-                    window.__bridgeFrameJankProbe = {
-                      long_task: { count: 2, total_ms: 44.5, max_ms: 30.25 },
-                      dropped_frame: { count: 3, worst_gap_ms: 19.75 },
-                      last_long_task_at_ms: 1234.5
-                    };
-                    window.__bridgeProductMetadataStreamDiagnostic = {
-                      kind: 'productMetadataStream',
-                      acknowledgedFrameCount: 1,
-                      activeSubscriptionCount: 2,
-                      committedFrameCount: 1,
-                      decoderState: 'poisoned',
-                      expectedNextStreamSequence: 1,
-                      failureCode: 'stream_identity_mismatch',
-                      failureStage: 'acknowledgement',
-                      identityMismatchField: 'metadataStreamId',
-                      lastChunkByteCount: 256,
-                      lastAcknowledgedStreamSequence: 0,
-                      lastCommittedFrameKind: 'metadataStream.accepted',
-                      lastRoutedFrameKind: 'subscription.accepted',
-                      lifecycleState: 'failed',
-                      peakRetainedByteCount: 512,
-                      pushCount: 2,
-                      readFulfilledCount: 3,
-                      readPending: false,
-                      readRequestCount: 4,
-                      receivedByteCount: 768,
-                      retainedByteCount: 0,
-                      routeFailureCode: 'unknown_subscription',
-                      routedFrameCount: 2,
-                      streamOpenCount: 1
-                    };
-                    """
-                )
-
-                let result = try await controller.renderStateForIPC()
-                let hydrationState = try #require(result.summary.visibleHydrationStateProbe)
-                let discardProbe = try #require(result.summary.visibleHydrationDiscardProbe)
-                let frameJankProbe = try #require(result.summary.frameJankProbe)
-                let metadataStream = try #require(result.diagnostics.productMetadataStream)
-                let productSession = result.diagnostics.productSession
-
-                #expect(hydrationState.reportedVisibleItemCount == 24)
-                #expect(hydrationState.trackedVisibleItemCount == 12)
-                #expect(hydrationState.truncatedVisibleItemCount == 12)
-                #expect(hydrationState.untrackedItemCount == 3)
-                #expect(hydrationState.loadingItemCount == 4)
-                #expect(hydrationState.readyItemCount == 5)
-                #expect(hydrationState.failedItemCount == 6)
-                #expect(hydrationState.deferredItemCount == 7)
-                #expect(hydrationState.abortedItemCount == 8)
-                #expect(hydrationState.pausedNow == true)
-                #expect(discardProbe.readyResultDiscardCount == 25)
-                #expect(discardProbe.records.count == 20)
-                #expect(discardProbe.records.allSatisfy { $0.hadState == true })
-                #expect(discardProbe.records.first?.pausedNow == false)
-                #expect(frameJankProbe.longTask.count == 2)
-                #expect(frameJankProbe.longTask.totalMs == 44.5)
-                #expect(frameJankProbe.longTask.maxMs == 30.25)
-                #expect(frameJankProbe.droppedFrame.count == 3)
-                #expect(frameJankProbe.droppedFrame.worstGapMs == 19.75)
-                #expect(frameJankProbe.lastLongTaskAtMs == 1234.5)
-                #expect(result.visibleHydrationStateProbe == hydrationState)
-                #expect(result.visibleHydrationDiscardProbe == discardProbe)
-                #expect(result.frameJankProbe == frameJankProbe)
-                expectProductMetadataStreamDiagnostic(metadataStream)
-                #expect(productSession.activeProducerCount == 0)
-                #expect(productSession.activeProducerTaskCount == 0)
-                #expect(productSession.activeContentLeaseCount == 0)
-                #expect(productSession.queuedFrameCount == 0)
-                #expect(productSession.queuedByteCount == 0)
-                #expect(productSession.pendingFrameWaiterCount == 0)
-                #expect(productSession.inFlightFrameReceiptCount == 0)
-                #expect(productSession.pendingLifecycleAcknowledgementCount == 0)
-                #expect(productSession.nextMetadataStreamSequence == 0)
-            }
-        }
-
-        @Test("IPC render state rejects negative worker acknowledgement diagnostics")
-        func ipcRenderState_rejectsNegativeWorkerAcknowledgementDiagnostics() async throws {
-            let controller = BridgePaneController(
-                paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil),
-                initialPaneActivity: .foreground
-            )
-            defer { controller.teardown() }
-
-            try await WebPageTestHarness.withManagedPage(controller.page) { page in
-                _ = try await page.callJavaScript(
-                    """
-                    window.__bridgeProductMetadataStreamDiagnostic = {
-                      kind: 'productMetadataStream',
-                      acknowledgedFrameCount: -1,
-                      lastAcknowledgedStreamSequence: -2,
-                      failureStage: 'acknowledgement'
-                    };
-                    """
-                )
-
-                let result = try await controller.renderStateForIPC()
-                let diagnostic = try #require(result.diagnostics.productMetadataStream)
-
-                #expect(diagnostic.acknowledgedFrameCount == nil)
-                #expect(diagnostic.lastAcknowledgedStreamSequence == nil)
-                #expect(diagnostic.failureStage == "acknowledgement")
-            }
-        }
-
-        @Test("IPC render state leaves absent bridge diagnostics probes nil")
-        func ipcRenderState_leavesAbsentBridgeDiagnosticsProbesNil() async throws {
-            let controller = BridgePaneController(
-                paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil),
-                initialPaneActivity: .foreground
-            )
-            defer { controller.teardown() }
-
-            try await WebPageTestHarness.withManagedPage(controller.page) { _ in
-                let result = try await controller.renderStateForIPC()
-
-                #expect(result.summary.visibleHydrationStateProbe == nil)
-                #expect(result.summary.visibleHydrationDiscardProbe == nil)
-                #expect(result.summary.frameJankProbe == nil)
-                #expect(result.visibleHydrationStateProbe == nil)
-                #expect(result.visibleHydrationDiscardProbe == nil)
-                #expect(result.frameJankProbe == nil)
-                #expect(result.diagnostics.productMetadataStream == nil)
-                #expect(result.diagnostics.productSession.activeProducerCount == 0)
-            }
-        }
-
-        @Test("IPC render state preserves native product session diagnostics when page projection fails")
-        func ipcRenderState_preservesNativeProductSessionDiagnosticsWhenPageProjectionFails() async throws {
-            let controller = BridgePaneController(
-                paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: nil),
-                initialPaneActivity: .foreground
-            )
-            defer { controller.teardown() }
-
-            try await WebPageTestHarness.withManagedPage(controller.page) { page in
-                _ = try await page.callJavaScript("JSON.stringify = () => null;")
-
-                let result = try await controller.renderStateForIPC()
-
-                #expect(!result.diagnostics.evaluateSucceeded)
-                #expect(result.diagnostics.pageErrorKinds == ["render_state_result_not_string"])
-                #expect(result.diagnostics.productMetadataStream == nil)
-                #expect(result.diagnostics.productSession.activeProducerCount == 0)
-                #expect(result.diagnostics.productSession.nextMetadataStreamSequence == 0)
+            #expect(throws: BridgeIPCProjectionError(reason: .payloadTooLarge)) {
+                try controller.ipcReviewPackageSnapshot()
             }
         }
 
@@ -614,38 +519,10 @@ private func makeIPCForegroundController() -> BridgePaneController {
     )
 }
 
-private func expectProductMetadataStreamDiagnostic(
-    _ diagnostic: IPCBridgeProductMetadataStreamDiagnostic
-) {
-    #expect(diagnostic.kind == .productMetadataStream)
-    #expect(diagnostic.acknowledgedFrameCount == 1)
-    #expect(diagnostic.activeSubscriptionCount == 2)
-    #expect(diagnostic.committedFrameCount == 1)
-    #expect(diagnostic.decoderState == "poisoned")
-    #expect(diagnostic.expectedNextStreamSequence == 1)
-    #expect(diagnostic.failureCode == "stream_identity_mismatch")
-    #expect(diagnostic.failureStage == "acknowledgement")
-    #expect(diagnostic.identityMismatchField == "metadataStreamId")
-    #expect(diagnostic.lastChunkByteCount == 256)
-    #expect(diagnostic.lastAcknowledgedStreamSequence == 0)
-    #expect(diagnostic.lastCommittedFrameKind == "metadataStream.accepted")
-    #expect(diagnostic.lastRoutedFrameKind == "subscription.accepted")
-    #expect(diagnostic.lifecycleState == "failed")
-    #expect(diagnostic.peakRetainedByteCount == 512)
-    #expect(diagnostic.pushCount == 2)
-    #expect(diagnostic.readFulfilledCount == 3)
-    #expect(diagnostic.readPending == false)
-    #expect(diagnostic.readRequestCount == 4)
-    #expect(diagnostic.receivedByteCount == 768)
-    #expect(diagnostic.retainedByteCount == 0)
-    #expect(diagnostic.routeFailureCode == "unknown_subscription")
-    #expect(diagnostic.routedFrameCount == 2)
-    #expect(diagnostic.streamOpenCount == 1)
-}
-
 @MainActor
 private func installIPCContentDescriptorPackage(
     _ handle: BridgeContentHandle,
+    revision: Int = 0,
     in controller: BridgePaneController
 ) async throws {
     let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
@@ -660,7 +537,7 @@ private func installIPCContentDescriptorPackage(
         packageId: "ipc-content-descriptor-package",
         schemaVersion: 1,
         reviewGeneration: handle.reviewGeneration,
-        revision: 0,
+        revision: revision,
         query: makeBridgeReviewQuery(
             baseEndpointId: baseEndpoint.endpointId,
             headEndpointId: headEndpoint.endpointId
@@ -708,4 +585,78 @@ private func installIPCContentDescriptorPackage(
         Issue.record("Expected IPC content descriptor publication to commit")
         return
     }
+}
+
+private func makeIPCReviewItemDescriptor(
+    itemId: String,
+    itemKind: BridgeReviewItemDescriptor.Kind,
+    basePath: String?,
+    headPath: String?,
+    changeKind: BridgeFileChangeKind,
+    collapsed: Bool
+) -> BridgeReviewItemDescriptor {
+    let handle = makeBridgeContentHandle(itemId: itemId, role: .head)
+    let contentRoles = BridgeReviewItemDescriptor.ContentRoles(head: handle)
+    return BridgeReviewItemDescriptor(
+        itemId: itemId,
+        itemKind: itemKind,
+        itemVersion: 1,
+        basePath: basePath,
+        headPath: headPath,
+        changeKind: changeKind,
+        fileClass: .source,
+        language: "swift",
+        extension: "swift",
+        sizeBytes: 100,
+        baseContentHash: basePath == nil ? nil : "sha256:base-\(itemId)",
+        headContentHash: headPath == nil ? nil : "sha256:head-\(itemId)",
+        contentHashAlgorithm: "sha256",
+        additions: 1,
+        deletions: 1,
+        isHiddenByDefault: false,
+        hiddenReason: nil,
+        reviewPriority: .normal,
+        contentRoles: contentRoles,
+        cacheKey: handle.cacheKey,
+        provenance: BridgeProvenanceSummary(),
+        annotationSummary: BridgeAnnotationSummary(
+            threadCount: 0,
+            unresolvedThreadCount: 0,
+            commentCount: 0
+        ),
+        reviewState: .unreviewed,
+        collapsed: collapsed
+    )
+}
+
+private func makeIPCReviewPackage(
+    descriptors: [BridgeReviewItemDescriptor],
+    orderedItemIds: [String]
+) -> BridgeReviewPackage {
+    let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
+    let headEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .workingTree)
+    return BridgeReviewPackage(
+        packageId: "ipc-review-package",
+        schemaVersion: 1,
+        reviewGeneration: BridgeReviewGeneration(1),
+        revision: 1,
+        query: makeBridgeReviewQuery(
+            baseEndpointId: baseEndpoint.endpointId,
+            headEndpointId: headEndpoint.endpointId
+        ),
+        baseEndpoint: baseEndpoint,
+        headEndpoint: headEndpoint,
+        orderedItemIds: orderedItemIds,
+        itemsById: Dictionary(uniqueKeysWithValues: descriptors.map { ($0.itemId, $0) }),
+        groups: [],
+        summary: BridgeReviewPackageSummary(
+            filesChanged: descriptors.count,
+            additions: descriptors.reduce(0) { $0 + $1.additions },
+            deletions: descriptors.reduce(0) { $0 + $1.deletions },
+            visibleFileCount: descriptors.count,
+            hiddenFileCount: 0
+        ),
+        filterState: BridgeViewFilter(),
+        generatedAtUnixMilliseconds: 1
+    )
 }

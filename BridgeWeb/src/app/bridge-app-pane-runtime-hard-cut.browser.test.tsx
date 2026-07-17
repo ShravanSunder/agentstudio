@@ -16,8 +16,10 @@ import {
 	pollWithinActUntilEqual,
 	pollWithinActUntilTruthy,
 } from './bridge-app-browser-test-actions.js';
+import { bridgeAppControlProbeSchema, type BridgeAppControlProbe } from './bridge-app-control.js';
 import {
 	bridgePanePositionFilePath,
+	bridgePanePositionReviewItemId,
 	installBridgePanePositionFixtures,
 } from './bridge-app-pane-runtime-position-test-support.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
@@ -326,6 +328,163 @@ describe('BridgeApp pane runtime hard cut', () => {
 		expect(paneRuntimeObservation.disposeCount).toBe(0);
 		handshake.dispose();
 	});
+
+	test('routes strict native page controls into the active Review and File owners', async () => {
+		// Arrange
+		await actWait(async (): Promise<void> => {
+			render(
+				<BridgeAppProtocolRouter
+					codeViewWorkerPoolEnabled={false}
+					fileViewerProps={{ autoOpenInitialFile: false }}
+					protocol="review"
+				/>,
+			);
+			await Promise.resolve();
+		});
+		await actWait(async (): Promise<void> => {
+			installBridgePanePositionFixtures({
+				fileRenderStore: requireRenderStore('fileView'),
+				reviewRenderStore: requireRenderStore('review'),
+			});
+			await Promise.resolve();
+		});
+		const appRoot = requireHTMLElement(document.querySelector('[data-testid="bridge-app-root"]'));
+		const reviewHost = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-mode-host-review"]'),
+		);
+		const reviewCodePanel = requireHTMLElement(
+			await pollWithinActUntilTruthy(() =>
+				reviewHost.querySelector('[data-testid="bridge-code-view-panel"]'),
+			),
+		);
+		const initialCollapseButton = requireHTMLElement(
+			await pollWithinActUntilTruthy(() =>
+				reviewHost.querySelector(
+					`[data-testid="bridge-code-view-header-collapse-button"][data-bridge-code-view-item-id="${bridgePanePositionReviewItemId}"]`,
+				),
+			),
+		);
+		const probes: Array<BridgeAppControlProbe | undefined> = [];
+
+		// Act: drive Review through the exact page events emitted by Swift IPC.
+		probes.push(
+			await dispatchBridgePageControl({
+				itemId: bridgePanePositionReviewItemId,
+				method: 'bridge.diff.collapseFile',
+			}),
+		);
+		expect.soft(initialCollapseButton.getAttribute('aria-expanded')).toBe('false');
+		probes.push(
+			await dispatchBridgePageControl({
+				itemId: bridgePanePositionReviewItemId,
+				method: 'bridge.diff.expandFile',
+			}),
+		);
+		expect.soft(initialCollapseButton.getAttribute('aria-expanded')).toBe('true');
+		const selectedReviewItemId = 'position-review-080';
+		await dispatchBridgeReviewSelection(selectedReviewItemId);
+		probes.push(
+			await dispatchBridgePageControl({
+				itemId: selectedReviewItemId,
+				method: 'bridge.diff.scrollToFile',
+			}),
+		);
+		probes.push(
+			await dispatchBridgePageControl({
+				method: 'bridge.fileTree.search',
+				searchMode: { kind: 'text' },
+				searchText: 'PositionReview080',
+			}),
+		);
+		const reviewSearchValueAfterCommand = reviewSearchInputWithin(reviewHost)?.value;
+
+		// Act: switch through production chrome, then route File reveal and search.
+		await actClick(requireActiveContextButton('file'));
+		expect(
+			await pollWithinActUntilEqual(() => appRoot.getAttribute('data-bridge-viewer-mode'), 'file'),
+		).toBe('file');
+		probes.push(
+			await dispatchBridgePageControl({
+				method: 'bridge.fileTree.revealPath',
+				path: bridgePanePositionFilePath,
+			}),
+		);
+		probes.push(
+			await dispatchBridgePageControl({
+				method: 'bridge.fileTree.search',
+				searchMode: { kind: 'text' },
+				searchText: 'PositionFile080',
+			}),
+		);
+		const fileShell = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
+		);
+		const selectedFilePathBeforeInvalidCommand = fileShell.getAttribute(
+			'data-selected-display-path',
+		);
+		const rejectedProbe = await dispatchBridgePageControl({
+			method: 'bridge.fileTree.search',
+			searchMode: { kind: 'text' },
+			searchText: 42,
+		});
+		await actClick(requireActiveContextButton('review'));
+		expect(
+			await pollWithinActUntilEqual(
+				() => appRoot.getAttribute('data-bridge-viewer-mode'),
+				'review',
+			),
+		).toBe('review');
+		const reviewSearchInputAfterReturn = reviewSearchInputWithin(reviewHost);
+		const reviewSearchValueAfterReturn = reviewSearchInputAfterReturn?.value;
+		await actWait(async (): Promise<void> => {
+			reviewSearchInputAfterReturn?.dispatchEvent(
+				new KeyboardEvent('keydown', { bubbles: true, composed: true, key: 'Escape' }),
+			);
+			await Promise.resolve();
+		});
+		await advanceAnimationFrame();
+		const reviewSearchValueAfterExplicitClose = reviewSearchInputWithin(reviewHost)?.value;
+
+		// Assert: probes and current production state move together; invalid input is inert.
+		expect.soft(probes).toMatchObject([
+			{
+				itemId: bridgePanePositionReviewItemId,
+				method: 'bridge.diff.collapseFile',
+				status: 'accepted',
+			},
+			{
+				itemId: bridgePanePositionReviewItemId,
+				method: 'bridge.diff.expandFile',
+				status: 'accepted',
+			},
+			{ itemId: selectedReviewItemId, method: 'bridge.diff.scrollToFile', status: 'accepted' },
+			{ method: 'bridge.fileTree.search', status: 'accepted', treeSearchText: 'PositionReview080' },
+			{
+				method: 'bridge.fileTree.revealPath',
+				path: bridgePanePositionFilePath,
+				status: 'accepted',
+			},
+			{ method: 'bridge.fileTree.search', status: 'accepted', treeSearchText: 'PositionFile080' },
+		]);
+		expect.soft(reviewCodePanel.getAttribute('data-selected-item-id')).toBe(selectedReviewItemId);
+		expect.soft(reviewSearchValueAfterCommand).toBe('positionreview080');
+		expect.soft(reviewSearchValueAfterReturn).toBe('positionreview080');
+		expect.soft(reviewSearchValueAfterExplicitClose).toBe('');
+		expect
+			.soft(fileShell.getAttribute('data-selected-display-path'))
+			.toBe(bridgePanePositionFilePath);
+		expect
+			.soft(fileShell.getAttribute('data-worktree-open-file-path'))
+			.toBe(bridgePanePositionFilePath);
+		expect.soft(fileSearchInput()?.value).toBe('PositionFile080');
+		expect.soft(rejectedProbe).toMatchObject({
+			method: 'bridge.fileTree.search',
+			status: 'rejected',
+		});
+		expect(fileShell.getAttribute('data-selected-display-path')).toBe(
+			selectedFilePathBeforeInvalidCommand,
+		);
+	});
 });
 
 interface SurfacePositionOwners {
@@ -511,6 +670,42 @@ function activeViewerModeUpdateForNativeRequest(
 			command.command === 'activeViewerModeUpdate' &&
 			command.update.nativeSelectionRequestId === nativeSelectionRequestId,
 	);
+}
+
+async function dispatchBridgeReviewSelection(itemId: string): Promise<void> {
+	await actWait(async (): Promise<void> => {
+		window.dispatchEvent(
+			new CustomEvent('__bridge_select_review_item', {
+				detail: { itemId },
+			}),
+		);
+		await Promise.resolve();
+	});
+	await advanceAnimationFrame();
+}
+
+async function dispatchBridgePageControl(
+	detail: unknown,
+): Promise<BridgeAppControlProbe | undefined> {
+	delete window.bridgeReviewControlProbe;
+	await actWait(async (): Promise<void> => {
+		window.dispatchEvent(new CustomEvent('__bridge_review_control', { detail }));
+		await Promise.resolve();
+	});
+	await advanceAnimationFrame();
+	const decodedProbe = bridgeAppControlProbeSchema.safeParse(window.bridgeReviewControlProbe);
+	return decodedProbe.success ? decodedProbe.data : undefined;
+}
+
+function reviewSearchInputWithin(reviewHost: HTMLElement): HTMLInputElement | null {
+	const treeContainer = reviewHost.querySelector('file-tree-container');
+	const searchInput = treeContainer?.shadowRoot?.querySelector('[data-file-tree-search-input]');
+	return searchInput instanceof HTMLInputElement ? searchInput : null;
+}
+
+function fileSearchInput(): HTMLInputElement | null {
+	const searchInput = document.querySelector('[data-testid="worktree-file-search-input"]');
+	return searchInput instanceof HTMLInputElement ? searchInput : null;
 }
 
 function requireActiveContextButton(mode: 'file' | 'review'): HTMLElement {

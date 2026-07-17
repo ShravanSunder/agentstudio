@@ -4,8 +4,13 @@ import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-ru
 import type { BridgeActiveViewerSource } from '../core/comm-worker/bridge-product-control-contracts.js';
 import { startBridgeFrameJankProbe } from '../foundation/diagnostics/bridge-frame-jank-probe.js';
 import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
+import type {
+	BridgeFileChangeKind,
+	BridgeFileClass,
+} from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { recordBridgeFrameJankTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
+import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
 import type { BridgeReviewSearchMode } from '../review-viewer/models/review-projection-models.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../review-viewer/trees/bridge-trees-panel.js';
 import { useBridgeReviewNavigationController } from './bridge-app-review-navigation-controller.js';
@@ -21,6 +26,7 @@ import {
 	type BridgeReviewViewerPresentationState,
 } from './bridge-app-review-viewer-shell-boundary.js';
 import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
+import { useBridgeReviewControlEventListeners } from './use-bridge-review-control-event-listeners.js';
 
 export interface BridgeReviewViewerModeProps {
 	readonly codeViewWorkerFactory?: () => Worker;
@@ -29,6 +35,7 @@ export interface BridgeReviewViewerModeProps {
 	readonly navigationCommand?: BridgeViewerNavigationCommand;
 	readonly onActiveSourceChange: (activeSource: BridgeActiveViewerSource | null) => void;
 	readonly reviewClient: BridgePaneSurfaceClient;
+	readonly target?: EventTarget;
 	readonly telemetryRecorderRef: { readonly current: BridgeTelemetryRecorder };
 	readonly viewerHeaderControls: ReactElement;
 }
@@ -41,6 +48,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		navigationCommand,
 		onActiveSourceChange,
 		reviewClient,
+		target = document,
 		telemetryRecorderRef,
 		viewerHeaderControls,
 	} = props;
@@ -68,9 +76,13 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const [treeSearchMode, setTreeSearchMode] = useState<BridgeReviewSearchMode>({ kind: 'text' });
 	const [treeSearchOpen, setTreeSearchOpen] = useState(false);
 	const [treeSearchText, setTreeSearchText] = useState('');
+	const [gitStatusFilter, setGitStatusFilter] = useState<BridgeFileChangeKind | 'all'>('all');
+	const [fileClassFilter, setFileClassFilter] = useState<BridgeFileClass | 'all'>('all');
 	const [treeSelectionRevealRequest, setTreeSelectionRevealRequest] =
 		useState<BridgeReviewTreeSelectionRevealRequest | null>(null);
 	const treeSelectionRevealRevisionRef = useRef(0);
+	const codeViewControlHandleRef = useRef<BridgeCodeViewControlHandle | null>(null);
+	const controlProbeSequenceRef = useRef(0);
 	const isActiveRef = useRef(isActive);
 	const wasReviewViewportActiveRef = useRef(isActive);
 	isActiveRef.current = isActive;
@@ -118,6 +130,15 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const openTreeSearch = useCallback((): void => {
 		setTreeSearchOpen(true);
 	}, []);
+	const updateTreeSearchTextFromActiveTree = useCallback((searchText: string): void => {
+		if (!isActiveRef.current) {
+			return;
+		}
+		if (searchText.length === 0) {
+			setTreeSearchOpen(false);
+		}
+		setTreeSearchText(searchText);
+	}, []);
 	const presentationSnapshot = useMemo(
 		() =>
 			bridgeReviewPresentationSnapshotForDisplay({
@@ -159,6 +180,25 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		[reviewGeneration, reviewPackageId, selectReviewItem],
 	);
 	const onTargetOutsideAcceptedProjection = useCallback((): void => {}, []);
+	useBridgeReviewControlEventListeners({
+		codeViewControlHandleRef,
+		controlProbeSequenceRef,
+		fileClassFilter,
+		gitStatusFilter,
+		isActive,
+		projection: presentationSnapshot?.projection ?? null,
+		reviewPackage: presentationSnapshot?.reviewPackage ?? null,
+		selectedItemId,
+		selectReviewItem: selectReviewItemAndRevealTree,
+		setFileClassFilter,
+		setGitStatusFilter,
+		setTreeSearchMode,
+		setTreeSearchOpen,
+		setTreeSearchText,
+		target,
+		treeSearchMode,
+		treeSearchText,
+	});
 	useBridgeReviewNavigationController({
 		catalogRevision: catalogSnapshot.revision,
 		clearReviewSelection: clearSelectedReviewItemId,
@@ -175,6 +215,9 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
 		panelChromeSlice,
+		codeViewControlHandleRef,
+		fileClassFilter,
+		gitStatusFilter,
 		presentationPositionKey,
 		presentationSnapshot,
 		renderFulfillmentCoordinator: reviewClient.renderFulfillmentCoordinator,
@@ -194,7 +237,9 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		visibleCodeViewItems,
 		onTreeSearchModeChange: setTreeSearchMode,
 		onTreeSearchOpen: openTreeSearch,
-		onTreeSearchTextChange: setTreeSearchText,
+		onTreeSearchTextChange: updateTreeSearchTextFromActiveTree,
+		onFileClassFilterChange: setFileClassFilter,
+		onGitStatusFilterChange: setGitStatusFilter,
 	});
 	return (
 		<BridgeReviewViewerShellBoundary
@@ -209,6 +254,9 @@ function reviewPresentationState(props: {
 	readonly codeViewWorkerFactory: (() => Worker) | undefined;
 	readonly codeViewWorkerPoolEnabled: boolean | undefined;
 	readonly panelChromeSlice: BridgeReviewRenderSnapshotController['panelChromeSlice'];
+	readonly codeViewControlHandleRef: { current: BridgeCodeViewControlHandle | null };
+	readonly fileClassFilter: BridgeFileClass | 'all';
+	readonly gitStatusFilter: BridgeFileChangeKind | 'all';
 	readonly presentationPositionKey: string;
 	readonly presentationSnapshot: ReturnType<typeof bridgeReviewPresentationSnapshotForDisplay>;
 	readonly renderFulfillmentCoordinator: BridgePaneSurfaceClient['renderFulfillmentCoordinator'];
@@ -229,6 +277,8 @@ function reviewPresentationState(props: {
 	readonly onTreeSearchModeChange: (mode: BridgeReviewSearchMode) => void;
 	readonly onTreeSearchOpen: () => void;
 	readonly onTreeSearchTextChange: (searchText: string) => void;
+	readonly onFileClassFilterChange: (filter: BridgeFileClass | 'all') => void;
+	readonly onGitStatusFilterChange: (filter: BridgeFileChangeKind | 'all') => void;
 }): BridgeReviewViewerPresentationState {
 	if (props.reviewSourceSlice === null) return { status: 'empty' };
 	if (props.reviewSourceSlice.status === 'failed') {
@@ -244,6 +294,13 @@ function reviewPresentationState(props: {
 	return {
 		presentationKey: props.presentationSnapshot.presentationKey,
 		shellProps: {
+			fileClassFilter: props.fileClassFilter,
+			gitStatusFilter: props.gitStatusFilter,
+			onCodeViewControlHandleChange: (handle): void => {
+				props.codeViewControlHandleRef.current = handle;
+			},
+			onFileClassFilterChange: props.onFileClassFilterChange,
+			onGitStatusFilterChange: props.onGitStatusFilterChange,
 			panelChromeSlice: props.panelChromeSlice,
 			presentationPositionKey: props.presentationPositionKey,
 			presentationRegistry: props.presentationSnapshot.presentationRegistry,

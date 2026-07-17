@@ -112,6 +112,84 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 		expect(scan.sampleCount - scan.convergenceSampleCount).toBe(25);
 	});
 
+	test('republishes the retained Review window when the viewer becomes active again', async () => {
+		// Arrange: settle one metadata-only Review window with a selected header and at least one
+		// visible nonselected header. No body content has been published yet.
+		const files = makeBridgeReviewRecoveryWitnessFiles({
+			count: 48,
+			lineCount: 8,
+			markerPrefix: 'REACTIVATED_VISIBLE_HYDRATION',
+		});
+		const harness = renderBridgeReviewRecoveryWitness(files);
+		await harness.publishDisplay();
+		await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
+		await expect.poll(() => harness.renderedCodeViewItemIds().length).toBeGreaterThan(1);
+		await expect
+			.poll(() =>
+				harness.viewportCommandVisibleItemIds().some((itemIds) => itemIds.length > 0),
+			)
+			.toBe(true);
+		await advanceBridgeReviewRecoveryWitnessFrames(4);
+		const codePanel = harness.renderResult.container.querySelector(
+			'[data-testid="bridge-code-view-panel"]',
+		);
+		const selectedItemId = codePanel?.getAttribute('data-selected-item-id') ?? null;
+		const scrollOwner = harness.codeScrollOwner();
+		if (selectedItemId === null || scrollOwner === null) {
+			throw new Error('Review reactivation witness requires selected and scroll-owner state.');
+		}
+		const selectedItemCommandCountBeforeTransition = harness.selectedItemCommandCount();
+		const scrollTopBeforeTransition = scrollOwner.scrollTop;
+		const viewportCommandCountBeforeTransition = harness.viewportCommandVisibleItemIds().length;
+
+		// Act: only hide and show the already-mounted Review. Do not scroll, select, or replace metadata.
+		await harness.setActive(false);
+		const viewportCommandsAfterHide = harness.viewportCommandVisibleItemIds();
+		expect(viewportCommandsAfterHide.slice(viewportCommandCountBeforeTransition)).toEqual([[]]);
+		await harness.setActive(true);
+		await expect
+			.poll(() => harness.viewportCommandVisibleItemIds().length)
+			.toBeGreaterThan(viewportCommandsAfterHide.length);
+
+		// Assert: activation republishes the retained Pierre window after the exact inactive clear.
+		const transitionViewportCommands = harness
+			.viewportCommandVisibleItemIds()
+			.slice(viewportCommandCountBeforeTransition);
+		const activationVisibleItemIds = transitionViewportCommands[1] ?? [];
+		const renderedItemIdsAfterActivation = [...new Set(harness.renderedCodeViewItemIds())];
+		const visibleNonselectedItemId = renderedItemIdsAfterActivation.find(
+			(itemId): boolean => itemId !== selectedItemId && activationVisibleItemIds.includes(itemId),
+		);
+		const transitionTrace = {
+			activationVisibleItemIds,
+			renderedItemIdsAfterActivation,
+			selectedItemId,
+			transitionViewportCommands,
+		};
+		expect(transitionViewportCommands, JSON.stringify(transitionTrace)).toHaveLength(2);
+		expect(transitionViewportCommands[0], JSON.stringify(transitionTrace)).toEqual([]);
+		expect(activationVisibleItemIds.length, JSON.stringify(transitionTrace)).toBeGreaterThan(0);
+		expect(
+			renderedItemIdsAfterActivation.every((itemId): boolean =>
+				activationVisibleItemIds.includes(itemId),
+			),
+			JSON.stringify(transitionTrace),
+		).toBe(true);
+		expect(visibleNonselectedItemId, JSON.stringify(transitionTrace)).toBeDefined();
+		expect(harness.selectedItemCommandCount()).toBe(selectedItemCommandCountBeforeTransition);
+		expect(scrollOwner.scrollTop).toBe(scrollTopBeforeTransition);
+		expect(codePanel?.getAttribute('data-code-view-item-count')).toBe(String(files.length));
+
+		const publishedItemIds = await harness.publishDemandedContent();
+		expect(publishedItemIds).toContain(visibleNonselectedItemId);
+		const visibleNonselectedPaint = harness
+			.paintedCodeViewItems()
+			.find((paintedItem) => paintedItem.itemId === visibleNonselectedItemId);
+		expect(visibleNonselectedPaint?.paintedLineCount, JSON.stringify(transitionTrace)).toBeGreaterThan(
+			0,
+		);
+	});
+
 	test('retains Review selection disclosure and scroll across an inactive generation replacement', async () => {
 		// Arrange: mount the production Review shell, Pierre tree, and continuous CodeView over one
 		// stable worker-facing client/store identity.

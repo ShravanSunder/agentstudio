@@ -17,6 +17,7 @@ import {
 } from './bridge-file-viewer-display-model.js';
 import { BridgeFileViewerLazyLoadingFrame } from './bridge-file-viewer-lazy-loading-frame.js';
 import { useBridgeFileViewerRenderSnapshotController } from './bridge-file-viewer-render-snapshot-controller.js';
+import { useBridgeFileViewerControlEventListeners } from './use-bridge-file-viewer-control-event-listeners.js';
 import { useBridgeFileViewerDisplaySourceReporter } from './use-bridge-file-viewer-display-source-reporter.js';
 import { useBridgeFileViewerStoreBindings } from './use-bridge-file-viewer-store-bindings.js';
 import { useBridgeFileViewerVisibleDemandController } from './use-bridge-file-viewer-visible-demand-controller.js';
@@ -45,6 +46,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		autoOpenInitialFile = false,
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
+		controlTarget = document,
 		isActive = true,
 		navigationCommand,
 		onDisplaySourceChange,
@@ -56,7 +58,8 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 	const isActiveRef = useRef(isActive);
 	isActiveRef.current = isActive;
 	const appliedNavigationCommandIdRef = useRef<string | null>(null);
-	const { rootSnapshot, viewerActions } = useBridgeFileViewerStoreBindings();
+	const controlProbeSequenceRef = useRef(0);
+	const { rootSnapshot, viewerActions, viewerStore } = useBridgeFileViewerStoreBindings();
 	const { filterMode, searchMode, searchText } = rootSnapshot;
 	const renderSnapshotController = useBridgeFileViewerRenderSnapshotController({ selection });
 	const dispatchFileViewQueryFact = renderSnapshotController.dispatchFileViewQueryFact;
@@ -99,6 +102,17 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		},
 		[selectFile],
 	);
+	useBridgeFileViewerControlEventListeners({
+		controlProbeSequenceRef,
+		displayModel,
+		isActive,
+		rootSnapshot,
+		selectFile,
+		selectedFileId: selection?.fileId ?? null,
+		target: controlTarget,
+		viewerActions,
+		viewerStore,
+	});
 
 	useEffect((): void => {
 		if (!isActive) {
