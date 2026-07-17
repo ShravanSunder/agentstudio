@@ -1297,3 +1297,22 @@ arrangement, revision-zero, fixed-base, and 256-unrelated-tab proof. Missing
 drawer members now reject as invalid pairs rather than falsely reporting a
 cross-row failure. Production drag previews and caller cutover remain later
 atomic work; this slice changes no live resize route.
+
+Commit `5d9b43a0` adds the dormant keyboard resize-by-delta planner and
+installed-only persistence entry, and corrects active-arrangement visibility
+planning from fleet snapshots to strict target witnesses. Adjacent keyboard
+resizes emit the existing `.mainSplit` checkpoint with the exact divider ID;
+resizes spanning minimized panes emit `.mainVisiblePair`. The coordinator reads
+only the requested tab, its active arrangement, and its zoom state before
+reusing the existing fixed-revision layout gateway. Visibility switch,
+show-minimized, minimize, and expand now read only their requested tab and
+relevant keyed cursor/zoom witnesses. Canonical atoms remain unchanged and both
+families have zero App or Feature production callers.
+
+Parent proof passed 46 tests across ten suites, `mise run build`, and full
+`mise run lint`, including swift-format, SwiftLint over 1,755 files,
+architecture lint, 31 admission mutation controls, and release-script checks.
+Independent Sol high review returned READY with no findings. The final source
+guard forbids the four former fleet-wide visibility reads; fixed-base tests
+preserve 256 unrelated tabs. Native/Victoria proof remains intentionally
+deferred until the one atomic production installation and caller cutover.
