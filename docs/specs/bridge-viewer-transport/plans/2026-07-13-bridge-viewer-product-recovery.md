@@ -1,8 +1,7 @@
 # Bridge Viewer Product Recovery Implementation Plan
 
-Status: accepted after the one permitted Fable plan review, one parent
-remediation and one same-relationship remediation verification. Ready for
-`implementation-execute-plan`.
+Status: implementation active; 2026-07-17 worktree-sharing amendment accepted
+after one bounded Fable review and one parent remediation. S8c is executable.
 
 Goal id: 2026-07-13-bridge-recovery
 
@@ -31,6 +30,9 @@ checkpointed:
 - Synchronous libgit2 reads run on the package blocking queue while Agent Studio
   owns worktree-keyed admission, operation classes, logical deadlines and
   physical draining custody.
+- Expensive File manifest and Review package-template construction is
+  application-scoped and single-flighted per worktree/semantic key/freshness;
+  panes retain independent authority, workers, publication and presentation.
 - Browser, hosted WebKit, packaged LaunchServices WKWebView, immutable
   correctness/p99 workloads, quality gates, implementation review, CI and PR
   readiness are proven at the final source and artifact identity.
@@ -38,7 +40,7 @@ checkpointed:
 
 ## 2. Source Coverage And Authority
 
-The parent read and accepted the complete 1,979-line canonical spec:
+The parent read the complete amended 1,999-line canonical spec:
 
 - docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md
 
@@ -176,6 +178,11 @@ Per Bridge pane:
       -> complete-item demand/cache/residency
 
 Application scope:
+
+    BridgeWorktreeProductConstructionCoordinator actor
+      -> one application registry with worktree-keyed immutable artifacts
+      -> canonical freshness, exact-key single-flight and consumer leases
+      -> no pane/source/publication identity and no heavy work on its actor
 
     BridgePaneActivityCoordinator
       -> sole foreground/loaded-hidden/dormant/closed mint
@@ -709,6 +716,109 @@ Checkpoint: packaged WKWebView product-journey commit.
 Scope guard: LaunchServices, signing or shared observability failure outside the
 agreed code path is reported, not repaired by expanding scope.
 
+### S8c — Worktree-Shared File And Review Construction
+
+Purpose:
+
+- add one application-scoped `BridgeWorktreeProductConstructionCoordinator`
+  beside the existing Git scheduler;
+- mint one canonical freshness epoch per worktree before filesystem event
+  fan-out and single-flight exact semantic construction keys;
+- share immutable authority-free File snapshots and generation-neutral Review
+  package templates, while each pane independently binds source, generation,
+  package, publication, content-lease, worker and presentation identities;
+- make Review provider content locators artifact/lease-bound instead of pruning
+  same- or cross-pane readable/retiring A by latest pane generation; validate
+  content through artifact lease plus digest;
+- route shared builds through a coordinator-issued Git context whose freshness
+  token is the worktree epoch rather than pane scope/generation;
+- release one pane without disturbing peers, and after the final lease drop
+  payload immediately while retaining only R69 draining custody until true
+  native return; and
+- initially retain no speculative artifact after the final consumer.
+
+Canonical keys:
+
+- File: repo/worktree/stable root, canonical cwd/path scope, status/ignore
+  semantics and worktree freshness;
+- Review: repo/worktree/stable root, query kind/comparison semantics, canonical
+  base/head kind/provider/content identities, path/file target, every package-
+  affecting filter/group/provenance/checkpoint field and freshness; and
+- transient request/query/package ids, labels, timestamps, pane activity and
+  presentation are excluded. Equality/collision fixtures bind both schemas.
+
+Likely writes:
+
+- new worktree construction coordinator, semantic-key/template/window models,
+  pane binders and focused tests;
+- `WorkspaceSurfaceCoordinator`, Bridge view/source-provider/filesystem
+  extensions and app composition for injection, freshness-before-fan-out and
+  lease release;
+- Review pipeline/data-client/Git-I/O/content-locator owners for resolved-ref
+  keying, generation-neutral templates and artifact/retiring-A locator lifetime;
+- File metadata source, ignore/status/enumeration materialization and manifest
+  seeding for one shared append-only window build plus pane-local delivery; and
+- pane controller diff/load/teardown routing plus safe hashed diagnostics.
+
+Protected surfaces:
+
+- Git scheduler phase/coalescing/draining semantics, per-pane admission/
+  publication/session/worker/presentation, BridgeWeb, Pierre and dependencies.
+
+Permanent RED:
+
+- two identical File panes perform one ignore/status/enumeration build but emit
+  independent source identities/streams; one-field-different selectors do not
+  share;
+- two identical Review panes perform one provider comparison/tree/template
+  build but commit distinct pane publications; different queries/worktrees do
+  not share;
+- a held old-epoch build followed by invalidation can neither cache nor publish;
+  exactly one latest-epoch rebuild serves current foreground consumers;
+- a File pane opening mid-enumeration replays retained immutable windows and
+  tails the same build without delaying the builder's first window or sharing
+  delivery/backpressure;
+- moving a symbolic Review ref without a watched-root event resolves to a new
+  concrete OID/content key for a new or refreshed request;
+- readable A content loads successfully during same-pane B construction and
+  across one pane advancing while another retains A;
+- closing A preserves B; closing last while native work is blocked creates a
+  coordinator draining-only tombstone; reopening cannot join that entry or
+  payload. The proven scheduler may coalesce the same physical read when epoch
+  and semantic identity are unchanged, but completion must pass the reopened
+  entry's current fences; an advanced epoch discards it. No scheduler phase
+  behavior changes;
+- one pane's cancellation, publication failure or hidden activity cannot cancel,
+  poison or refresh another pane; and
+- bounded entry/payload/in-flight/tombstone accounting reaches zero after true
+  return, while pane-local File/Review selection, search/filter, tree/scroll and
+  worker state remain independent.
+
+Proof layers:
+
+- deterministic coordinator key/state/lease/invalidation unit tests with event
+  gates and no sleeps;
+- counting-provider integration through real pane admission, File source
+  binding, Review publication and content-locator lifetimes;
+- hosted same-worktree duplicate-pane WebKit journey and packaged refresh/close
+  correlation, including concurrent File open during enumeration;
+- R69 blocked-return integration plus safe hashed entry/epoch/lease telemetry;
+  and
+- S10a memory attribution and S10b duplicate-pane build-count/capacity proof.
+
+Dependencies: S6 and S8b. This checkpoint precedes S9/S10 so the final E2E and
+performance candidate measures shared construction rather than duplicated
+per-pane builds.
+
+Checkpoint: worktree-shared construction commit.
+
+Split trigger: reconverge if a shared artifact requires pane capability,
+admission, source/publication identity or lease authority; if invalidation
+cannot advance before stale completion; if coordinator payload/entry state can
+reattach across close/reopen; or if provider locators cannot remain safe for
+same- and cross-pane readable old A. Scheduler-level same-epoch coalescing is
+not a violation and must not be disabled.
+
 ### S9 — One Dedicated Vite Product E2E Owner
 
 Purpose:
@@ -733,7 +843,7 @@ Proof:
 - disposable live-worktree E2E with independent source checksum/oracle;
 - server/provider/browser/Pierre/worker/source-generation freshness.
 
-Dependencies: S8b by explicit product decision.
+Dependencies: S8c by explicit product decision.
 
 Checkpoint: dedicated Vite E2E commit.
 
@@ -778,14 +888,17 @@ Proof contract:
   launch percentiles or let a pooled percentile hide one bad launch;
 - every correctness/telemetry failure retained numerically;
 - complete manifest, final real hunk/File bytes, stable tree/CodeView, heap and
-  main-thread stop lines.
+  main-thread stop lines; and
+- retained-byte attribution by coordinator artifact, pane-bound overlay,
+  worker/Pierre copy, in-flight provider work and draining tombstone. Registry
+  counters alone cannot claim payload release while CoW storage remains live.
 
 Freshness:
 
 - candidate SHA/diff, fixture/oracle digest, machine, viewport, browser/WebKit/
   Pierre/worker versions, process/marker, telemetry mode, launch/cell/attempt.
 
-Dependencies: S8b and S9.
+Dependencies: S8c and S9.
 
 Checkpoint: immutable product matrix commit/evidence.
 
@@ -801,6 +914,8 @@ Purpose:
   deliberately blocked native read, background invalidation storms and selected
   foreground work;
 - prove operation-class and worktree isolation;
+- prove exact duplicate panes perform one physical File/Review construction,
+  while one-field-different semantic keys remain isolated; and
 - measure and then bind only stable scheduler capacity/rank constants.
 
 Proof:
@@ -810,6 +925,8 @@ Proof:
 - selected content progress while metadata is blocked;
 - queue/running/draining bounds, MainActor/event-loop heartbeat, slow-worktree
   isolation, applicable foreground p95/p99 and zero residue;
+- shared construction entry, waiter, materialized/in-flight byte and draining-
+  tombstone bounds plus exact duplicate build counts;
 - late output discarded and exact slot release after the seam opens.
 
 Freshness:
@@ -817,7 +934,7 @@ Freshness:
 - candidate/package pin, fixture repo/worktree identities, scheduler config,
   class/slot/draining ids, machine/process/marker.
 
-Dependencies: S6 and S8b.
+Dependencies: S6, S8b and S8c.
 
 Checkpoint: blocked-read workload and measured-policy commit.
 
@@ -901,6 +1018,8 @@ Terminal: PR ready, not merged.
       |
     S8b packaged LaunchServices journey
       |
+    S8c worktree-shared File/Review construction
+      |
     S9 dedicated Vite E2E
       |
       +-- S10a immutable 84-cell matrix
@@ -927,8 +1046,9 @@ claim and checkpoint. S8 through S11 are serial by runtime/evidence identity.
 | Deterministic reuse and explicit duplicates | R68 | S4 | resolver unit, workspace/worker/packaged | parent command result, attendance and receipt | workspace order, ordinal, pane authority | permanent RED required | yes |
 | Blocking libgit2 boundary is reachable and pinned | R69 | S5a, S5b | package tests/build/lint and provider compatibility | parent package/remote/pin/build evidence | remote SHA and Package.resolved | existing package red/green reverified | yes after repo split |
 | Worktree/class admission and physical draining | R69 | S6, S10b | scheduler unit, blocked-read integration/workload | parent queue/running/draining/heartbeat/residue | pin, class, worktree, slot, process/marker | permanent RED required | yes |
+| Worktree-shared File/Review construction without shared pane authority | R70 | S8c, S10a, S10b | key/state unit, counting-provider integration, hosted/packaged duplicate-pane and workload | parent build counts, pane identities, leases, epochs, bytes and residue | candidate, semantic key digest, worktree epoch, entry nonce, pane publication and marker | permanent duplicate/collision/invalidation/close RED | yes |
 | Current BridgeWeb regressions and structure | repo gates | S0a, S0b, S7 | focused/full unit, architecture, static, check/build | parent exact counts and command exits | HEAD, lock/config/source hashes | current 23 RED to zero | yes after split |
-| Full packaged product behavior | R41-R69, WebKit constraints | S8a, S8b | SwiftPM WebKit transport/lifecycle, packaged LaunchServices paint, IPC, Victoria, visual | parent bundle/PID/source/DOM/disposition evidence | source/assets/executable/PID/launch/marker | missing journey RED | yes after proof-owner split |
+| Full packaged product behavior | R41-R70, WebKit constraints | S8a, S8b, S8c | SwiftPM WebKit transport/lifecycle, packaged LaunchServices paint, IPC, Victoria, visual | parent bundle/PID/source/DOM/disposition evidence | source/assets/executable/PID/launch/marker | missing journey RED | yes after proof-owner split |
 | One honest Vite E2E owner | R61, R65 | S9 | deterministic and disposable live-worktree E2E | parent independent source oracle and readable DOM | config/server/provider/browser/source generation | absent owner RED | yes |
 | Whole-item correctness, memory and p99 | R41, R57, R61, R62 | S10a | immutable 84-cell matrix | parent completeness validator and numeric results | candidate/fixture/machine/runtime/marker | invalid/missing cell RED | yes after workload split |
 | No Pierre modification/private path | non-goal, R57/R61 | S7, S11a | dependency/source/asset audit and static negative | parent final diff and package audit | final diff, lockfile, Pierre version | static RED to green | yes |

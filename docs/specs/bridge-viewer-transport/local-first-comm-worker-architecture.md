@@ -1,7 +1,7 @@
 # Local-First Comm Worker Architecture
 
-Date: 2026-07-09; corrected 2026-07-14
-Status: recovery contract; S2a and S2b accepted; S1b/J1 active; product proof remains incomplete.
+Date: 2026-07-09; corrected 2026-07-17
+Status: recovery contract; product recovery checkpoints accepted; final sharing and proof remain incomplete.
 Extends [performance-demand-lanes.md](performance-demand-lanes.md) R32-R40 and
 its Constants Annex. It supersedes only the clauses named under Explicit
 Supersessions below.
@@ -18,63 +18,27 @@ optional telemetry worker owns observability off both interactive loops.
 
 ## Evidence Anchors
 
-AgentStudio source and committed documents in this section are pinned to
-`f19929798a43ea1e0f9d8e75b239f6020299b945`. Pierre `origin/main` evidence is
-pinned to fetched commit `4f94a5e765195b27e1e4188b943aab2ae44613cb`;
-released-baseline evidence is pinned to tag `diffs-v1.2.12` at
-`9466c467ae6fc03501b6bca74c12f717d70293a7`. A mutable checkout or ignored
-`tmp/` artifact cannot satisfy a durable evidence claim.
+Committed AgentStudio evidence is pinned to `f1992979`; Pierre evidence is
+pinned to fetched `4f94a5e7` and released `diffs-v1.2.12` at `9466c467`.
+Mutable or ignored artifacts cannot satisfy durable claims.
 
-- The committed causal and transport reviews identify the click/root-snapshot
-  floor, synchronous File View work, shared WebKit delivery tail, and required
-  native proof (`docs/wip/2026-07-04-cold-architecture-review-bridge-demand-system.md`).
-- Load ceilings and copy counts: browser main thread full-package parsing,
-  Swift MainActor encode/drain pressure, one shared delivery tail, and one
-  file's journey carrying about 8 byte copies, 3 full hash passes, and 7
-  serialize/validate passes
-  (`docs/wip/2026-07-04-cold-architecture-review-bridge-demand-system.md:41`,
-  `docs/wip/2026-07-04-cold-architecture-review-bridge-demand-system.md:69`).
-- Existing R32-R40 contract: one reconciler, no membership truncation, no
-  parked demand states, generation as one derivation epoch, rank surviving the
-  worker boundary, and separated retention/byte-cache tiers
-  (`docs/specs/bridge-viewer-transport/performance-demand-lanes.md:148`,
-  `docs/specs/bridge-viewer-transport/performance-demand-lanes.md:307`).
-- Original product contract: a DiffsHub-class Review viewer with Trees,
-  CodeView, search/facets, selection/reveal, hunk expansion, markdown, and
-  large-diff proof
-  (`docs/superpowers/specs/2026-06-15-bridge-codeview-trees-viewer.md:309`,
-  `docs/superpowers/specs/2026-06-18-bridgeweb-large-diff-fast-loop-spec.md:637`).
-- Recovery baseline: HEAD `38fe66aefda5df752f7f5c211de74c9d126eec3a`
-  still contains the deleted Review store/projection/shell/controller and
-  permanent large-tree, scrolling, virtualizer, benchmark, and mocked-backend
-  proof. Those sources are the UX/decomposition/test oracle, not authority to
-  restore their obsolete projection worker, canonical main store, package-first
-  startup, or native/main carrier.
-- 2026-07-09 re-baseline at `f1992979`: four independently created comm
-  workers, native product intake landing on main, no production streamed
-  subscription route, multiple ready-to-loading gates, clone-only Pierre jobs,
-  split telemetry owners, and insufficient three-sample browser proof
-  (`docs/wip/communications/2026-07-09-bridge-click-fileview-workers-implementation-handoff.md:1`).
-- Pierre public API check: BridgeWeb pins `@pierre/diffs` `1.2.10`; released
-  `1.2.12` and fetched `origin/main` still define string-backed `FileContents`,
-  whole-item `CodeViewHandle` updates, and worker dispatch without transfer lists
-  (`BridgeWeb/package.json:27`,
-  `packages/diffs/src/types.ts:24`,
-  `packages/diffs/src/react/CodeView.tsx:88`,
-  `packages/diffs/src/worker/WorkerPoolManager.ts:1043` in the pinned Pierre
-  revision).
-- The installed `1.2.10` declarations expose complete string-backed items and
-  public whole-item `addItems`, `updateItem`, `updateItemId`, and `scrollTo`
-  behavior. They do not expose `submitWindow`, `cancelWindow`, `evictWindow`,
-  `resetWindowedItem`, `getWindowState`, or `subscribeWindowEvents`.
-  `renderRange` is post-admission rendering virtualization, not a sparse source
-  transport. The installed worker dispatch posts whole request objects without
-  a transfer list. These facts define the implementation floor; no Pierre
-  repository or package change is permitted.
+- The causal review owns the click/root-snapshot, synchronous File, WebKit
+  delivery and native-proof evidence
+  (`docs/wip/2026-07-04-cold-architecture-review-bridge-demand-system.md`).
+- R32-R40 retains one reconciler, no truncation/parking, one derivation epoch,
+  ranked worker admission and separated retention/cache tiers.
+- The original product specs retain DiffsHub-class Trees/CodeView UX and
+  large-diff obligations. Recovery HEAD `38fe66a` is a UX/test oracle only;
+  its obsolete worker, main store, package startup and carrier stay rejected.
+- Installed `@pierre/diffs` `1.2.10` exposes complete string-backed items and
+  public `addItems`, `updateItem`, `updateItemId`, and `scrollTo`; released
+  `1.2.12` preserves that model. No sparse source/window API or transfer-list
+  guarantee exists. `renderRange` is post-admission virtualization. This is the
+  implementation floor; Pierre repository/package changes are forbidden.
 
 ## Normative Product And Success Contract
 
-The worker architecture is a means to the product contract. R41-R69 cannot be
+The worker architecture is a means to the product contract. R41-R70 cannot be
 declared complete while Review or File View is functionally wrong, even when an
 individual worker, schema, or unit-test seam passes.
 
@@ -299,6 +263,13 @@ Swift Review content loader/cache actor
   owns: provider loading/streaming, validation, in-flight coalescing, bounded cache
   forbidden: canonical package/descriptor authority or synchronous pane admission
 
+Swift worktree product construction coordinator
+  owns: application-scoped worktree freshness, immutable authority-free File
+        snapshots and Review templates, exact-key single-flight, consumer leases
+  exposes: generation-neutral artifacts each pane rebinds to its own authority
+  forbidden: pane/session/source/publication identity, delivery, presentation,
+             Git-slot custody, comm-worker state, or heavy work on its actor
+
 Swift Git read execution
   owns: worktree-keyed foreground/background admission plus separately bounded
         metadata/content native-read capacity and true-completion/draining custody
@@ -366,6 +337,7 @@ Extended truth ownership:
 | pane product admission | Swift synchronous gate per pane | native call/metadata/content entry points and post-await commit guards | pane creation opens one epoch; teardown synchronously closes it before producer/telemetry drain | none; closed panes cannot reopen | loaded-hidden remains open but reduced; closed rejects immediately |
 | active/pending Review package and descriptor authority | Swift Review publication coordinator per pane | pane presentation, metadata source, Review content admission | stage isolated B beside readable A -> atomically commit B before any worker-visible B -> retire A after worker observation/lease settlement | pre-commit failure discards B; post-commit delivery retries B and never rolls back to A | retained while loaded-hidden; dormant has no package; close revokes active/pending |
 | native pane activity and package freshness | native workspace/pane lifecycle plus Review publication coordinator | Git admission, refresh coalescer, surface updating presentation | visibility transitions; filesystem events mark loaded-hidden package dirty | foreground performs at most one latest refresh; dormant cold-loads once activated | inactive surface never shows another surface's updating state |
+| worktree freshness and shared construction artifacts | application-scoped worktree product construction coordinator | pane File/Review binders | canonical invalidation advances one worktree epoch before pane fan-out; exact semantic keys single-flight immutable construction | stale completion is discarded; one latest foreground request rebuilds; zero consumers drop payload and retain only required draining custody | loaded-hidden retains its pane binding and dirty fact but initiates no refresh |
 | Bridge pane attendance recency | native workspace runtime | state-aware worktree command resolver | successful pane attention updates one runtime-only monotonic fact | missing pane removes its fact; no persistence or product authority | default open chooses the most recently attended matching pane |
 | Git read permits and physical native slots | application-scoped keyed Git scheduler plus operation-class executor | Swift Review pipeline/content loader | foreground/background ranked request; bounded metadata/content lanes | logical timeout/cancel leaves running native slot draining until true return | loaded-hidden starts no refresh/body work; dirty fact is retained |
 | `streamId` | comm worker | FE diagnostics, Swift validation | worker opens/reopens source session | worker/server resync on gap or unhealthy | retained, never FE-writable |
@@ -1884,6 +1856,51 @@ residue, MainActor/event-loop heartbeat, slow-worktree isolation, and applicable
 foreground p95/p99. Concrete capacities are accepted only from this workload;
 discovery/status budgets cannot be copied without measurement.
 
+### R70. File and Review source construction is shared per worktree without sharing pane authority.
+One application-scoped `BridgeWorktreeProductConstructionCoordinator` actor
+owns worktree freshness, exact-key single-flight, consumer leases, and bounded
+artifact accounting. Heavy work executes outside it through R69; this is one
+registry with keyed entries, not an actor per worktree.
+`BridgeSharedFileSnapshotBuild` publishes append-only immutable row windows and
+then one completed snapshot containing canonical selectors, ignore/status facts,
+ordered rows and freshness. Each pane binder owns source identity, subscription
+generation, cursors and delivery. A pane opening mid-build replays retained
+windows then tails independently; a slow pane cannot backpressure construction
+or another pane. Completed snapshots serve later binders without enumeration.
+`BridgeSharedReviewPackageTemplate` contains resolved base/head source identities,
+semantic descriptor cores, ordered membership, groups/summaries and immutable
+content locators. It contains no query/package/publication id, review generation,
+pane timestamp, admission or lease. Descriptor semantic version is source-derived,
+never pane generation. `BridgePaneReviewPackageBinder` stamps the pane overlay
+and handle/publication leases without rewriting shared descriptor collections.
+The registry entry owns the shared provider/client and locators; locator lifetime
+is the union of artifact leases and R67 retiring-A leases. Content validates by
+artifact lease plus digest, not equality with one latest pane generation.
+File keys include canonical repo/worktree/root, cwd/path scope, status/ignore
+semantics and freshness. Review keys include those owners, query/comparison
+semantics, resolved base/head OID/content identities, path/file target and every
+package-affecting filter/group/provenance/checkpoint field. Every new or refreshed
+request resolves symbolic refs under R69 before template keying; ref motion yields
+a new key even without a watched-root event. Transient ids, labels, timestamps,
+pane activity and presentation are excluded. Equality/collision vectors bind this.
+Canonical invalidation advances the worktree epoch before pane fan-out. A
+completion may cache only under its captured current epoch; obsolete output
+publishes nowhere. Exact duplicate foreground panes join one build, bind
+independently, and fail independently. Hidden panes retain their old binding
+and dirty fact without joining refresh. Consumer leases carry an entry nonce
+and epoch. Closing one pane cannot affect another. Zero consumers cancel logical
+waiters and drop payload immediately, while started native calls remain
+draining under R69 until true return. Reopen never joins the coordinator entry
+or payload tombstone; scheduler coalescing with the same physical read is allowed
+when the worktree epoch and semantic identity are unchanged, and its result must
+pass the reopened entry's current fences. Failures are not cached and the initial
+policy retains nothing speculatively after the final lease.
+Limits cover queued/live entries, materialized/in-flight bytes and draining
+tombstones. S10 calibrates numbers; unbounded admission is forbidden. Proof
+covers key equality/collision, progressive duplicate File open, ref motion,
+invalidation, same- and cross-pane old-A locator safety, close/reopen, pane
+independence, blocked return, owner-attributed retained bytes, build counts and
+zero residue. Types structurally forbid pane authority in shared artifacts.
 ## Action And Event Sequence Contracts
 
 Every user action and system event must preserve the local-first rule: FE may
@@ -1968,7 +1985,8 @@ visibility, bounded Git execution, and Swift authority.
 - No server lifetime surfaced to FE as user-visible protocol state.
 - No permanent File View prefix/cap without measured failure evidence, user reconvergence, and a separately accepted contract.
 - No shared cross-pane comm or telemetry worker.
-- No global serial Git actor and no actor-per-worktree registry without measured need.
+- No global serial Git actor or actor-per-worktree execution owner; R70 is one
+  application registry whose heavy work remains outside its actor.
 - No commit-comparison UX in this recovery increment.
 - No implementation phase plan in this document.
 
