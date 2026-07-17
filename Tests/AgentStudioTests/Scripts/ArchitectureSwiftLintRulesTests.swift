@@ -21,7 +21,7 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(!miseConfig.contains("scripts/check-core-boundary-imports.sh"))
         #expect(!miseConfig.contains("scripts/check-atomlib-boundaries.sh"))
         #expect(lintScript.contains("if [[ $# -eq 0 ]]"))
-        #expect(lintScript.contains("run_admission_contract=0"))
+        #expect(!lintScript.contains("run_admission_contract"))
         #expect(lintScript.contains("run_release_contract=0"))
 
         #expect(ciWorkflow.contains("brew install swift-format swiftlint"))

@@ -11,7 +11,7 @@ final class CollapsedBarLabelPartsTests {
     private var store: WorkspaceStore!
 
     init() {
-        registry = AtomRegistry()
+        registry = makeInstalledTestAtomRegistry()
         store = WorkspaceStore(
             identityAtom: registry.workspaceIdentity,
             windowMemoryAtom: registry.workspaceWindowMemory,

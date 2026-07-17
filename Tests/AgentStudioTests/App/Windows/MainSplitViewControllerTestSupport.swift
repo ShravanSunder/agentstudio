@@ -29,7 +29,7 @@ private func makeMainSplitViewControllerHarness(
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "main-split-view-controller-tests-\(UUID().uuidString)")
     let persistor = WorkspacePersistor(workspacesDir: tempDir)
-    let atoms = AtomRegistry()
+    let atoms = makeInstalledTestAtomRegistry()
     configureUIState(atoms.workspaceSidebarState)
 
     let store = WorkspaceStore(
