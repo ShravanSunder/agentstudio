@@ -1256,3 +1256,23 @@ outside the runtime property/initializer and tests, so no App or Feature path ca
 invoke this owner yet. Continue W4.5p with the remaining pane/tab/arrangement
 writer families and settled UI-memory checkpoint contract before the single
 atomic production writer cutover. No startup repair or migration is permitted.
+
+Commit `2225cd77` adds the dormant keyed arrangement-selection family for
+discrete active-main-pane and active-drawer-child changes. Pure planners accept
+strict target-only contexts, validate the exact active arrangement and visible
+main/drawer membership, reject minimized selections explicitly, and return
+typed changed/unchanged/rejected decisions. The MainActor applier preflights the
+target tab, active arrangement, and exact cursor witness before assigning one
+keyed cursor. The installed-only persistence gateway captures one active-pane or
+active-drawer-child preimage and commits one revision. No fleet cursor snapshot,
+fact-bus route, atom-owned workflow, or production callsite was added.
+
+Parent proof passed 16 tests across three suites and `mise run build`; scoped
+swift-format, SwiftLint, architecture lint, diff checks, target-only source
+guards, and App/Feature reachability guards passed. The single independent
+review found minimized-selection and fleet-context defects; its one remediation
+cycle added typed rejection, keyed contexts, missing/no-selection insertion,
+selected-to-empty tombstone, stale-drawer, and 256-entry unrelated-fleet proof.
+The gateway remains production-dormant. Continue W4.5p with the strict layout
+resize union and latest-settled checkpoint owner using the existing
+`LatestValueSettleGate`, before the single atomic production writer cutover.
