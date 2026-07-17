@@ -45,6 +45,17 @@ final class WorkspacePersistenceMutationCoordinator {
     private let activeArrangementVisibilityGateway: WorkspaceActiveArrangementVisibilityPersistenceGateway
     private let arrangementLifecycleGateway: WorkspaceArrangementLifecyclePersistenceGateway
     private let arrangementSelectionGateway: WorkspaceArrangementSelectionPersistenceGateway
+    private lazy var closeFinalPaneAndRemoveTabGateway = WorkspaceFinalPaneTabRemovalGateway(
+        revisionOwner: revisionOwner,
+        adapters: adapters,
+        workspacePaneGraphAtom: workspacePaneGraphAtom,
+        workspaceTabShellAtom: workspaceTabShellAtom,
+        workspaceTabCursorAtom: workspaceTabCursorAtom,
+        workspaceTabGraphAtom: workspaceTabGraphAtom,
+        workspaceArrangementCursorAtom: workspaceArrangementCursorAtom,
+        workspaceDrawerCursorAtom: workspaceDrawerCursorAtom,
+        workspacePanePresentationAtom: workspacePanePresentationAtom
+    )
     private let closePaneInRetainedTabGateway: WorkspaceClosePaneInRetainedTabPersistenceGateway
     private let createPaneInExistingTabGateway: WorkspaceCreatePaneInExistingTabPersistenceGateway
     private let crossTabPaneMoveGateway: WorkspaceCrossTabPaneMovePersistenceGateway
@@ -172,7 +183,9 @@ final class WorkspacePersistenceMutationCoordinator {
         self.workspaceTabShellAtom = workspaceTabShellAtom
         self.workspaceWindowMemoryAtom = workspaceWindowMemoryAtom
     }
+}
 
+extension WorkspacePersistenceMutationCoordinator {
     func createPaneInExistingTab(
         _ request: WorkspaceCreatePaneInExistingTabRequest
     ) -> WorkspaceCreatePaneInExistingTabPersistenceResult {
@@ -183,6 +196,12 @@ final class WorkspacePersistenceMutationCoordinator {
         _ request: WorkspaceClosePaneInRetainedTabRequest
     ) -> WorkspaceClosePaneInRetainedTabPersistenceResult {
         closePaneInRetainedTabGateway.close(request)
+    }
+
+    func closeFinalPaneAndRemoveTab(
+        _ request: WorkspaceCloseFinalPaneAndRemoveTabRequest
+    ) -> WorkspaceFinalPaneTabRemovalResult {
+        closeFinalPaneAndRemoveTabGateway.close(request)
     }
 
     func movePaneAcrossTabs(
