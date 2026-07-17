@@ -6,7 +6,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
 import { consumeBridgeCodeViewPendingHydrationAnchor } from './bridge-code-view-hydration-anchor.js';
 import { createBridgeCodeViewInitialItemsForPanelSelector } from './bridge-code-view-initial-items-selector.js';
-import { scheduleBridgeCodeViewInstantRevealRetargetForPanel } from './bridge-code-view-instant-reveal-retarget.js';
 import {
 	materializeBridgeCodeViewLoadingItem,
 	type BridgeCodeViewItem,
@@ -31,7 +30,6 @@ import {
 	isBridgeCodeViewItem,
 	isMaterializedBridgeCodeViewContentState,
 	makeBridgeCodeViewSourceKey,
-	nextCodeViewItemForCollapse,
 	reconcileBridgeCodeViewMetadataItems,
 	shouldRearmCodeViewInstantRevealForMaterialization,
 	uniqueItemIds,
@@ -49,7 +47,6 @@ import {
 	initialSelectionScrollDiagnostic,
 	type BridgeCodeViewControlHandle,
 	type BridgeCodeViewPanelProps,
-	type BridgeCodeViewScrollToItemOptions,
 	type BridgeCodeViewSelectionScrollDiagnostic,
 } from './bridge-code-view-panel-types.js';
 import { createBridgeCodeViewPostRenderVisibleInterestPublisher } from './bridge-code-view-post-render-visible-interest.js';
@@ -73,6 +70,7 @@ import {
 	type BridgeCodeViewWorkerPreparedTelemetryContext,
 } from './bridge-code-view-worker-prepared-telemetry.js';
 import { useBridgeCodeViewCollapseController } from './use-bridge-code-view-collapse-controller.js';
+import { useBridgeCodeViewProgrammaticScroll } from './use-bridge-code-view-programmatic-scroll.js';
 import { useBridgeCodeViewSelectionScroll } from './use-bridge-code-view-selection-scroll.js';
 
 export { bridgeCodeViewOptions } from './bridge-code-view-options.js';
@@ -370,134 +368,25 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		setCollapsedItemIds,
 		settledInstantSelectionRevealKeyRef,
 	});
-	const scheduleInstantSelectionRevealRetarget = useCallback(
-		(params: {
-			readonly codeViewHandle: CodeViewHandle<undefined>;
-			readonly itemId: string;
-			readonly selectionScrollKey: string;
-			readonly viewportOffsetTolerancePixels: number;
-		}): void => {
-			programmaticRevealGate.transitionSelectionReveal({
-				phase: 'retargeting',
-				selectionScrollKey: params.selectionScrollKey,
-			});
-			scheduleBridgeCodeViewInstantRevealRetargetForPanel({
-				codeViewHandle: params.codeViewHandle,
-				codeViewHandleRef,
-				itemId: params.itemId,
-				lastSelectionScrollKeyRef,
-				pendingSelectionScrollFrameRef,
-				programmaticRevealGate,
-				recentInstantSelectionRevealRef,
-				selectionScrollKey: params.selectionScrollKey,
-				settledInstantSelectionRevealKeyRef,
-				viewportOffsetTolerancePixels: params.viewportOffsetTolerancePixels,
-			});
-		},
-		[programmaticRevealGate],
-	);
-	const scrollToItem = useCallback(
-		(itemId: string, options: BridgeCodeViewScrollToItemOptions = {}): boolean => {
-			const revealRequest = {
-				revealIntent: options.revealIntent ?? 'hydration-reissue',
-				...(options.selectionScrollKey === undefined
-					? {}
-					: { selectionScrollKey: options.selectionScrollKey }),
-				targetItemId: itemId,
-			};
-			if (programmaticRevealGate.shouldSkipProgrammaticReveal(revealRequest)) {
-				programmaticRevealGate.onProgrammaticRevealSkipped(revealRequest);
-				return false;
-			}
-			const codeViewHandle = codeViewHandleRef.current;
-			if (codeViewHandle === null) {
-				return false;
-			}
-			if (!codeViewHandleHasInstance(codeViewHandle)) {
-				return false;
-			}
-			const currentItem = codeViewHandle.getItem(itemId);
-			if (currentItem === undefined) {
-				return false;
-			}
-			const controller = controllerForHandle({
-				handle: codeViewHandle,
-				controllerEntryRef,
-			});
-			const currentBridgeItem = isBridgeCodeViewItem(currentItem) ? currentItem : null;
-			const scrollBehavior = options.behavior ?? 'instant';
-			if (
-				(options.expandIfCollapsed ?? true) &&
-				currentBridgeItem !== null &&
-				currentBridgeItem.collapsed === true
-			) {
-				const itemDescriptor = reviewItemsById[itemId];
-				const nextItem =
-					itemDescriptor === undefined
-						? ({
-								...currentBridgeItem,
-								collapsed: false,
-								version: (currentBridgeItem.version ?? 0) + 1,
-							} satisfies BridgeCodeViewItem)
-						: nextCodeViewItemForCollapse({
-								collapsed: false,
-								currentItem: currentBridgeItem,
-								itemDescriptor,
-							});
-				controller.applyItemUpdate(nextItem);
-				currentCodeViewItemsRef.current = bridgeCodeViewItemsWithMetadataItem({
-					currentItems: currentCodeViewItemsRef.current,
-					item: nextItem,
-				});
-				setCollapsedItemIds((currentIds: ReadonlySet<string>): ReadonlySet<string> => {
-					const nextIds = new Set(currentIds);
-					nextIds.delete(itemId);
-					return nextIds;
-				});
-			}
-			controller.scrollToItem(itemId, scrollBehavior);
-			lastProgrammaticRevealItemIdRef.current = itemId;
-			const selectionScrollKey =
-				options.selectionScrollKey ?? `${sourceKey}:${codeViewMountVersion}:${itemId}`;
-			lastSelectionScrollKeyRef.current = selectionScrollKey;
-			if (
-				currentBridgeItem !== null &&
-				isMaterializedBridgeCodeViewContentState(currentBridgeItem.bridgeMetadata.contentState)
-			) {
-				completedSelectionScrollKeyRef.current = selectionScrollKey;
-			}
-			if (scrollBehavior === 'instant') {
-				pendingSmoothSelectionScrollKeyRef.current = null;
-				pendingSelectionRevealBehaviorRef.current = null;
-				settledInstantSelectionRevealKeyRef.current = null;
-				recentInstantSelectionRevealRef.current = {
-					itemId,
-					revealedAtMilliseconds: performance.now(),
-					selectionScrollKey,
-				};
-				scheduleInstantSelectionRevealRetarget({
-					codeViewHandle,
-					itemId,
-					selectionScrollKey,
-					viewportOffsetTolerancePixels:
-						bridgeCodeViewInstantRevealPolicy.viewportOffsetTolerancePixels,
-				});
-			} else {
-				pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;
-				pendingSelectionRevealBehaviorRef.current = scrollBehavior;
-				recentInstantSelectionRevealRef.current = null;
-				settledInstantSelectionRevealKeyRef.current = null;
-			}
-			return true;
-		},
-		[
+	const { scheduleInstantSelectionRevealRetarget, scrollToItem } =
+		useBridgeCodeViewProgrammaticScroll({
+			codeViewHandleRef,
 			codeViewMountVersion,
+			completedSelectionScrollKeyRef,
+			controllerEntryRef,
+			currentCodeViewItemsRef,
+			lastProgrammaticRevealItemIdRef,
+			lastSelectionScrollKeyRef,
+			pendingSelectionRevealBehaviorRef,
+			pendingSelectionScrollFrameRef,
+			pendingSmoothSelectionScrollKeyRef,
 			programmaticRevealGate,
+			recentInstantSelectionRevealRef,
 			reviewItemsById,
-			scheduleInstantSelectionRevealRetarget,
+			setCollapsedItemIds,
+			settledInstantSelectionRevealKeyRef,
 			sourceKey,
-		],
-	);
+		});
 	useEffect((): (() => void) | undefined => {
 		if (onControlHandleChange === undefined) {
 			return undefined;

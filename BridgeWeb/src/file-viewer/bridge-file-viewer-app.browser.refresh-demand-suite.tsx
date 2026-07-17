@@ -2,15 +2,17 @@ import { useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
+import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
+
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
-import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import {
 	collapseBridgeViewerTreeFolder,
 	requireBridgeViewerHTMLElement,
 	waitForBridgeViewerTreeItemButton,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import { registerBridgeFileViewerSourceSnapshotDemandTest } from './bridge-file-viewer-app.browser.source-snapshot-demand-suite.js';
 import { BridgeFileViewerBrowserHarnessApp as BridgeFileViewerApp } from './bridge-file-viewer-browser-test-app.js';
 import type { FileMetadataInterestUpdate } from './bridge-file-viewer-browser-test-fixtures.js';
 import { makeFileContent } from './bridge-file-viewer-browser-test-fixtures.js';
@@ -31,7 +33,6 @@ import {
 	actUpdate,
 	makeDeferredContent,
 	makeGeneratedFileBody,
-	metadataInterestPathsForLane,
 	openFileBodyPreview,
 	openFileState,
 	requireActivateFiles,
@@ -953,67 +954,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForVisibleCodeText('sourceLessResetFresh');
 	});
 
-	test('requests a replacement descriptor after source reset snapshot metadata arrives without descriptors', async () => {
-		const initialContent = makeFileContent('export const sourceSnapshotDemandInitial = true;\n');
-		const initialDescriptor = await makeFileDescriptorForContent({
-			content: initialContent,
-			contentHandle: 'source-snapshot-demand-content-1',
-			fileId: 'file-source-less-reset-target',
-			path: 'src/source-less-reset-target.ts',
-		});
-		const resetSourceIdentity = makeSourceIdentity({
-			subscriptionGeneration: 2,
-			sourceCursor: 'cursor-2',
-		});
-		const metadataInterestUpdates: FileMetadataInterestUpdate[] = [];
-		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
-
-		render(
-			<BridgeFileViewerApp
-				codeViewWorkerPoolEnabled={false}
-				initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}
-				navigationCommand={fileNavigationCommandForPath('src/source-less-reset-target.ts')}
-				fileProductSession={{
-					readContent: async () => initialContent,
-					onMetadataInterestUpdate: (request) => {
-						metadataInterestUpdates.push(request);
-					},
-					onMetadataSubscription: (handler): (() => void) => {
-						publishMetadataEvents = handler;
-						return (): void => {
-							publishMetadataEvents = null;
-						};
-					},
-				}}
-			/>,
-		);
-
-		await waitForOpenFileState('ready');
-		await waitForVisibleCodeText('sourceSnapshotDemandInitial');
-		const interestUpdateCountBeforeReset = metadataInterestUpdates.length;
-		const publishRequiredMetadataEvents = requireMetadataPublisher(publishMetadataEvents);
-		await actUpdate((): void => {
-			publishRequiredMetadataEvents(makeSourceResetMetadataEvents());
-		});
-		await waitForOpenFileState('loading');
-		expect(metadataInterestUpdates).toHaveLength(interestUpdateCountBeforeReset);
-
-		await actUpdate((): void => {
-			publishRequiredMetadataEvents(
-				makeSourceSnapshotMetadataEvents({ sequence: 1, sourceIdentity: resetSourceIdentity }),
-			);
-		});
-
-		await actFrame();
-		await actFrame();
-		const finalInterestUpdate = metadataInterestUpdates.at(-1);
-		if (finalInterestUpdate === undefined)
-			throw new Error('Expected final File metadata interest.');
-		expect(metadataInterestPathsForLane(finalInterestUpdate, 'foreground')).toEqual([
-			'src/source-less-reset-target.ts',
-		]);
-		expect(finalInterestUpdate?.pathScope).toEqual([]);
-	});
+	registerBridgeFileViewerSourceSnapshotDemandTest();
 });
 
 function fileTreeDisclosureRow(path: string): HTMLButtonElement | null {

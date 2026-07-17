@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
+import { reviewMetadataApplication } from './bridge-comm-worker-command-handler-review.test-support.js';
 import {
 	createBridgeCommWorkerCommandHandler,
 	type BridgeCommWorkerFileMetadataDemand,
@@ -29,7 +30,6 @@ import {
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
-import type { BridgeCommWorkerReviewMetadataApplication } from './bridge-comm-worker-review-metadata-applicator.js';
 import {
 	makeContentRequestDescriptor,
 	makeRenderSemantics,
@@ -962,196 +962,6 @@ describe('Bridge comm worker command handler', () => {
 		);
 		expect(JSON.stringify(receivedSources)).not.toMatch(/contents|body/i);
 	});
-
-	test('file view source update does not schedule visible Review demand execution', () => {
-		const scheduledVisibleDemand: ScheduledDemandExecution[] = [];
-		const handler = createBridgeCommWorkerCommandHandler({
-			contentItems: [],
-			rows: [],
-			scheduleDemandExecution: pushScheduledDemandExecution(scheduledVisibleDemand),
-			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
-			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
-		});
-
-		handler.applyFileViewRuntimeSource({
-			epoch: 6,
-			source: {
-				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
-				contentRequests: [],
-				rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			},
-		});
-
-		expect(scheduledVisibleDemand).toEqual([]);
-	});
-
-	test('file view source update command publishes availability repairs before health ack', () => {
-		const handler = createBridgeCommWorkerCommandHandler({
-			contentItems: [],
-			rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			createSequence: createSequenceFrom([41, 42]),
-			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
-			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
-		});
-		handler.handleMessage(
-			encodeBridgeWorkerSelectCommand({
-				requestId: 'request-select-before-file-metadata',
-				epoch: 1,
-				surface: 'fileView',
-				selectedItemId: 'file-1',
-				selectedSource: 'user',
-			}),
-		);
-
-		const messages = handler.applyFileViewRuntimeSource({
-			epoch: 2,
-			source: {
-				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
-				contentRequests: [],
-				rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			},
-		});
-
-		expect(messages).toEqual([
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				transferDescriptors: [],
-				kind: 'slicePatch',
-				epoch: 2,
-				sequence: 42,
-				patches: [
-					{
-						slice: 'contentAvailability',
-						operation: 'upsert',
-						itemId: 'file-1',
-						payload: { state: 'loading' },
-					},
-				],
-			},
-		]);
-	});
-
-	test('select command schedules selected File View preparation instead of Review preparation', () => {
-		const scheduledReviewPreparations: ScheduledSelectedReviewPreparation[] = [];
-		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
-		const handler = createBridgeCommWorkerCommandHandler({
-			contentItems: [],
-			rows: [],
-			createSequence: createSequenceFrom([51, 52]),
-			scheduleSelectedReviewContentReadyPreparation: pushScheduledSelectedReviewPreparation(
-				scheduledReviewPreparations,
-			),
-			scheduleSelectedFileViewContentReadyPreparation: pushScheduledSelectedFileViewPreparation(
-				scheduledFileViewPreparations,
-			),
-		});
-		handler.applyFileViewRuntimeSource({
-			epoch: 6,
-			source: {
-				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
-				contentRequests: [],
-				rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			},
-		});
-
-		const messages = handler.handleMessage(
-			encodeBridgeWorkerSelectCommand({
-				requestId: 'request-select-file-view',
-				epoch: 7,
-				surface: 'fileView',
-				selectedItemId: 'file-1',
-				selectedSource: 'user',
-			}),
-		);
-
-		expect(messages.map((message) => message.kind)).toEqual(['slicePatch', 'health']);
-		expect(messages[0]).toMatchObject({
-			kind: 'slicePatch',
-			epoch: 7,
-			sequence: 52,
-			patches: [
-				{
-					slice: 'selection',
-					operation: 'upsert',
-					payload: { selectedItemId: 'file-1' },
-				},
-				{
-					slice: 'contentAvailability',
-					operation: 'upsert',
-					itemId: 'file-1',
-					payload: { state: 'loading' },
-				},
-			],
-		});
-		expect(scheduledReviewPreparations).toEqual([]);
-		expect(scheduledFileViewPreparations).toHaveLength(1);
-		expect(scheduledFileViewPreparations[0]?.itemId).toBe('file-1');
-		expect(scheduledFileViewPreparations[0]?.epoch).toBe(7);
-		expect(scheduledFileViewPreparations[0]?.store.getState().demandByKey.get('file-1')).toBe(
-			'selected:7',
-		);
-	});
-
-	test('file view source update schedules selected preparation when source repair restores selected demand', () => {
-		const scheduledReviewPreparations: ScheduledSelectedReviewPreparation[] = [];
-		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
-		const handler = createBridgeCommWorkerCommandHandler({
-			contentItems: [],
-			rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			createSequence: createSequenceFrom([61, 62]),
-			scheduleSelectedReviewContentReadyPreparation: pushScheduledSelectedReviewPreparation(
-				scheduledReviewPreparations,
-			),
-			scheduleSelectedFileViewContentReadyPreparation: pushScheduledSelectedFileViewPreparation(
-				scheduledFileViewPreparations,
-			),
-		});
-		handler.handleMessage(
-			encodeBridgeWorkerSelectCommand({
-				requestId: 'request-select-before-file-source',
-				epoch: 1,
-				surface: 'fileView',
-				selectedItemId: 'file-1',
-				selectedSource: 'user',
-			}),
-		);
-
-		const messages = handler.applyFileViewRuntimeSource({
-			epoch: 2,
-			source: {
-				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
-				contentRequests: [],
-				rows: [{ id: 'file-1', parentId: null, index: 0 }],
-			},
-		});
-
-		expect(messages).toEqual([
-			{
-				wireVersion: 1,
-				direction: 'serverWorkerToMain',
-				transferDescriptors: [],
-				kind: 'slicePatch',
-				epoch: 2,
-				sequence: 62,
-				patches: [
-					{
-						slice: 'contentAvailability',
-						operation: 'upsert',
-						itemId: 'file-1',
-						payload: { state: 'loading' },
-					},
-				],
-			},
-		]);
-		expect(scheduledReviewPreparations).toEqual([]);
-		expect(scheduledFileViewPreparations).toHaveLength(1);
-		expect(scheduledFileViewPreparations[0]?.itemId).toBe('file-1');
-		expect(scheduledFileViewPreparations[0]?.epoch).toBe(2);
-		expect(scheduledFileViewPreparations[0]?.store.getState().demandByKey.get('file-1')).toBe(
-			'selected:2',
-		);
-	});
 });
 
 function makeWorkerReviewContentMetadata(
@@ -1170,33 +980,5 @@ function makeWorkerReviewContentMetadata(
 		sizeBytes: item.sizeBytes,
 		availableContentRoles: ['head'],
 		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
-	};
-}
-
-function reviewMetadataApplication(props: {
-	readonly contentItems: BridgeCommWorkerReviewMetadataApplication['source']['contentItems'];
-	readonly contentRequestDescriptors: BridgeCommWorkerReviewMetadataApplication['source']['contentRequestDescriptors'];
-	readonly renderSemantics: BridgeCommWorkerReviewMetadataApplication['source']['renderSemantics'];
-	readonly rows: BridgeCommWorkerReviewMetadataApplication['source']['rows'];
-	readonly reset?: boolean;
-	readonly sourceEpoch: number;
-}): BridgeCommWorkerReviewMetadataApplication {
-	return {
-		affectedItemIds: props.contentItems.map((item) => item.itemId),
-		affectedRowIds: props.rows.map((row) => row.id),
-		completeContentItemIds: props.contentItems.map((item) => item.itemId),
-		completeRowIds: props.rows.map((row) => row.id),
-		projectionRevision: 1,
-		removedItemIds: [],
-		reset: props.reset ?? false,
-		rowMutation: { removedRowIds: [], rowUpserts: props.rows },
-		source: {
-			contentItems: props.contentItems,
-			contentRequestDescriptors: props.contentRequestDescriptors,
-			renderSemantics: props.renderSemantics,
-			rows: props.rows,
-		},
-		sourceEpoch: props.sourceEpoch,
-		workerDerivationEpoch: 1,
 	};
 }
