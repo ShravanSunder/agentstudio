@@ -17,6 +17,8 @@ enum WorkspacePersistenceMutationFailure: Equatable, Sendable {
     case tabLeafPlanning(WorkspaceTabLeafTransitionRejection)
     case tabCursorCapture(WorkspaceTabCursorPersistenceCaptureError)
     case tabGraphCapture(WorkspaceTabGraphPersistencePreparationError)
+    case tabGraphLeafApplication(WorkspaceTabGraphLeafApplyRejection)
+    case tabGraphLeafPlanning(WorkspaceTabGraphLeafTransitionRejection)
     case tabShellCapture(WorkspaceTabShellPersistencePreparationError)
     case windowMemory(WorkspaceSnapshotPreparationRejection)
 }
@@ -41,12 +43,15 @@ enum WorkspacePaneCreationPersistenceCommitResult: Equatable, Sendable {
 final class WorkspacePersistenceMutationCoordinator {
     private let revisionOwner: WorkspacePersistenceRevisionOwner
     private let adapters: WorkspacePersistenceAdapterBundle
+    private let workspaceArrangementCursorAtom: WorkspaceArrangementCursorAtom
     private let workspaceDrawerCursorAtom: WorkspaceDrawerCursorAtom
     private let workspaceDrawerCursorTransitionApplier: WorkspaceDrawerCursorTransitionApplier
     private let workspacePaneTabTransitionApplier: WorkspacePaneTabTransitionApplier
     private let workspacePaneGraphAtom: WorkspacePaneGraphAtom
     private let workspacePaneTransitionApplier: WorkspacePaneTransitionApplier
     private let workspaceTabCursorAtom: WorkspaceTabCursorAtom
+    private let workspaceTabGraphAtom: WorkspaceTabGraphAtom
+    private let workspaceTabGraphLeafTransitionApplier: WorkspaceTabGraphLeafTransitionApplier
     private let workspaceTabLeafTransitionApplier: WorkspaceTabLeafTransitionApplier
     private let workspaceTabShellAtom: WorkspaceTabShellAtom
     private let workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom
@@ -64,6 +69,7 @@ final class WorkspacePersistenceMutationCoordinator {
     ) {
         self.revisionOwner = revisionOwner
         self.adapters = adapters
+        self.workspaceArrangementCursorAtom = workspaceArrangementCursorAtom
         self.workspaceDrawerCursorAtom = workspaceDrawerCursorAtom
         workspaceDrawerCursorTransitionApplier = WorkspaceDrawerCursorTransitionApplier(
             workspaceDrawerCursorAtom: workspaceDrawerCursorAtom
@@ -73,6 +79,11 @@ final class WorkspacePersistenceMutationCoordinator {
             workspacePaneGraphAtom: workspacePaneGraphAtom
         )
         self.workspaceTabCursorAtom = workspaceTabCursorAtom
+        self.workspaceTabGraphAtom = workspaceTabGraphAtom
+        workspaceTabGraphLeafTransitionApplier = WorkspaceTabGraphLeafTransitionApplier(
+            workspaceTabGraphAtom: workspaceTabGraphAtom,
+            workspaceArrangementCursorAtom: workspaceArrangementCursorAtom
+        )
         workspaceTabLeafTransitionApplier = WorkspaceTabLeafTransitionApplier(
             workspaceTabShellAtom: workspaceTabShellAtom,
             workspaceTabCursorAtom: workspaceTabCursorAtom
@@ -145,6 +156,43 @@ final class WorkspacePersistenceMutationCoordinator {
                 .unchanged(revision: revisionOwner.committedRevision)
             case .rejected(let rejection):
                 .rejected(.tabLeafPlanning(rejection))
+            }
+        }
+    }
+
+    func equalizePanes(
+        _ request: WorkspaceEqualizePanesRequest
+    ) -> WorkspacePersistenceMutationResult {
+        guardCompositionDomainIsInstalled {
+            switch WorkspaceEqualizePanesTransitionPlanner.plan(
+                request,
+                tabStates: workspaceTabGraphAtom.tabStates,
+                activeArrangement: workspaceArrangementSelection(forTab: request.tabID)
+            ) {
+            case .changed(let transition):
+                performTabGraphLeafTransition(transition)
+            case .unchanged:
+                .unchanged(revision: revisionOwner.committedRevision)
+            case .rejected(let rejection):
+                .rejected(.tabGraphLeafPlanning(rejection))
+            }
+        }
+    }
+
+    func renameArrangement(
+        _ request: WorkspaceRenameArrangementRequest
+    ) -> WorkspacePersistenceMutationResult {
+        guardCompositionDomainIsInstalled {
+            switch WorkspaceRenameArrangementTransitionPlanner.plan(
+                request,
+                tabStates: workspaceTabGraphAtom.tabStates
+            ) {
+            case .changed(let transition):
+                performTabGraphLeafTransition(transition)
+            case .unchanged:
+                .unchanged(revision: revisionOwner.committedRevision)
+            case .rejected(let rejection):
+                .rejected(.tabGraphLeafPlanning(rejection))
             }
         }
     }
@@ -354,6 +402,14 @@ final class WorkspacePersistenceMutationCoordinator {
         )
     }
 
+    private func workspaceArrangementSelection(
+        forTab tabID: UUID
+    ) -> WorkspaceActiveArrangementSelection {
+        workspaceArrangementCursorAtom.activeArrangementId(forTab: tabID)
+            .map(WorkspaceActiveArrangementSelection.selected)
+            ?? .missing
+    }
+
     private func guardCompositionDomainIsInstalled(
         _ mutation: () -> WorkspacePersistenceMutationResult
     ) -> WorkspacePersistenceMutationResult {
@@ -393,6 +449,40 @@ final class WorkspacePersistenceMutationCoordinator {
             return .rejected(.revisionOwner(error))
         } catch {
             preconditionFailure("tab-leaf persistence mutation emitted an unmodeled error")
+        }
+    }
+
+    private func performTabGraphLeafTransition(
+        _ transition: WorkspaceTabGraphLeafTransition
+    ) -> WorkspacePersistenceMutationResult {
+        let preparedApplication: WorkspacePreparedTabGraphLeafApplication
+        switch workspaceTabGraphLeafTransitionApplier.preflight(transition) {
+        case .ready(let preparation):
+            preparedApplication = preparation
+        case .rejected(let rejection):
+            return .rejected(.tabGraphLeafApplication(rejection))
+        }
+
+        do {
+            let committedRevision = try revisionOwner.performSynchronousTransaction { preparation in
+                try adapters.workspaceTabGraph.capturePersistencePreimages(
+                    WorkspaceTabGraphPersistenceCapture(
+                        operations: [.valueChange(transition.affectedTab.previous.state.tabId)]
+                    ),
+                    for: preparation
+                )
+                return preparation.commit { [workspaceTabGraphLeafTransitionApplier] in
+                    workspaceTabGraphLeafTransitionApplier.apply(preparedApplication)
+                    return preparation.transaction.proposedRevision
+                }
+            }
+            return .changed(revision: committedRevision)
+        } catch let error as WorkspaceTabGraphPersistencePreparationError {
+            return .rejected(.tabGraphCapture(error))
+        } catch let error as WorkspacePersistenceRevisionOwnerError {
+            return .rejected(.revisionOwner(error))
+        } catch {
+            preconditionFailure("tab-graph leaf persistence mutation emitted an unmodeled error")
         }
     }
 
