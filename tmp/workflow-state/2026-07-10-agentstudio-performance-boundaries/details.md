@@ -1414,3 +1414,36 @@ Continue W4.5p with close/undo as its own lifecycle family, followed by drawer
 lifecycle, topology coupling, settled UI-memory writers, and then the one
 atomic same-domain production writer cutover. No production performance or
 runtime-reachability claim is made by this dormant checkpoint.
+
+Commit `69d988e5` adds the production-dormant retained-tab pane-close
+transaction as a distinct W4.5p lifecycle family. The pure planner closes one
+nonfinal main pane, rejects populated drawers and an expanded target drawer,
+and carries exact pane, tab, arrangement-cursor, drawer-cursor, and runtime-only
+zoom witnesses. The MainActor applier preflights every witness before removing
+one pane and replacing one keyed tab-graph value. It neither mutates nor
+persists drawer cursor or zoom state.
+
+The installed-only persistence gateway captures one pane tombstone, one target
+tab-graph preimage, and only changed active-arrangement, active-pane, and
+active-tab cursor preimages under one revision. Parent proof passed 13 tests in
+three suites and `mise run build`. One focused review found that an expanded
+empty target drawer could become dangling after close; the single remediation
+added the exact drawer-cursor witness and rejects that case without broadening
+this family into drawer lifecycle. Production reachability remains zero.
+
+The first full lint attempt exposed an unrelated scheduler-turn polling race in
+two `AdmissionDoorbellTests`. Commit `0e9194ed` replaces those two polls with a
+test-owned acknowledgement emitted after `.idle -> .consumerWaiting` installs
+and outside the Doorbell lock. Production uses the nil default; signal,
+coalescence, continuation, scheduling, and delivery behavior are unchanged.
+Five default-parallel focused runs passed 55 test executions, one bounded
+read-only review returned READY, and the authoritative `mise run lint` passed
+swift-format, SwiftLint over 1,780 files, architecture lint, all 31 exact
+admission mutation controls, and release checks. The retained-tab 13-test gate
+and `mise run build` then passed again. Both checkpoint commits are unsigned
+after the configured 1Password signer failed to fill its buffer.
+
+Continue implementation-execute-plan with the next distinct close/undo
+lifecycle family. Full-tab drain, undo, populated-drawer close, drawer
+lifecycle, garbage collection, topology coupling, settled UI-memory writers,
+and the atomic production cutover remain separate later work.
