@@ -1132,3 +1132,16 @@ SwiftLint, and staged diff checks; the implementation lane also passed
 findings. Composition remains preinstall and the installed-only method has zero
 production callsites. Continue W4.5p with the remaining pane/tab/arrangement
 writer families before the one atomic production activation cut.
+
+Commit `55989256` adds the pure pane-context planner and installed-only dormant
+gateway. CWD plus repository/worktree attribution is a strict resolved-both or
+unresolved-neither union; equality returns without a revision, and a change
+captures one pane-graph preimage and commits one existing transition application.
+No Repo/Worktree objects or correlated optional identifiers cross the gateway.
+
+Parent proof passed 11 tests across two suites, scoped strict swift-format and
+SwiftLint, and staged diff checks; the implementation lane passed `mise run
+build`. Independent Luna xhigh review returned READY with no findings. Production
+callers and atoms remain unchanged. The next accepted dormant slice is the
+low-rate graph-only equalize/rename family; drag and keyboard resize are excluded
+until their UI-rate updates can settle into one persistence checkpoint.
