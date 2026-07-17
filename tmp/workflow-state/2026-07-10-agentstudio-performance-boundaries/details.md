@@ -1145,3 +1145,18 @@ build`. Independent Luna xhigh review returned READY with no findings. Productio
 callers and atoms remain unchanged. The next accepted dormant slice is the
 low-rate graph-only equalize/rename family; drag and keyboard resize are excluded
 until their UI-rate updates can settle into one persistence checkpoint.
+
+Commit `f0cc9a2f` adds dormant graph-only gateways for the low-rate equalize and
+arrangement-rename actions. Each pure planner emits one planner-owned graph
+replacement, the applier validates the full graph and the exact active-
+arrangement read witness where required, and persistence captures one tab-graph
+key in one revision. Production callsites remain unchanged.
+
+Parent proof passed 11 tests across three suites, scoped strict swift-format and
+SwiftLint, and staged diff checks; the implementation lane passed `mise run
+build`. The one review finding was a test-only gap for typed missing-tab and
+missing-arrangement branches; one remediation added the direct assertions and
+the parent rerun passed. Resize/drag paths are deliberately absent because
+per-sample synchronous revisions would recreate the amplification this goal is
+removing. Their later production boundary must render immediately and persist
+one settled checkpoint.
