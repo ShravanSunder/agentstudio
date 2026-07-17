@@ -55,7 +55,12 @@ final class WorkspaceActiveArrangementVisibilityPersistenceGateway {
             commit(
                 WorkspaceSwitchArrangementTransitionPlanner.plan(
                     request,
-                    context: planningContext
+                    context: WorkspaceSwitchArrangementPlanningContext(
+                        tab: tabWitness(request.tabID),
+                        activeArrangement: activeArrangementSelection(request.tabID),
+                        targetPaneCursor: paneCursorWitness(request.arrangementID),
+                        zoom: zoomSelection(request.tabID)
+                    )
                 )
             )
         }
@@ -68,7 +73,10 @@ final class WorkspaceActiveArrangementVisibilityPersistenceGateway {
             commit(
                 WorkspaceSetShowsMinimizedPanesTransitionPlanner.plan(
                     request,
-                    context: planningContext
+                    context: WorkspaceSetShowsMinimizedPanesPlanningContext(
+                        tab: tabWitness(request.tabID),
+                        activeArrangement: activeArrangementSelection(request.tabID)
+                    )
                 )
             )
         }
@@ -81,7 +89,13 @@ final class WorkspaceActiveArrangementVisibilityPersistenceGateway {
             commit(
                 WorkspaceMinimizePaneTransitionPlanner.plan(
                     request,
-                    context: planningContext
+                    context: WorkspaceMinimizePanePlanningContext(
+                        tab: tabWitness(request.tabID),
+                        activeArrangementPaneCursor: activeArrangementPaneCursorWitness(
+                            request.tabID
+                        ),
+                        zoom: zoomSelection(request.tabID)
+                    )
                 )
             )
         }
@@ -94,19 +108,57 @@ final class WorkspaceActiveArrangementVisibilityPersistenceGateway {
             commit(
                 WorkspaceExpandPaneTransitionPlanner.plan(
                     request,
-                    context: planningContext
+                    context: WorkspaceExpandPanePlanningContext(
+                        tab: tabWitness(request.tabID),
+                        activeArrangementPaneCursor: activeArrangementPaneCursorWitness(
+                            request.tabID
+                        )
+                    )
                 )
             )
         }
     }
 
-    private var planningContext: WorkspaceVisibilityPlanningContext {
-        WorkspaceVisibilityPlanningContext(
-            tabStates: workspaceTabGraphAtom.tabStates,
-            activeArrangementIDsByTabID: workspaceArrangementCursorAtom.activeArrangementIdsByTabId,
-            paneCursorsByArrangementID: workspaceArrangementCursorAtom.paneCursorsByArrangementId,
-            zoomedPaneIDsByTabID: workspacePanePresentationAtom.zoomedPaneIdsByTabId
+    private func tabWitness(_ tabID: UUID) -> WorkspaceTabGraphStateWitness {
+        workspaceTabGraphAtom.tabState(tabID)
+            .map(WorkspaceTabGraphStateWitness.present) ?? .missing
+    }
+
+    private func activeArrangementSelection(
+        _ tabID: UUID
+    ) -> WorkspaceActiveArrangementSelection {
+        workspaceArrangementCursorAtom.activeArrangementId(forTab: tabID)
+            .map(WorkspaceActiveArrangementSelection.selected) ?? .missing
+    }
+
+    private func activeArrangementPaneCursorWitness(
+        _ tabID: UUID
+    ) -> WorkspaceActiveArrangementPaneCursorWitness {
+        guard let arrangementID = workspaceArrangementCursorAtom.activeArrangementId(forTab: tabID)
+        else {
+            return .missing
+        }
+        return .selected(
+            arrangementID: arrangementID,
+            paneCursor: paneCursorWitness(arrangementID)
         )
+    }
+
+    private func paneCursorWitness(
+        _ arrangementID: UUID
+    ) -> WorkspaceActivePaneCursorWitness {
+        guard workspaceArrangementCursorAtom.hasPaneCursor(arrangementID: arrangementID) else {
+            return .missing
+        }
+        let selection =
+            workspaceArrangementCursorAtom.activePaneId(forArrangement: arrangementID)
+            .map(WorkspacePaneSelection.selected) ?? .noSelection
+        return .present(selection)
+    }
+
+    private func zoomSelection(_ tabID: UUID) -> WorkspaceZoomSelection {
+        workspacePanePresentationAtom.zoomedPaneId(forTab: tabID)
+            .map(WorkspaceZoomSelection.zoomed) ?? .notZoomed
     }
 
     private func guardInstalled(

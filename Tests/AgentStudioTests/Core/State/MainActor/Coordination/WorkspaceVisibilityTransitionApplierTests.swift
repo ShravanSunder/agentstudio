@@ -115,7 +115,7 @@ struct WorkspaceVisibilityTransitionApplierTests {
         let applier = makeVisibilityApplier(atoms)
         let decision = WorkspaceMinimizePaneTransitionPlanner.plan(
             .init(tabID: fixture.tabID, paneID: fixture.paneIDs[1]),
-            context: fixture.context
+            context: fixture.minimizeContext
         )
         guard case .changed(let transition) = decision else {
             Issue.record("expected changed minimize transition")
@@ -216,7 +216,7 @@ private func requireMinimizeVisibilityTransition(
 ) throws -> WorkspaceActiveArrangementVisibilityTransition {
     let decision = WorkspaceMinimizePaneTransitionPlanner.plan(
         .init(tabID: fixture.tabID, paneID: fixture.paneIDs[0]),
-        context: fixture.context
+        context: fixture.minimizeContext
     )
     guard case .changed(let transition) = decision else {
         throw WorkspaceVisibilityApplierTestError.expectedTransition

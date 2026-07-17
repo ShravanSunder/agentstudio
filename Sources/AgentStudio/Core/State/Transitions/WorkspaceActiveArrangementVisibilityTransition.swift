@@ -20,13 +20,6 @@ struct WorkspaceExpandPaneRequest: Equatable, Sendable {
     let paneID: UUID
 }
 
-struct WorkspaceVisibilityPlanningContext: Equatable, Sendable {
-    var tabStates: [TabGraphState]
-    var activeArrangementIDsByTabID: [UUID: UUID]
-    var paneCursorsByArrangementID: [UUID: ArrangementPaneCursorState]
-    var zoomedPaneIDsByTabID: [UUID: UUID]
-}
-
 enum WorkspacePaneSelection: Equatable, Sendable {
     case noSelection
     case selected(UUID)
@@ -45,6 +38,37 @@ enum WorkspaceZoomSelection: Equatable, Sendable {
 enum WorkspaceTabGraphStateWitness: Equatable, Sendable {
     case missing
     case present(TabGraphState)
+}
+
+enum WorkspaceActiveArrangementPaneCursorWitness: Equatable, Sendable {
+    case missing
+    case selected(
+        arrangementID: UUID,
+        paneCursor: WorkspaceActivePaneCursorWitness
+    )
+}
+
+struct WorkspaceSwitchArrangementPlanningContext: Equatable, Sendable {
+    let tab: WorkspaceTabGraphStateWitness
+    let activeArrangement: WorkspaceActiveArrangementSelection
+    let targetPaneCursor: WorkspaceActivePaneCursorWitness
+    let zoom: WorkspaceZoomSelection
+}
+
+struct WorkspaceSetShowsMinimizedPanesPlanningContext: Equatable, Sendable {
+    let tab: WorkspaceTabGraphStateWitness
+    let activeArrangement: WorkspaceActiveArrangementSelection
+}
+
+struct WorkspaceMinimizePanePlanningContext: Equatable, Sendable {
+    let tab: WorkspaceTabGraphStateWitness
+    let activeArrangementPaneCursor: WorkspaceActiveArrangementPaneCursorWitness
+    let zoom: WorkspaceZoomSelection
+}
+
+struct WorkspaceExpandPanePlanningContext: Equatable, Sendable {
+    let tab: WorkspaceTabGraphStateWitness
+    let activeArrangementPaneCursor: WorkspaceActiveArrangementPaneCursorWitness
 }
 
 struct WorkspaceArrangementPresentationSnapshot: Equatable, Sendable {
@@ -138,9 +162,9 @@ enum WorkspaceVisibilityTransitionDecision: Equatable, Sendable {
 enum WorkspaceSwitchArrangementTransitionPlanner {
     static func plan(
         _ request: WorkspaceSwitchArrangementRequest,
-        context: WorkspaceVisibilityPlanningContext
+        context: WorkspaceSwitchArrangementPlanningContext
     ) -> WorkspaceVisibilityTransitionDecision {
-        guard let tabState = context.tabStates.first(where: { $0.tabId == request.tabID }) else {
+        guard case .present(let tabState) = context.tab, tabState.tabId == request.tabID else {
             return .rejected(.missingTab(request.tabID))
         }
         guard let targetArrangement = tabState.arrangements.first(where: { $0.id == request.arrangementID }) else {
@@ -148,31 +172,27 @@ enum WorkspaceSwitchArrangementTransitionPlanner {
                 .missingArrangement(tabID: request.tabID, arrangementID: request.arrangementID)
             )
         }
-        let previousArrangementID = context.activeArrangementIDsByTabID[request.tabID]
-        guard previousArrangementID != request.arrangementID else { return .unchanged }
+        guard context.activeArrangement != .selected(request.arrangementID) else { return .unchanged }
         let previousArrangement = resolvedCurrentArrangement(
             tabState: tabState,
-            activeArrangementID: previousArrangementID
+            activeArrangement: context.activeArrangement
         )
         let activeArrangementTransition: WorkspaceVisibilityActiveArrangementTransition
-        if let previousArrangementID {
+        switch context.activeArrangement {
+        case .missing:
+            activeArrangementTransition = .insert(
+                tabID: request.tabID,
+                replacement: request.arrangementID
+            )
+        case .selected(let previousArrangementID):
             activeArrangementTransition = .replace(
                 tabID: request.tabID,
                 previous: previousArrangementID,
                 replacement: request.arrangementID
             )
-        } else {
-            activeArrangementTransition = .insert(
-                tabID: request.tabID,
-                replacement: request.arrangementID
-            )
         }
-        let currentPaneWitness = activePaneWitness(
-            arrangementID: request.arrangementID,
-            context: context
-        )
         let desiredPaneSelection = fallbackPaneSelection(
-            current: currentPaneWitness,
+            current: context.targetPaneCursor,
             arrangement: targetArrangement
         )
         return .changed(
@@ -181,10 +201,10 @@ enum WorkspaceSwitchArrangementTransitionPlanner {
                 activeArrangement: activeArrangementTransition,
                 activePane: activePaneTransition(
                     arrangementID: request.arrangementID,
-                    current: currentPaneWitness,
+                    current: context.targetPaneCursor,
                     desired: desiredPaneSelection
                 ),
-                zoom: zoomTransition(tabID: request.tabID, context: context),
+                zoom: zoomTransition(tabID: request.tabID, selection: context.zoom),
                 effect: .switchArrangement(
                     previous: WorkspaceArrangementPresentationSnapshot(previousArrangement),
                     replacement: WorkspaceArrangementPresentationSnapshot(targetArrangement)
@@ -197,9 +217,13 @@ enum WorkspaceSwitchArrangementTransitionPlanner {
 enum WorkspaceSetShowsMinimizedPanesTransitionPlanner {
     static func plan(
         _ request: WorkspaceSetShowsMinimizedPanesRequest,
-        context: WorkspaceVisibilityPlanningContext
+        context: WorkspaceSetShowsMinimizedPanesPlanningContext
     ) -> WorkspaceVisibilityTransitionDecision {
-        switch resolveActiveArrangement(tabID: request.tabID, context: context) {
+        switch resolveActiveArrangement(
+            tabID: request.tabID,
+            tab: context.tab,
+            activeArrangement: context.activeArrangement
+        ) {
         case .rejected(let rejection):
             return .rejected(rejection)
         case .resolved(let source):
@@ -237,12 +261,13 @@ enum WorkspaceSetShowsMinimizedPanesTransitionPlanner {
 enum WorkspaceMinimizePaneTransitionPlanner {
     static func plan(
         _ request: WorkspaceMinimizePaneRequest,
-        context: WorkspaceVisibilityPlanningContext
+        context: WorkspaceMinimizePanePlanningContext
     ) -> WorkspaceVisibilityTransitionDecision {
         switch resolvePaneInActiveArrangement(
             tabID: request.tabID,
             paneID: request.paneID,
-            context: context
+            tab: context.tab,
+            activeArrangementPaneCursor: context.activeArrangementPaneCursor
         ) {
         case .rejected(let rejection):
             return .rejected(rejection)
@@ -252,10 +277,7 @@ enum WorkspaceMinimizePaneTransitionPlanner {
             }
             var replacementTab = source.tabState
             replacementTab.arrangements[source.arrangementIndex].minimizedPaneIds.insert(request.paneID)
-            let currentPaneWitness = activePaneWitness(
-                arrangementID: source.arrangement.id,
-                context: context
-            )
+            let currentPaneWitness = source.paneCursor
             let paneTransition: WorkspaceVisibilityActivePaneTransition
             if currentPaneWitness == .present(.selected(request.paneID)) {
                 paneTransition = activePaneTransition(
@@ -286,7 +308,7 @@ enum WorkspaceMinimizePaneTransitionPlanner {
                     zoom: zoomTransition(
                         tabID: request.tabID,
                         clearingPaneID: request.paneID,
-                        context: context
+                        selection: context.zoom
                     ),
                     effect: .minimizePane(paneID: request.paneID)
                 )
@@ -298,12 +320,13 @@ enum WorkspaceMinimizePaneTransitionPlanner {
 enum WorkspaceExpandPaneTransitionPlanner {
     static func plan(
         _ request: WorkspaceExpandPaneRequest,
-        context: WorkspaceVisibilityPlanningContext
+        context: WorkspaceExpandPanePlanningContext
     ) -> WorkspaceVisibilityTransitionDecision {
         switch resolvePaneInActiveArrangement(
             tabID: request.tabID,
             paneID: request.paneID,
-            context: context
+            tab: context.tab,
+            activeArrangementPaneCursor: context.activeArrangementPaneCursor
         ) {
         case .rejected(let rejection):
             return .rejected(rejection)
@@ -313,10 +336,7 @@ enum WorkspaceExpandPaneTransitionPlanner {
             }
             var replacementTab = source.tabState
             replacementTab.arrangements[source.arrangementIndex].minimizedPaneIds.remove(request.paneID)
-            let currentPaneWitness = activePaneWitness(
-                arrangementID: source.arrangement.id,
-                context: context
-            )
+            let currentPaneWitness = source.paneCursor
             return .changed(
                 WorkspaceActiveArrangementVisibilityTransition(
                     tabGraph: .replace(
@@ -347,19 +367,34 @@ private struct ResolvedActiveArrangement {
     let arrangement: PaneArrangementGraphState
 }
 
+private struct ResolvedActiveArrangementWithPaneCursor {
+    let source: ResolvedActiveArrangement
+    let paneCursor: WorkspaceActivePaneCursorWitness
+
+    var tabState: TabGraphState { source.tabState }
+    var arrangementIndex: Int { source.arrangementIndex }
+    var arrangement: PaneArrangementGraphState { source.arrangement }
+}
+
 private enum ActiveArrangementResolution {
     case resolved(ResolvedActiveArrangement)
     case rejected(WorkspaceActiveArrangementVisibilityRejection)
 }
 
+private enum ActiveArrangementWithPaneCursorResolution {
+    case resolved(ResolvedActiveArrangementWithPaneCursor)
+    case rejected(WorkspaceActiveArrangementVisibilityRejection)
+}
+
 private func resolveActiveArrangement(
     tabID: UUID,
-    context: WorkspaceVisibilityPlanningContext
+    tab: WorkspaceTabGraphStateWitness,
+    activeArrangement: WorkspaceActiveArrangementSelection
 ) -> ActiveArrangementResolution {
-    guard let tabState = context.tabStates.first(where: { $0.tabId == tabID }) else {
+    guard case .present(let tabState) = tab, tabState.tabId == tabID else {
         return .rejected(.missingTab(tabID))
     }
-    guard let activeArrangementID = context.activeArrangementIDsByTabID[tabID] else {
+    guard case .selected(let activeArrangementID) = activeArrangement else {
         return .rejected(.missingActiveArrangement(tabID))
     }
     guard let arrangementIndex = tabState.arrangements.firstIndex(where: { $0.id == activeArrangementID }) else {
@@ -379,15 +414,25 @@ private func resolveActiveArrangement(
 private func resolvePaneInActiveArrangement(
     tabID: UUID,
     paneID: UUID,
-    context: WorkspaceVisibilityPlanningContext
-) -> ActiveArrangementResolution {
-    guard let tabState = context.tabStates.first(where: { $0.tabId == tabID }) else {
+    tab: WorkspaceTabGraphStateWitness,
+    activeArrangementPaneCursor: WorkspaceActiveArrangementPaneCursorWitness
+) -> ActiveArrangementWithPaneCursorResolution {
+    guard case .present(let tabState) = tab, tabState.tabId == tabID else {
         return .rejected(.missingTab(tabID))
     }
     guard tabState.allPaneIds.contains(paneID) else {
         return .rejected(.paneNotOwnedByTab(tabID: tabID, paneID: paneID))
     }
-    switch resolveActiveArrangement(tabID: tabID, context: context) {
+    guard
+        case .selected(let activeArrangementID, let paneCursor) = activeArrangementPaneCursor
+    else {
+        return .rejected(.missingActiveArrangement(tabID))
+    }
+    switch resolveActiveArrangement(
+        tabID: tabID,
+        tab: tab,
+        activeArrangement: .selected(activeArrangementID)
+    ) {
     case .rejected(let rejection):
         return .rejected(rejection)
     case .resolved(let source):
@@ -400,15 +445,20 @@ private func resolvePaneInActiveArrangement(
                 )
             )
         }
-        return .resolved(source)
+        return .resolved(
+            ResolvedActiveArrangementWithPaneCursor(
+                source: source,
+                paneCursor: paneCursor
+            )
+        )
     }
 }
 
 private func resolvedCurrentArrangement(
     tabState: TabGraphState,
-    activeArrangementID: UUID?
+    activeArrangement: WorkspaceActiveArrangementSelection
 ) -> PaneArrangementGraphState {
-    if let activeArrangementID,
+    if case .selected(let activeArrangementID) = activeArrangement,
         let active = tabState.arrangements.first(where: { $0.id == activeArrangementID })
     {
         return active
@@ -417,14 +467,6 @@ private func resolvedCurrentArrangement(
         preconditionFailure("a persisted tab graph must contain an arrangement")
     }
     return fallback
-}
-
-private func activePaneWitness(
-    arrangementID: UUID,
-    context: WorkspaceVisibilityPlanningContext
-) -> WorkspaceActivePaneCursorWitness {
-    guard let state = context.paneCursorsByArrangementID[arrangementID] else { return .missing }
-    return .present(state.activePaneId.map(WorkspacePaneSelection.selected) ?? .noSelection)
 }
 
 private func fallbackPaneSelection(
@@ -474,19 +516,22 @@ private func activePaneTransition(
 
 private func zoomTransition(
     tabID: UUID,
-    context: WorkspaceVisibilityPlanningContext
+    selection: WorkspaceZoomSelection
 ) -> WorkspaceVisibilityZoomTransition {
-    context.zoomedPaneIDsByTabID[tabID]
-        .map { .clear(tabID: tabID, previous: $0) }
-        ?? .witness(tabID: tabID, expected: .notZoomed)
+    switch selection {
+    case .notZoomed:
+        return .witness(tabID: tabID, expected: .notZoomed)
+    case .zoomed(let paneID):
+        return .clear(tabID: tabID, previous: paneID)
+    }
 }
 
 private func zoomTransition(
     tabID: UUID,
     clearingPaneID: UUID,
-    context: WorkspaceVisibilityPlanningContext
+    selection: WorkspaceZoomSelection
 ) -> WorkspaceVisibilityZoomTransition {
-    guard let zoomedPaneID = context.zoomedPaneIDsByTabID[tabID] else {
+    guard case .zoomed(let zoomedPaneID) = selection else {
         return .witness(tabID: tabID, expected: .notZoomed)
     }
     guard zoomedPaneID == clearingPaneID else {

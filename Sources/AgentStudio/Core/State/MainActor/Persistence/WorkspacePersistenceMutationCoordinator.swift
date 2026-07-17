@@ -53,6 +53,7 @@ final class WorkspacePersistenceMutationCoordinator {
     private let workspaceDrawerCursorTransitionApplier: WorkspaceDrawerCursorTransitionApplier
     private let workspacePaneTabTransitionApplier: WorkspacePaneTabTransitionApplier
     private let workspacePaneGraphAtom: WorkspacePaneGraphAtom
+    private let workspacePanePresentationAtom: WorkspacePanePresentationAtom
     private let workspacePaneTransitionApplier: WorkspacePaneTransitionApplier
     private let workspaceTabCursorAtom: WorkspaceTabCursorAtom
     private let workspaceTabGraphAtom: WorkspaceTabGraphAtom
@@ -110,6 +111,7 @@ final class WorkspacePersistenceMutationCoordinator {
             workspaceDrawerCursorAtom: workspaceDrawerCursorAtom
         )
         self.workspacePaneGraphAtom = workspacePaneGraphAtom
+        self.workspacePanePresentationAtom = workspacePanePresentationAtom
         workspacePaneTransitionApplier = WorkspacePaneTransitionApplier(
             workspacePaneGraphAtom: workspacePaneGraphAtom
         )
@@ -248,6 +250,50 @@ final class WorkspacePersistenceMutationCoordinator {
         _ checkpoint: WorkspaceLayoutResizeCheckpoint
     ) -> WorkspaceLayoutResizePersistenceResult {
         layoutResizeGateway.apply(checkpoint)
+    }
+
+    func resizePaneByDelta(
+        _ request: WorkspaceKeyboardResizeRequest
+    ) -> WorkspaceKeyboardResizePersistenceResult {
+        guard case .installed = adapters.compositionLifecyclePhase else {
+            return .rejected(
+                .compositionDomainNotInstalled(phase: adapters.compositionLifecyclePhase)
+            )
+        }
+        let context: WorkspaceKeyboardResizePlanningContext
+        if let tab = workspaceTabGraphAtom.tabState(request.tabID) {
+            let activeArrangement =
+                workspaceArrangementCursorAtom.activeArrangementId(forTab: request.tabID)
+                .map(WorkspaceActiveArrangementSelection.selected)
+                ?? .missing
+            let zoom =
+                workspacePanePresentationAtom.zoomedPaneId(forTab: request.tabID)
+                .map(WorkspaceZoomSelection.zoomed)
+                ?? .notZoomed
+            context = .present(
+                tab: tab,
+                activeArrangement: activeArrangement,
+                zoom: zoom
+            )
+        } else {
+            context = .missingTab
+        }
+
+        switch WorkspaceKeyboardResizeCheckpointPlanner.plan(request, context: context) {
+        case .unchanged:
+            return .unchanged(revision: revisionOwner.committedRevision)
+        case .rejected(let rejection):
+            return .rejected(.planning(rejection))
+        case .changed(let checkpoint):
+            switch layoutResizeGateway.apply(checkpoint) {
+            case .changed(let revision):
+                return .changed(revision: revision)
+            case .unchanged(let revision):
+                return .unchanged(revision: revision)
+            case .rejected(let failure):
+                return .rejected(.layoutResize(failure))
+            }
+        }
     }
 
     func switchArrangement(

@@ -6,6 +6,29 @@ import Testing
 @MainActor
 @Suite("Workspace active arrangement visibility persistence gateway")
 struct WorkspaceVisibilityGatewayTests {
+    @Test("planning captures only keyed target witnesses")
+    func planningCapturesOnlyKeyedTargetWitnesses() throws {
+        // Arrange
+        let projectRoot = TestPathResolver.projectRoot(from: #filePath)
+        let gatewayPath = URL(fileURLWithPath: projectRoot)
+            .appendingPathComponent(
+                "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceActiveArrangementVisibilityPersistenceGateway.swift"
+            )
+        let source = try String(contentsOf: gatewayPath, encoding: .utf8)
+        let forbiddenFleetReads = [
+            ".tabStates",
+            ".activeArrangementIdsByTabId",
+            ".paneCursorsByArrangementId",
+            ".zoomedPaneIdsByTabId",
+        ]
+
+        // Act
+        let presentFleetReads = forbiddenFleetReads.filter(source.contains)
+
+        // Assert
+        #expect(presentFleetReads.isEmpty)
+    }
+
     @Test("preinstall mutation rejects without state or revision")
     func preinstallRejects() {
         // Arrange
@@ -59,7 +82,7 @@ struct WorkspaceVisibilityGatewayTests {
             fixture.atomRegistry.workspacePanePresentation.zoomedPaneId(forTab: fixture.visibility.tabID) == nil
         )
         try expectVisibilityBaseItem(
-            .tabGraph(fixture.visibility.context.tabStates[0]),
+            .tabGraph(fixture.visibility.tabState),
             participantID: .tabGraphs,
             installed: installed
         )
@@ -212,13 +235,13 @@ private func makeVisibilityPersistenceFixture(
 ) -> VisibilityPersistenceFixture {
     let visibility = makeVisibilityFixture()
     let atomRegistry = AtomRegistry()
-    atomRegistry.workspaceTabGraph.replaceTabStates(visibility.context.tabStates)
-    var paneCursors = visibility.context.paneCursorsByArrangementID
+    atomRegistry.workspaceTabGraph.replaceTabStates([visibility.tabState])
+    var paneCursors = visibility.paneCursorsByArrangementID
     if invalidCustomSelection {
         paneCursors[visibility.customArrangementID] = .init(activePaneId: visibility.paneIDs[2])
     }
     atomRegistry.workspaceArrangementCursor.replaceCursors(
-        activeArrangementIdsByTabId: visibility.context.activeArrangementIDsByTabID,
+        activeArrangementIdsByTabId: [visibility.tabID: visibility.defaultArrangementID],
         paneCursorsByArrangementId: paneCursors,
         drawerCursorsByKey: [:]
     )
