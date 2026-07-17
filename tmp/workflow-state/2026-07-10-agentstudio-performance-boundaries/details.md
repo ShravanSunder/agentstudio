@@ -943,13 +943,15 @@ strict terminal identity hard cut                         0d3ec070
   -> strict composition startup                          c7e6bb17
   -> SQLite-only startup/legacy workspace path deletion  cb62c43f
   -> obsolete startup-repair proof removal               350ed632
-  -> land representative real-process strict-failure proof
+  -> representative real-process strict-failure proof       b65bc17c
+  -> prepared topology-independent Bridge mounting          d5a31bcc
   -> hard-cut serial WorkspaceBootSequence/restoreAllViews authority
        one bounded composition install
          +-> workspace shell/window
          +-> TerminalActivationOwner
          +-> NonterminalContentMountOwner
        external topology/cache/filesystem/Git/Forge lanes never gate readiness
+                                                             3e99cdeb
   -> finish W4.5p semantic gateways and same-domain writer cutover
   -> assemble/prove the real production fixed-revision pager
   -> parent-verify build/tests/lint plus one focused review/remediation cycle
@@ -991,11 +993,17 @@ fresh-versus-restored semantics. Parent proof passed 29 tests across five
 cohort/owner suites and seven retained terminal/nonterminal factory tests;
 scoped strict format, SwiftLint, and `git diff --check` passed.
 
-Production startup cutover remains open because Bridge construction currently
-selects its Git review provider through live repository topology. The required
-next boundary is a topology-independent Bridge shell plus generation-bound
-external provider attachment; `restoreAllViews` cannot be deleted until that
-seam and its exact owner tests land atomically.
+The production content-owner startup cut is complete at `3e99cdeb`.
+Topology-independent Bridge construction landed at `d5a31bcc`; the accepted
+composition now installs one exact generation ledger, terminal activation and
+nonterminal mounting run through their independent bounded owners, and
+`restoreAllViews` plus its generic traversal helpers are deleted. Aggregate
+settlement is the post-join failure authority, so deferred visibility intent
+can produce targeted steady-state repair without rereading a parallel mount
+ledger. Parent proof passed 45 tests across eight focused suites, `mise run
+build`, full `mise run lint` including all 31 mutation controls, and `git diff
+--check`. The next active slice is W4.5p semantic gateways and same-domain
+writer cutover; no broad spec or plan review reopens.
 
 ### Current W4.5p implementation checkpoint — capture-only custody
 
