@@ -46,6 +46,7 @@ final class WorkspacePersistenceMutationCoordinator {
     private let arrangementLifecycleGateway: WorkspaceArrangementLifecyclePersistenceGateway
     private let arrangementSelectionGateway: WorkspaceArrangementSelectionPersistenceGateway
     private let createPaneInExistingTabGateway: WorkspaceCreatePaneInExistingTabPersistenceGateway
+    private let crossTabPaneMoveGateway: WorkspaceCrossTabPaneMovePersistenceGateway
     private let layoutResizeGateway: WorkspaceLayoutResizePersistenceGateway
     private let paneResidencyGateway: WorkspacePaneResidencyPersistenceGateway
     private let revisionOwner: WorkspacePersistenceRevisionOwner
@@ -103,6 +104,15 @@ final class WorkspacePersistenceMutationCoordinator {
             workspaceArrangementCursorAtom: workspaceArrangementCursorAtom,
             workspacePanePresentationAtom: workspacePanePresentationAtom
         )
+        crossTabPaneMoveGateway = WorkspaceCrossTabPaneMovePersistenceGateway(
+            revisionOwner: revisionOwner,
+            adapters: adapters,
+            workspacePaneGraphAtom: workspacePaneGraphAtom,
+            workspaceTabGraphAtom: workspaceTabGraphAtom,
+            workspaceArrangementCursorAtom: workspaceArrangementCursorAtom,
+            workspaceTabCursorAtom: workspaceTabCursorAtom,
+            workspacePanePresentationAtom: workspacePanePresentationAtom
+        )
         layoutResizeGateway = WorkspaceLayoutResizePersistenceGateway(
             revisionOwner: revisionOwner,
             adapters: adapters,
@@ -157,6 +167,12 @@ final class WorkspacePersistenceMutationCoordinator {
         _ request: WorkspaceCreatePaneInExistingTabRequest
     ) -> WorkspaceCreatePaneInExistingTabPersistenceResult {
         createPaneInExistingTabGateway.create(request)
+    }
+
+    func movePaneAcrossTabs(
+        _ request: CrossTabPaneMoveRequest
+    ) -> WorkspaceCrossTabPaneMovePersistenceResult {
+        crossTabPaneMoveGateway.move(request)
     }
 
     func selectTab(

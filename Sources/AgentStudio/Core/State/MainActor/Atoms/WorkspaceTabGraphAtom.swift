@@ -199,6 +199,90 @@ final class WorkspaceTabGraphAtom {
         tabStates[index] = replacement
     }
 
+    func replaceTabStatesTransferringPaneOwnership(
+        source sourceReplacement: TabGraphState,
+        destination destinationReplacement: TabGraphState
+    ) {
+        precondition(
+            sourceReplacement.tabId != destinationReplacement.tabId,
+            "pane ownership transfer requires distinct source and destination tabs"
+        )
+        guard let sourceIndex = tabIndexByID[sourceReplacement.tabId] else {
+            preconditionFailure("source tab graph identity must exist before pane ownership transfer")
+        }
+        guard let destinationIndex = tabIndexByID[destinationReplacement.tabId] else {
+            preconditionFailure("destination tab graph identity must exist before pane ownership transfer")
+        }
+
+        let previousSource = tabStates[sourceIndex]
+        let previousDestination = tabStates[destinationIndex]
+        precondition(
+            previousSource.arrangements.map(\.id) == sourceReplacement.arrangements.map(\.id),
+            "source pane ownership transfer cannot change arrangement identity"
+        )
+        precondition(
+            previousDestination.arrangements.map(\.id) == destinationReplacement.arrangements.map(\.id),
+            "destination pane ownership transfer cannot change arrangement identity"
+        )
+
+        let previousSourcePaneIDs = uniquePaneIDs(in: previousSource)
+        let replacementSourcePaneIDs = uniquePaneIDs(in: sourceReplacement)
+        let previousDestinationPaneIDs = uniquePaneIDs(in: previousDestination)
+        let replacementDestinationPaneIDs = uniquePaneIDs(in: destinationReplacement)
+        let removedFromSource = previousSourcePaneIDs.subtracting(replacementSourcePaneIDs)
+        let addedToSource = replacementSourcePaneIDs.subtracting(previousSourcePaneIDs)
+        let removedFromDestination = previousDestinationPaneIDs.subtracting(replacementDestinationPaneIDs)
+        let addedToDestination = replacementDestinationPaneIDs.subtracting(previousDestinationPaneIDs)
+
+        precondition(!removedFromSource.isEmpty, "pane ownership transfer requires a nonempty transfer set")
+        precondition(
+            !sourceReplacement.allPaneIds.isEmpty,
+            "pane ownership transfer must retain at least one source pane"
+        )
+        precondition(addedToSource.isEmpty, "source tab cannot gain pane ownership during transfer")
+        precondition(removedFromDestination.isEmpty, "destination tab cannot lose pane ownership during transfer")
+        precondition(
+            addedToDestination == removedFromSource,
+            "destination additions must exactly match source removals during pane ownership transfer"
+        )
+        precondition(
+            replacementSourcePaneIDs == previousSourcePaneIDs.subtracting(removedFromSource),
+            "source replacement cannot change nontransferred pane ownership"
+        )
+        precondition(
+            replacementDestinationPaneIDs == previousDestinationPaneIDs.union(removedFromSource),
+            "destination replacement cannot change nontransferred pane ownership"
+        )
+
+        for paneID in previousSourcePaneIDs {
+            precondition(
+                tabIDByPaneID[paneID] == previousSource.tabId,
+                "every source pane must be owned by the source tab before transfer"
+            )
+        }
+        for paneID in previousDestinationPaneIDs {
+            precondition(
+                tabIDByPaneID[paneID] == previousDestination.tabId,
+                "every destination pane must be owned by the destination tab before transfer"
+            )
+        }
+
+        tabStates[sourceIndex] = sourceReplacement
+        tabStates[destinationIndex] = destinationReplacement
+        for paneID in removedFromSource {
+            tabIDByPaneID[paneID] = destinationReplacement.tabId
+        }
+    }
+
+    private func uniquePaneIDs(in state: TabGraphState) -> Set<UUID> {
+        let paneIDs = Set(state.allPaneIds)
+        precondition(
+            paneIDs.count == state.allPaneIds.count,
+            "tab graph pane ownership must be duplicate-free"
+        )
+        return paneIDs
+    }
+
     func replaceTabStateAndArrangementOwnership(_ replacement: TabGraphState) {
         guard let index = tabIndexByID[replacement.tabId] else {
             preconditionFailure("tab graph identity must exist before arrangement ownership replacement")
