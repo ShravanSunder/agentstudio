@@ -191,6 +191,12 @@ export class BridgeProductDevCarrier {
 				kind: 'metadataStream.accepted',
 				resumeDisposition: 'snapshot_required',
 			});
+			await metadataWriter.writeMetadataFrame({
+				activityRevision: 1,
+				kind: 'pane.presentation',
+				nativeActivity: 'foreground',
+				refreshingLanes: [],
+			});
 		} catch (error: unknown) {
 			this.#handleStreamingError(props.response, error);
 		}

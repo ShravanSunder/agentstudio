@@ -72,6 +72,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const selectedReviewItem = controller.selectedReviewItem;
 	const setReviewCodeViewVisibleItemIds = controller.setReviewCodeViewVisibleItemIds;
 	const setReviewTreeVisibleItemIds = controller.setReviewTreeVisibleItemIds;
+	const updateReviewDisplayProjection = controller.updateReviewDisplayProjection;
 	const visibleCodeViewItems = controller.visibleCodeViewItems;
 	const [treeSearchMode, setTreeSearchMode] = useState<BridgeReviewSearchMode>({ kind: 'text' });
 	const [treeSearchOpen, setTreeSearchOpen] = useState(false);
@@ -88,12 +89,8 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	isActiveRef.current = isActive;
 	useEffect((): void => {
 		if (catalogSnapshot.epoch === null) return;
-		reviewClient.send({
-			command: 'reviewProjectionUpdate',
-			epoch: catalogSnapshot.epoch,
-			query: { fileClassFilter, gitStatusFilter },
-		});
-	}, [catalogSnapshot.epoch, fileClassFilter, gitStatusFilter, reviewClient]);
+		updateReviewDisplayProjection({ fileClassFilter, gitStatusFilter });
+	}, [catalogSnapshot.epoch, fileClassFilter, gitStatusFilter, updateReviewDisplayProjection]);
 	useEffect((): (() => void) => startBridgeFrameLivenessProbe(), []);
 	useEffect(
 		(): (() => void) =>

@@ -20,6 +20,7 @@ import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
 	BridgeWorkerPanelChromePatchPayload,
 	BridgeWorkerReviewDisplayItem,
+	BridgeWorkerReviewProjectionUpdateCommand,
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
 import {
@@ -77,6 +78,9 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly selectedReviewItem: BridgeWorkerReviewDisplayItem | null;
 	readonly setReviewCodeViewVisibleItemIds: (itemIds: readonly string[]) => void;
 	readonly setReviewTreeVisibleItemIds: (itemIds: readonly string[]) => void;
+	readonly updateReviewDisplayProjection: (
+		query: BridgeWorkerReviewProjectionUpdateCommand['query'],
+	) => void;
 	readonly visibleCodeViewItems: readonly BridgeMainCodeViewItem[];
 }
 
@@ -204,6 +208,16 @@ export function useBridgeReviewRenderSnapshotController(
 		},
 		[props.reviewClient],
 	);
+	const updateReviewDisplayProjection = useCallback(
+		(query: BridgeWorkerReviewProjectionUpdateCommand['query']): void => {
+			props.reviewClient.send({
+				command: 'reviewProjectionUpdate',
+				epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+				query,
+			});
+		},
+		[props.reviewClient],
+	);
 	useEffect((): void => {
 		const lastVisibleIndex = Math.max(0, workerViewportItemIds.length - 1);
 		displayStore.setLocalViewport({
@@ -272,6 +286,7 @@ export function useBridgeReviewRenderSnapshotController(
 		selectedReviewItem: selectedReviewItem ?? null,
 		setReviewCodeViewVisibleItemIds,
 		setReviewTreeVisibleItemIds,
+		updateReviewDisplayProjection,
 		visibleCodeViewItems,
 	};
 }

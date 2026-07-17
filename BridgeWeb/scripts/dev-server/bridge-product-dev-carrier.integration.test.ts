@@ -64,6 +64,9 @@ describe('Bridge product real Vite pane carrier recovery', () => {
 			const firstAccepted = await firstStream.frames.waitFor(
 				(frame) => frame.kind === 'metadataStream.accepted',
 			);
+			const foregroundPresentation = await firstStream.frames.waitFor(
+				(frame) => frame.kind === 'pane.presentation',
+			);
 			const oldSubscriptionId = 'vite-real-subscription-old';
 			const oldSubscription = await client.postControl(3, {
 				kind: 'subscription.open',
@@ -95,6 +98,9 @@ describe('Bridge product real Vite pane carrier recovery', () => {
 			);
 			const replacementAccepted = await replacementStream.frames.waitFor(
 				(frame) => frame.kind === 'metadataStream.accepted',
+			);
+			const replacementForegroundPresentation = await replacementStream.frames.waitFor(
+				(frame) => frame.kind === 'pane.presentation',
 			);
 			const resyncRequest = bridgeProductControlRequestSchema.parse({
 				...client.controlIdentity(4),
@@ -220,12 +226,20 @@ describe('Bridge product real Vite pane carrier recovery', () => {
 
 			expect(opened).toMatchObject({ status: 200, value: { kind: 'workerSession.accepted' } });
 			expect(firstAccepted).toMatchObject({ kind: 'metadataStream.accepted', streamSequence: 0 });
+			expect(foregroundPresentation).toMatchObject({
+				activityRevision: 1,
+				kind: 'pane.presentation',
+				nativeActivity: 'foreground',
+				refreshingLanes: [],
+			});
 			expect(replacementAccepted).toMatchObject({
 				kind: 'metadataStream.accepted',
 				resumeDisposition: 'snapshot_required',
 				streamSequence: committedStreamSequence + 1,
 			});
-			expect(resync.value.metadataStreamSequenceBarrier).toBe(committedStreamSequence + 1);
+			expect(resync.value.metadataStreamSequenceBarrier).toBe(
+				replacementForegroundPresentation.streamSequence,
+			);
 			expect(content).toEqual({
 				byteLength: descriptorEvent.availability.contentDescriptor.declaredByteLength,
 				contentKind: 'file.content',

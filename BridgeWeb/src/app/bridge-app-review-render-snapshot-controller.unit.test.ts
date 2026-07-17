@@ -63,6 +63,41 @@ describe('Bridge app review render snapshot controller', () => {
 		]);
 	});
 
+	test('allocates Review projection epochs from the same command sequence as selection', () => {
+		// Arrange
+		const sentCommands: BridgeWorkerRpcCommandInput[] = [];
+		const reviewClient = makeReviewSurfaceClient(sentCommands);
+		const controllerHolder: { current: BridgeReviewRenderSnapshotController | null } = {
+			current: null,
+		};
+
+		function Probe(): ReactElement {
+			controllerHolder.current = useBridgeReviewRenderSnapshotController({
+				pierreCourier: createBridgeReviewWorkerPierreCourier(),
+				reviewClient,
+			});
+			return createElement('div');
+		}
+
+		renderToStaticMarkup(createElement(Probe));
+		const controller = controllerHolder.current;
+		if (controller === null) throw new Error('Expected the Review controller probe to render.');
+
+		// Act
+		controller.emitSelectedReviewItemIntent('item-source', 'user');
+		controller.updateReviewDisplayProjection({ fileClassFilter: 'docs', gitStatusFilter: 'all' });
+
+		// Assert
+		expect(sentCommands).toEqual([
+			expect.objectContaining({ command: 'select', epoch: 1 }),
+			expect.objectContaining({
+				command: 'reviewProjectionUpdate',
+				epoch: 2,
+				query: { fileClassFilter: 'docs', gitStatusFilter: 'all' },
+			}),
+		]);
+	});
+
 	test('exposes only the Review surface panel chrome slice from its render store', () => {
 		// Arrange
 		const renderStore = createBridgeMainRenderSnapshotStore();
