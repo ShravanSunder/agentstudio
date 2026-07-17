@@ -9,7 +9,7 @@ enum BridgeWorktreeProductKind: String, Sendable {
     case review
 }
 
-enum BridgeWorktreeProductConstructionArtifact: Equatable, Sendable {
+enum BridgeWorktreeProductConstructionArtifact: Sendable {
     case fileSnapshot(BridgeSharedFileSnapshotBuild)
     case reviewTemplate(BridgeSharedReviewPackageTemplate)
 
@@ -55,9 +55,63 @@ struct BridgeWorktreeProductConstructionLease: Sendable {
     let artifact: BridgeWorktreeProductConstructionArtifact
 }
 
+struct BridgeSharedFileSnapshotConsumerLease: Equatable, Sendable {
+    let key: BridgeFileConstructionKey
+    let epoch: BridgeWorktreeFreshnessEpoch
+    let entryNonce: UInt64
+    let leaseNonce: UInt64
+}
+
+struct BridgeSharedFileSnapshotCursor: Equatable, Sendable {
+    let nextWindowOrdinal: Int
+}
+
+enum BridgeSharedFileSnapshotRead: Sendable {
+    case window(BridgeSharedFileSnapshotWindow)
+    case completed(BridgeSharedFileSnapshotBuild)
+}
+
+struct BridgeSharedFileSnapshotPublisher: Sendable {
+    private let preparationSink: @Sendable (BridgeSharedFileSnapshotPreparation) async throws -> Void
+    private let windowSink: @Sendable (BridgeSharedFileSnapshotWindow) async throws -> Void
+
+    init(
+        preparationSink:
+            @escaping @Sendable (BridgeSharedFileSnapshotPreparation) async throws -> Void,
+        windowSink: @escaping @Sendable (BridgeSharedFileSnapshotWindow) async throws -> Void
+    ) {
+        self.preparationSink = preparationSink
+        self.windowSink = windowSink
+    }
+
+    func publishPreparation(_ preparation: BridgeSharedFileSnapshotPreparation) async throws {
+        try await preparationSink(preparation)
+    }
+
+    func append(_ window: BridgeSharedFileSnapshotWindow) async throws {
+        try await windowSink(window)
+    }
+}
+
+typealias BridgeSharedFileSnapshotBuildOperation =
+    @Sendable (
+        BridgeWorktreeProductConstructionContext,
+        BridgeSharedFileSnapshotPublisher
+    ) async throws -> BridgeSharedFileSnapshotCompletion
+
 enum BridgeWorktreeProductConstructionError: Error, Equatable, Sendable {
     case invalidated
     case artifactKindMismatch
+    case acquisitionModeMismatch
+    case invalidFileConsumerLease
+    case invalidFileSnapshotCursor
+    case preparationRequired
+    case preparationAlreadyPublished
+    case noncontiguousFileWindow
+    case fileWindowAfterFinal
+    case finalFileWindowRequired
+    case fileReadAlreadyPending
+    case invalidRetainedByteCount
 }
 
 enum BridgeWorktreeProductConstructionEventKind: String, Sendable {
@@ -66,6 +120,8 @@ enum BridgeWorktreeProductConstructionEventKind: String, Sendable {
     case consumerCancelled
     case invalidated
     case buildReady
+    case filePreparationPublished
+    case fileWindowAppended
     case buildFailed
     case staleCompletionDropped
     case tombstoneCreated

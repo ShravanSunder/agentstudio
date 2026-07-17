@@ -25,6 +25,11 @@ actor BridgeWorktreeProductConstructionCoordinator {
         case tombstone
     }
 
+    private enum EntryMode {
+        case completionOnly
+        case progressiveFile
+    }
+
     private struct Waiter {
         let leaseNonce: UInt64
         let cancellationState: CancellationState
@@ -34,10 +39,13 @@ actor BridgeWorktreeProductConstructionCoordinator {
     private struct Entry {
         let identity: BuildIdentity
         let nonce: UInt64
+        let mode: EntryMode
         var phase: EntryPhase
         var isInFlight: Bool
         var waiters: [UInt64: Waiter]
         var activeLeaseNonces: Set<UInt64>
+        var progressiveFileState: BridgeProgressiveFileConstructionState?
+        var progressiveBuildTask: Task<Void, Never>?
     }
 
     private let eventSink: BridgeWorktreeProductConstructionEventSink?
@@ -82,6 +90,75 @@ actor BridgeWorktreeProductConstructionCoordinator {
         }
     }
 
+    func acquireProgressiveFile(
+        key: BridgeFileConstructionKey,
+        build: @escaping BridgeSharedFileSnapshotBuildOperation
+    ) async throws -> BridgeSharedFileSnapshotConsumerLease {
+        try Task.checkCancellation()
+        let constructionKey = BridgeWorktreeProductConstructionKey.file(key)
+        let epoch = currentEpoch(for: key.owner.worktree)
+        let identity = BuildIdentity(key: constructionKey, epoch: epoch)
+        let leaseNonce = takeNextLeaseNonce()
+
+        if let entryNonce = currentEntryNonceByIdentity[identity],
+            var entry = entriesByNonce[entryNonce]
+        {
+            guard entry.mode == .progressiveFile else {
+                throw BridgeWorktreeProductConstructionError.acquisitionModeMismatch
+            }
+            switch entry.phase {
+            case .building, .ready:
+                entry.activeLeaseNonces.insert(leaseNonce)
+                entriesByNonce[entryNonce] = entry
+                emit(.consumerJoined, entry: entry, leaseNonce: leaseNonce)
+                return makeFileLease(entry: entry, leaseNonce: leaseNonce)
+            case .tombstone:
+                currentEntryNonceByIdentity.removeValue(forKey: identity)
+            }
+        }
+
+        let entryNonce = takeNextEntryNonce()
+        let entry = Entry(
+            identity: identity,
+            nonce: entryNonce,
+            mode: .progressiveFile,
+            phase: .building,
+            isInFlight: true,
+            waiters: [:],
+            activeLeaseNonces: [leaseNonce],
+            progressiveFileState: BridgeProgressiveFileConstructionState(),
+            progressiveBuildTask: nil
+        )
+        entriesByNonce[entryNonce] = entry
+        currentEntryNonceByIdentity[identity] = entryNonce
+        emit(.buildStarted, entry: entry, leaseNonce: leaseNonce)
+        startProgressiveFileBuild(entry: entry, build: build)
+        return makeFileLease(entry: entry, leaseNonce: leaseNonce)
+    }
+
+    func nextFileSnapshotRead(
+        for lease: BridgeSharedFileSnapshotConsumerLease,
+        cursor: BridgeSharedFileSnapshotCursor
+    ) async throws -> BridgeSharedFileSnapshotRead {
+        try Task.checkCancellation()
+        let cancellationState = BridgeProgressiveFileConstructionState.ReadCancellationState()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                enqueueFileSnapshotRead(
+                    for: lease,
+                    cursor: cursor,
+                    cancellationState: cancellationState,
+                    continuation: continuation
+                )
+            }
+        } onCancel: {
+            cancellationState.cancel()
+            Task {
+                await self.cancelFileReadWaiter(leaseNonce: lease.leaseNonce)
+            }
+        }
+    }
+
     @discardableResult
     func invalidate(worktree: BridgeWorktreeIdentityKey) -> BridgeWorktreeFreshnessEpoch {
         let previousEpoch = currentEpoch(for: worktree)
@@ -100,6 +177,15 @@ actor BridgeWorktreeProductConstructionCoordinator {
             switch entry.phase {
             case .building:
                 failWaiters(in: &entry, with: BridgeWorktreeProductConstructionError.invalidated)
+                failFileReadWaiters(
+                    in: &entry,
+                    with: BridgeWorktreeProductConstructionError.invalidated
+                )
+                if entry.mode == .progressiveFile {
+                    entry.progressiveBuildTask?.cancel()
+                    entry.activeLeaseNonces.removeAll(keepingCapacity: false)
+                    entry.progressiveFileState = nil
+                }
                 if entry.isInFlight {
                     entry.phase = .tombstone
                     entriesByNonce[entryNonce] = entry
@@ -135,6 +221,35 @@ actor BridgeWorktreeProductConstructionCoordinator {
         removeEntry(entry)
     }
 
+    func release(_ lease: BridgeSharedFileSnapshotConsumerLease) {
+        guard var entry = entriesByNonce[lease.entryNonce],
+            entry.mode == .progressiveFile,
+            entry.identity.key == .file(lease.key),
+            entry.identity.epoch == lease.epoch,
+            entry.activeLeaseNonces.remove(lease.leaseNonce) != nil
+        else { return }
+
+        entry.progressiveFileState?.cancelPendingRead(leaseNonce: lease.leaseNonce)
+        emit(.leaseReleased, entry: entry, leaseNonce: lease.leaseNonce)
+        guard entry.activeLeaseNonces.isEmpty else {
+            entriesByNonce[entry.nonce] = entry
+            return
+        }
+        guard case .building = entry.phase, entry.isInFlight else {
+            removeEntry(entry)
+            return
+        }
+        if currentEntryNonceByIdentity[entry.identity] == entry.nonce {
+            currentEntryNonceByIdentity.removeValue(forKey: entry.identity)
+        }
+        failFileReadWaiters(in: &entry, with: CancellationError())
+        entry.progressiveBuildTask?.cancel()
+        entry.progressiveFileState = nil
+        entry.phase = .tombstone
+        entriesByNonce[entry.nonce] = entry
+        emit(.tombstoneCreated, entry: entry)
+    }
+
     func snapshot() -> BridgeWorktreeProductConstructionSnapshot {
         var waiterCount = 0
         var leaseCount = 0
@@ -145,12 +260,14 @@ actor BridgeWorktreeProductConstructionCoordinator {
         var retainedByteCount = 0
 
         for entry in entriesByNonce.values {
-            waiterCount += entry.waiters.count
+            waiterCount +=
+                entry.waiters.count
+                + (entry.progressiveFileState?.pendingReadCount ?? 0)
             leaseCount += entry.activeLeaseNonces.count
             inFlightCount += entry.isInFlight ? 1 : 0
             switch entry.phase {
             case .building:
-                break
+                retainedByteCount += entry.progressiveFileState?.retainedByteCount ?? 0
             case .ready(let artifact):
                 payloadCount += 1
                 locatorCount += artifact.contentLocatorCount
@@ -184,6 +301,12 @@ actor BridgeWorktreeProductConstructionCoordinator {
         if let entryNonce = currentEntryNonceByIdentity[identity],
             var entry = entriesByNonce[entryNonce]
         {
+            guard entry.mode == .completionOnly else {
+                continuation.resume(
+                    throwing: BridgeWorktreeProductConstructionError.acquisitionModeMismatch
+                )
+                return
+            }
             switch entry.phase {
             case .building:
                 let waiter = Waiter(
@@ -227,10 +350,13 @@ actor BridgeWorktreeProductConstructionCoordinator {
         let entry = Entry(
             identity: identity,
             nonce: entryNonce,
+            mode: .completionOnly,
             phase: .building,
             isInFlight: true,
             waiters: [leaseNonce: waiter],
-            activeLeaseNonces: []
+            activeLeaseNonces: [],
+            progressiveFileState: nil,
+            progressiveBuildTask: nil
         )
         entriesByNonce[entryNonce] = entry
         currentEntryNonceByIdentity[identity] = entryNonce
@@ -252,6 +378,194 @@ actor BridgeWorktreeProductConstructionCoordinator {
                 result = .failure(error)
             }
             await self?.complete(entryNonce: entryNonce, result: result)
+        }
+    }
+
+    private func startProgressiveFileBuild(
+        entry: Entry,
+        build: @escaping BridgeSharedFileSnapshotBuildOperation
+    ) {
+        let context = BridgeWorktreeProductConstructionContext(
+            key: entry.identity.key,
+            epoch: entry.identity.epoch,
+            entryNonce: entry.nonce
+        )
+        let publisher = BridgeSharedFileSnapshotPublisher(
+            preparationSink: { [weak self] preparation in
+                guard let self else {
+                    throw BridgeWorktreeProductConstructionError.invalidated
+                }
+                try await self.publishFilePreparation(
+                    preparation,
+                    entryNonce: entry.nonce
+                )
+            },
+            windowSink: { [weak self] window in
+                guard let self else {
+                    throw BridgeWorktreeProductConstructionError.invalidated
+                }
+                try await self.appendFileWindow(window, entryNonce: entry.nonce)
+            }
+        )
+        // Construction must not inherit this coordinator's actor isolation.
+        // swiftlint:disable:next no_task_detached
+        let task = Task.detached { [weak self] in
+            let result: Result<BridgeSharedFileSnapshotCompletion, any Error>
+            do {
+                result = .success(try await build(context, publisher))
+            } catch {
+                result = .failure(error)
+            }
+            await self?.completeProgressiveFile(entryNonce: entry.nonce, result: result)
+        }
+        guard var currentEntry = entriesByNonce[entry.nonce],
+            currentEntry.mode == .progressiveFile
+        else {
+            task.cancel()
+            return
+        }
+        currentEntry.progressiveBuildTask = task
+        entriesByNonce[entry.nonce] = currentEntry
+    }
+
+    private func publishFilePreparation(
+        _ preparation: BridgeSharedFileSnapshotPreparation,
+        entryNonce: UInt64
+    ) throws {
+        guard var entry = currentProgressiveFileBuildingEntry(entryNonce: entryNonce),
+            var state = entry.progressiveFileState
+        else {
+            throw BridgeWorktreeProductConstructionError.invalidated
+        }
+        try state.publishPreparation(preparation)
+        entry.progressiveFileState = state
+        entriesByNonce[entryNonce] = entry
+        emit(.filePreparationPublished, entry: entry)
+    }
+
+    private func appendFileWindow(
+        _ window: BridgeSharedFileSnapshotWindow,
+        entryNonce: UInt64
+    ) throws {
+        guard var entry = currentProgressiveFileBuildingEntry(entryNonce: entryNonce),
+            var state = entry.progressiveFileState
+        else {
+            throw BridgeWorktreeProductConstructionError.invalidated
+        }
+        try state.append(window)
+        entry.progressiveFileState = state
+        entriesByNonce[entryNonce] = entry
+        emit(.fileWindowAppended, entry: entry)
+    }
+
+    private func enqueueFileSnapshotRead(
+        for lease: BridgeSharedFileSnapshotConsumerLease,
+        cursor: BridgeSharedFileSnapshotCursor,
+        cancellationState: BridgeProgressiveFileConstructionState.ReadCancellationState,
+        continuation: CheckedContinuation<BridgeSharedFileSnapshotRead, any Error>
+    ) {
+        guard var entry = entryForFileLease(lease) else {
+            if isInvalidatedFileLease(lease) {
+                continuation.resume(
+                    throwing: BridgeWorktreeProductConstructionError.invalidated
+                )
+                return
+            }
+            continuation.resume(
+                throwing: BridgeWorktreeProductConstructionError.invalidFileConsumerLease
+            )
+            return
+        }
+        switch entry.phase {
+        case .building:
+            guard var state = entry.progressiveFileState else {
+                continuation.resume(throwing: BridgeWorktreeProductConstructionError.invalidated)
+                return
+            }
+            state.enqueueRead(
+                leaseNonce: lease.leaseNonce,
+                cursor: cursor,
+                cancellationState: cancellationState,
+                continuation: continuation
+            )
+            entry.progressiveFileState = state
+            entriesByNonce[entry.nonce] = entry
+        case .ready(let artifact):
+            guard case .fileSnapshot(let snapshot) = artifact else {
+                continuation.resume(
+                    throwing: BridgeWorktreeProductConstructionError.artifactKindMismatch
+                )
+                return
+            }
+            BridgeProgressiveFileConstructionState.resumeReadyRead(
+                snapshot: snapshot,
+                cursor: cursor,
+                cancellationState: cancellationState,
+                continuation: continuation
+            )
+        case .tombstone:
+            continuation.resume(throwing: BridgeWorktreeProductConstructionError.invalidated)
+        }
+    }
+
+    private func completeProgressiveFile(
+        entryNonce: UInt64,
+        result: Result<BridgeSharedFileSnapshotCompletion, any Error>
+    ) {
+        guard var entry = entriesByNonce[entryNonce] else { return }
+        entry.isInFlight = false
+        guard entry.mode == .progressiveFile, case .building = entry.phase else {
+            emit(.staleCompletionDropped, entry: entry)
+            removeEntry(entry)
+            return
+        }
+        guard currentEpoch(for: entry.identity.key.worktree) == entry.identity.epoch,
+            currentEntryNonceByIdentity[entry.identity] == entryNonce
+        else {
+            failFileReadWaiters(
+                in: &entry,
+                with: BridgeWorktreeProductConstructionError.invalidated
+            )
+            emit(.staleCompletionDropped, entry: entry)
+            removeEntry(entry)
+            return
+        }
+
+        switch result {
+        case .failure(let error):
+            failFileReadWaiters(in: &entry, with: error)
+            entry.activeLeaseNonces.removeAll(keepingCapacity: false)
+            emit(.buildFailed, entry: entry)
+            removeEntry(entry)
+        case .success(let completion):
+            guard var state = entry.progressiveFileState else {
+                failFileReadWaiters(
+                    in: &entry,
+                    with: BridgeWorktreeProductConstructionError.invalidated
+                )
+                removeEntry(entry)
+                return
+            }
+            let snapshot: BridgeSharedFileSnapshotBuild
+            do {
+                snapshot = try state.makeCompletedSnapshot(completion: completion)
+            } catch {
+                failFileReadWaiters(in: &entry, with: error)
+                entry.activeLeaseNonces.removeAll(keepingCapacity: false)
+                emit(.buildFailed, entry: entry)
+                removeEntry(entry)
+                return
+            }
+            entry.progressiveFileState = nil
+            guard !entry.activeLeaseNonces.isEmpty else {
+                state.failPendingReads(with: CancellationError())
+                removeEntry(entry)
+                return
+            }
+            entry.phase = .ready(.fileSnapshot(snapshot))
+            entriesByNonce[entryNonce] = entry
+            emit(.buildReady, entry: entry)
+            state.finishPendingReads(with: snapshot)
         }
     }
 
@@ -345,6 +659,19 @@ actor BridgeWorktreeProductConstructionCoordinator {
         }
     }
 
+    private func cancelFileReadWaiter(leaseNonce: UInt64) {
+        guard
+            let entryNonce = entriesByNonce.values.first(where: {
+                $0.progressiveFileState?.hasPendingRead(leaseNonce: leaseNonce) == true
+            })?.nonce,
+            var entry = entriesByNonce[entryNonce],
+            var state = entry.progressiveFileState
+        else { return }
+        state.cancelPendingRead(leaseNonce: leaseNonce)
+        entry.progressiveFileState = state
+        entriesByNonce[entryNonce] = entry
+    }
+
     private func failWaiters(in entry: inout Entry, with error: any Error) {
         let waiters = entry.waiters.values
         entry.waiters.removeAll(keepingCapacity: false)
@@ -352,6 +679,45 @@ actor BridgeWorktreeProductConstructionCoordinator {
             entryNonceByWaiterNonce.removeValue(forKey: waiter.leaseNonce)
             waiter.continuation.resume(throwing: error)
         }
+    }
+
+    private func failFileReadWaiters(in entry: inout Entry, with error: any Error) {
+        guard var state = entry.progressiveFileState else { return }
+        state.failPendingReads(with: error)
+        entry.progressiveFileState = state
+    }
+
+    private func currentProgressiveFileBuildingEntry(entryNonce: UInt64) -> Entry? {
+        guard let entry = entriesByNonce[entryNonce],
+            entry.mode == .progressiveFile,
+            case .building = entry.phase,
+            currentEpoch(for: entry.identity.key.worktree) == entry.identity.epoch,
+            currentEntryNonceByIdentity[entry.identity] == entryNonce
+        else { return nil }
+        return entry
+    }
+
+    private func entryForFileLease(_ lease: BridgeSharedFileSnapshotConsumerLease) -> Entry? {
+        guard let entry = entriesByNonce[lease.entryNonce],
+            entry.mode == .progressiveFile,
+            entry.identity.key == .file(lease.key),
+            entry.identity.epoch == lease.epoch,
+            entry.activeLeaseNonces.contains(lease.leaseNonce)
+        else { return nil }
+        return entry
+    }
+
+    private func isInvalidatedFileLease(_ lease: BridgeSharedFileSnapshotConsumerLease) -> Bool {
+        if lease.epoch != currentEpoch(for: lease.key.owner.worktree) {
+            return true
+        }
+        guard let entry = entriesByNonce[lease.entryNonce],
+            entry.mode == .progressiveFile,
+            entry.identity.key == .file(lease.key),
+            entry.identity.epoch == lease.epoch,
+            case .tombstone = entry.phase
+        else { return false }
+        return true
     }
 
     private func makeLease(
@@ -365,6 +731,21 @@ actor BridgeWorktreeProductConstructionCoordinator {
             entryNonce: entry.nonce,
             leaseNonce: leaseNonce,
             artifact: artifact
+        )
+    }
+
+    private func makeFileLease(
+        entry: Entry,
+        leaseNonce: UInt64
+    ) -> BridgeSharedFileSnapshotConsumerLease {
+        guard case .file(let key) = entry.identity.key else {
+            preconditionFailure("Progressive File entry has a non-File construction key")
+        }
+        return BridgeSharedFileSnapshotConsumerLease(
+            key: key,
+            epoch: entry.identity.epoch,
+            entryNonce: entry.nonce,
+            leaseNonce: leaseNonce
         )
     }
 

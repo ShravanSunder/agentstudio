@@ -54,6 +54,159 @@ actor BridgeWorktreeProductConstructionGate {
     }
 }
 
+actor BridgeProgressiveFileConstructionGate {
+    private struct Invocation {
+        let publisher: BridgeSharedFileSnapshotPublisher
+        let continuation: CheckedContinuation<BridgeSharedFileSnapshotCompletion, any Error>
+    }
+
+    private var invocationCount = 0
+    private var invocations: [Int: Invocation] = [:]
+    private var cancelledInvocations: Set<Int> = []
+    private var cancellationWaiters: [(invocation: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var startWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func run(
+        _: BridgeWorktreeProductConstructionContext,
+        publisher: BridgeSharedFileSnapshotPublisher
+    ) async throws -> BridgeSharedFileSnapshotCompletion {
+        invocationCount += 1
+        let invocation = invocationCount
+        let readyWaiters = startWaiters.filter { $0.count <= invocationCount }
+        startWaiters.removeAll { $0.count <= invocationCount }
+        for waiter in readyWaiters {
+            waiter.continuation.resume()
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                invocations[invocation] = Invocation(
+                    publisher: publisher,
+                    continuation: continuation
+                )
+            }
+        } onCancel: {
+            Task { await self.recordCancellation(invocation: invocation) }
+        }
+    }
+
+    func waitUntilStarted(count: Int = 1) async {
+        precondition(count > 0)
+        if invocationCount >= count { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append((count: count, continuation: continuation))
+        }
+    }
+
+    func publishPreparation(
+        retainedByteCount: Int = 0,
+        invocation: Int = 1
+    ) async throws {
+        try await requiredInvocation(invocation).publisher.publishPreparation(
+            makeBridgeSharedFileSnapshotPreparation(retainedByteCount: retainedByteCount)
+        )
+    }
+
+    func append(
+        _ window: BridgeSharedFileSnapshotWindow,
+        invocation: Int = 1
+    ) async throws {
+        try await requiredInvocation(invocation).publisher.append(window)
+    }
+
+    func succeed(
+        retainedNonwindowByteCount: Int = 0,
+        invocation: Int = 1
+    ) {
+        let invocationState = requiredInvocation(invocation)
+        invocations.removeValue(forKey: invocation)
+        invocationState.continuation.resume(
+            returning: BridgeSharedFileSnapshotCompletion(
+                retainedNonwindowByteCount: retainedNonwindowByteCount
+            )
+        )
+    }
+
+    func fail(_ error: any Error, invocation: Int = 1) {
+        let invocationState = requiredInvocation(invocation)
+        invocations.removeValue(forKey: invocation)
+        invocationState.continuation.resume(throwing: error)
+    }
+
+    func recordedInvocationCount() -> Int {
+        invocationCount
+    }
+
+    func waitUntilCancelled(invocation: Int = 1) async {
+        if cancelledInvocations.contains(invocation) { return }
+        await withCheckedContinuation { continuation in
+            cancellationWaiters.append((invocation: invocation, continuation: continuation))
+        }
+    }
+
+    private func recordCancellation(invocation: Int) {
+        cancelledInvocations.insert(invocation)
+        let readyWaiters = cancellationWaiters.filter { $0.invocation == invocation }
+        cancellationWaiters.removeAll { $0.invocation == invocation }
+        for waiter in readyWaiters {
+            waiter.continuation.resume()
+        }
+    }
+
+    private func requiredInvocation(_ invocation: Int) -> Invocation {
+        guard let invocationState = invocations[invocation] else {
+            preconditionFailure("Missing progressive File construction invocation \(invocation)")
+        }
+        return invocationState
+    }
+}
+
+actor BridgeProgressiveFileConstructionStateHarness {
+    private var state = BridgeProgressiveFileConstructionState()
+    private var pendingReadWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func publishPreparation(retainedByteCount: Int = 0) throws {
+        try state.publishPreparation(
+            makeBridgeSharedFileSnapshotPreparation(retainedByteCount: retainedByteCount)
+        )
+    }
+
+    func read(
+        leaseNonce: UInt64,
+        cursor: BridgeSharedFileSnapshotCursor,
+        cancellationState: BridgeProgressiveFileConstructionState.ReadCancellationState
+    ) async throws -> BridgeSharedFileSnapshotRead {
+        try await withCheckedThrowingContinuation { continuation in
+            state.enqueueRead(
+                leaseNonce: leaseNonce,
+                cursor: cursor,
+                cancellationState: cancellationState,
+                continuation: continuation
+            )
+            resumeSatisfiedPendingReadWaiters()
+        }
+    }
+
+    func append(_ window: BridgeSharedFileSnapshotWindow) throws {
+        try state.append(window)
+    }
+
+    func waitUntilPendingReadCount(_ count: Int) async {
+        precondition(count > 0)
+        if state.pendingReadCount >= count { return }
+        await withCheckedContinuation { continuation in
+            pendingReadWaiters.append((count: count, continuation: continuation))
+        }
+    }
+
+    private func resumeSatisfiedPendingReadWaiters() {
+        let readyWaiters = pendingReadWaiters.filter { $0.count <= state.pendingReadCount }
+        pendingReadWaiters.removeAll { $0.count <= state.pendingReadCount }
+        for waiter in readyWaiters {
+            waiter.continuation.resume()
+        }
+    }
+}
+
 final class BridgeWorktreeProductConstructionEventProbe: @unchecked Sendable {
     private struct Waiter {
         let kind: BridgeWorktreeProductConstructionEventKind
@@ -212,23 +365,84 @@ func makeBridgeFileConstructionArtifact(
 ) -> BridgeWorktreeProductConstructionArtifact {
     .fileSnapshot(
         BridgeSharedFileSnapshotBuild(
+            preparation: makeBridgeSharedFileSnapshotPreparation(),
             orderedWindows: [
                 BridgeSharedFileSnapshotWindow(
                     ordinal: 0,
+                    startIndex: 0,
+                    discoveredRowCount: 1,
+                    isFinalWindow: true,
                     rows: [
-                        BridgeSharedFileSnapshotRow(
-                            pathIdentity: "Sources/App.swift",
-                            parentPathIdentity: "Sources",
-                            kind: .file,
-                            byteCount: 64,
-                            statusIdentity: "modified",
-                            isIgnored: false
+                        BridgeWorktreeTreeRowMetadata(
+                            rowId: "row-0",
+                            path: "Sources/App.swift",
+                            name: "App.swift",
+                            parentPath: "Sources",
+                            depth: 1,
+                            isDirectory: false,
+                            fileId: "file-0",
+                            sizeBytes: 64,
+                            lineCount: nil,
+                            changeStatus: "modified"
                         )
-                    ]
+                    ],
+                    retainedByteCount: retainedByteCount
                 )
             ],
             retainedByteCount: retainedByteCount
         )
+    )
+}
+
+func makeBridgeSharedFileSnapshotPreparation(
+    retainedByteCount: Int = 0
+) -> BridgeSharedFileSnapshotPreparation {
+    BridgeSharedFileSnapshotPreparation(
+        ignorePolicy: .empty,
+        statusResult: .unavailable(
+            GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil)
+        ),
+        retainedByteCount: retainedByteCount
+    )
+}
+
+func makeBridgeProgressiveFileConstructionKey() -> BridgeFileConstructionKey {
+    guard case .file(let key) = makeBridgeFileConstructionKey() else {
+        preconditionFailure("Expected File construction key")
+    }
+    return key
+}
+
+func makeBridgeSharedFileSnapshotWindow(
+    ordinal: Int,
+    startIndex: Int? = nil,
+    path: String? = nil,
+    isFinalWindow: Bool,
+    retainedByteCount: Int = 64
+) -> BridgeSharedFileSnapshotWindow {
+    let resolvedStartIndex = startIndex ?? ordinal
+    let resolvedPath = path ?? "Sources/File-\(ordinal).swift"
+    let rows = [
+        BridgeWorktreeTreeRowMetadata(
+            rowId: "row-\(ordinal)",
+            path: resolvedPath,
+            name: URL(fileURLWithPath: resolvedPath).lastPathComponent,
+            parentPath: "Sources",
+            depth: 1,
+            isDirectory: false,
+            fileId: "file-\(ordinal)",
+            sizeBytes: retainedByteCount,
+            lineCount: nil,
+            changeStatus: nil
+        )
+    ]
+    return BridgeSharedFileSnapshotWindow(
+        ordinal: ordinal,
+        startIndex: resolvedStartIndex,
+        discoveredRowCount: resolvedStartIndex + rows.count,
+        isFinalWindow: isFinalWindow,
+        rows: rows,
+        retainedByteCount: retainedByteCount
     )
 }
 

@@ -1,30 +1,44 @@
 import Foundation
 
-enum BridgeSharedFileSnapshotRowKind: String, Equatable, Sendable {
-    case file
-    case directory
-    case symbolicLink
-}
-
-struct BridgeSharedFileSnapshotRow: Equatable, Sendable {
-    let pathIdentity: String
-    let parentPathIdentity: String?
-    let kind: BridgeSharedFileSnapshotRowKind
-    let byteCount: Int
-    let statusIdentity: String?
-    let isIgnored: Bool
+struct BridgeSharedFileSnapshotPreparation: Sendable {
+    let ignorePolicy: BridgeWorktreeFileIgnorePolicy
+    let statusResult: GitWorkingTreeStatusResult
+    let retainedByteCount: Int
 }
 
 struct BridgeSharedFileSnapshotWindow: Equatable, Sendable {
     let ordinal: Int
-    let rows: [BridgeSharedFileSnapshotRow]
+    let startIndex: Int
+    let discoveredRowCount: Int
+    let isFinalWindow: Bool
+    let rows: [BridgeWorktreeTreeRowMetadata]
+    let retainedByteCount: Int
 }
 
-struct BridgeSharedFileSnapshotBuild: Equatable, Sendable {
+struct BridgeSharedFileSnapshotCompletion: Equatable, Sendable {
+    let retainedNonwindowByteCount: Int
+
+    init(retainedNonwindowByteCount: Int = 0) {
+        self.retainedNonwindowByteCount = retainedNonwindowByteCount
+    }
+}
+
+struct BridgeSharedFileSnapshotBuild: Sendable {
+    let preparation: BridgeSharedFileSnapshotPreparation
     let orderedWindows: [BridgeSharedFileSnapshotWindow]
     let retainedByteCount: Int
 
-    var orderedRows: [BridgeSharedFileSnapshotRow] {
+    init(
+        preparation: BridgeSharedFileSnapshotPreparation,
+        orderedWindows: [BridgeSharedFileSnapshotWindow],
+        retainedByteCount: Int
+    ) {
+        self.preparation = preparation
+        self.orderedWindows = orderedWindows
+        self.retainedByteCount = retainedByteCount
+    }
+
+    var orderedRows: [BridgeWorktreeTreeRowMetadata] {
         orderedWindows.flatMap(\.rows)
     }
 }
