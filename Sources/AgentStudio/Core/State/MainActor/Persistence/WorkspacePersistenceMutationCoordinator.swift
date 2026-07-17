@@ -45,6 +45,7 @@ final class WorkspacePersistenceMutationCoordinator {
     private let activeArrangementVisibilityGateway: WorkspaceActiveArrangementVisibilityPersistenceGateway
     private let arrangementLifecycleGateway: WorkspaceArrangementLifecyclePersistenceGateway
     private let arrangementSelectionGateway: WorkspaceArrangementSelectionPersistenceGateway
+    private let closePaneInRetainedTabGateway: WorkspaceClosePaneInRetainedTabPersistenceGateway
     private let createPaneInExistingTabGateway: WorkspaceCreatePaneInExistingTabPersistenceGateway
     private let crossTabPaneMoveGateway: WorkspaceCrossTabPaneMovePersistenceGateway
     private let layoutResizeGateway: WorkspaceLayoutResizePersistenceGateway
@@ -95,6 +96,15 @@ final class WorkspacePersistenceMutationCoordinator {
             adapters: adapters,
             workspaceTabGraphAtom: workspaceTabGraphAtom,
             workspaceArrangementCursorAtom: workspaceArrangementCursorAtom
+        )
+        closePaneInRetainedTabGateway = WorkspaceClosePaneInRetainedTabPersistenceGateway(
+            revisionOwner: revisionOwner,
+            adapters: adapters,
+            workspacePaneGraphAtom: workspacePaneGraphAtom,
+            workspaceDrawerCursorAtom: workspaceDrawerCursorAtom,
+            workspaceTabGraphAtom: workspaceTabGraphAtom,
+            workspaceArrangementCursorAtom: workspaceArrangementCursorAtom,
+            workspacePanePresentationAtom: workspacePanePresentationAtom
         )
         createPaneInExistingTabGateway = WorkspaceCreatePaneInExistingTabPersistenceGateway(
             revisionOwner: revisionOwner,
@@ -167,6 +177,12 @@ final class WorkspacePersistenceMutationCoordinator {
         _ request: WorkspaceCreatePaneInExistingTabRequest
     ) -> WorkspaceCreatePaneInExistingTabPersistenceResult {
         createPaneInExistingTabGateway.create(request)
+    }
+
+    func closePaneInRetainedTab(
+        _ request: WorkspaceClosePaneInRetainedTabRequest
+    ) -> WorkspaceClosePaneInRetainedTabPersistenceResult {
+        closePaneInRetainedTabGateway.close(request)
     }
 
     func movePaneAcrossTabs(
