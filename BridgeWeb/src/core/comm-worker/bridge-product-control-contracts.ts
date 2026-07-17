@@ -14,6 +14,7 @@ export const bridgeActiveViewerModeUpdateSchema = z
 		sequence: z.number().int().positive(),
 		mode: z.enum(['file', 'review']),
 		activeSource: bridgeActiveViewerSourceSchema.nullable(),
+		nativeSelectionRequestId: z.string().min(1).nullable(),
 	})
 	.strict();
 

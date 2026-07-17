@@ -146,17 +146,23 @@ struct CommandBarDataSourceTests {
     }
 
     @Test
-    func test_commandsScope_includesOpenBridgeReview() {
+    func test_commandsScope_includesAllBridgeCommands() {
         let store = makeStore()
 
         let items = CommandBarDataSource.items(
             scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
-        let bridgeItem = items.first { $0.id == "cmd-openBridgeReview" }
+        let bridgeItems = Dictionary(
+            uniqueKeysWithValues:
+                items
+                .filter { $0.group == "Bridge" }
+                .map { ($0.id, $0) }
+        )
 
-        #expect(bridgeItem != nil)
-        #expect(bridgeItem?.title == "Review")
-        #expect(bridgeItem?.group == "Bridge")
-        #expect(bridgeItem?.hasChildren == false)
+        #expect(bridgeItems["cmd-showBridgeReview"]?.title == "Review")
+        #expect(bridgeItems["cmd-showBridgeFiles"]?.title == "Files")
+        #expect(bridgeItems["cmd-openBridgeReviewInNewTab"]?.title == "Open Review in New Tab")
+        #expect(bridgeItems["cmd-openBridgeFilesInNewTab"]?.title == "Open Files in New Tab")
+        #expect(bridgeItems.values.allSatisfy { !$0.hasChildren })
     }
 
     @Test

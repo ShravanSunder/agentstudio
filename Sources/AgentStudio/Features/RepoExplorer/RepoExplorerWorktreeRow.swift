@@ -147,11 +147,14 @@ struct RepoExplorerWorktreeRow: View {
     let iconColor: Color
     let branchStatus: GitBranchStatus
     let unreadCount: Int
+    var bridgeCommandResolution: BridgePaneCommandResolution = .create
     var onUnreadPillTap: () -> Void = {}
     let onOpen: () -> Void
     let onOpenNew: () -> Void
     let onReview: () -> Void
     let onOpenFiles: () -> Void
+    var onOpenReviewInNewTab: () -> Void = {}
+    var onOpenFilesInNewTab: () -> Void = {}
     let onOpenInPane: () -> Void
     static let rowChromePolicy = SidebarRowShell<RepoExplorerWorktreeRowContent>.chromePolicy
 
@@ -183,13 +186,35 @@ struct RepoExplorerWorktreeRow: View {
             Button {
                 onReview()
             } label: {
-                menuLabel(actionSpec: AppCommand.openBridgeReview.definition.actionSpec)
+                menuLabel(
+                    actionSpec: contextualBridgeActionSpec(
+                        command: .showBridgeReview,
+                        surface: .review
+                    )
+                )
             }
 
             Button {
                 onOpenFiles()
             } label: {
-                menuLabel(actionSpec: AppCommand.openBridgeFileView.definition.actionSpec)
+                menuLabel(
+                    actionSpec: contextualBridgeActionSpec(
+                        command: .showBridgeFiles,
+                        surface: .file
+                    )
+                )
+            }
+
+            Button {
+                onOpenReviewInNewTab()
+            } label: {
+                menuLabel(actionSpec: AppCommand.openBridgeReviewInNewTab.definition.actionSpec)
+            }
+
+            Button {
+                onOpenFilesInNewTab()
+            } label: {
+                menuLabel(actionSpec: AppCommand.openBridgeFilesInNewTab.definition.actionSpec)
             }
 
             Button {
@@ -242,6 +267,18 @@ struct RepoExplorerWorktreeRow: View {
 
     private func openInVSCode() {
         ExternalWorkspaceOpener.openInVSCode(worktree.path)
+    }
+
+    private func contextualBridgeActionSpec(
+        command: AppCommand,
+        surface: BridgeProductSurface
+    ) -> ActionSpec {
+        let definition = command.definition
+        return ActionSpec(
+            label: bridgeCommandResolution.contextualLabel(for: surface),
+            helpText: definition.helpText,
+            icon: definition.icon
+        )
     }
 
     @ViewBuilder

@@ -81,6 +81,16 @@ interface BridgeActiveViewerState {
 
 type BridgeViewerMode = BridgeActiveViewerState['viewerMode'];
 
+type BridgeNativeSurfaceSelectionRequest = Extract<
+	BridgeWorkerServerToMainMessage,
+	{ readonly kind: 'nativeSurfaceSelectionRequest' }
+>;
+
+interface BridgePendingNativeSurfaceSelection {
+	readonly arrivalRevision: number;
+	readonly request: BridgeNativeSurfaceSelectionRequest;
+}
+
 type BridgeRememberedNavigationCommands = Record<
 	BridgeViewerMode,
 	BridgeViewerNavigationCommand | undefined
@@ -136,6 +146,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			viewerMode: incomingViewerMode,
 		}),
 	);
+	const [mountedViewerModes, setMountedViewerModes] = useState<ReadonlySet<BridgeViewerMode>>(
+		() => new Set<BridgeViewerMode>(['file', 'review']),
+	);
 	const rememberedNavigationCommandsRef = useRef<BridgeRememberedNavigationCommands>({
 		file: activeViewerState.viewerMode === 'file' ? activeViewerState.navigationCommand : undefined,
 		review:
@@ -159,6 +172,14 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const [activeViewerSourceSignalRevision, setActiveViewerSourceSignalRevision] = useState(0);
 	const activeViewerModeRetryAttemptsBySignalKeyRef = useRef<Map<string, number>>(new Map());
 	const [activeViewerModeRetryRevision, setActiveViewerModeRetryRevision] = useState(0);
+	const nativeSurfaceSelectionArrivalRevisionRef = useRef(0);
+	const [nativeSurfaceSelectionSignalRevision, setNativeSurfaceSelectionSignalRevision] =
+		useState(0);
+	const latestNativeSurfaceSelectionIdentityRef = useRef<{
+		readonly nativeSelectionRequestId: string;
+		readonly selectionRevision: number;
+	} | null>(null);
+	const pendingNativeSurfaceSelectionRef = useRef<BridgePendingNativeSurfaceSelection | null>(null);
 	const telemetryRecorderRef = useRef<BridgeTelemetryRecorder>(createBridgeTelemetryRecorder(null));
 	const telemetryWorkerSessionRef = useRef<BridgePaneTelemetryWorkerSession | null>(null);
 	const telemetryWorkerFactoryRef = useRef(
@@ -192,6 +213,41 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			bridgeReadyCallbacksRef.current.delete(callback);
 		};
 	}, []);
+	const activateViewerMode = useCallback((viewerMode: BridgeViewerMode): void => {
+		setMountedViewerModes((currentMountedViewerModes): ReadonlySet<BridgeViewerMode> => {
+			if (currentMountedViewerModes.has(viewerMode)) {
+				return currentMountedViewerModes;
+			}
+			return new Set<BridgeViewerMode>([...currentMountedViewerModes, viewerMode]);
+		});
+		setActiveViewerState({
+			navigationCommand: rememberedNavigationCommandsRef.current[viewerMode],
+			viewerMode,
+		});
+	}, []);
+	const applyNativeSurfaceSelectionRequest = useCallback(
+		(request: BridgeNativeSurfaceSelectionRequest): void => {
+			const latestIdentity = latestNativeSurfaceSelectionIdentityRef.current;
+			if (
+				latestIdentity !== null &&
+				(request.selectionRevision < latestIdentity.selectionRevision ||
+					(request.selectionRevision === latestIdentity.selectionRevision &&
+						request.nativeSelectionRequestId !== latestIdentity.nativeSelectionRequestId))
+			) {
+				return;
+			}
+			nativeSurfaceSelectionArrivalRevisionRef.current += 1;
+			const arrivalRevision = nativeSurfaceSelectionArrivalRevisionRef.current;
+			latestNativeSurfaceSelectionIdentityRef.current = {
+				nativeSelectionRequestId: request.nativeSelectionRequestId,
+				selectionRevision: request.selectionRevision,
+			};
+			pendingNativeSurfaceSelectionRef.current = { arrivalRevision, request };
+			activateViewerMode(request.surface);
+			setNativeSurfaceSelectionSignalRevision(arrivalRevision);
+		},
+		[activateViewerMode],
+	);
 	useEffect((): (() => void) => {
 		let telemetryConfigurationSequence = 0;
 		let isEffectInstalled = true;
@@ -393,13 +449,18 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	}, [paneRuntimeHost, target]);
 	const publishActiveViewerModeWorkerMessages = useCallback(
 		(messages: readonly BridgeWorkerServerToMainMessage[]): void => {
+			for (const message of messages) {
+				if (message.kind === 'nativeSurfaceSelectionRequest') {
+					applyNativeSurfaceSelectionRequest(message);
+				}
+			}
 			resolveBridgeWorkerActiveViewerModeRequestResolvers({
 				messages,
 				resolversByRequestId: activeViewerModeRequestResolversRef.current,
 				settledResultsByRequestId: activeViewerModeSettledResultsRef.current,
 			});
 		},
-		[],
+		[applyNativeSurfaceSelectionRequest],
 	);
 	useEffect((): (() => void) => {
 		const requestResolvers = activeViewerModeRequestResolversRef.current;
@@ -450,6 +511,51 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const sendActiveViewerModeUpdate = useCallback((): void => {
 		const activeViewerMode = activeViewerModeRef.current;
 		const activeSource = activeViewerSourcesRef.current[activeViewerMode];
+		const pendingNativeSurfaceSelection = pendingNativeSurfaceSelectionRef.current;
+		if (
+			pendingNativeSurfaceSelection !== null &&
+			pendingNativeSurfaceSelection.request.surface === activeViewerMode
+		) {
+			const nativeSignalKey = `native:${pendingNativeSurfaceSelection.arrivalRevision}:${pendingNativeSurfaceSelection.request.nativeSelectionRequestId}`;
+			if (lastSentActiveViewerModeSignalKeyRef.current === nativeSignalKey) {
+				return;
+			}
+			lastSentActiveViewerModeSignalKeyRef.current = nativeSignalKey;
+			activeViewerModeSequenceRef.current += 1;
+			void sendActiveViewerModeWorkerUpdate({
+				activeSource,
+				mode: activeViewerMode,
+				nativeSelectionRequestId: pendingNativeSurfaceSelection.request.nativeSelectionRequestId,
+				sequence: activeViewerModeSequenceRef.current,
+				sessionId: activeViewerModeSessionIdRef.current,
+			}).then((didSend): void => {
+				if (didSend) {
+					activeViewerModeRetryAttemptsBySignalKeyRef.current.delete(nativeSignalKey);
+					if (
+						pendingNativeSurfaceSelectionRef.current?.arrivalRevision ===
+						pendingNativeSurfaceSelection.arrivalRevision
+					) {
+						pendingNativeSurfaceSelectionRef.current = null;
+					}
+					return;
+				}
+				if (lastSentActiveViewerModeSignalKeyRef.current !== nativeSignalKey) {
+					return;
+				}
+				lastSentActiveViewerModeSignalKeyRef.current = null;
+				if (
+					activeViewerModeRetryAttemptAvailable({
+						retryAttemptsBySignalKey: activeViewerModeRetryAttemptsBySignalKeyRef.current,
+						signalKey: nativeSignalKey,
+					})
+				) {
+					setActiveViewerModeRetryRevision(
+						(currentRetryRevision): number => currentRetryRevision + 1,
+					);
+				}
+			});
+			return;
+		}
 		const activationRevision = activeViewerModeActivationRevisionRef.current;
 		if (activeSource === null) {
 			if (
@@ -469,6 +575,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				sequence: activeViewerModeSequenceRef.current,
 				mode: activeViewerMode,
 				activeSource: null,
+				nativeSelectionRequestId: null,
 			}).then((didSend): void => {
 				if (!didSend && lastSentActiveViewerModeSignalKeyRef.current === pendingSignalKey) {
 					lastSentActiveViewerModeSignalKeyRef.current = null;
@@ -498,6 +605,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			sequence: activeViewerModeSequenceRef.current,
 			mode: activeViewerMode,
 			activeSource,
+			nativeSelectionRequestId: null,
 		}).then((didSend): void => {
 			if (didSend) {
 				activeViewerModeRetryAttemptsBySignalKeyRef.current.delete(signalKey);
@@ -566,12 +674,10 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		activeViewerSourceSignalRevision,
 		activeViewerState.viewerMode,
 		activeViewerModeRetryRevision,
+		nativeSurfaceSelectionSignalRevision,
 		registerBridgeReadyCallback,
 		sendActiveViewerModeUpdate,
 	]);
-	const [mountedViewerModes, setMountedViewerModes] = useState<ReadonlySet<BridgeViewerMode>>(
-		() => new Set<BridgeViewerMode>(['file', 'review']),
-	);
 	useEffect((): void => {
 		const nextViewerState = activeViewerStateForBridgeInputs({
 			navigationCommand: incomingNavigationCommand,
@@ -598,18 +704,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				: { workerFactory: props.codeViewWorkerFactory }),
 		});
 	}, [activeViewerState.viewerMode, props.codeViewWorkerFactory]);
-	const activateViewerMode = useCallback((viewerMode: BridgeViewerMode): void => {
-		setMountedViewerModes((currentMountedViewerModes): ReadonlySet<BridgeViewerMode> => {
-			if (currentMountedViewerModes.has(viewerMode)) {
-				return currentMountedViewerModes;
-			}
-			return new Set<BridgeViewerMode>([...currentMountedViewerModes, viewerMode]);
-		});
-		setActiveViewerState({
-			navigationCommand: rememberedNavigationCommandsRef.current[viewerMode],
-			viewerMode,
-		});
-	}, []);
 	const rememberedFileNavigationCommand = rememberedNavigationCommandsRef.current.file;
 	const rememberedReviewNavigationCommand = rememberedNavigationCommandsRef.current.review;
 

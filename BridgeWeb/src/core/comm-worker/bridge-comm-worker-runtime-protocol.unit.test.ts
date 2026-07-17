@@ -427,6 +427,7 @@ describe('Bridge comm worker runtime protocol', () => {
 						streamId: 'review:pane-1',
 						generation: 5,
 					},
+					nativeSelectionRequestId: null,
 				},
 			}),
 		);
@@ -444,6 +445,7 @@ describe('Bridge comm worker runtime protocol', () => {
 						streamId: 'review:pane-1',
 						generation: 5,
 					},
+					nativeSelectionRequestId: null,
 				},
 			},
 		]);
@@ -490,6 +492,7 @@ describe('Bridge comm worker runtime protocol', () => {
 					sequence: 4,
 					mode: 'file',
 					activeSource: null,
+					nativeSelectionRequestId: null,
 				},
 			}),
 		);

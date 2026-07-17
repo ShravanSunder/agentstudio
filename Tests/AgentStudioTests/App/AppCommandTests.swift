@@ -899,8 +899,8 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_dispatcher_openBridgeReview_registered() {
-        let def = AppCommandDispatcher.shared.definition(for: .openBridgeReview)
+    func test_dispatcher_showBridgeReview_registered() {
+        let def = AppCommandDispatcher.shared.definition(for: .showBridgeReview)
         #expect(def.label == "Review")
         #expect(def.icon == .system(.rectangleSplit2x1))
         #expect(def.commandBarGroupName == "Bridge")
@@ -909,25 +909,8 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_dispatcher_openBridgeReview_noKeyBinding() {
-        let def = AppCommandDispatcher.shared.definition(for: .openBridgeReview)
-        #expect(def.keyBinding == nil)
-    }
-
-    @MainActor
-
-    @Test
-    func test_dispatcher_openBridgeReview_appliesToWorktree() {
-        let def = AppCommandDispatcher.shared.definition(for: .openBridgeReview)
-
-        #expect(def.appliesTo.contains(.worktree))
-    }
-
-    @MainActor
-
-    @Test
-    func test_dispatcher_openBridgeFileView_registered() {
-        let def = AppCommandDispatcher.shared.definition(for: .openBridgeFileView)
+    func test_dispatcher_showBridgeFiles_registered() {
+        let def = AppCommandDispatcher.shared.definition(for: .showBridgeFiles)
         #expect(def.label == "Files")
         #expect(def.icon == .system(.folder))
         #expect(def.commandBarGroupName == "Bridge")
@@ -936,18 +919,41 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_dispatcher_openBridgeFileView_noKeyBinding() {
-        let def = AppCommandDispatcher.shared.definition(for: .openBridgeFileView)
-        #expect(def.keyBinding == nil)
+    func test_dispatcher_openBridgeReviewInNewTab_registered() {
+        let def = AppCommandDispatcher.shared.definition(for: .openBridgeReviewInNewTab)
+        #expect(def.label == "Open Review in New Tab")
+        #expect(def.icon == .system(.rectangleSplit2x1))
+        #expect(def.commandBarGroupName == "Bridge")
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_openBridgeFileView_appliesToWorktree() {
-        let def = AppCommandDispatcher.shared.definition(for: .openBridgeFileView)
+    func test_dispatcher_openBridgeFilesInNewTab_registered() {
+        let def = AppCommandDispatcher.shared.definition(for: .openBridgeFilesInNewTab)
+        #expect(def.label == "Open Files in New Tab")
+        #expect(def.icon == .system(.folder))
+        #expect(def.commandBarGroupName == "Bridge")
+    }
 
-        #expect(def.appliesTo.contains(.worktree))
+    @MainActor
+
+    @Test
+    func test_dispatcher_bridgeCommands_haveNoKeyBindings() {
+        #expect(AppCommand.showBridgeReview.definition.keyBinding == nil)
+        #expect(AppCommand.showBridgeFiles.definition.keyBinding == nil)
+        #expect(AppCommand.openBridgeReviewInNewTab.definition.keyBinding == nil)
+        #expect(AppCommand.openBridgeFilesInNewTab.definition.keyBinding == nil)
+    }
+
+    @MainActor
+
+    @Test
+    func test_dispatcher_bridgeCommands_applyToWorktrees() {
+        #expect(AppCommand.showBridgeReview.definition.appliesTo.contains(.worktree))
+        #expect(AppCommand.showBridgeFiles.definition.appliesTo.contains(.worktree))
+        #expect(AppCommand.openBridgeReviewInNewTab.definition.appliesTo.contains(.worktree))
+        #expect(AppCommand.openBridgeFilesInNewTab.definition.appliesTo.contains(.worktree))
     }
 
     @MainActor

@@ -38,7 +38,8 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
-            .newFloatingTerminal, .openWebview, .openBridgeReview, .openBridgeFileView, .openNewTerminalInTab:
+            .newFloatingTerminal, .openWebview, .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .openNewTerminalInTab:
             false
         }
     }
@@ -125,7 +126,8 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
-            .newFloatingTerminal, .openWebview, .openBridgeReview, .openBridgeFileView, .openNewTerminalInTab:
+            .newFloatingTerminal, .openWebview, .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .openNewTerminalInTab:
             return false
         }
     }
@@ -167,7 +169,8 @@ extension AppDelegate: ShellCommandHandling {
             .showPaneInboxNotifications, .clearPaneInboxNotifications, .showWorktreeSidebar,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
-            .openWebview, .openBridgeReview, .openBridgeFileView, .signInGitHub, .signInGoogle,
+            .openWebview, .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:
             return false
         }

@@ -282,6 +282,7 @@ describe('Bridge comm worker Review product runtime', () => {
 				update: {
 					activeSource: null,
 					mode: 'review',
+					nativeSelectionRequestId: null,
 					sequence: 1,
 					sessionId: 'review-completed-foreground-return-session',
 				},
@@ -319,6 +320,7 @@ describe('Bridge comm worker Review product runtime', () => {
 				update: {
 					activeSource: null,
 					mode: 'file',
+					nativeSelectionRequestId: null,
 					sequence: 2,
 					sessionId: 'review-completed-foreground-return-session',
 				},
@@ -419,6 +421,7 @@ describe('Bridge comm worker Review product runtime', () => {
 				update: {
 					activeSource: null,
 					mode: 'review',
+					nativeSelectionRequestId: null,
 					sequence: 3,
 					sessionId: 'hidden-review-session',
 				},

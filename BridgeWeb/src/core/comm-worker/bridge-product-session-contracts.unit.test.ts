@@ -351,6 +351,7 @@ describe('Bridge product session contracts', () => {
 				method: 'review.activeViewerMode.update',
 				request: {
 					activeSource: { generation: 3, streamId: 'review-stream-1' },
+					nativeSelectionRequestId: 'native-selection-review',
 					sequence: 7,
 					sessionId: 'viewer-session-1',
 				},
@@ -362,6 +363,7 @@ describe('Bridge product session contracts', () => {
 				method: 'file.activeViewerMode.update',
 				request: {
 					activeSource: { generation: 5, streamId: 'file-stream-1' },
+					nativeSelectionRequestId: null,
 					sequence: 8,
 					sessionId: 'viewer-session-1',
 				},

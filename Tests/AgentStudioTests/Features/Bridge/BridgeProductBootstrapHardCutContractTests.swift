@@ -46,7 +46,7 @@ struct BridgeProductBootstrapHardCutContractTests {
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
             markReviewItemViewed: { _, _ in },
-            applyActiveViewerModeUpdate: { call, productAdmission in
+            applyActiveViewerModeUpdate: { call, _, productAdmission in
                 await activeModeRecorder.record(
                     call.method,
                     productAdmission: productAdmission
@@ -201,6 +201,7 @@ private func bridgeProductStartupActiveModeBody(
                     "generation": 1,
                     "streamId": streamId,
                 ],
+                "nativeSelectionRequestId": NSNull(),
                 "sequence": sequence,
                 "sessionId": "viewer-session",
             ],

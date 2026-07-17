@@ -44,6 +44,9 @@ extension WorkspaceSurfaceCoordinator {
                 let runtimePaneId = PaneId(uuid: paneId)
                 await paneEventBus.evictReplay(sourceKey: EventSource.pane(runtimePaneId).description)
             }
+            if shouldUnregisterRuntime {
+                atom(\.bridgePaneAttendance).remove(paneId: paneId)
+            }
             bridgePaneRetirementTasksByPaneId.removeValue(forKey: paneId)
             bridgePaneRetirementsRequiringRuntimeUnregister.remove(paneId)
             let shouldRestore = bridgePaneRetirementsRequiringRestore.remove(paneId) != nil

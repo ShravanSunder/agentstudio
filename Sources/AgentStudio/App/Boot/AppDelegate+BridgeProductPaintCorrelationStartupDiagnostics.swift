@@ -93,7 +93,7 @@ import Foundation
                 return
             }
             let worktree = store.repositoryTopologyAtom.ensureMainWorktree(at: worktreeURL)
-            guard let pane = workspaceSurfaceCoordinator.openBridgeReview(worktreeId: worktree.id) else {
+            guard let pane = workspaceSurfaceCoordinator.openBridgeReviewInNewTab(worktreeId: worktree.id) else {
                 recordBridgeProductPaintCorrelationResult(
                     action: action,
                     proof: BridgeProductPaintCorrelationProof(snapshot: nil)

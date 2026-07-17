@@ -234,11 +234,13 @@ struct BridgeProductActiveViewerSourceRequest: Codable, Equatable, Sendable {
 struct BridgeProductActiveViewerModeUpdateRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case activeSource
+        case nativeSelectionRequestId
         case sequence
         case sessionId
     }
 
     let activeSource: BridgeProductActiveViewerSourceRequest?
+    let nativeSelectionRequestId: String?
     let sequence: Int
     let sessionId: String
 
@@ -249,9 +251,19 @@ struct BridgeProductActiveViewerModeUpdateRequest: Codable, Equatable, Sendable 
             contract: "active viewer mode update request"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard container.contains(.nativeSelectionRequestId) else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Active viewer mode update nativeSelectionRequestId must be explicit",
+                codingPath: decoder.codingPath
+            )
+        }
         self.activeSource = try container.decodeIfPresent(
             BridgeProductActiveViewerSourceRequest.self,
             forKey: .activeSource
+        )
+        self.nativeSelectionRequestId = try container.decodeIfPresent(
+            String.self,
+            forKey: .nativeSelectionRequestId
         )
         self.sequence = try container.decode(Int.self, forKey: .sequence)
         self.sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -262,6 +274,28 @@ struct BridgeProductActiveViewerModeUpdateRequest: Codable, Equatable, Sendable 
             )
         }
         try BridgeProductContractDecoding.validateIdentifier(sessionId, codingPath: decoder.codingPath)
+        if let nativeSelectionRequestId {
+            try BridgeProductContractDecoding.validateIdentifier(
+                nativeSelectionRequestId,
+                codingPath: decoder.codingPath
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        if let activeSource {
+            try container.encode(activeSource, forKey: .activeSource)
+        } else {
+            try container.encodeNil(forKey: .activeSource)
+        }
+        if let nativeSelectionRequestId {
+            try container.encode(nativeSelectionRequestId, forKey: .nativeSelectionRequestId)
+        } else {
+            try container.encodeNil(forKey: .nativeSelectionRequestId)
+        }
+        try container.encode(sequence, forKey: .sequence)
+        try container.encode(sessionId, forKey: .sessionId)
     }
 }
 

@@ -398,6 +398,7 @@ describe('Bridge comm worker File product runtime', () => {
 				update: {
 					activeSource: null,
 					mode: 'file',
+					nativeSelectionRequestId: null,
 					sequence: 1,
 					sessionId: 'file-completed-foreground-return-session',
 				},
@@ -423,6 +424,7 @@ describe('Bridge comm worker File product runtime', () => {
 				update: {
 					activeSource: null,
 					mode: 'review',
+					nativeSelectionRequestId: null,
 					sequence: 2,
 					sessionId: 'file-completed-foreground-return-session',
 				},

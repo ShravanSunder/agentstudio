@@ -102,12 +102,20 @@ export interface BridgeProductTransportSession extends BridgeProductTransport {
 	bumpWorkerDerivationEpoch(surface: BridgeProductSurface): number;
 	metadataStreamDiagnostics?(): BridgeProductMetadataStreamHealthDiagnostics;
 	setPanePresentationFrameSink?(sink: (frame: BridgeProductPanePresentationFrame) => void): void;
+	setPaneSurfaceSelectionFrameSink?(
+		sink: (frame: BridgeProductPaneSurfaceSelectionFrame) => void,
+	): void;
 	workerDerivationEpoch(surface: BridgeProductSurface): number;
 }
 
 export type BridgeProductPanePresentationFrame = Extract<
 	BridgeProductMetadataFrame,
 	{ readonly kind: 'pane.presentation' }
+>;
+
+export type BridgeProductPaneSurfaceSelectionFrame = Extract<
+	BridgeProductMetadataFrame,
+	{ readonly kind: 'pane.surfaceSelectionRequested' }
 >;
 
 export interface BridgeProductMetadataStreamHealthDiagnostics {
@@ -194,6 +202,8 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	readonly #subscriptions = new Map<string, BridgeProductSubscriptionFrameSink>();
 	#panePresentationFrameSink: (frame: BridgeProductPanePresentationFrame) => void =
 		ignoreBridgeProductPanePresentationFrame;
+	#paneSurfaceSelectionFrameSink: (frame: BridgeProductPaneSurfaceSelectionFrame) => void =
+		ignoreBridgeProductPaneSurfaceSelectionFrame;
 
 	constructor(props: CreateBridgeProductTransportProps) {
 		this.#authority = props.authority;
@@ -225,6 +235,12 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 
 	setPanePresentationFrameSink(sink: (frame: BridgeProductPanePresentationFrame) => void): void {
 		this.#panePresentationFrameSink = sink;
+	}
+
+	setPaneSurfaceSelectionFrameSink(
+		sink: (frame: BridgeProductPaneSurfaceSelectionFrame) => void,
+	): void {
+		this.#paneSurfaceSelectionFrameSink = sink;
 	}
 
 	workerDerivationEpoch(surface: BridgeProductSurface): number {
@@ -536,6 +552,9 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			case 'pane.presentation':
 				this.#panePresentationFrameSink(frame);
 				return;
+			case 'pane.surfaceSelectionRequested':
+				this.#paneSurfaceSelectionFrameSink(frame);
+				return;
 			case 'metadataStream.error':
 				throw new BridgeProductMetadataRouteFailure(
 					'metadata_stream_error',
@@ -661,6 +680,10 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 
 function ignoreBridgeProductPanePresentationFrame(
 	_frame: BridgeProductPanePresentationFrame,
+): void {}
+
+function ignoreBridgeProductPaneSurfaceSelectionFrame(
+	_frame: BridgeProductPaneSurfaceSelectionFrame,
 ): void {}
 
 class BridgeProductMetadataRouteFailure extends Error {

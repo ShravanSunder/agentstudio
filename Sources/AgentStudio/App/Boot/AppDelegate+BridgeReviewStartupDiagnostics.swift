@@ -34,7 +34,7 @@ extension AppDelegate {
             recordBridgeReviewObservabilitySmokePhase("pane_open_started", action: action)
             let pane: Pane?
             if let realWorktreeId {
-                pane = workspaceSurfaceCoordinator.openBridgeReview(worktreeId: realWorktreeId)
+                pane = workspaceSurfaceCoordinator.openBridgeReviewInNewTab(worktreeId: realWorktreeId)
             } else {
                 pane = workspaceSurfaceCoordinator.openBridgeReviewObservabilitySmoke()
             }

@@ -2,9 +2,9 @@ import AppKit
 
 @MainActor
 extension WorkspaceSurfaceCoordinator {
-    /// Open a read-only Bridge review pane in a new tab.
+    /// Open an independent read-only Bridge review pane in a new tab.
     @discardableResult
-    func openBridgeReview(worktreeId: UUID? = nil) -> Pane? {
+    func openBridgeReviewInNewTab(worktreeId: UUID? = nil) -> Pane? {
         openBridgePane(
             panelKind: .diffViewer,
             title: "Bridge Review",
@@ -13,15 +13,75 @@ extension WorkspaceSurfaceCoordinator {
         )
     }
 
-    /// Open a Bridge file-viewer pane in a new tab.
+    /// Open an independent Bridge file-viewer pane in a new tab.
     @discardableResult
-    func openBridgeFileView(worktreeId: UUID? = nil) -> Pane? {
+    func openBridgeFilesInNewTab(worktreeId: UUID? = nil) -> Pane? {
         openBridgePane(
             panelKind: .fileViewer,
             title: "Files",
             worktreeId: worktreeId,
             logName: "Bridge file view"
         )
+    }
+
+    func resolveBridgePaneCommand(worktreeId: UUID? = nil) -> BridgePaneCommandTarget? {
+        let activePane = store.tabLayoutAtom.activeTabId
+            .flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
+            .flatMap { store.paneAtom.pane($0) }
+        guard let context = bridgeReviewMetadata(from: activePane, worktreeId: worktreeId),
+            let resolvedWorktreeId = context.metadata.facets.worktreeId
+        else {
+            return nil
+        }
+
+        let activeTabId = store.tabLayoutAtom.activeTabId
+        let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
+        let locations = atom(\.workspaceLookup).paneLocations(
+            for: resolvedWorktreeId,
+            workspacePane: store.paneAtom,
+            workspaceTab: WorkspaceTabLayoutDerived(
+                shellAtom: store.tabShellAtom,
+                arrangementAtom: store.tabArrangementAtom
+            )
+        )
+        let candidates = locations.compactMap { location -> BridgePaneCommandCandidate? in
+            guard let pane = store.paneAtom.pane(location.paneId) else { return nil }
+            let isBridgePane: Bool
+            if case .bridgePanel = pane.content {
+                isBridgePane = true
+            } else {
+                isBridgePane = false
+            }
+            return BridgePaneCommandCandidate(
+                paneId: pane.id,
+                worktreeId: resolvedWorktreeId,
+                isBridgePane: isBridgePane,
+                isPaneActive: pane.residency == .active,
+                isCurrentActivePane: activeTabId == location.tabId && activePaneId == pane.id,
+                attendanceOrdinal: atom(\.bridgePaneAttendance).ordinal(for: pane.id),
+                tabIndex: location.tabIndex,
+                paneIndexInTab: location.paneIndexInTab
+            )
+        }
+        return BridgePaneCommandTarget(
+            worktreeId: resolvedWorktreeId,
+            resolution: BridgePaneCommandResolver.resolve(
+                worktreeId: resolvedWorktreeId,
+                candidates: candidates
+            )
+        )
+    }
+
+    @discardableResult
+    func requestBridgePaneSurface(_ surface: BridgeProductSurface, paneId: UUID) -> Bool {
+        guard
+            let controller = viewRegistry.view(for: paneId)?
+                .mountedContent(as: BridgePaneMountView.self)?
+                .controller
+        else {
+            return false
+        }
+        return controller.requestViewerSurface(surface)
     }
 
     @discardableResult

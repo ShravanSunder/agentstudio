@@ -118,6 +118,7 @@ describe('Bridge comm worker selected File preparation cancellation', () => {
 				update: {
 					activeSource: null,
 					mode: 'file',
+					nativeSelectionRequestId: null,
 					sequence: 2,
 					sessionId: 'hidden-file-session',
 				},

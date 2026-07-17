@@ -237,6 +237,7 @@ function activeViewerModeUpdateCommand(mode: 'file' | 'review', sequence: number
 		update: {
 			activeSource: null,
 			mode,
+			nativeSelectionRequestId: null,
 			sequence,
 			sessionId: 'updating-chrome-session',
 		},

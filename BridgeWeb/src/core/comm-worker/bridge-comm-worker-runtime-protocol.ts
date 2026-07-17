@@ -12,6 +12,7 @@ import {
 	BridgeCommWorkerFileQueryProjection,
 } from './bridge-comm-worker-file-query-projection.js';
 import { enqueueSelectedBridgeWorkerFileViewContentReadyPreparation } from './bridge-comm-worker-file-view-preparation.js';
+import { bridgeWorkerNativeSurfaceSelectionRequestFromMetadataFrame } from './bridge-comm-worker-native-surface-selection.js';
 import {
 	BridgeCommWorkerPanePresentationAuthority,
 	type BridgeCommWorkerPanePresentationSnapshot,
@@ -387,6 +388,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				}),
 	});
 	if (productTransport !== undefined) {
+		productTransport.setPaneSurfaceSelectionFrameSink?.((frame): void => {
+			port.postMessage(bridgeWorkerNativeSurfaceSelectionRequestFromMetadataFrame(frame));
+		});
 		productTransport.setPanePresentationFrameSink?.((frame): void => {
 			const application = panePresentationAuthority.apply(frame);
 			if (application.leftForeground) {

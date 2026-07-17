@@ -391,6 +391,7 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 			case 'slicePatch':
 				break;
 			case 'health':
+			case 'nativeSurfaceSelectionRequest':
 			case 'subscription':
 				break;
 			case 'reviewPierreRenderJob':

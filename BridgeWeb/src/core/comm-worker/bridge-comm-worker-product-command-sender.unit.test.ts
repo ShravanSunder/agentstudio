@@ -51,6 +51,7 @@ describe('Bridge comm worker product command sender', () => {
 				'review.activeViewerMode.update',
 				{
 					activeSource: { generation: 3, streamId: 'review-stream' },
+					nativeSelectionRequestId: 'native-selection-review',
 					sequence: 9,
 					sessionId: 'viewer-session',
 				},
@@ -59,6 +60,7 @@ describe('Bridge comm worker product command sender', () => {
 				'file.activeViewerMode.update',
 				{
 					activeSource: { generation: 3, streamId: 'file-stream' },
+					nativeSelectionRequestId: 'native-selection-file',
 					sequence: 9,
 					sessionId: 'viewer-session',
 				},
@@ -114,6 +116,7 @@ function activeModeCommand(
 				streamId: mode === 'review' ? 'review-stream' : 'file-stream',
 			},
 			mode,
+			nativeSelectionRequestId: `native-selection-${mode}`,
 			sequence: 9,
 			sessionId: 'viewer-session',
 		},

@@ -23,6 +23,7 @@ actor BridgePaneProductMetadataCoordinator {
         @MainActor @Sendable (BridgeProductAdmissionContext) -> BridgeReviewCommittedPublication?
     private let reviewMetadataSource: any BridgePaneProductReviewMetadataProducing
     private var latestPanePresentation: BridgePaneProductPresentationSnapshot?
+    private var latestPaneSurfaceSelectionRequest: BridgePaneSurfaceSelectionRequest?
     private var activeStream: ActiveStream?
     private var producerTaskLifecycle: BridgePaneProductMetadataProducerTaskLifecycle
     private var isClosed = false
@@ -388,6 +389,40 @@ actor BridgePaneProductMetadataCoordinator {
         await enqueueLatestPanePresentationIfPossible()
     }
 
+    func publishPaneSurfaceSelectionRequest(
+        _ request: BridgePaneSurfaceSelectionRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        guard !isClosed,
+            productAdmission.withValidAdmission({
+                if let latestPaneSurfaceSelectionRequest,
+                    request.selectionRevision <= latestPaneSurfaceSelectionRequest.selectionRevision
+                {
+                    return false
+                }
+                latestPaneSurfaceSelectionRequest = request
+                return true
+            }) == true
+        else {
+            return
+        }
+        await enqueueLatestPaneSurfaceSelectionRequestIfPossible()
+    }
+
+    func replayPaneSurfaceSelectionRequest() async {
+        await enqueueLatestPaneSurfaceSelectionRequestIfPossible()
+    }
+
+    func settlePaneSurfaceSelectionRequest(
+        requestId: String,
+        productAdmission: BridgeProductAdmissionContext
+    ) {
+        _ = productAdmission.withValidAdmission {
+            guard latestPaneSurfaceSelectionRequest?.requestId == requestId else { return }
+            latestPaneSurfaceSelectionRequest = nil
+        }
+    }
+
     private func enqueueLatestPanePresentationIfPossible() async {
         guard let activeStream, let snapshot = latestPanePresentation else { return }
         _ = try? await activeStream.session.enqueueProducerFrame(
@@ -408,6 +443,32 @@ actor BridgePaneProductMetadataCoordinator {
                         stream: activeStream.correlation,
                         streamSequence: streamSequence,
                         snapshot: snapshot
+                    )
+                )
+            }
+        )
+    }
+
+    private func enqueueLatestPaneSurfaceSelectionRequestIfPossible() async {
+        guard let activeStream, let request = latestPaneSurfaceSelectionRequest else { return }
+        _ = try? await activeStream.session.enqueueProducerFrame(
+            for: activeStream.lease,
+            productAdmission: activeStream.productAdmission,
+            build: { streamSequence in
+                try .metadata(
+                    .paneSurfaceSelectionRequested(
+                        stream: activeStream.correlation,
+                        streamSequence: streamSequence,
+                        request: request
+                    )
+                )
+            },
+            overflowReset: { streamSequence in
+                try .metadata(
+                    .paneSurfaceSelectionRequested(
+                        stream: activeStream.correlation,
+                        streamSequence: streamSequence,
+                        request: request
                     )
                 )
             }

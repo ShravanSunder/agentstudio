@@ -458,6 +458,7 @@ export class BridgeCommWorkerProductController {
 							generation: command.params.activeSource.generation,
 							streamId: command.params.activeSource.streamId,
 						},
+			nativeSelectionRequestId: command.params.nativeSelectionRequestId,
 			sequence: command.params.sequence,
 			sessionId: command.params.sessionId,
 		};

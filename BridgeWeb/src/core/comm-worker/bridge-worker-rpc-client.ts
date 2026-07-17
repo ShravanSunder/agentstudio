@@ -208,6 +208,8 @@ function bridgeWorkerMessageMatchesSurface(
 	switch (message.kind) {
 		case 'health':
 			return true;
+		case 'nativeSurfaceSelectionRequest':
+			return surface === 'pane';
 		case 'fileDisplayPatch':
 		case 'filePierreRenderJob':
 		case 'fileRenderPatch':

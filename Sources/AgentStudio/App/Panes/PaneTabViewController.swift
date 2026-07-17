@@ -169,6 +169,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private var lastFocusedTabId: UUID?
     private var lastFocusedPaneId: UUID?
     private var suppressedSelectionDrivenRefocus: (tabId: UUID?, paneId: UUID?)?
+    private var pendingBridgeAttendanceEventForNextFocus: BridgePaneAttendanceEvent?
     private var lastManagementLayerActive = false
     private var managementNavigationScope: WorkspaceNavigationFocusScope = .mainRow
     private let embedsTabBarInView: Bool
@@ -729,6 +730,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func handlePaneFocusTrigger(_ trigger: PaneFocusTrigger) {
+        let bridgeAttendanceEvent = pendingBridgeAttendanceEventForNextFocus ?? bridgeAttendanceEvent(for: trigger)
+        pendingBridgeAttendanceEventForNextFocus = nil
         guard let context = makePaneFocusContext(for: trigger) else {
             Self.logger.warning(
                 "Pane focus trigger dropped because context assembly failed trigger=\(String(describing: trigger), privacy: .public)"
@@ -736,9 +739,41 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
         let decision = PaneFocusOrchestrator.decide(trigger: trigger, context: context)
-        if !paneFocusExecutor.apply(decision) {
+        guard paneFocusExecutor.apply(decision) else {
             Self.logger.warning(
                 "Pane focus apply returned false for trigger \(String(describing: trigger), privacy: .public)")
+            return
+        }
+        if let bridgeAttendanceEvent,
+            let paneId = context.targetPaneId,
+            let pane = store.paneAtom.pane(paneId),
+            pane.residency == .active,
+            case .bridgePanel = pane.content
+        {
+            atom(\.bridgePaneAttendance).record(bridgeAttendanceEvent, for: paneId)
+        }
+    }
+
+    private func bridgeAttendanceEvent(for trigger: PaneFocusTrigger) -> BridgePaneAttendanceEvent? {
+        switch trigger {
+        case .contentClick, .keyboard:
+            return .paneFocus
+        case .tabClick:
+            return .tabActivation
+        case .drawer(let drawerTrigger):
+            if case .selectPane = drawerTrigger { return .paneFocus }
+            return nil
+        case .command(let commandTrigger):
+            switch commandTrigger {
+            case .focusPane:
+                return .paneFocus
+            case .selectTab:
+                return .tabActivation
+            case .paneCreated:
+                return .newTabCreation
+            }
+        case .mode, .refocusRequest:
+            return nil
         }
     }
 
@@ -2302,6 +2337,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     // MARK: - WorkspaceCommandHandling Conformance
 
+    func bridgePaneCommandTarget(worktreeId: UUID) -> BridgePaneCommandTarget? {
+        executor.resolveBridgePaneCommand(worktreeId: worktreeId)
+    }
+
     func execute(_ command: AppCommand) {
         if handlePaneFocusCommand(command) {
             return
@@ -2517,15 +2556,58 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .openWebview:
             executor.openWebview()
             return true
-        case .openBridgeReview:
-            executor.openBridgeReview()
-            return true
-        case .openBridgeFileView:
-            executor.openBridgeFileView()
-            return true
+        case .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
+            return executeBridgeSurfaceCommand(command, worktreeId: nil)
         default:
             return false
         }
+    }
+
+    private func executeBridgeSurfaceCommand(_ command: AppCommand, worktreeId: UUID?) -> Bool {
+        let surface: BridgeProductSurface
+        let alwaysCreate: Bool
+        switch command {
+        case .showBridgeReview:
+            surface = .review
+            alwaysCreate = false
+        case .showBridgeFiles:
+            surface = .file
+            alwaysCreate = false
+        case .openBridgeReviewInNewTab:
+            surface = .review
+            alwaysCreate = true
+        case .openBridgeFilesInNewTab:
+            surface = .file
+            alwaysCreate = true
+        default:
+            return false
+        }
+
+        if !alwaysCreate,
+            let target = executor.resolveBridgePaneCommand(worktreeId: worktreeId),
+            case .reuse(let paneId) = target.resolution
+        {
+            let previousOrdinal = atom(\.bridgePaneAttendance).ordinal(for: paneId)
+            pendingBridgeAttendanceEventForNextFocus = .defaultJump
+            focusTargetedPane(paneId)
+            guard atom(\.bridgePaneAttendance).ordinal(for: paneId) != previousOrdinal else {
+                return false
+            }
+            return executor.requestBridgePaneSurface(surface, paneId: paneId)
+        }
+
+        let pane =
+            switch surface {
+            case .review:
+                executor.openBridgeReviewInNewTab(worktreeId: worktreeId)
+            case .file:
+                executor.openBridgeFilesInNewTab(worktreeId: worktreeId)
+            }
+        guard let pane else { return false }
+        atom(\.bridgePaneAttendance).record(.newTabCreation, for: pane.id)
+        _ = executor.requestBridgePaneSurface(surface, paneId: pane.id)
+        return true
     }
 
     private func handleDirectCommand(_ command: AppCommand) {
@@ -3012,12 +3094,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return false
         }
         switch command {
-        case .openBridgeReview:
-            _ = executor.openBridgeReview(worktreeId: target)
-            return true
-        case .openBridgeFileView:
-            _ = executor.openBridgeFileView(worktreeId: target)
-            return true
+        case .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
+            return executeBridgeSurfaceCommand(command, worktreeId: target)
         default:
             return false
         }
@@ -3046,7 +3125,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return true
         }
 
-        if command == .openBridgeReview || command == .openBridgeFileView, targetType == .worktree {
+        if command == .showBridgeReview || command == .showBridgeFiles
+            || command == .openBridgeReviewInNewTab || command == .openBridgeFilesInNewTab,
+            targetType == .worktree
+        {
             return store.repositoryTopologyAtom.worktree(target) != nil
         }
 

@@ -40,6 +40,7 @@ final class AtomRegistry {
     let commandBarSurface: CommandBarSurfaceAtom
     let transientKeyboardSurface: TransientKeyboardSurfaceAtom
     let workspaceFocusOwner: WorkspaceFocusOwnerAtom
+    let bridgePaneAttendance: BridgePaneAttendanceAtom
     let sessionRuntime: SessionRuntimeAtom
     let welcome: WelcomeAtom
 
@@ -78,6 +79,7 @@ final class AtomRegistry {
         commandBarSurface: CommandBarSurfaceAtom = .init(),
         transientKeyboardSurface: TransientKeyboardSurfaceAtom = .init(),
         workspaceFocusOwner: WorkspaceFocusOwnerAtom = .init(),
+        bridgePaneAttendance: BridgePaneAttendanceAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init(),
         welcome: WelcomeAtom = .init()
     ) {
@@ -164,6 +166,7 @@ final class AtomRegistry {
         self.commandBarSurface = commandBarSurface
         self.transientKeyboardSurface = transientKeyboardSurface
         self.workspaceFocusOwner = workspaceFocusOwner
+        self.bridgePaneAttendance = bridgePaneAttendance
         self.sessionRuntime = sessionRuntime
         self.welcome = welcome
     }

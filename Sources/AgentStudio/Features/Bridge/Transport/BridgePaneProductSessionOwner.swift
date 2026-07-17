@@ -134,6 +134,10 @@ actor BridgePaneProductSessionOwner {
     private let provider: any BridgeProductSchemeProvider
     private var installationAwaitingRetirementRetry: BridgeProductSessionInstallation?
 
+    func activeBootstrap() -> BridgeProductSessionBootstrap? {
+        activeInstallation?.bootstrap
+    }
+
     init(
         paneSessionId: String,
         provider: any BridgeProductSchemeProvider,

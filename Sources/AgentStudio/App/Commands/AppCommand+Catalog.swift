@@ -851,7 +851,7 @@ extension AppCommand {
                 commandBarGroupName: "Webview",
                 commandBarGroupPriority: CommandBarGroupPriority.webview
             )
-        case .openBridgeReview:
+        case .showBridgeReview:
             return AppCommandSpec(
                 command: self,
                 label: "Review",
@@ -861,12 +861,32 @@ extension AppCommand {
                 commandBarGroupName: "Bridge",
                 commandBarGroupPriority: CommandBarGroupPriority.webview
             )
-        case .openBridgeFileView:
+        case .showBridgeFiles:
             return AppCommandSpec(
                 command: self,
                 label: "Files",
                 icon: .system(.folder),
                 helpText: "Open the worktree file viewer in a tab",
+                appliesTo: [.worktree],
+                commandBarGroupName: "Bridge",
+                commandBarGroupPriority: CommandBarGroupPriority.webview
+            )
+        case .openBridgeReviewInNewTab:
+            return AppCommandSpec(
+                command: self,
+                label: "Open Review in New Tab",
+                icon: .system(.rectangleSplit2x1),
+                helpText: "Open an independent read-only review in a new tab",
+                appliesTo: [.worktree],
+                commandBarGroupName: "Bridge",
+                commandBarGroupPriority: CommandBarGroupPriority.webview
+            )
+        case .openBridgeFilesInNewTab:
+            return AppCommandSpec(
+                command: self,
+                label: "Open Files in New Tab",
+                icon: .system(.folder),
+                helpText: "Open an independent worktree file viewer in a new tab",
                 appliesTo: [.worktree],
                 commandBarGroupName: "Bridge",
                 commandBarGroupPriority: CommandBarGroupPriority.webview

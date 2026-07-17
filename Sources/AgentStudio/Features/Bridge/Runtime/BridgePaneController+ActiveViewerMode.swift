@@ -7,9 +7,12 @@ extension BridgePaneController {
         sequence: Int,
         mode: BridgeActiveViewerMode,
         activeSource: BridgeActiveViewerSource?,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        nativeSelectionRequestId: String? = nil,
+        productCorrelation: BridgeProductControlCorrelation? = nil
     ) async {
         var rejectionReasons: [BridgeActiveViewerModeSignalRejectionReason] = []
+        var didAcceptSequence = false
         let isActiveSourceAccepted = activeSource.map { source in
             isCommittedProductActiveViewerSourceAccepted(
                 mode: mode,
@@ -37,6 +40,7 @@ extension BridgePaneController {
                 }
 
                 activeViewerModeSignalState.lastSequence = sequence
+                didAcceptSequence = true
                 guard let activeSource else {
                     activeViewerModeSignalState.acceptedSignal = nil
                     return
@@ -54,6 +58,29 @@ extension BridgePaneController {
             }) != nil
         else {
             return
+        }
+        var surfaceSelectionReceiptDisposition: BridgePaneSurfaceSelectionReceiptDisposition?
+        if didAcceptSequence,
+            let nativeSelectionRequestId,
+            let productCorrelation
+        {
+            surfaceSelectionReceiptDisposition = productAdmission.withValidAdmission {
+                surfaceSelectionAuthority.admitReceipt(
+                    nativeSelectionRequestId: nativeSelectionRequestId,
+                    mode: mode,
+                    paneSessionId: productCorrelation.paneSessionId,
+                    workerInstanceId: productCorrelation.workerInstanceId
+                )
+            }
+        }
+        if let nativeSelectionRequestId,
+            surfaceSelectionReceiptDisposition == .accepted
+                || surfaceSelectionReceiptDisposition == .idempotentReplay
+        {
+            await productSchemeProvider?.settlePaneSurfaceSelectionRequest(
+                requestId: nativeSelectionRequestId,
+                productAdmission: productAdmission
+            )
         }
         for rejectionReason in rejectionReasons {
             await recordActiveViewerModeSignalRejected(

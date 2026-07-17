@@ -83,6 +83,7 @@ final class BridgePaneProductCommittedCallTarget {
 
     func applyActiveViewerModeUpdate(
         _ call: BridgeProductCallRequest,
+        correlation: BridgeProductControlCorrelation,
         productAdmission: BridgeProductAdmissionContext
     ) async {
         let mode: BridgeActiveViewerMode
@@ -114,7 +115,9 @@ final class BridgePaneProductCommittedCallTarget {
             sequence: update.sequence,
             mode: mode,
             activeSource: activeSource,
-            productAdmission: productAdmission
+            productAdmission: productAdmission,
+            nativeSelectionRequestId: update.nativeSelectionRequestId,
+            productCorrelation: correlation
         )
     }
 
@@ -349,6 +352,16 @@ extension BridgePaneController {
                 return true
             }) == true
         else { return }
+        let surfaceSelectionSnapshot = surfaceSelectionAuthority.diagnosticSnapshot
+        if surfaceSelectionSnapshot.needsDelivery || surfaceSelectionSnapshot.currentRequest != nil,
+            let productSchemeProvider
+        {
+            await bindAndPublishRetainedSurfaceSelection(
+                productAdmission: productAdmission,
+                productSchemeProvider: productSchemeProvider,
+                bootstrap: installation.bootstrap
+            )
+        }
         do {
             try await productSessionBootstrapSink(
                 page,
@@ -491,9 +504,10 @@ extension BridgePaneController {
                     productAdmission: productAdmission
                 )
             },
-            applyActiveViewerModeUpdate: { call, productAdmission in
+            applyActiveViewerModeUpdate: { call, correlation, productAdmission in
                 await committedCallTarget.applyActiveViewerModeUpdate(
                     call,
+                    correlation: correlation,
                     productAdmission: productAdmission
                 )
             },

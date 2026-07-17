@@ -286,6 +286,10 @@ extension CommandBarDataSource {
     ) -> CommandBarLevel {
         let worktreeId = presence.worktreeId
         let newTabShortcut = ShortcutTrigger(key: .enter, modifiers: [.command])
+        let bridgeResolution =
+            AppCommandDispatcher.shared
+            .bridgePaneCommandTarget(worktreeId: worktreeId)?
+            .resolution ?? .create
         var items = [
             copyPathItem(id: "wt-\(worktreeId.uuidString)", path: worktree.path, group: "Open", groupPriority: 0),
             revealInFinderItem(id: "wt-\(worktreeId.uuidString)", path: worktree.path, group: "Open", groupPriority: 0),
@@ -299,27 +303,8 @@ extension CommandBarDataSource {
                 action: .dispatchTargeted(.openNewTerminalInTab, target: worktreeId, targetType: .worktree),
                 command: .openNewTerminalInTab
             ),
-            CommandBarItem(
-                id: "wt-review-\(worktreeId.uuidString)",
-                title: AppCommand.openBridgeReview.definition.label,
-                icon: AppCommand.openBridgeReview.definition.icon,
-                group: "Open",
-                groupPriority: 0,
-                keywords: ["review", "bridge", "diff"],
-                action: .dispatchTargeted(.openBridgeReview, target: worktreeId, targetType: .worktree),
-                command: .openBridgeReview
-            ),
-            CommandBarItem(
-                id: "wt-files-\(worktreeId.uuidString)",
-                title: AppCommand.openBridgeFileView.definition.label,
-                icon: AppCommand.openBridgeFileView.definition.icon,
-                group: "Open",
-                groupPriority: 0,
-                keywords: ["files", "bridge", "worktree"],
-                action: .dispatchTargeted(.openBridgeFileView, target: worktreeId, targetType: .worktree),
-                command: .openBridgeFileView
-            ),
         ]
+        items.append(contentsOf: bridgeWorktreeActionItems(worktreeId: worktreeId, resolution: bridgeResolution))
 
         if canOpenInCurrentTab {
             let currentTabShortcut = ShortcutTrigger(key: .enter, modifiers: [.option])
@@ -376,6 +361,62 @@ extension CommandBarDataSource {
             presence: presence,
             canOpenInCurrentTab: canOpenInCurrentTab
         )
+    }
+
+    private static func bridgeWorktreeActionItems(
+        worktreeId: UUID,
+        resolution: BridgePaneCommandResolution
+    ) -> [CommandBarItem] {
+        [
+            CommandBarItem(
+                id: "wt-review-\(worktreeId.uuidString)",
+                title: resolution.contextualLabel(for: .review),
+                icon: AppCommand.showBridgeReview.definition.icon,
+                group: "Open",
+                groupPriority: 0,
+                keywords: ["review", "bridge", "diff"],
+                action: .dispatchTargeted(.showBridgeReview, target: worktreeId, targetType: .worktree),
+                command: .showBridgeReview
+            ),
+            CommandBarItem(
+                id: "wt-files-\(worktreeId.uuidString)",
+                title: resolution.contextualLabel(for: .file),
+                icon: AppCommand.showBridgeFiles.definition.icon,
+                group: "Open",
+                groupPriority: 0,
+                keywords: ["files", "bridge", "worktree"],
+                action: .dispatchTargeted(.showBridgeFiles, target: worktreeId, targetType: .worktree),
+                command: .showBridgeFiles
+            ),
+            CommandBarItem(
+                id: "wt-review-new-tab-\(worktreeId.uuidString)",
+                title: AppCommand.openBridgeReviewInNewTab.definition.label,
+                icon: AppCommand.openBridgeReviewInNewTab.definition.icon,
+                group: "Open",
+                groupPriority: 0,
+                keywords: ["review", "bridge", "diff", "new", "tab"],
+                action: .dispatchTargeted(
+                    .openBridgeReviewInNewTab,
+                    target: worktreeId,
+                    targetType: .worktree
+                ),
+                command: .openBridgeReviewInNewTab
+            ),
+            CommandBarItem(
+                id: "wt-files-new-tab-\(worktreeId.uuidString)",
+                title: AppCommand.openBridgeFilesInNewTab.definition.label,
+                icon: AppCommand.openBridgeFilesInNewTab.definition.icon,
+                group: "Open",
+                groupPriority: 0,
+                keywords: ["files", "bridge", "worktree", "new", "tab"],
+                action: .dispatchTargeted(
+                    .openBridgeFilesInNewTab,
+                    target: worktreeId,
+                    targetType: .worktree
+                ),
+                command: .openBridgeFilesInNewTab
+            ),
+        ]
     }
 
     static func copyPathItem(

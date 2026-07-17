@@ -14,7 +14,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     }
 
     private let applyActiveViewerModeUpdate:
-        @MainActor @Sendable (BridgeProductCallRequest, BridgeProductAdmissionContext) async -> Void
+        @MainActor @Sendable (
+            BridgeProductCallRequest,
+            BridgeProductControlCorrelation,
+            BridgeProductAdmissionContext
+        ) async -> Void
     private let contentDemandAdmission: BridgeContentDemandAdmission
     private let fileContentReaderFactory: BridgePaneProductFileContentReaderFactory
     private let fileMetadataSource: any BridgePaneProductFileMetadataProducing
@@ -46,8 +50,9 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         applyActiveViewerModeUpdate:
             @escaping @MainActor @Sendable (
                 BridgeProductCallRequest,
+                BridgeProductControlCorrelation,
                 BridgeProductAdmissionContext
-            ) async -> Void = { _, _ in },
+            ) async -> Void = { _, _, _ in },
         initialPanePresentation: BridgePaneProductPresentationSnapshot? = nil,
         refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource,
         lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil,
@@ -174,7 +179,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             case .fileSourceCurrent:
                 break
             case .fileActiveViewerModeUpdate, .reviewActiveViewerModeUpdate:
-                await applyActiveViewerModeUpdate(committedProductCall, productAdmission)
+                await applyActiveViewerModeUpdate(
+                    committedProductCall,
+                    request.correlation,
+                    productAdmission
+                )
             case .reviewMarkFileViewed(let markRequest):
                 await markReviewItemViewed(markRequest.itemId, productAdmission)
             case .reviewIntakeReady(let intakeRequest):
@@ -237,6 +246,26 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         await metadataCoordinator.publishPanePresentation(snapshot)
     }
 
+    func publishPaneSurfaceSelectionRequest(
+        _ request: BridgePaneSurfaceSelectionRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        await metadataCoordinator.publishPaneSurfaceSelectionRequest(
+            request,
+            productAdmission: productAdmission
+        )
+    }
+
+    func settlePaneSurfaceSelectionRequest(
+        requestId: String,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        await metadataCoordinator.settlePaneSurfaceSelectionRequest(
+            requestId: requestId,
+            productAdmission: productAdmission
+        )
+    }
+
     func runMetadataProducer(
         request: BridgeProductMetadataStreamRequest,
         lease: BridgeProductProducerLease,
@@ -265,6 +294,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 }
             )
             await metadataCoordinator.replayPanePresentation()
+            await metadataCoordinator.replayPaneSurfaceSelectionRequest()
             await waitForProducerCancellation()
             await metadataCoordinator.uninstall(lease: lease)
         } catch {

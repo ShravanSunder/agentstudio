@@ -801,6 +801,7 @@ describe('Bridge comm worker command handler', () => {
 					sequence: 2,
 					mode: 'review',
 					activeSource: null,
+					nativeSelectionRequestId: null,
 				},
 			}),
 		);

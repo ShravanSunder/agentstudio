@@ -352,6 +352,29 @@ extension BridgeProductPanePresentationFrame {
     }
 }
 
+extension BridgeProductPaneSurfaceSelectionRequestedFrame {
+    init(
+        stream: BridgeProductMetadataStreamCorrelation,
+        streamSequence: Int,
+        request: BridgePaneSurfaceSelectionRequest
+    ) throws {
+        try BridgeProductContractDecoding.validatePositive(
+            streamSequence,
+            name: "streamSequence",
+            codingPath: []
+        )
+        try BridgeProductContractDecoding.validatePositive(
+            request.selectionRevision,
+            name: "selectionRevision",
+            codingPath: []
+        )
+        frameIdentity = .init(correlation: stream, streamSequence: streamSequence)
+        requestId = request.requestId
+        selectionRevision = request.selectionRevision
+        surface = request.surface
+    }
+}
+
 extension BridgeProductMetadataFrame {
     static func metadataStreamAccepted(
         for request: BridgeProductMetadataStreamRequest,
@@ -376,6 +399,20 @@ extension BridgeProductMetadataFrame {
                 stream: stream,
                 streamSequence: streamSequence,
                 snapshot: snapshot
+            )
+        )
+    }
+
+    static func paneSurfaceSelectionRequested(
+        stream: BridgeProductMetadataStreamCorrelation,
+        streamSequence: Int,
+        request: BridgePaneSurfaceSelectionRequest
+    ) throws -> Self {
+        .paneSurfaceSelectionRequested(
+            try .init(
+                stream: stream,
+                streamSequence: streamSequence,
+                request: request
             )
         )
     }

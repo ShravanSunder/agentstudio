@@ -6,7 +6,7 @@ import Testing
 extension WebKitSerializedTests {
     /// End-to-end Review package load through the production git provider and
     /// direct product metadata source against a real git repository. Mirrors
-    /// the shape a workspace pane gets from `openBridgeReview`: `.workspace`
+    /// the shape a workspace pane gets from `openBridgeReviewInNewTab`: `.workspace`
     /// with the `.localDefaultBranch("main")` baseline over a single-commit
     /// repository containing working-tree changes.
     @MainActor

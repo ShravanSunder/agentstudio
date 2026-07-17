@@ -337,6 +337,91 @@ extension WebKitSerializedTests {
             #expect(controller.activeViewerModeSignalState.acceptedSignal == nil)
         }
 
+        @Test("accepted active-viewer sequence admits the exact native surface receipt")
+        func acceptedSequenceAdmitsExactNativeSurfaceReceipt() async throws {
+            let controller = makeController()
+            defer { controller.teardown() }
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let bootstrap = try #require(await controller.productSessionOwner.activeBootstrap())
+            controller.surfaceSelectionAuthority.retainIntent(surface: .file)
+            let requestCandidate = try controller.surfaceSelectionAuthority.bindRetainedIntent(
+                paneSessionId: bootstrap.paneSessionId,
+                workerInstanceId: bootstrap.workerInstanceId
+            )
+            let request = try #require(requestCandidate)
+            let correlation = try BridgeProductControlCorrelation(
+                paneSessionId: bootstrap.paneSessionId,
+                requestId: "active-viewer-native-receipt",
+                requestSequence: 1,
+                workerInstanceId: bootstrap.workerInstanceId
+            )
+
+            await controller.handleCommittedProductActiveViewerModeUpdate(
+                sessionId: "product-session",
+                sequence: 1,
+                mode: .file,
+                activeSource: nil,
+                productAdmission: productAdmission,
+                nativeSelectionRequestId: request.requestId,
+                productCorrelation: correlation
+            )
+
+            #expect(
+                controller.surfaceSelectionAuthority.admitReceipt(
+                    nativeSelectionRequestId: request.requestId,
+                    mode: .file,
+                    paneSessionId: bootstrap.paneSessionId,
+                    workerInstanceId: bootstrap.workerInstanceId
+                ) == .idempotentReplay
+            )
+        }
+
+        @Test("stale active-viewer sequence cannot consume a native surface receipt")
+        func staleSequenceCannotConsumeNativeSurfaceReceipt() async throws {
+            let controller = makeController()
+            defer { controller.teardown() }
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let bootstrap = try #require(await controller.productSessionOwner.activeBootstrap())
+            await controller.handleCommittedProductActiveViewerModeUpdate(
+                sessionId: "product-session",
+                sequence: 2,
+                mode: .file,
+                activeSource: nil,
+                productAdmission: productAdmission
+            )
+            controller.surfaceSelectionAuthority.retainIntent(surface: .review)
+            let requestCandidate = try controller.surfaceSelectionAuthority.bindRetainedIntent(
+                paneSessionId: bootstrap.paneSessionId,
+                workerInstanceId: bootstrap.workerInstanceId
+            )
+            let request = try #require(requestCandidate)
+            let correlation = try BridgeProductControlCorrelation(
+                paneSessionId: bootstrap.paneSessionId,
+                requestId: "stale-active-viewer-native-receipt",
+                requestSequence: 2,
+                workerInstanceId: bootstrap.workerInstanceId
+            )
+
+            await controller.handleCommittedProductActiveViewerModeUpdate(
+                sessionId: "product-session",
+                sequence: 1,
+                mode: .review,
+                activeSource: nil,
+                productAdmission: productAdmission,
+                nativeSelectionRequestId: request.requestId,
+                productCorrelation: correlation
+            )
+
+            #expect(
+                controller.surfaceSelectionAuthority.admitReceipt(
+                    nativeSelectionRequestId: request.requestId,
+                    mode: .review,
+                    paneSessionId: bootstrap.paneSessionId,
+                    workerInstanceId: bootstrap.workerInstanceId
+                ) == .accepted
+            )
+        }
+
         private func makeController() -> BridgePaneController {
             BridgePaneController(
                 paneId: UUIDv7.generate(),

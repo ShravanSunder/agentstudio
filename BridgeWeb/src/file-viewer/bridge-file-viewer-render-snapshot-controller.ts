@@ -318,6 +318,7 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 			case 'health':
 				publishBridgeProductMetadataStreamDiagnostic(message.diagnostic);
 				break;
+			case 'nativeSurfaceSelectionRequest':
 			case 'subscription':
 				break;
 			default:

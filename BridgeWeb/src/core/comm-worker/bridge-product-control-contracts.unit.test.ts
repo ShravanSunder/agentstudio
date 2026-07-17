@@ -16,6 +16,7 @@ describe('Bridge product-control contracts', () => {
 							streamId: 'review-stream',
 						},
 						mode: 'review',
+						nativeSelectionRequestId: null,
 						sequence: 9,
 						sessionId: 'viewer-session',
 					},

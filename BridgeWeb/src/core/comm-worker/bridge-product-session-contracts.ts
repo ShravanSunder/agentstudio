@@ -25,6 +25,7 @@ import {
 	bridgeProductResetReasonSchema,
 	bridgeProductSafeMessageSchema,
 	bridgeProductSha256Schema,
+	bridgeProductSurfaceSchema,
 } from './bridge-product-contract-primitives.js';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT,
@@ -370,6 +371,16 @@ const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', 
 					{ message: 'Bridge pane refreshing lanes must be unique and canonical.' },
 				),
 			streamSequence: bridgeProductPositiveSequenceSchema,
+		})
+		.strict(),
+	z
+		.object({
+			...bridgeProductMetadataFrameIdentityShape,
+			kind: z.literal('pane.surfaceSelectionRequested'),
+			requestId: bridgeProductIdentifierSchema,
+			selectionRevision: bridgeProductPositiveSequenceSchema,
+			streamSequence: bridgeProductPositiveSequenceSchema,
+			surface: bridgeProductSurfaceSchema,
 		})
 		.strict(),
 	z

@@ -84,6 +84,7 @@ describe('Bridge comm worker protocol', () => {
 						streamId: 'worktree-file:pane-1',
 						generation: 3,
 					},
+					nativeSelectionRequestId: null,
 				},
 			}),
 		] satisfies readonly BridgeWorkerMainToServerCommand[];

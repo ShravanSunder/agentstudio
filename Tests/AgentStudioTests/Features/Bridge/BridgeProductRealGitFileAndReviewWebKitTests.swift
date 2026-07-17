@@ -268,6 +268,15 @@ extension WebKitSerializedTests {
             #expect(proof.fileStateAfterReturn.activeMode == "file")
         }
 
+        @Test("native named surfaces retain independent hosted File and Review state")
+        func nativeNamedSurfacesRetainIndependentHostedFileAndReviewState() async throws {
+            // Arrange / Act
+            let proof = try await BridgeProductWebKitSurfaceJourneyTestSupport.run()
+
+            // Assert
+            BridgeProductWebKitSurfaceJourneyTestSupport.assertProof(proof)
+        }
+
         private func makeTransactionalPublicationHarness(
             repoURL: URL
         ) -> TransactionalPublicationHarness {
@@ -382,9 +391,10 @@ extension WebKitSerializedTests {
                         productAdmission: productAdmission
                     )
                 },
-                applyActiveViewerModeUpdate: { call, productAdmission in
+                applyActiveViewerModeUpdate: { call, correlation, productAdmission in
                     await committedCallTarget.applyActiveViewerModeUpdate(
                         call,
+                        correlation: correlation,
                         productAdmission: productAdmission
                     )
                 },

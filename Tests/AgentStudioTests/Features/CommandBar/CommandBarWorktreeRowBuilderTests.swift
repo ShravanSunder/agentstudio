@@ -55,19 +55,23 @@ struct CommandBarWorktreeRowBuilderTests {
         #expect(level.title == "main")
         #expect(level.parentLabel == "repo")
         #expect(level.scopeLabel == "repo")
-        #expect(level.items.count == 8)
-        #expect(level.items.filter { $0.group == "Open" }.count == 6)
+        #expect(level.items.count == 10)
+        #expect(level.items.filter { $0.group == "Open" }.count == 8)
         #expect(level.items.filter { $0.group == "Navigate to" }.count == 2)
         #expect(level.items.contains { $0.id == "wt-new-tab-\(worktree.id.uuidString)" })
         #expect(level.items.contains { $0.id == "wt-review-\(worktree.id.uuidString)" })
         #expect(level.items.contains { $0.id == "wt-files-\(worktree.id.uuidString)" })
+        #expect(level.items.contains { $0.id == "wt-review-new-tab-\(worktree.id.uuidString)" })
+        #expect(level.items.contains { $0.id == "wt-files-new-tab-\(worktree.id.uuidString)" })
         #expect(level.items.contains { $0.id == "wt-add-pane-\(worktree.id.uuidString)" })
         #expect(level.items[0].id == "wt-\(worktree.id.uuidString)-copy-path")
         #expect(level.items[1].id == "wt-\(worktree.id.uuidString)-reveal-finder")
         #expect(level.items[2].id == "wt-new-tab-\(worktree.id.uuidString)")
         #expect(level.items[3].id == "wt-review-\(worktree.id.uuidString)")
         #expect(level.items[4].id == "wt-files-\(worktree.id.uuidString)")
-        #expect(level.items[5].id == "wt-add-pane-\(worktree.id.uuidString)")
+        #expect(level.items[5].id == "wt-review-new-tab-\(worktree.id.uuidString)")
+        #expect(level.items[6].id == "wt-files-new-tab-\(worktree.id.uuidString)")
+        #expect(level.items[7].id == "wt-add-pane-\(worktree.id.uuidString)")
     }
 
     @Test
@@ -76,15 +80,69 @@ struct CommandBarWorktreeRowBuilderTests {
 
         let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: false)
 
-        #expect(level.items.count == 5)
+        #expect(level.items.count == 7)
         #expect(level.items[2].id == "wt-new-tab-\(presence.worktreeId.uuidString)")
         #expect(level.items[3].id == "wt-review-\(presence.worktreeId.uuidString)")
         #expect(level.items[4].id == "wt-files-\(presence.worktreeId.uuidString)")
+        #expect(level.items[5].id == "wt-review-new-tab-\(presence.worktreeId.uuidString)")
+        #expect(level.items[6].id == "wt-files-new-tab-\(presence.worktreeId.uuidString)")
         #expect(level.items.allSatisfy { $0.id != "wt-add-pane-\(presence.worktreeId.uuidString)" })
     }
 
     @Test
-    func test_buildWorktreeActionsLevel_usesExistingTargetedCommands() {
+    func test_buildWorktreeActionsLevel_usesOpenLabelsWhenBridgePaneWillBeCreated() async throws {
+        let presence = makeWorktreePresence(paneCount: 0)
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = nil
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                let level = CommandBarDataSource.buildWorktreeActionsLevel(
+                    presence: presence,
+                    canOpenInCurrentTab: true
+                )
+
+                #expect(level.items[3].title == "Open Review")
+                #expect(level.items[4].title == "Open Files")
+                #expect(level.items[5].title == "Open Review in New Tab")
+                #expect(level.items[6].title == "Open Files in New Tab")
+            }
+        )
+    }
+
+    @Test
+    func test_buildWorktreeActionsLevel_usesGoToLabelsForResolvedBridgePane() async throws {
+        let presence = makeWorktreePresence(paneCount: 0)
+        let handler = BridgePaneCommandTargetHandler(
+            target: BridgePaneCommandTarget(
+                worktreeId: presence.worktreeId,
+                resolution: .reuse(paneId: UUID())
+            )
+        )
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = handler
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                let level = CommandBarDataSource.buildWorktreeActionsLevel(
+                    presence: presence,
+                    canOpenInCurrentTab: true
+                )
+
+                #expect(level.items[3].title == "Go to Review")
+                #expect(level.items[4].title == "Go to Files")
+                #expect(level.items[5].title == "Open Review in New Tab")
+                #expect(level.items[6].title == "Open Files in New Tab")
+            }
+        )
+    }
+
+    @Test
+    func test_buildWorktreeActionsLevel_usesFourBridgeTargetedCommands() {
         let presence = makeWorktreePresence(paneCount: 1)
 
         let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: true)
@@ -98,23 +156,41 @@ struct CommandBarWorktreeRowBuilderTests {
         #expect(newTabTarget == presence.worktreeId)
 
         guard
-            case .dispatchTargeted(.openBridgeReview, let reviewTarget, .worktree) = level.items[3].action
+            case .dispatchTargeted(.showBridgeReview, let reviewTarget, .worktree) = level.items[3].action
         else {
-            Issue.record("Expected review row to dispatch existing openBridgeReview command")
+            Issue.record("Expected review row to dispatch showBridgeReview command")
             return
         }
         #expect(reviewTarget == presence.worktreeId)
 
         guard
-            case .dispatchTargeted(.openBridgeFileView, let filesTarget, .worktree) = level.items[4].action
+            case .dispatchTargeted(.showBridgeFiles, let filesTarget, .worktree) = level.items[4].action
         else {
-            Issue.record("Expected files row to dispatch existing openBridgeFileView command")
+            Issue.record("Expected files row to dispatch showBridgeFiles command")
             return
         }
         #expect(filesTarget == presence.worktreeId)
 
         guard
-            case .dispatchTargeted(.openWorktreeInPane, let splitTarget, .worktree) = level.items[5].action
+            case .dispatchTargeted(.openBridgeReviewInNewTab, let reviewNewTabTarget, .worktree) =
+                level.items[5].action
+        else {
+            Issue.record("Expected review new-tab row to dispatch openBridgeReviewInNewTab command")
+            return
+        }
+        #expect(reviewNewTabTarget == presence.worktreeId)
+
+        guard
+            case .dispatchTargeted(.openBridgeFilesInNewTab, let filesNewTabTarget, .worktree) =
+                level.items[6].action
+        else {
+            Issue.record("Expected files new-tab row to dispatch openBridgeFilesInNewTab command")
+            return
+        }
+        #expect(filesNewTabTarget == presence.worktreeId)
+
+        guard
+            case .dispatchTargeted(.openWorktreeInPane, let splitTarget, .worktree) = level.items[7].action
         else {
             Issue.record("Expected current-tab row to dispatch existing openWorktreeInPane command")
             return
@@ -407,4 +483,33 @@ private final class PathActionRecorder: PathActionsExecuting, @unchecked Sendabl
         revealedPaths.append(path)
         return revealSucceeds
     }
+}
+
+@MainActor
+private final class BridgePaneCommandTargetHandler: WorkspaceCommandHandling {
+    private let target: BridgePaneCommandTarget
+
+    init(target: BridgePaneCommandTarget) {
+        self.target = target
+    }
+
+    func execute(_: AppCommand) {}
+
+    func execute(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
+
+    func canExecute(_: AppCommand) -> Bool {
+        true
+    }
+
+    func canExecute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
+        true
+    }
+
+    func bridgePaneCommandTarget(worktreeId: UUID) -> BridgePaneCommandTarget? {
+        target.worktreeId == worktreeId ? target : nil
+    }
+
+    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabIndex _: Int?) {}
+
+    func executeMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
 }

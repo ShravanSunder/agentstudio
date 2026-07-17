@@ -5,6 +5,7 @@ import { bridgeProductReviewContentDescriptorSchema } from './bridge-product-con
 import {
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
+	bridgeProductPositiveSequenceSchema,
 	bridgeProductSurfaceSchema,
 	type BridgeProductSurface,
 } from './bridge-product-contract-primitives.js';
@@ -784,6 +785,18 @@ export const bridgeWorkerSubscriptionEventSchema = bridgeWorkerServerToMainBaseS
 	})
 	.strict();
 
+export const bridgeWorkerNativeSurfaceSelectionRequestSchema = bridgeWorkerServerToMainBaseSchema
+	.extend({
+		kind: z.literal('nativeSurfaceSelectionRequest'),
+		metadataStreamId: bridgeProductIdentifierSchema,
+		nativeSelectionRequestId: bridgeProductIdentifierSchema,
+		paneSessionId: bridgeProductIdentifierSchema,
+		selectionRevision: bridgeProductPositiveSequenceSchema,
+		surface: bridgeProductSurfaceSchema,
+		workerInstanceId: bridgeProductIdentifierSchema,
+	})
+	.strict();
+
 export const bridgeWorkerReviewPierreRenderJobEventSchema = bridgeWorkerServerToMainBaseSchema
 	.extend({
 		...bridgeWorkerSurfacePublicationEnvelopeShape,
@@ -859,6 +872,7 @@ export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind'
 	bridgeWorkerFileRenderPatchEventSchema,
 	bridgeWorkerReviewRenderPatchEventSchema,
 	bridgeWorkerSubscriptionEventSchema,
+	bridgeWorkerNativeSurfaceSelectionRequestSchema,
 	bridgeWorkerReviewPierreRenderJobEventSchema,
 	bridgeWorkerFilePierreRenderJobEventSchema,
 ]);
@@ -886,6 +900,9 @@ export type BridgeWorkerReviewRenderPatchEvent = BridgeWorkerSurfacePublicationE
 	BridgeWorkerReviewRenderPatchEventValue
 >;
 export type BridgeWorkerSubscriptionEvent = z.infer<typeof bridgeWorkerSubscriptionEventSchema>;
+export type BridgeWorkerNativeSurfaceSelectionRequest = z.infer<
+	typeof bridgeWorkerNativeSurfaceSelectionRequestSchema
+>;
 type BridgeWorkerReviewPierreRenderJobEventValue = z.infer<
 	typeof bridgeWorkerReviewPierreRenderJobEventSchema
 >;

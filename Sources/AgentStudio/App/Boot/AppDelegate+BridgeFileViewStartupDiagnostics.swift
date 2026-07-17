@@ -28,7 +28,7 @@ import Foundation
                 return
             }
 
-            guard let pane = workspaceSurfaceCoordinator.openBridgeFileView(worktreeId: worktreeId) else {
+            guard let pane = workspaceSurfaceCoordinator.openBridgeFilesInNewTab(worktreeId: worktreeId) else {
                 recordBridgeFileViewObservabilitySmokeSkipped(
                     action: action,
                     reason: "bridge_file_pane_creation_failed"
@@ -91,7 +91,7 @@ import Foundation
                 return
             }
 
-            guard let pane = executor.openBridgeFileView() else {
+            guard let pane = executor.openBridgeFilesInNewTab() else {
                 recordBridgeFileViewObservabilitySmokeSkipped(
                     action: action,
                     reason: "bridge_file_command_route_pane_creation_failed"
@@ -165,7 +165,7 @@ import Foundation
                 return
             }
 
-            guard let pane = workspaceSurfaceCoordinator.openBridgeFileView(worktreeId: targetWorktree.id) else {
+            guard let pane = workspaceSurfaceCoordinator.openBridgeFilesInNewTab(worktreeId: targetWorktree.id) else {
                 recordBridgeFileViewObservabilitySmokeSkipped(
                     action: action,
                     reason: "bridge_file_targeted_route_pane_creation_failed"
@@ -218,7 +218,7 @@ import Foundation
                 return
             }
 
-            guard let pane = workspaceSurfaceCoordinator.openBridgeReview(worktreeId: worktreeId) else {
+            guard let pane = workspaceSurfaceCoordinator.openBridgeReviewInNewTab(worktreeId: worktreeId) else {
                 recordBridgeFileViewObservabilitySmokeSkipped(
                     action: action,
                     reason: "bridge_review_pane_creation_failed"

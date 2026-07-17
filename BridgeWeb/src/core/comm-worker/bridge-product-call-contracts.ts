@@ -51,6 +51,7 @@ const bridgeProductActiveViewerSourceBaseSchema = z
 export const bridgeProductReviewActiveViewerModeUpdateRequestSchema = z
 	.object({
 		activeSource: bridgeProductActiveViewerSourceBaseSchema.nullable(),
+		nativeSelectionRequestId: bridgeProductIdentifierSchema.nullable(),
 		sequence: z.number().int().positive(),
 		sessionId: bridgeProductIdentifierSchema,
 	})
@@ -58,6 +59,7 @@ export const bridgeProductReviewActiveViewerModeUpdateRequestSchema = z
 export const bridgeProductFileActiveViewerModeUpdateRequestSchema = z
 	.object({
 		activeSource: bridgeProductActiveViewerSourceBaseSchema.nullable(),
+		nativeSelectionRequestId: bridgeProductIdentifierSchema.nullable(),
 		sequence: z.number().int().positive(),
 		sessionId: bridgeProductIdentifierSchema,
 	})

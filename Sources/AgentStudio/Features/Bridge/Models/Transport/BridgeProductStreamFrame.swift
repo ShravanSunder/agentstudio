@@ -235,6 +235,7 @@ struct BridgeProductSubscriptionFrameIdentity: Codable, Equatable, Sendable {
 enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
     case metadataStreamAccepted(BridgeProductMetadataStreamAcceptedFrame)
     case panePresentation(BridgeProductPanePresentationFrame)
+    case paneSurfaceSelectionRequested(BridgeProductPaneSurfaceSelectionRequestedFrame)
     case subscriptionAccepted(BridgeProductSubscriptionAcceptedFrame)
     case subscriptionInterestsCommitted(BridgeProductSubscriptionInterestsCommittedFrame)
     case subscriptionData(BridgeProductSubscriptionDataFrame)
@@ -252,6 +253,7 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
         switch self {
         case .metadataStreamAccepted: "metadataStream.accepted"
         case .panePresentation: "pane.presentation"
+        case .paneSurfaceSelectionRequested: "pane.surfaceSelectionRequested"
         case .subscriptionAccepted: "subscription.accepted"
         case .subscriptionInterestsCommitted: "subscription.interestsCommitted"
         case .subscriptionData: "subscription.data"
@@ -270,6 +272,10 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
             self = .metadataStreamAccepted(try BridgeProductMetadataStreamAcceptedFrame(from: decoder))
         case "pane.presentation":
             self = .panePresentation(try BridgeProductPanePresentationFrame(from: decoder))
+        case "pane.surfaceSelectionRequested":
+            self = .paneSurfaceSelectionRequested(
+                try BridgeProductPaneSurfaceSelectionRequestedFrame(from: decoder)
+            )
         case "subscription.accepted":
             self = .subscriptionAccepted(try BridgeProductSubscriptionAcceptedFrame(from: decoder))
         case "subscription.interestsCommitted":
@@ -301,6 +307,7 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
         switch self {
         case .metadataStreamAccepted(let frame): try frame.encode(to: encoder)
         case .panePresentation(let frame): try frame.encode(to: encoder)
+        case .paneSurfaceSelectionRequested(let frame): try frame.encode(to: encoder)
         case .subscriptionAccepted(let frame): try frame.encode(to: encoder)
         case .subscriptionInterestsCommitted(let frame): try frame.encode(to: encoder)
         case .subscriptionData(let frame): try frame.encode(to: encoder)
@@ -310,6 +317,63 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
         case .contentCancelled(let frame): try frame.encode(to: encoder)
         case .metadataStreamError(let frame): try frame.encode(to: encoder)
         }
+    }
+}
+
+struct BridgeProductPaneSurfaceSelectionRequestedFrame: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case kind
+        case requestId
+        case selectionRevision
+        case surface
+    }
+
+    let frameIdentity: BridgeProductMetadataFrameIdentity
+    let requestId: String
+    let selectionRevision: Int
+    let surface: BridgeProductSurface
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: BridgeProductMetadataFrameIdentity.codingKeyNames.union(
+                CodingKeys.allCases.map(\.rawValue)
+            ),
+            contract: "pane.surfaceSelectionRequested frame"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard try container.decode(String.self, forKey: .kind) == "pane.surfaceSelectionRequested" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid pane.surfaceSelectionRequested frame kind",
+                codingPath: decoder.codingPath
+            )
+        }
+        requestId = try container.decode(String.self, forKey: .requestId)
+        selectionRevision = try container.decode(Int.self, forKey: .selectionRevision)
+        surface = try container.decode(BridgeProductSurface.self, forKey: .surface)
+        frameIdentity = try BridgeProductMetadataFrameIdentity(from: decoder)
+        try frameIdentity.validateProgressSequence(codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(requestId, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validatePositive(
+            selectionRevision,
+            name: "selectionRevision",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateMaximum(
+            selectionRevision,
+            maximum: BridgeProductWireContract.maximumSafeInteger,
+            name: "selectionRevision",
+            codingPath: decoder.codingPath
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try frameIdentity.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode("pane.surfaceSelectionRequested", forKey: .kind)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(selectionRevision, forKey: .selectionRevision)
+        try container.encode(surface, forKey: .surface)
     }
 }
 

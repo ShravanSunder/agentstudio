@@ -57,8 +57,10 @@ final class BridgePaneController {
     var activeReviewRefreshTask: Task<Void, Never>?
     var productPresentationTransitionGeneration: UInt64 = 0
     var productPresentationTransitionTail: Task<Void, Never>?
+    var surfaceSelectionTransitionTail: Task<Void, Never>?
     var pendingReviewPackageBuildReasons: Set<BridgeReviewPackageBuildReason> = []
     var activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
+    var surfaceSelectionAuthority = BridgePaneSurfaceSelectionAuthority()
 
     // MARK: - Private State
 
@@ -343,8 +345,10 @@ final class BridgePaneController {
             let reviewContentLoaderCache = reviewContentLoaderCache
             let productSchemeProvider = productSchemeProvider
             let productPresentationTransitionTail = productPresentationTransitionTail
+            let surfaceSelectionTransitionTail = surfaceSelectionTransitionTail
             teardownCleanupTask = Task {
                 await productPresentationTransitionTail?.value
+                await surfaceSelectionTransitionTail?.value
                 async let contentDemandDrain: Void? = productSchemeProvider?.closeAndDrain()
                 await reviewContentLoaderCache.closeAndDrain()
                 _ = await contentDemandDrain

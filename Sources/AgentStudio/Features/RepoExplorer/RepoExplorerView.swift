@@ -483,6 +483,10 @@ struct RepoExplorerView: View {
                             ),
                             branchStatus: worktreeStatusById[resolvedWorktreeContext.worktree.id] ?? .unknown,
                             unreadCount: unreadCount(resolvedWorktreeContext.worktree),
+                            bridgeCommandResolution: AppCommandDispatcher.shared
+                                .bridgePaneCommandTarget(
+                                    worktreeId: resolvedWorktreeContext.worktree.id
+                                )?.resolution ?? .create,
                             onUnreadPillTap: {
                                 onShowNotificationsForWorktree(resolvedWorktreeContext.worktree)
                             },
@@ -502,14 +506,28 @@ struct RepoExplorerView: View {
                             },
                             onReview: {
                                 AppCommandDispatcher.shared.dispatch(
-                                    .openBridgeReview,
+                                    .showBridgeReview,
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
                                 )
                             },
                             onOpenFiles: {
                                 AppCommandDispatcher.shared.dispatch(
-                                    .openBridgeFileView,
+                                    .showBridgeFiles,
+                                    target: resolvedWorktreeContext.worktree.id,
+                                    targetType: .worktree
+                                )
+                            },
+                            onOpenReviewInNewTab: {
+                                AppCommandDispatcher.shared.dispatch(
+                                    .openBridgeReviewInNewTab,
+                                    target: resolvedWorktreeContext.worktree.id,
+                                    targetType: .worktree
+                                )
+                            },
+                            onOpenFilesInNewTab: {
+                                AppCommandDispatcher.shared.dispatch(
+                                    .openBridgeFilesInNewTab,
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
                                 )
