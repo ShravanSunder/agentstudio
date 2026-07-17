@@ -9,18 +9,31 @@ struct WorkspaceEqualizePanesRequest: Equatable, Sendable {
     let tabID: UUID
 }
 
+struct WorkspaceEqualizeDrawerPanesRequest: Equatable, Sendable {
+    let tabID: UUID
+    let drawerID: UUID
+}
+
 struct WorkspaceRenameArrangementRequest: Equatable, Sendable {
     let tabID: UUID
     let arrangementID: UUID
     let name: String
 }
 
-enum WorkspaceTabGraphLeafTransitionRejection: Equatable, Sendable {
+enum WorkspaceTabGraphLeafPlanningContext: Equatable, Sendable {
+    case missingTab
+    case present(TabGraphState)
+}
+
+enum WorkspaceTabGraphLeafTransitionRejection: Error, Equatable, Sendable {
     case defaultArrangementCannotBeRenamed(tabID: UUID, arrangementID: UUID)
+    case drawerNotSplit(tabID: UUID, arrangementID: UUID, drawerID: UUID)
     case emptyArrangementName(UUID)
     case missingActiveArrangement(UUID)
     case missingArrangement(tabID: UUID, arrangementID: UUID)
+    case missingDrawer(tabID: UUID, arrangementID: UUID, drawerID: UUID)
     case missingTab(UUID)
+    case tabIdentityMismatch(requested: UUID, actual: UUID)
     case tabNotSplit(UUID)
 }
 
@@ -29,45 +42,45 @@ enum WorkspaceTabGraphLeafReadWitness: Equatable, Sendable {
     case activeArrangement(tabID: UUID, expected: WorkspaceActiveArrangementSelection)
 }
 
+// Pane-residency lifecycle transitions retain tab order while removing or
+// restoring whole tab ownership. The leaf family below intentionally does not
+// use this ordering witness.
 struct WorkspaceIndexedTabGraphState: Equatable, Sendable {
     let index: Int
     let state: TabGraphState
 }
 
-struct WorkspaceIndexedTabGraphReplacement: Equatable, Sendable {
-    let previous: WorkspaceIndexedTabGraphState
-    let replacement: WorkspaceIndexedTabGraphState
-}
-
 struct WorkspaceTabGraphLeafTransition: Equatable, Sendable {
-    let replacementTabStates: [TabGraphState]
-    let affectedTab: WorkspaceIndexedTabGraphReplacement
+    let previousTab: TabGraphState
+    let replacementTab: TabGraphState
     let readWitness: WorkspaceTabGraphLeafReadWitness
 
     fileprivate init(
-        replacementTabStates: [TabGraphState],
-        affectedTab: WorkspaceIndexedTabGraphReplacement,
+        previousTab: TabGraphState,
+        replacementTab: TabGraphState,
         readWitness: WorkspaceTabGraphLeafReadWitness
     ) {
         precondition(
-            affectedTab.previous.state.tabId == affectedTab.replacement.state.tabId,
+            previousTab.tabId == replacementTab.tabId,
             "a tab-graph leaf transition must preserve tab identity"
         )
         precondition(
-            affectedTab.previous.index == affectedTab.replacement.index,
-            "a tab-graph leaf transition must preserve tab order"
-        )
-        precondition(
-            affectedTab.previous.state != affectedTab.replacement.state,
+            previousTab != replacementTab,
             "a changed tab-graph leaf transition requires distinct states"
         )
-        self.replacementTabStates = replacementTabStates
-        self.affectedTab = affectedTab
+        self.previousTab = previousTab
+        self.replacementTab = replacementTab
         self.readWitness = readWitness
     }
 }
 
 enum WorkspaceEqualizePanesTransitionDecision: Equatable, Sendable {
+    case changed(WorkspaceTabGraphLeafTransition)
+    case unchanged
+    case rejected(WorkspaceTabGraphLeafTransitionRejection)
+}
+
+enum WorkspaceEqualizeDrawerPanesTransitionDecision: Equatable, Sendable {
     case changed(WorkspaceTabGraphLeafTransition)
     case unchanged
     case rejected(WorkspaceTabGraphLeafTransitionRejection)
@@ -82,50 +95,85 @@ enum WorkspaceRenameArrangementTransitionDecision: Equatable, Sendable {
 enum WorkspaceEqualizePanesTransitionPlanner {
     static func plan(
         _ request: WorkspaceEqualizePanesRequest,
-        tabStates: [TabGraphState],
+        context: WorkspaceTabGraphLeafPlanningContext,
         activeArrangement: WorkspaceActiveArrangementSelection
     ) -> WorkspaceEqualizePanesTransitionDecision {
-        guard let tabIndex = tabStates.firstIndex(where: { $0.tabId == request.tabID }) else {
-            return .rejected(.missingTab(request.tabID))
+        let tab: TabGraphState
+        switch resolveTab(requestedTabID: request.tabID, context: context) {
+        case .success(let resolved): tab = resolved
+        case .failure(let rejection): return .rejected(rejection)
         }
-        let activeArrangementID: UUID
-        switch activeArrangement {
-        case .missing:
-            return .rejected(.missingActiveArrangement(request.tabID))
-        case .selected(let arrangementID):
-            activeArrangementID = arrangementID
+        let arrangementIndex: Int
+        switch resolveActiveArrangement(tab: tab, selection: activeArrangement) {
+        case .success(let resolved): arrangementIndex = resolved
+        case .failure(let rejection): return .rejected(rejection)
         }
-        guard
-            let arrangementIndex = tabStates[tabIndex].arrangements.firstIndex(where: {
-                $0.id == activeArrangementID
-            })
-        else {
-            return .rejected(
-                .missingArrangement(
-                    tabID: request.tabID,
-                    arrangementID: activeArrangementID
-                )
-            )
-        }
-        let previousState = tabStates[tabIndex]
-        let previousLayout = previousState.arrangements[arrangementIndex].layout
+        let previousLayout = tab.arrangements[arrangementIndex].layout
         guard previousLayout.isSplit else {
             return .rejected(.tabNotSplit(request.tabID))
         }
         let replacementLayout = previousLayout.equalized()
         guard replacementLayout != previousLayout else { return .unchanged }
 
-        var replacementState = previousState
-        replacementState.arrangements[arrangementIndex].layout = replacementLayout
+        var replacement = tab
+        replacement.arrangements[arrangementIndex].layout = replacementLayout
         return .changed(
             makeTabGraphLeafTransition(
-                tabStates: tabStates,
-                tabIndex: tabIndex,
-                replacementState: replacementState,
-                readWitness: .activeArrangement(
+                previousTab: tab,
+                replacementTab: replacement,
+                readWitness: .activeArrangement(tabID: request.tabID, expected: activeArrangement)
+            )
+        )
+    }
+}
+
+enum WorkspaceEqualizeDrawerPanesTransitionPlanner {
+    static func plan(
+        _ request: WorkspaceEqualizeDrawerPanesRequest,
+        context: WorkspaceTabGraphLeafPlanningContext,
+        activeArrangement: WorkspaceActiveArrangementSelection
+    ) -> WorkspaceEqualizeDrawerPanesTransitionDecision {
+        let tab: TabGraphState
+        switch resolveTab(requestedTabID: request.tabID, context: context) {
+        case .success(let resolved): tab = resolved
+        case .failure(let rejection): return .rejected(rejection)
+        }
+        let arrangementIndex: Int
+        switch resolveActiveArrangement(tab: tab, selection: activeArrangement) {
+        case .success(let resolved): arrangementIndex = resolved
+        case .failure(let rejection): return .rejected(rejection)
+        }
+        let arrangementID = tab.arrangements[arrangementIndex].id
+        guard let drawer = tab.arrangements[arrangementIndex].drawerViews[request.drawerID] else {
+            return .rejected(
+                .missingDrawer(
                     tabID: request.tabID,
-                    expected: activeArrangement
+                    arrangementID: arrangementID,
+                    drawerID: request.drawerID
                 )
+            )
+        }
+        guard drawer.layout.paneIds.count > 1 else {
+            return .rejected(
+                .drawerNotSplit(
+                    tabID: request.tabID,
+                    arrangementID: arrangementID,
+                    drawerID: request.drawerID
+                )
+            )
+        }
+        let replacementLayout = drawer.layout.equalized()
+        guard replacementLayout != drawer.layout else { return .unchanged }
+
+        var replacementDrawer = drawer
+        replacementDrawer.layout = replacementLayout
+        var replacement = tab
+        replacement.arrangements[arrangementIndex].drawerViews[request.drawerID] = replacementDrawer
+        return .changed(
+            makeTabGraphLeafTransition(
+                previousTab: tab,
+                replacementTab: replacement,
+                readWitness: .activeArrangement(tabID: request.tabID, expected: activeArrangement)
             )
         )
     }
@@ -134,25 +182,19 @@ enum WorkspaceEqualizePanesTransitionPlanner {
 enum WorkspaceRenameArrangementTransitionPlanner {
     static func plan(
         _ request: WorkspaceRenameArrangementRequest,
-        tabStates: [TabGraphState]
+        context: WorkspaceTabGraphLeafPlanningContext
     ) -> WorkspaceRenameArrangementTransitionDecision {
-        guard let tabIndex = tabStates.firstIndex(where: { $0.tabId == request.tabID }) else {
-            return .rejected(.missingTab(request.tabID))
+        let tab: TabGraphState
+        switch resolveTab(requestedTabID: request.tabID, context: context) {
+        case .success(let resolved): tab = resolved
+        case .failure(let rejection): return .rejected(rejection)
         }
-        guard
-            let arrangementIndex = tabStates[tabIndex].arrangements.firstIndex(where: {
-                $0.id == request.arrangementID
-            })
-        else {
+        guard let arrangementIndex = tab.arrangements.firstIndex(where: { $0.id == request.arrangementID }) else {
             return .rejected(
-                .missingArrangement(
-                    tabID: request.tabID,
-                    arrangementID: request.arrangementID
-                )
+                .missingArrangement(tabID: request.tabID, arrangementID: request.arrangementID)
             )
         }
-        let previousState = tabStates[tabIndex]
-        guard !previousState.arrangements[arrangementIndex].isDefault else {
+        guard !tab.arrangements[arrangementIndex].isDefault else {
             return .rejected(
                 .defaultArrangementCannotBeRenamed(
                     tabID: request.tabID,
@@ -164,38 +206,62 @@ enum WorkspaceRenameArrangementTransitionPlanner {
         guard !normalizedName.isEmpty else {
             return .rejected(.emptyArrangementName(request.arrangementID))
         }
-        guard previousState.arrangements[arrangementIndex].name != normalizedName else {
+        guard tab.arrangements[arrangementIndex].name != normalizedName else {
             return .unchanged
         }
 
-        var replacementState = previousState
-        replacementState.arrangements[arrangementIndex].name = normalizedName
+        var replacement = tab
+        replacement.arrangements[arrangementIndex].name = normalizedName
         return .changed(
             makeTabGraphLeafTransition(
-                tabStates: tabStates,
-                tabIndex: tabIndex,
-                replacementState: replacementState,
+                previousTab: tab,
+                replacementTab: replacement,
                 readWitness: .graphOnly
             )
         )
     }
 }
 
+private func resolveTab(
+    requestedTabID: UUID,
+    context: WorkspaceTabGraphLeafPlanningContext
+) -> Result<TabGraphState, WorkspaceTabGraphLeafTransitionRejection> {
+    switch context {
+    case .missingTab:
+        return .failure(.missingTab(requestedTabID))
+    case .present(let tab):
+        guard tab.tabId == requestedTabID else {
+            return .failure(.tabIdentityMismatch(requested: requestedTabID, actual: tab.tabId))
+        }
+        return .success(tab)
+    }
+}
+
+private func resolveActiveArrangement(
+    tab: TabGraphState,
+    selection: WorkspaceActiveArrangementSelection
+) -> Result<Int, WorkspaceTabGraphLeafTransitionRejection> {
+    let arrangementID: UUID
+    switch selection {
+    case .missing:
+        return .failure(.missingActiveArrangement(tab.tabId))
+    case .selected(let selectedArrangementID):
+        arrangementID = selectedArrangementID
+    }
+    guard let index = tab.arrangements.firstIndex(where: { $0.id == arrangementID }) else {
+        return .failure(.missingArrangement(tabID: tab.tabId, arrangementID: arrangementID))
+    }
+    return .success(index)
+}
+
 private func makeTabGraphLeafTransition(
-    tabStates: [TabGraphState],
-    tabIndex: Int,
-    replacementState: TabGraphState,
+    previousTab: TabGraphState,
+    replacementTab: TabGraphState,
     readWitness: WorkspaceTabGraphLeafReadWitness
 ) -> WorkspaceTabGraphLeafTransition {
-    let previousState = tabStates[tabIndex]
-    var replacementTabStates = tabStates
-    replacementTabStates[tabIndex] = replacementState
-    return WorkspaceTabGraphLeafTransition(
-        replacementTabStates: replacementTabStates,
-        affectedTab: WorkspaceIndexedTabGraphReplacement(
-            previous: WorkspaceIndexedTabGraphState(index: tabIndex, state: previousState),
-            replacement: WorkspaceIndexedTabGraphState(index: tabIndex, state: replacementState)
-        ),
+    WorkspaceTabGraphLeafTransition(
+        previousTab: previousTab,
+        replacementTab: replacementTab,
         readWitness: readWitness
     )
 }

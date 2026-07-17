@@ -67,10 +67,36 @@ struct WorkspacePersistenceTabGraphLeafMutationTests {
         )
     }
 
+    @Test("installed drawer equalize retains one exact tab graph preimage")
+    func installedDrawerEqualizeRetainsGraphPreimage() throws {
+        // Arrange
+        let fixture = makeTabGraphLeafPersistenceFixture()
+        let installed = try installTabGraphLeafParticipant(fixture.runtime)
+
+        // Act
+        let result = fixture.runtime.mutationCoordinator.equalizeDrawerPanes(
+            .init(
+                tabID: fixture.graphFixture.tabState.tabId,
+                drawerID: fixture.graphFixture.drawerID
+            )
+        )
+
+        // Assert
+        #expect(try requireGraphLeafChangedRevision(result).rawValue == 1)
+        #expect(
+            fixture.atomRegistry.workspaceTabGraph.tabStates[0].arrangements[1]
+                .drawerViews[fixture.graphFixture.drawerID]?.layout.topRow.panes.map(\.ratio) == [0.5, 0.5]
+        )
+        try expectTabGraphLeafBaseItem(
+            .tabGraph(fixture.graphFixture.tabState),
+            installed: installed
+        )
+    }
+
     @Test("installed semantic no-ops do not advance the revision")
     func installedNoOpsDoNotAdvanceRevision() throws {
         // Arrange
-        let fixture = makeTabGraphLeafPersistenceFixture(equalized: true)
+        let fixture = makeTabGraphLeafPersistenceFixture(equalized: true, drawerEqualized: true)
         _ = try installTabGraphLeafParticipant(fixture.runtime, openLease: false)
 
         // Act
@@ -84,11 +110,85 @@ struct WorkspacePersistenceTabGraphLeafMutationTests {
                 name: " Custom "
             )
         )
+        let drawerResult = fixture.runtime.mutationCoordinator.equalizeDrawerPanes(
+            .init(
+                tabID: fixture.graphFixture.tabState.tabId,
+                drawerID: fixture.graphFixture.drawerID
+            )
+        )
 
         // Assert
         #expect(equalizeResult == .unchanged(revision: .zero))
         #expect(renameResult == .unchanged(revision: .zero))
+        #expect(drawerResult == .unchanged(revision: .zero))
         #expect(fixture.runtime.revisionOwner.committedRevision == .zero)
+    }
+
+    @Test("leaf family is target-keyed and remains production dormant")
+    func leafFamilyIsTargetKeyedAndDormant() throws {
+        // Arrange
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let transitionSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Core/State/Transitions/WorkspaceTabGraphLeafTransition.swift"
+            ),
+            encoding: .utf8
+        )
+        let applierSource = try String(
+            contentsOf: projectRoot.appending(
+                path:
+                    "Sources/AgentStudio/Core/State/MainActor/Coordination/"
+                    + "WorkspaceTabGraphLeafTransitionApplier.swift"
+            ),
+            encoding: .utf8
+        )
+        let coordinatorSource = try String(
+            contentsOf: projectRoot.appending(
+                path:
+                    "Sources/AgentStudio/Core/State/MainActor/Persistence/"
+                    + "WorkspacePersistenceMutationCoordinator.swift"
+            ),
+            encoding: .utf8
+        )
+        let equalizeCoordinator = try #require(
+            sourceSlice(
+                coordinatorSource,
+                from: "    func equalizePanes(",
+                through: "    func renameArrangement("
+            )
+        )
+        let renameCoordinator = try #require(
+            sourceSlice(
+                coordinatorSource,
+                from: "    func renameArrangement(",
+                through: "    func setActivePane("
+            )
+        )
+        let productionRoot = "Sources/AgentStudio"
+
+        // Act
+        let root = projectRoot.appending(path: productionRoot)
+        let productionSourcePaths = try FileManager.default.subpathsOfDirectory(atPath: root.path)
+        let callers: [String] = try productionSourcePaths.compactMap { relativePath -> String? in
+            guard relativePath.hasSuffix(".swift") else { return nil }
+            let source = try String(contentsOf: root.appending(path: relativePath), encoding: .utf8)
+            let hasCaller =
+                source.contains("mutationCoordinator.equalizePanes")
+                || source.contains("mutationCoordinator.equalizeDrawerPanes")
+                || source.contains("mutationCoordinator.renameArrangement")
+            return hasCaller ? "\(productionRoot)/\(relativePath)" : nil
+        }
+
+        // Assert
+        #expect(!transitionSource.contains("replacementTabStates"))
+        #expect(!transitionSource.contains("tabStates:"))
+        #expect(!applierSource.contains("replaceTabStates"))
+        #expect(!applierSource.contains("workspaceTabGraphAtom.tabStates"))
+        #expect(equalizeCoordinator.contains("tabGraphLeafPlanningContext(tabID: request.tabID)"))
+        #expect(renameCoordinator.contains("tabGraphLeafPlanningContext(tabID: request.tabID)"))
+        #expect(!equalizeCoordinator.contains("workspaceTabGraphAtom.tabStates"))
+        #expect(!renameCoordinator.contains("workspaceTabGraphAtom.tabStates"))
+        #expect(callers.isEmpty)
     }
 }
 
@@ -104,7 +204,10 @@ private struct InstalledTabGraphLeafParticipant {
 }
 
 @MainActor
-private func makeTabGraphLeafPersistenceFixture(equalized: Bool = false) -> TabGraphLeafPersistenceFixture {
+private func makeTabGraphLeafPersistenceFixture(
+    equalized: Bool = false,
+    drawerEqualized: Bool = false
+) -> TabGraphLeafPersistenceFixture {
     let atomRegistry = AtomRegistry()
     var graphFixture = makeTabGraphLeafFixture()
     if equalized {
@@ -112,7 +215,23 @@ private func makeTabGraphLeafPersistenceFixture(equalized: Bool = false) -> TabG
             tabState: equalizedTabState(graphFixture.tabState),
             defaultArrangementID: graphFixture.defaultArrangementID,
             customArrangementID: graphFixture.customArrangementID,
-            paneIDs: graphFixture.paneIDs
+            paneIDs: graphFixture.paneIDs,
+            drawerID: graphFixture.drawerID,
+            drawerPaneIDs: graphFixture.drawerPaneIDs
+        )
+    }
+    if drawerEqualized {
+        var tabState = graphFixture.tabState
+        var drawer = tabState.arrangements[1].drawerViews[graphFixture.drawerID]!
+        drawer.layout = drawer.layout.equalized()
+        tabState.arrangements[1].drawerViews[graphFixture.drawerID] = drawer
+        graphFixture = TabGraphLeafFixture(
+            tabState: tabState,
+            defaultArrangementID: graphFixture.defaultArrangementID,
+            customArrangementID: graphFixture.customArrangementID,
+            paneIDs: graphFixture.paneIDs,
+            drawerID: graphFixture.drawerID,
+            drawerPaneIDs: graphFixture.drawerPaneIDs
         )
     }
     atomRegistry.workspaceTabGraph.replaceTabStates([graphFixture.tabState])
@@ -126,6 +245,17 @@ private func makeTabGraphLeafPersistenceFixture(equalized: Bool = false) -> TabG
         runtime: WorkspacePersistenceRuntime(atomRegistry: atomRegistry),
         graphFixture: graphFixture
     )
+}
+
+private func sourceSlice(
+    _ source: String,
+    from startMarker: String,
+    through endMarker: String
+) -> String? {
+    guard let start = source.range(of: startMarker),
+        let end = source.range(of: endMarker, range: start.upperBound..<source.endIndex)
+    else { return nil }
+    return String(source[start.lowerBound..<end.lowerBound])
 }
 
 private func equalizedTabState(_ state: TabGraphState) -> TabGraphState {

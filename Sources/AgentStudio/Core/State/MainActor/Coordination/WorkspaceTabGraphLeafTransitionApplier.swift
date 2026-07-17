@@ -6,7 +6,11 @@ enum WorkspaceTabGraphLeafApplyRejection: Equatable, Sendable {
         expected: WorkspaceActiveArrangementSelection,
         actual: WorkspaceActiveArrangementSelection
     )
-    case staleTabGraphs(expected: [TabGraphState], actual: [TabGraphState])
+    case staleTabGraph(
+        tabID: UUID,
+        expected: TabGraphState,
+        actual: WorkspaceTabGraphStateWitness
+    )
 }
 
 enum WorkspaceTabGraphLeafApplyResult: Equatable, Sendable {
@@ -51,12 +55,13 @@ final class WorkspaceTabGraphLeafTransitionApplier {
     func preflight(
         _ transition: WorkspaceTabGraphLeafTransition
     ) -> WorkspaceTabGraphLeafPreflightResult {
-        let expectedTabStates = transition.expectedPreviousTabStates
-        guard workspaceTabGraphAtom.tabStates == expectedTabStates else {
+        let actualTab = workspaceTabGraphAtom.tabState(transition.previousTab.tabId)
+        guard actualTab == transition.previousTab else {
             return .rejected(
-                .staleTabGraphs(
-                    expected: expectedTabStates,
-                    actual: workspaceTabGraphAtom.tabStates
+                .staleTabGraph(
+                    tabID: transition.previousTab.tabId,
+                    expected: transition.previousTab,
+                    actual: actualTab.map(WorkspaceTabGraphStateWitness.present) ?? .missing
                 )
             )
         }
@@ -78,36 +83,15 @@ final class WorkspaceTabGraphLeafTransitionApplier {
                 )
             }
         }
-        return .ready(
-            WorkspacePreparedTabGraphLeafApplication(transition: transition)
-        )
+        return .ready(.init(transition: transition))
     }
 
     func apply(_ preparation: WorkspacePreparedTabGraphLeafApplication) {
-        preconditionPreparedApplicationIsFresh(preparation)
-        workspaceTabGraphAtom.replaceTabStates(preparation.transition.replacementTabStates)
-    }
-
-    private func preconditionPreparedApplicationIsFresh(
-        _ preparation: WorkspacePreparedTabGraphLeafApplication
-    ) {
-        switch preflight(preparation.transition) {
-        case .ready:
-            return
-        case .rejected(let rejection):
-            preconditionFailure("prepared tab-graph leaf transition is stale: \(rejection)")
+        guard case .ready = preflight(preparation.transition) else {
+            preconditionFailure("prepared tab-graph leaf transition became stale")
         }
-    }
-}
-
-extension WorkspaceTabGraphLeafTransition {
-    fileprivate var expectedPreviousTabStates: [TabGraphState] {
-        var expectedTabStates = replacementTabStates
-        precondition(
-            expectedTabStates.indices.contains(affectedTab.previous.index),
-            "tab-graph leaf transition previous index must remain in collection bounds"
+        workspaceTabGraphAtom.replaceTabStatePreservingIdentity(
+            preparation.transition.replacementTab
         )
-        expectedTabStates[affectedTab.previous.index] = affectedTab.previous.state
-        return expectedTabStates
     }
 }

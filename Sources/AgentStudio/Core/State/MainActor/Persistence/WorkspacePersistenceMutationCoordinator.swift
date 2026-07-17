@@ -210,7 +210,26 @@ final class WorkspacePersistenceMutationCoordinator {
         guardCompositionDomainIsInstalled {
             switch WorkspaceEqualizePanesTransitionPlanner.plan(
                 request,
-                tabStates: workspaceTabGraphAtom.tabStates,
+                context: tabGraphLeafPlanningContext(tabID: request.tabID),
+                activeArrangement: workspaceArrangementSelection(forTab: request.tabID)
+            ) {
+            case .changed(let transition):
+                performTabGraphLeafTransition(transition)
+            case .unchanged:
+                .unchanged(revision: revisionOwner.committedRevision)
+            case .rejected(let rejection):
+                .rejected(.tabGraphLeafPlanning(rejection))
+            }
+        }
+    }
+
+    func equalizeDrawerPanes(
+        _ request: WorkspaceEqualizeDrawerPanesRequest
+    ) -> WorkspacePersistenceMutationResult {
+        guardCompositionDomainIsInstalled {
+            switch WorkspaceEqualizeDrawerPanesTransitionPlanner.plan(
+                request,
+                context: tabGraphLeafPlanningContext(tabID: request.tabID),
                 activeArrangement: workspaceArrangementSelection(forTab: request.tabID)
             ) {
             case .changed(let transition):
@@ -229,7 +248,7 @@ final class WorkspacePersistenceMutationCoordinator {
         guardCompositionDomainIsInstalled {
             switch WorkspaceRenameArrangementTransitionPlanner.plan(
                 request,
-                tabStates: workspaceTabGraphAtom.tabStates
+                context: tabGraphLeafPlanningContext(tabID: request.tabID)
             ) {
             case .changed(let transition):
                 performTabGraphLeafTransition(transition)
@@ -651,7 +670,7 @@ final class WorkspacePersistenceMutationCoordinator {
             let committedRevision = try revisionOwner.performSynchronousTransaction { preparation in
                 try adapters.workspaceTabGraph.capturePersistencePreimages(
                     WorkspaceTabGraphPersistenceCapture(
-                        operations: [.valueChange(transition.affectedTab.previous.state.tabId)]
+                        operations: [.valueChange(transition.previousTab.tabId)]
                     ),
                     for: preparation
                 )
@@ -668,6 +687,13 @@ final class WorkspacePersistenceMutationCoordinator {
         } catch {
             preconditionFailure("tab-graph leaf persistence mutation emitted an unmodeled error")
         }
+    }
+
+    private func tabGraphLeafPlanningContext(
+        tabID: UUID
+    ) -> WorkspaceTabGraphLeafPlanningContext {
+        workspaceTabGraphAtom.tabState(tabID)
+            .map(WorkspaceTabGraphLeafPlanningContext.present) ?? .missingTab
     }
 
     private func performDrawerToggleTransition(
