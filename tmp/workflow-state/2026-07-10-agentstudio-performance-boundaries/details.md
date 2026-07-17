@@ -1103,3 +1103,19 @@ production callsite, startup path, or domain lifecycle was changed. Continue
 W4.5p by wiring these accepted transitions through the dormant persistence
 mutation coordinator, proving fixed-base capture, and expanding pure planners
 until the complete writer inventory can cut over atomically.
+
+Commit `a1260eb5` wires the tab-leaf transitions through an installed-only,
+still-dormant persistence gateway. The coordinator plans before transaction
+admission, captures every shifted shell sort-index key plus the exact cursor
+preimage, preflights both owners before mutation, and commits a combined reorder
+and selection in one revision. It uses capture-only adapter APIs and applies
+caller-approved replacements through a narrow stale-checking applier; adapters
+and atoms gained no product decisions.
+
+Parent proof passed 9 tests across two suites, scoped strict swift-format and
+SwiftLint, and staged diff checks; `mise run build` passed in the implementation
+lane. An independent read-only slice review returned READY with no important
+findings, and parent warm-cache proof independently reproduced all 9 tests.
+There are still no production callsites and composition remains preinstall.
+Continue W4.5p with the drawer-toggle dormant persistence gateway, then the
+remaining planner/writer families before the single production activation cut.
