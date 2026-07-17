@@ -305,12 +305,10 @@ public struct AuthorizationService: Sendable {
             throw AuthorizationError(reason: .methodNotFound)
         }
 
-        if authenticatedAutomationAllows(methodName: methodName, for: principal) {
-            return
-        }
-
         if Self.authenticatedAutomationMethodAllowlist.contains(methodName), methodName != "command.execute" {
-            throw AuthorizationError(reason: .unauthorized)
+            guard isAuthenticatedAutomation(principal) else {
+                throw AuthorizationError(reason: .unauthorized)
+            }
         }
 
         if unsafeDebugAllows(methodName: methodName, definition: definition, for: principal) {
@@ -388,14 +386,14 @@ public struct AuthorizationService: Sendable {
             && !definition.privilegeClasses.contains(.eventsRead)
     }
 
-    private func authenticatedAutomationAllows(methodName: String, for principal: IPCPrincipal) -> Bool {
+    private func isAuthenticatedAutomation(_ principal: IPCPrincipal) -> Bool {
         guard principal.accessMode == .unsafeDebug else {
             return false
         }
         guard case .automationClient = principal.kind else {
             return false
         }
-        return Self.authenticatedAutomationMethodAllowlist.contains(methodName)
+        return true
     }
 
     private func baselineAllows(_ scope: IPCPermissionScope, for principal: IPCPrincipal) -> Bool {

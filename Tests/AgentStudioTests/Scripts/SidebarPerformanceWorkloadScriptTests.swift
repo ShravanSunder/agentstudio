@@ -6,6 +6,7 @@ import Testing
 @Suite
 struct SidebarPerformanceWorkloadScriptTests {
     @Test("sidebar workload proof script has stable safety contract and bash syntax")
+    // swiftlint:disable:next function_body_length
     func sidebarWorkloadProofScriptHasStableSafetyContractAndBashSyntax() async throws {
         let syntax = try await runSidebarScript(arguments: ["-n", scriptPath])
         #expect(syntax.exitCode == 0, Comment(rawValue: syntax.stderr))
@@ -80,6 +81,19 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("compare_required_metric_matrix"))
         #expect(source.contains("required_metric_keys="))
         #expect(source.contains("wait_for_required_metric_count"))
+        #expect(source.contains("REQUIRED_SAMPLE_COUNT=100"))
+        #expect(source.contains("AGENTSTUDIO_SIDEBAR_IPC_CYCLES:-100"))
+        #expect(source.contains("must be >= {minimum}"))
+        #expect(source.contains("def wait_for_readback"))
+        #expect(source.contains("time.monotonic() + timeout"))
+        #expect(source.contains("readiness timed out"))
+        #expect(!source.contains("sidebar grouping read-back mismatch"))
+        #expect(!source.contains("sidebar surface read-back mismatch"))
+        #expect(source.contains("workload_fixture_key=$WORKLOAD_FIXTURE_KEY"))
+        #expect(source.contains("worktree_fixture_key=$WORKTREE_FIXTURE_KEY"))
+        #expect(source.contains("sidebar baseline workload fixture mismatch"))
+        #expect(source.contains("sidebar baseline worktree fixture mismatch"))
+        #expect(source.contains("validate_compare_baseline_fixture"))
         #expect(source.contains("\"sidebar.grouping.get\""))
         #expect(source.contains("\"sidebar.surface.get\""))
         #expect(source.contains("sidebar_surface_switch.ipc_sequence=repo,inbox,repo,inbox,repo"))
@@ -130,7 +144,47 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(summary.contains("startup_diagnostic=sidebar-performance-proof"))
         #expect(summary.contains("requires_unsafe_no_auth=false"))
         #expect(summary.contains("requires_non_foreground_activation=true"))
+        #expect(summary.contains("workload_fixture_key="))
+        #expect(summary.contains("worktree_fixture_key="))
+        #expect(summary.contains("workload_cycles=100"))
         #expect(summary.contains("sidebar_projection.metric_result_count=1"))
+    }
+
+    @Test("workload rejects fewer than one hundred issued samples per bucket")
+    func workloadRejectsFewerThanOneHundredIssuedSamplesPerBucket() async throws {
+        let result = try await runSidebarScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: ["AGENTSTUDIO_SIDEBAR_IPC_CYCLES": "99"]
+        )
+
+        #expect(result.exitCode == 2)
+        #expect(result.stderr.contains("AGENTSTUDIO_SIDEBAR_IPC_CYCLES must be >= 100: 99"))
+    }
+
+    @Test("compare rejects mismatched fixture metadata before launch")
+    func compareRejectsMismatchedFixtureMetadataBeforeLaunch() async throws {
+        let proofRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-sidebar-baseline-mismatch-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: proofRoot, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: proofRoot)
+        }
+        try "workload_fixture_key=stale\nworktree_fixture_key=stale\n".write(
+            to: proofRoot.appendingPathComponent("sidebar-performance-baseline.env"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let result = try await runSidebarScript(
+            arguments: [scriptPath, "--compare"],
+            environment: [
+                "AGENTSTUDIO_SIDEBAR_PROOF_ROOT": proofRoot.path,
+                "AGENTSTUDIO_TRACE_NAME": "sidebar-fixture-mismatch-test",
+            ]
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("sidebar baseline workload fixture mismatch"))
     }
 
     @Test("proof modes reject unsafe no-auth IPC before launching")

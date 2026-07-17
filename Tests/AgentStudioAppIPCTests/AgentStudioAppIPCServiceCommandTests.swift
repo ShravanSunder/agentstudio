@@ -82,7 +82,8 @@ struct AgentStudioAppIPCServiceCommandTests {
             kind: .automationClient,
             requestId: 72,
             grantedScopes: [
-                IPCPermissionScope(privilege: .uiPresent, target: .app, dataScope: .uiSurface)
+                IPCPermissionScope(privilege: .appCommandExecute, target: .app, dataScope: .unspecified),
+                IPCPermissionScope(privilege: .uiPresent, target: .app, dataScope: .uiSurface),
             ]
         )
         defer {

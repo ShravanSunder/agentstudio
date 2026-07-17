@@ -573,7 +573,9 @@ struct RepoExplorerView: View {
         .sidebarSurfaceListStyle(Self.surfaceListPolicy)
         .scrollContentBackground(.hidden)
         .background(Self.surfaceBackground.color)
-        .transition(.opacity.animation(.easeOut(duration: 0.12)))
+        .transition(
+            .opacity.animation(.easeInOut(duration: AppStyles.General.Animation.standard))
+        )
     }
 
     private func colorForCheckout(hex colorHex: String) -> Color {

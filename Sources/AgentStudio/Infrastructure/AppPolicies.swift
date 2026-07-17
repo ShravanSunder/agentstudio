@@ -3,6 +3,9 @@ import Foundation
 
 enum AppPolicies {
     enum SidebarProjection {
+        static let cancellationItemStride: Int = 256
+        static let cancellationGroupStride: Int = 64
+
         enum Trigger: String, Equatable, Sendable {
             case groupingSwitch = "grouping_switch"
             case surfaceSwitch = "surface_switch"

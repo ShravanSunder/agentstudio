@@ -306,6 +306,29 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func sidebarPerformanceRecordRejectsMissingSurfaceTaxonomy() {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 130,
+            severityText: .info,
+            body: "performance.sidebar.projection",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(4.5),
+                "agentstudio.performance.sidebar.phase": .string("mainactor_apply"),
+                "agentstudio.performance.sidebar.query_state": .string("non_empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("none"),
+                "agentstudio.performance.sidebar.trigger": .string("grouping_switch"),
+            ]
+        )
+
+        #expect(AgentStudioOTLPPerformanceMetricEvent(record: record) == nil)
+    }
+
+    @Test
     func sidebarPerformanceRecordAcceptsVisibilityModeTrigger() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 131,

@@ -7,6 +7,34 @@ import Testing
 @MainActor
 @Suite("InboxNotificationSidebarView", .serialized)
 struct InboxNotificationSidebarViewTests {
+    @Test("first surviving forced projection reports initial completion exactly once")
+    func firstSurvivingForcedProjectionReportsInitialCompletionExactlyOnce() {
+        #expect(
+            InboxNotificationSidebarView.shouldReportInitialProjection(
+                hasReportedInitialProjection: false
+            )
+        )
+        #expect(
+            !InboxNotificationSidebarView.shouldReportInitialProjection(
+                hasReportedInitialProjection: true
+            )
+        )
+    }
+
+    @Test("initial forced refresh preserves configured surface-switch semantics")
+    func initialForcedRefreshPreservesConfiguredSurfaceSwitchSemantics() {
+        #expect(
+            InboxNotificationSidebarView.initialProjectionTrigger(
+                configuredTrigger: .surfaceSwitch
+            ) == .surfaceSwitch
+        )
+        #expect(
+            InboxNotificationSidebarView.initialProjectionTrigger(
+                configuredTrigger: .dataRefresh
+            ) == .dataRefresh
+        )
+    }
+
     @Test("preseeded filter state is consumed when the inbox mounts")
     func preseededFilterDraftIsConsumedOnMount() async {
         let inboxSidebarState = InboxSidebarState()

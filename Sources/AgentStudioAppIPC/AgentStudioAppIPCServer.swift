@@ -538,8 +538,13 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
 
     private func installDebugTokenEscrowIfNeeded() throws {
         AgentStudioIPCFilesystem.removeDebugToken(paths: paths)
-        debugEscrowLock.withLock {
+        let stalePrincipalId = debugEscrowLock.withLock {
+            let stalePrincipalId = debugEscrowPrincipalId
             debugEscrowPrincipalId = nil
+            return stalePrincipalId
+        }
+        if let stalePrincipalId {
+            grantLedger.revokeAll(for: stalePrincipalId)
         }
 
         guard allowsDebugTokenEscrow else {
@@ -557,7 +562,12 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             grantLedger.grant(scope, to: principal.principalId)
         }
         let token = try principalRegistry.issueSubjectToken(for: principal)
-        try AgentStudioIPCFilesystem.writeDebugToken(token, paths: paths)
+        do {
+            try AgentStudioIPCFilesystem.writeDebugToken(token, paths: paths)
+        } catch {
+            principalRegistry.revokeSubjectToken(token)
+            throw error
+        }
         debugEscrowLock.withLock {
             debugEscrowPrincipalId = principal.principalId
         }

@@ -313,6 +313,18 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             )
         }
 
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: automation,
+                methodName: "command.execute",
+                requestedTarget: .app,
+                activePaneId: nil
+            )
+        }
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .appCommandExecute, target: .app, dataScope: .unspecified),
+            to: automation.principalId
+        )
         try service.authorize(
             principal: automation,
             methodName: "command.execute",
@@ -354,12 +366,25 @@ struct AgentStudioIPCRegistryAuthorizationTests {
                 )
             }
 
+            #expect(throws: AuthorizationError.self) {
+                try service.authorize(
+                    principal: automation,
+                    methodName: methodName,
+                    requestedTarget: .app,
+                    activePaneId: nil
+                )
+            }
+            grantLedger.grant(
+                IPCPermissionScope(privilege: .workspaceRead, target: .app, dataScope: .unspecified),
+                to: automation.principalId
+            )
             try service.authorize(
                 principal: automation,
                 methodName: methodName,
                 requestedTarget: .app,
                 activePaneId: nil
             )
+            grantLedger.revokeAll(for: automation.principalId)
         }
     }
 

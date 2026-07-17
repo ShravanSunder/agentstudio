@@ -82,7 +82,10 @@ actor RepoExplorerProjectionWorker {
             let clock = ContinuousClock()
             let workerStart = clock.now
             let projectionStart = clock.now
-            let projection = RepoExplorerProjection.project(request.snapshot)
+            let projection = try RepoExplorerProjection.projectCancellable(
+                request.snapshot,
+                cancellationCheck: { try Task.checkCancellation() }
+            )
             let projectionDuration = projectionStart.duration(to: clock.now)
             try Task.checkCancellation()
             let rowIndexStart = clock.now
@@ -93,13 +96,15 @@ actor RepoExplorerProjectionWorker {
             )
             let rowIndexDuration = rowIndexStart.duration(to: clock.now)
             try Task.checkCancellation()
-            let branchStatusByWorktreeId = Self.branchStatusByWorktreeId(
+            let branchStatusByWorktreeId = try Self.branchStatusByWorktreeId(
                 snapshot: request.snapshot,
-                worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
+                worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId,
+                cancellationCheck: { try Task.checkCancellation() }
             )
-            let branchNameByWorktreeId = Self.branchNameByWorktreeId(
+            let branchNameByWorktreeId = try Self.branchNameByWorktreeId(
                 snapshot: request.snapshot,
-                worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
+                worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId,
+                cancellationCheck: { try Task.checkCancellation() }
             )
             try Task.checkCancellation()
             return RepoExplorerProjectionResult(
@@ -127,8 +132,9 @@ actor RepoExplorerProjectionWorker {
 
     private static func branchStatusByWorktreeId(
         snapshot: RepoExplorerSnapshot,
-        worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts]
-    ) -> [UUID: GitBranchStatus] {
+        worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts],
+        cancellationCheck: () throws -> Void
+    ) throws -> [UUID: GitBranchStatus] {
         let worktreeIds = snapshot.repos.flatMap(\.worktrees).map(\.id)
         let worktreeEnrichmentsByWorktreeId = worktreeFactsByWorktreeId.compactMapValues(\.enrichment)
         let pullRequestCountsByWorktreeId = worktreeFactsByWorktreeId.compactMapValues(\.pullRequestCount)
@@ -137,7 +143,8 @@ actor RepoExplorerProjectionWorker {
             pullRequestCountsByWorktreeId: pullRequestCountsByWorktreeId
         )
         branchStatusByWorktreeId.reserveCapacity(max(branchStatusByWorktreeId.count, worktreeIds.count))
-        for worktreeId in worktreeIds where branchStatusByWorktreeId[worktreeId] == nil {
+        for (index, worktreeId) in worktreeIds.enumerated() where branchStatusByWorktreeId[worktreeId] == nil {
+            if index.isMultiple(of: 256) { try cancellationCheck() }
             branchStatusByWorktreeId[worktreeId] = .unknown
         }
         return branchStatusByWorktreeId
@@ -145,16 +152,17 @@ actor RepoExplorerProjectionWorker {
 
     private static func branchNameByWorktreeId(
         snapshot: RepoExplorerSnapshot,
-        worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts]
-    ) -> [UUID: String] {
-        Dictionary(
-            uniqueKeysWithValues: snapshot.repos.flatMap(\.worktrees).map { worktree in
-                (
-                    worktree.id,
-                    branchName(enrichment: worktreeFactsByWorktreeId[worktree.id]?.enrichment)
-                )
-            }
-        )
+        worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts],
+        cancellationCheck: () throws -> Void
+    ) throws -> [UUID: String] {
+        var branchNames: [UUID: String] = [:]
+        for (index, worktree) in snapshot.repos.flatMap(\.worktrees).enumerated() {
+            if index.isMultiple(of: 256) { try cancellationCheck() }
+            branchNames[worktree.id] = branchName(
+                enrichment: worktreeFactsByWorktreeId[worktree.id]?.enrichment
+            )
+        }
+        return branchNames
     }
 
     private static func branchName(enrichment: WorktreeEnrichment?) -> String {

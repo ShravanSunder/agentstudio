@@ -2,6 +2,7 @@ import SwiftUI
 
 enum SidebarToolbarNoTooltipTarget: Hashable {}
 
+@MainActor
 struct SidebarToolbarIcon<Icon: View>: View {
     @ViewBuilder let icon: () -> Icon
     var isActive = false
@@ -54,6 +55,7 @@ enum SidebarToolbarControlVisualState: Equatable {
     }
 }
 
+@MainActor
 struct SidebarToolbarButtonStyle: ButtonStyle {
     var isActive = false
     var isOpen = false
@@ -67,6 +69,7 @@ struct SidebarToolbarButtonStyle: ButtonStyle {
     }
 }
 
+@MainActor
 private struct SidebarToolbarButtonStyleBody: View {
     let configuration: ButtonStyle.Configuration
     let isActive: Bool
@@ -92,6 +95,7 @@ private struct SidebarToolbarButtonStyleBody: View {
     }
 }
 
+@MainActor
 struct SidebarToolbarMenuLabel<Icon: View>: View {
     @ViewBuilder let icon: () -> Icon
     @State private var isHovered = false
@@ -110,6 +114,7 @@ struct SidebarToolbarMenuLabel<Icon: View>: View {
     }
 }
 
+@MainActor
 struct SidebarToolbarMenuButton<Icon: View, MenuContent: View>: View {
     let label: String
     @ViewBuilder let icon: () -> Icon
@@ -128,6 +133,7 @@ struct SidebarToolbarMenuButton<Icon: View, MenuContent: View>: View {
     }
 }
 
+@MainActor
 struct SidebarToolbarDivider: View {
     var body: some View {
         Divider()
@@ -135,6 +141,7 @@ struct SidebarToolbarDivider: View {
     }
 }
 
+@MainActor
 struct SidebarSortButton<SortValue: Equatable, Icon: View>: View {
     let sortValue: SortValue
     let isReversed: Bool
@@ -155,6 +162,7 @@ struct SidebarSortButton<SortValue: Equatable, Icon: View>: View {
     }
 }
 
+@MainActor
 struct SidebarToolbarSortButton<SortValue: Equatable, TooltipTarget: Hashable, Icon: View>: View {
     let sortValue: SortValue
     let isReversed: Bool
@@ -269,6 +277,7 @@ extension SidebarToolbarSortButton where TooltipTarget == SidebarToolbarNoToolti
     }
 }
 
+@MainActor
 struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: View {
     let label: String
     let accessibilityIdentifier: String
@@ -349,6 +358,7 @@ struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: View {
     }
 }
 
+@MainActor
 struct SidebarToolbarGroupingButton<TooltipTarget: Hashable>: View {
     let label: String
     let selectionLabel: String
@@ -421,6 +431,7 @@ extension SidebarToolbarActionButton where TooltipTarget == SidebarToolbarNoTool
     }
 }
 
+@MainActor
 private struct SidebarToolbarControlDecoration<TooltipTarget: Hashable>: ViewModifier {
     let label: String
     let tooltipValue: ControlTooltipRenderValue

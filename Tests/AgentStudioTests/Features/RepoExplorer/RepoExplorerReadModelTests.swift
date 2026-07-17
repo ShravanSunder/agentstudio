@@ -528,6 +528,42 @@ struct RepoExplorerReadModelTests {
         )
     }
 
+    @Test("pane and tab labels preserve stored workspace indices")
+    func paneAndTabLabelsPreserveStoredWorkspaceIndices() throws {
+        let repoId = UUID()
+        let worktree = worktree(repoId: repoId, name: "feature")
+        let location = WorkspacePaneLocation(
+            paneId: UUID(),
+            tabId: UUID(),
+            tabIndex: 6,
+            paneIndexInTab: 3,
+            isActiveInTab: true
+        )
+        let baseSnapshot = RepoExplorerSnapshot(
+            repos: [repo(id: repoId, name: "agent-studio", worktrees: [worktree])],
+            repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+            groupingMode: .pane,
+            query: "",
+            paneLocationsByWorktreeId: [worktree.id: [location]]
+        )
+
+        let paneGroup = try #require(RepoExplorerProjection.project(baseSnapshot).resolvedGroups.first)
+        let tabSnapshot = RepoExplorerSnapshot(
+            repos: baseSnapshot.repos,
+            repoEnrichmentByRepoId: baseSnapshot.repoEnrichmentSnapshotByRepoId,
+            groupingMode: .tab,
+            sortOrder: baseSnapshot.sortOrder,
+            visibilityMode: baseSnapshot.visibilityMode,
+            query: baseSnapshot.query,
+            paneLocationsByWorktreeId: baseSnapshot.paneLocationsByWorktreeId
+        )
+        let tabGroup = try #require(RepoExplorerProjection.project(tabSnapshot).resolvedGroups.first)
+
+        #expect(paneGroup.repoTitle == "Pane 4")
+        #expect(paneGroup.organizationName == "Tab 7")
+        #expect(tabGroup.repoTitle == "Tab 7")
+    }
+
     @Test("tab groups follow descending workspace location order")
     func tabGroupsFollowDescendingWorkspaceLocationOrder() {
         let repoId = UUID()

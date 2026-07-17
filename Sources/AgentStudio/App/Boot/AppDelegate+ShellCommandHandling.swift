@@ -78,7 +78,7 @@ extension AppDelegate: ShellCommandHandling {
             return true
         case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone:
-            return executeSidebarGroupingCommand(command)
+            return executeSidebarGroupingCommand(command) == .applied
         case .setRepoSidebarVisibilityMode:
             return false
         case .setRepoSidebarSortOrder:
@@ -213,37 +213,41 @@ extension AppDelegate: ShellCommandHandling {
             }
             inboxNotificationPrefs.setGlobalInboxContentMode(mode)
             return .applied
+        case (.setRepoSidebarGroupingRepo, nil), (.setRepoSidebarGroupingPane, nil),
+            (.setRepoSidebarGroupingTab, nil), (.setInboxGroupingTab, nil),
+            (.setInboxGroupingRepo, nil), (.setInboxGroupingPane, nil), (.setInboxGroupingNone, nil):
+            return executeSidebarGroupingCommand(request.command)
         default:
             return execute(request.command) ? .applied : .unsupportedCommand
         }
     }
 
-    private func executeSidebarGroupingCommand(_ command: AppCommand) -> Bool {
-        guard let atomStore else { return false }
+    private func executeSidebarGroupingCommand(_ command: AppCommand) -> AppCommandExecutionOutcome {
+        guard let atomStore else { return .stateUnavailable }
         switch command {
         case .setRepoSidebarGroupingRepo:
             atomStore.repoExplorerSidebarPrefs.setGroupingMode(.repo)
-            return atomStore.repoExplorerSidebarPrefs.groupingMode == .repo
+            return atomStore.repoExplorerSidebarPrefs.groupingMode == .repo ? .applied : .stateUnavailable
         case .setRepoSidebarGroupingPane:
             atomStore.repoExplorerSidebarPrefs.setGroupingMode(.pane)
-            return atomStore.repoExplorerSidebarPrefs.groupingMode == .pane
+            return atomStore.repoExplorerSidebarPrefs.groupingMode == .pane ? .applied : .stateUnavailable
         case .setRepoSidebarGroupingTab:
             atomStore.repoExplorerSidebarPrefs.setGroupingMode(.tab)
-            return atomStore.repoExplorerSidebarPrefs.groupingMode == .tab
+            return atomStore.repoExplorerSidebarPrefs.groupingMode == .tab ? .applied : .stateUnavailable
         case .setInboxGroupingTab:
             atomStore.inboxNotificationPrefs.setGrouping(.byTab)
-            return atomStore.inboxNotificationPrefs.grouping == .byTab
+            return atomStore.inboxNotificationPrefs.grouping == .byTab ? .applied : .stateUnavailable
         case .setInboxGroupingRepo:
             atomStore.inboxNotificationPrefs.setGrouping(.byRepo)
-            return atomStore.inboxNotificationPrefs.grouping == .byRepo
+            return atomStore.inboxNotificationPrefs.grouping == .byRepo ? .applied : .stateUnavailable
         case .setInboxGroupingPane:
             atomStore.inboxNotificationPrefs.setGrouping(.byPane)
-            return atomStore.inboxNotificationPrefs.grouping == .byPane
+            return atomStore.inboxNotificationPrefs.grouping == .byPane ? .applied : .stateUnavailable
         case .setInboxGroupingNone:
             atomStore.inboxNotificationPrefs.setGrouping(.none)
-            return atomStore.inboxNotificationPrefs.grouping == .none
+            return atomStore.inboxNotificationPrefs.grouping == .none ? .applied : .stateUnavailable
         default:
-            return false
+            return .unsupportedCommand
         }
     }
 

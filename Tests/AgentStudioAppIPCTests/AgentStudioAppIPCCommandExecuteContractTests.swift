@@ -201,8 +201,9 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
             commandPort: commandPort,
             debugTokenEscrowEnabled: true,
             debugTokenEscrowPermissionScopes: [
+                IPCPermissionScope(privilege: .appCommandExecute, target: .app, dataScope: .unspecified),
                 IPCPermissionScope(
-                    privilege: .sidebarStateMutate, target: .workspace(workspaceId), dataScope: .sidebarState)
+                    privilege: .sidebarStateMutate, target: .workspace(workspaceId), dataScope: .sidebarState),
             ]
         )
         defer {

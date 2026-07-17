@@ -201,7 +201,7 @@ struct InboxNotificationListModel: Equatable, Sendable {
         )
         try cancellationCheck()
         let sourceItems = try filteredNotifications.enumerated().map { index, notification in
-            if index.isMultiple(of: 256) {
+            if index.isMultiple(of: AppPolicies.SidebarProjection.cancellationItemStride) {
                 try cancellationCheck()
             }
             return InboxNotificationListItem(notification: notification)
@@ -314,7 +314,9 @@ struct InboxNotificationListModel: Equatable, Sendable {
 
                 while leftIndex < middle || rightIndex < upperBound {
                     comparisonCount += 1
-                    if comparisonCount.isMultiple(of: 256) { try cancellationCheck() }
+                    if comparisonCount.isMultiple(of: AppPolicies.SidebarProjection.cancellationItemStride) {
+                        try cancellationCheck()
+                    }
                     if rightIndex >= upperBound
                         || (leftIndex < middle && orderedBefore(source[leftIndex], source[rightIndex]))
                     {
@@ -359,7 +361,9 @@ struct InboxNotificationListModel: Equatable, Sendable {
         var filteredNotifications: [InboxNotification] = []
         filteredNotifications.reserveCapacity(notifications.count)
         for (index, notification) in notifications.enumerated() {
-            if index.isMultiple(of: 256) { try cancellationCheck() }
+            if index.isMultiple(of: AppPolicies.SidebarProjection.cancellationItemStride) {
+                try cancellationCheck()
+            }
             guard contentMode.includes(notification) else { continue }
             guard rowStateFilter.includes(notification) else { continue }
             guard filter?.matches(worktreeId: notification.worktreeId, repoId: notification.repoId) ?? true else {
@@ -393,7 +397,9 @@ struct InboxNotificationListModel: Equatable, Sendable {
         var filteredItems: [InboxNotificationListItem] = []
         filteredItems.reserveCapacity(items.count)
         for (index, item) in items.enumerated() {
-            if index.isMultiple(of: 256) { try cancellationCheck() }
+            if index.isMultiple(of: AppPolicies.SidebarProjection.cancellationItemStride) {
+                try cancellationCheck()
+            }
             if item.normalizedSearchText.contains(trimmedQuery) {
                 filteredItems.append(item)
             }
@@ -519,7 +525,9 @@ struct InboxNotificationListModel: Equatable, Sendable {
             var notifications: [InboxNotification] = []
             notifications.reserveCapacity(items.count)
             for (index, item) in items.enumerated() {
-                if index.isMultiple(of: 256) { try cancellationCheck() }
+                if index.isMultiple(of: AppPolicies.SidebarProjection.cancellationItemStride) {
+                    try cancellationCheck()
+                }
                 notifications.append(item.notification)
             }
             let groupId = InboxNotificationSectionKey.ungrouped.id
@@ -606,14 +614,18 @@ struct InboxNotificationListModel: Equatable, Sendable {
     ) throws -> [InboxNotificationListSection] {
         var buckets: [InboxNotificationSectionKey: [InboxNotificationListItem]] = [:]
         for (index, item) in items.enumerated() {
-            if index.isMultiple(of: 256) { try cancellationCheck() }
+            if index.isMultiple(of: AppPolicies.SidebarProjection.cancellationItemStride) {
+                try cancellationCheck()
+            }
             buckets[key(item), default: []].append(item)
         }
 
         var sections: [InboxNotificationListSection] = []
         sections.reserveCapacity(buckets.count)
         for (index, bucket) in buckets.enumerated() {
-            if index.isMultiple(of: 64) { try cancellationCheck() }
+            if index.isMultiple(of: AppPolicies.SidebarProjection.cancellationGroupStride) {
+                try cancellationCheck()
+            }
             let groupId = bucket.key.id
             sections.append(
                 InboxNotificationListSection(

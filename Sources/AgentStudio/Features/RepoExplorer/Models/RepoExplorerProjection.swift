@@ -75,6 +75,14 @@ enum RepoExplorerProjection {
     }
 
     static func project(_ snapshot: RepoExplorerSnapshot) -> RepoExplorerSidebarProjection {
+        projectCancellable(snapshot, cancellationCheck: {})
+    }
+
+    static func projectCancellable(
+        _ snapshot: RepoExplorerSnapshot,
+        cancellationCheck: () throws -> Void
+    ) rethrows -> RepoExplorerSidebarProjection {
+        try cancellationCheck()
         let resolvedRepos = resolvedRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId)
         let loadingRepos = loadingRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId)
         let visibleResolvedRepos = repos(
@@ -113,22 +121,24 @@ enum RepoExplorerProjection {
                 checkoutColorHexByRepoId: checkoutColorHexByRepoId
             )
         case .pane:
-            let placementProjection = placementGroups(
+            let placementProjection = try placementGroups(
                 repos: filteredResolvedRepos,
                 locationsByWorktreeId: snapshot.paneLocationsByWorktreeId,
                 mode: .pane,
                 sortOrder: snapshot.sortOrder,
-                checkoutColorHexByRepoId: checkoutColorHexByRepoId
+                checkoutColorHexByRepoId: checkoutColorHexByRepoId,
+                cancellationCheck: cancellationCheck
             )
             resolvedGroups = placementProjection.groups
             projectedRowsByGroupId = placementProjection.worktreeRowsByGroupId
         case .tab:
-            let placementProjection = placementGroups(
+            let placementProjection = try placementGroups(
                 repos: filteredResolvedRepos,
                 locationsByWorktreeId: snapshot.paneLocationsByWorktreeId,
                 mode: .tab,
                 sortOrder: snapshot.sortOrder,
-                checkoutColorHexByRepoId: checkoutColorHexByRepoId
+                checkoutColorHexByRepoId: checkoutColorHexByRepoId,
+                cancellationCheck: cancellationCheck
             )
             resolvedGroups = placementProjection.groups
             projectedRowsByGroupId = placementProjection.worktreeRowsByGroupId
@@ -266,17 +276,11 @@ enum RepoExplorerProjection {
         locationsByWorktreeId: [UUID: [WorkspacePaneLocation]],
         mode: RepoExplorerGroupingMode,
         sortOrder: RepoExplorerSortOrder,
-        checkoutColorHexByRepoId: [UUID: String]
-    ) -> (groups: [RepoPresentationGroup], worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]]) {
+        checkoutColorHexByRepoId: [UUID: String],
+        cancellationCheck: () throws -> Void
+    ) rethrows -> (groups: [RepoPresentationGroup], worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]])
+    {
         let locations = sortedUniqueLocations(locationsByWorktreeId.values.flatMap { $0 })
-        let paneOrdinalById = Dictionary(
-            uniqueKeysWithValues: locations.enumerated().map { index, location in
-                (location.paneId, index + 1)
-            })
-        let tabOrdinalById = Dictionary(
-            uniqueKeysWithValues: sortedUniqueTabIds(locations).enumerated().map { index, tabId in
-                (tabId, index + 1)
-            })
 
         var entriesByGroupId: [String: [PlacementEntry]] = [:]
         var groupLabelsById: [String: (title: String, secondary: String?)] = [:]
@@ -288,8 +292,11 @@ enum RepoExplorerProjection {
             groupLabelsById[groupId] = (title, secondary)
         }
 
+        var processedWorktreeCount = 0
         for repo in sortedRepos(repos, sortOrder: sortOrder) {
             for worktree in sortedWorktrees(repo.worktrees, sortOrder: sortOrder) {
+                if processedWorktreeCount.isMultiple(of: 256) { try cancellationCheck() }
+                processedWorktreeCount += 1
                 let worktreeLocations = sortedUniqueLocations(locationsByWorktreeId[worktree.id] ?? [])
                 guard !worktreeLocations.isEmpty else {
                     appendGroupIfNeeded(inactiveGroupId, title: "Inactive")
@@ -309,15 +316,15 @@ enum RepoExplorerProjection {
                             continue
                         }
                         paneModeSeenWorktreesByGroup[groupId, default: []].insert(worktree.id)
-                        let paneOrdinal = paneOrdinalById[location.paneId] ?? 1
-                        let tabOrdinal = tabOrdinalById[location.tabId] ?? location.tabIndex + 1
+                        let paneOrdinal = location.paneIndexInTab + 1
+                        let tabOrdinal = location.tabIndex + 1
                         appendGroupIfNeeded(groupId, title: "Pane \(paneOrdinal)", secondary: "Tab \(tabOrdinal)")
                         entriesByGroupId[groupId, default: []].append(
                             PlacementEntry(repo: repo, worktree: worktree, location: location)
                         )
                     case .tab:
                         let groupId = "tab:\(location.tabId.uuidString)"
-                        let tabOrdinal = tabOrdinalById[location.tabId] ?? location.tabIndex + 1
+                        let tabOrdinal = location.tabIndex + 1
                         appendGroupIfNeeded(groupId, title: "Tab \(tabOrdinal)")
                         entriesByGroupId[groupId, default: []].append(
                             PlacementEntry(repo: repo, worktree: worktree, location: location)
@@ -360,6 +367,7 @@ enum RepoExplorerProjection {
                 repos: repoItems(from: entries)
             )
         }
+        try cancellationCheck()
         return (groups, projectedRowsByGroupId)
     }
 

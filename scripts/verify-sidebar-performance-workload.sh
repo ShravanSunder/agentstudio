@@ -8,6 +8,9 @@ COLLECTOR_HEALTH_URL="${AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.
 METRICS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
 DEFAULT_PROOF_ROOT="/tmp/agentstudio-sidebar-performance"
 WORKLOAD_TRACE_TAGS="${AGENTSTUDIO_TRACE_TAGS:-performance,app.startup,terminal.startup}"
+WORKLOAD_CYCLES="${AGENTSTUDIO_SIDEBAR_IPC_CYCLES:-100}"
+REQUIRED_SAMPLE_COUNT=100
+WORKLOAD_FIXTURE_VERSION=sidebar-workload-v2
 
 usage() {
   cat <<'USAGE'
@@ -133,6 +136,27 @@ opaque_trace_marker() {
   local trace_name="${1:?missing trace name}"
   local trace_nonce="${2:?missing trace nonce}"
   printf '%s:%s' "$trace_name" "$trace_nonce" | /usr/bin/shasum -a 256 | awk '{ print "sidebar-" substr($1, 1, 24) }'
+}
+
+hashed_identity() {
+  local value="${1:?missing identity value}"
+  printf '%s' "$value" | /usr/bin/shasum -a 256 | awk '{ print substr($1, 1, 24) }'
+}
+
+validate_workload_cycles() {
+  /usr/bin/python3 - "$WORKLOAD_CYCLES" "$REQUIRED_SAMPLE_COUNT" <<'PY'
+import sys
+
+try:
+    cycles = int(sys.argv[1])
+    minimum = int(sys.argv[2])
+except ValueError:
+    print("AGENTSTUDIO_SIDEBAR_IPC_CYCLES must be an integer", file=sys.stderr)
+    raise SystemExit(2)
+if cycles < minimum:
+    print(f"AGENTSTUDIO_SIDEBAR_IPC_CYCLES must be >= {minimum}: {cycles}", file=sys.stderr)
+    raise SystemExit(2)
+PY
 }
 
 query_victoria_metrics() {
@@ -346,20 +370,20 @@ record_required_sidebar_metric_matrix() {
   for mode_name in repo pane tab; do
     for phase in request_build_mainactor projection_worker row_index mainactor_apply; do
       record_required_metric_series repo "$phase" "$mode_name" grouping_switch \
-        "repo_${mode_name}_${phase}" 1
+        "repo_${mode_name}_${phase}" "$REQUIRED_SAMPLE_COUNT"
     done
   done
 
   for mode_name in tab repo pane none; do
     for phase in request_build_mainactor projection_worker mainactor_apply; do
       record_required_metric_series inbox "$phase" "$mode_name" grouping_switch \
-        "inbox_${mode_name}_${phase}" 1
+        "inbox_${mode_name}_${phase}" "$REQUIRED_SAMPLE_COUNT"
     done
   done
 
   for mode_name in repo inbox; do
     record_required_metric_series "$mode_name" surface_switch not_applicable surface_switch \
-      "surface_switch_${mode_name}_end_to_end" 1
+      "surface_switch_${mode_name}_end_to_end" "$REQUIRED_SAMPLE_COUNT"
   done
 }
 
@@ -439,6 +463,29 @@ load_baseline_metric_value() {
   printf -v "$key" '%s' "$value"
 }
 
+validate_compare_baseline_fixture() {
+  if [ "$mode" != "compare" ]; then
+    return
+  fi
+  if [ ! -f "$BASELINE_FILE" ]; then
+    echo "missing sidebar baseline artifact: $BASELINE_FILE; run --baseline first" >&2
+    exit 1
+  fi
+
+  local baseline_workload_fixture_key
+  local baseline_worktree_fixture_key
+  baseline_workload_fixture_key="$(metric_env_value "$BASELINE_FILE" workload_fixture_key)"
+  baseline_worktree_fixture_key="$(metric_env_value "$BASELINE_FILE" worktree_fixture_key)"
+  if [ "$baseline_workload_fixture_key" != "$WORKLOAD_FIXTURE_KEY" ]; then
+    echo "sidebar baseline workload fixture mismatch" >&2
+    exit 1
+  fi
+  if [ "$baseline_worktree_fixture_key" != "$WORKTREE_FIXTURE_KEY" ]; then
+    echo "sidebar baseline worktree fixture mismatch" >&2
+    exit 1
+  fi
+}
+
 run_authenticated_sidebar_ipc_workload() {
   local metadata_path="${1:?missing metadata path}"
   local debug_token_path="${2:?missing debug token path}"
@@ -453,7 +500,8 @@ metadata_path = sys.argv[1]
 debug_token_path = sys.argv[2]
 timeout = float(os.environ.get("AGENTSTUDIO_SIDEBAR_IPC_TIMEOUT_SECONDS", "15"))
 step_delay = float(os.environ.get("AGENTSTUDIO_SIDEBAR_IPC_STEP_DELAY_SECONDS", "0.35"))
-cycles = int(os.environ.get("AGENTSTUDIO_SIDEBAR_IPC_CYCLES", "5"))
+readback_poll_delay = float(os.environ.get("AGENTSTUDIO_SIDEBAR_IPC_READBACK_POLL_SECONDS", "0.01"))
+cycles = int(os.environ["AGENTSTUDIO_SIDEBAR_IPC_CYCLES"])
 
 with open(metadata_path, "r", encoding="utf-8") as metadata_file:
     metadata = json.load(metadata_file)
@@ -545,6 +593,18 @@ try:
             print(f"{label} did not apply: {result}", file=sys.stderr)
             sys.exit(1)
 
+    def wait_for_readback(method, params, label, matches):
+        deadline = time.monotonic() + timeout
+        last_result = None
+        while time.monotonic() < deadline:
+            last_result = require_success(session.request(next_id(), method, params), label)
+            if matches(last_result):
+                return last_result
+            if readback_poll_delay > 0:
+                time.sleep(readback_poll_delay)
+        print(f"{label} readiness timed out: {last_result}", file=sys.stderr)
+        sys.exit(1)
+
     def set_grouping(surface, mode):
         command_by_grouping = {
             ("repo", "repo"): "setRepoSidebarGroupingRepo",
@@ -560,15 +620,12 @@ try:
             print(f"unsupported sidebar grouping command: surface={surface} mode={mode}", file=sys.stderr)
             sys.exit(1)
         execute_sidebar_command(command_id, {}, f"command.execute {command_id}")
-        result = require_success(
-            session.request(next_id(), "sidebar.grouping.get", {"surface": surface}),
+        wait_for_readback(
+            "sidebar.grouping.get",
+            {"surface": surface},
             f"sidebar.grouping.get {surface}",
+            lambda result: result.get("mode") == mode,
         )
-        if result.get("mode") != mode:
-            print(f"sidebar grouping read-back mismatch for {surface}: {result}", file=sys.stderr)
-            sys.exit(1)
-        if step_delay > 0:
-            time.sleep(step_delay)
 
     def set_surface(surface):
         command_by_surface = {
@@ -580,15 +637,12 @@ try:
             print(f"unsupported sidebar surface command: surface={surface}", file=sys.stderr)
             sys.exit(1)
         execute_sidebar_command(command_id, {}, f"command.execute {command_id}")
-        result = require_success(
-            session.request(next_id(), "sidebar.surface.get", {}),
+        wait_for_readback(
             "sidebar.surface.get",
+            {},
+            "sidebar.surface.get",
+            lambda result: result.get("surface") == surface,
         )
-        if result.get("surface") != surface:
-            print(f"sidebar surface read-back mismatch for {surface}: {result}", file=sys.stderr)
-            sys.exit(1)
-        if step_delay > 0:
-            time.sleep(step_delay)
 
     def set_repo_visibility(mode):
         result = require_success(
@@ -723,6 +777,7 @@ wait_for_sidebar_metric_value() {
 }
 
 validate_controls
+validate_workload_cycles
 
 PROOF_ROOT="${AGENTSTUDIO_SIDEBAR_PROOF_ROOT:-$DEFAULT_PROOF_ROOT}"
 TRACE_NAME="$(validate_trace_name "${AGENTSTUDIO_TRACE_NAME:-sidebar-performance-$(date +%Y%m%d%H%M%S)-$$}")"
@@ -734,7 +789,10 @@ SUMMARY_FILE="$ARTIFACT/summary.txt"
 REQUIRED_METRIC_KEYS_FILE="$ARTIFACT/required-metric-keys.txt"
 METRIC_VALUES_FILE="$ARTIFACT/metric-values.env"
 BASELINE_FILE="$PROOF_ROOT/sidebar-performance-baseline.env"
+WORKTREE_FIXTURE_KEY="$(hashed_identity "$(canonical_path "$PROJECT_ROOT")")"
+WORKLOAD_FIXTURE_KEY="$(hashed_identity "$WORKLOAD_FIXTURE_VERSION:cycles=$WORKLOAD_CYCLES")"
 mkdir -p "$ARTIFACT" "$(dirname "$STATE_FILE")"
+validate_compare_baseline_fixture
 
 sidebar_metric_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface=~"inbox|repo",phase=~"startup_diagnostic|surface_switch|request_build_mainactor|mainactor_apply|projection_worker|row_index"}'
 inbox_worker_event_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_MARKER")'",event="performance.sidebar.projection",surface="inbox",phase="projection_worker"}'
@@ -752,6 +810,9 @@ if [ "$mode" = "prepare-only" ]; then
     echo "startup_diagnostic=sidebar-performance-proof"
     echo "requires_unsafe_no_auth=false"
     echo "requires_non_foreground_activation=true"
+    echo "workload_fixture_key=$WORKLOAD_FIXTURE_KEY"
+    echo "worktree_fixture_key=$WORKTREE_FIXTURE_KEY"
+    echo "workload_cycles=$WORKLOAD_CYCLES"
     echo "sidebar_projection.metric_result_count=$metrics_count"
   } >"$SUMMARY_FILE"
   echo "sidebar performance workload prepare-only ok: $SUMMARY_FILE"
@@ -761,6 +822,7 @@ fi
 env \
   AGENTSTUDIO_TRACE_TAGS="$WORKLOAD_TRACE_TAGS" \
   AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
+  AGENTSTUDIO_SIDEBAR_IPC_CYCLES="$WORKLOAD_CYCLES" \
   AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
   AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=sidebar-performance-proof \
   AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
@@ -783,7 +845,8 @@ fi
 state_data_dir="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
 ipc_metadata_path="${AGENTSTUDIO_OBSERVABILITY_IPC_METADATA:-$state_data_dir/ipc/runtime.json}"
 ipc_debug_token_path="${AGENTSTUDIO_OBSERVABILITY_IPC_DEBUG_TOKEN:-$state_data_dir/ipc/debug-token}"
-run_authenticated_sidebar_ipc_workload "$ipc_metadata_path" "$ipc_debug_token_path"
+AGENTSTUDIO_SIDEBAR_IPC_CYCLES="$WORKLOAD_CYCLES" \
+  run_authenticated_sidebar_ipc_workload "$ipc_metadata_path" "$ipc_debug_token_path"
 
 metrics_result="$(wait_for_sidebar_metric_count)"
 metrics_count="$(printf '%s\n' "$metrics_result" | sed -n '1p')"
@@ -866,7 +929,7 @@ inbox_pane_mainactor_apply_elapsed_ms_max="$(
 )"
 repo_pane_projection_worker_elapsed_ms_count="$(
   wait_for_required_metric_count repo_pane_projection_worker_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo projection_worker pane grouping_switch)" 3
+    "$(metric_event_elapsed_count_query repo projection_worker pane grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
 )"
 repo_visibility_projection_worker_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_visibility_projection_worker_elapsed_ms_p95 \
@@ -878,7 +941,7 @@ repo_visibility_projection_worker_elapsed_ms_max="$(
 )"
 repo_visibility_projection_worker_elapsed_ms_count="$(
   wait_for_required_metric_count repo_visibility_projection_worker_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo projection_worker repo visibility_mode)" 3
+    "$(metric_event_elapsed_count_query repo projection_worker repo visibility_mode)" "$REQUIRED_SAMPLE_COUNT"
 )"
 repo_visibility_mainactor_apply_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_visibility_mainactor_apply_elapsed_ms_p95 \
@@ -890,7 +953,7 @@ repo_visibility_mainactor_apply_elapsed_ms_max="$(
 )"
 repo_visibility_mainactor_apply_elapsed_ms_count="$(
   wait_for_required_metric_count repo_visibility_mainactor_apply_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo mainactor_apply repo visibility_mode)" 3
+    "$(metric_event_elapsed_count_query repo mainactor_apply repo visibility_mode)" "$REQUIRED_SAMPLE_COUNT"
 )"
 repo_sort_projection_worker_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_projection_worker_elapsed_ms_p95 \
@@ -902,7 +965,7 @@ repo_sort_projection_worker_elapsed_ms_max="$(
 )"
 repo_sort_projection_worker_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_projection_worker_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo projection_worker repo sort_order)" 3
+    "$(metric_event_elapsed_count_query repo projection_worker repo sort_order)" "$REQUIRED_SAMPLE_COUNT"
 )"
 repo_sort_mainactor_apply_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_mainactor_apply_elapsed_ms_p95 \
@@ -914,7 +977,7 @@ repo_sort_mainactor_apply_elapsed_ms_max="$(
 )"
 repo_sort_mainactor_apply_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_mainactor_apply_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo mainactor_apply repo sort_order)" 3
+    "$(metric_event_elapsed_count_query repo mainactor_apply repo sort_order)" "$REQUIRED_SAMPLE_COUNT"
 )"
 repo_sort_request_build_mainactor_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_request_build_mainactor_elapsed_ms_p95 \
@@ -926,7 +989,7 @@ repo_sort_request_build_mainactor_elapsed_ms_max="$(
 )"
 repo_sort_request_build_mainactor_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_request_build_mainactor_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo request_build_mainactor repo sort_order)" 3
+    "$(metric_event_elapsed_count_query repo request_build_mainactor repo sort_order)" "$REQUIRED_SAMPLE_COUNT"
 )"
 repo_sort_row_index_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_row_index_elapsed_ms_p95 \
@@ -938,19 +1001,19 @@ repo_sort_row_index_elapsed_ms_max="$(
 )"
 repo_sort_row_index_elapsed_ms_count="$(
   wait_for_required_metric_count repo_sort_row_index_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo row_index repo sort_order)" 3
+    "$(metric_event_elapsed_count_query repo row_index repo sort_order)" "$REQUIRED_SAMPLE_COUNT"
 )"
 repo_tab_mainactor_apply_elapsed_ms_count="$(
   wait_for_required_metric_count repo_tab_mainactor_apply_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo mainactor_apply tab grouping_switch)" 3
+    "$(metric_event_elapsed_count_query repo mainactor_apply tab grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
 )"
 inbox_none_projection_worker_elapsed_ms_count="$(
   wait_for_required_metric_count inbox_none_projection_worker_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query inbox projection_worker none grouping_switch)" 3
+    "$(metric_event_elapsed_count_query inbox projection_worker none grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
 )"
 inbox_pane_mainactor_apply_elapsed_ms_count="$(
   wait_for_required_metric_count inbox_pane_mainactor_apply_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query inbox mainactor_apply pane grouping_switch)" 3
+    "$(metric_event_elapsed_count_query inbox mainactor_apply pane grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
 )"
 repo_pane_request_build_mainactor_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_pane_request_build_mainactor_elapsed_ms_p95 \
@@ -962,7 +1025,7 @@ repo_pane_request_build_mainactor_elapsed_ms_max="$(
 )"
 repo_pane_request_build_mainactor_elapsed_ms_count="$(
   wait_for_required_metric_count repo_pane_request_build_mainactor_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo request_build_mainactor pane grouping_switch)" 3
+    "$(metric_event_elapsed_count_query repo request_build_mainactor pane grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
 )"
 repo_pane_row_index_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_pane_row_index_elapsed_ms_p95 \
@@ -974,7 +1037,7 @@ repo_pane_row_index_elapsed_ms_max="$(
 )"
 repo_pane_row_index_elapsed_ms_count="$(
   wait_for_required_metric_count repo_pane_row_index_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo row_index pane grouping_switch)" 3
+    "$(metric_event_elapsed_count_query repo row_index pane grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
 )"
 inbox_none_request_build_mainactor_elapsed_ms_p95="$(
   wait_for_required_metric_value inbox_none_request_build_mainactor_elapsed_ms_p95 \
@@ -986,7 +1049,7 @@ inbox_none_request_build_mainactor_elapsed_ms_max="$(
 )"
 inbox_none_request_build_mainactor_elapsed_ms_count="$(
   wait_for_required_metric_count inbox_none_request_build_mainactor_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query inbox request_build_mainactor none grouping_switch)" 3
+    "$(metric_event_elapsed_count_query inbox request_build_mainactor none grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
 )"
 surface_switch_repo_end_to_end_elapsed_ms_p95="$(
   wait_for_required_metric_value surface_switch_repo_end_to_end_elapsed_ms_p95 \
@@ -998,7 +1061,7 @@ surface_switch_repo_end_to_end_elapsed_ms_max="$(
 )"
 surface_switch_repo_end_to_end_elapsed_ms_count="$(
   wait_for_required_metric_count surface_switch_repo_end_to_end_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo surface_switch not_applicable surface_switch)" 3
+    "$(metric_event_elapsed_count_query repo surface_switch not_applicable surface_switch)" "$REQUIRED_SAMPLE_COUNT"
 )"
 surface_switch_inbox_end_to_end_elapsed_ms_p95="$(
   wait_for_required_metric_value surface_switch_inbox_end_to_end_elapsed_ms_p95 \
@@ -1010,13 +1073,16 @@ surface_switch_inbox_end_to_end_elapsed_ms_max="$(
 )"
 surface_switch_inbox_end_to_end_elapsed_ms_count="$(
   wait_for_required_metric_count surface_switch_inbox_end_to_end_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query inbox surface_switch not_applicable surface_switch)" 3
+    "$(metric_event_elapsed_count_query inbox surface_switch not_applicable surface_switch)" "$REQUIRED_SAMPLE_COUNT"
 )"
 record_required_sidebar_metric_matrix
 
 if [ "$mode" = "baseline" ]; then
   {
     echo "trace_name=$TRACE_NAME"
+    echo "workload_fixture_key=$WORKLOAD_FIXTURE_KEY"
+    echo "worktree_fixture_key=$WORKTREE_FIXTURE_KEY"
+    echo "workload_cycles=$WORKLOAD_CYCLES"
     echo "inbox_projection_worker_elapsed_ms_max=$worker_elapsed_ms"
     echo "inbox_mainactor_apply_elapsed_ms_max=$apply_elapsed_ms"
     echo "repo_pane_projection_worker_elapsed_ms_p95=$repo_pane_projection_worker_elapsed_ms_p95"
@@ -1054,10 +1120,6 @@ if [ "$mode" = "baseline" ]; then
 fi
 
 if [ "$mode" = "compare" ]; then
-  if [ ! -f "$BASELINE_FILE" ]; then
-    echo "missing sidebar baseline artifact: $BASELINE_FILE; run --baseline first" >&2
-    exit 1
-  fi
   compare_repo_pane_projection_worker_elapsed_ms_p95="$repo_pane_projection_worker_elapsed_ms_p95"
   compare_repo_pane_projection_worker_elapsed_ms_max="$repo_pane_projection_worker_elapsed_ms_max"
   compare_repo_visibility_projection_worker_elapsed_ms_p95="$repo_visibility_projection_worker_elapsed_ms_p95"

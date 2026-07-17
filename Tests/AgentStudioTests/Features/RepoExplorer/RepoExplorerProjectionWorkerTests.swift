@@ -5,6 +5,10 @@ import Testing
 
 @Suite("RepoExplorerProjectionWorker")
 struct RepoExplorerProjectionWorkerTests {
+    private enum CancellationProbe: Error {
+        case cancelled
+    }
+
     @Test("worker projects sidebar model and row index off caller isolation")
     func workerProjectsSidebarModelAndRowIndex() async throws {
         let repoId = UUID()
@@ -97,6 +101,57 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(result.projection.resolvedGroups.map(\.repoTitle) == ["zeta-favorite"])
         #expect(result.projection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId])
         #expect(result.rowIndex.entries.count == 1)
+    }
+
+    @Test("projection checks cancellation periodically within placement work")
+    func projectionChecksCancellationWithinPlacementWork() {
+        let repoId = UUID()
+        let worktrees = (0..<600).map { index in
+            Worktree(
+                repoId: repoId,
+                name: "worktree-\(index)",
+                path: URL(fileURLWithPath: "/tmp/worktree-\(index)")
+            )
+        }
+        let snapshot = RepoExplorerSnapshot(
+            repos: [
+                RepoPresentationItem(
+                    id: repoId,
+                    name: "agent-studio",
+                    repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+                    stableKey: "agent-studio",
+                    worktrees: worktrees
+                )
+            ],
+            repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId, displayName: "agent-studio")],
+            groupingMode: .pane,
+            query: "",
+            paneLocationsByWorktreeId: Dictionary(
+                uniqueKeysWithValues: worktrees.map { worktree in
+                    (
+                        worktree.id,
+                        [
+                            WorkspacePaneLocation(
+                                paneId: UUID(),
+                                tabId: UUID(),
+                                tabIndex: 0,
+                                paneIndexInTab: 0,
+                                isActiveInTab: true
+                            )
+                        ]
+                    )
+                }
+            )
+        )
+        var checkpointCount = 0
+
+        #expect(throws: CancellationProbe.cancelled) {
+            _ = try RepoExplorerProjection.projectCancellable(snapshot) {
+                checkpointCount += 1
+                if checkpointCount == 3 { throw CancellationProbe.cancelled }
+            }
+        }
+        #expect(checkpointCount == 3)
     }
 
     private func repo(id: UUID, name: String, isFavorite: Bool = false) -> RepoPresentationItem {

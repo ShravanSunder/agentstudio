@@ -17,7 +17,10 @@ struct AgentStudioAppIPCSidebarServiceTests {
                 inboxGrouping: .noGrouping,
                 surface: .inbox
             ),
-            debugTokenEscrowEnabled: true
+            debugTokenEscrowEnabled: true,
+            debugTokenEscrowPermissionScopes: [
+                IPCPermissionScope(privilege: .workspaceRead, target: .app, dataScope: .unspecified)
+            ]
         )
         defer {
             fixture.cleanup()

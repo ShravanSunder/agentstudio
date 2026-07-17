@@ -406,13 +406,13 @@ extension AppDelegate {
         private func runSidebarPerformanceProofDiagnostic(
             action: AgentStudioStartupDiagnosticAction
         ) async {
-            let sidebarSurface = atom(\.workspaceSidebarState).sidebarSurface
             let repoCount = store.repositoryTopologyAtom.repos.count
             let worktreeCount = store.repositoryTopologyAtom.repos.reduce(0) { count, repo in
                 count + repo.worktrees.count
             }
             let inboxCount = atom(\.inboxNotification).notifications.count
-            let inboxProjectionProof = await runInboxSidebarProjectionProof()
+            let projectionTrigger = AppPolicies.SidebarProjection.Trigger.startupDiagnostic
+            let inboxProjectionProof = await runInboxSidebarProjectionProof(trigger: projectionTrigger)
             let diagnosticOutcome = inboxProjectionProof.succeeded ? "succeeded" : "blocked"
             let attributes = startupDiagnosticTraceAttributes(for: action).merging(
                 [
@@ -421,8 +421,8 @@ extension AppDelegate {
                     "agentstudio.startup_diagnostic.fixture.inbox_notification.count": .int(inboxCount),
                     "agentstudio.startup_diagnostic.fixture.sidebar_surface.count": .int(1),
                     "agentstudio.startup_diagnostic.projection_proof.succeeded": .bool(inboxProjectionProof.succeeded),
-                    "agentstudio.performance.sidebar.surface": .string(sidebarSurface == .inbox ? "inbox" : "repo"),
-                    "agentstudio.performance.sidebar.phase": .string("startup_diagnostic"),
+                    "agentstudio.performance.sidebar.surface": .string("inbox"),
+                    "agentstudio.performance.sidebar.phase": .string(projectionTrigger.rawValue),
                     "agentstudio.performance.sidebar.query_state": .string("empty"),
                     "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
                     "agentstudio.performance.sidebar.input.count": .int(repoCount + worktreeCount + inboxCount),
@@ -437,6 +437,7 @@ extension AppDelegate {
                     duration: projectionWorkerDuration,
                     attributes: sidebarPerformanceProofAttributes(
                         phase: "projection_worker",
+                        trigger: projectionTrigger,
                         inputCount: inboxCount,
                         sectionCount: inboxProjectionResult.model.sections.count,
                         extra: [
@@ -464,7 +465,9 @@ extension AppDelegate {
             )
         }
 
-        private func runInboxSidebarProjectionProof() async -> (
+        private func runInboxSidebarProjectionProof(
+            trigger: AppPolicies.SidebarProjection.Trigger
+        ) async -> (
             result: InboxNotificationListProjectionResult,
             succeeded: Bool
         ) {
@@ -496,7 +499,7 @@ extension AppDelegate {
             let request = InboxNotificationListProjectionRequest(
                 generation: 1,
                 key: key,
-                trigger: .startupDiagnostic,
+                trigger: trigger,
                 repoPresentationByRepoId: repoPresentationByRepoId
             )
             do {
@@ -517,6 +520,7 @@ extension AppDelegate {
 
         private func sidebarPerformanceProofAttributes(
             phase: String,
+            trigger: AppPolicies.SidebarProjection.Trigger,
             inputCount: Int,
             sectionCount: Int,
             extra: [String: AgentStudioTraceValue] = [:]
@@ -524,7 +528,7 @@ extension AppDelegate {
             [
                 "agentstudio.performance.sidebar.surface": .string("inbox"),
                 "agentstudio.performance.sidebar.phase": .string(phase),
-                "agentstudio.performance.sidebar.trigger": .string("startup_diagnostic"),
+                "agentstudio.performance.sidebar.trigger": .string(trigger.rawValue),
                 "agentstudio.performance.sidebar.query_state": .string("empty"),
                 "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
                 "agentstudio.performance.sidebar.input.count": .int(inputCount),

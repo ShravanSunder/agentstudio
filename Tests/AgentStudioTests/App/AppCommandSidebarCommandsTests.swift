@@ -32,6 +32,14 @@ struct AppCommandSidebarCommandsTests {
         let delegate = AppDelegate()
         #expect(!delegate.execute(.setRepoSidebarGroupingPane))
         #expect(!delegate.execute(.setInboxGroupingPane))
+        #expect(
+            delegate.execute(AppCommandExecutionRequest(command: .setRepoSidebarGroupingPane))
+                == .stateUnavailable
+        )
+        #expect(
+            delegate.execute(AppCommandExecutionRequest(command: .setInboxGroupingPane))
+                == .stateUnavailable
+        )
 
         let repoPrefs = RepoExplorerSidebarPrefsAtom()
         let inboxPrefs = InboxNotificationPrefsAtom()
@@ -44,6 +52,12 @@ struct AppCommandSidebarCommandsTests {
         #expect(repoPrefs.groupingMode == .pane)
         #expect(delegate.execute(.setInboxGroupingPane))
         #expect(inboxPrefs.grouping == .byPane)
+        #expect(
+            delegate.execute(AppCommandExecutionRequest(command: .setRepoSidebarGroupingTab)) == .applied
+        )
+        #expect(
+            delegate.execute(AppCommandExecutionRequest(command: .setInboxGroupingTab)) == .applied
+        )
     }
 
     @Test("dispatcher registers repo sidebar visibility mode command for headless execution")

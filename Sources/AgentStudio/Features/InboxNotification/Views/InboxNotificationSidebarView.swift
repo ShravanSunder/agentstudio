@@ -36,6 +36,7 @@ struct InboxNotificationSidebarView: View {
     @State private var projectionTask: Task<Void, Never>?
     @State private var inFlightProjectionRequest: InboxNotificationListProjectionRequest?
     @State private var projectionGeneration = 0
+    @State private var hasReportedInitialProjection = false
     @State private var groupingMenuOpen = false
     @State private var flashingRowIds: Set<UUID> = []
     @State private var activeFilter: InboxFilter?
@@ -369,7 +370,8 @@ struct InboxNotificationSidebarView: View {
                 ]
             )
         )
-        if result.trigger == .surfaceSwitch {
+        if Self.shouldReportInitialProjection(hasReportedInitialProjection: hasReportedInitialProjection) {
+            hasReportedInitialProjection = true
             onInitialProjectionApplied(initialProjectionSequence)
         }
     }
@@ -398,9 +400,7 @@ struct InboxNotificationSidebarView: View {
         next: InboxNotificationListProjectionKey
     ) -> AppPolicies.SidebarProjection.Trigger {
         guard let previous else {
-            return initialProjectionTrigger == .surfaceSwitch
-                ? .surfaceSwitch
-                : (next.grouping == .byTab ? .startupDiagnostic : .groupingSwitch)
+            return Self.initialProjectionTrigger(configuredTrigger: initialProjectionTrigger)
         }
         if previous.grouping != next.grouping {
             return .groupingSwitch
@@ -412,6 +412,16 @@ struct InboxNotificationSidebarView: View {
             return .collapseToggle
         }
         return .dataRefresh
+    }
+
+    static func shouldReportInitialProjection(hasReportedInitialProjection: Bool) -> Bool {
+        !hasReportedInitialProjection
+    }
+
+    static func initialProjectionTrigger(
+        configuredTrigger: AppPolicies.SidebarProjection.Trigger
+    ) -> AppPolicies.SidebarProjection.Trigger {
+        configuredTrigger
     }
 
     static func repoPresentationByRepoId(
