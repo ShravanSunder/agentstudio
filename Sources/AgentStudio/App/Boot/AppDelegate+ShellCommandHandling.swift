@@ -7,9 +7,7 @@ extension AppDelegate: ShellCommandHandling {
             .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showWorktreeSidebar,
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-            .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
-            .setInboxRowStateFilter, .setInboxContentMode,
             .signInGitHub, .signInGoogle, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
             true
@@ -42,6 +40,8 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
+            .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
+            .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .openWebview, .openBridgeReview, .openNewTerminalInTab:
             false
         }

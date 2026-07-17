@@ -15,14 +15,14 @@ struct InboxNotificationListProjectionKey: Equatable, Sendable {
 struct InboxNotificationListProjectionRequest: Equatable, Sendable {
     let generation: Int
     let key: InboxNotificationListProjectionKey
-    let trigger: String
+    let trigger: AppPolicies.SidebarProjection.Trigger
     let repoPresentationByRepoId: [UUID: InboxNotificationRepoGroupPresentation]
 }
 
 struct InboxNotificationListProjectionResult: Equatable, Sendable {
     let generation: Int
     let key: InboxNotificationListProjectionKey
-    let trigger: String
+    let trigger: AppPolicies.SidebarProjection.Trigger
     let model: InboxNotificationListModel
     let workerDuration: Duration
 }
@@ -37,7 +37,7 @@ actor InboxNotificationListProjectionWorker {
             try Task.checkCancellation()
             let clock = ContinuousClock()
             let start = clock.now
-            let model = InboxNotificationListModel(
+            let model = try InboxNotificationListModel(
                 notifications: request.key.notifications,
                 grouping: request.key.grouping,
                 sort: request.key.sort,
@@ -49,7 +49,8 @@ actor InboxNotificationListProjectionWorker {
                 repoPresentation: { repoId in
                     guard let repoId else { return nil }
                     return request.repoPresentationByRepoId[repoId]
-                }
+                },
+                cancellationCheck: { try Task.checkCancellation() }
             )
             try Task.checkCancellation()
             return InboxNotificationListProjectionResult(

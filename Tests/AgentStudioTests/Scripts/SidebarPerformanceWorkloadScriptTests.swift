@@ -14,6 +14,8 @@ struct SidebarPerformanceWorkloadScriptTests {
         let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
 
         #expect(source.contains("sidebar-performance-proof"))
+        #expect(source.contains("TRACE_NONCE=\"$(/usr/bin/uuidgen)\""))
+        #expect(source.contains("opaque_trace_marker \"$TRACE_NAME\" \"$TRACE_NONCE\""))
         #expect(source.contains("AGENTSTUDIO_IPC_UNSAFE_NO_AUTH"))
         #expect(source.contains("AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE"))
         #expect(source.contains("AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE"))

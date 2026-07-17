@@ -1,9 +1,9 @@
 import SwiftUI
 
-struct SidebarGroupingPopover<Item: Hashable>: View {
+struct SidebarGroupingPopover<Item: Hashable, Icon: View>: View {
     let items: [Item]
     let selectedItem: Item
-    let icon: (Item) -> CommandIcon
+    let icon: (Item) -> Icon
     let label: (Item) -> String
     let onSelect: (Item) -> Void
     let onDismiss: () -> Void
@@ -20,7 +20,6 @@ struct SidebarGroupingPopover<Item: Hashable>: View {
                             .opacity(selectedItem == item ? 1 : 0)
                             .frame(width: AppStyles.General.Icon.compact)
                         icon(item)
-                            .swiftUIImage(size: AppStyles.General.Icon.compact)
                             .frame(width: AppStyles.General.Icon.compact)
                         Text(label(item))
                             .frame(maxWidth: .infinity, alignment: .leading)

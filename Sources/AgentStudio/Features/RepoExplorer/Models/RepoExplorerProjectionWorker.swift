@@ -5,7 +5,7 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
     let snapshot: RepoExplorerSnapshot
     let expandedGroupIds: Set<String>
     let isFiltering: Bool
-    let trigger: String
+    let trigger: AppPolicies.SidebarProjection.Trigger
     let worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts]
 
     init(
@@ -13,7 +13,7 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
         snapshot: RepoExplorerSnapshot,
         expandedGroupIds: Set<String>,
         isFiltering: Bool,
-        trigger: String,
+        trigger: AppPolicies.SidebarProjection.Trigger,
         worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts] = [:]
     ) {
         self.generation = generation
@@ -30,7 +30,7 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
     let snapshot: RepoExplorerSnapshot
     let expandedGroupIds: Set<String>
     let isFiltering: Bool
-    let trigger: String
+    let trigger: AppPolicies.SidebarProjection.Trigger
     let projection: RepoExplorerSidebarProjection
     let rowIndex: RepoExplorerRowIndex
     let workerDuration: Duration
@@ -57,7 +57,7 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
             snapshot: snapshot,
             expandedGroupIds: [],
             isFiltering: false,
-            trigger: "startup_diagnostic",
+            trigger: .startupDiagnostic,
             projection: projection,
             rowIndex: RepoExplorerRowIndex(
                 projection: projection,

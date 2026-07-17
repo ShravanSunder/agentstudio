@@ -2,6 +2,19 @@ import CoreGraphics
 import Foundation
 
 enum AppPolicies {
+    enum SidebarProjection {
+        enum Trigger: String, Equatable, Sendable {
+            case groupingSwitch = "grouping_switch"
+            case surfaceSwitch = "surface_switch"
+            case search
+            case sortOrder = "sort_order"
+            case visibilityMode = "visibility_mode"
+            case collapseToggle = "collapse_toggle"
+            case dataRefresh = "data_refresh"
+            case startupDiagnostic = "startup_diagnostic"
+        }
+    }
+
     enum Diagnostics {
         static let traceEventQueueBufferLimit: Int = 4096
     }

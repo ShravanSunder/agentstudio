@@ -535,6 +535,56 @@ struct RepoExplorerViewTests {
         #expect(resolvedProjection.resolvedGroups.first?.repos.map(\.id) == [repo.id])
     }
 
+    @Test("projection fingerprint includes rendered worktree identity")
+    func projectionFingerprintIncludesRenderedWorktreeIdentity() {
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let originalRepo = RepoPresentationItem(
+            id: repoId,
+            name: "agent-studio",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+            stableKey: "agent-studio",
+            worktrees: [
+                Worktree(
+                    id: worktreeId,
+                    repoId: repoId,
+                    name: "before",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio.before")
+                )
+            ]
+        )
+        let changedRepo = RepoPresentationItem(
+            id: repoId,
+            name: originalRepo.name,
+            repoPath: originalRepo.repoPath,
+            stableKey: originalRepo.stableKey,
+            worktrees: [
+                Worktree(
+                    id: worktreeId,
+                    repoId: repoId,
+                    name: "after",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio.after")
+                )
+            ]
+        )
+        let enrichment: [UUID: RepoEnrichment] = [
+            repoId: .resolvedLocal(
+                repoId: repoId,
+                identity: RemoteIdentityNormalizer.localIdentity(repoName: "agent-studio"),
+                updatedAt: Date()
+            )
+        ]
+
+        let original = RepoExplorerView.projectSidebar(
+            repos: [originalRepo], repoEnrichmentByRepoId: enrichment, query: "")
+        let changed = RepoExplorerView.projectSidebar(
+            repos: [changedRepo], repoEnrichmentByRepoId: enrichment, query: "")
+
+        #expect(
+            RepoExplorerView.projectionFingerprint(for: original)
+                != RepoExplorerView.projectionFingerprint(for: changed))
+    }
+
     @Test("repo metadata builder uses resolved local identity when available")
     func repoMetadataBuilderUsesResolvedLocalIdentity() {
         let repo = RepoPresentationItem(

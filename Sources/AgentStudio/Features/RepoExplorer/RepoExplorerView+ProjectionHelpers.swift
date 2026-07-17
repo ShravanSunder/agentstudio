@@ -49,29 +49,29 @@ extension RepoExplorerView {
     static func sidebarProjectionTrigger(
         previous: RepoExplorerProjectionRequest?,
         next: RepoExplorerProjectionRequest,
-        initialProjectionTrigger: String = "startup_diagnostic"
-    ) -> String {
+        initialProjectionTrigger: AppPolicies.SidebarProjection.Trigger = .startupDiagnostic
+    ) -> AppPolicies.SidebarProjection.Trigger {
         guard let previous else {
-            return initialProjectionTrigger == "surface_switch"
-                ? "surface_switch"
-                : (next.snapshot.groupingMode == .repo ? "startup_diagnostic" : "grouping_switch")
+            return initialProjectionTrigger == .surfaceSwitch
+                ? .surfaceSwitch
+                : (next.snapshot.groupingMode == .repo ? .startupDiagnostic : .groupingSwitch)
         }
         if previous.snapshot.groupingMode != next.snapshot.groupingMode {
-            return "grouping_switch"
+            return .groupingSwitch
         }
         if previous.snapshot.sortOrder != next.snapshot.sortOrder {
-            return "sort_order"
+            return .sortOrder
         }
         if previous.snapshot.query != next.snapshot.query {
-            return "search"
+            return .search
         }
         if previous.snapshot.visibilityMode != next.snapshot.visibilityMode {
-            return "visibility_mode"
+            return .visibilityMode
         }
         if previous.expandedGroupIds != next.expandedGroupIds {
-            return "collapse_toggle"
+            return .collapseToggle
         }
-        return "data_refresh"
+        return .dataRefresh
     }
 
     static func buildRepoMetadata(
@@ -98,8 +98,15 @@ extension RepoExplorerView {
 
     static func projectionFingerprint(for projection: SidebarProjection) -> String {
         let resolvedGroupsFingerprint = projection.resolvedGroups.map { group in
-            let repoIds = group.repos.map(\.id.uuidString).joined(separator: ",")
-            return "\(group.id):\(repoIds)"
+            let reposFingerprint = group.repos.map { repo in
+                let worktreesFingerprint = repo.worktrees.map { worktree in
+                    "\(worktree.id.uuidString):\(worktree.name):\(worktree.path.path):\(worktree.isMainWorktree)"
+                }
+                .joined(separator: ",")
+                return "\(repo.id.uuidString):\(repo.name):\(repo.repoPath.path):\(worktreesFingerprint)"
+            }
+            .joined(separator: ";")
+            return "\(group.id):\(group.repoTitle):\(group.organizationName ?? ""):\(reposFingerprint)"
         }
         .joined(separator: "|")
 

@@ -24,7 +24,7 @@ struct InboxNotificationSidebarView: View {
     let repoCache: RepoCacheAtom
     let dispatcher: AppCommandDispatcher
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
-    let initialProjectionTrigger: String
+    let initialProjectionTrigger: AppPolicies.SidebarProjection.Trigger
     let initialProjectionSequence: Int
     let onInitialProjectionApplied: @MainActor (Int) -> Void
     let onRefocusActivePane: @MainActor @Sendable () -> Void
@@ -55,7 +55,7 @@ struct InboxNotificationSidebarView: View {
         repoCache: RepoCacheAtom,
         dispatcher: AppCommandDispatcher,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
-        initialProjectionTrigger: String = "startup_diagnostic",
+        initialProjectionTrigger: String = AppPolicies.SidebarProjection.Trigger.startupDiagnostic.rawValue,
         initialProjectionSequence: Int = 0,
         onInitialProjectionApplied: @escaping @MainActor (Int) -> Void = { _ in },
         onRefocusActivePane: @escaping @MainActor @Sendable () -> Void
@@ -70,7 +70,8 @@ struct InboxNotificationSidebarView: View {
         self.repoCache = repoCache
         self.dispatcher = dispatcher
         self.performanceTraceRecorder = performanceTraceRecorder
-        self.initialProjectionTrigger = initialProjectionTrigger
+        self.initialProjectionTrigger =
+            AppPolicies.SidebarProjection.Trigger(rawValue: initialProjectionTrigger) ?? .startupDiagnostic
         self.initialProjectionSequence = initialProjectionSequence
         self.onInitialProjectionApplied = onInitialProjectionApplied
         self.onRefocusActivePane = onRefocusActivePane
@@ -368,21 +369,21 @@ struct InboxNotificationSidebarView: View {
                 ]
             )
         )
-        if result.trigger == "surface_switch" {
+        if result.trigger == .surfaceSwitch {
             onInitialProjectionApplied(initialProjectionSequence)
         }
     }
 
     private func sidebarProjectionTraceAttributes(
         for key: InboxNotificationListProjectionKey,
-        trigger: String = "startup_diagnostic",
+        trigger: AppPolicies.SidebarProjection.Trigger = .startupDiagnostic,
         phase: String,
         extra: [String: AgentStudioTraceValue] = [:]
     ) -> [String: AgentStudioTraceValue] {
         var attributes: [String: AgentStudioTraceValue] = [
             "agentstudio.performance.sidebar.surface": .string("inbox"),
             "agentstudio.performance.sidebar.phase": .string(phase),
-            "agentstudio.performance.sidebar.trigger": .string(trigger),
+            "agentstudio.performance.sidebar.trigger": .string(trigger.rawValue),
             "agentstudio.performance.sidebar.query_state": .string(key.searchText.isEmpty ? "empty" : "non_empty"),
             "agentstudio.performance.sidebar.group_mode": .string(key.grouping.performanceMetricValue),
             "agentstudio.performance.sidebar.input.count": .int(key.notifications.count),
@@ -395,22 +396,22 @@ struct InboxNotificationSidebarView: View {
     private func sidebarProjectionTrigger(
         previous: InboxNotificationListProjectionKey?,
         next: InboxNotificationListProjectionKey
-    ) -> String {
+    ) -> AppPolicies.SidebarProjection.Trigger {
         guard let previous else {
-            return initialProjectionTrigger == "surface_switch"
-                ? "surface_switch"
-                : (next.grouping == .byTab ? "startup_diagnostic" : "grouping_switch")
+            return initialProjectionTrigger == .surfaceSwitch
+                ? .surfaceSwitch
+                : (next.grouping == .byTab ? .startupDiagnostic : .groupingSwitch)
         }
         if previous.grouping != next.grouping {
-            return "grouping_switch"
+            return .groupingSwitch
         }
         if previous.searchText != next.searchText {
-            return "search"
+            return .search
         }
         if previous.collapsedGroups != next.collapsedGroups {
-            return "collapse_toggle"
+            return .collapseToggle
         }
-        return "data_refresh"
+        return .dataRefresh
     }
 
     static func repoPresentationByRepoId(
@@ -520,21 +521,25 @@ struct InboxNotificationSidebarView: View {
     }
 
     private func toggleRowStateFilter() {
+        let nextRowStateFilter: InboxNotificationRowStateFilter =
+            effectiveRowStateFilter == .unreadOnly ? .all : .unreadOnly
         displayOverride = nil
         dispatcher.dispatch(
             AppCommandExecutionRequest(
                 command: .setInboxRowStateFilter,
-                arguments: .inboxRowStateFilter(effectiveRowStateFilter == .unreadOnly ? .all : .unreadOnly)
+                arguments: .inboxRowStateFilter(nextRowStateFilter)
             )
         )
     }
 
     private func cycleContentMode() {
+        let nextContentMode: InboxNotificationContentMode =
+            effectiveContentMode == .rollUpAlerts ? .all : .rollUpAlerts
         displayOverride = nil
         dispatcher.dispatch(
             AppCommandExecutionRequest(
                 command: .setInboxContentMode,
-                arguments: .inboxContentMode(effectiveContentMode == .rollUpAlerts ? .all : .rollUpAlerts)
+                arguments: .inboxContentMode(nextContentMode)
             )
         )
     }

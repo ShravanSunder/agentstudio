@@ -95,7 +95,7 @@ struct RepoExplorerViewProjectionHelperTests {
             ),
             expandedGroupIds: [],
             isFiltering: false,
-            trigger: "startup_diagnostic"
+            trigger: .startupDiagnostic
         )
         let next = RepoExplorerProjectionRequest(
             generation: 2,
@@ -107,10 +107,10 @@ struct RepoExplorerViewProjectionHelperTests {
             ),
             expandedGroupIds: [],
             isFiltering: false,
-            trigger: "startup_diagnostic"
+            trigger: .startupDiagnostic
         )
 
-        #expect(RepoExplorerView.sidebarProjectionTrigger(previous: previous, next: next) == "sort_order")
+        #expect(RepoExplorerView.sidebarProjectionTrigger(previous: previous, next: next) == .sortOrder)
     }
 
     @Test("branchStatus maps sync and line diff values from snapshot summary")

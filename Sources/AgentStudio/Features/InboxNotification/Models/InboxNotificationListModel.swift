@@ -173,6 +173,46 @@ struct InboxNotificationListModel: Equatable, Sendable {
         )
     }
 
+    init(
+        notifications: [InboxNotification],
+        grouping: InboxNotificationGrouping,
+        sort: InboxNotificationSort,
+        searchText: String,
+        contentMode: InboxNotificationContentMode,
+        rowStateFilter: InboxNotificationRowStateFilter,
+        filter: InboxFilter?,
+        collapsedGroups: Set<InboxNotificationGroupKey>,
+        repoPresentation: (UUID?) -> InboxNotificationRepoGroupPresentation?,
+        cancellationCheck: () throws -> Void
+    ) throws {
+        try cancellationCheck()
+        let sortedNotifications = Self.sortNotifications(notifications, sort: sort)
+        try cancellationCheck()
+        let filteredNotifications = Self.filterNotifications(
+            sortedNotifications,
+            contentMode: contentMode,
+            rowStateFilter: rowStateFilter,
+            filter: filter
+        )
+        try cancellationCheck()
+        let sourceItems = try filteredNotifications.enumerated().map { index, notification in
+            if index.isMultiple(of: 256) {
+                try cancellationCheck()
+            }
+            return InboxNotificationListItem(notification: notification)
+        }
+        try cancellationCheck()
+        let textFilteredItems = Self.filterItems(sourceItems, searchText: searchText)
+        try cancellationCheck()
+        self.sections = Self.buildSections(
+            items: textFilteredItems,
+            grouping: grouping,
+            collapsedGroups: collapsedGroups,
+            repoPresentation: repoPresentation
+        )
+        try cancellationCheck()
+    }
+
     func groupBoundaryTarget(
         from focusedNotificationId: UUID?,
         direction: InboxNotificationListNavigationDirection

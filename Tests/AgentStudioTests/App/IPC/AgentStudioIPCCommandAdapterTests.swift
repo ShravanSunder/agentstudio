@@ -557,7 +557,9 @@ private struct CommandAdapterHarness {
         adapter = AgentStudioIPCCommandAdapter(
             workspaceId: workspaceStore.identityAtom.workspaceId,
             repositoryTargetAuthorizer: WorkspaceRepositoryTargetAuthorizationPort(
-                repositoryTopology: workspaceStore.repositoryTopologyAtom
+                repositoryExists: { [repositoryTopology = workspaceStore.repositoryTopologyAtom] repositoryId in
+                    repositoryTopology.repo(repositoryId) != nil
+                }
             ),
             windowLifecycleReader: FakeCommandWorkspaceWindowLifecycleReader(snapshot: windowSnapshot),
             shellCommandHandler: shellCommandHandler

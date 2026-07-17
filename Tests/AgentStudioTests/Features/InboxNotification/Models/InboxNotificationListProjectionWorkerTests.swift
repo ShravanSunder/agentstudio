@@ -5,6 +5,10 @@ import Testing
 
 @Suite("InboxNotificationListProjectionWorker")
 struct InboxNotificationListProjectionWorkerTests {
+    private enum CancellationProbe: Error {
+        case cancelled
+    }
+
     @Test("worker projects list model off caller isolation and preserves generation")
     func workerProjectsListModelAndPreservesGeneration() async throws {
         let matchingNotification = notification(
@@ -31,7 +35,7 @@ struct InboxNotificationListProjectionWorkerTests {
         let request = InboxNotificationListProjectionRequest(
             generation: 7,
             key: key,
-            trigger: "search",
+            trigger: .search,
             repoPresentationByRepoId: [:]
         )
 
@@ -39,8 +43,36 @@ struct InboxNotificationListProjectionWorkerTests {
 
         #expect(result.generation == 7)
         #expect(result.key == key)
-        #expect(result.trigger == "search")
+        #expect(result.trigger == .search)
         #expect(result.model.sections.visibleNotificationIds == [matchingNotification.id])
+    }
+
+    @Test("list model checks cancellation between expensive projection stages")
+    func listModelChecksCancellationBetweenProjectionStages() {
+        var checkpointCount = 0
+
+        #expect(throws: CancellationProbe.cancelled) {
+            _ = try InboxNotificationListModel(
+                notifications: [
+                    notification(id: UUID(), timestamp: Date(), title: "Build finished")
+                ],
+                grouping: .none,
+                sort: .newestFirst,
+                searchText: "build",
+                contentMode: .all,
+                rowStateFilter: .all,
+                filter: nil,
+                collapsedGroups: [],
+                repoPresentation: { _ in nil },
+                cancellationCheck: {
+                    checkpointCount += 1
+                    if checkpointCount == 3 {
+                        throw CancellationProbe.cancelled
+                    }
+                }
+            )
+        }
+        #expect(checkpointCount == 3)
     }
 
     private func notification(

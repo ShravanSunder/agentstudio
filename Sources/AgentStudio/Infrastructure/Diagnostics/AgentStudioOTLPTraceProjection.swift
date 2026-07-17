@@ -286,6 +286,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.terminal.surface.has_window",
         "agentstudio.performance.topology.has_match",
         "agentstudio.startup_diagnostic.render_proof.succeeded",
+        "agentstudio.startup_diagnostic.projection_proof.succeeded",
         "agentstudio.tcc.bundle.changed",
         "agentstudio.tcc.bundle.executable.reachable",
         "agentstudio.tcc.tccdb.bundle_grant.present",
@@ -431,8 +432,11 @@ enum AgentStudioOTLPTraceProjection {
         case "agentstudio.performance.sidebar.surface":
             ["inbox", "repo"].contains(value)
         case "agentstudio.performance.sidebar.phase":
-            ["request_build_mainactor", "projection_worker", "mainactor_apply", "row_index", "startup_diagnostic"]
-                .contains(value)
+            [
+                "request_build_mainactor", "projection_worker", "mainactor_apply", "row_index", "startup_diagnostic",
+                "surface_switch",
+            ]
+            .contains(value)
         case "agentstudio.performance.sidebar.query_state":
             ["empty", "non_empty"].contains(value)
         case "agentstudio.performance.sidebar.group_mode":

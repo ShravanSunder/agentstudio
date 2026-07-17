@@ -82,7 +82,7 @@ struct RepoExplorerView: View {
     let onShowNotificationsForWorktree: (Worktree) -> Void
     let unreadCount: (Worktree) -> Int
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
-    let initialProjectionTrigger: String
+    let initialProjectionTrigger: AppPolicies.SidebarProjection.Trigger
     let initialProjectionSequence: Int
     let onInitialProjectionApplied: @MainActor (Int) -> Void
     static let focusTargetIdentifier = NSUserInterfaceItemIdentifier("repoExplorerFocusTarget")
@@ -98,7 +98,7 @@ struct RepoExplorerView: View {
         onShowNotificationsForWorktree: @escaping (Worktree) -> Void,
         unreadCount: @escaping (Worktree) -> Int,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
-        initialProjectionTrigger: String = "startup_diagnostic",
+        initialProjectionTrigger: String = AppPolicies.SidebarProjection.Trigger.startupDiagnostic.rawValue,
         initialProjectionSequence: Int = 0,
         onInitialProjectionApplied: @escaping @MainActor (Int) -> Void = { _ in }
     ) {
@@ -107,7 +107,8 @@ struct RepoExplorerView: View {
         self.onShowNotificationsForWorktree = onShowNotificationsForWorktree
         self.unreadCount = unreadCount
         self.performanceTraceRecorder = performanceTraceRecorder
-        self.initialProjectionTrigger = initialProjectionTrigger
+        self.initialProjectionTrigger =
+            AppPolicies.SidebarProjection.Trigger(rawValue: initialProjectionTrigger) ?? .startupDiagnostic
         self.initialProjectionSequence = initialProjectionSequence
         self.onInitialProjectionApplied = onInitialProjectionApplied
     }
@@ -386,7 +387,9 @@ struct RepoExplorerView: View {
                 SidebarGroupingPopover(
                     items: RepoExplorerGroupingMode.allCases,
                     selectedItem: repoExplorerPrefs.groupingMode,
-                    icon: \.icon,
+                    icon: { groupingMode in
+                        groupingMode.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                    },
                     label: \.title,
                     onSelect: { candidate in
                         AppCommandDispatcher.shared.dispatch(groupingCommand(for: candidate))
@@ -665,7 +668,10 @@ struct RepoExplorerView: View {
         )
     }
 
-    private func refreshProjection(force: Bool = false, trigger: String? = nil) {
+    private func refreshProjection(
+        force: Bool = false,
+        trigger: AppPolicies.SidebarProjection.Trigger? = nil
+    ) {
         let clock = ContinuousClock()
         let requestBuildStart = clock.now
         let request = projectionRequest
@@ -843,7 +849,7 @@ struct RepoExplorerView: View {
                 ]
             )
         )
-        if result.trigger == "surface_switch" {
+        if result.trigger == .surfaceSwitch {
             onInitialProjectionApplied(initialProjectionSequence)
         }
     }
@@ -856,7 +862,7 @@ struct RepoExplorerView: View {
         var attributes: [String: AgentStudioTraceValue] = [
             "agentstudio.performance.sidebar.surface": .string("repo"),
             "agentstudio.performance.sidebar.phase": .string(phase),
-            "agentstudio.performance.sidebar.trigger": .string(request.trigger),
+            "agentstudio.performance.sidebar.trigger": .string(request.trigger.rawValue),
             "agentstudio.performance.sidebar.query_state": .string(
                 request.snapshot.query.isEmpty ? "empty" : "non_empty"),
             "agentstudio.performance.sidebar.group_mode": .string(request.snapshot.groupingMode.rawValue),

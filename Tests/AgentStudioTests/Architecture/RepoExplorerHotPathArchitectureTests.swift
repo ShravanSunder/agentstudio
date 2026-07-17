@@ -63,7 +63,7 @@ struct RepoExplorerHotPathArchitectureTests {
             repoExplorerViewHelperSource.contains("previous.snapshot.visibilityMode != next.snapshot.visibilityMode"))
         #expect(!repoExplorerViewSource.contains(".onChange(of: repoExplorerPrefs.repoVisibilityMode)"))
         #expect(!repoExplorerViewSource.contains(#"refreshProjection(force: true, trigger: "visibility_mode")"#))
-        #expect(repoExplorerViewHelperSource.contains("\"visibility_mode\""))
+        #expect(repoExplorerViewHelperSource.contains(".visibilityMode"))
         #expect(performanceMetricsSource.contains("case visibilityMode = \"visibility_mode\""))
     }
 

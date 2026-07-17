@@ -311,16 +311,16 @@ struct AppCommandIPCExposure: Equatable, Sendable {
             .managementLayerExit, .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
             .clearPaneInboxNotifications, .showWorktreeSidebar,
-            .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-            .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
-            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
-            .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow,
             .closeWindow, .openNewTerminalInTab:
             return [.layoutMutate]
         case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
             return [.terminalInputWrite]
-        case .addRepoFavorite, .removeRepoFavorite:
+        case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
+            .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
+            .setInboxRowStateFilter, .setInboxContentMode,
+            .addRepoFavorite, .removeRepoFavorite:
             return [.sidebarStateMutate]
         case .editPaneNote, .watchFolder, .removeRepo, .openWorktree, .openWorktreeInPane,
             .openWebview, .openBridgeReview:

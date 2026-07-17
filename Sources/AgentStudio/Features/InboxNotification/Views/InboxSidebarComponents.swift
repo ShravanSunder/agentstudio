@@ -269,7 +269,9 @@ struct InboxSidebarHeader: View {
                     SidebarGroupingPopover(
                         items: InboxNotificationGrouping.allCases,
                         selectedItem: grouping,
-                        icon: \.icon,
+                        icon: { grouping in
+                            grouping.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                        },
                         label: \.commandLabel,
                         onSelect: { candidate in
                             actions.onSelectGrouping(candidate)

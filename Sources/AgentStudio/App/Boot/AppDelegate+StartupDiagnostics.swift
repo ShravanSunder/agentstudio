@@ -420,7 +420,7 @@ extension AppDelegate {
                     "agentstudio.startup_diagnostic.fixture.worktree.count": .int(worktreeCount),
                     "agentstudio.startup_diagnostic.fixture.inbox_notification.count": .int(inboxCount),
                     "agentstudio.startup_diagnostic.fixture.sidebar_surface.count": .int(1),
-                    "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(inboxProjectionProof.succeeded),
+                    "agentstudio.startup_diagnostic.projection_proof.succeeded": .bool(inboxProjectionProof.succeeded),
                     "agentstudio.performance.sidebar.surface": .string(sidebarSurface == .inbox ? "inbox" : "repo"),
                     "agentstudio.performance.sidebar.phase": .string("startup_diagnostic"),
                     "agentstudio.performance.sidebar.query_state": .string("empty"),
@@ -444,24 +444,6 @@ extension AppDelegate {
                     ]
                 )
             )
-            let applyClock = ContinuousClock()
-            let applyStart = applyClock.now
-            let projectedSectionCount = inboxProjectionResult.model.sections.count
-            let applyDuration = applyStart.duration(to: applyClock.now)
-            performanceTraceRecorder?.recordDuration(
-                .sidebarProjection,
-                duration: applyDuration,
-                attributes: sidebarPerformanceProofAttributes(
-                    phase: "mainactor_apply",
-                    inputCount: inboxCount,
-                    sectionCount: projectedSectionCount,
-                    extra: [
-                        "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(
-                            AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration))
-                    ]
-                )
-            )
-
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.command_exercised",
                 phase: "startup_diagnostic_action",
@@ -512,7 +494,7 @@ extension AppDelegate {
             let request = InboxNotificationListProjectionRequest(
                 generation: 1,
                 key: key,
-                trigger: "startup_diagnostic",
+                trigger: .startupDiagnostic,
                 repoPresentationByRepoId: repoPresentationByRepoId
             )
             do {

@@ -492,10 +492,10 @@ enum RepoExplorerProjection {
             locations
             .sorted { lhs, rhs in
                 if lhs.tabIndex != rhs.tabIndex {
-                    return lhs.tabIndex < rhs.tabIndex
+                    return lhs.tabIndex > rhs.tabIndex
                 }
                 if lhs.paneIndexInTab != rhs.paneIndexInTab {
-                    return lhs.paneIndexInTab < rhs.paneIndexInTab
+                    return lhs.paneIndexInTab > rhs.paneIndexInTab
                 }
                 return lhs.paneId.uuidString < rhs.paneId.uuidString
             }
@@ -508,7 +508,7 @@ enum RepoExplorerProjection {
             locations
             .sorted {
                 if $0.tabIndex != $1.tabIndex {
-                    return $0.tabIndex < $1.tabIndex
+                    return $0.tabIndex > $1.tabIndex
                 }
                 return $0.tabId.uuidString < $1.tabId.uuidString
             }

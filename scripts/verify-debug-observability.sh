@@ -380,7 +380,7 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
     diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.render_proof.succeeded"
   fi
   if [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
-    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.fixture.repo.count,agentstudio.startup_diagnostic.fixture.worktree.count,agentstudio.startup_diagnostic.fixture.inbox_notification.count,agentstudio.startup_diagnostic.fixture.sidebar_surface.count,agentstudio.startup_diagnostic.render_proof.succeeded"
+    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.fixture.repo.count,agentstudio.startup_diagnostic.fixture.worktree.count,agentstudio.startup_diagnostic.fixture.inbox_notification.count,agentstudio.startup_diagnostic.fixture.sidebar_surface.count,agentstudio.startup_diagnostic.projection_proof.succeeded"
   fi
   diagnostic_command_response="$(query_logs "$diagnostic_query _msg:app.startup_diagnostic_action.command_exercised | fields $diagnostic_fields | limit 5")"
   if [ -z "$diagnostic_command_response" ]; then
@@ -413,13 +413,15 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
     echo "$diagnostic_completed_response" >&2
     exit 1
   fi
-  if ! json_truthy_field \
-    "agentstudio.startup_diagnostic.render_proof.succeeded" \
-    "$diagnostic_completed_response"; then
+  diagnostic_proof_field="agentstudio.startup_diagnostic.render_proof.succeeded"
+  if [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
+    diagnostic_proof_field="agentstudio.startup_diagnostic.projection_proof.succeeded"
+  fi
+  if ! json_truthy_field "$diagnostic_proof_field" "$diagnostic_completed_response"; then
     if [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ]; then
       echo "startup diagnostic completed without successful IPC terminal render proof for action $startup_diagnostic_action" >&2
     else
-      echo "startup diagnostic completed without successful render proof for action $startup_diagnostic_action" >&2
+      echo "startup diagnostic completed without successful proof for action $startup_diagnostic_action" >&2
     fi
     echo "$diagnostic_completed_response" >&2
     exit 1

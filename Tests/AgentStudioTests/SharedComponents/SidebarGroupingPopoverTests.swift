@@ -15,7 +15,10 @@ struct SidebarGroupingPopoverTests {
             rootView: SidebarGroupingPopover(
                 items: ["Repo", "Pane", "Tab"],
                 selectedItem: "Repo",
-                icon: { _ in .system(.folder) },
+                icon: { _ in
+                    Image(systemName: "folder")
+                        .font(.system(size: AppStyles.General.Icon.compact))
+                },
                 label: { $0 },
                 onSelect: { selectedItem = $0 },
                 onDismiss: { dismissCount += 1 }

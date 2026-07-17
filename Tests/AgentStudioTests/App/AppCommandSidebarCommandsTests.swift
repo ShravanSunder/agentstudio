@@ -114,4 +114,35 @@ struct AppCommandSidebarCommandsTests {
         #expect(rowFilter.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
         #expect(contentMode.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
     }
+
+    @Test("sidebar commands use sidebar mutation privileges")
+    func sidebarCommandsUseSidebarMutationPrivileges() {
+        let commands: [AppCommand] = [
+            .setRepoSidebarGroupingRepo,
+            .setRepoSidebarGroupingPane,
+            .setRepoSidebarGroupingTab,
+            .setRepoSidebarVisibilityMode,
+            .setRepoSidebarSortOrder,
+            .setInboxGroupingTab,
+            .setInboxGroupingRepo,
+            .setInboxGroupingPane,
+            .setInboxGroupingNone,
+            .setInboxRowStateFilter,
+            .setInboxContentMode,
+        ]
+
+        for command in commands {
+            #expect(command.definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
+        }
+    }
+
+    @Test("argument-required sidebar commands are not parameterless actions")
+    func argumentRequiredSidebarCommandsAreNotParameterlessActions() {
+        let delegate = AppDelegate()
+
+        #expect(!delegate.canExecute(.setRepoSidebarVisibilityMode))
+        #expect(!delegate.canExecute(.setRepoSidebarSortOrder))
+        #expect(!delegate.canExecute(.setInboxRowStateFilter))
+        #expect(!delegate.canExecute(.setInboxContentMode))
+    }
 }

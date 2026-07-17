@@ -40,4 +40,28 @@ struct InboxSidebarProjectionArchitectureTests {
         #expect(source.contains("projectionTask.cancel()"))
         #expect(source.contains("try Task.checkCancellation()"))
     }
+
+    @Test("temporary display override is read before it is cleared")
+    func temporaryDisplayOverrideIsReadBeforeItIsCleared() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationSidebarView.swift"),
+            encoding: .utf8
+        )
+
+        let rowFilterRead = try #require(source.range(of: "let nextRowStateFilter"))
+        let contentModeRead = try #require(source.range(of: "let nextContentMode"))
+        let rowFilterClear = source.range(
+            of: "displayOverride = nil",
+            range: rowFilterRead.upperBound..<contentModeRead.lowerBound
+        )
+        let contentModeClear = source.range(
+            of: "displayOverride = nil",
+            range: contentModeRead.upperBound..<source.endIndex
+        )
+
+        #expect(rowFilterClear != nil)
+        #expect(contentModeClear != nil)
+    }
 }

@@ -2,13 +2,13 @@ import Foundation
 
 @MainActor
 final class WorkspaceRepositoryTargetAuthorizationPort: WorkspaceRepositoryTargetAuthorizing {
-    private let repositoryTopology: RepositoryTopologyAtom
+    private let repositoryExists: @MainActor (UUID) -> Bool
 
-    init(repositoryTopology: RepositoryTopologyAtom) {
-        self.repositoryTopology = repositoryTopology
+    init(repositoryExists: @escaping @MainActor (UUID) -> Bool) {
+        self.repositoryExists = repositoryExists
     }
 
     func containsRepository(id: UUID) -> Bool {
-        repositoryTopology.repo(id) != nil
+        repositoryExists(id)
     }
 }

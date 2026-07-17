@@ -60,4 +60,29 @@ struct AgentStudioOTLPSidebarTraceProjectionTests {
         #expect(projection.attributes["agentstudio.performance.sidebar.trigger"] == .string("sort_order"))
         #expect(projection.attributes["agentstudio.performance.sidebar.total_worker_elapsed_ms"] == .double(2.25))
     }
+
+    @Test
+    func sidebarSurfaceSwitchProjectionKeepsControlledPhase() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 180,
+            severityText: .info,
+            body: "performance.sidebar.projection",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.sidebar.surface": .string("repo"),
+                "agentstudio.performance.sidebar.phase": .string("surface_switch"),
+                "agentstudio.performance.sidebar.trigger": .string("surface_switch"),
+                "agentstudio.startup_diagnostic.projection_proof.succeeded": .bool(true),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes["agentstudio.performance.sidebar.phase"] == .string("surface_switch"))
+        #expect(projection.attributes["agentstudio.startup_diagnostic.projection_proof.succeeded"] == .bool(true))
+    }
 }

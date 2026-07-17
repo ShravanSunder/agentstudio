@@ -117,10 +117,10 @@ struct RepoExplorerReadModelTests {
         )
 
         #expect(repoProjection.resolvedGroups.map(\.repoTitle) == ["alpha-normal", "zeta-favorite"])
-        #expect(paneProjection.resolvedGroups.first?.id == "pane:\(firstPaneId.uuidString)")
-        #expect(paneProjection.resolvedGroups.last?.id == "pane:\(secondPaneId.uuidString)")
-        #expect(paneProjection.resolvedGroups.first?.repos.map(\.id) == [normalRepoId])
-        #expect(paneProjection.resolvedGroups.last?.repos.map(\.id) == [favoriteRepoId])
+        #expect(paneProjection.resolvedGroups.first?.id == "pane:\(secondPaneId.uuidString)")
+        #expect(paneProjection.resolvedGroups.last?.id == "pane:\(firstPaneId.uuidString)")
+        #expect(paneProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId])
+        #expect(paneProjection.resolvedGroups.last?.repos.map(\.id) == [normalRepoId])
         #expect(tabProjection.resolvedGroups.first?.repos.map(\.id) == [normalRepoId, favoriteRepoId])
     }
 
@@ -473,10 +473,10 @@ struct RepoExplorerReadModelTests {
                 rowId: rowId
             )?.placementContext?.displayText
         }
-        #expect(placementTexts == ["Pane 1", "Pane 2 active"])
+        #expect(placementTexts == ["Pane 2 active", "Pane 1"])
     }
 
-    @Test("pane groups follow workspace location order instead of repository order")
+    @Test("pane groups follow descending workspace location order instead of repository order")
     func paneGroupsFollowWorkspaceLocationOrder() {
         let firstRepoId = UUID()
         let secondRepoId = UUID()
@@ -522,8 +522,53 @@ struct RepoExplorerReadModelTests {
 
         #expect(
             projection.resolvedGroups.map(\.id) == [
-                "pane:\(earlierPaneId.uuidString)",
                 "pane:\(laterPaneId.uuidString)",
+                "pane:\(earlierPaneId.uuidString)",
+            ]
+        )
+    }
+
+    @Test("tab groups follow descending workspace location order")
+    func tabGroupsFollowDescendingWorkspaceLocationOrder() {
+        let repoId = UUID()
+        let earlierWorktree = worktree(repoId: repoId, name: "earlier")
+        let laterWorktree = worktree(repoId: repoId, name: "later")
+        let earlierTabId = UUID()
+        let laterTabId = UUID()
+
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [repo(id: repoId, name: "agent-studio", worktrees: [earlierWorktree, laterWorktree])],
+                repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                groupingMode: .tab,
+                query: "",
+                paneLocationsByWorktreeId: [
+                    earlierWorktree.id: [
+                        WorkspacePaneLocation(
+                            paneId: UUID(),
+                            tabId: earlierTabId,
+                            tabIndex: 0,
+                            paneIndexInTab: 0,
+                            isActiveInTab: true
+                        )
+                    ],
+                    laterWorktree.id: [
+                        WorkspacePaneLocation(
+                            paneId: UUID(),
+                            tabId: laterTabId,
+                            tabIndex: 1,
+                            paneIndexInTab: 0,
+                            isActiveInTab: true
+                        )
+                    ],
+                ]
+            )
+        )
+
+        #expect(
+            projection.resolvedGroups.map(\.id) == [
+                "tab:\(laterTabId.uuidString)",
+                "tab:\(earlierTabId.uuidString)",
             ]
         )
     }

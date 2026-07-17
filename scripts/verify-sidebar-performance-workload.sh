@@ -131,7 +131,8 @@ metric_label_selector() {
 
 opaque_trace_marker() {
   local trace_name="${1:?missing trace name}"
-  printf '%s' "$trace_name" | /usr/bin/shasum -a 256 | awk '{ print "sidebar-" substr($1, 1, 24) }'
+  local trace_nonce="${2:?missing trace nonce}"
+  printf '%s:%s' "$trace_name" "$trace_nonce" | /usr/bin/shasum -a 256 | awk '{ print "sidebar-" substr($1, 1, 24) }'
 }
 
 query_victoria_metrics() {
@@ -725,7 +726,8 @@ validate_controls
 
 PROOF_ROOT="${AGENTSTUDIO_SIDEBAR_PROOF_ROOT:-$DEFAULT_PROOF_ROOT}"
 TRACE_NAME="$(validate_trace_name "${AGENTSTUDIO_TRACE_NAME:-sidebar-performance-$(date +%Y%m%d%H%M%S)-$$}")"
-TRACE_MARKER="$(opaque_trace_marker "$TRACE_NAME")"
+TRACE_NONCE="$(/usr/bin/uuidgen)"
+TRACE_MARKER="$(opaque_trace_marker "$TRACE_NAME" "$TRACE_NONCE")"
 ARTIFACT="$PROOF_ROOT/$TRACE_NAME"
 STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$ARTIFACT/debug-observability.env}"
 SUMMARY_FILE="$ARTIFACT/summary.txt"
