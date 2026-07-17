@@ -319,14 +319,19 @@ struct RepoExplorerView: View {
     }
 
     private var repoToolbarRow: some View {
-        let sortAction = LocalActionSpec.repoSidebarCurrentOrder.actionSpec
+        let sortAction = AppCommand.setRepoSidebarSortOrder.definition
         let groupingAction = LocalActionSpec.groupRepoExplorerWorktrees.actionSpec
         let isFavoritesOnly = repoExplorerPrefs.repoVisibilityMode == .favoritesOnly
         return HStack(spacing: AppStyles.General.Spacing.standard) {
             Spacer(minLength: 0)
 
             RepoExplorerVisibilityButton(isFavoritesOnly: isFavoritesOnly) {
-                repoExplorerPrefs.setRepoVisibilityMode(isFavoritesOnly ? .all : .favoritesOnly)
+                AppCommandDispatcher.shared.dispatch(
+                    AppCommandExecutionRequest(
+                        command: .setRepoSidebarVisibilityMode,
+                        arguments: .repoSidebarVisibilityMode(isFavoritesOnly ? .all : .favoritesOnly)
+                    )
+                )
             }
 
             SidebarToolbarSortButton(
@@ -335,7 +340,6 @@ struct RepoExplorerView: View {
                 label: sortAction.label,
                 accessibilityIdentifier: "repoSidebarSortButton",
                 tooltipValue: sortAction.controlTooltipRenderValue(
-                    provenance: .localAction(rawValue: "repoSidebarCurrentOrder"),
                     textOverride: "Sort \(repoExplorerPrefs.sortOrder.title.lowercased())"
                 ),
                 icon: sortAction.icon,
@@ -343,7 +347,14 @@ struct RepoExplorerView: View {
                 tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
                 frameAccessibilityIdentifier: "repoSidebarSortButtonFrame",
                 onHover: { updateTooltipTarget(.sort, isHovered: $0) },
-                onToggle: repoExplorerPrefs.toggleSortOrder
+                onToggle: {
+                    AppCommandDispatcher.shared.dispatch(
+                        AppCommandExecutionRequest(
+                            command: .setRepoSidebarSortOrder,
+                            arguments: .repoSidebarSortOrder(repoExplorerPrefs.sortOrder.toggled)
+                        )
+                    )
+                }
             )
 
             SidebarToolbarDivider()
@@ -372,7 +383,7 @@ struct RepoExplorerView: View {
                     icon: \.icon,
                     label: \.title,
                     onSelect: { candidate in
-                        repoExplorerPrefs.setGroupingMode(candidate)
+                        AppCommandDispatcher.shared.dispatch(groupingCommand(for: candidate))
                         groupingMenuOpen = false
                     },
                     onDismiss: { groupingMenuOpen = false }
@@ -385,6 +396,14 @@ struct RepoExplorerView: View {
                 label: "Repo toolbar row"
             )
         )
+    }
+
+    private func groupingCommand(for mode: RepoExplorerGroupingMode) -> AppCommand {
+        switch mode {
+        case .repo: .setRepoSidebarGroupingRepo
+        case .pane: .setRepoSidebarGroupingPane
+        case .tab: .setRepoSidebarGroupingTab
+        }
     }
 
     private var activeTooltipTarget: RepoSidebarToolbarTooltipTarget? {
@@ -400,9 +419,8 @@ struct RepoExplorerView: View {
     private func tooltipValue(for target: RepoSidebarToolbarTooltipTarget) -> ControlTooltipRenderValue? {
         switch target {
         case .sort:
-            let sortAction = LocalActionSpec.repoSidebarCurrentOrder.actionSpec
+            let sortAction = AppCommand.setRepoSidebarSortOrder.definition
             return sortAction.controlTooltipRenderValue(
-                provenance: .localAction(rawValue: "repoSidebarCurrentOrder"),
                 textOverride: "Sort \(repoExplorerPrefs.sortOrder.title.lowercased())"
             )
         case .grouping:
@@ -570,7 +588,11 @@ struct RepoExplorerView: View {
 
     private func toggleFavorite(repoId: UUID) {
         guard let repo = store.repositoryTopologyAtom.repo(repoId) else { return }
-        store.repositoryTopologyAtom.setRepoFavorite(repoId, isFavorite: !repo.isFavorite)
+        AppCommandDispatcher.shared.dispatch(
+            repo.isFavorite ? .removeRepoFavorite : .addRepoFavorite,
+            target: repoId,
+            targetType: .repo
+        )
     }
 
     private func currentRepoFavoriteState(repoId: UUID, projectedFallback: Bool) -> Bool {

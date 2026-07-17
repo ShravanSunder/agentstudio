@@ -68,15 +68,15 @@ struct RepoExplorerWorktreeRowContent: View {
     }
 
     static func favoriteAccessibilityLabel(isFavorite: Bool) -> String {
-        isFavorite ? "Remove Favorite" : "Add Favorite"
+        favoriteActionSpec(isFavorite: isFavorite).label
     }
 
     static func favoriteHelpText(isFavorite: Bool) -> String {
-        isFavorite ? "Remove favorite" : "Add favorite"
+        favoriteActionSpec(isFavorite: isFavorite).helpText
     }
 
-    static func favoriteSystemImageName(isFavorite: Bool) -> String {
-        isFavorite ? "bookmark.fill" : "bookmark"
+    static func favoriteActionSpec(isFavorite: Bool) -> AppCommandSpec {
+        (isFavorite ? AppCommand.removeRepoFavorite : AppCommand.addRepoFavorite).definition
     }
 
     var body: some View {
@@ -98,9 +98,9 @@ struct RepoExplorerWorktreeRowContent: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 if showsFavoriteControl {
+                    let favoriteActionSpec = Self.favoriteActionSpec(isFavorite: isFavorite)
                     Button(action: onToggleFavorite) {
-                        Image(systemName: Self.favoriteSystemImageName(isFavorite: isFavorite))
-                            .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
+                        favoriteActionSpec.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
                             .foregroundStyle(isFavorite ? iconColor : .secondary)
                             .frame(
                                 width: AppStyles.General.Button.compact,
@@ -264,13 +264,14 @@ struct RepoExplorerWorktreeRow: View {
             }
 
             if favoriteControlVisibility.showsContextMenuAction {
+                let favoriteActionSpec = RepoExplorerWorktreeRowContent.favoriteActionSpec(isFavorite: isFavorite)
                 Button {
                     onToggleFavorite()
                 } label: {
-                    Label(
-                        RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: isFavorite),
-                        systemImage: RepoExplorerWorktreeRowContent.favoriteSystemImageName(isFavorite: isFavorite)
-                    )
+                    HStack {
+                        favoriteActionSpec.icon.swiftUIImage()
+                        Text(favoriteActionSpec.label)
+                    }
                 }
             }
 

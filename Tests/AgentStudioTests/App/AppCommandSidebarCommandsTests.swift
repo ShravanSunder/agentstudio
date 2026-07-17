@@ -60,4 +60,31 @@ struct AppCommandSidebarCommandsTests {
         #expect(definition.ipcExposure.targetKinds.isEmpty)
         #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
     }
+
+    @Test("dispatcher registers typed inbox filter commands for headless execution")
+    func dispatcherRegistersTypedInboxFilterCommandsForHeadlessExecution() {
+        let rowFilter = AppCommandDispatcher.shared.definition(for: .setInboxRowStateFilter)
+        let contentMode = AppCommandDispatcher.shared.definition(for: .setInboxContentMode)
+
+        #expect(rowFilter.icon == .system(.envelopeBadge))
+        #expect(
+            rowFilter.argumentSchema == [
+                IPCCommandArgumentSchema(
+                    name: "filter",
+                    kind: .stringEnum(values: ["unreadOnly", "all"]),
+                    isRequired: true
+                )
+            ])
+        #expect(contentMode.icon == .system(.dotCircleViewfinder))
+        #expect(
+            contentMode.argumentSchema == [
+                IPCCommandArgumentSchema(
+                    name: "mode",
+                    kind: .stringEnum(values: ["rollUpAlerts", "activity", "all"]),
+                    isRequired: true
+                )
+            ])
+        #expect(rowFilter.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
+        #expect(contentMode.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
+    }
 }

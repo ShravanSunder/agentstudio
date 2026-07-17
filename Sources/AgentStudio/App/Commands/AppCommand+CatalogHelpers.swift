@@ -77,6 +77,86 @@ extension AppCommand {
         )
     }
 
+    func inboxRowStateFilterDefinition() -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            label: "Set Inbox Row Filter",
+            icon: .system(.envelopeBadge),
+            helpText: "Set whether the inbox shows all or unread notifications",
+            commandBarGroupName: "Inbox",
+            commandBarGroupPriority: CommandBarGroupPriority.window,
+            isHiddenInCommandBar: true,
+            argumentSchema: [
+                IPCCommandArgumentSchema(
+                    name: "filter",
+                    kind: .stringEnum(values: InboxNotificationRowStateFilter.allCases.map(\.rawValue)),
+                    isRequired: true
+                )
+            ],
+            ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
+        )
+    }
+
+    func inboxContentModeDefinition() -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            label: "Set Inbox Content Mode",
+            icon: .system(.dotCircleViewfinder),
+            helpText: "Set which notification content lane the inbox shows",
+            commandBarGroupName: "Inbox",
+            commandBarGroupPriority: CommandBarGroupPriority.window,
+            isHiddenInCommandBar: true,
+            argumentSchema: [
+                IPCCommandArgumentSchema(
+                    name: "mode",
+                    kind: .stringEnum(values: InboxNotificationContentMode.allCases.map(\.rawValue)),
+                    isRequired: true
+                )
+            ],
+            ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
+        )
+    }
+
+    func repoFavoriteDefinition(
+        label: String,
+        icon: SystemSymbol,
+        helpText: String
+    ) -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            label: label,
+            icon: .system(icon),
+            helpText: helpText,
+            appliesTo: [.repo],
+            commandBarGroupName: "Repo",
+            commandBarGroupPriority: CommandBarGroupPriority.repo,
+            isHiddenInCommandBar: true,
+            ipcExposure: .headless(
+                targetKinds: [.repo],
+                requiredPrivileges: [.sidebarStateMutate]
+            )
+        )
+    }
+
+    func arrangementDefinition(
+        shortcut: AppShortcut? = nil,
+        label: String,
+        icon: CommandIcon,
+        helpText: String
+    ) -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            shortcut: shortcut,
+            label: label,
+            icon: icon,
+            helpText: helpText,
+            appliesTo: [.tab],
+            visibleWhen: [.hasActiveTab, .hasArrangements],
+            commandBarGroupName: "Tab",
+            commandBarGroupPriority: CommandBarGroupPriority.tab
+        )
+    }
+
     func managementDefinition(shortcut: AppShortcut, label: String, icon: CommandIcon, helpText: String)
         -> AppCommandSpec
     {

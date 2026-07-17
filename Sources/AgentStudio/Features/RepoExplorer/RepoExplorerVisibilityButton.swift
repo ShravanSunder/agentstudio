@@ -4,20 +4,23 @@ struct RepoExplorerVisibilityButton: View {
     let isFavoritesOnly: Bool
     let onToggle: () -> Void
 
-    private var actionSpec: ActionSpec {
-        LocalActionSpec.toggleRepoSidebarFavoritesOnly(isFavoritesOnly: isFavoritesOnly).actionSpec
+    private var commandSpec: AppCommandSpec {
+        AppCommand.setRepoSidebarVisibilityMode.definition
+    }
+
+    private var label: String {
+        isFavoritesOnly ? "Show All Repos" : "Show Favorite Repos"
     }
 
     var body: some View {
-        let actionSpec = actionSpec
+        let commandSpec = commandSpec
         SidebarToolbarActionButton(
-            label: actionSpec.label,
+            label: label,
             accessibilityIdentifier: "repoSidebarVisibilityButton",
-            tooltipValue: actionSpec.controlTooltipRenderValue(
-                provenance: .localAction(rawValue: "toggleRepoSidebarFavoritesOnly"),
-                textOverride: actionSpec.label
+            tooltipValue: commandSpec.controlTooltipRenderValue(
+                textOverride: label
             ),
-            icon: actionSpec.icon,
+            icon: commandSpec.icon,
             isActive: isFavoritesOnly,
             action: onToggle
         )

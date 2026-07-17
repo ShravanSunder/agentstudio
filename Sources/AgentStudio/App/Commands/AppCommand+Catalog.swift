@@ -546,6 +546,18 @@ extension AppCommand {
                 commandBarGroupName: "Repo",
                 commandBarGroupPriority: CommandBarGroupPriority.repo
             )
+        case .addRepoFavorite:
+            return repoFavoriteDefinition(
+                label: "Add Favorite",
+                icon: .bookmark,
+                helpText: "Add favorite"
+            )
+        case .removeRepoFavorite:
+            return repoFavoriteDefinition(
+                label: "Remove Favorite",
+                icon: .bookmarkFill,
+                helpText: "Remove favorite"
+            )
         case .openWorktree:
             return worktreeDefinition(
                 label: "Open Worktree",
@@ -795,6 +807,10 @@ extension AppCommand {
             return inboxGroupingDefinition(.byPane)
         case .setInboxGroupingNone:
             return inboxGroupingDefinition(.none)
+        case .setInboxRowStateFilter:
+            return inboxRowStateFilterDefinition()
+        case .setInboxContentMode:
+            return inboxContentModeDefinition()
         case .newFloatingTerminal:
             return AppCommandSpec(
                 command: self,
@@ -979,22 +995,4 @@ extension AppCommand {
         )
     }
 
-    private func arrangementDefinition(
-        shortcut: AppShortcut? = nil,
-        label: String,
-        icon: CommandIcon,
-        helpText: String
-    ) -> AppCommandSpec {
-        AppCommandSpec(
-            command: self,
-            shortcut: shortcut,
-            label: label,
-            icon: icon,
-            helpText: helpText,
-            appliesTo: [.tab],
-            visibleWhen: [.hasActiveTab, .hasArrangements],
-            commandBarGroupName: "Tab",
-            commandBarGroupPriority: CommandBarGroupPriority.tab
-        )
-    }
 }

@@ -44,6 +44,7 @@ final class MockCommandHandler: WorkspaceCommandHandling {
 final class MockAppCommandRouter: ShellCommandHandling {
     var handledCommands: [AppCommand] = []
     var handledTargets: [(AppCommand, UUID, SearchItemType)] = []
+    var handledRequests: [AppCommandExecutionRequest] = []
     var appCommands: Set<AppCommand> = []
 
     func canExecute(_ command: AppCommand) -> Bool {
@@ -66,6 +67,12 @@ final class MockAppCommandRouter: ShellCommandHandling {
         guard appCommands.contains(command) else { return false }
         handledTargets.append((command, target, targetType))
         return true
+    }
+
+    func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
+        guard appCommands.contains(request.command) else { return .unsupportedCommand }
+        handledRequests.append(request)
+        return .applied
     }
 
     func showRepoCommandBar() {}
@@ -444,6 +451,8 @@ final class AppCommandTests {
 
         // Assert
         let commandNames = repoCommands.map(\.command)
+        #expect(commandNames.contains(.addRepoFavorite))
+        #expect(commandNames.contains(.removeRepoFavorite))
         #expect(commandNames.contains(.removeRepo))
         #expect(!commandNames.contains(.openWorktree))
     }
@@ -463,6 +472,30 @@ final class AppCommandTests {
             body: {
                 // Act (should not crash)
                 dispatcher.dispatch(.closeTab)
+            }
+        )
+    }
+
+    @Test
+    func test_dispatcher_dispatchRequest_routesTypedArgumentsToAppRouter() async throws {
+        let dispatcher = AppCommandDispatcher.shared
+        let appRouter = MockAppCommandRouter()
+        appRouter.appCommands = [.setRepoSidebarVisibilityMode]
+        let request = AppCommandExecutionRequest(
+            command: .setRepoSidebarVisibilityMode,
+            arguments: .repoSidebarVisibilityMode(.favoritesOnly)
+        )
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = nil
+                dispatcher.appCommandRouter = appRouter
+            },
+            body: {
+                let outcome = dispatcher.dispatch(request)
+
+                #expect(outcome == .applied)
+                #expect(appRouter.handledRequests == [request])
             }
         )
     }

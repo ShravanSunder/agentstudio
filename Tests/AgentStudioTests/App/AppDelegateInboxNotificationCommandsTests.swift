@@ -49,6 +49,31 @@ struct AppDelegateInboxNotificationCommandsTests {
         #expect(delegate.execute(.toggleInboxNotificationSort))
     }
 
+    @Test("typed inbox filter commands update inbox preferences")
+    func typedInboxFilterCommandsUpdateInboxPreferences() {
+        let delegate = AppDelegate()
+        let prefsAtom = InboxNotificationPrefsAtom()
+        delegate.atomStore = AtomRegistry(inboxNotificationPrefs: prefsAtom)
+
+        let rowFilterOutcome = delegate.execute(
+            AppCommandExecutionRequest(
+                command: .setInboxRowStateFilter,
+                arguments: .inboxRowStateFilter(.all)
+            )
+        )
+        let contentModeOutcome = delegate.execute(
+            AppCommandExecutionRequest(
+                command: .setInboxContentMode,
+                arguments: .inboxContentMode(.activity)
+            )
+        )
+
+        #expect(rowFilterOutcome == .applied)
+        #expect(contentModeOutcome == .applied)
+        #expect(prefsAtom.globalInboxRowStateFilter == .all)
+        #expect(prefsAtom.globalInboxContentMode == .activity)
+    }
+
     @Test("shell clear all command routes through inbox notification commands")
     func shellClearAllCommandRoutesThroughInboxNotificationCommands() {
         let delegate = AppDelegate()

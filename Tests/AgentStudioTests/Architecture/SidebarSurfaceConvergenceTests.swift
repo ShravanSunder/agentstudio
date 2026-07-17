@@ -6,6 +6,28 @@ import Testing
 
 @Suite("Sidebar surface convergence")
 struct SidebarSurfaceConvergenceTests {
+    @Test("inbox grouping selection dispatches typed app commands")
+    func inboxGroupingSelectionDispatchesTypedAppCommands() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationSidebarView.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(!source.contains("onSelectGrouping: { prefsAtom.setGrouping($0) }"))
+        #expect(source.contains("onSelectGrouping: selectGrouping"))
+        #expect(source.contains("case .byTab: .setInboxGroupingTab"))
+        #expect(source.contains("case .byRepo: .setInboxGroupingRepo"))
+        #expect(source.contains("case .byPane: .setInboxGroupingPane"))
+        #expect(source.contains("case .none: .setInboxGroupingNone"))
+        #expect(!source.contains("prefsAtom.setGlobalInboxRowStateFilter"))
+        #expect(!source.contains("prefsAtom.setGlobalInboxContentMode"))
+        #expect(source.contains("command: .setInboxRowStateFilter"))
+        #expect(source.contains("command: .setInboxContentMode"))
+    }
+
     @Test("repo and inbox sidebars share the repo-matched outer chrome and list policy")
     @MainActor
     func repoAndInboxSidebarsShareChromeAndListPolicy() {
@@ -76,10 +98,10 @@ struct SidebarSurfaceConvergenceTests {
         #expect(repoSource.contains("repoSidebarSortButton"))
         #expect(repoSource.contains("repoSidebarGroupingButton"))
         #expect(repoSource.contains("RepoExplorerGroupingMode.allCases"))
-        #expect(repoSource.contains("LocalActionSpec.repoSidebarCurrentOrder.actionSpec"))
+        #expect(repoSource.contains("AppCommand.setRepoSidebarSortOrder.definition"))
         #expect(repoSource.contains("LocalActionSpec.groupRepoExplorerWorktrees.actionSpec"))
         #expect(visibilityButtonSource.contains("repoSidebarVisibilityButton"))
-        #expect(visibilityButtonSource.contains("LocalActionSpec.toggleRepoSidebarFavoritesOnly"))
+        #expect(visibilityButtonSource.contains("AppCommand.setRepoSidebarVisibilityMode.definition"))
         #expect(!repoSource.contains("InboxSidebarToolbarTooltipTarget"))
     }
 

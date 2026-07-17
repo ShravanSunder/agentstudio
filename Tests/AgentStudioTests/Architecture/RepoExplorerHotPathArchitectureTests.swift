@@ -104,4 +104,34 @@ struct RepoExplorerHotPathArchitectureTests {
         )
         #expect(!repoExplorerViewSource.contains("isFavorite: resolvedWorktreeContext.repo.isFavorite"))
     }
+
+    @Test("repo favorite mutations enter through targeted app commands")
+    func repoFavoriteMutationsEnterThroughTargetedAppCommands() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let repoExplorerViewSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(!repoExplorerViewSource.contains("repositoryTopologyAtom.setRepoFavorite"))
+        #expect(repoExplorerViewSource.contains(".addRepoFavorite"))
+        #expect(repoExplorerViewSource.contains(".removeRepoFavorite"))
+        #expect(repoExplorerViewSource.contains("targetType: .repo"))
+    }
+
+    @Test("repo sidebar product controls dispatch existing app commands")
+    func repoSidebarProductControlsDispatchExistingAppCommands() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(!source.contains("repoExplorerPrefs.setRepoVisibilityMode"))
+        #expect(!source.contains("repoExplorerPrefs.toggleSortOrder"))
+        #expect(!source.contains("repoExplorerPrefs.setGroupingMode(candidate)"))
+        #expect(source.contains("command: .setRepoSidebarVisibilityMode"))
+        #expect(source.contains("command: .setRepoSidebarSortOrder"))
+        #expect(source.contains("AppCommandDispatcher.shared.dispatch(groupingCommand(for: candidate))"))
+    }
 }

@@ -131,11 +131,17 @@ struct InboxSidebarHeader: View {
     private let toggleSortSpec = AppCommand.toggleInboxNotificationSort.definition
     private var isAttentionOnly: Bool { contentMode == .rollUpAlerts }
     private var isUnreadOnly: Bool { rowStateFilter == .unreadOnly }
-    private var rowStateAction: ActionSpec {
-        LocalActionSpec.toggleInboxRowStateFilter(showingUnreadOnly: isUnreadOnly).actionSpec
+    private var rowStateAction: AppCommandSpec {
+        AppCommand.setInboxRowStateFilter.definition
     }
-    private var contentModeAction: ActionSpec {
-        LocalActionSpec.toggleInboxAttentionFilter(isAttentionOnly: isAttentionOnly).actionSpec
+    private var contentModeAction: AppCommandSpec {
+        AppCommand.setInboxContentMode.definition
+    }
+    private var rowStateLabel: String {
+        Self.rowStateButtonLabel(rowStateFilter: rowStateFilter)
+    }
+    private var contentModeLabel: String {
+        Self.contentModeButtonLabel(contentMode: contentMode)
     }
     private var groupingAction: ActionSpec {
         LocalActionSpec.groupInboxNotifications.actionSpec
@@ -188,7 +194,7 @@ struct InboxSidebarHeader: View {
                 Spacer(minLength: 0)
 
                 SidebarToolbarActionButton(
-                    label: rowStateAction.label,
+                    label: rowStateLabel,
                     accessibilityIdentifier: "inboxSidebarRowStateFilterButton",
                     tooltipValue: Self.toolbarTooltipValue(
                         for: .rowState,
@@ -204,7 +210,7 @@ struct InboxSidebarHeader: View {
                 )
 
                 SidebarToolbarActionButton(
-                    label: contentModeAction.label,
+                    label: contentModeLabel,
                     accessibilityIdentifier: "inboxSidebarContentModeButton",
                     tooltipValue: Self.toolbarTooltipValue(
                         for: .contentMode,
@@ -387,6 +393,14 @@ struct InboxSidebarHeader: View {
         toolbarTooltipValue(for: target, rowStateFilter: rowStateFilter, contentMode: contentMode).text
     }
 
+    static func rowStateButtonLabel(rowStateFilter: InboxNotificationRowStateFilter) -> String {
+        rowStateFilter == .unreadOnly ? "Show All Inbox Notifications" : "Show Unread Only"
+    }
+
+    static func contentModeButtonLabel(contentMode: InboxNotificationContentMode) -> String {
+        contentMode == .rollUpAlerts ? "Show All Notifications" : "Show Attention Notifications"
+    }
+
     static var searchTooltipValue: ControlTooltipRenderValue {
         let shortcutDisplayText = InboxSidebarShortcutCatalog.focusSearch.displayText
         return ControlTooltipRenderValue(
@@ -413,21 +427,13 @@ struct InboxSidebarHeader: View {
                 shortcutTextOverride: InboxSidebarShortcutCatalog.toggleSort.displayText
             )
         case .rowState:
-            let rowStateAction = LocalActionSpec.toggleInboxRowStateFilter(
-                showingUnreadOnly: rowStateFilter == .unreadOnly
-            )
-            .actionSpec
+            let rowStateAction = AppCommand.setInboxRowStateFilter.definition
             return rowStateAction.controlTooltipRenderValue(
-                provenance: .localAction(rawValue: "toggleInboxRowStateFilter"),
                 textOverride: rowStateFilter == .unreadOnly ? "Show all" : "Unread only"
             )
         case .contentMode:
-            let contentModeAction = LocalActionSpec.toggleInboxAttentionFilter(
-                isAttentionOnly: contentMode == .rollUpAlerts
-            )
-            .actionSpec
+            let contentModeAction = AppCommand.setInboxContentMode.definition
             return contentModeAction.controlTooltipRenderValue(
-                provenance: .localAction(rawValue: "toggleInboxAttentionFilter"),
                 textOverride: contentMode == .rollUpAlerts ? "Show all notifications" : "Attention only"
             )
         case .grouping:

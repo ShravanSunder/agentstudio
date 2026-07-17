@@ -310,8 +310,14 @@ final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
         guard params.argumentsContainOnlyStrings else {
             throw AppIPCCommandError(reason: .validationRejected)
         }
-        if params.targetHandle != nil {
-            throw AppIPCCommandError(reason: .targetNotFound)
+        if let rawTargetHandle = params.targetHandle {
+            let handle = try IPCHandle.parse(rawTargetHandle)
+            guard
+                let command = commands.first(where: { $0.id == params.commandId }),
+                command.targetKinds.contains(handle.kind)
+            else {
+                throw AppIPCCommandError(reason: .targetNotFound)
+            }
         }
         guard params.commandId.rawValue != "futureCommand" else {
             throw AppIPCCommandError(reason: .unsupportedCommand)

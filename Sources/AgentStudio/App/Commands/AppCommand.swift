@@ -67,6 +67,7 @@ enum AppCommand: String, CaseIterable {
     case copyCurrentPanePath
     // Repo commands
     case watchFolder, removeRepo
+    case addRepoFavorite, removeRepoFavorite
     case openWorktree
     case openWorktreeInPane
     // Management layer
@@ -97,6 +98,8 @@ enum AppCommand: String, CaseIterable {
     case setInboxGroupingRepo
     case setInboxGroupingPane
     case setInboxGroupingNone
+    case setInboxRowStateFilter
+    case setInboxContentMode
     case newFloatingTerminal
     // Window commands
     case newWindow
@@ -241,6 +244,9 @@ struct AppCommandSpec {
         if searchItemTypes.contains(.tab) {
             targetKinds.append(.tab)
         }
+        if searchItemTypes.contains(.repo) {
+            targetKinds.append(.repo)
+        }
         if searchItemTypes.contains(.pane) || searchItemTypes.contains(.floatingTerminal) {
             targetKinds.append(.pane)
         }
@@ -308,11 +314,14 @@ struct AppCommandIPCExposure: Equatable, Sendable {
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
             .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
+            .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow,
             .closeWindow, .openNewTerminalInTab:
             return [.layoutMutate]
         case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
             return [.terminalInputWrite]
+        case .addRepoFavorite, .removeRepoFavorite:
+            return [.sidebarStateMutate]
         case .editPaneNote, .watchFolder, .removeRepo, .openWorktree, .openWorktreeInPane,
             .openWebview, .openBridgeReview:
             return [.layoutMutate]
@@ -391,6 +400,8 @@ enum AppCommandExecutionContext: Equatable, Sendable {
 enum AppCommandExecutionArguments: Equatable, Sendable {
     case repoSidebarVisibilityMode(RepoExplorerVisibilityMode)
     case repoSidebarSortOrder(RepoExplorerSortOrder)
+    case inboxRowStateFilter(InboxNotificationRowStateFilter)
+    case inboxContentMode(InboxNotificationContentMode)
 
     static func commandOwnedArguments(
         command: AppCommand,
@@ -420,6 +431,22 @@ enum AppCommandExecutionArguments: Equatable, Sendable {
                 throw AppCommandArgumentDecodingError.validationRejected
             }
             return .repoSidebarSortOrder(order)
+        case .setInboxRowStateFilter:
+            guard
+                let rawFilter = rawArguments["filter"],
+                let filter = InboxNotificationRowStateFilter(rawValue: rawFilter)
+            else {
+                throw AppCommandArgumentDecodingError.validationRejected
+            }
+            return .inboxRowStateFilter(filter)
+        case .setInboxContentMode:
+            guard
+                let rawMode = rawArguments["mode"],
+                let mode = InboxNotificationContentMode(rawValue: rawMode)
+            else {
+                throw AppCommandArgumentDecodingError.validationRejected
+            }
+            return .inboxContentMode(mode)
         default:
             guard rawArguments.isEmpty else {
                 throw AppCommandArgumentDecodingError.validationRejected
@@ -530,6 +557,25 @@ final class AppCommandDispatcher {
             return
         }
         handler.execute(command)
+    }
+
+    @discardableResult
+    func dispatch(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
+        guard canDispatch(request.command) else {
+            Self.logger.warning("Command request rejected: \(request.command.rawValue, privacy: .public)")
+            return .unsupportedCommand
+        }
+        if let appCommandRouter {
+            let outcome = appCommandRouter.execute(request)
+            if outcome != .unsupportedCommand {
+                return outcome
+            }
+        }
+        guard request.arguments == nil, let handler else {
+            return .unsupportedCommand
+        }
+        handler.execute(request.command)
+        return .applied
     }
 
     /// Execute a targeted command (operates on a specific element)

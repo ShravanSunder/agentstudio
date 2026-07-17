@@ -9,6 +9,7 @@ extension AppDelegate: ShellCommandHandling {
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
             .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
+            .setInboxRowStateFilter, .setInboxContentMode,
             .signInGitHub, .signInGoogle, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
             true
@@ -34,7 +35,7 @@ extension AppDelegate: ShellCommandHandling {
             .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath,
-            .removeRepo, .openWorktree, .openWorktreeInPane,
+            .removeRepo, .addRepoFavorite, .removeRepoFavorite, .openWorktree, .openWorktreeInPane,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -82,6 +83,8 @@ extension AppDelegate: ShellCommandHandling {
             return false
         case .setRepoSidebarSortOrder:
             return false
+        case .setInboxRowStateFilter, .setInboxContentMode:
+            return false
         case .newWindow:
             newWindow()
             return true
@@ -128,7 +131,7 @@ extension AppDelegate: ShellCommandHandling {
             .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath,
-            .removeRepo, .openWorktree, .openWorktreeInPane,
+            .removeRepo, .addRepoFavorite, .removeRepoFavorite, .openWorktree, .openWorktreeInPane,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -166,7 +169,8 @@ extension AppDelegate: ShellCommandHandling {
             .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath,
-            .watchFolder, .removeRepo, .openWorktree, .openWorktreeInPane,
+            .watchFolder, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
+            .openWorktree, .openWorktreeInPane,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -178,6 +182,7 @@ extension AppDelegate: ShellCommandHandling {
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
             .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
+            .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
             .openWebview, .openBridgeReview, .signInGitHub, .signInGoogle,
@@ -196,6 +201,12 @@ extension AppDelegate: ShellCommandHandling {
             return executeRepoSidebarVisibilityCommand(mode)
         case (.setRepoSidebarSortOrder, .repoSidebarSortOrder(let order)):
             return executeRepoSidebarSortOrderCommand(order)
+        case (.setInboxRowStateFilter, .inboxRowStateFilter(let filter)):
+            atomStore?.inboxNotificationPrefs.setGlobalInboxRowStateFilter(filter)
+            return .applied
+        case (.setInboxContentMode, .inboxContentMode(let mode)):
+            atomStore?.inboxNotificationPrefs.setGlobalInboxContentMode(mode)
+            return .applied
         default:
             return execute(request.command) ? .applied : .unsupportedCommand
         }

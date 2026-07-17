@@ -193,6 +193,18 @@ commands for IPC proof: `setRepoSidebarVisibilityMode` accepts `mode =
 all|favoritesOnly`, and `setRepoSidebarSortOrder` accepts `order =
 ascending|descending`.
 
+Repo favorite buttons and context-menu actions select the state-specific
+`addRepoFavorite` or `removeRepoFavorite` `AppCommandSpec`. Both commands require
+an explicit typed Repo target, execute through the same targeted dispatcher as
+interactive command surfaces, resolve to `WorkspaceActionCommand.setRepoFavorite`,
+and are exposed automatically through authenticated generic `command.execute`.
+Internal restore, reconciliation, and fact-consumption paths may still call the
+owning atom's typed mutation methods directly; user-facing controls may not.
+Inbox grouping, sort, row-state filter, content-mode, and clear controls follow
+the same rule. Filter and content-mode buttons dispatch typed arguments through
+`setInboxRowStateFilter` and `setInboxContentMode`; their command handlers own
+the preference-atom writes.
+
 ## Multiple bindings per command — `alternateTriggers`
 
 A command can have one **primary** trigger plus any number of

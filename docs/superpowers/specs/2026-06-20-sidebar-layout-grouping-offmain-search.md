@@ -544,17 +544,17 @@ Repo sidebar requirements for this slice:
 - Repo sort order uses a command spec with a typed order argument.
 - Repo favorite visibility/filter mode uses a command spec with a typed mode
   argument; Favorite remains a filter/view mode, not a grouping mode.
-- Bookmark/favorite row toggles may remain direct feature callbacks for pointer
-  interaction, but any programmatic toggle surface must be modeled as an app
-  command before it is exposed through IPC.
+- Bookmark/favorite row controls use the same typed app-command definitions for
+  pointer, context-menu, accessibility, command-catalog, and authenticated IPC
+  execution. The resolved workspace action owns the canonical atom mutation.
 
 Inbox sidebar requirements for this slice:
 
 - Inbox grouping controls use headless command specs for the inbox surface and
   are programmatically executed through generic `command.execute`.
-- If inbox sort or filter controls become programmatically drivable,
-  they must use the same command-spec and generic `command.execute` contract
-  rather than a parallel inbox-specific IPC command family.
+- Inbox sort, row-state filter, and content-mode controls use the same
+  command-spec and generic `command.execute` contract rather than a parallel
+  inbox-specific IPC command family.
 
 Command-shaped sidebar action matrix for this slice:
 
@@ -562,9 +562,10 @@ Command-shaped sidebar action matrix for this slice:
 Action                         Final programmatic write surface
 Repo grouping                  AppCommandSpec + command.execute
 Inbox grouping                 AppCommandSpec + command.execute
+Inbox row/content filters      AppCommandSpec + typed arguments + command.execute
 Repo sort order                AppCommandSpec + command.execute
 Repo favorite visibility       AppCommandSpec + command.execute
-Repo favorite toggle           direct callback for pointer UI; command required before IPC
+Repo favorite add/remove       AppCommandSpec + typed repo target + command.execute
 Sidebar surface switching      existing per-surface AppCommand identities + command.execute + typed headless context
 Existing sidebar read/get APIs may remain query/read methods only.
 Existing sidebar write/set APIs are not retained as independent product writes.

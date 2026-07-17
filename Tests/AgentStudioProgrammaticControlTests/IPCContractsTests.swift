@@ -57,6 +57,10 @@ struct IPCContractsTests {
 
         #expect(try IPCHandle.parse("pane:1") == IPCHandle(kind: .pane, reference: .friendlyOrdinal(1)))
         #expect(
+            try IPCHandle.parse("repo:\(uuid.uuidString)")
+                == IPCHandle(kind: .repo, reference: .canonicalUUID(uuid))
+        )
+        #expect(
             try IPCHandle.parse("workspace:\(uuid.uuidString)")
                 == IPCHandle(kind: .workspace, reference: .canonicalUUID(uuid))
         )

@@ -34,8 +34,8 @@ struct RepoExplorerWorktreeRowTests {
         #expect(RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: true) == "Remove Favorite")
         #expect(RepoExplorerWorktreeRowContent.favoriteHelpText(isFavorite: false) == "Add favorite")
         #expect(RepoExplorerWorktreeRowContent.favoriteHelpText(isFavorite: true) == "Remove favorite")
-        #expect(RepoExplorerWorktreeRowContent.favoriteSystemImageName(isFavorite: false) == "bookmark")
-        #expect(RepoExplorerWorktreeRowContent.favoriteSystemImageName(isFavorite: true) == "bookmark.fill")
+        #expect(RepoExplorerWorktreeRowContent.favoriteActionSpec(isFavorite: false).icon == .system(.bookmark))
+        #expect(RepoExplorerWorktreeRowContent.favoriteActionSpec(isFavorite: true).icon == .system(.bookmarkFill))
     }
 
     @Test("favorite control visibility uses main worktree identity for every action")

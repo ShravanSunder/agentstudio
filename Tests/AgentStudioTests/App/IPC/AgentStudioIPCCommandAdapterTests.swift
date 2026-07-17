@@ -63,6 +63,18 @@ struct AgentStudioIPCCommandAdapterTests {
                     isRequired: true
                 )
             ])
+
+        let addRepoFavorite = try #require(
+            commandsById[IPCCommandIdentifier(rawValue: AppCommand.addRepoFavorite.rawValue)])
+        #expect(addRepoFavorite.executionModes == [.headless])
+        #expect(addRepoFavorite.targetKinds == [.repo])
+        #expect(addRepoFavorite.requiredPrivileges == [.sidebarStateMutate])
+
+        let removeRepoFavorite = try #require(
+            commandsById[IPCCommandIdentifier(rawValue: AppCommand.removeRepoFavorite.rawValue)])
+        #expect(removeRepoFavorite.executionModes == [.headless])
+        #expect(removeRepoFavorite.targetKinds == [.repo])
+        #expect(removeRepoFavorite.requiredPrivileges == [.sidebarStateMutate])
     }
 
     @Test("command list entries are full-catalog IPC projections")
@@ -221,6 +233,43 @@ struct AgentStudioIPCCommandAdapterTests {
                 AppCommandExecutionRequest(
                     command: .setRepoSidebarSortOrder,
                     arguments: .repoSidebarSortOrder(.ascending),
+                    executionContext: .headlessIPC
+                ),
+            ])
+    }
+
+    @Test("executes typed inbox filter commands through injected shell owner")
+    func executesTypedInboxFilterCommandsThroughInjectedShellOwner() throws {
+        let shellCommandHandler = RecordingShellCommandHandler()
+        let harness = CommandAdapterHarness(shellCommandHandler: shellCommandHandler)
+
+        let rowFilter = try harness.adapter.executeCommand(
+            IPCCommandExecuteParams(
+                commandId: IPCCommandIdentifier(rawValue: AppCommand.setInboxRowStateFilter.rawValue),
+                targetHandle: nil,
+                arguments: ["filter": "all"]
+            )
+        )
+        let contentMode = try harness.adapter.executeCommand(
+            IPCCommandExecuteParams(
+                commandId: IPCCommandIdentifier(rawValue: AppCommand.setInboxContentMode.rawValue),
+                targetHandle: nil,
+                arguments: ["mode": "activity"]
+            )
+        )
+
+        #expect(rowFilter.applied)
+        #expect(contentMode.applied)
+        #expect(
+            shellCommandHandler.handledRequests == [
+                AppCommandExecutionRequest(
+                    command: .setInboxRowStateFilter,
+                    arguments: .inboxRowStateFilter(.all),
+                    executionContext: .headlessIPC
+                ),
+                AppCommandExecutionRequest(
+                    command: .setInboxContentMode,
+                    arguments: .inboxContentMode(.activity),
                     executionContext: .headlessIPC
                 ),
             ])
@@ -424,18 +473,52 @@ struct AgentStudioIPCCommandAdapterTests {
         }
     }
 
-    @Test("target handles are rejected without adding command execute target semantics")
-    func targetHandlesAreRejectedWithoutAddingCommandExecuteTargetSemantics() throws {
+    @Test("targeted repo commands execute through the shared app command dispatcher")
+    func targetedRepoCommandsExecuteThroughSharedAppCommandDispatcher() async throws {
+        let repoId = UUID()
+        let commandHandler = RecordingWorkspaceCommandHandler()
+        let shellCommandHandler = RecordingShellCommandHandler()
         let harness = CommandAdapterHarness(
-            windowSnapshot: .singleActiveWindow(UUID())
+            windowSnapshot: .singleActiveWindow(UUID()),
+            shellCommandHandler: shellCommandHandler
         )
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = commandHandler
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                let result = try harness.adapter.executeCommand(
+                    IPCCommandExecuteParams(
+                        commandId: IPCCommandIdentifier(rawValue: AppCommand.addRepoFavorite.rawValue),
+                        targetHandle: "repo:\(repoId.uuidString)"
+                    )
+                )
+
+                #expect(result.applied)
+                #expect(result.targetHandle == "repo:\(repoId.uuidString)")
+                #expect(commandHandler.targetedCommands.count == 1)
+                #expect(commandHandler.targetedCommands[0].command == .addRepoFavorite)
+                #expect(commandHandler.targetedCommands[0].target == repoId)
+                #expect(commandHandler.targetedCommands[0].targetType == .repo)
+            }
+        )
+    }
+
+    @Test("targeted repo commands reject wrong handle kinds")
+    func targetedRepoCommandsRejectWrongHandleKinds() throws {
+        let shellCommandHandler = RecordingShellCommandHandler()
+        let harness = CommandAdapterHarness(shellCommandHandler: shellCommandHandler)
 
         do {
             _ = try harness.adapter.executeCommand(
                 IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: "futureCommand"), targetHandle: "pane:1")
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.addRepoFavorite.rawValue),
+                    targetHandle: "pane:\(UUID().uuidString)"
+                )
             )
-            Issue.record("targeted command.execute unexpectedly added target semantics")
+            Issue.record("repo favorite unexpectedly accepted a pane target")
         } catch let error as AppIPCCommandError {
             #expect(error.reason == .targetNotFound)
         }
@@ -495,6 +578,35 @@ private final class RecordingShellCommandHandler: ShellCommandHandling {
     func refreshWorktrees() {}
 
     func refocusActivePane() {}
+}
+
+@MainActor
+private final class RecordingWorkspaceCommandHandler: WorkspaceCommandHandling {
+    struct TargetedCommand: Equatable {
+        let command: AppCommand
+        let target: UUID
+        let targetType: SearchItemType
+    }
+
+    var targetedCommands: [TargetedCommand] = []
+
+    func execute(_: AppCommand) {}
+
+    func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
+        targetedCommands.append(TargetedCommand(command: command, target: target, targetType: targetType))
+    }
+
+    func canExecute(_: AppCommand) -> Bool {
+        false
+    }
+
+    func canExecute(_ command: AppCommand, target _: UUID, targetType: SearchItemType) -> Bool {
+        targetType == .repo && (command == .addRepoFavorite || command == .removeRepoFavorite)
+    }
+
+    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabIndex _: Int?) {}
+
+    func executeMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
 }
 
 private struct FakeCommandWorkspaceWindowLifecycleReader: WorkspaceWindowLifecycleReading {

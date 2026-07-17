@@ -114,7 +114,7 @@ struct InboxNotificationSidebarView: View {
                 onClearFilter: clearFilter,
                 onClearReadHistory: clearReadInboxNotifications,
                 onClearAllHistory: clearAllInboxNotifications,
-                onSelectGrouping: { prefsAtom.setGrouping($0) },
+                onSelectGrouping: selectGrouping,
                 onToggleGroupCollapse: toggleGroupCollapse,
                 onMoveGroupBoundary: moveFocusToGroupBoundary,
                 onMoveEnd: moveFocusToEnd,
@@ -468,14 +468,35 @@ struct InboxNotificationSidebarView: View {
         dispatcher.dispatch(.toggleInboxNotificationSort)
     }
 
+    private func selectGrouping(_ grouping: InboxNotificationGrouping) {
+        let command: AppCommand =
+            switch grouping {
+            case .byTab: .setInboxGroupingTab
+            case .byRepo: .setInboxGroupingRepo
+            case .byPane: .setInboxGroupingPane
+            case .none: .setInboxGroupingNone
+            }
+        dispatcher.dispatch(command)
+    }
+
     private func toggleRowStateFilter() {
         displayOverride = nil
-        prefsAtom.setGlobalInboxRowStateFilter(effectiveRowStateFilter == .unreadOnly ? .all : .unreadOnly)
+        dispatcher.dispatch(
+            AppCommandExecutionRequest(
+                command: .setInboxRowStateFilter,
+                arguments: .inboxRowStateFilter(effectiveRowStateFilter == .unreadOnly ? .all : .unreadOnly)
+            )
+        )
     }
 
     private func cycleContentMode() {
         displayOverride = nil
-        prefsAtom.setGlobalInboxContentMode(effectiveContentMode == .rollUpAlerts ? .all : .rollUpAlerts)
+        dispatcher.dispatch(
+            AppCommandExecutionRequest(
+                command: .setInboxContentMode,
+                arguments: .inboxContentMode(effectiveContentMode == .rollUpAlerts ? .all : .rollUpAlerts)
+            )
+        )
     }
 
     func clearReadInboxNotifications() {

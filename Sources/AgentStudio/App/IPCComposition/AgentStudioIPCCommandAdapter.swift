@@ -42,9 +42,6 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
     }
 
     func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
-        guard params.targetHandle == nil else {
-            throw AppIPCCommandError(reason: .targetNotFound)
-        }
         guard let command = AppCommand(rawValue: params.commandId.rawValue) else {
             throw AppIPCCommandError(reason: .unsupportedCommand)
         }
@@ -74,9 +71,36 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
         else {
             throw AppIPCCommandError(reason: .noActiveWindow)
         }
+        if let targetHandle = params.targetHandle {
+            let target = try targetedCommandTarget(
+                rawHandle: targetHandle,
+                allowedKinds: definition.ipcExposure.targetKinds
+            )
+            guard
+                AppCommandDispatcher.shared.canDispatch(
+                    command,
+                    target: target.id,
+                    targetType: target.type
+                )
+            else {
+                throw AppIPCCommandError(reason: .targetNotFound)
+            }
+            AppCommandDispatcher.shared.dispatch(
+                command,
+                target: target.id,
+                targetType: target.type
+            )
+            return IPCCommandExecuteResult(
+                commandId: params.commandId,
+                applied: true,
+                targetHandle: targetHandle
+            )
+        }
+
         guard let shellCommandHandler else {
             throw AppIPCCommandError(reason: .stateUnavailable)
         }
+
         let outcome = shellCommandHandler.execute(
             AppCommandExecutionRequest(
                 command: command,
@@ -95,6 +119,27 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
             throw AppIPCCommandError(reason: .stateUnavailable)
         case .unsupportedCommand:
             throw AppIPCCommandError(reason: .unsupportedCommand)
+        }
+    }
+
+    private func targetedCommandTarget(
+        rawHandle: String,
+        allowedKinds: [IPCHandleKind]
+    ) throws -> (id: UUID, type: SearchItemType) {
+        let handle: IPCHandle
+        do {
+            handle = try IPCHandle.parse(rawHandle)
+        } catch {
+            throw AppIPCCommandError(reason: .targetNotFound)
+        }
+        guard allowedKinds.contains(handle.kind), case .canonicalUUID(let targetId) = handle.reference else {
+            throw AppIPCCommandError(reason: .targetNotFound)
+        }
+        switch handle.kind {
+        case .repo:
+            return (targetId, .repo)
+        case .window, .workspace, .tab, .pane:
+            throw AppIPCCommandError(reason: .targetNotFound)
         }
     }
 

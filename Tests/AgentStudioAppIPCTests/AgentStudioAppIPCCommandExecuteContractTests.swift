@@ -95,12 +95,27 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
         #expect(response.error?.message == "unsupported capability")
     }
 
-    @Test("command execute rejects target handle without public target semantics")
-    func commandExecuteRejectsTargetHandleWithoutPublicTargetSemantics() async throws {
+    @Test("command execute forwards typed repo targets to the command port")
+    func commandExecuteForwardsTypedRepoTargetsToCommandPort() async throws {
+        let repoId = UUID()
+        let commandPort = FakeCommandPort(
+            workspaceWindowId: UUID(),
+            activeScope: .commands,
+            successfulCommandId: "addRepoFavorite",
+            commands: [
+                IPCCommandListEntry(
+                    id: IPCCommandIdentifier(rawValue: "addRepoFavorite"),
+                    title: "Add Favorite",
+                    executionModes: [.headless],
+                    targetKinds: [.repo],
+                    requiredPrivileges: [.sidebarStateMutate]
+                )
+            ]
+        )
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
             channel: .debug,
-            commandPort: FakeCommandPort(workspaceWindowId: UUID(), activeScope: .commands)
+            commandPort: commandPort
         )
         defer {
             fixture.cleanup()
@@ -113,15 +128,16 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
                 method: "command.execute",
                 params: try JSONRPCCodec.encodeJSONValue(
                     IPCCommandExecuteParams(
-                        commandId: IPCCommandIdentifier(rawValue: "futureCommand"),
-                        targetHandle: "pane:1"
+                        commandId: IPCCommandIdentifier(rawValue: "addRepoFavorite"),
+                        targetHandle: "repo:\(repoId.uuidString)"
                     )
                 )
             )
         )
 
-        #expect(response.error?.code == -32_004)
-        #expect(response.error?.message == "target not found")
+        #expect(response.error == nil)
+        #expect(commandPort.receivedExecuteParams.count == 1)
+        #expect(commandPort.receivedExecuteParams[0].targetHandle == "repo:\(repoId.uuidString)")
     }
 
     @Test("command execute accepts argument payload and returns command success")
