@@ -1237,3 +1237,22 @@ callers; the existing same-named App calls still target the legacy
 composition writer-family inventory and dormant semantic gateways before the
 single production writer cutover. Runtime retained-payload custody remains part
 of that later atomic cut, not this persistence gateway.
+
+Commit `e02280ca` adds the dormant runtime-only pane-residency lifecycle owner.
+It holds retained drawer payloads outside atoms, delegates each background or
+reactivation request exactly once to the installed persistence gateway, changes
+runtime custody only for typed changed effects, and emits a typed mount intent
+only after a successful reactivation consumes its payload. Unchanged and
+rejected transitions preserve custody and emit no mount. The owner shares the
+existing persistence mutation coordinator and creates no second revision,
+participant, persistence, or atom authority.
+
+Parent proof passed 4 tests in one suite, `mise run build`, scoped swift-format,
+SwiftLint, architecture lint, and diff checks. Independent Luna xhigh review
+returned READY with no blocking finding; its additional rejected-background,
+unchanged-reactivation, and per-pane-isolation cases remain nonblocking proof
+extensions for the later production cutover. Source reachability remains zero
+outside the runtime property/initializer and tests, so no App or Feature path can
+invoke this owner yet. Continue W4.5p with the remaining pane/tab/arrangement
+writer families and settled UI-memory checkpoint contract before the single
+atomic production writer cutover. No startup repair or migration is permitted.
