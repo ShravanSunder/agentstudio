@@ -24,6 +24,11 @@ import {
 	type BridgeCommWorkerReviewProductTestSource,
 	type DeferredReviewContentStream,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
+import {
+	createTrackedBridgeWorkerReviewContentOpen,
+	drainBridgeWorkerVisibleDemandRuntimeUntil,
+	drainBridgeWorkerVisibleDemandRuntimeUntilQuiescent,
+} from './bridge-comm-worker-runtime-protocol.visible-demand.test-support.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 
 describe('Bridge comm worker runtime visible demand protocol', () => {
@@ -31,6 +36,10 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		const clockMs = 0;
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const pump = createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => clockMs });
+		const trackedContentOpen = createTrackedBridgeWorkerReviewContentOpen(
+			openReviewContentFromDescriptorMap,
+		);
 
 		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
@@ -51,8 +60,8 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				}),
 			],
 			createSequence: createBridgeWorkerSequenceCounter(701),
-			openReviewContent: openReviewContentFromDescriptorMap,
-			pump: createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => clockMs }),
+			openReviewContent: trackedContentOpen.openContent,
+			pump,
 			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
@@ -71,17 +80,18 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				phase: 'settled',
 			}),
 		);
-		const firstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
-		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
-		await firstDrain;
+		await drainBridgeWorkerVisibleDemandRuntimeUntilQuiescent({
+			pendingContentCompletions: trackedContentOpen.pendingCompletions,
+			pendingPreparationWorkIds: pump.getPendingWorkIds,
+			scheduledDrains,
+		});
 		expect(
 			postedMessages.filter(
 				(postedMessage) => postedMessage.message.kind === 'reviewPierreRenderJob',
 			),
 		).toHaveLength(1);
 
-		reviewProductSource.publishSource(
+		const updatedPublicationApplied = reviewProductSource.publishSourceAndWaitForApplication(
 			{
 				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 				contentRequestDescriptors: [
@@ -103,23 +113,29 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			},
 			6,
 		);
-		await flushBridgeWorkerRuntimeContinuations();
-		const refreshDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
-		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
-		await refreshDrain;
+		await updatedPublicationApplied;
+		await drainBridgeWorkerVisibleDemandRuntimeUntilQuiescent({
+			pendingContentCompletions: trackedContentOpen.pendingCompletions,
+			pendingPreparationWorkIds: pump.getPendingWorkIds,
+			scheduledDrains,
+		});
 
 		const pierreJobMessages = postedMessages.flatMap((postedMessage) =>
 			postedMessage.message.kind === 'reviewPierreRenderJob' ? [postedMessage.message] : [],
 		);
+		expect(trackedContentOpen.openedDescriptorIds).toHaveLength(4);
 		expect(pierreJobMessages).toHaveLength(2);
 		expect(JSON.stringify(pierreJobMessages[1])).toContain('fresh head');
 	});
 
-	test('refreshes visible Review demand after source update changes only descriptor byte bounds', async () => {
+	test('refreshes changed descriptor bounds without republishing identical semantic content', async () => {
 		const clockMs = 0;
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const pump = createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => clockMs });
+		const trackedContentOpen = createTrackedBridgeWorkerReviewContentOpen(
+			openReviewContentFromDescriptorMap,
+		);
 		const baseDescriptor = makeInexactContentRequestDescriptor({
 			generation: 4,
 			itemId: 'item-1',
@@ -157,8 +173,8 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 			contentRequestDescriptors: [baseDescriptor, headDescriptor],
 			createSequence: createBridgeWorkerSequenceCounter(801),
-			openReviewContent: openReviewContentFromDescriptorMap,
-			pump: createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => clockMs }),
+			openReviewContent: trackedContentOpen.openContent,
+			pump,
 			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
@@ -177,17 +193,18 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				phase: 'settled',
 			}),
 		);
-		const firstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
-		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
-		await firstDrain;
+		await drainBridgeWorkerVisibleDemandRuntimeUntilQuiescent({
+			pendingContentCompletions: trackedContentOpen.pendingCompletions,
+			pendingPreparationWorkIds: pump.getPendingWorkIds,
+			scheduledDrains,
+		});
 		expect(
 			postedMessages.filter(
 				(postedMessage) => postedMessage.message.kind === 'reviewPierreRenderJob',
 			),
 		).toHaveLength(1);
 
-		reviewProductSource.publishSource(
+		const byteBoundPublicationApplied = reviewProductSource.publishSourceAndWaitForApplication(
 			{
 				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 				contentRequestDescriptors: [
@@ -211,16 +228,23 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			},
 			6,
 		);
-		await flushBridgeWorkerRuntimeContinuations();
-		const refreshDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
-		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
-		await refreshDrain;
+		await byteBoundPublicationApplied;
+		await drainBridgeWorkerVisibleDemandRuntimeUntilQuiescent({
+			pendingContentCompletions: trackedContentOpen.pendingCompletions,
+			pendingPreparationWorkIds: pump.getPendingWorkIds,
+			scheduledDrains,
+		});
 
 		const pierreJobMessages = postedMessages.flatMap((postedMessage) =>
 			postedMessage.message.kind === 'reviewPierreRenderJob' ? [postedMessage.message] : [],
 		);
-		expect(pierreJobMessages).toHaveLength(2);
+		expect(trackedContentOpen.openedDescriptorIds).toEqual([
+			'descriptor-item-1-base-4',
+			'descriptor-item-1-head-4',
+			'descriptor-item-1-base-5',
+			'descriptor-item-1-head-5',
+		]);
+		expect(pierreJobMessages).toHaveLength(1);
 	});
 
 	test('keeps source-update rerun sticky when viewport arrives before stale in-flight completion', async () => {
@@ -280,7 +304,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
 		await readyDrain;
 
-		reviewProductSource.publishSource(
+		const freshPublicationApplied = reviewProductSource.publishSourceAndWaitForApplication(
 			{
 				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 				contentRequestDescriptors: [
@@ -329,6 +353,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			},
 			7,
 		);
+		await freshPublicationApplied;
 		dispatch.message(
 			encodeBridgeWorkerViewportCommand({
 				requestId: 'request-viewport-after-source-b',
@@ -809,8 +834,8 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			postedMessage.message.kind === 'reviewPierreRenderJob' ? [postedMessage.message] : [],
 		);
 		expect(pierreJobMessages).toHaveLength(1);
-			expect(JSON.stringify(pierreJobMessages[0])).toContain('fresh body');
-		});
+		expect(JSON.stringify(pierreJobMessages[0])).toContain('fresh body');
+	});
 
 	test('drains every visible Review item when one settled window exceeds start concurrency', async () => {
 		// Arrange
@@ -929,45 +954,6 @@ async function registerBridgeRuntimeWithInitialReviewSource(
 	}
 	isInitializingSource = false;
 	return reviewProductSource;
-}
-
-async function drainBridgeWorkerVisibleDemandRuntimeUntil(props: {
-	readonly hasExpectedEvent: () => boolean;
-	readonly scheduledDrains: readonly BridgeCommWorkerPreparationDrain[];
-	readonly startIndex: number;
-}): Promise<void> {
-	return drainBridgeWorkerVisibleDemandRuntimeUntilAttempt({ ...props, attempt: 0 });
-}
-
-async function drainBridgeWorkerVisibleDemandRuntimeUntilAttempt(props: {
-	readonly attempt: number;
-	readonly hasExpectedEvent: () => boolean;
-	readonly scheduledDrains: readonly BridgeCommWorkerPreparationDrain[];
-	readonly startIndex: number;
-}): Promise<void> {
-	if (props.hasExpectedEvent() || props.attempt >= 8) {
-		return;
-	}
-	await flushBridgeWorkerRuntimeContinuations();
-	if (props.startIndex >= props.scheduledDrains.length) {
-		await waitBridgeWorkerVisibleDemandRuntimeTaskBoundary();
-		return drainBridgeWorkerVisibleDemandRuntimeUntilAttempt({
-			...props,
-			attempt: props.attempt + 1,
-		});
-	}
-	void assertBridgeCommWorkerPreparationDrain(props.scheduledDrains[props.startIndex])();
-	return drainBridgeWorkerVisibleDemandRuntimeUntilAttempt({
-		...props,
-		attempt: props.attempt + 1,
-		startIndex: props.startIndex + 1,
-	});
-}
-
-async function waitBridgeWorkerVisibleDemandRuntimeTaskBoundary(): Promise<void> {
-	await new Promise<void>((resolve) => {
-		setTimeout(resolve, 0);
-	});
 }
 
 function makeInexactContentRequestDescriptor(

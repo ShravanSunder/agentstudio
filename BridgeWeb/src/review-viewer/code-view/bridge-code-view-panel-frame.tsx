@@ -99,15 +99,15 @@ export function BridgeCodeViewPanelFrame(props: BridgeCodeViewPanelFrameProps): 
 			data-selected-presentation-version={props.selectedPresentationVersion}
 			data-selected-display-path={props.selectedDisplayPath ?? undefined}
 			data-selected-item-id={props.selectedItemId ?? undefined}
-				data-bridge-code-view-overflow={codeViewOptions.overflow}
-				data-testid="bridge-code-view-panel"
-				onKeyDownCapture={(event): void => {
-					if (isBridgeCodeViewScrollKey(event.key)) props.handleCodeViewUserScrollIntent();
-				}}
-				onPointerDownCapture={props.handleCodeViewUserScrollIntent}
-				onTouchStartCapture={props.handleCodeViewUserScrollIntent}
-				onWheelCapture={props.handleCodeViewUserScrollIntent}
-			>
+			data-bridge-code-view-overflow={codeViewOptions.overflow}
+			data-testid="bridge-code-view-panel"
+			onKeyDownCapture={(event): void => {
+				if (isBridgeCodeViewScrollKey(event.key)) props.handleCodeViewUserScrollIntent();
+			}}
+			onPointerDownCapture={props.handleCodeViewUserScrollIntent}
+			onTouchStartCapture={props.handleCodeViewUserScrollIntent}
+			onWheelCapture={props.handleCodeViewUserScrollIntent}
+		>
 			<BridgePierreWorkerPoolProvider
 				{...(props.workerPoolEnabled === undefined ? {} : { enabled: props.workerPoolEnabled })}
 				{...(props.workerFactory === undefined ? {} : { workerFactory: props.workerFactory })}
@@ -135,13 +135,5 @@ export function BridgeCodeViewPanelFrame(props: BridgeCodeViewPanelFrameProps): 
 }
 
 function isBridgeCodeViewScrollKey(key: string): boolean {
-	return [
-		' ',
-		'ArrowDown',
-		'ArrowUp',
-		'End',
-		'Home',
-		'PageDown',
-		'PageUp',
-	].includes(key);
+	return [' ', 'ArrowDown', 'ArrowUp', 'End', 'Home', 'PageDown', 'PageUp'].includes(key);
 }

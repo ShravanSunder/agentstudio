@@ -449,11 +449,11 @@ function productDescriptorForCase(props: {
 				encoding: 'utf-8',
 				expectedSha256: payloadSha256,
 				fileId: common.fileId,
-				maximumBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+				maximumBytes: props.prefix.bytes.byteLength,
 				source: common.source,
 				window: {
 					kind: 'prefix',
-					maximumBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+					maximumBytes: props.prefix.bytes.byteLength,
 					maximumLines: BRIDGE_PRODUCT_MAXIMUM_CONTENT_LINES,
 					startByte: 0,
 				},

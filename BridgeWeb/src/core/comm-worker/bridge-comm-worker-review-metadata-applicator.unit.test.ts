@@ -5,6 +5,12 @@ import {
 	BridgeCommWorkerReviewMetadataApplicator,
 	type BridgeCommWorkerReviewMetadataApplication,
 } from './bridge-comm-worker-review-metadata-applicator.js';
+import {
+	reviewIdentity,
+	reviewSnapshot,
+	reviewSourceAccepted,
+	reviewWindow,
+} from './bridge-comm-worker-review-metadata-transaction.test-support.js';
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import {
 	makeContentRequestDescriptor,
@@ -232,6 +238,46 @@ describe('Bridge comm worker Review metadata applicator', () => {
 		// Assert
 		expect(applications).toHaveLength(1);
 		expect(applications[0]).toMatchObject({ reset: true, sourceEpoch: 1 });
+	});
+
+	test('publishes a fresh non-delta replacement after every prior application revision', () => {
+		// Arrange
+		const applications: BridgeCommWorkerReviewMetadataApplication[] = [];
+		const applicator = new BridgeCommWorkerReviewMetadataApplicator({
+			applyRuntimeSource: (application): void => {
+				applications.push(application);
+			},
+			currentWorkerDerivationEpoch: (): number => 13,
+		});
+		const activeIdentity = reviewIdentity('many-frames', 7, 11);
+		applicator.apply(reviewSourceAccepted(activeIdentity), 13);
+		applicator.apply(reviewSnapshot(activeIdentity, 'active-1', 0, 3, false), 13);
+		applicator.apply(reviewWindow(activeIdentity, 'active-2', 1, 3, false), 13);
+		const activeReceipt = applicator.apply(
+			reviewWindow(activeIdentity, 'active-3', 2, 3, true),
+			13,
+		);
+		const activeApplication = applications.at(-1);
+		if (activeApplication === undefined) throw new Error('Expected active Review application.');
+		const replacementIdentity = reviewIdentity('single-frame', 8, 21);
+
+		// Act
+		applicator.apply(reviewSourceAccepted(replacementIdentity), 13);
+		const replacementReceipt = applicator.apply(
+			reviewSnapshot(replacementIdentity, 'replacement-1', 0, 1, true),
+			13,
+		);
+		const replacementApplication = applications.at(-1);
+		if (replacementApplication === undefined) {
+			throw new Error('Expected replacement Review application.');
+		}
+
+		// Assert
+		expect(activeReceipt).toEqual({ publicationId: activeIdentity.publicationId });
+		expect(replacementReceipt).toEqual({ publicationId: replacementIdentity.publicationId });
+		expect(replacementApplication.projectionRevision).toBeGreaterThan(
+			activeApplication.projectionRevision,
+		);
 	});
 
 	test('applies structural deltas as closed row removal and upsert mutations', () => {

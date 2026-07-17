@@ -152,9 +152,7 @@ class BridgeWorkerRenderReceiptRejectionError extends Error {
 	override readonly name = 'BridgeWorkerRenderReceiptRejectionError';
 }
 
-export function isBridgeWorkerRenderReceiptRejectionError(
-	error: unknown,
-): error is Error {
+export function isBridgeWorkerRenderReceiptRejectionError(error: unknown): error is Error {
 	return error instanceof BridgeWorkerRenderReceiptRejectionError;
 }
 type BridgeWorkerReceiptLeaseExpired = Readonly<

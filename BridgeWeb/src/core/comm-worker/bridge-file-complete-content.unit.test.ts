@@ -109,7 +109,12 @@ describe('Bridge File complete content', () => {
 				canFetchContent: true,
 			},
 			publicationSequence: 1,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({ itemId: 'file-1', publicationSequence: 1, surface: 'file', workerDerivationEpoch: 1 }),
+			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'complete-file-1',
+				publicationSequence: 1,
+				surface: 'file',
+				workerDerivationEpoch: 1,
+			}),
 			resource,
 			workerDerivationEpoch: 1,
 		});

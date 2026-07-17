@@ -321,10 +321,10 @@ export function createBridgeTelemetryWorkerProducer(
 			if (!decoded.success) {
 				return false;
 			}
-				const command: BridgeTelemetryWorkerProducerCommand = decoded.data;
-				if (command.type === 'producer.ready') {
-					if (generation !== null) return false;
-					generation = command.generation;
+			const command: BridgeTelemetryWorkerProducerCommand = decoded.data;
+			if (command.type === 'producer.ready') {
+				if (generation !== null) return false;
+				generation = command.generation;
 				if (state === 'active') {
 					availableSampleCredits = command.initialSampleCredits;
 					availableControlCredits = command.initialControlCredits;

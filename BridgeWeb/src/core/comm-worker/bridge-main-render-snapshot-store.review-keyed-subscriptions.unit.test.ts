@@ -346,7 +346,7 @@ function makeReviewDisplayItems(props: {
 				},
 			],
 			extentFacts: [],
-			metadata: { itemId: reviewItemId(itemIndex) },
+			metadata: { contentRoles: ['head'], itemId: reviewItemId(itemIndex) },
 			metadataWindowIdentity: `metadata-window-${itemIndex}-r${props.identityRevision}`,
 		};
 	});

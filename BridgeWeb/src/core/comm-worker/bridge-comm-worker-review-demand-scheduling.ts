@@ -68,6 +68,99 @@ export interface BridgeCommWorkerReviewDemandScheduling {
 	readonly updateWorkerDerivationEpoch: (workerDerivationEpoch: number) => void;
 }
 
+export interface BridgeCommWorkerVisibleSourceChurnIdentity {
+	readonly epoch: number;
+	readonly sourceChurnRevision: number | null;
+}
+
+export interface BridgeCommWorkerVisibleSourceChurnDedupeState {
+	readonly currentIdentity: BridgeCommWorkerVisibleSourceChurnIdentity | null;
+	readonly markedItemIds: ReadonlySet<string>;
+}
+
+interface RecordBridgeCommWorkerVisibleSourceChurnProps {
+	readonly affectedItemIds: readonly string[];
+	readonly identity: BridgeCommWorkerVisibleSourceChurnIdentity;
+	readonly state: BridgeCommWorkerVisibleSourceChurnDedupeState;
+}
+
+export interface BridgeCommWorkerVisibleSourceChurnRecordResult {
+	readonly accepted: boolean;
+	readonly state: BridgeCommWorkerVisibleSourceChurnDedupeState;
+	readonly unmarkedAffectedItemIds: readonly string[];
+}
+
+export function createBridgeCommWorkerVisibleSourceChurnDedupeState(): BridgeCommWorkerVisibleSourceChurnDedupeState {
+	return {
+		currentIdentity: null,
+		markedItemIds: new Set(),
+	};
+}
+
+export function recordBridgeCommWorkerVisibleSourceChurn(
+	props: RecordBridgeCommWorkerVisibleSourceChurnProps,
+): BridgeCommWorkerVisibleSourceChurnRecordResult {
+	const identityOrder = compareBridgeCommWorkerVisibleSourceChurnIdentity(
+		props.identity,
+		props.state.currentIdentity,
+	);
+	if (identityOrder < 0) {
+		return {
+			accepted: false,
+			state: props.state,
+			unmarkedAffectedItemIds: [],
+		};
+	}
+	const affectedItemIds = [...new Set(props.affectedItemIds)];
+	if (identityOrder > 0) {
+		return {
+			accepted: true,
+			state: {
+				currentIdentity: props.identity,
+				markedItemIds: new Set(affectedItemIds),
+			},
+			unmarkedAffectedItemIds: affectedItemIds,
+		};
+	}
+	const unmarkedAffectedItemIds = affectedItemIds.filter(
+		(itemId) => !props.state.markedItemIds.has(itemId),
+	);
+	if (unmarkedAffectedItemIds.length === 0) {
+		return {
+			accepted: true,
+			state: props.state,
+			unmarkedAffectedItemIds,
+		};
+	}
+	return {
+		accepted: true,
+		state: {
+			currentIdentity: props.state.currentIdentity,
+			markedItemIds: new Set([...props.state.markedItemIds, ...unmarkedAffectedItemIds]),
+		},
+		unmarkedAffectedItemIds,
+	};
+}
+
+function compareBridgeCommWorkerVisibleSourceChurnIdentity(
+	incomingIdentity: BridgeCommWorkerVisibleSourceChurnIdentity,
+	currentIdentity: BridgeCommWorkerVisibleSourceChurnIdentity | null,
+): number {
+	if (currentIdentity === null) return 1;
+	if (incomingIdentity.epoch !== currentIdentity.epoch) {
+		return incomingIdentity.epoch > currentIdentity.epoch ? 1 : -1;
+	}
+	if (incomingIdentity.sourceChurnRevision === currentIdentity.sourceChurnRevision) return 0;
+	if (incomingIdentity.sourceChurnRevision === null) return -1;
+	if (currentIdentity.sourceChurnRevision === null) return 1;
+	return incomingIdentity.sourceChurnRevision > currentIdentity.sourceChurnRevision ? 1 : -1;
+}
+
+interface BridgeCommWorkerVisibleSourceChurnAdmission {
+	readonly accepted: boolean;
+	readonly sourceChurnItemIds: ReadonlySet<string>;
+}
+
 export function createBridgeCommWorkerReviewDemandScheduling(
 	props: CreateBridgeCommWorkerReviewDemandSchedulingProps,
 ): BridgeCommWorkerReviewDemandScheduling {
@@ -84,7 +177,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 	const demandInFlightItemIds = new Set<string>();
 	const pendingVisibleDemandRerunItemIds = new Set<string>();
 	const visibleDemandGenerationByItemId = new Map<string, number>();
-	const markedVisibleSourceChurnKeys = new Set<string>();
+	let visibleSourceChurnDedupeState = createBridgeCommWorkerVisibleSourceChurnDedupeState();
 	const activeSelectedPreparationByItemId = new Map<
 		string,
 		{
@@ -98,23 +191,34 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 
 	const markVisibleDemandSourceChurnFromRequest = (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
-	): ReadonlySet<string> => {
-		const unmarkedAffectedItemIds = request.affectedItemIds?.filter((itemId) => {
-			const churnKey = `${request.sourceChurnRevision ?? request.epoch}:${itemId}`;
-			return !markedVisibleSourceChurnKeys.has(churnKey);
+	): BridgeCommWorkerVisibleSourceChurnAdmission => {
+		if (request.cause !== 'reviewInvalidate' && request.cause !== 'reviewMetadata') {
+			return { accepted: true, sourceChurnItemIds: new Set() };
+		}
+		const visibleItemIds = visibleReviewDemandItemIdsFromState(request.store.getState());
+		const affectedItemIdSet = new Set(request.affectedItemIds ?? visibleItemIds);
+		const visibleAffectedItemIds = visibleItemIds.filter((itemId) => affectedItemIdSet.has(itemId));
+		const dedupeResult = recordBridgeCommWorkerVisibleSourceChurn({
+			affectedItemIds: visibleAffectedItemIds,
+			identity: {
+				epoch: request.epoch,
+				sourceChurnRevision: request.sourceChurnRevision ?? null,
+			},
+			state: visibleSourceChurnDedupeState,
 		});
+		if (!dedupeResult.accepted) {
+			return { accepted: false, sourceChurnItemIds: new Set() };
+		}
+		visibleSourceChurnDedupeState = dedupeResult.state;
 		const sourceChurnItemIds = markVisibleReviewDemandSourceChurn({
-			affectedItemIds: unmarkedAffectedItemIds,
+			affectedItemIds: dedupeResult.unmarkedAffectedItemIds,
 			cause: request.cause,
 			inFlightItemIds: demandInFlightItemIds,
 			pendingRerunItemIds: pendingVisibleDemandRerunItemIds,
 			store: request.store,
 			visibleDemandGenerationByItemId,
 		});
-		for (const itemId of sourceChurnItemIds) {
-			markedVisibleSourceChurnKeys.add(`${request.sourceChurnRevision ?? request.epoch}:${itemId}`);
-		}
-		return sourceChurnItemIds;
+		return { accepted: true, sourceChurnItemIds };
 	};
 
 	const enqueueVisibleDemandExecutionFromRequest = (
@@ -122,18 +226,21 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		forcedSourceChurnItemIds: ReadonlySet<string> = new Set(),
 		shouldMarkSourceChurn = true,
 	): boolean => {
-		latestDemandExecutionRequest = request;
 		const workerDerivationEpoch = props.usesProductTransport
 			? activeWorkerDerivationEpoch
 			: request.epoch;
 		if (workerDerivationEpoch === null) {
 			return false;
 		}
-		const sourceChurnItemIds = shouldMarkSourceChurn
+		const sourceChurnAdmission = shouldMarkSourceChurn
 			? markVisibleDemandSourceChurnFromRequest(request)
-			: new Set<string>();
+			: { accepted: true, sourceChurnItemIds: new Set<string>() };
+		if (!sourceChurnAdmission.accepted) {
+			return false;
+		}
+		latestDemandExecutionRequest = request;
 		const forceExecutionItemIds = new Set([
-			...sourceChurnItemIds,
+			...sourceChurnAdmission.sourceChurnItemIds,
 			...(request.forceExecutionItemIds ?? []),
 			...forcedSourceChurnItemIds,
 		]);
@@ -246,13 +353,14 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 	return {
 		scheduleDemandExecution: enqueueVisibleDemandExecutionFromRequest,
 		scheduleMetadataReset: (request: BridgeCommWorkerReviewMetadataResetScheduleRequest): void => {
-			activeSourceResetEpoch = request.epoch;
-			markVisibleDemandSourceChurnFromRequest({
+			const sourceChurnAdmission = markVisibleDemandSourceChurnFromRequest({
 				affectedItemIds: request.affectedItemIds,
 				cause: request.cause,
 				epoch: request.epoch,
 				store: request.store,
 			});
+			if (!sourceChurnAdmission.accepted) return;
+			activeSourceResetEpoch = request.epoch;
 			const ticket = enqueueBridgeCommWorkerReviewSourceReset({
 				createSequence: props.createSequence,
 				isCurrentResetEpoch: () => activeSourceResetEpoch === request.epoch,

@@ -101,18 +101,18 @@ export function selectedContentDiagnosticsForPanel(props: {
 			selectedCodeViewItem,
 			selectedItemId: props.selectedItemId,
 		}),
-			summary: {
-				cacheKeyCount: cacheKeyEntries.length,
-				characterCount:
-					selectedCodeViewItem === null || selectedCodeViewItem === undefined
-						? 0
-						: characterCountForSelectedCodeViewItem(selectedCodeViewItem),
-				lineCount:
-					selectedCodeViewItem === null || selectedCodeViewItem === undefined
-						? 0
-						: lineCountForSelectedCodeViewItem(selectedCodeViewItem),
-			},
-		};
+		summary: {
+			cacheKeyCount: cacheKeyEntries.length,
+			characterCount:
+				selectedCodeViewItem === null || selectedCodeViewItem === undefined
+					? 0
+					: characterCountForSelectedCodeViewItem(selectedCodeViewItem),
+			lineCount:
+				selectedCodeViewItem === null || selectedCodeViewItem === undefined
+					? 0
+					: lineCountForSelectedCodeViewItem(selectedCodeViewItem),
+		},
+	};
 }
 
 export function selectedMaterializationDiagnosticForPanel(props: {

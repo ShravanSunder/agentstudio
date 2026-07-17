@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { open, realpath, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { open, realpath } from 'node:fs/promises';
 
 export const BRIDGE_WORKTREE_DEV_MAXIMUM_GIT_CONCURRENCY = 4;
 export const BRIDGE_WORKTREE_DEV_MAXIMUM_FILESYSTEM_CONCURRENCY = 8;
@@ -15,6 +16,7 @@ export interface BridgeWorktreeDevGitRequest {
 }
 
 export interface BridgeWorktreeDevFileMetadata {
+	readonly contentSha256: string;
 	readonly modifiedAtUnixMilliseconds: number;
 	readonly sizeBytes: number;
 }
@@ -123,12 +125,23 @@ export function createBridgeWorktreeDevPorts(
 				observer.fileMetadataStarted?.();
 				try {
 					throwIfAborted(signal);
-					const fileStats = await stat(absolutePath);
-					throwIfAborted(signal);
-					return {
-						modifiedAtUnixMilliseconds: Math.max(0, Math.trunc(fileStats.mtimeMs)),
-						sizeBytes: fileStats.size,
-					};
+					const fileHandle = await open(absolutePath, 'r');
+					try {
+						const fileStats = await fileHandle.stat();
+						const contentHasher = createHash('sha256');
+						for await (const chunk of fileHandle.createReadStream({ autoClose: false })) {
+							throwIfAborted(signal);
+							contentHasher.update(chunk);
+						}
+						throwIfAborted(signal);
+						return {
+							contentSha256: contentHasher.digest('hex'),
+							modifiedAtUnixMilliseconds: Math.max(0, Math.trunc(fileStats.mtimeMs)),
+							sizeBytes: fileStats.size,
+						};
+					} finally {
+						await fileHandle.close();
+					}
 				} finally {
 					observer.fileMetadataFinished?.();
 				}

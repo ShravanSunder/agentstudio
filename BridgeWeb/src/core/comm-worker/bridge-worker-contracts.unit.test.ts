@@ -3,7 +3,6 @@ import { describe, expect, expectTypeOf, test } from 'vitest';
 import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import { makeContentRequestDescriptor } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { parseBridgeWorkerMainToServerMessage } from './bridge-worker-contract-parsers.js';
-import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeCommWorkerBootstrapRequestSchema,
@@ -20,6 +19,7 @@ import {
 	type BridgeWorkerReviewContentRequestDescriptor,
 	type BridgeWorkerReviewContentMetadata,
 } from './bridge-worker-contracts.js';
+import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
 
 describe('BridgeWorkerContracts', () => {
 	test('accepts policy-only session bootstrap and rejects every legacy runtime carrier', () => {
@@ -226,9 +226,7 @@ describe('BridgeWorkerContracts', () => {
 		};
 
 		// Act
-		const parsedCommand = bridgeWorkerMainToServerMessageSchema.safeParse(
-			renderDispositionCommand,
-		);
+		const parsedCommand = bridgeWorkerMainToServerMessageSchema.safeParse(renderDispositionCommand);
 
 		// Assert
 		expect(parsedCommand.success, 'RENDER_DISPOSITION_COMMAND_UNREACHABLE').toBe(true);

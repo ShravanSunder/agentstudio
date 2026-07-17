@@ -87,17 +87,34 @@ export async function loadBridgeWorktreeDevMetadataSnapshot(props: {
 			'--exclude-standard',
 			'-z',
 		]),
+		gitText(ports, worktreeRoot, props.signal, [
+			'rev-parse',
+			'--verify',
+			'--end-of-options',
+			`${props.baseRef}^{commit}`,
+		]),
 	]);
-	const [nameStatusOutput, numstatOutput, currentFilesOutput, deletedFilesOutput, untrackedOutput] =
-		commandResults;
+	const [
+		nameStatusOutput,
+		numstatOutput,
+		currentFilesOutput,
+		deletedFilesOutput,
+		untrackedOutput,
+		baseCommitOutput,
+	] = commandResults;
 	if (
 		nameStatusOutput === undefined ||
 		numstatOutput === undefined ||
 		currentFilesOutput === undefined ||
 		deletedFilesOutput === undefined ||
-		untrackedOutput === undefined
+		untrackedOutput === undefined ||
+		baseCommitOutput === undefined
 	) {
 		throw new Error('Bridge worktree metadata command set was incomplete');
+	}
+	const baseCommitObjectId = baseCommitOutput.trim();
+	if (!/^[0-9a-f]{40,64}$/u.test(baseCommitObjectId)) {
+		throw new Error('Bridge worktree base reference did not resolve to a commit object');
 	}
 	const changedFileRecords = mergeChangedFileRecords({
 		nameStatusOutput,
@@ -145,7 +162,11 @@ export async function loadBridgeWorktreeDevMetadataSnapshot(props: {
 	return {
 		changedFiles,
 		currentFilePaths,
-		fingerprint: fingerprintMetadataSnapshot({ changedFiles, currentFilePaths }),
+		fingerprint: fingerprintMetadataSnapshot({
+			baseCommitObjectId,
+			changedFiles,
+			currentFilePaths,
+		}),
 	};
 }
 
@@ -322,6 +343,7 @@ export function isPathInsideRoot(props: {
 }
 
 function fingerprintMetadataSnapshot(props: {
+	readonly baseCommitObjectId: string;
 	readonly changedFiles: readonly BridgeWorktreeChangedFileMetadata[];
 	readonly currentFilePaths: readonly string[];
 }): string {

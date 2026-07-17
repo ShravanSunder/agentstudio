@@ -30,8 +30,7 @@ describe('bridge worktree dev reload diagnostics', () => {
 
 	test('correlates typed File content POST bodies only on the product endpoint and origin', () => {
 		const expectedOrigin = 'http://127.0.0.1:5173';
-		const expectedUrl =
-			'http://127.0.0.1:5173/__bridge-product/content?scenario=current-worktree';
+		const expectedUrl = 'http://127.0.0.1:5173/__bridge-product/content?scenario=current-worktree';
 		const request = contentRequest();
 		const postData = JSON.stringify(request);
 

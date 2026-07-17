@@ -47,9 +47,10 @@ function bridgeCodeViewInitialSeedSignature(props: {
 	if (props.seedItemIds === undefined) {
 		return props.projection.orderedItemIds
 			.map((itemId): string =>
-				[itemId, bridgeCodeViewDescriptorPlaceholderSignature(props.reviewPackage.itemsById[itemId])].join(
-					'\u001e',
-				),
+				[
+					itemId,
+					bridgeCodeViewDescriptorPlaceholderSignature(props.reviewPackage.itemsById[itemId]),
+				].join('\u001e'),
 			)
 			.join('\u001d');
 	}

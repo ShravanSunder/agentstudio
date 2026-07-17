@@ -79,7 +79,16 @@ export class BridgeCommWorkerReviewMetadataProjection {
 	readonly #treeRowIndexById = new Map<string, number>();
 	#treeRows: Array<BridgeProductReviewTreeRow | undefined> = [];
 
-	apply(event: BridgeProductReviewMetadataEvent): BridgeCommWorkerReviewMetadataApplyResult {
+	apply(
+		event: BridgeProductReviewMetadataEvent,
+		minimumPriorProjectionRevision = 0,
+	): BridgeCommWorkerReviewMetadataApplyResult {
+		if (
+			!Number.isSafeInteger(minimumPriorProjectionRevision) ||
+			minimumPriorProjectionRevision < 0
+		) {
+			throw new Error('Bridge Review projection revision floor must be nonnegative.');
+		}
 		const affectedItemIds = new Set<string>();
 		let invalidation: ReviewMetadataInvalidatedEvent | null = null;
 		let reset = false;
@@ -126,7 +135,8 @@ export class BridgeCommWorkerReviewMetadataProjection {
 			default:
 				assertNeverReviewMetadataEvent(event);
 		}
-		this.#projectionRevision += 1;
+		this.#projectionRevision =
+			Math.max(this.#projectionRevision, minimumPriorProjectionRevision) + 1;
 		return {
 			affectedItemIds: [...affectedItemIds],
 			invalidation,
@@ -139,6 +149,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 		this.assertCompleteFinalBarrier();
 		const clone = new BridgeCommWorkerReviewMetadataProjection();
 		clone.apply(reviewMetadataSnapshotEventFromCompleteSnapshot(this.snapshot()));
+		clone.#projectionRevision = this.#projectionRevision;
 		return clone;
 	}
 

@@ -46,6 +46,7 @@ export interface BridgeProductDevReviewSourceSnapshot {
 	readonly events: readonly BridgeProductReviewMetadataEvent[];
 	readonly generation: number;
 	readonly packageId: string;
+	readonly publicationId: string;
 	readonly revision: number;
 	readonly sourceIdentity: string;
 }
@@ -111,7 +112,16 @@ export class BridgeProductDevReviewAdapter implements BridgeProductDevReviewAdap
 		const packageId = `dev-review-package-${fingerprintPrefix}`;
 		const sourceIdentity = `dev-review-source-${fingerprintPrefix}`;
 		const cursor = `dev-review-cursor-${fingerprintPrefix}`;
-		const events = this.#metadataEvents({ cursor, packageId, snapshot, sourceIdentity });
+		const publicationId = bridgeProductDevReviewPublicationIdForSnapshotFingerprint(
+			snapshot.fingerprint,
+		);
+		const events = this.#metadataEvents({
+			cursor,
+			packageId,
+			publicationId,
+			snapshot,
+			sourceIdentity,
+		});
 		return {
 			cursor,
 			events: [
@@ -119,6 +129,7 @@ export class BridgeProductDevReviewAdapter implements BridgeProductDevReviewAdap
 					eventKind: 'review.sourceAccepted',
 					generation: reviewGeneration,
 					packageId,
+					publicationId,
 					revision: reviewRevision,
 					sourceIdentity,
 				}),
@@ -126,6 +137,7 @@ export class BridgeProductDevReviewAdapter implements BridgeProductDevReviewAdap
 			],
 			generation: reviewGeneration,
 			packageId,
+			publicationId,
 			revision: reviewRevision,
 			sourceIdentity,
 		};
@@ -134,6 +146,7 @@ export class BridgeProductDevReviewAdapter implements BridgeProductDevReviewAdap
 	#metadataEvents(props: {
 		readonly cursor: string;
 		readonly packageId: string;
+		readonly publicationId: string;
 		readonly snapshot: BridgeWorktreeDevMetadataSnapshot;
 		readonly sourceIdentity: string;
 	}): readonly BridgeProductReviewMetadataEvent[] {
@@ -154,6 +167,7 @@ export class BridgeProductDevReviewAdapter implements BridgeProductDevReviewAdap
 			this.#metadataWindowEvent({
 				entries: entries.slice(startIndex, startIndex + count),
 				packageId: props.packageId,
+				publicationId: props.publicationId,
 				snapshot: props.snapshot,
 				sourceIdentity: props.sourceIdentity,
 				startIndex,
@@ -178,6 +192,7 @@ export class BridgeProductDevReviewAdapter implements BridgeProductDevReviewAdap
 	#metadataWindowEvent(props: {
 		readonly entries: readonly BridgeProductDevReviewMetadataEntry[];
 		readonly packageId: string;
+		readonly publicationId: string;
 		readonly snapshot: BridgeWorktreeDevMetadataSnapshot;
 		readonly sourceIdentity: string;
 		readonly startIndex: number;
@@ -199,6 +214,7 @@ export class BridgeProductDevReviewAdapter implements BridgeProductDevReviewAdap
 				totalItemCount: props.snapshot.changedFiles.length,
 			},
 			packageId: props.packageId,
+			publicationId: props.publicationId,
 			revision: reviewRevision,
 			sourceIdentity: props.sourceIdentity,
 			summary: reviewSummary(props.snapshot),
@@ -415,6 +431,16 @@ function itemIdForPath(path: string): string {
 
 function hash(value: string): string {
 	return createHash('sha256').update(value).digest('hex');
+}
+
+export function bridgeProductDevReviewPublicationIdForSnapshotFingerprint(
+	snapshotFingerprint: string,
+): string {
+	if (!/^[0-9a-f]{64}$/u.test(snapshotFingerprint)) {
+		throw new Error('Bridge product dev Review snapshot fingerprint is invalid.');
+	}
+	const identityHex = hash(`bridge-review-publication\0${snapshotFingerprint}`);
+	return `${identityHex.slice(0, 8)}-${identityHex.slice(8, 12)}-7${identityHex.slice(13, 16)}-8${identityHex.slice(17, 20)}-${identityHex.slice(20, 32)}`;
 }
 
 function largestFrameBoundedReviewMetadataEvent(props: {

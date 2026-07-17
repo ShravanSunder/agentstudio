@@ -1,8 +1,6 @@
 import type { Page } from 'playwright';
 
-import {
-	bridgeWorktreeDevFileContentRouteUsesOrigin,
-} from '../bridge-worktree-dev-reload-diagnostics.ts';
+import { bridgeWorktreeDevFileContentRouteUsesOrigin } from '../bridge-worktree-dev-reload-diagnostics.ts';
 import { worktreeFileScrollExtentCanarySatisfied } from '../verify-bridge-viewer-worktree-review-proof.ts';
 import { worktreeDevServerOrigin } from './config.ts';
 import { scrollPierreFileTreeUntilPathVisible } from './file-search-filter.ts';
@@ -27,9 +25,7 @@ export function assertSelectedContentRouteProof(props: {
 	const hits = props.probe.hits();
 	const hitUrls = props.probe.hitUrls();
 	const foreignHitUrls = props.probe.foreignHitUrls();
-	const selectedHit = hits.find(
-		(hit): boolean => hit.descriptorId === props.expectedContentHandle,
-	);
+	const selectedHit = hits.find((hit): boolean => hit.descriptorId === props.expectedContentHandle);
 	const selectedResourceUrlContainsHandle = selectedHit !== undefined;
 	const selectedResourceUrlUsesDevServerFrontDoor =
 		selectedHit !== undefined &&

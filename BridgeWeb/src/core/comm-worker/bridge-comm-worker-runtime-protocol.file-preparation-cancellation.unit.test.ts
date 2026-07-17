@@ -321,11 +321,11 @@ function fileDescriptorReadyEvent(
 				encoding: 'utf-8',
 				expectedSha256: props.expectedSha256 ?? 'a'.repeat(64),
 				fileId,
-				maximumBytes: 2 * 1024 * 1024,
+				maximumBytes: 10,
 				source,
 				window: {
 					kind: 'prefix',
-					maximumBytes: 2 * 1024 * 1024,
+					maximumBytes: 10,
 					maximumLines: 10_000,
 					startByte: 0,
 				},

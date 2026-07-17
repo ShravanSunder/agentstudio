@@ -330,7 +330,7 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 		expect(pierreJobMessages[0]).toMatchObject({
 			kind: 'reviewPierreRenderJob',
 			job: { bridgeDemandRank: { lane: 'selected', priority: 0 }, itemId: 'item-1' },
-			workerDerivationEpoch: 7,
+			workerDerivationEpoch: 1,
 		});
 		expect(JSON.stringify(pierreJobMessages[0])).toContain('let updatedHeadValue = 2;');
 		expect(JSON.stringify(pierreJobMessages[0])).not.toContain('first content');

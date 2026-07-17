@@ -54,9 +54,7 @@ describe('Bridge CodeView hydration anchor', () => {
 
 		// Assert
 		expect(didConsume).toBe(false);
-		expect(props.pendingPreHydrationSelectionScrollKeyRef.current).toBe(
-			fixture.selectionScrollKey,
-		);
+		expect(props.pendingPreHydrationSelectionScrollKeyRef.current).toBe(fixture.selectionScrollKey);
 		expect(scheduleRetarget).not.toHaveBeenCalled();
 	});
 
@@ -80,7 +78,10 @@ describe('Bridge CodeView hydration anchor', () => {
 	});
 });
 
-function hydrationAnchorFixture(): { readonly itemId: string; readonly selectionScrollKey: string } {
+function hydrationAnchorFixture(): {
+	readonly itemId: string;
+	readonly selectionScrollKey: string;
+} {
 	const reviewPackage = makeBridgeViewerProjectionFixture();
 	const itemId = reviewPackage.orderedItemIds[0];
 	if (itemId === undefined) throw new Error('Hydration-anchor fixture requires one Review item.');
@@ -121,7 +122,9 @@ function hydrationAnchorProps(props: {
 		recentInstantSelectionRevealRef: mutableRef(null),
 		scheduleRetarget: props.scheduleRetarget,
 		selectionScrollKey: props.fixture.selectionScrollKey,
-		settledInstantSelectionRevealKeyRef: mutableRef<string | null>(props.fixture.selectionScrollKey),
+		settledInstantSelectionRevealKeyRef: mutableRef<string | null>(
+			props.fixture.selectionScrollKey,
+		),
 	};
 }
 

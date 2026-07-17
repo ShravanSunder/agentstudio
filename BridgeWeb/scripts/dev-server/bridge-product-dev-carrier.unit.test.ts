@@ -1,7 +1,5 @@
 import { createHash } from 'node:crypto';
-import { EventEmitter } from 'node:events';
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { Readable } from 'node:stream';
+import { createServer, type Server } from 'node:http';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
@@ -15,7 +13,6 @@ import {
 	bridgeProductControlRequestSchema,
 	bridgeProductControlResponseSchema,
 	bridgeProductMetadataStreamRequestSchema,
-	encodeBridgeProductCapabilityHeader,
 	type BridgeProductControlRequest,
 	type BridgeProductControlResponse,
 	type BridgeProductMetadataFrame,
@@ -24,6 +21,13 @@ import {
 	createBridgeProductDevCarrier,
 	type BridgeProductDevCarrier,
 } from './bridge-product-dev-carrier.js';
+import {
+	authorityForDelivery,
+	dispatchCommandToCarrier,
+	requestWithBodyProbe,
+	TestServerResponse,
+	type TestProductAuthority,
+} from './bridge-product-dev-carrier.test-support.js';
 import type { BridgeProductDevReviewAdapterPort } from './bridge-product-dev-review-adapter.js';
 import { worktreeFileProtocolFrameSchema } from './bridge-worktree-dev-file-fixture-contracts.js';
 import type {
@@ -65,6 +69,149 @@ describe('Bridge product dev pane carrier', () => {
 		expect(delivery.bootstrap.policy.maximumContentBytes).toBe(
 			BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
 		);
+	});
+
+	test('accepts only the current Review publication receipt without opening additional product work', async () => {
+		// Arrange
+		const loadReviewSource = vi.fn(fakeReviewAdapter().loadSource);
+		const createReviewAdapter = vi.fn(
+			(): BridgeProductDevReviewAdapterPort => ({
+				loadContent: async () => null,
+				loadSource: loadReviewSource,
+			}),
+		);
+		const getFileProvider = vi.fn(async () => fakeFileProvider());
+		const getReviewSourceConfig = vi.fn(async () => ({
+			baseRef: 'HEAD',
+			worktreeRoot: '/opaque',
+		}));
+		const started = await startCarrierServer({
+			createReviewAdapter,
+			getFileProvider,
+			getReviewSourceConfig,
+		});
+		carrier = started.carrier;
+		server = started.server;
+		const { authority, baseURL } = started;
+		await postControl(
+			baseURL,
+			controlRequest(authority, { kind: 'workerSession.open', request: null }, 1),
+			authority.capability,
+		);
+		const publicationId = '00000000-0000-7000-8000-000000000011';
+		const noCurrentReceipt = await postControl(
+			baseURL,
+			controlRequest(
+				authority,
+				{
+					call: { method: 'review.publication.applied', request: { publicationId } },
+					kind: 'product.call',
+					workerDerivationEpoch: 1,
+				},
+				2,
+			),
+			authority.capability,
+		);
+		const stream = await openMetadataStream(baseURL, authority);
+		const streamAccepted = await stream.nextFrame();
+		expect(await postMetadataObservation(baseURL, streamAccepted, authority.capability)).toBe(204);
+		await postControl(
+			baseURL,
+			controlRequest(
+				authority,
+				{
+					kind: 'subscription.open',
+					subscription: { subscriptionKind: 'review.metadata' },
+					subscriptionId: 'receipt-review-subscription',
+					workerDerivationEpoch: 1,
+				},
+				3,
+			),
+			authority.capability,
+		);
+		const reviewSubscriptionAccepted = await stream.nextFrame();
+		expect(
+			await postMetadataObservation(baseURL, reviewSubscriptionAccepted, authority.capability),
+		).toBe(204);
+		const reviewSourceFrame = await stream.nextFrame();
+		expect(await postMetadataObservation(baseURL, reviewSourceFrame, authority.capability)).toBe(
+			204,
+		);
+		const exactReceiptRequest = controlRequest(
+			authority,
+			{
+				call: {
+					method: 'review.publication.applied',
+					request: { publicationId },
+				},
+				kind: 'product.call',
+				workerDerivationEpoch: 1,
+			},
+			4,
+		);
+
+		// Act
+		const exactReceipt = await postControl(baseURL, exactReceiptRequest, authority.capability);
+		const exactTransportRetry = await postControl(
+			baseURL,
+			exactReceiptRequest,
+			authority.capability,
+		);
+		const exactSemanticReplay = await postControl(
+			baseURL,
+			controlRequest(
+				authority,
+				{
+					call: { method: 'review.publication.applied', request: { publicationId } },
+					kind: 'product.call',
+					workerDerivationEpoch: 1,
+				},
+				5,
+			),
+			authority.capability,
+		);
+		const mismatchedReceipt = await postControl(
+			baseURL,
+			controlRequest(
+				authority,
+				{
+					call: {
+						method: 'review.publication.applied',
+						request: { publicationId: '00000000-0000-7000-8000-000000000099' },
+					},
+					kind: 'product.call',
+					workerDerivationEpoch: 1,
+				},
+				6,
+			),
+			authority.capability,
+		);
+		await stream.close();
+
+		// Assert
+		expect(noCurrentReceipt).toMatchObject({ code: 'invalid_request', kind: 'request.error' });
+		expect(exactReceipt).toEqual({
+			call: { method: 'review.publication.applied', result: null },
+			kind: 'call.completed',
+			paneSessionId: exactReceiptRequest.paneSessionId,
+			requestId: exactReceiptRequest.requestId,
+			requestSequence: exactReceiptRequest.requestSequence,
+			wireVersion: exactReceiptRequest.wireVersion,
+			workerInstanceId: exactReceiptRequest.workerInstanceId,
+		});
+		expect(exactTransportRetry).toEqual(exactReceipt);
+		expect(exactSemanticReplay).toMatchObject({
+			call: { method: 'review.publication.applied', result: null },
+			kind: 'call.completed',
+		});
+		expect(mismatchedReceipt).toMatchObject({
+			code: 'invalid_request',
+			kind: 'request.error',
+		});
+		expect(createReviewAdapter).toHaveBeenCalledTimes(1);
+		expect(loadReviewSource).toHaveBeenCalledTimes(1);
+		expect(getFileProvider).not.toHaveBeenCalled();
+		expect(getReviewSourceConfig).toHaveBeenCalledTimes(1);
 	});
 
 	test('multiplexes Review and File subscriptions while acknowledgements bypass control order', async () => {
@@ -540,110 +687,25 @@ describe('Bridge product dev pane carrier', () => {
 	});
 });
 
-interface TestProductAuthority {
-	readonly capability: string;
-	readonly paneSessionId: string;
-	readonly workerInstanceId: string;
-}
-
-function authorityForDelivery(
-	delivery: ReturnType<BridgeProductDevCarrier['issueBootstrap']>,
-): TestProductAuthority {
-	return {
-		capability: encodeBridgeProductCapabilityHeader(delivery.productCapability),
-		paneSessionId: delivery.bootstrap.paneSessionId,
-		workerInstanceId: delivery.bootstrap.workerInstanceId,
-	};
-}
-
-async function dispatchCommandToCarrier(props: {
-	readonly authority: TestProductAuthority;
-	readonly body: string;
-	readonly carrier: BridgeProductDevCarrier;
+async function startCarrierServer(props?: {
+	readonly createReviewAdapter?: () => BridgeProductDevReviewAdapterPort;
+	readonly getFileProvider?: () => Promise<BridgeWorktreeDevProvider>;
+	readonly getReviewSourceConfig?: () => Promise<{
+		readonly baseRef: string;
+		readonly worktreeRoot: string;
+	}>;
 }): Promise<{
-	readonly request: ReturnType<typeof requestWithBodyProbe>;
-	readonly response: TestServerResponse;
-}> {
-	const request = requestWithBodyProbe({
-		body: props.body,
-		capability: props.authority.capability,
-	});
-	const response = new TestServerResponse();
-	await props.carrier.handleCommandRequest({
-		request: request.request,
-		response: response.response,
-	});
-	return { request, response };
-}
-
-function requestWithBodyProbe(props: {
-	readonly body: string;
-	readonly capability: string;
-	readonly contentType?: string | null;
-}): {
-	readonly bodyReadCount: () => number;
-	readonly request: IncomingMessage;
-} {
-	let bodyReadCount = 0;
-	const request = Readable.from(
-		(async function* (): AsyncGenerator<Buffer> {
-			bodyReadCount += 1;
-			yield Buffer.from(props.body);
-		})(),
-	);
-	Object.assign(request, {
-		headers: {
-			...(props.contentType === null
-				? {}
-				: { 'content-type': props.contentType ?? 'application/json' }),
-			'x-agentstudio-bridge-product-capability': props.capability,
-		},
-		method: 'POST',
-		url: '/command',
-	});
-	return {
-		bodyReadCount: (): number => bodyReadCount,
-		request: request as IncomingMessage,
-	};
-}
-
-class TestServerResponse extends EventEmitter {
-	readonly #bodyChunks: Buffer[] = [];
-	readonly #headers = new Map<string, string | number | readonly string[]>();
-	destroyed = false;
-	headersSent = false;
-	statusCode = 200;
-
-	get bodyText(): string {
-		return Buffer.concat(this.#bodyChunks).toString('utf8');
-	}
-
-	get response(): ServerResponse {
-		return this as unknown as ServerResponse;
-	}
-
-	setHeader(name: string, value: string | number | readonly string[]): this {
-		this.#headers.set(name.toLowerCase(), value);
-		return this;
-	}
-
-	end(chunk?: string | Uint8Array): this {
-		if (chunk !== undefined) this.#bodyChunks.push(Buffer.from(chunk));
-		this.headersSent = true;
-		return this;
-	}
-}
-
-async function startCarrierServer(): Promise<{
 	readonly authority: TestProductAuthority;
 	readonly baseURL: string;
 	readonly carrier: BridgeProductDevCarrier;
 	readonly server: Server;
 }> {
 	const carrier = createBridgeProductDevCarrier({
-		createReviewAdapter: (): BridgeProductDevReviewAdapterPort => fakeReviewAdapter(),
-		getFileProvider: async () => fakeFileProvider(),
-		getReviewSourceConfig: async () => ({ baseRef: 'HEAD', worktreeRoot: '/opaque' }),
+		createReviewAdapter:
+			props?.createReviewAdapter ?? ((): BridgeProductDevReviewAdapterPort => fakeReviewAdapter()),
+		getFileProvider: props?.getFileProvider ?? (async () => fakeFileProvider()),
+		getReviewSourceConfig:
+			props?.getReviewSourceConfig ?? (async () => ({ baseRef: 'HEAD', worktreeRoot: '/opaque' })),
 	});
 	const authority = authorityForDelivery(carrier.issueBootstrap({ reason: 'initial' }));
 	const server = createServer((request, response): void => {
@@ -676,12 +738,14 @@ function fakeReviewAdapter(): BridgeProductDevReviewAdapterPort {
 					eventKind: 'review.sourceAccepted',
 					generation: 1,
 					packageId: 'review-package-1',
+					publicationId: '00000000-0000-7000-8000-000000000011',
 					revision: 1,
 					sourceIdentity: 'review-source-1',
 				}),
 			],
 			generation: 1,
 			packageId: 'review-package-1',
+			publicationId: '00000000-0000-7000-8000-000000000011',
 			revision: 1,
 			sourceIdentity: 'review-source-1',
 		}),

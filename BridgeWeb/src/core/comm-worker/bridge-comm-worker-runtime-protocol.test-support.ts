@@ -4,6 +4,7 @@ import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import type { BridgeCommWorkerPreparationDrain } from './bridge-comm-worker-runtime-protocol.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
+import { bridgeProductReviewPublicationAppliedRequestSchema } from './bridge-product-call-contracts.js';
 import { bridgeProductReviewMetadataEventSchema } from './bridge-product-review-metadata-contracts.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 import type {
@@ -102,6 +103,10 @@ export interface BridgeCommWorkerReviewProductTestSource {
 	readonly close: () => void;
 	readonly productTransport: BridgeProductTransportSession;
 	readonly publishSource: (source: BridgeCommWorkerReviewRuntimeSource, revision?: number) => void;
+	readonly publishSourceAndWaitForApplication: (
+		source: BridgeCommWorkerReviewRuntimeSource,
+		revision?: number,
+	) => Promise<void>;
 }
 
 export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorkerReviewProductTestSource {
@@ -111,6 +116,7 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 	let currentWorkerDerivationEpoch = 0;
 	let currentSnapshot: ReviewProductTestSnapshot | null = null;
 	let currentRevision = 0;
+	const pendingApplicationReceiptsByPublicationId = new Map<string, () => void>();
 	const subscription: BridgeProductSubscription<'review.metadata'> = {
 		cancel: async (): Promise<void> => {
 			events.close(true);
@@ -129,6 +135,12 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 			const [method] = arguments_;
 			if (method === 'file.source.current') {
 				return { reason: 'review-product-test-source', status: 'unavailable' } as never;
+			}
+			if (method === 'review.publication.applied') {
+				const request = bridgeProductReviewPublicationAppliedRequestSchema.parse(arguments_[1]);
+				pendingApplicationReceiptsByPublicationId.get(request.publicationId)?.();
+				pendingApplicationReceiptsByPublicationId.delete(request.publicationId);
+				return null as never;
 			}
 			return undefined as never;
 		},
@@ -153,17 +165,29 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 		},
 		productTransport,
 		publishSource: (source, revision): void => {
-			const nextRevision = Math.max(currentRevision + 1, revision ?? currentRevision + 1);
-			const nextSnapshot = reviewProductSnapshotFromRuntimeSource(source, nextRevision);
-			events.push(
-				currentSnapshot === null
-					? nextSnapshot
-					: reviewProductDeltaBetweenSnapshots(currentSnapshot, nextSnapshot),
-			);
-			currentSnapshot = nextSnapshot;
-			currentRevision = nextRevision;
+			void publishReviewProductTestSource(source, revision);
 		},
+		publishSourceAndWaitForApplication: publishReviewProductTestSource,
 	};
+
+	function publishReviewProductTestSource(
+		source: BridgeCommWorkerReviewRuntimeSource,
+		revision?: number,
+	): Promise<void> {
+		const nextRevision = Math.max(currentRevision + 1, revision ?? currentRevision + 1);
+		const nextSnapshot = reviewProductSnapshotFromRuntimeSource(source, nextRevision);
+		const applicationReceipt = new Promise<void>((resolve): void => {
+			pendingApplicationReceiptsByPublicationId.set(nextSnapshot.publicationId, resolve);
+		});
+		events.push(
+			currentSnapshot === null
+				? nextSnapshot
+				: reviewProductDeltaBetweenSnapshots(currentSnapshot, nextSnapshot),
+		);
+		currentSnapshot = nextSnapshot;
+		currentRevision = nextRevision;
+		return applicationReceipt;
+	}
 }
 
 type ReviewProductTestSnapshot = Extract<
@@ -177,6 +201,7 @@ function reviewProductSnapshotFromRuntimeSource(
 ): ReviewProductTestSnapshot {
 	const generation = 1;
 	const packageId = 'review-product-test-package';
+	const publicationId = reviewProductTestPublicationId(revision);
 	const sourceIdentity = 'review-product-test-source';
 	const contentSources = source.contentRequestDescriptors.map((descriptor) => ({
 		contentDigest: descriptor.contentDigest,
@@ -282,6 +307,7 @@ function reviewProductSnapshotFromRuntimeSource(
 			totalItemCount: itemMetadata.length,
 		},
 		packageId,
+		publicationId,
 		query: {
 			baseEndpointId: 'review-product-test-base',
 			comparisonSemantics: 'threeDot',
@@ -410,11 +436,17 @@ function reviewProductDeltaBetweenSnapshots(
 		generation: nextSnapshot.generation,
 		operations,
 		packageId: nextSnapshot.packageId,
+		publicationId: nextSnapshot.publicationId,
 		revision: nextSnapshot.revision,
 		sourceIdentity: nextSnapshot.sourceIdentity,
 		summary: nextSnapshot.summary,
 		toRevision: nextSnapshot.revision,
 	});
+}
+
+function reviewProductTestPublicationId(revision: number): string {
+	const revisionSuffix = revision.toString(16).padStart(12, '0').slice(-12);
+	return `00000000-0000-7000-8000-${revisionSuffix}`;
 }
 
 function reviewProductTestExtentFactKey(fact: {

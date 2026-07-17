@@ -104,6 +104,44 @@ describe('Bridge comm worker Review metadata projection', () => {
 		).toThrow(/source/i);
 	});
 
+	test('keeps projection revisions monotonic across consecutive successor clones', () => {
+		// Arrange
+		const projection = new BridgeCommWorkerReviewMetadataProjection();
+		projection.apply(reviewSnapshot());
+		projection.apply(
+			reviewWindow({ itemId: 'item-2', itemStartIndex: 1, rowId: 'row-2', treeStartIndex: 1 }),
+		);
+		const completedProjection = projection.cloneComplete();
+
+		// Act
+		const firstSuccessorResult = completedProjection.apply({
+			...reviewIdentity,
+			contentSources: [],
+			eventKind: 'review.delta',
+			fromRevision: 11,
+			operations: [],
+			publicationId: '00000000-0000-7000-8000-000000000012',
+			revision: 12,
+			summary: reviewSummary,
+			toRevision: 12,
+		});
+		const secondSuccessorResult = completedProjection.cloneComplete().apply({
+			...reviewIdentity,
+			contentSources: [],
+			eventKind: 'review.delta',
+			fromRevision: 12,
+			operations: [],
+			publicationId: '00000000-0000-7000-8000-000000000013',
+			revision: 13,
+			summary: reviewSummary,
+			toRevision: 13,
+		});
+
+		// Assert
+		expect(firstSuccessorResult.projectionRevision).toBe(3);
+		expect(secondSuccessorResult.projectionRevision).toBe(4);
+	});
+
 	test('resets all product state on explicit Review reset', () => {
 		// Arrange
 		const projection = new BridgeCommWorkerReviewMetadataProjection();

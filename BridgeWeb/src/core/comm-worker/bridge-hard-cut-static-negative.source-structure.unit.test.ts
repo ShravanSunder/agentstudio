@@ -48,7 +48,6 @@ const privatePierreFetch = joinFragments('fetch', '(descriptor.resourceUrl)');
 const receiptOnlyPierreStatus = joinFragments('status:', "'", 'enqueued', "'");
 const wholeItemPierrePayload = joinFragments('kind:', "'", 'codeViewFileItem', "'");
 const wholeDiffPierrePayload = joinFragments('kind:', "'", 'codeViewDiffItem', "'");
-const wholeItemPierreParser = joinFragments('parseDiff', 'FromFile');
 const legacyReviewIntakeHook = joinFragments('useBridgeReview', 'IntakeController');
 const legacyReviewProjectionHook = joinFragments('useBridgeReview', 'ProjectionCoordinator');
 const legacyReviewProjectionWorkerFactory = joinFragments(
@@ -433,17 +432,6 @@ const bridgeHardCutOwnerRules = [
 		),
 		'whole-item Pierre render payload',
 		[wholeItemPierrePayload, wholeDiffPierrePayload],
-	),
-	sourceSignatureRule(
-		'whole-item-private-pierre',
-		sourcePath(
-			'src',
-			'core',
-			'comm-worker',
-			joinFragments('bridge-worker-review-pierre-', 'job-planner.ts'),
-		),
-		'worker-side whole-item Pierre reconstruction',
-		[wholeItemPierreParser],
 	),
 	sourceSignatureRule(
 		'whole-item-private-pierre',

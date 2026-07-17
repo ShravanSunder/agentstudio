@@ -23,7 +23,10 @@ describe('Bridge pane runtime Review content routing', () => {
 	test('delivers Review content-ready publications only to the Review surface client', () => {
 		// Arrange
 		vi.stubGlobal('cancelAnimationFrame', vi.fn());
-		vi.stubGlobal('requestAnimationFrame', vi.fn((): number => 1));
+		vi.stubGlobal(
+			'requestAnimationFrame',
+			vi.fn((): number => 1),
+		);
 		let publishWorkerMessages:
 			| ((messages: readonly BridgeWorkerServerToMainMessage[]) => void)
 			| undefined;

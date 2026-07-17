@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
 	createBridgeMainRenderSnapshotStore,
@@ -31,6 +31,18 @@ import {
 } from './bridge-worker-rpc-lifecycle-store.js';
 
 describe('Bridge pane runtime', () => {
+	beforeEach((): void => {
+		vi.stubGlobal('cancelAnimationFrame', vi.fn());
+		vi.stubGlobal(
+			'requestAnimationFrame',
+			vi.fn((): number => 1),
+		);
+	});
+
+	afterEach((): void => {
+		vi.unstubAllGlobals();
+	});
+
 	test('owns one pane session and lifecycle store with stable isolated surface clients', async () => {
 		// Arrange
 		const { createBridgePaneRuntime } = await loadBridgePaneRuntimeModule();

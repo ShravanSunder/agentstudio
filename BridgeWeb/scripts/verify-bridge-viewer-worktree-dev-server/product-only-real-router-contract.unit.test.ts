@@ -396,12 +396,12 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		expect(violationCodes).toContain('REVIEW_TREE_SELECTION_CONTENT_MISSING');
 	});
 
-		test('rejects mixed fresh disclosure independently of continuous Review membership', () => {
+	test('rejects mixed fresh disclosure independently of continuous Review membership', () => {
 		// Arrange
 		const passingProof = makePassingProductOnlyProof();
-			const mixedDisclosure = [
-				...passingProof.reviewFreshRoute.initialDirectoryDisclosure,
-				{ expanded: 'false', path: 'Sources/AgentStudio' },
+		const mixedDisclosure = [
+			...passingProof.reviewFreshRoute.initialDirectoryDisclosure,
+			{ expanded: 'false', path: 'Sources/AgentStudio' },
 		];
 		const proof: BridgeViewerProductOnlyJourneyProof = {
 			...passingProof,
@@ -495,10 +495,10 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		]);
 
 		// Act
-			const browserConfigUsesInstalledChrome =
-				/instances:\s*\[\s*\{\s*browser:\s*'chromium',\s*launch:\s*\{\s*channel:\s*'chrome',?\s*\},?\s*\},?\s*\]/u.test(
-					browserConfigSource,
-				);
+		const browserConfigUsesInstalledChrome =
+			/instances:\s*\[\s*\{\s*browser:\s*'chromium',\s*launch:\s*\{\s*channel:\s*'chrome',?\s*\},?\s*\},?\s*\]/u.test(
+				browserConfigSource,
+			);
 		const realRouterUsesInstalledChrome =
 			/chromium\.launch\(\{\s*channel:\s*'chrome',\s*headless:\s*true\s*\}\)/u.test(
 				realRouterPageSource,

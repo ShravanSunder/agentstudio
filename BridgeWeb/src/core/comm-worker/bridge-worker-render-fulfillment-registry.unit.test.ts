@@ -62,16 +62,16 @@ describe('Bridge worker render fulfillment registry', () => {
 		});
 		expect(registry.getItemState('review-item-1')?.isDesired).toBe(true);
 
-		expect(registry.applyDisposition(disposition(publication.receiptIdentity, 'queued', 11))).toEqual(
-			expect.objectContaining({ status: 'accepted' }),
-		);
-		expect(registry.applyDisposition(disposition(publication.receiptIdentity, 'applied', 12))).toEqual(
-			expect.objectContaining({ status: 'accepted' }),
-		);
+		expect(
+			registry.applyDisposition(disposition(publication.receiptIdentity, 'queued', 11)),
+		).toEqual(expect.objectContaining({ status: 'accepted' }));
+		expect(
+			registry.applyDisposition(disposition(publication.receiptIdentity, 'applied', 12)),
+		).toEqual(expect.objectContaining({ status: 'accepted' }));
 		expect(registry.getItemState('review-item-1')?.isDesired).toBe(true);
-		expect(registry.applyDisposition(disposition(publication.receiptIdentity, 'painted', 13))).toEqual(
-			expect.objectContaining({ status: 'accepted' }),
-		);
+		expect(
+			registry.applyDisposition(disposition(publication.receiptIdentity, 'painted', 13)),
+		).toEqual(expect.objectContaining({ status: 'accepted' }));
 		expect(registry.getItemState('review-item-1')?.isDesired).toBe(false);
 		expect(registry.getItemState('review-item-1')?.stage).toBe('painted');
 	});
@@ -120,9 +120,7 @@ describe('Bridge worker render fulfillment registry', () => {
 			publicationSequence: 9,
 			workerDerivationEpoch: 4,
 		});
-		expect(replacement.receiptIdentity.publicationId).not.toBe(
-			first.receiptIdentity.publicationId,
-		);
+		expect(replacement.receiptIdentity.publicationId).not.toBe(first.receiptIdentity.publicationId);
 		expect(
 			registry.applyDisposition(disposition(first.receiptIdentity, 'queued', 1)),
 		).toMatchObject({ status: 'rejected' });
@@ -254,9 +252,7 @@ describe('Bridge worker render fulfillment registry', () => {
 		});
 
 		expect(
-			fileRegistry.applyDisposition(
-				disposition(reviewPublication.receiptIdentity, 'queued', 1),
-			),
+			fileRegistry.applyDisposition(disposition(reviewPublication.receiptIdentity, 'queued', 1)),
 		).toMatchObject({ status: 'rejected' });
 		expect(reviewRegistry.getItemState('shared-item')?.stage).toBe('published');
 		expect(fileRegistry.getItemState('shared-item')?.stage).toBe('published');

@@ -3,8 +3,12 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 
 import { encodeBridgeProductMetadataFrame } from '../../src/core/comm-worker/bridge-product-metadata-frame-codec.js';
+import { bridgeProductReviewPublicationIdSchema } from '../../src/core/comm-worker/bridge-product-review-primitives.js';
 import type { BridgeProductMetadataFrame } from '../../src/core/comm-worker/bridge-product-session-contracts.js';
-import { BridgeProductDevReviewAdapter } from './bridge-product-dev-review-adapter.js';
+import {
+	BridgeProductDevReviewAdapter,
+	bridgeProductDevReviewPublicationIdForSnapshotFingerprint,
+} from './bridge-product-dev-review-adapter.js';
 import { resolveBridgeWorktreeDevProviderConfig } from './bridge-worktree-dev-provider.js';
 
 const bridgeWebPackageRoot = fileURLToPath(new URL('../..', import.meta.url));
@@ -14,7 +18,7 @@ const maximumCarrierSequence = Number.MAX_SAFE_INTEGER;
 
 describe('Bridge product dev Review adapter live worktree integration', () => {
 	test(
-		'constructs a contract-valid bounded metadata snapshot for the configured worktree',
+		'constructs one contract-valid bounded publication and retains its identity across replay',
 		async () => {
 			// Arrange
 			const config = await resolveBridgeWorktreeDevProviderConfig({
@@ -23,9 +27,12 @@ describe('Bridge product dev Review adapter live worktree integration', () => {
 				requestUrl: null,
 			});
 			const adapter = new BridgeProductDevReviewAdapter(config);
+			const replacementAdapter = new BridgeProductDevReviewAdapter(config);
 
 			// Act
 			const source = await adapter.loadSource();
+			const sameAdapterReplay = await adapter.loadSource();
+			const replacementAdapterReplay = await replacementAdapter.loadSource();
 			const encodedFrames = source.events.map((event, eventIndex) =>
 				encodeBridgeProductMetadataFrame({
 					cursor: source.cursor,
@@ -47,6 +54,23 @@ describe('Bridge product dev Review adapter live worktree integration', () => {
 			);
 
 			// Assert
+			expect(sameAdapterReplay).toBe(source);
+			expect(new Set(source.events.map((event) => event.publicationId))).toEqual(
+				new Set([source.events[0]?.publicationId]),
+			);
+			expect(replacementAdapterReplay.events.map((event) => event.publicationId)).toEqual(
+				source.events.map((event) => event.publicationId),
+			);
+			const firstDistinctPublicationId = bridgeProductDevReviewPublicationIdForSnapshotFingerprint(
+				'e'.repeat(64),
+			);
+			const changedPublicationId = bridgeProductDevReviewPublicationIdForSnapshotFingerprint(
+				'f'.repeat(64),
+			);
+			expect(bridgeProductReviewPublicationIdSchema.parse(changedPublicationId)).toBe(
+				changedPublicationId,
+			);
+			expect(changedPublicationId).not.toBe(firstDistinctPublicationId);
 			expect(source.events[0]).toMatchObject({
 				eventKind: 'review.sourceAccepted',
 				generation: source.generation,

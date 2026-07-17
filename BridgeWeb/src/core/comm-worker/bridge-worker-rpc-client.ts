@@ -154,9 +154,7 @@ function bridgeWorkerCommandMatchesSurface(
 		case 'reviewInvalidate':
 			return surface === 'review';
 		case 'renderDisposition':
-			return command.receipt.surface === 'file'
-				? surface === 'fileView'
-				: surface === 'review';
+			return command.receipt.surface === 'file' ? surface === 'fileView' : surface === 'review';
 		case 'hover':
 		case 'select':
 		case 'viewport':
@@ -181,7 +179,11 @@ function assertBridgeWorkerCommandMatchesSurface(
 		}
 		return;
 	}
-	if (command.command !== 'hover' && command.command !== 'select' && command.command !== 'viewport') {
+	if (
+		command.command !== 'hover' &&
+		command.command !== 'select' &&
+		command.command !== 'viewport'
+	) {
 		return;
 	}
 	const interactionCommand = command as BridgeWorkerRpcCommandInput & {

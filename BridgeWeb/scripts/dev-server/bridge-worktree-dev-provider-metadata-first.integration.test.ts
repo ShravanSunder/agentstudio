@@ -1,12 +1,13 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, test } from 'vitest';
 
+import { BridgeProductDevReviewAdapter } from './bridge-product-dev-review-adapter.ts';
 import {
 	BRIDGE_WORKTREE_DEV_MAXIMUM_FILESYSTEM_CONCURRENCY,
 	BRIDGE_WORKTREE_DEV_MAXIMUM_GIT_CONCURRENCY,
@@ -24,7 +25,7 @@ import {
 const execFileAsync = promisify(execFile);
 const fixtureRoots: string[] = [];
 const validStartupFixtureSha256 =
-	'741cc2d9ed25fc4517636a80003bea1536a560acc9a766e58e7209e3a220c692';
+	'10331eb3c39f7ff25da92c8cdae394446bc7b11fb7b3be25d7bbf94260862173';
 
 interface CountedPortMetrics {
 	activeFilesystemOperationCount: number;
@@ -126,7 +127,7 @@ describe('Bridge worktree dev provider metadata-first source', () => {
 		const metadataMetrics = { ...observer.metrics };
 		const startupDiagnostics = provider.diagnostics?.();
 
-		expect(metadataMetrics.gitChildCount).toBe(6);
+		expect(metadataMetrics.gitChildCount).toBe(7);
 		expect(metadataMetrics.contentGitShowCount).toBe(0);
 		expect(metadataMetrics.contentBodyReadCount).toBe(0);
 		expect(metadataMetrics.contentBodyByteCount).toBe(0);
@@ -218,6 +219,66 @@ describe('Bridge worktree dev provider metadata-first source', () => {
 			retainedContentByteCount: 0,
 			retainedProviderStateCount: 0,
 		});
+	});
+
+	test('changes Review publication identity when same-size dirty bytes change under restored mtimes', async () => {
+		// Arrange
+		const repoRoot = await makePublicationIdentityRepo();
+		const trackedPath = join(repoRoot, 'Tracked.txt');
+		const untrackedPath = join(repoRoot, 'Untracked.txt');
+		const fixedTimestamp = new Date(1_700_000_000_000);
+		await utimes(trackedPath, fixedTimestamp, fixedTimestamp);
+		await utimes(untrackedPath, fixedTimestamp, fixedTimestamp);
+		const firstTrackedMetadata = await stat(trackedPath);
+		const firstUntrackedMetadata = await stat(untrackedPath);
+		const firstNumstat = await gitStdout(repoRoot, ['diff', '--numstat', 'HEAD', '--']);
+		const firstSnapshot = await loadBridgeWorktreeDevMetadataSnapshot({
+			baseRef: 'HEAD',
+			worktreeRoot: repoRoot,
+		});
+		const firstPublication = await new BridgeProductDevReviewAdapter({
+			baseRef: 'HEAD',
+			worktreeRoot: repoRoot,
+		}).loadSource();
+		const unchangedReplacementPublication = await new BridgeProductDevReviewAdapter({
+			baseRef: 'HEAD',
+			worktreeRoot: repoRoot,
+		}).loadSource();
+
+		// Act
+		await writeFile(trackedPath, 'cccccc\n');
+		await writeFile(untrackedPath, 'yyyyyy\n');
+		await utimes(trackedPath, fixedTimestamp, fixedTimestamp);
+		await utimes(untrackedPath, fixedTimestamp, fixedTimestamp);
+		const secondNumstat = await gitStdout(repoRoot, ['diff', '--numstat', 'HEAD', '--']);
+		const secondTrackedMetadata = await stat(trackedPath);
+		const secondUntrackedMetadata = await stat(untrackedPath);
+		const secondSnapshot = await loadBridgeWorktreeDevMetadataSnapshot({
+			baseRef: 'HEAD',
+			worktreeRoot: repoRoot,
+		});
+		const secondPublication = await new BridgeProductDevReviewAdapter({
+			baseRef: 'HEAD',
+			worktreeRoot: repoRoot,
+		}).loadSource();
+
+		// Assert
+		expect(secondNumstat).toBe(firstNumstat);
+		expect(secondTrackedMetadata.size).toBe(firstTrackedMetadata.size);
+		expect(Math.trunc(secondTrackedMetadata.mtimeMs)).toBe(
+			Math.trunc(firstTrackedMetadata.mtimeMs),
+		);
+		expect(secondUntrackedMetadata.size).toBe(firstUntrackedMetadata.size);
+		expect(Math.trunc(secondUntrackedMetadata.mtimeMs)).toBe(
+			Math.trunc(firstUntrackedMetadata.mtimeMs),
+		);
+		expect(unchangedReplacementPublication.events[0]?.publicationId).toBe(
+			firstPublication.events[0]?.publicationId,
+		);
+		expect(secondSnapshot.fingerprint).not.toBe(firstSnapshot.fingerprint);
+		expect(secondPublication.events[0]?.publicationId).not.toBe(
+			firstPublication.events[0]?.publicationId,
+		);
 	});
 
 	test('bounds post-demand content and provider-state retention under named LRU policies', async () => {
@@ -334,7 +395,7 @@ describe('Bridge worktree dev provider metadata-first source', () => {
 
 		expect(metadataMetrics.contentBodyReadCount).toBe(0);
 		expect(metadataMetrics.contentGitShowCount).toBe(0);
-		expect(metadataMetrics.gitChildCount).toBe(6);
+		expect(metadataMetrics.gitChildCount).toBe(7);
 		expect(receipt.maximumGitConcurrency).toBeLessThanOrEqual(
 			BRIDGE_WORKTREE_DEV_MAXIMUM_GIT_CONCURRENCY,
 		);
@@ -396,6 +457,21 @@ async function makeSyntheticLargeRepo(): Promise<string> {
 			);
 		}),
 	]);
+	return repoRoot;
+}
+
+async function makePublicationIdentityRepo(): Promise<string> {
+	const repoRoot = await mkdtemp(join(tmpdir(), 'bridge-review-publication-identity-'));
+	fixtureRoots.push(repoRoot);
+	await runGit(repoRoot, ['init']);
+	await runGit(repoRoot, ['config', 'user.name', 'Bridge Test']);
+	await runGit(repoRoot, ['config', 'user.email', 'bridge@example.test']);
+	await runGit(repoRoot, ['config', 'commit.gpgsign', 'false']);
+	await writeFile(join(repoRoot, 'Tracked.txt'), 'aaaaaa\n');
+	await runGit(repoRoot, ['add', '.']);
+	await runGit(repoRoot, ['commit', '-m', 'base']);
+	await writeFile(join(repoRoot, 'Tracked.txt'), 'bbbbbb\n');
+	await writeFile(join(repoRoot, 'Untracked.txt'), 'xxxxxx\n');
 	return repoRoot;
 }
 

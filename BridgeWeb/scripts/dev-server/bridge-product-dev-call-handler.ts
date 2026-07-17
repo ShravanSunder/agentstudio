@@ -5,6 +5,7 @@ import {
 } from '../../src/core/comm-worker/bridge-product-session-contracts.js';
 import {
 	bridgeProductDevControlIdentity,
+	bridgeProductDevRequestError,
 	type BridgeProductDevSession,
 } from './bridge-product-dev-session.js';
 
@@ -32,6 +33,22 @@ export async function handleBridgeProductDevCall(
 		case 'review.activeViewerMode.update':
 		case 'review.intake.ready':
 		case 'review.markFileViewed':
+			return bridgeProductControlResponseSchema.parse({
+				...bridgeProductDevControlIdentity(request),
+				call: { method: request.call.method, result: null },
+				kind: 'call.completed',
+			});
+		case 'review.publication.applied':
+			if (
+				session.reviewSource === null ||
+				session.reviewSource.publicationId !== request.call.request.publicationId
+			) {
+				return bridgeProductDevRequestError(
+					request,
+					session.lastAcceptedRequestSequence + 1,
+					'invalid_request',
+				);
+			}
 			return bridgeProductControlResponseSchema.parse({
 				...bridgeProductDevControlIdentity(request),
 				call: { method: request.call.method, result: null },

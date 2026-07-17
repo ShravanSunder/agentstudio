@@ -109,6 +109,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 	#activeProjection: BridgeCommWorkerReviewMetadataProjection | null = null;
 	#acceptedLineageFloor: ReviewMetadataLineage | null = null;
 	#activeDeltaPublicationFingerprint: string | null = null;
+	#latestProjectionRevision = 0;
 	#pendingProjection: BridgeCommWorkerReviewMetadataProjection | null = null;
 	readonly #contentItemIndexById = new Map<string, number>();
 	readonly #contentRequestIndexByKey = new Map<string, number>();
@@ -179,13 +180,13 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 	): void {
 		const existingPendingProjection = this.#pendingProjection;
 		if (existingPendingProjection !== null && existingPendingProjection.matchesEvent(event)) {
-			existingPendingProjection.apply(event);
+			this.#applyProjectionEvent(existingPendingProjection, event);
 			return;
 		}
 		if (!this.#admitCandidateLineage(event)) return;
 
 		const pendingProjection = new BridgeCommWorkerReviewMetadataProjection();
-		pendingProjection.apply(event);
+		this.#applyProjectionEvent(pendingProjection, event);
 		this.#pendingProjection = pendingProjection;
 		if (
 			existingPendingProjection === null &&
@@ -206,7 +207,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		if (!this.#admitCandidateLineage(event)) return null;
 
 		const pendingProjection = new BridgeCommWorkerReviewMetadataProjection();
-		const projectionResult = pendingProjection.apply(event);
+		const projectionResult = this.#applyProjectionEvent(pendingProjection, event);
 		this.#pendingProjection = pendingProjection;
 		if (pendingProjection.hasFinalBarrier()) {
 			pendingProjection.assertCompleteFinalBarrier();
@@ -240,7 +241,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 					throw new Error('Bridge Review replay validation requires an active projection.');
 				}
 				const replayProjection = activeProjection.cloneComplete();
-				replayProjection.apply(event);
+				this.#applyProjectionEvent(replayProjection, event);
 				replayProjection.assertCompleteFinalBarrier();
 				assertEquivalentReviewPublicationSnapshots(
 					activeProjection.snapshot(),
@@ -283,7 +284,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		if (pendingProjection === null || !pendingProjection.matchesEvent(event)) {
 			throw new Error('Bridge Review metadata payload does not match the pending worker source.');
 		}
-		const projectionResult = pendingProjection.apply(event);
+		const projectionResult = this.#applyProjectionEvent(pendingProjection, event);
 		this.#recordIncrementalItemMapping?.(projectionResult.affectedItemIds.length);
 		if (!pendingProjection.hasFinalBarrier()) return null;
 		pendingProjection.assertCompleteFinalBarrier();
@@ -382,7 +383,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 			throw new Error('Bridge Review delta publication requires its exact active predecessor.');
 		}
 		const candidateProjection = activeProjection.cloneComplete();
-		const projectionResult = candidateProjection.apply(event);
+		const projectionResult = this.#applyProjectionEvent(candidateProjection, event);
 		candidateProjection.assertCompleteFinalBarrier();
 		const snapshot = candidateProjection.snapshot();
 		const candidateItemIds = [...new Set(projectionResult.affectedItemIds)];
@@ -430,7 +431,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 			throw new Error('Bridge Review metadata event does not continue the active worker source.');
 		}
 		const candidateProjection = activeProjection.cloneComplete();
-		const projectionResult = candidateProjection.apply(event);
+		const projectionResult = this.#applyProjectionEvent(candidateProjection, event);
 
 		const candidateItemIds = [...new Set(projectionResult.affectedItemIds)];
 		this.#recordIncrementalItemMapping?.(candidateItemIds.length);
@@ -783,6 +784,15 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		}
 		runtimeApplication?.commit();
 		runtimeApplication?.runPostCommitEffects();
+	}
+
+	#applyProjectionEvent(
+		projection: BridgeCommWorkerReviewMetadataProjection,
+		event: BridgeProductReviewMetadataEvent,
+	): BridgeCommWorkerReviewMetadataApplyResult {
+		const result = projection.apply(event, this.#latestProjectionRevision);
+		this.#latestProjectionRevision = result.projectionRevision;
+		return result;
 	}
 
 	#captureRollbackSnapshot(): BridgeCommWorkerReviewApplicatorRollbackSnapshot {

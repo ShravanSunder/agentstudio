@@ -428,7 +428,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			postedMessages.some(
 				(postedMessage) =>
 					postedMessage.message.kind === 'reviewRenderPatch' &&
-					postedMessage.message.workerDerivationEpoch === 7 &&
+					postedMessage.message.workerDerivationEpoch === 1 &&
 					postedMessage.message.patches.some(
 						(patch) =>
 							patch.slice === 'contentAvailability' &&
@@ -667,7 +667,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
 			publicationSequence: 42,
-			workerDerivationEpoch: 7,
+			workerDerivationEpoch: 1,
 			patches: [
 				{
 					slice: 'rowPaint',

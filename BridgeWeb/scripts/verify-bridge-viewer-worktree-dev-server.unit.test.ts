@@ -479,13 +479,13 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(fileSearchFilterSource).not.toContain('[data-testid="bridge-review-filter-option"]');
 	});
 
-	test('rejects the old plain Vite Review-package wrapper route', async () => {
+	test('routes Vite Review metadata through the product carrier instead of the old wrapper', async () => {
 		const viteConfigSource = await readFile(viteConfigSourceUrl, 'utf8');
 
-		expect(viteConfigSource).toContain(
-			'Bridge worktree review metadata route requires frame=review-metadata-snapshot',
-		);
-		expect(viteConfigSource).toContain('/__bridge-worktree/review-metadata');
+		expect(viteConfigSource).toContain('createBridgeProductDevCarrier');
+		expect(viteConfigSource).toContain('BRIDGE_PRODUCT_COMMAND_ROUTE');
+		expect(viteConfigSource).toContain('BRIDGE_PRODUCT_STREAM_ROUTE');
+		expect(viteConfigSource).not.toContain('/__bridge-worktree/review-metadata');
 		expect(viteConfigSource).not.toContain('/__bridge-worktree/review-package');
 		expect(viteConfigSource).not.toContain('reviewPackage: packageResult.reviewPackage');
 	});

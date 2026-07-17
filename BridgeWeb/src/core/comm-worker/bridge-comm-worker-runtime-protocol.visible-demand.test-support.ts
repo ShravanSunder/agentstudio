@@ -1,0 +1,136 @@
+import type { BridgeCommWorkerPreparationDrain } from './bridge-comm-worker-runtime-protocol.js';
+import {
+	assertBridgeCommWorkerPreparationDrain,
+	flushBridgeWorkerRuntimeContinuations,
+} from './bridge-comm-worker-runtime-protocol.test-support.js';
+import type { BridgeWorkerReviewContentOpen } from './bridge-worker-review-content-fetch.js';
+
+export async function drainBridgeWorkerVisibleDemandRuntimeUntil(props: {
+	readonly hasExpectedEvent: () => boolean;
+	readonly scheduledDrains: readonly BridgeCommWorkerPreparationDrain[];
+	readonly startIndex: number;
+}): Promise<void> {
+	let nextDrainIndex = props.startIndex;
+	const activeDrainCompletions = new Set<ReturnType<BridgeCommWorkerPreparationDrain>>();
+	let drainFailure: unknown = null;
+	while (!props.hasExpectedEvent()) {
+		await flushBridgeWorkerRuntimeContinuations();
+		while (nextDrainIndex < props.scheduledDrains.length) {
+			const drain = assertBridgeCommWorkerPreparationDrain(props.scheduledDrains[nextDrainIndex]);
+			nextDrainIndex += 1;
+			const completion = drain();
+			activeDrainCompletions.add(completion);
+			void completion.then(
+				(): void => {
+					activeDrainCompletions.delete(completion);
+				},
+				(error: unknown): void => {
+					drainFailure = error;
+					activeDrainCompletions.delete(completion);
+				},
+			);
+		}
+		if (drainFailure !== null) throw drainFailure;
+		if (
+			!props.hasExpectedEvent() &&
+			activeDrainCompletions.size === 0 &&
+			nextDrainIndex >= props.scheduledDrains.length
+		) {
+			throw new Error('Expected owned Bridge visible-demand work before the target event.');
+		}
+	}
+}
+
+export function createTrackedBridgeWorkerReviewContentOpen(
+	openContent: BridgeWorkerReviewContentOpen,
+): {
+	readonly openContent: BridgeWorkerReviewContentOpen;
+	readonly openedDescriptorIds: readonly string[];
+	readonly pendingCompletions: () => readonly Promise<void>[];
+} {
+	const openedDescriptorIds: string[] = [];
+	const pendingCompletions = new Set<Promise<void>>();
+	return {
+		openContent: (descriptor, abortSignal) => {
+			openedDescriptorIds.push(descriptor.descriptorId);
+			const stream = openContent(descriptor, abortSignal);
+			const completion = stream.terminal.then((): void => {});
+			pendingCompletions.add(completion);
+			void completion.then(
+				(): void => {
+					pendingCompletions.delete(completion);
+				},
+				(): void => {
+					pendingCompletions.delete(completion);
+				},
+			);
+			return stream;
+		},
+		openedDescriptorIds,
+		pendingCompletions: (): readonly Promise<void>[] => [...pendingCompletions],
+	};
+}
+
+export async function drainBridgeWorkerVisibleDemandRuntimeUntilQuiescent(props: {
+	readonly pendingContentCompletions: () => readonly Promise<void>[];
+	readonly pendingPreparationWorkIds: () => readonly string[];
+	readonly scheduledDrains: BridgeCommWorkerPreparationDrain[];
+}): Promise<void> {
+	const activeDrainCompletions = new Set<ReturnType<BridgeCommWorkerPreparationDrain>>();
+	let drainFailure: unknown = null;
+	for (;;) {
+		await flushBridgeWorkerRuntimeContinuations();
+		const drains = props.scheduledDrains.splice(0);
+		for (const drain of drains) {
+			const completion = drain();
+			activeDrainCompletions.add(completion);
+			void completion.then(
+				(): void => {
+					activeDrainCompletions.delete(completion);
+				},
+				(error: unknown): void => {
+					drainFailure = error;
+					activeDrainCompletions.delete(completion);
+				},
+			);
+		}
+		const contentCompletions = props.pendingContentCompletions();
+		if (drainFailure !== null) throw drainFailure;
+		if (contentCompletions.length > 0) {
+			// oxlint-disable-next-line no-await-in-loop -- Owned content terminals must settle before testing runtime quiescence.
+			await Promise.all(contentCompletions);
+			await flushBridgeWorkerRuntimeContinuations();
+		}
+		const pendingWorkIds = props.pendingPreparationWorkIds();
+		if (
+			props.scheduledDrains.length === 0 &&
+			props.pendingContentCompletions().length === 0 &&
+			pendingWorkIds.length === 0
+		) {
+			if (activeDrainCompletions.size > 0) {
+				// oxlint-disable-next-line no-await-in-loop -- With no queued work, active owned drains must settle before the final quiescence check.
+				await Promise.all(activeDrainCompletions);
+			}
+			await flushBridgeWorkerRuntimeContinuations();
+			if (
+				props.scheduledDrains.length === 0 &&
+				props.pendingContentCompletions().length === 0 &&
+				props.pendingPreparationWorkIds().length === 0 &&
+				activeDrainCompletions.size === 0
+			) {
+				return;
+			}
+			continue;
+		}
+		if (
+			drains.length === 0 &&
+			props.scheduledDrains.length === 0 &&
+			contentCompletions.length === 0 &&
+			activeDrainCompletions.size === 0
+		) {
+			throw new Error(
+				`Bridge visible-demand pump retained unscheduled work: ${pendingWorkIds.join(',')}`,
+			);
+		}
+	}
+}

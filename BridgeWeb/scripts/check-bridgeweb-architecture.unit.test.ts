@@ -63,6 +63,10 @@ describe('BridgeWeb architecture checker', () => {
 	test('reports private Pierre imports and misplaced Trees runtime imports', async () => {
 		await withFixtureTree(
 			{
+				'src/review-viewer/code-view/bad-private-parser.ts': `
+					import { parseDiffFromFile } from '@pierre/diffs/dist/parseDiffFromFile';
+					export const value = parseDiffFromFile;
+				`,
 				'src/review-viewer/shell/bad-tree-import.ts': `
 					import { prepareFileTreeInput } from '@pierre/trees';
 					import type { FileTreeNode } from '@pierre/trees/dist/model/publicTypes';
@@ -73,6 +77,14 @@ describe('BridgeWeb architecture checker', () => {
 				const report = await checkBridgeWebArchitecture({ packageRootPath });
 
 				expect(report.ok).toBe(false);
+				expect(report.violations).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							relativePath: 'src/review-viewer/code-view/bad-private-parser.ts',
+							ruleId: 'no-private-pierre-imports',
+						}),
+					]),
+				);
 				expect(report.violations.map(ruleIdForViolation)).toEqual(
 					expect.arrayContaining(['no-private-pierre-imports', 'pierre-trees-import-boundary']),
 				);
@@ -153,6 +165,10 @@ describe('BridgeWeb architecture checker', () => {
 	test('allows public Pierre imports in their owning viewer slices and tests', async () => {
 		await withFixtureTree(
 			{
+				'src/core/comm-worker/bridge-worker-review-pierre-job-planner.ts': `
+					import { parseDiffFromFile } from '@pierre/diffs';
+					export const value = parseDiffFromFile;
+				`,
 				'src/review-viewer/trees/tree-controller.ts': `
 					import { preparePresortedFileTreeInput } from '@pierre/trees';
 					export const value = preparePresortedFileTreeInput([]);
