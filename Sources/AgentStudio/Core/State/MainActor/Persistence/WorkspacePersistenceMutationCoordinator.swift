@@ -43,6 +43,7 @@ enum WorkspacePaneCreationPersistenceCommitResult: Equatable, Sendable {
 @MainActor
 final class WorkspacePersistenceMutationCoordinator {
     private let activeArrangementVisibilityGateway: WorkspaceActiveArrangementVisibilityPersistenceGateway
+    private let arrangementSelectionGateway: WorkspaceArrangementSelectionPersistenceGateway
     private let paneResidencyGateway: WorkspacePaneResidencyPersistenceGateway
     private let revisionOwner: WorkspacePersistenceRevisionOwner
     private let adapters: WorkspacePersistenceAdapterBundle
@@ -77,6 +78,12 @@ final class WorkspacePersistenceMutationCoordinator {
             workspaceTabGraphAtom: workspaceTabGraphAtom,
             workspaceArrangementCursorAtom: workspaceArrangementCursorAtom,
             workspacePanePresentationAtom: workspacePanePresentationAtom
+        )
+        arrangementSelectionGateway = WorkspaceArrangementSelectionPersistenceGateway(
+            revisionOwner: revisionOwner,
+            adapters: adapters,
+            workspaceTabGraphAtom: workspaceTabGraphAtom,
+            workspaceArrangementCursorAtom: workspaceArrangementCursorAtom
         )
         paneResidencyGateway = WorkspacePaneResidencyPersistenceGateway(
             revisionOwner: revisionOwner,
@@ -216,6 +223,18 @@ final class WorkspacePersistenceMutationCoordinator {
                 .rejected(.tabGraphLeafPlanning(rejection))
             }
         }
+    }
+
+    func setActivePane(
+        _ request: WorkspaceSetActivePaneRequest
+    ) -> WorkspaceArrangementSelectionPersistenceResult {
+        arrangementSelectionGateway.setActivePane(request)
+    }
+
+    func setActiveDrawerChild(
+        _ request: WorkspaceSetActiveDrawerChildRequest
+    ) -> WorkspaceArrangementSelectionPersistenceResult {
+        arrangementSelectionGateway.setActiveDrawerChild(request)
     }
 
     func switchArrangement(
