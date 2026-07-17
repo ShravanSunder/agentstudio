@@ -313,6 +313,14 @@ final class WorkspacePaneGraphAtom {
         )
     }
 
+    func replaceResidency(_ residency: SessionResidency, forPane paneID: UUID) {
+        guard paneStates[paneID] != nil else {
+            preconditionFailure("pane identity must exist before residency replacement")
+        }
+        guard paneStates[paneID]?.residency != residency else { return }
+        paneStates[paneID]?.residency = residency
+    }
+
     func addPane(_ pane: Pane) {
         setCanonicalPaneState(PaneGraphState(pane: pane))
     }

@@ -173,6 +173,48 @@ final class WorkspaceTabGraphAtom {
         tabStates[index] = replacement
     }
 
+    func replaceTabStateAndOwnership(_ replacement: TabGraphState) {
+        guard let index = tabIndexByID[replacement.tabId] else {
+            preconditionFailure("tab graph identity must exist before keyed replacement")
+        }
+        let previous = tabStates[index]
+        precondition(
+            previous.arrangements.map(\.id) == replacement.arrangements.map(\.id),
+            "pane residency replacement cannot change arrangement identity"
+        )
+        for paneID in replacement.allPaneIds {
+            let currentOwner = tabIDByPaneID[paneID]
+            precondition(
+                currentOwner == nil || currentOwner == replacement.tabId,
+                "pane identity cannot be assigned to multiple tab graphs"
+            )
+        }
+        for paneID in previous.allPaneIds {
+            tabIDByPaneID.removeValue(forKey: paneID)
+        }
+        for paneID in replacement.allPaneIds {
+            tabIDByPaneID[paneID] = replacement.tabId
+        }
+        guard previous != replacement else { return }
+        tabStates[index] = replacement
+    }
+
+    func removeTabState(_ tabID: UUID) {
+        guard let index = tabIndexByID.removeValue(forKey: tabID) else {
+            preconditionFailure("tab graph identity must exist before keyed removal")
+        }
+        let removed = tabStates.remove(at: index)
+        for paneID in removed.allPaneIds {
+            tabIDByPaneID.removeValue(forKey: paneID)
+        }
+        for arrangement in removed.arrangements {
+            tabIDByArrangementID.removeValue(forKey: arrangement.id)
+        }
+        for shiftedIndex in index..<tabStates.count {
+            tabIndexByID[tabStates[shiftedIndex].tabId] = shiftedIndex
+        }
+    }
+
     private static func makeIndexes(
         _ states: [TabGraphState]
     ) -> (

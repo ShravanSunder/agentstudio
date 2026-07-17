@@ -100,4 +100,33 @@ final class WorkspaceArrangementCursorAtom {
         paneCursorsByArrangementId[arrangementId] = state
     }
 
+    func removeActiveArrangementId(forTab tabID: UUID) {
+        precondition(
+            activeArrangementIdsByTabId.removeValue(forKey: tabID) != nil,
+            "active arrangement cursor must exist before keyed removal"
+        )
+    }
+
+    func removePaneCursor(forArrangement arrangementID: UUID) {
+        precondition(
+            paneCursorsByArrangementId.removeValue(forKey: arrangementID) != nil,
+            "active pane cursor must exist before keyed removal"
+        )
+    }
+
+    func setDrawerCursor(
+        _ state: ArrangementDrawerCursorState,
+        for key: ArrangementDrawerCursorKey
+    ) {
+        guard drawerCursorsByKey[key] != state else { return }
+        drawerCursorsByKey[key] = state
+    }
+
+    func removeDrawerCursor(for key: ArrangementDrawerCursorKey) {
+        precondition(
+            drawerCursorsByKey.removeValue(forKey: key) != nil,
+            "active drawer cursor must exist before keyed removal"
+        )
+    }
+
 }
