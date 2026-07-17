@@ -45,6 +45,7 @@ final class WorkspacePersistenceMutationCoordinator {
     private let activeArrangementVisibilityGateway: WorkspaceActiveArrangementVisibilityPersistenceGateway
     private let arrangementLifecycleGateway: WorkspaceArrangementLifecyclePersistenceGateway
     private let arrangementSelectionGateway: WorkspaceArrangementSelectionPersistenceGateway
+    private let createPaneInExistingTabGateway: WorkspaceCreatePaneInExistingTabPersistenceGateway
     private let layoutResizeGateway: WorkspaceLayoutResizePersistenceGateway
     private let paneResidencyGateway: WorkspacePaneResidencyPersistenceGateway
     private let revisionOwner: WorkspacePersistenceRevisionOwner
@@ -94,6 +95,14 @@ final class WorkspacePersistenceMutationCoordinator {
             workspaceTabGraphAtom: workspaceTabGraphAtom,
             workspaceArrangementCursorAtom: workspaceArrangementCursorAtom
         )
+        createPaneInExistingTabGateway = WorkspaceCreatePaneInExistingTabPersistenceGateway(
+            revisionOwner: revisionOwner,
+            adapters: adapters,
+            workspacePaneGraphAtom: workspacePaneGraphAtom,
+            workspaceTabGraphAtom: workspaceTabGraphAtom,
+            workspaceArrangementCursorAtom: workspaceArrangementCursorAtom,
+            workspacePanePresentationAtom: workspacePanePresentationAtom
+        )
         layoutResizeGateway = WorkspaceLayoutResizePersistenceGateway(
             revisionOwner: revisionOwner,
             adapters: adapters,
@@ -142,6 +151,12 @@ final class WorkspacePersistenceMutationCoordinator {
         )
         self.workspaceTabShellAtom = workspaceTabShellAtom
         self.workspaceWindowMemoryAtom = workspaceWindowMemoryAtom
+    }
+
+    func createPaneInExistingTab(
+        _ request: WorkspaceCreatePaneInExistingTabRequest
+    ) -> WorkspaceCreatePaneInExistingTabPersistenceResult {
+        createPaneInExistingTabGateway.create(request)
     }
 
     func selectTab(

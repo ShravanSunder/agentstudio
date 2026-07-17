@@ -50,7 +50,7 @@ struct Layout: Codable, Hashable, Sendable {
         let equalRatio = 1.0 / Double(paneIds.count)
         return Self(
             rawPanes: paneIds.map { PaneEntry(paneId: $0, ratio: equalRatio) },
-            dividerIds: paneIds.dropFirst().map { _ in UUID() }
+            dividerIds: paneIds.dropFirst().map { _ in UUIDv7.generate() }
         )
     }
 
@@ -114,7 +114,7 @@ struct Layout: Codable, Hashable, Sendable {
         updatedPanes.insert(PaneEntry(paneId: paneId, ratio: ratios[clampedIndex]), at: clampedIndex)
 
         var updatedDividerIds = dividerIds
-        updatedDividerIds.insert(UUID(), at: max(clampedIndex - 1, 0))
+        updatedDividerIds.insert(UUIDv7.generate(), at: max(clampedIndex - 1, 0))
         return Self(panes: updatedPanes, dividerIds: updatedDividerIds)
     }
 
