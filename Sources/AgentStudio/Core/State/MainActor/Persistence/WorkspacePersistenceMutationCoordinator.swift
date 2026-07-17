@@ -43,6 +43,7 @@ enum WorkspacePaneCreationPersistenceCommitResult: Equatable, Sendable {
 @MainActor
 final class WorkspacePersistenceMutationCoordinator {
     private let activeArrangementVisibilityGateway: WorkspaceActiveArrangementVisibilityPersistenceGateway
+    private let paneResidencyGateway: WorkspacePaneResidencyPersistenceGateway
     private let revisionOwner: WorkspacePersistenceRevisionOwner
     private let adapters: WorkspacePersistenceAdapterBundle
     private let workspaceArrangementCursorAtom: WorkspaceArrangementCursorAtom
@@ -73,6 +74,16 @@ final class WorkspacePersistenceMutationCoordinator {
         activeArrangementVisibilityGateway = WorkspaceActiveArrangementVisibilityPersistenceGateway(
             revisionOwner: revisionOwner,
             adapters: adapters,
+            workspaceTabGraphAtom: workspaceTabGraphAtom,
+            workspaceArrangementCursorAtom: workspaceArrangementCursorAtom,
+            workspacePanePresentationAtom: workspacePanePresentationAtom
+        )
+        paneResidencyGateway = WorkspacePaneResidencyPersistenceGateway(
+            revisionOwner: revisionOwner,
+            adapters: adapters,
+            workspacePaneGraphAtom: workspacePaneGraphAtom,
+            workspaceTabShellAtom: workspaceTabShellAtom,
+            workspaceTabCursorAtom: workspaceTabCursorAtom,
             workspaceTabGraphAtom: workspaceTabGraphAtom,
             workspaceArrangementCursorAtom: workspaceArrangementCursorAtom,
             workspacePanePresentationAtom: workspacePanePresentationAtom
@@ -229,6 +240,26 @@ final class WorkspacePersistenceMutationCoordinator {
         _ request: WorkspaceExpandPaneRequest
     ) -> WorkspaceVisibilityPersistenceResult {
         activeArrangementVisibilityGateway.expandPane(request)
+    }
+
+    func backgroundPane(
+        _ request: WorkspaceBackgroundPaneRequest,
+        retainedDrawerPayload: WorkspaceRetainedDrawerPayloadWitness
+    ) -> WorkspacePaneResidencyPersistenceResult {
+        paneResidencyGateway.backgroundPane(
+            request,
+            retainedDrawerPayload: retainedDrawerPayload
+        )
+    }
+
+    func reactivatePane(
+        _ request: WorkspaceReactivatePaneRequest,
+        retainedDrawerPayload: WorkspaceRetainedDrawerPayloadWitness
+    ) -> WorkspacePaneResidencyPersistenceResult {
+        paneResidencyGateway.reactivatePane(
+            request,
+            retainedDrawerPayload: retainedDrawerPayload
+        )
     }
 
     func toggleDrawer(
