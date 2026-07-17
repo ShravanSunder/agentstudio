@@ -6,6 +6,33 @@ import Testing
 @MainActor
 @Suite("SidebarSurfaceHost", .serialized)
 struct SidebarSurfaceHostTests {
+    @Test("surface switch timing completes only for the pending surface and sequence")
+    func surfaceSwitchTimingMatchesPendingProjection() {
+        let clock = ContinuousClock()
+        let start = clock.now
+        var state = SidebarSurfaceSwitchMetricState()
+
+        state.begin(sequence: 3, surface: .inbox, at: start)
+
+        #expect(state.complete(sequence: 2, surface: .inbox, at: start) == nil)
+        #expect(state.complete(sequence: 3, surface: .repos, at: start) == nil)
+        #expect(state.complete(sequence: 3, surface: .inbox, at: start) == .zero)
+        #expect(state.complete(sequence: 3, surface: .inbox, at: start) == nil)
+    }
+
+    @Test("new surface switch supersedes stale projection completion")
+    func newerSurfaceSwitchSupersedesStaleCompletion() {
+        let clock = ContinuousClock()
+        let start = clock.now
+        var state = SidebarSurfaceSwitchMetricState()
+
+        state.begin(sequence: 4, surface: .inbox, at: start)
+        state.begin(sequence: 5, surface: .repos, at: start)
+
+        #expect(state.complete(sequence: 4, surface: .inbox, at: start) == nil)
+        #expect(state.complete(sequence: 5, surface: .repos, at: start) == .zero)
+    }
+
     @Test("repos surface maps to repo explorer child")
     func childKindRepos() {
         let uiState = WorkspaceSidebarState()

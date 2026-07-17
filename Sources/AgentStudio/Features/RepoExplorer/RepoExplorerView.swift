@@ -83,6 +83,8 @@ struct RepoExplorerView: View {
     let unreadCount: (Worktree) -> Int
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let initialProjectionTrigger: String
+    let initialProjectionSequence: Int
+    let onInitialProjectionApplied: @MainActor (Int) -> Void
     static let focusTargetIdentifier = NSUserInterfaceItemIdentifier("repoExplorerFocusTarget")
     static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
     static let surfaceBackground = SidebarSurfaceBackground.shellChrome
@@ -96,7 +98,9 @@ struct RepoExplorerView: View {
         onShowNotificationsForWorktree: @escaping (Worktree) -> Void,
         unreadCount: @escaping (Worktree) -> Int,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
-        initialProjectionTrigger: String = "startup_diagnostic"
+        initialProjectionTrigger: String = "startup_diagnostic",
+        initialProjectionSequence: Int = 0,
+        onInitialProjectionApplied: @escaping @MainActor (Int) -> Void = { _ in }
     ) {
         self.store = store
         self.onRefocusActivePane = onRefocusActivePane
@@ -104,6 +108,8 @@ struct RepoExplorerView: View {
         self.unreadCount = unreadCount
         self.performanceTraceRecorder = performanceTraceRecorder
         self.initialProjectionTrigger = initialProjectionTrigger
+        self.initialProjectionSequence = initialProjectionSequence
+        self.onInitialProjectionApplied = onInitialProjectionApplied
     }
 
     private var repoCache: RepoCacheAtom {
@@ -831,6 +837,9 @@ struct RepoExplorerView: View {
                 ]
             )
         )
+        if result.trigger == "surface_switch" {
+            onInitialProjectionApplied(initialProjectionSequence)
+        }
     }
 
     private func sidebarProjectionTraceAttributes(

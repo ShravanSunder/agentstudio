@@ -1,5 +1,34 @@
 import SwiftUI
 
+struct SidebarSurfaceSwitchMetricState {
+    private struct PendingSwitch {
+        let sequence: Int
+        let surface: SidebarSurface
+        let start: ContinuousClock.Instant
+    }
+
+    private var pendingSwitch: PendingSwitch?
+
+    mutating func begin(sequence: Int, surface: SidebarSurface, at start: ContinuousClock.Instant) {
+        pendingSwitch = PendingSwitch(sequence: sequence, surface: surface, start: start)
+    }
+
+    mutating func complete(
+        sequence: Int,
+        surface: SidebarSurface,
+        at completion: ContinuousClock.Instant
+    ) -> Duration? {
+        guard
+            let pendingSwitch,
+            pendingSwitch.sequence == sequence,
+            pendingSwitch.surface == surface
+        else { return nil }
+
+        self.pendingSwitch = nil
+        return pendingSwitch.start.duration(to: completion)
+    }
+}
+
 struct SidebarSurfaceHost: View {
     enum ChildKind: Equatable {
         case repoExplorer
@@ -17,6 +46,7 @@ struct SidebarSurfaceHost: View {
     let onRefocusActivePane: () -> Void
     let onDismissInbox: @MainActor @Sendable () -> Void
     @State private var surfaceSwitchSequence = 0
+    @State private var surfaceSwitchMetricState = SidebarSurfaceSwitchMetricState()
 
     static var surfaceChromePolicy: SidebarSurfaceChromePolicy {
         SidebarSurfaceChrome<EmptyView>.policy
@@ -27,14 +57,11 @@ struct SidebarSurfaceHost: View {
             currentSurface
         }
         .onChange(of: uiState.sidebarSurface) { _, newSurface in
-            let clock = ContinuousClock()
-            let switchStart = clock.now
             surfaceSwitchSequence += 1
-            let switchDuration = switchStart.duration(to: clock.now)
-            performanceTraceRecorder?.recordDuration(
-                .sidebarProjection,
-                duration: switchDuration,
-                attributes: sidebarSurfaceSwitchTraceAttributes(for: newSurface, duration: switchDuration)
+            surfaceSwitchMetricState.begin(
+                sequence: surfaceSwitchSequence,
+                surface: newSurface,
+                at: ContinuousClock().now
             )
         }
     }
@@ -58,7 +85,11 @@ struct SidebarSurfaceHost: View {
                     Self.rollUpAlertCount(for: worktree, inboxAtom: inboxAtom)
                 },
                 performanceTraceRecorder: performanceTraceRecorder,
-                initialProjectionTrigger: initialProjectionTrigger
+                initialProjectionTrigger: initialProjectionTrigger,
+                initialProjectionSequence: surfaceSwitchSequence,
+                onInitialProjectionApplied: { sequence in
+                    completeSurfaceSwitch(sequence: sequence, surface: .repos)
+                }
             )
             .id(surfaceSwitchSequence)
         case .inbox:
@@ -74,10 +105,30 @@ struct SidebarSurfaceHost: View {
                 dispatcher: .shared,
                 performanceTraceRecorder: performanceTraceRecorder,
                 initialProjectionTrigger: initialProjectionTrigger,
+                initialProjectionSequence: surfaceSwitchSequence,
+                onInitialProjectionApplied: { sequence in
+                    completeSurfaceSwitch(sequence: sequence, surface: .inbox)
+                },
                 onRefocusActivePane: onDismissInbox
             )
             .id(surfaceSwitchSequence)
         }
+    }
+
+    private func completeSurfaceSwitch(sequence: Int, surface: SidebarSurface) {
+        guard
+            let switchDuration = surfaceSwitchMetricState.complete(
+                sequence: sequence,
+                surface: surface,
+                at: ContinuousClock().now
+            )
+        else { return }
+
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: switchDuration,
+            attributes: sidebarSurfaceSwitchTraceAttributes(for: surface, duration: switchDuration)
+        )
     }
 
     private func sidebarSurfaceSwitchTraceAttributes(

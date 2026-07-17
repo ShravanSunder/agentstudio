@@ -25,6 +25,8 @@ struct InboxNotificationSidebarView: View {
     let dispatcher: AppCommandDispatcher
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let initialProjectionTrigger: String
+    let initialProjectionSequence: Int
+    let onInitialProjectionApplied: @MainActor (Int) -> Void
     let onRefocusActivePane: @MainActor @Sendable () -> Void
 
     @State private var searchText = ""
@@ -53,6 +55,8 @@ struct InboxNotificationSidebarView: View {
         dispatcher: AppCommandDispatcher,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         initialProjectionTrigger: String = "startup_diagnostic",
+        initialProjectionSequence: Int = 0,
+        onInitialProjectionApplied: @escaping @MainActor (Int) -> Void = { _ in },
         onRefocusActivePane: @escaping @MainActor @Sendable () -> Void
     ) {
         self.inboxAtom = inboxAtom
@@ -66,6 +70,8 @@ struct InboxNotificationSidebarView: View {
         self.dispatcher = dispatcher
         self.performanceTraceRecorder = performanceTraceRecorder
         self.initialProjectionTrigger = initialProjectionTrigger
+        self.initialProjectionSequence = initialProjectionSequence
+        self.onInitialProjectionApplied = onInitialProjectionApplied
         self.onRefocusActivePane = onRefocusActivePane
         let initialRepoEnrichmentByRepoId = Self.repoEnrichmentByRepoId(
             repos: workspaceRepositoryTopologyAtom.repos,
@@ -331,6 +337,9 @@ struct InboxNotificationSidebarView: View {
                 ]
             )
         )
+        if result.trigger == "surface_switch" {
+            onInitialProjectionApplied(initialProjectionSequence)
+        }
     }
 
     private func sidebarProjectionTraceAttributes(
