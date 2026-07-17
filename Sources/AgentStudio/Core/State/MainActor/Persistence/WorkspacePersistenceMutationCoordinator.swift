@@ -4,6 +4,9 @@ import Foundation
 enum WorkspacePersistenceMutationFailure: Equatable, Sendable {
     case arrangementCursorCapture(WorkspaceArrangementCursorPersistenceCaptureError)
     case compositionDomainNotInstalled(phase: WorkspacePersistenceAdapterLifecyclePhase)
+    case drawerCursorApplication(WorkspaceDrawerCursorApplyRejection)
+    case drawerCursorCapture(WorkspaceDrawerCursorPersistenceCaptureError)
+    case drawerTogglePlanning(WorkspaceDrawerToggleRejection)
     case paneGraphCapture(WorkspacePaneGraphPersistenceCaptureError)
     case paneIdentityMismatch(requestedPaneID: UUID, currentPaneID: UUID)
     case paneMissing(UUID)
@@ -37,6 +40,8 @@ enum WorkspacePaneCreationPersistenceCommitResult: Equatable, Sendable {
 final class WorkspacePersistenceMutationCoordinator {
     private let revisionOwner: WorkspacePersistenceRevisionOwner
     private let adapters: WorkspacePersistenceAdapterBundle
+    private let workspaceDrawerCursorAtom: WorkspaceDrawerCursorAtom
+    private let workspaceDrawerCursorTransitionApplier: WorkspaceDrawerCursorTransitionApplier
     private let workspacePaneTabTransitionApplier: WorkspacePaneTabTransitionApplier
     private let workspacePaneGraphAtom: WorkspacePaneGraphAtom
     private let workspacePaneTransitionApplier: WorkspacePaneTransitionApplier
@@ -49,6 +54,7 @@ final class WorkspacePersistenceMutationCoordinator {
         revisionOwner: WorkspacePersistenceRevisionOwner,
         adapters: WorkspacePersistenceAdapterBundle,
         workspacePaneGraphAtom: WorkspacePaneGraphAtom,
+        workspaceDrawerCursorAtom: WorkspaceDrawerCursorAtom,
         workspaceTabShellAtom: WorkspaceTabShellAtom,
         workspaceTabCursorAtom: WorkspaceTabCursorAtom,
         workspaceTabGraphAtom: WorkspaceTabGraphAtom,
@@ -57,6 +63,10 @@ final class WorkspacePersistenceMutationCoordinator {
     ) {
         self.revisionOwner = revisionOwner
         self.adapters = adapters
+        self.workspaceDrawerCursorAtom = workspaceDrawerCursorAtom
+        workspaceDrawerCursorTransitionApplier = WorkspaceDrawerCursorTransitionApplier(
+            workspaceDrawerCursorAtom: workspaceDrawerCursorAtom
+        )
         self.workspacePaneGraphAtom = workspacePaneGraphAtom
         workspacePaneTransitionApplier = WorkspacePaneTransitionApplier(
             workspacePaneGraphAtom: workspacePaneGraphAtom
@@ -134,6 +144,23 @@ final class WorkspacePersistenceMutationCoordinator {
                 .unchanged(revision: revisionOwner.committedRevision)
             case .rejected(let rejection):
                 .rejected(.tabLeafPlanning(rejection))
+            }
+        }
+    }
+
+    func toggleDrawer(
+        _ request: WorkspaceDrawerToggleRequest
+    ) -> WorkspacePersistenceMutationResult {
+        guardCompositionDomainIsInstalled {
+            switch WorkspaceDrawerToggleTransitionPlanner.plan(
+                request,
+                currentPaneState: workspacePaneGraphAtom.paneState(request.parentPaneID),
+                currentExpandedDrawerID: workspaceDrawerCursorAtom.expandedDrawerId
+            ) {
+            case .changed(let transition):
+                performDrawerToggleTransition(transition)
+            case .rejected(let rejection):
+                .rejected(.drawerTogglePlanning(rejection))
             }
         }
     }
@@ -346,6 +373,38 @@ final class WorkspacePersistenceMutationCoordinator {
         }
     }
 
+    private func performDrawerToggleTransition(
+        _ transition: WorkspaceDrawerToggleTransition
+    ) -> WorkspacePersistenceMutationResult {
+        let preparedApplication: WorkspacePreparedDrawerCursorApplication
+        switch workspaceDrawerCursorTransitionApplier.preflight(transition) {
+        case .ready(let preparation):
+            preparedApplication = preparation
+        case .rejected(let rejection):
+            return .rejected(.drawerCursorApplication(rejection))
+        }
+
+        do {
+            let committedRevision = try revisionOwner.performSynchronousTransaction { preparation in
+                try adapters.workspaceDrawerCursor.capturePersistencePreimage(
+                    transition.persistenceCapture,
+                    for: preparation
+                )
+                return preparation.commit { [workspaceDrawerCursorTransitionApplier] in
+                    workspaceDrawerCursorTransitionApplier.apply(preparedApplication)
+                    return preparation.transaction.proposedRevision
+                }
+            }
+            return .changed(revision: committedRevision)
+        } catch let error as WorkspaceDrawerCursorPersistenceCaptureError {
+            return .rejected(.drawerCursorCapture(error))
+        } catch let error as WorkspacePersistenceRevisionOwnerError {
+            return .rejected(.revisionOwner(error))
+        } catch {
+            preconditionFailure("drawer-toggle persistence mutation emitted an unmodeled error")
+        }
+    }
+
     private func captureTabLeafPreimages(
         _ transition: WorkspaceReorderAndSelectTabTransition,
         for preparation: WorkspacePersistenceTransactionPreparation
@@ -482,6 +541,19 @@ extension WorkspaceActiveDrawerChildTransition {
         switch self {
         case .insert(let key, _):
             .insertion(key)
+        }
+    }
+}
+
+extension WorkspaceDrawerToggleTransition {
+    fileprivate var persistenceCapture: WorkspaceDrawerCursorPersistenceCapture {
+        switch operation {
+        case .expand(let drawerID):
+            .insertion(drawerID)
+        case .collapse(let drawerID):
+            .removal(drawerID)
+        case .switchExpandedDrawer(let previousDrawerID, let replacementDrawerID):
+            .replacement(removing: previousDrawerID, inserting: replacementDrawerID)
         }
     }
 }

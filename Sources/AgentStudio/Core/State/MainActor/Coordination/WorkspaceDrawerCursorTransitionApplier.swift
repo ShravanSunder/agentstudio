@@ -10,6 +10,15 @@ enum WorkspaceDrawerCursorApplyResult: Equatable, Sendable {
     case rejected(WorkspaceDrawerCursorApplyRejection)
 }
 
+enum WorkspaceDrawerCursorPreflightResult: Equatable, Sendable {
+    case ready(WorkspacePreparedDrawerCursorApplication)
+    case rejected(WorkspaceDrawerCursorApplyRejection)
+}
+
+struct WorkspacePreparedDrawerCursorApplication: Equatable, Sendable {
+    fileprivate let transition: WorkspaceDrawerToggleTransition
+}
+
 @MainActor
 final class WorkspaceDrawerCursorTransitionApplier {
     private let workspaceDrawerCursorAtom: WorkspaceDrawerCursorAtom
@@ -21,6 +30,18 @@ final class WorkspaceDrawerCursorTransitionApplier {
     func apply(
         _ transition: WorkspaceDrawerToggleTransition
     ) -> WorkspaceDrawerCursorApplyResult {
+        switch preflight(transition) {
+        case .ready(let preparation):
+            apply(preparation)
+            return .applied
+        case .rejected(let rejection):
+            return .rejected(rejection)
+        }
+    }
+
+    func preflight(
+        _ transition: WorkspaceDrawerToggleTransition
+    ) -> WorkspaceDrawerCursorPreflightResult {
         let actualCursor = WorkspaceDrawerCursorSelection(
             expandedDrawerID: workspaceDrawerCursorAtom.expandedDrawerId
         )
@@ -33,9 +54,24 @@ final class WorkspaceDrawerCursorTransitionApplier {
             )
         }
 
+        return .ready(WorkspacePreparedDrawerCursorApplication(transition: transition))
+    }
+
+    func apply(_ preparation: WorkspacePreparedDrawerCursorApplication) {
+        preconditionPreparedApplicationIsFresh(preparation)
         workspaceDrawerCursorAtom.replaceExpandedDrawer(
-            transition.replacementCursor.expandedDrawerID
+            preparation.transition.replacementCursor.expandedDrawerID
         )
-        return .applied
+    }
+
+    private func preconditionPreparedApplicationIsFresh(
+        _ preparation: WorkspacePreparedDrawerCursorApplication
+    ) {
+        switch preflight(preparation.transition) {
+        case .ready:
+            return
+        case .rejected(let rejection):
+            preconditionFailure("prepared drawer-cursor transition is stale: \(rejection)")
+        }
     }
 }
