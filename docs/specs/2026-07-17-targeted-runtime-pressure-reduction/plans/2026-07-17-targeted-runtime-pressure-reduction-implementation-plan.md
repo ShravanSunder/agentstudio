@@ -69,8 +69,10 @@ merged by this goal.
 | R2. Search, presentation, activity, notification, and exact semantic behavior remain correct while activity projection moves off-main. | TR-6, TR-8..TR-12, P-4/P-5 | T3 | injected-clock activity oracle; search barriers; exact-fact order; existing Inbox/activity regressions | current surface lifetime and candidate executable |
 | R3. Ordinary workspace changes are affected-key work and actual topology changes still converge. | FS-1..FS-9, P-6/P-7 | T4 | recording-source/index/coordinator tests; topology oracle; existing large-worktree workload | current candidate HEAD; fresh marker; zero logical debt |
 | R4. Filesystem authority, containment, currentness, incomplete-evidence safety, Git capacity, no-lock behavior, telemetry privacy, and replay bounds remain intact. | SEC-1..SEC-9, P-7 | T2a/T3/T4 | authority, containment, timeout, late-result, shell-Git, replay, and content-canary suites | current registration identity, candidate HEAD, and workload run |
-| R5. Resource use and targeted MainActor duty improve without memory, correctness, or stability regression. | P-9..P-16 | T2/T2a/T5 | comparable trials, Victoria metrics, exact final state, bounded quiescence, LaunchServices smoke, relaunch/readiness | same paired instrumentation, workload, hardware, flavor, marker, and PID rules |
-| R6. Branch is reviewed and PR-ready without merge. | Goal terminal condition | T6 | one review/remediation cycle; focused/full gates; CI/checks/comments/threads/mergeability | final pushed HEAD |
+| R5. Every closed source-admission and semantic-classification family changed by this work is exhaustive at compile time; local-only Terminal samples cannot bypass contraction into semantic publication. | TY-1..TY-4 | T3/T4/T5 | exhaustive switches without default fallthrough; narrow SwiftSyntax publication-edge rule with good/bad fixtures; focused classification tests | current translated Terminal, worktree/filesystem/Git, and Inbox event inventories |
+| R6. The durable architecture docs teach typed source admission, bounded contraction, semantic projection, and the approved domain-specific producer paths without presenting a generic framework. | TY-1..TY-4 and accepted user clarification | T5 | docs-maintain reconciliation against current code; link and terminology checks; concise AGENTS pointer | final reviewed implementation types and source paths |
+| R7. Resource use and targeted MainActor duty improve without memory, correctness, or stability regression. | P-9..P-16 | T2/T2a/T5 | comparable trials, Victoria metrics, exact final state, bounded quiescence, LaunchServices smoke, relaunch/readiness | same paired instrumentation, workload, hardware, flavor, marker, and PID rules |
+| R8. Branch is reviewed and PR-ready without merge. | Goal terminal condition | T6 | one review/remediation cycle; focused/full gates; CI/checks/comments/threads/mergeability | final pushed HEAD |
 
 If a task cannot satisfy its proof inside its write boundary, stop and replan
 that task. Do not weaken or move proof to a later catch-all phase.
@@ -283,6 +285,19 @@ Tests stay in the permanent Swift Testing suite beside these owners.
 16. Hard-cut raw scrollbar, search, and mouse presentation from
     `PaneRuntimeEventChannel`, replay, EventBus, and IPC waits. Exact semantic
     facts remain unchanged.
+17. Keep `GhosttyActionDisposition.classify` exhaustive without a `default`
+    branch. A newly translated Ghostty action must fail compilation until it is
+    assigned an exact, latest-value, activity-evidence, ordered-local-lifecycle,
+    or diagnostic disposition.
+18. Make Inbox semantic classification exhaustive over the closed
+    `PaneRuntimeEvent` families and the nested Terminal/activity cases it owns.
+    Explicit typed ignore reasons replace catch-all `default` behavior. Opaque
+    plugin payloads remain one intentionally ignored top-level case rather than
+    a claim that external plugin vocabularies are closed.
+19. At the final static-enforcement gate, add one narrow SwiftSyntax rule that
+    rejects mechanically recognizable local-only Terminal cases at semantic
+    publication edges. Do not add a generic EventBus, MainActor-cost, or event
+    taxonomy rule.
 
 ### Red/green proof
 
@@ -359,6 +374,10 @@ Do not move filesystem workflow into atoms.
    effects own it. Coalesce concurrent requests and suppress equal sink updates.
 9. Preserve scanner, Git slots, timeouts, physical-drain accounting,
    late-result rejection, and `GIT_OPTIONAL_LOCKS=0` exactly.
+10. Make the affected-key projection admission decision exhaustive over
+    `WorktreeScopedEvent` and the nested filesystem/Git event cases it owns.
+    Replace `default` fallthrough with explicit project-versus-ignore
+    dispositions so a new closed event case requires a compile-time decision.
 
 ### Red/green proof
 
@@ -392,12 +411,27 @@ proof-harness change.
 
 ## T5 — Integrated Validation And Runtime Proof
 
-### Optional final static guard
+### Final typed-admission and documentation guard
 
-Inspect the final type surface. Add at most one narrow SwiftSyntax rule
-forbidding local-only Terminal dispositions from semantic publication only if
-the compiler-visible types cannot prevent that edge. If types make misuse
-impossible, add no rule.
+Inspect the final type surface and complete the accepted exhaustive-admission
+contract:
+
+1. Preserve the exhaustive Terminal disposition switch.
+2. Remove catch-all fallthrough from the filesystem projection and Inbox
+   semantic-classification decisions for their closed event families.
+3. Add one narrow SwiftSyntax rule forbidding local-only Terminal dispositions
+   from semantic publication because the translated `GhosttyEvent` vocabulary
+   remains shared with the exact semantic route. Cover the rule with good/bad
+   fixtures and the architecture-lint rule inventory.
+4. Use `docs-maintain` to update the smallest durable source-of-truth set with
+   progressive disclosure: architecture overview, typed source-admission and
+   contraction flow, domain-specific Terminal/filesystem/notification details,
+   then a concise `AGENTS.md` pointer for future agents. Reconcile existing
+   EventBus documentation rather than creating a parallel event-system design.
+
+The compile-time contract applies to closed enums and owned semantic families.
+It does not claim exhaustiveness for filesystem paths, user text, external
+process output, or opaque plugin-defined payload vocabularies.
 
 Do not add a generic pure-atom rule, expensive-MainActor heuristic,
 Repo-Explorer rule, shell/regex checker, type-resolution framework, or
@@ -411,9 +445,9 @@ control-flow analyzer.
     mise run lint
     mise run test
 
-If the optional SwiftSyntax rule is added:
-
-    swift test --package-path Tools/AgentStudioArchitectureLint
+The authoritative `mise run lint` gate must exercise the architecture-lint
+rule, fixtures, and stable rule inventory; do not introduce a second lint
+runner or shell/regex checker.
 
 ### Candidate performance proof
 
@@ -486,6 +520,9 @@ and require fresh accepted IPC current-pane and terminal-status readiness.
 | Terminal activity and Inbox derived input | T3 | thin MainActor router + off-main projector; one ordered aggregate/control cutover; atoms remain current state |
 | `WorkspaceSurfaceCoordinator` filesystem edges | T4 | one affected-key effect owner; no compatibility tail |
 | `FilesystemProjectionIndex` and trace identity | T4 | preserve currentness and one explicit refresh route |
+| Closed source-admission and semantic-classification switches | T3/T4/T5 | exhaustive domain-owned decisions; no generic classifier or catch-all fallthrough |
+| Architecture-lint Terminal publication guard | T5 | one SwiftSyntax rule with good/bad fixtures and stable inventory entry |
+| `AGENTS.md` and current architecture docs | T5 | progressive-disclosure guidance linked to live code; no duplicated event-system architecture |
 | Diagnostics event/OTLP vocabulary | T2a | candidate-only aggregate cases freeze before T3/T4; no per-sample emitters |
 | Proof scripts/runners/harnesses | frozen T1 | no edits in T2a-T6 |
 
@@ -495,8 +532,9 @@ and require fresh accepted IPC current-pane and terminal-status readiness.
 2. T2a candidate-only aggregate metric vocabulary.
 3. T3 Terminal contraction.
 4. T4 filesystem affected-key effects.
-5. One review-remediation checkpoint.
-6. PR-ready state.
+5. T5 typed-admission guard, durable docs, and integrated runtime proof.
+6. One review-remediation checkpoint.
+7. PR-ready state.
 
 Every product checkpoint requires scoped proof first. Never stage `.agents/`.
 Rollback is a commit-level revert of a failing hard cut; retain no dual route,
