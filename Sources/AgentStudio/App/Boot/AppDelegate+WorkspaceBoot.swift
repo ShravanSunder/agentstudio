@@ -308,6 +308,8 @@ extension AppDelegate {
                 gitReadTraceRecorder?.record(.bridgeGitReadScheduler, attributes: attributes)
             }
         )
+        bridgeWorktreeProductConstructionCoordinator =
+            BridgeWorktreeProductConstructionCoordinator()
         seedSlotsForRestoredPanes()
         let pipeline = FilesystemGitPipeline(
             bus: paneRuntimeBus,
@@ -327,6 +329,7 @@ extension AppDelegate {
             paneEventBus: paneRuntimeBus,
             closeTransitionCoordinator: closeTransitionCoordinator,
             bridgeGitReadScheduler: bridgeGitReadScheduler,
+            worktreeProductConstructionCoordinator: bridgeWorktreeProductConstructionCoordinator,
             filesystemSource: pipeline,
             windowLifecycleStore: windowLifecycleStore,
             appLifecycleStore: appLifecycleStore,

@@ -170,6 +170,15 @@ extension WorkspaceSurfaceCoordinator {
         // this raw event. The same canonical facts remain the sole activity mint.
         refreshBridgePaneActivities()
 
+        if let worktreeIdentity = productConstructionWorktreeIdentity(
+            for: worktreeEnvelope,
+            worktreeId: worktreeId
+        ) {
+            _ = await worktreeProductConstructionCoordinator.invalidate(
+                worktree: worktreeIdentity
+            )
+        }
+
         for bridgeView in viewRegistry.allBridgeViews.values {
             let controller = bridgeView.controller
             guard controller.runtime.metadata.repoId == worktreeEnvelope.repoId,
@@ -199,6 +208,32 @@ extension WorkspaceSurfaceCoordinator {
                 continue
             }
         }
+    }
+
+    private func productConstructionWorktreeIdentity(
+        for envelope: WorktreeEnvelope,
+        worktreeId: UUID
+    ) -> BridgeWorktreeIdentityKey? {
+        switch envelope.event {
+        case .filesystem(.filesChanged(let changeset)):
+            guard changeset.repoId == envelope.repoId,
+                changeset.worktreeId == worktreeId
+            else { return nil }
+        case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
+            guard snapshot.repoId == envelope.repoId,
+                snapshot.worktreeId == worktreeId
+            else { return nil }
+        case .filesystem, .gitWorkingDirectory, .forge, .security:
+            return nil
+        }
+        guard let repo = store.repositoryTopologyAtom.repo(envelope.repoId),
+            let worktree = repo.worktrees.first(where: { $0.id == worktreeId })
+        else { return nil }
+        return BridgeWorktreeIdentityKey(
+            repoIdentity: repo.id.uuidString,
+            worktreeIdentity: worktree.id.uuidString,
+            stableRootIdentity: StableKey.fromPath(worktree.path)
+        )
     }
 
     func setupFilesystemSourceSync() {

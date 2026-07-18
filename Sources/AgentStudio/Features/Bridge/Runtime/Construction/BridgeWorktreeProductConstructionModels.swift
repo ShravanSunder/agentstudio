@@ -100,6 +100,7 @@ typealias BridgeSharedFileSnapshotBuildOperation =
     ) async throws -> BridgeSharedFileSnapshotCompletion
 
 enum BridgeWorktreeProductConstructionError: Error, Equatable, Sendable {
+    case coordinatorClosed
     case invalidated
     case artifactKindMismatch
     case acquisitionModeMismatch

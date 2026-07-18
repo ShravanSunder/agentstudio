@@ -3,6 +3,7 @@ extension BridgeWorktreeProductConstructionCoordinator {
         for lease: BridgeSharedFileSnapshotConsumerLease,
         cursor: BridgeSharedFileSnapshotCursor
     ) async throws -> BridgeSharedFileSnapshotRead {
+        try ensureOpen()
         try Task.checkCancellation()
         let cancellationState = BridgeProgressiveFileConstructionState.ReadCancellationState()
         return try await withTaskCancellationHandler {
@@ -25,6 +26,7 @@ extension BridgeWorktreeProductConstructionCoordinator {
     func readFileSnapshotPreparation(
         for lease: BridgeSharedFileSnapshotConsumerLease
     ) async throws -> BridgeSharedFileSnapshotPreparation {
+        try ensureOpen()
         try Task.checkCancellation()
         let cancellationState = BridgeProgressiveFileConstructionState.ReadCancellationState()
         return try await withTaskCancellationHandler {

@@ -33,7 +33,9 @@ func makeSinglePaneBridgeActivityTestHarness() -> BridgePaneActivityTestHarness 
 @MainActor
 func makeBridgePaneActivityTestHarness(
     includeSiblingInTab: Bool = true,
-    filesystemProjectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil
+    filesystemProjectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
+    worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator =
+        BridgeWorktreeProductConstructionCoordinator()
 ) -> BridgePaneActivityTestHarness {
     let tempDirectory = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-bridge-pane-activity-\(UUID().uuidString)")
@@ -99,6 +101,7 @@ func makeBridgePaneActivityTestHarness(
         surfaceManager: BridgeActivityIntegrationSurfaceManager(),
         runtimeRegistry: RuntimeRegistry(),
         paneEventBus: paneEventBus,
+        worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
         filesystemProjectionIndex: filesystemProjectionIndex,
         windowLifecycleStore: windowLifecycleStore,
         appLifecycleStore: appLifecycleStore

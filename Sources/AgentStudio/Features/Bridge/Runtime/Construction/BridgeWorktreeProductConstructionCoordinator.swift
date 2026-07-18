@@ -1,61 +1,15 @@
 import Foundation
 
 actor BridgeWorktreeProductConstructionCoordinator {
-    private final class CancellationState: @unchecked Sendable {
-        private let lock = NSLock()
-        private var cancelled = false
-
-        var isCancelled: Bool {
-            lock.withLock { cancelled }
-        }
-
-        func cancel() {
-            lock.withLock { cancelled = true }
-        }
-    }
-
-    private struct BuildIdentity: Hashable {
-        let key: BridgeWorktreeProductConstructionKey
-        let epoch: BridgeWorktreeFreshnessEpoch
-    }
-
-    private enum EntryPhase {
-        case building
-        case ready(BridgeWorktreeProductConstructionArtifact)
-        case tombstone
-    }
-
-    private enum EntryMode {
-        case completionOnly
-        case progressiveFile
-    }
-
-    private struct Waiter {
-        let leaseNonce: UInt64
-        let cancellationState: CancellationState
-        let continuation: CheckedContinuation<BridgeWorktreeProductConstructionLease, any Error>
-    }
-
-    private struct Entry {
-        let identity: BuildIdentity
-        let nonce: UInt64
-        let mode: EntryMode
-        var phase: EntryPhase
-        var isInFlight: Bool
-        var waiters: [UInt64: Waiter]
-        var activeLeaseNonces: Set<UInt64>
-        var preparedFileLeaseNonces: Set<UInt64>
-        var progressiveFileState: BridgeProgressiveFileConstructionState?
-        var progressiveBuildTask: Task<Void, Never>?
-    }
-
     private let eventSink: BridgeWorktreeProductConstructionEventSink?
     private var currentEpochByWorktree: [BridgeWorktreeIdentityKey: BridgeWorktreeFreshnessEpoch] = [:]
-    private var currentEntryNonceByIdentity: [BuildIdentity: UInt64] = [:]
-    private var entriesByNonce: [UInt64: Entry] = [:]
+    private var currentEntryNonceByIdentity: [BridgeConstructionBuildIdentity: UInt64] = [:]
+    var entriesByNonce: [UInt64: BridgeConstructionEntry] = [:]
     private var entryNonceByWaiterNonce: [UInt64: UInt64] = [:]
+    var isClosed = false
     private var nextEntryNonce: UInt64 = 1
     private var nextLeaseNonce: UInt64 = 1
+    var shutdownWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(eventSink: BridgeWorktreeProductConstructionEventSink? = nil) {
         self.eventSink = eventSink
@@ -67,11 +21,12 @@ actor BridgeWorktreeProductConstructionCoordinator {
             @escaping @Sendable (BridgeWorktreeProductConstructionContext) async throws
             -> BridgeWorktreeProductConstructionArtifact
     ) async throws -> BridgeWorktreeProductConstructionLease {
+        try ensureOpen()
         try Task.checkCancellation()
         let epoch = currentEpoch(for: key.worktree)
-        let identity = BuildIdentity(key: key, epoch: epoch)
+        let identity = BridgeConstructionBuildIdentity(key: key, epoch: epoch)
         let leaseNonce = takeNextLeaseNonce()
-        let cancellationState = CancellationState()
+        let cancellationState = BridgeConstructionCancellationState()
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -95,10 +50,11 @@ actor BridgeWorktreeProductConstructionCoordinator {
         key: BridgeFileConstructionKey,
         build: @escaping BridgeSharedFileSnapshotBuildOperation
     ) async throws -> BridgeSharedFileSnapshotConsumerLease {
+        try ensureOpen()
         try Task.checkCancellation()
         let constructionKey = BridgeWorktreeProductConstructionKey.file(key)
         let epoch = currentEpoch(for: key.owner.worktree)
-        let identity = BuildIdentity(key: constructionKey, epoch: epoch)
+        let identity = BridgeConstructionBuildIdentity(key: constructionKey, epoch: epoch)
         let leaseNonce = takeNextLeaseNonce()
 
         if let entryNonce = currentEntryNonceByIdentity[identity],
@@ -119,7 +75,7 @@ actor BridgeWorktreeProductConstructionCoordinator {
         }
 
         let entryNonce = takeNextEntryNonce()
-        let entry = Entry(
+        let entry = BridgeConstructionEntry(
             identity: identity,
             nonce: entryNonce,
             mode: .progressiveFile,
@@ -140,6 +96,9 @@ actor BridgeWorktreeProductConstructionCoordinator {
 
     @discardableResult
     func invalidate(worktree: BridgeWorktreeIdentityKey) -> BridgeWorktreeFreshnessEpoch {
+        guard !isClosed else {
+            return currentEpochByWorktree[worktree] ?? BridgeWorktreeFreshnessEpoch(rawValue: 1)
+        }
         let previousEpoch = currentEpoch(for: worktree)
         let advancedEpoch = BridgeWorktreeFreshnessEpoch(rawValue: previousEpoch.rawValue &+ 1)
         currentEpochByWorktree[worktree] = advancedEpoch
@@ -231,49 +190,49 @@ actor BridgeWorktreeProductConstructionCoordinator {
         emit(.tombstoneCreated, entry: entry)
     }
 
-    func snapshot() -> BridgeWorktreeProductConstructionSnapshot {
-        var waiterCount = 0
-        var leaseCount = 0
-        var payloadCount = 0
-        var inFlightCount = 0
-        var locatorCount = 0
-        var tombstoneCount = 0
-        var retainedByteCount = 0
+    func beginShutdown() {
+        isClosed = true
+        currentEpochByWorktree.removeAll(keepingCapacity: false)
+        currentEntryNonceByIdentity.removeAll(keepingCapacity: false)
+        let entryNonces = Array(entriesByNonce.keys)
+        for entryNonce in entryNonces {
+            guard var entry = entriesByNonce[entryNonce] else { continue }
+            failWaiters(
+                in: &entry,
+                with: BridgeWorktreeProductConstructionError.coordinatorClosed
+            )
+            failFileReadWaiters(
+                in: &entry,
+                with: BridgeWorktreeProductConstructionError.coordinatorClosed
+            )
+            entry.activeLeaseNonces.removeAll(keepingCapacity: false)
+            entry.preparedFileLeaseNonces.removeAll(keepingCapacity: false)
+            entry.progressiveBuildTask?.cancel()
+            entry.progressiveFileState = nil
 
-        for entry in entriesByNonce.values {
-            waiterCount +=
-                entry.waiters.count
-                + (entry.progressiveFileState?.pendingReadCount ?? 0)
-            leaseCount += entry.activeLeaseNonces.count
-            inFlightCount += entry.isInFlight ? 1 : 0
-            switch entry.phase {
-            case .building:
-                retainedByteCount += entry.progressiveFileState?.retainedByteCount ?? 0
-            case .ready(let artifact):
-                payloadCount += 1
-                locatorCount += artifact.contentLocatorCount
-                retainedByteCount += artifact.retainedByteCount
-            case .tombstone:
-                tombstoneCount += 1
+            guard entry.isInFlight else {
+                removeEntry(entry)
+                continue
+            }
+            let wasTombstone: Bool
+            if case .tombstone = entry.phase {
+                wasTombstone = true
+            } else {
+                wasTombstone = false
+            }
+            entry.phase = .tombstone
+            entriesByNonce[entryNonce] = entry
+            if !wasTombstone {
+                emit(.tombstoneCreated, entry: entry)
             }
         }
-
-        return BridgeWorktreeProductConstructionSnapshot(
-            entryCount: entriesByNonce.count,
-            waiterCount: waiterCount,
-            leaseCount: leaseCount,
-            payloadCount: payloadCount,
-            inFlightCount: inFlightCount,
-            locatorCount: locatorCount,
-            drainingTombstoneCount: tombstoneCount,
-            retainedArtifactByteCount: retainedByteCount
-        )
+        resumeShutdownWaitersIfDrained()
     }
 
     private func enqueue(
-        identity: BuildIdentity,
+        identity: BridgeConstructionBuildIdentity,
         leaseNonce: UInt64,
-        cancellationState: CancellationState,
+        cancellationState: BridgeConstructionCancellationState,
         continuation: CheckedContinuation<BridgeWorktreeProductConstructionLease, any Error>,
         build:
             @escaping @Sendable (BridgeWorktreeProductConstructionContext) async throws
@@ -290,7 +249,7 @@ actor BridgeWorktreeProductConstructionCoordinator {
             }
             switch entry.phase {
             case .building:
-                let waiter = Waiter(
+                let waiter = BridgeConstructionWaiter(
                     leaseNonce: leaseNonce,
                     cancellationState: cancellationState,
                     continuation: continuation
@@ -323,12 +282,12 @@ actor BridgeWorktreeProductConstructionCoordinator {
         }
 
         let entryNonce = takeNextEntryNonce()
-        let waiter = Waiter(
+        let waiter = BridgeConstructionWaiter(
             leaseNonce: leaseNonce,
             cancellationState: cancellationState,
             continuation: continuation
         )
-        let entry = Entry(
+        let entry = BridgeConstructionEntry(
             identity: identity,
             nonce: entryNonce,
             mode: .completionOnly,
@@ -364,7 +323,7 @@ actor BridgeWorktreeProductConstructionCoordinator {
     }
 
     private func startProgressiveFileBuild(
-        entry: Entry,
+        entry: BridgeConstructionEntry,
         build: @escaping BridgeSharedFileSnapshotBuildOperation
     ) {
         let context = BridgeWorktreeProductConstructionContext(
@@ -724,7 +683,7 @@ actor BridgeWorktreeProductConstructionCoordinator {
         entriesByNonce[entryNonce] = entry
     }
 
-    private func failWaiters(in entry: inout Entry, with error: any Error) {
+    private func failWaiters(in entry: inout BridgeConstructionEntry, with error: any Error) {
         let waiters = entry.waiters.values
         entry.waiters.removeAll(keepingCapacity: false)
         for waiter in waiters {
@@ -733,13 +692,15 @@ actor BridgeWorktreeProductConstructionCoordinator {
         }
     }
 
-    private func failFileReadWaiters(in entry: inout Entry, with error: any Error) {
+    private func failFileReadWaiters(in entry: inout BridgeConstructionEntry, with error: any Error) {
         guard var state = entry.progressiveFileState else { return }
         state.failPendingReads(with: error)
         entry.progressiveFileState = state
     }
 
-    private func currentProgressiveFileBuildingEntry(entryNonce: UInt64) -> Entry? {
+    private func currentProgressiveFileBuildingEntry(
+        entryNonce: UInt64
+    ) -> BridgeConstructionEntry? {
         guard let entry = entriesByNonce[entryNonce],
             entry.mode == .progressiveFile,
             case .building = entry.phase,
@@ -749,7 +710,9 @@ actor BridgeWorktreeProductConstructionCoordinator {
         return entry
     }
 
-    private func entryForFileLease(_ lease: BridgeSharedFileSnapshotConsumerLease) -> Entry? {
+    private func entryForFileLease(
+        _ lease: BridgeSharedFileSnapshotConsumerLease
+    ) -> BridgeConstructionEntry? {
         guard let entry = entriesByNonce[lease.entryNonce],
             entry.mode == .progressiveFile,
             entry.identity.key == .file(lease.key),
@@ -773,7 +736,7 @@ actor BridgeWorktreeProductConstructionCoordinator {
     }
 
     private func makeLease(
-        entry: Entry,
+        entry: BridgeConstructionEntry,
         leaseNonce: UInt64,
         artifact: BridgeWorktreeProductConstructionArtifact
     ) -> BridgeWorktreeProductConstructionLease {
@@ -787,7 +750,7 @@ actor BridgeWorktreeProductConstructionCoordinator {
     }
 
     private func makeFileLease(
-        entry: Entry,
+        entry: BridgeConstructionEntry,
         leaseNonce: UInt64
     ) -> BridgeSharedFileSnapshotConsumerLease {
         guard case .file(let key) = entry.identity.key else {
@@ -801,7 +764,7 @@ actor BridgeWorktreeProductConstructionCoordinator {
         )
     }
 
-    private func removeEntry(_ entry: Entry) {
+    private func removeEntry(_ entry: BridgeConstructionEntry) {
         if currentEntryNonceByIdentity[entry.identity] == entry.nonce {
             currentEntryNonceByIdentity.removeValue(forKey: entry.identity)
         }
@@ -810,6 +773,16 @@ actor BridgeWorktreeProductConstructionCoordinator {
         }
         entriesByNonce.removeValue(forKey: entry.nonce)
         emit(.entryRemoved, entry: entry)
+        resumeShutdownWaitersIfDrained()
+    }
+
+    private func resumeShutdownWaitersIfDrained() {
+        guard isClosed, entriesByNonce.isEmpty, !shutdownWaiters.isEmpty else { return }
+        let waiters = shutdownWaiters
+        shutdownWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
     private func currentEpoch(for worktree: BridgeWorktreeIdentityKey) -> BridgeWorktreeFreshnessEpoch {
@@ -833,7 +806,7 @@ actor BridgeWorktreeProductConstructionCoordinator {
 
     private func emit(
         _ kind: BridgeWorktreeProductConstructionEventKind,
-        entry: Entry,
+        entry: BridgeConstructionEntry,
         leaseNonce: UInt64? = nil
     ) {
         eventSink?(

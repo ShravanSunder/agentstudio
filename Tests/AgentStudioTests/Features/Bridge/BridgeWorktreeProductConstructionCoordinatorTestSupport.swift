@@ -406,8 +406,10 @@ func makeBridgeSharedFileSnapshotPreparation(
     )
 }
 
-func makeBridgeProgressiveFileConstructionKey() -> BridgeFileConstructionKey {
-    guard case .file(let key) = makeBridgeFileConstructionKey() else {
+func makeBridgeProgressiveFileConstructionKey(
+    pathScope: [String] = ["Sources"]
+) -> BridgeFileConstructionKey {
+    guard case .file(let key) = makeBridgeFileConstructionKey(pathScope: pathScope) else {
         preconditionFailure("Expected File construction key")
     }
     return key

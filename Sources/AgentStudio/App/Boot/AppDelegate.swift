@@ -52,6 +52,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var workspaceSQLiteDatastore: WorkspaceSQLiteDatastore?
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
     var bridgeGitReadScheduler: BridgeGitReadScheduler!
+    var bridgeWorktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
     var viewRegistry: ViewRegistry!
     var workspaceSurfaceCoordinator: WorkspaceSurfaceCoordinator!
@@ -515,6 +516,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard terminationDrainTask == nil else { return .terminateLater }
         terminationDrainTask = Task { @MainActor [weak self] in
             await self?.flushApplicationStateBeforeTermination(store: store)
+            if let workspaceSurfaceCoordinator = self?.workspaceSurfaceCoordinator {
+                await workspaceSurfaceCoordinator.shutdown()
+            }
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater

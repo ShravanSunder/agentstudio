@@ -46,6 +46,7 @@ final class WorkspaceSurfaceCoordinator {
     let runtimeCommandClock: ContinuousClock
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let bridgeGitReadScheduler: BridgeGitReadScheduler
+    let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator
     let filesystemSource: any WorkspaceFilesystemSourceManaging
     let filesystemProjectionIndex: any WorkspaceFilesystemProjectionIndexing
     let paneFilesystemProjectionStore: PaneFilesystemProjectionAtom
@@ -134,6 +135,8 @@ final class WorkspaceSurfaceCoordinator {
         runtimeCommandClock: ContinuousClock = ContinuousClock(),
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
         bridgeGitReadScheduler: BridgeGitReadScheduler = BridgeGitReadScheduler(topology: .recoveryBaseline),
+        worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator =
+            BridgeWorktreeProductConstructionCoordinator(),
         filesystemSource: (any WorkspaceFilesystemSourceManaging)? = nil,
         filesystemProjectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
         paneFilesystemProjectionStore: PaneFilesystemProjectionAtom = PaneFilesystemProjectionAtom(),
@@ -163,6 +166,7 @@ final class WorkspaceSurfaceCoordinator {
         self.runtimeCommandClock = runtimeCommandClock
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.bridgeGitReadScheduler = bridgeGitReadScheduler
+        self.worktreeProductConstructionCoordinator = worktreeProductConstructionCoordinator
         self.filesystemSource = resolvedFilesystemSource
         self.filesystemProjectionIndex = filesystemProjectionIndex ?? FilesystemProjectionIndex()
         self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
@@ -247,6 +251,7 @@ final class WorkspaceSurfaceCoordinator {
 
         await drainBridgePaneRetirements()
         await drainBridgeGitReadActivityPropagation()
+        await worktreeProductConstructionCoordinator.shutdown()
         await bridgeGitReadScheduler.shutdown()
         await filesystemSource.shutdown()
     }
