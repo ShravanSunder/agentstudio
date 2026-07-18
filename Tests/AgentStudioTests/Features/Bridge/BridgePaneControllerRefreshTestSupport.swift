@@ -15,9 +15,7 @@ struct RefreshRevisionFixture {
 }
 
 @MainActor
-func makeRefreshRevisionFixture(
-    telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
-) -> RefreshRevisionFixture {
+func makeRefreshRevisionFixture() -> RefreshRevisionFixture {
     let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
     let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
     let initialFile = makeBridgeEndpointChangedFile(
@@ -49,9 +47,7 @@ func makeRefreshRevisionFixture(
             panelKind: .diffViewer,
             source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
         ),
-        reviewSourceProvider: provider,
-        telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.swift]),
-        telemetryRecorder: telemetryRecorder
+        reviewSourceProvider: provider
     )
     return RefreshRevisionFixture(
         baseEndpoint: baseEndpoint,

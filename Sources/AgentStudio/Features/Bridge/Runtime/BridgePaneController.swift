@@ -823,8 +823,7 @@ extension BridgePaneController: PushTransport {
         phase: String,
         priorityHint: PushLevel,
         traceContext: BridgeTraceContext?,
-        durationMilliseconds: Double?,
-        numericAttributes: [String: Double] = [:]
+        durationMilliseconds: Double?
     ) async {
         guard let telemetryRecorder else {
             return
@@ -847,7 +846,7 @@ extension BridgePaneController: PushTransport {
                     "agentstudio.bridge.slice": nativeTelemetrySlice(for: name).rawValue,
                     "agentstudio.bridge.transport": "swift",
                 ],
-                numericAttributes: numericAttributes,
+                numericAttributes: [:],
                 booleanAttributes: [:]
             ),
             receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
@@ -898,8 +897,6 @@ extension BridgePaneController: PushTransport {
         switch name {
         case "performance.bridge.swift.content_load":
             .hot
-        case "performance.bridge.refresh":
-            .warm
         case "performance.bridge.swift.delta_build":
             .warm
         case "performance.bridge.swift.package_build",
@@ -928,8 +925,6 @@ extension BridgePaneController: PushTransport {
             .diffPackageDelta
         case "performance.bridge.swift.content_load":
             .contentFetch
-        case "performance.bridge.refresh":
-            .diffPackageDelta
         case "performance.bridge.swift.telemetry_ingest":
             .telemetryIngest
         default:

@@ -3,39 +3,6 @@ import os.log
 
 private let bridgeDiffCommandLogger = Logger(subsystem: "com.agentstudio", category: "BridgeDiffCommands")
 
-private enum BridgeRefreshTelemetryOutcome {
-    case failed
-    case finalCommit
-    case providerUnavailable
-    case staleRejection
-
-    var phase: String {
-        switch self {
-        case .failed:
-            "failed"
-        case .finalCommit:
-            "final_commit"
-        case .providerUnavailable:
-            "provider_unavailable"
-        case .staleRejection:
-            "stale_rejection"
-        }
-    }
-
-    var numericAttributes: [String: Double] {
-        var attributes = ["agentstudio.performance.bridge.active_refresh.count": 1.0]
-        switch self {
-        case .failed, .providerUnavailable:
-            break
-        case .finalCommit:
-            attributes["agentstudio.performance.bridge.final_commit.count"] = 1
-        case .staleRejection:
-            attributes["agentstudio.performance.bridge.stale_rejection.count"] = 1
-        }
-        return attributes
-    }
-}
-
 @MainActor
 extension BridgePaneController: BridgeRuntimeCommandHandling {
     func handleDiffCommand(
@@ -124,32 +91,17 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     func handlePaneFilesystemContextEvent(_ event: PaneFilesystemContextEvent) async {
         guard shouldRefreshReviewPackage(for: event) else { return }
 
-        let refreshTask: Task<Void, Never>
-        let wasCoalesced: Bool
         hasPendingReviewRefresh = true
         if let activeReviewRefreshTask {
-            refreshTask = activeReviewRefreshTask
-            wasCoalesced = true
-        } else {
-            let newRefreshTask = Task { @MainActor [weak self] in
-                guard let self else { return }
-                await self.drainPendingReviewRefreshes()
-            }
-            activeReviewRefreshTask = newRefreshTask
-            refreshTask = newRefreshTask
-            wasCoalesced = false
+            await activeReviewRefreshTask.value
+            return
         }
-        await recordSwiftTelemetry(
-            name: "performance.bridge.refresh",
-            phase: "invalidation",
-            priorityHint: .warm,
-            traceContext: makeChildTraceContext(parent: lastReviewPackageTraceContext),
-            durationMilliseconds: nil,
-            numericAttributes: [
-                "agentstudio.performance.bridge.coalesced_demand.count": wasCoalesced ? 1 : 0,
-                "agentstudio.performance.bridge.invalidation.count": 1,
-            ]
-        )
+
+        let refreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.drainPendingReviewRefreshes()
+        }
+        activeReviewRefreshTask = refreshTask
         await refreshTask.value
     }
 
@@ -163,8 +115,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private func refreshCurrentReviewPackage() async {
         guard let currentPackage = paneState.diff.packageMetadata else { return }
-        let refreshStart = ContinuousClock.now
-        let refreshTraceContext = makeChildTraceContext(parent: lastReviewPackageTraceContext)
         do {
             let packageTraceContext = makeRootTraceContext()
             let packageBuildStart = ContinuousClock.now
@@ -192,11 +142,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 paneState.diff.packageMetadata?.packageId == currentPackage.packageId,
                 paneState.diff.packageMetadata?.reviewGeneration == currentPackage.reviewGeneration
             else {
-                await recordRefreshTelemetry(
-                    outcome: .staleRejection,
-                    traceContext: refreshTraceContext,
-                    start: refreshStart
-                )
                 return
             }
 
@@ -231,45 +176,13 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             )
             paneState.diff.setPackageDelta(delta)
             paneState.diff.setStatus(.ready)
-            await recordRefreshTelemetry(
-                outcome: .finalCommit,
-                traceContext: refreshTraceContext,
-                start: refreshStart
-            )
         } catch BridgeProviderFailure.providerUnavailable {
-            await recordRefreshTelemetry(
-                outcome: .providerUnavailable,
-                traceContext: refreshTraceContext,
-                start: refreshStart
-            )
             bridgeDiffCommandLogger.debug("Skipped bridge review refresh: provider unavailable")
         } catch {
-            await recordRefreshTelemetry(
-                outcome: .failed,
-                traceContext: refreshTraceContext,
-                start: refreshStart
-            )
             bridgeDiffCommandLogger.debug(
                 "Skipped bridge review refresh: \(String(describing: error), privacy: .private)"
             )
         }
-    }
-
-    private func recordRefreshTelemetry(
-        outcome: BridgeRefreshTelemetryOutcome,
-        traceContext: BridgeTraceContext?,
-        start: ContinuousClock.Instant
-    ) async {
-        await recordSwiftTelemetry(
-            name: "performance.bridge.refresh",
-            phase: outcome.phase,
-            priorityHint: .warm,
-            traceContext: traceContext,
-            durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
-                from: start.duration(to: ContinuousClock.now)
-            ),
-            numericAttributes: outcome.numericAttributes
-        )
     }
 
     private static func diffStats(from summary: BridgeReviewPackageSummary) -> DiffStats {
