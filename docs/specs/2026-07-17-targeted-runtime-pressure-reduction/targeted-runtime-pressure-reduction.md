@@ -8,23 +8,22 @@ Parent contract: [AgentStudio Performance Boundaries](../2026-07-10-agentstudio-
 ## Product Intent
 
 AgentStudio should use materially less CPU, attributable allocation/retained
-memory pressure, task scheduling, and MainActor service while terminals produce
-output, users search or interact with terminal presentation, watched folders
-contain hundreds of repositories, Git refreshes run, and the Repo Explorer,
-tab bar, and main-pane hosts update. Process physical footprint/RSS is also a paired
-guardrail rather than the sole memory signal because allocator and VM caching can
-hide reclaimed transient allocations after the owned work has quiesced.
+memory pressure, task scheduling, EventBus fanout, and MainActor service while
+terminals produce output, users search or interact with terminal presentation,
+watched folders contain hundreds of repositories, and Git refreshes run. Process
+physical footprint/RSS is a guardrail rather than the sole memory signal because
+allocator and VM caching can hide reclaimed transient allocations after the
+owned work has quiesced.
 
 The cleaned branch already has the important heavy-work owners: Ghostty owns its
 host callbacks, `FilesystemActor` owns authorized filesystem ingestion,
 bounded schedulers own scanning and Git reads, `FilesystemProjectionIndex` owns
 off-main projection, and the startup composition/mount lanes already separate
 strict loading from bounded visible-first hosting. The remaining problem is
-narrower: ordinary local samples become one MainActor job each before expanding
-into shared replay, fanout, reducer, and activity processing; unrelated workspace
-actions still trigger fleet capture; status-only changes rebuild Repo Explorer
-structure; and ordinary layout/observation turns repeatedly scan pane and tab
-hosts or reconstruct main-pane read models.
+narrower: ordinary local terminal samples become one MainActor job each before
+expanding into shared replay, fanout, reducer, and activity processing; unrelated
+workspace actions still trigger full repository/worktree/pane capture instead of
+affected-key filesystem effects.
 
 This design reduces that expansion using existing owners. It does not create a
 new event system, callback architecture, admission framework, persistence
@@ -48,15 +47,13 @@ The design is successful when all of the following are true:
 5. Unrelated workspace actions no longer schedule a full repository/worktree/
    pane capture. Actual topology changes retain one batched reconciliation;
    pane, CWD, activity, and active-worktree changes use fixed-key edges.
-6. Repo Explorer structure is built once per structural input change off
-   MainActor; worktree status-only changes update only affected visible rows and
-   collapsed groups do not subscribe to every worktree status.
-7. AppKit/main-pane work is proportional to the changed responsibility: layout
-   does not rescan pane/tab membership, active-tab changes do not force fleet
-   restore, and duplicate pane-management/geometry work is suppressed.
-8. MainActor performs only bounded capture/current lookup, compact accepted
+6. MainActor performs only bounded capture/current lookup, compact accepted
    applies, relevant host mutations, and canonical state mutations.
-9. Paired runtime evidence proves lower CPU, attributable allocation/retained
+7. Existing UI consumers preserve terminal, notification, watched-folder,
+   repository, pane, tab, and startup behavior without becoming implementation
+   lanes in this spec.
+8. Runtime evidence from existing tests, runners, IPC, and Victoria surfaces
+   proves lower CPU, attributable allocation/retained
    memory pressure, scheduling/fanout amplification, and targeted MainActor duty
    without material physical-footprint/RSS, correctness, or stability regression.
 
@@ -89,7 +86,9 @@ Scrollbar state is both presentation and evidence:
 
 - the terminal surface and overlays need the current viewport;
 - `TerminalActivityRouter` uses total rows, quiet timing, attention, and pinned
-  state to derive unseen output and agent-settled activity;
+  state to derive unseen output and today's `agentSettled*` heuristic. This
+  design preserves its behavior as terminal-output-settled evidence rather than
+  treating it as agent lifecycle authority;
 - `InboxNotificationRouter` uses pinned-to-bottom transitions to clear observed
   notifications;
 - only the lower-rate derived activity outcomes are meaningful global facts.
@@ -107,32 +106,6 @@ sync pass captures every available repository/worktree and every pane on
 MainActor even when the action did not change those relationships. Git/cache
 changes also request trace-identity refresh explicitly while a broad observation
 of the same inputs can request the same all-repo/worktree/pane reconstruction.
-
-### Repo Explorer and main-pane amplification
-
-The three 118-repository/163-worktree baseline trials recorded approximately
-850 `performance.sidebar.projection` operations and half as many row-index
-operations during each 90-second Git workload. Source inspection explains the
-exact 2:1 ratio: `RepoExplorerView.body` reads `sidebarProjection`, then the
-normal list path constructs `sidebarRowIndex`, which recomputes the same
-projection. The parent also eagerly reads status for every resolved worktree,
-including collapsed groups, so one keyed status change reconstructs fleet
-structure and subscribes the parent to the fleet.
-
-`PaneTabViewController.viewWillLayout` scans every pane to ensure slots and every
-retained tab host to update visibility. One broad AppKit observation combines
-tab membership/selection, repository topology, welcome state, scan state, and
-recent targets, then performs host sync, empty-state work, inbox pruning, focus
-evaluation, and possible restore for any change. `PaneLeafContainer.body`
-projects `PaneManagementContext` twice; when no drawer target differs, both
-projections are identical. Split resize can reach visible terminal geometry
-twice, and forced active-tab restore orders the pane fleet and resolves all-tab
-frames before skipping already-mounted hosts.
-
-Native `CodeViewerState` remains a future, not a live production steady-state
-consumer. Its synchronous file read is a first-mount concern, not the measured
-Git/sidebar/main-pane pressure path, so this slice does not invent a File View
-runtime or off-main file-loading system.
 
 ### Measured cleanup baseline
 
@@ -174,12 +147,16 @@ Ghostty callback and payload translation                 unchanged owner
                  one MainActor batch apply                    activity aggregate
                  latest presentation state                              │
                                                                          ▼
-                                                        TerminalActivityRouter actor
+                                                        TerminalActivityProjector actor
                                                         off-main state/timers
                                                                          │
                                                                          ▼
-                                                        semantic transitions +
-                                                        compact MainActor state
+                                                        semantic transitions
+                                                                         │
+                                                                         ▼
+                                                        TerminalActivityRouter
+                                                        MainActor adapter:
+                                                        bus/context + compact state
 
 FilesystemActor / GitWorkingDirectoryProjector       unchanged authority
   owns: registered roots, routing, filtering, bounded Git worktree facts
@@ -198,18 +175,6 @@ WorkspaceSurfaceCoordinator                           effect owner
                          │
                          ▼
 canonical atoms + keyed cache slots                   compact MainActor apply
-                         │
-                         ▼
-RepoExplorerProjectionOwner                           feature-local owner
-  owns: latest structural input, off-main grouping/filter/row-index work,
-        stale-result rejection, one compact current projection apply
-                         │
-                         ├── structural rows ─────────► RepoExplorerView
-                         └── keyed status reads ──────► visible worktree rows
-
-PaneTabViewController / TabBarAdapter                  AppKit/UI shell owners
-  own: tab host membership, active-host visibility, focus, layout, geometry
-  expose: responsibility-specific observations and proportional host updates
 ```
 
 These surfaces are separable:
@@ -218,10 +183,8 @@ These surfaces are separable:
   filesystem routing.
 - Filesystem trigger proportionality may change without changing watcher,
   scanner, Git capacity, or topology authority.
-- Repo Explorer structural projection may change without changing canonical
-  atoms, Git production, or row-level status ownership.
-- AppKit host/layout observation may change without changing startup composition
-  or bounded startup mount ownership.
+- Repo Explorer, AppKit, and other UI consumers remain unchanged validation
+  surfaces for this implementation slice.
 - Observability measures each surface but owns no correctness state.
 
 ## Terminal Signal Contract
@@ -335,27 +298,55 @@ retired, or epoch-invalidated before the boundary, and later samples belong to
 the next side of the boundary.
 
 TR-10. Activity windows, quiet timing, output/settled projection, and revocation
-remain owned by `TerminalActivityRouter`, which consumes batch aggregates off
-MainActor. A narrow MainActor context/sink supplies attended/agent classification
-and applies compact current read state. `TerminalActivityAtom` stores current
-state only; it does not classify events or own timers. Inbox consumes derived
-pinned/observed and settled outcomes, never raw scrollbar samples.
+move into one Terminal-owned `TerminalActivityProjector` actor that consumes
+batch aggregates off MainActor. `TerminalActivityRouter` remains a thin
+MainActor adapter for the existing exact semantic-fact subscription, current
+attended/observation context, pane-close cleanup, and compact accepted
+`TerminalActivityAtom` apply. The atom stores current state only; it does not
+classify events or own timers.
+
+Derived pinned/observed and output-settled transitions use the existing
+`TerminalActivityEvent` semantic-fact route and are published only when their
+semantic value changes. Adding the required typed derived cases does not change
+EventBus implementation or restore raw scrollbar publication. Inbox consumes
+those derived facts, never raw scrollbar samples.
 
 TR-10a. Attention, observation, read/dismiss, close, reset, and semantic signals
-that revoke or split activity windows enter the activity owner as typed ordered
-controls. When one of those MainActor-owned controls crosses pending evidence,
-the boundary first detaches the earlier aggregate and submits aggregate then
-control in semantic order; later evidence enters a new aggregate. The activity
-actor does not infer historical attention from whichever state happens to be
-current when a delayed batch arrives. This is a private Terminal/Inbox control
-seam, not EventBus replacement or atom workflow.
+that revoke or split activity windows enter the projector through the MainActor
+adapter as typed ordered controls. When one crosses pending evidence, the
+adapter first detaches the earlier aggregate and submits aggregate then control
+in semantic order; later evidence enters a new aggregate. The projector does
+not infer historical attention from whichever state happens to be current when
+a delayed batch arrives. This adapter/projector seam is private Terminal
+implementation, not EventBus replacement or atom workflow.
 
 TR-11. An injected-clock semantic oracle—not delivery-count parity—proves unseen
-activity, agent-settled promotion/revocation, first-output evidence,
+activity, output-settled promotion/revocation, first-output evidence,
 pinned-to-bottom clearing, read/dismiss behavior, and quiet settlement. Duplicate
 presentation samples with no new evidence do not extend activity windows. The
 oracle includes gated-drain interleavings for focus/blur, observation/read,
 reset, close/replacement, and activity-resetting semantic signals.
+
+### Agent lifecycle boundary
+
+TR-11a. Terminal activity and agent lifecycle are separate authorities.
+Scrollbar growth, output timing, and terminal silence may establish only
+terminal-output evidence. They do not author `working`, `blocked`, or `idle`
+agent lifecycle state.
+
+TR-11b. Existing `agentSettled*` event/model names, thresholds, and the consumed
+pane-classification candidacy gate remain compatibility vocabulary in this
+performance slice. They mean “terminal output settled for a pane already
+classified elsewhere,” not “this projector determined agent lifecycle.” Their
+count/order and Inbox behavior are preserved; renaming the cross-feature
+vocabulary is outside this slice.
+
+TR-11c. A later focused design may combine authenticated agent hook/plugin
+reports with independently implemented, bounded terminal-screen heuristics for
+agents whose hooks are incomplete. That future work must preserve existing
+pane-bound IPC authorization and treat Ghostty text extraction as an expensive,
+throttled request. This spec adds no hook installer, pane relay, lifecycle IPC
+method, screen polling, detection manifest, or Ghostty/zmx modification.
 
 ### Semantic-fact contract
 
@@ -443,84 +434,6 @@ states, not `nil` or overloaded empty arrays. Currentness is revalidated
 immediately before registration effects, destructive absence, or downstream
 delivery.
 
-## Repo Explorer Contract
-
-UI-1. Repo Explorer separates structural projection from volatile row facts.
-Structural input is canonical repository/worktree topology, repo-origin identity,
-filter query, and expanded-group state. Branch/status/PR/unread changes are not
-structural grouping inputs.
-
-UI-2. One feature-local projection owner captures an immutable Sendable
-structural input, coalesces superseded demand, computes grouping/filter/order and
-the row index off MainActor, rejects stale completion, and applies one compact
-current projection on MainActor. It is not a generic projection framework,
-global scheduler, atom workflow, or persistence owner.
-
-UI-3. One structural input change produces at most one accepted projection and
-one row-index construction. `body` never recomputes either value, and the
-`showsNoResults` path shares the same accepted projection as the list path.
-
-UI-4. Worktree status, pull-request count, and notification count are read by
-the visible keyed row that renders them. A status-only change wakes the affected
-row, does not rebuild grouping/order, and does not make collapsed groups or the
-parent list observe every resolved worktree.
-
-UI-5. Topology faults remain explicit typed outcomes. Duplicate identities are
-never hidden by dictionary overwrite. The projection owner accepts only an
-already-installed canonical topology snapshot and cannot repair, persist, or
-mint repository/worktree identity.
-
-UI-6. Trace identity refresh has one explicit effect route per accepted
-topology/pane-association/enrichment change. A broad observation and an explicit
-coordinator callback must not independently schedule the same fleet snapshot.
-Equal trace-identity snapshots are suppressed before sink update.
-
-## Main-Pane And AppKit Contract
-
-MP-1. The existing bounded startup lanes are frozen architecture for this goal:
-off-main strict SQLite composition preparation, one lean MainActor installation,
-window presentation, geometry-gated concurrent terminal/nonterminal mounting,
-and post-presentation repository/filesystem/Git startup. Steady-state
-optimization must not reopen startup persistence, identity, or mount ownership.
-
-MP-2. AppKit observations are split by responsibility:
-
-- tab membership owns host creation/removal and pane-slot membership;
-- active-tab/pane selection owns visible-host and focus changes;
-- welcome/topology/recent-target state owns empty-state content only;
-- pane membership owns pane-inbox presentation pruning; and
-- layout owns geometry/layout work, not topology or host-membership scanning.
-
-One observed change must not invoke unrelated responsibilities.
-
-MP-3. `viewWillLayout` does not walk all panes to create slots or all tab hosts
-to reassert unchanged visibility. Pane/tab lifecycle edges install/remove hosts
-and slots; active-selection edges update only the previous and next visible
-hosts. Existing equality guards remain defensive.
-
-MP-4. Active-tab restoration first proves that all target visible hosts exist.
-If none are missing, it performs no pane-fleet ordering or all-tab frame
-resolution. When hosts are missing, it resolves only the target panes while
-preserving startup-owner routing for an unsettled prepared cohort.
-
-MP-5. Pane management projection is computed once when management and location
-targets are identical. A distinct drawer/location target may require one second
-projection. This slice does not add an atom-owned management cache.
-
-MP-6. Title, tab-title, CWD, and other state-like semantic facts are normalized
-and equal-suppressed at the earliest existing owner before metadata mutation,
-runtime publication, topology lookup, pane-graph invalidation, or tab-bar
-refresh. Changed values retain exact semantic ordering and existing consumers.
-
-MP-7. Geometry has one owner per interaction turn. Live split resize may keep
-the immediate visible-terminal update needed for feel, but the subsequent
-bounds callback must not force the same unchanged surface geometry/refresh
-again. Startup/failed-placeholder retry remains explicit and separate.
-
-MP-8. Keyed pane-graph storage, hidden-host teardown, and a new File View runtime
-are revisit options, not default implementation. They require post-cut evidence
-showing that the narrower changes leave those sources attributable and dominant.
-
 ## MainActor And Atom Boundaries
 
 MA-1. MainActor continues to own AppKit, Ghostty host interaction, observable
@@ -528,8 +441,8 @@ terminal presentation state, canonical atoms, current mounted-view lookup, and
 compact accepted mutations.
 
 MA-2. MainActor must not perform filesystem traversal, Git reads, large
-serialization, path canonicalization, Repo Explorer grouping/filtering/index
-construction, per-event all-pane filtering, or repeated all-fleet reconstruction.
+serialization, path canonicalization, per-event all-pane filtering, or repeated
+all-fleet reconstruction.
 
 MA-3. Callback-side offer cost for a coalescible terminal sample is bounded O(1)
 copy/classification/key replacement. MainActor task count and state mutation
@@ -538,8 +451,8 @@ subscribers, replay capacity, tabs, panes, repositories, or worktrees.
 
 MA-4. Atoms remain pure current state or pure derivation. They do not own signal
 classification, debounce windows, timers, filesystem projection, path
-canonicalization, Repo Explorer workflow, queues, persistence, revisions,
-leases, pagers, participants, or repair.
+canonicalization, queues, persistence, revisions, leases, pagers, participants,
+or repair.
 
 MA-5. Coordinators and runtime owners decide effects. Atom mutation methods
 remain narrow and non-public where the current architecture requires it.
@@ -559,18 +472,15 @@ TY-3. Local-only signal cases cannot call the semantic publication helper. The
 smallest SwiftSyntax rule may enforce this after behavior is cut over; no new
 lint framework or shell-based architecture checker is introduced.
 
-TY-4. Repo Explorer `body` cannot directly invoke the fleet structural projector
-or construct the row index after cutover. The feature projection owner is the
-only production construction edge; visible rows retain keyed fact reads.
-
-TY-5. Enforcement is proportionate to what each mechanism can prove:
+TY-4. Enforcement is proportionate to what each mechanism can prove:
 
 - existing named SwiftSyntax rules continue to protect their current AtomLib,
   declared-input, keyed-read, comparator, import, and placement boundaries;
-- narrow new SwiftSyntax rules protect only mechanically recognizable forbidden
-  publication/construction edges from TY-2 through TY-4;
-- targeted structural tests protect named filesystem/Git/Repo Explorer/AppKit
-  heavy-work seams and atom workflow exclusions;
+- one narrow new SwiftSyntax rule may protect the mechanically recognizable
+  forbidden Terminal publication edge from TY-2 and TY-3 when the final type
+  surface alone cannot make it impossible;
+- targeted structural tests protect named filesystem/Git heavy-work seams and
+  atom workflow exclusions;
 - Victoria queue-age and service-time evidence proves actual MainActor cost.
 
 No general “pure atom” or “expensive MainActor” heuristic lint is claimed.
@@ -651,7 +561,7 @@ paced below observed fact-only saturation. Fact-only overload remains a
 non-gating revisit signal and is not used to claim a new delivery guarantee.
 
 P-4. Injected-clock raw sequences and their aggregated equivalents produce the
-same semantic activity, first-output, agent-settled/revoked, pinned/observed,
+same semantic activity, first-output, output-settled/revoked, pinned/observed,
 read, dismiss, and inbox-clearing outcomes. Reset/decrease, growth before reset,
 close/replacement, duplicate-state, pinned-edge, focus/blur, observation during a
 pending batch, and activity-resetting semantic-signal sequences are included.
@@ -666,18 +576,7 @@ pane capture. Pane/CWD/activity/active-worktree mutations update only affected
 entries. Cold bootstrap and actual topology mutation batches still converge to
 an independent final-state oracle through the existing topology-effect edge.
 
-P-7. Repo Explorer structural inputs produce one accepted off-main projection
-and one row index. Repeated/superseded inputs converge to the latest oracle;
-status-only updates do not rebuild grouping; collapsed groups do not subscribe
-to every status; visible keyed rows update branch/PR/notification state.
-
-P-8. AppKit/main-pane tests prove responsibility-specific observation, no
-pane/tab membership scan from ordinary layout, no forced fleet restore when
-visible hosts exist, target-only missing-host frame resolution, one management
-projection for identical targets, title/CWD equality suppression, and no
-duplicate unchanged geometry refresh. Prepared startup ownership remains intact.
-
-P-8a. Focused deterministic regression proof preserves registered-root
+P-7. Focused deterministic regression proof preserves registered-root
 authority, canonical/deepest-root containment, existing topology/currentness
 rejection, non-destructive incomplete evidence, Git logical-timeout versus
 physical-drain capacity, local replay bounds, and new-producer JSONL/OTLP
@@ -715,20 +614,21 @@ time. The owned measurements include:
 - runtime-channel and global posts by semantic class;
 - EventBus subscriber deliveries, replay writes, drops, and high-water lag;
 - filesystem full-reconciliation requests versus fixed-key updates;
-- Repo Explorer structural inputs, requested/coalesced/stale/accepted
-  projections, row-index builds, keyed visible-row updates, and equal applies;
 - trace-identity refresh requests, coalesced requests, fleet captures, and equal
   snapshot suppressions;
-- AppKit observation callbacks by responsibility, pane/tab host membership
-  scans, active-host changes, pane-view restore candidates, management-context
-  projections, geometry passes, and equal-geometry suppressions;
 - process CPU time/duty, physical footprint/RSS high-water and post-quiescence
   footprint, bounded pending storage, and relevant task/allocation counts;
 - MainActor queue age, compact-apply service, admission count, and targeted
   operation duty;
 - existing Git queue/running/timeout/final-pending evidence; and
-- existing sidebar projection/row-index, tab-bar refresh, pane-layout,
-  pane-restore, and terminal-geometry distributions.
+- existing sidebar, tab, pane, and terminal-geometry distributions only as
+  unchanged downstream regression signals.
+
+Paired T1 metric meanings and buckets freeze before baseline capture.
+Candidate-only bounded aggregate event vocabulary and content-safe OTLP
+projection entries required to expose the new T3/T4 owners may be installed
+after that baseline; they remain absolute gates and must never emit one trace
+record per raw callback or filesystem path.
 
 Aggregate Victoria distributions must expose threshold-resolving buckets at or
 inside 1, 2, 5, 8, and 16 ms for the targeted MainActor metrics, plus p95, p99,
@@ -737,37 +637,32 @@ not acceptance evidence.
 
 ### Workload and statistical contract
 
-P-12a. Proof is split by existing product seams instead of building one new
-monolithic harness. Each cell has one declared evidence role:
+P-12a. Validation uses existing product seams instead of building a new proof
+script or harness. Each cell has one declared evidence role:
 
 1. deterministic terminal contraction and activity equivalence — candidate-only
    structural/correctness proof;
 2. watched-folder/Git proportionality through the existing large-worktree
    workload — paired comparative performance plus correctness proof;
-3. Repo Explorer/AppKit/main-pane proportionality — deterministic correctness
-   plus existing distributions collected inside the watched-folder/Git and
-   combined pressure cells where the metric population is identical;
-4. PID-targeted native terminal/sidebar/tab/main-pane smoke — candidate-only
-   behavior proof; and
-5. one combined real-app pressure qualification — paired primary CPU,
+3. one combined real-app pressure qualification — paired primary CPU,
    allocation/retained-memory, physical-footprint/RSS, and targeted-MainActor
-   resource proof.
+   resource proof; and
+4. one PID-targeted candidate debug-app smoke for terminal interaction,
+   watched-folder convergence, and downstream consumer stability.
 
 P-12b. The deterministic terminal cell processes at least 100,000 coalescible
 samples across at least 10 live pane/surface keys and covers every disposition.
 Retained semantic facts are interleaved below observed fact-only saturation so
 the cell proves isolation from sample pressure rather than redesigning delivery.
 The watched-folder cell retains at least 100 repositories/worktrees and multiple
-Git writers. Repo Explorer/AppKit correctness covers status-only changes,
-topology/origin changes, collapsed and expanded groups, active-tab switching,
-layout, and split resize through focused deterministic tests. The bounded native
-smoke exercises only interactions exposed by existing reliable PID-targeted
-control surfaces; missing Accessibility geometry does not authorize a new IPC,
-AX, foreground-control, or benchmark seam. Exact workload floors and one-sided
-noise bands are frozen only for the paired watched-folder/Git and combined
-pressure cells; insufficient pressure invalidates those trials.
+Git writers. Existing repository/sidebar, pane, tab, and startup behavior remains
+covered by the current permanent tests and one bounded native smoke; those
+consumers do not gain new projection, observation, AX, IPC, or benchmark seams.
+Exact workload floors and one-sided noise bands are frozen only for the paired
+watched-folder/Git and combined pressure cells; insufficient pressure invalidates
+those trials.
 
-P-12c. Cells 2 and 5 use an
+P-12c. Cells 2 and 3 use an
 unscored warm-up and at least three qualifying baseline and candidate trials.
 Percentiles and normalized resource
 measurements are calculated per trial and compared using median per-trial values;
@@ -796,10 +691,6 @@ P-13. Structural budgets are absolute:
 - retained terminal sample storage growth with raw sample count: `0`;
 - semantic-fact drops during the declared mixed sample-pressure workload: `0`;
 - unrelated workspace actions causing full filesystem reconciliation: `0`;
-- status-only changes causing Repo Explorer structural projection: `0`;
-- more than one accepted structural projection/row index for one current input: `0`;
-- ordinary layout causing pane/tab host membership scans: `0`;
-- already-complete active-tab restore causing fleet pane ordering/frame resolution: `0`;
 - accepted/queued logical watched-folder and Git demand after bounded
   quiescence: `0`; timed-out physical drains may remain only while still counted
   against the configured physical slot bound and unable to mutate current truth.
@@ -821,7 +712,7 @@ P-14. Initial interaction/resource budgets are:
   must improve it beyond the band; all new pending storage remains structurally
   bounded;
 - zero regression in semantic counts, final state, native interaction, Git
-  boundedness, sidebar content, tab/main-pane behavior, or startup readiness.
+  boundedness, downstream sidebar/pane/tab behavior, or startup readiness.
 
 Callback-to-current-batch-commit queue age is a candidate-only metric because
 the behavioral baseline has no semantically equivalent route/commit emitter. It
@@ -839,12 +730,10 @@ terminal/IPC readiness. It does not require an arbitrary multi-day soak.
 P-16. Native proof is one bounded smoke, separate from statistical cells. It
 validates visible typing/caret response, search start/query/navigation/close,
 scroll-away and follow-bottom recovery, cursor/link behavior, notification
-appearance/clearing, Repo Explorer status/grouping, tab switching, pane-host
-visibility, and only geometry interactions addressable through existing reliable
-control surfaces. Focused geometry tests own split-resize correctness when the
-isolated debug window exposes no stable Accessibility divider or pane geometry.
-The smoke does not substitute for deterministic, integration, or Victoria
-evidence.
+appearance/clearing, watched-folder repository discovery, Git-status convergence,
+and basic pane/tab/startup stability through existing reliable control surfaces.
+It does not add an Accessibility, IPC, UI-driver, or benchmark seam and does not
+substitute for deterministic, integration, or Victoria evidence.
 
 ## Alternatives And Tradeoffs
 
@@ -871,8 +760,8 @@ signal classes do not need.
 ### Redesign EventBus into topics or a fact plane
 
 Rejected. Existing low-rate semantic facts and authorized worktree facts remain
-on the current bus. Producer admission, proportional filesystem effects, and UI
-projection/invalidation breadth are the scoped problems.
+on the current bus. Producer admission and proportional filesystem effects are
+the scoped problems.
 
 ### Replace the projection index with a persistent root database
 
@@ -886,28 +775,13 @@ workspace actions. Existing accepted topology batches may retain one full
 reconciliation until post-cut evidence identifies topology reconstruction itself
 as hot.
 
-### Keep Repo Explorer projection in `body`
+### Treat terminal silence as authoritative agent lifecycle
 
-Rejected. Memoizing one call inside a single body evaluation would remove only
-the visible 2:1 duplication. It would still rebuild grouping/index state on
-status-only changes and keep fleet work on MainActor.
+Rejected. Terminal output and silence are evidence about terminal activity, not
+proof that an agent is working, blocked, or idle. Authenticated hooks and bounded
+screen heuristics require a separate lifecycle design.
 
-### Convert all pane/tab storage to keyed atoms now
-
-Rejected for this slice. Keyed pane storage may ultimately be appropriate, but
-it changes a canonical state boundary and a large reader/writer surface. First
-remove equal semantic writes, broad AppKit responsibility coupling, layout
-scans, and measured Repo Explorer reconstruction. Revisit only if post-cut
-evidence still attributes dominant invalidation to pane dictionary storage.
-
-### Add a generic UI projection scheduler or hidden-host lifecycle system
-
-Rejected. Repo Explorer needs one feature-local latest-wins projection owner.
-AppKit host membership already has concrete lifecycle edges. A general runtime,
-registry, lease, or host-eviction framework would add more ownership than the
-measured paths require.
-
-### Move activity or UI projection workflow into atoms
+### Move activity or filesystem workflow into atoms
 
 Rejected. Atoms are current state and pure derivation. Timers, coalescence,
 currentness, off-main projection, I/O, and workflow remain with feature runtime
@@ -928,6 +802,11 @@ or coordinator owners.
   locking, or timeout widening.
 - No terminal search, scrollbar, notification, inbox, sidebar visual, tab, or
   main-pane visual redesign.
+- No Repo Explorer projection, SwiftUI invalidation, AppKit observation,
+  pane/tab host, restore, or geometry implementation lane. Existing consumers
+  remain regression-validation surfaces only.
+- No agent lifecycle hook/plugin integration, pane relay, lifecycle IPC method,
+  screen polling, detection manifest, or Ghostty text-snapshot classifier.
 - No Bridge, BridgeWeb, package/content refresh, WebKit/React, or
   `paneFilesystemContext` cutover in this goal.
 - No new native File View/CodeViewer runtime or file-loading redesign; current
@@ -949,11 +828,9 @@ Reopen a broader design only when current evidence shows one of these conditions
 - topology reconstruction itself, rather than unconditional triggering, becomes
   the measured hot path;
 - unmounted panes require exact live filesystem history;
-- post-cut measurement still attributes dominant SwiftUI invalidation to broad
-  pane-dictionary storage, justifying a separate keyed atom-family cutover;
-- hidden tab hosts demonstrably reevaluate or retain material resources after
-  source dedupe and responsibility-specific observation, justifying a separate
-  host residency design;
+- post-cut measurement still attributes dominant SwiftUI/AppKit work to a
+  consumer outside the Terminal/filesystem owners, justifying a separate UI
+  performance spec;
 - native CodeViewer becomes a real production filesystem-change consumer and
   first-mount I/O is measured as a material interaction problem;
 - remaining semantic facts produce sustained critical pressure or explicit
