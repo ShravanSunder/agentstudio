@@ -1,7 +1,7 @@
 # Targeted Runtime Pressure Reduction
 
 Date: 2026-07-17
-Status: accepted after one bounded spec review and remediation
+Status: reviewed and accepted for implementation
 Source baseline: `ghostty-performance-cleanup` at `5dea96b6`
 Parent contract: [AgentStudio Performance Boundaries](../2026-07-10-agentstudio-performance-boundaries/agentstudio-performance-boundaries.md)
 
@@ -10,19 +10,21 @@ Parent contract: [AgentStudio Performance Boundaries](../2026-07-10-agentstudio-
 AgentStudio should use materially less CPU, attributable allocation/retained
 memory pressure, task scheduling, and MainActor service while terminals produce
 output, users search or interact with terminal presentation, watched folders
-contain hundreds of repositories, Git refreshes run, and Bridge review panes
-rebuild. Process physical footprint/RSS is also measured, but it is a paired
+contain hundreds of repositories, Git refreshes run, and the Repo Explorer,
+tab bar, and main-pane hosts update. Process physical footprint/RSS is also a paired
 guardrail rather than the sole memory signal because allocator and VM caching can
 hide reclaimed transient allocations after the owned work has quiesced.
 
 The cleaned branch already has the important heavy-work owners: Ghostty owns its
 host callbacks, `FilesystemActor` owns authorized filesystem ingestion,
 bounded schedulers own scanning and Git reads, `FilesystemProjectionIndex` owns
-off-main projection, and Bridge actors own package construction. The remaining
-problem is narrower: ordinary local samples become one MainActor job each before
-expanding into shared replay, fanout, reducer, and activity processing; unrelated
-workspace actions still trigger fleet capture; and Bridge-only invalidations
-still traverse the global bus before reaching one consumer.
+off-main projection, and the startup composition/mount lanes already separate
+strict loading from bounded visible-first hosting. The remaining problem is
+narrower: ordinary local samples become one MainActor job each before expanding
+into shared replay, fanout, reducer, and activity processing; unrelated workspace
+actions still trigger fleet capture; status-only changes rebuild Repo Explorer
+structure; and ordinary layout/observation turns repeatedly scan pane and tab
+hosts or reconstruct main-pane read models.
 
 This design reduces that expansion using existing owners. It does not create a
 new event system, callback architecture, admission framework, persistence
@@ -46,12 +48,15 @@ The design is successful when all of the following are true:
 5. Unrelated workspace actions no longer schedule a full repository/worktree/
    pane capture. Actual topology changes retain one batched reconciliation;
    pane, CWD, activity, and active-worktree changes use fixed-key edges.
-6. Filesystem and Git facts refresh only matching mounted Bridge panes without
-   derived `paneFilesystemContext` traffic or awaiting Bridge construction in
-   global ingestion.
-7. MainActor performs only bounded capture/current lookup, one compact apply per
-   drained batch, O(affected keys) delivery, and accepted UI/canonical mutations.
-8. Paired runtime evidence proves lower CPU, attributable allocation/retained
+6. Repo Explorer structure is built once per structural input change off
+   MainActor; worktree status-only changes update only affected visible rows and
+   collapsed groups do not subscribe to every worktree status.
+7. AppKit/main-pane work is proportional to the changed responsibility: layout
+   does not rescan pane/tab membership, active-tab changes do not force fleet
+   restore, and duplicate pane-management/geometry work is suppressed.
+8. MainActor performs only bounded capture/current lookup, compact accepted
+   applies, relevant host mutations, and canonical state mutations.
+9. Paired runtime evidence proves lower CPU, attributable allocation/retained
    memory pressure, scheduling/fanout amplification, and targeted MainActor duty
    without material physical-footprint/RSS, correctness, or stability regression.
 
@@ -91,26 +96,43 @@ Scrollbar state is both presentation and evidence:
 
 Therefore scrollbar cannot be treated as “drop it” or “latest UI value only.”
 
-### Filesystem and Bridge amplification
+### Filesystem amplification
 
 `FilesystemActor` already performs authorized canonical routing, filtering,
 debounce, and bounded path chunking off-main. Git status admission and reads are
 also off-main and bounded.
 
-The remaining expansion has two forms:
+Every workspace action currently schedules filesystem root/activity sync. The
+sync pass captures every available repository/worktree and every pane on
+MainActor even when the action did not change those relationships. Git/cache
+changes also request trace-identity refresh explicitly while a broad observation
+of the same inputs can request the same all-repo/worktree/pane reconstruction.
 
-1. Every workspace action currently schedules filesystem root/activity sync.
-   The sync pass captures every available repository/worktree and every pane on
-   MainActor even when the action did not change those relationships.
-2. A worktree filesystem or Git snapshot fact is projected off-main to matching
-   panes, then rebuilt as one critical `paneFilesystemContext` envelope per pane,
-   posted to the same EventBus, received by the same MainActor coordinator, and
-   finally delivered only if the pane is a mounted Bridge pane.
+### Repo Explorer and main-pane amplification
 
-Repository-wide search found Bridge as the only production behavior consumer of
-`PaneFilesystemContextEvent`. Bridge uses it as “the current package may be
-dirty,” not as exact filesystem history: it checks nonempty relevant change,
-pane identity, and worktree identity, then reloads current state.
+The three 118-repository/163-worktree baseline trials recorded approximately
+850 `performance.sidebar.projection` operations and half as many row-index
+operations during each 90-second Git workload. Source inspection explains the
+exact 2:1 ratio: `RepoExplorerView.body` reads `sidebarProjection`, then the
+normal list path constructs `sidebarRowIndex`, which recomputes the same
+projection. The parent also eagerly reads status for every resolved worktree,
+including collapsed groups, so one keyed status change reconstructs fleet
+structure and subscribes the parent to the fleet.
+
+`PaneTabViewController.viewWillLayout` scans every pane to ensure slots and every
+retained tab host to update visibility. One broad AppKit observation combines
+tab membership/selection, repository topology, welcome state, scan state, and
+recent targets, then performs host sync, empty-state work, inbox pruning, focus
+evaluation, and possible restore for any change. `PaneLeafContainer.body`
+projects `PaneManagementContext` twice; when no drawer target differs, both
+projections are identical. Split resize can reach visible terminal geometry
+twice, and forced active-tab restore orders the pane fleet and resolves all-tab
+frames before skipping already-mounted hosts.
+
+Native `CodeViewerState` remains a future, not a live production steady-state
+consumer. Its synchronous file read is a first-mount concern, not the measured
+Git/sidebar/main-pane pressure path, so this slice does not invent a File View
+runtime or off-main file-loading system.
 
 ### Measured cleanup baseline
 
@@ -143,7 +165,7 @@ Ghostty callback and payload translation                 unchanged owner
              │                                      ▼
              │                                existing EventBus
              │
-             └── coalescible sample ─────────► TerminalSampleAccumulator
+             └── coalescible sample ─────────► TerminalLocalActionAccumulator
                                                 bounded by live surfaces +
                                                 fixed signal keys
                                                      │
@@ -167,31 +189,39 @@ FilesystemActor / GitWorkingDirectoryProjector       unchanged authority
                          ▼
 FilesystemProjectionIndex                             off-main projection owner
   owns: rebuildable worktree/pane reverse indexes and currentness checks
-  exposes: source deltas and compact Bridge invalidations
+  exposes: compact affected-key projection
                          │
                          ▼
-WorkspaceSurfaceCoordinator                           composition edge
-  owns: current mounted-view lookup, current-association capability,
-        and O(affected Bridge panes) delivery
+WorkspaceSurfaceCoordinator                           effect owner
+  owns: topology-triggered fleet reconciliation plus pane/CWD/active-worktree
+        fixed-key effects
                          │
                          ▼
-BridgePaneController                                  refresh owner
-  owns: dirty coalescence, active refresh, package/review currentness
+canonical atoms + keyed cache slots                   compact MainActor apply
                          │
                          ▼
-Bridge review actors                                  heavy-work owners
-  own: provider/Git/package/delta/content construction off-main
-  expose: one compact current-generation MainActor apply
+RepoExplorerProjectionOwner                           feature-local owner
+  owns: latest structural input, off-main grouping/filter/row-index work,
+        stale-result rejection, one compact current projection apply
+                         │
+                         ├── structural rows ─────────► RepoExplorerView
+                         └── keyed status reads ──────► visible worktree rows
+
+PaneTabViewController / TabBarAdapter                  AppKit/UI shell owners
+  own: tab host membership, active-host visibility, focus, layout, geometry
+  expose: responsibility-specific observations and proportional host updates
 ```
 
 These surfaces are separable:
 
-- Terminal batching may change without changing exact facts, EventBus,
-  filesystem, or Bridge routing.
-- Filesystem trigger proportionality may change without changing Bridge package
-  construction.
-- Direct Bridge invalidation may change without changing EventBus implementation
-  or filesystem authority.
+- Terminal batching may change without changing exact facts, EventBus, or
+  filesystem routing.
+- Filesystem trigger proportionality may change without changing watcher,
+  scanner, Git capacity, or topology authority.
+- Repo Explorer structural projection may change without changing canonical
+  atoms, Git production, or row-level status ownership.
+- AppKit host/layout observation may change without changing startup composition
+  or bounded startup mount ownership.
 - Observability measures each surface but owns no correctness state.
 
 ## Terminal Signal Contract
@@ -231,19 +261,26 @@ and non-retaining lifetime identity only—never borrowed C pointers, a strong
 
 | Signal class | Current examples | Required route | Runtime/global replay |
 | --- | --- | --- | --- |
-| Local presentation | scrollbar viewport; cell and initial size; size limits; mouse shape/visibility/link; key sequence/table; color/config presentation; search matches/selection | Keyed latest value, one batch apply, equal-write suppression | Never |
+| Local presentation | scrollbar viewport; mouse shape/visibility; search matches/selection | Keyed latest value, one batch apply, equal-write suppression | Never |
 | Local ordered lifecycle | search start/end and other local state boundaries whose order changes meaning | Exact local transition without runtime/global publication | Never |
 | Local activity evidence | total rows, pinned edges, observation/attention context, output timing | Bounded sufficient-statistics aggregate to off-main activity owner | Raw evidence never; derived outcomes only |
+| Direct host state | initial size, cell size, current configuration snapshot | Preserve the existing direct `SurfaceView` cache/update; do not duplicate it in runtime or accumulator state | Never |
 | Local state plus semantic transition | progress, secure input, renderer health, read-only | Current state stays local; deduped cross-feature/IPC transitions retain their existing semantic route | Only changed semantic transitions |
 | Exact semantic fact | command finished, bell, desktop notification, deduped title/tab title/CWD, lifecycle/security facts | `PaneRuntimeEventChannel` and existing EventBus | Domain-specific existing replay |
 | Host command/control | tab/split/navigation/close, URL/clipboard/undo/redo/prompt/config control | Preserve the existing direct or exact command/control behavior | Never converted into a lossy UI sample |
-| Diagnostic-only | deferred/unhandled diagnostics without product behavior | Existing bounded diagnostic treatment | No replay unless an existing product contract explicitly requires it |
+| Diagnostic-only | size limits, mouse link, key sequence/table, color change, deferred/unhandled outcomes with no demonstrated product consumer | Existing bounded diagnostic treatment or typed drop | Never |
 
-TR-4. The hard-cut local-only set is exhaustive for scrollbar, cell/initial
-size, size limits, mouse shape/visibility/link, key sequence/table, color/config
-presentation, and search state. These cases must not call
+TR-4. The hard-cut local-only set is exhaustive for scrollbar, mouse
+shape/visibility, search state, direct host geometry/config state, and typed
+diagnostic/drop outcomes with no product consumer. These cases must not call
 `PaneRuntimeEventChannel.emit`, appear in `PaneRuntime.subscribe`, consume local
 or global replay, reach EventBus subscribers, or satisfy IPC event waits.
+
+TR-4a. Direct host state is not copied into accumulator storage merely to
+preserve an obsolete runtime event. Initial/cell-size and configuration updates
+retain their existing direct host cache behavior. Size-limit, link, key-table,
+and color cases gain retained state only if implementation revalidation finds a
+live product consumer; diagnostics/replay alone are not such a consumer.
 
 TR-5. Local does not mean discarded. The latest current-surface presentation
 value remains available. Equal repeated presentation values do not wake
@@ -360,9 +397,9 @@ capacity bounds, and `GIT_OPTIONAL_LOCKS=0` behavior remain unchanged. This
 design does not add repository locks or borrow capacity from mutation/network
 Git operations.
 
-FS-3. Raw callback paths, scanner candidates, Git metadata, pane CWDs, and Bridge
-requests are evidence. They cannot register a root, widen authority, or replace
-the current registered-source identity.
+FS-3. Raw callback paths, scanner candidates, Git metadata, and pane CWDs are
+evidence. They cannot register a root, widen authority, or replace the current
+registered-source identity.
 
 ### Proportional trigger model
 
@@ -406,59 +443,83 @@ states, not `nil` or overloaded empty arrays. Currentness is revalidated
 immediately before registration effects, destructive absence, or downstream
 delivery.
 
-## Bridge Invalidation Contract
+## Repo Explorer Contract
 
-BR-1. Raw authorized filesystem and Git facts continue to use the existing
-EventBus because they have legitimate global worktree consumers. Only the
-derived pane-level reflection is removed.
+UI-1. Repo Explorer separates structural projection from volatile row facts.
+Structural input is canonical repository/worktree topology, repo-origin identity,
+filter query, and expanded-group state. Branch/status/PR/unread changes are not
+structural grouping inputs.
 
-BR-2. `PaneRuntimeEvent.paneFilesystemContext` and its global production path
-are hard-cut. The compiler should make construction of a derived Bridge-only
-runtime envelope impossible after cutover; no compatibility dual path remains.
+UI-2. One feature-local projection owner captures an immutable Sendable
+structural input, coalesces superseded demand, computes grouping/filter/order and
+the row index off MainActor, rejects stale completion, and applies one compact
+current projection on MainActor. It is not a generic projection framework,
+global scheduler, atom workflow, or persistence owner.
 
-BR-3. The projection actor returns a Bridge-specific invalidation only for an
-affected Bridge pane. The compact contract carries a typed reason, pane identity,
-and current worktree association. Projection/pane/topology currentness is checked
-before delivery; it does not carry raw paths, CWD, Git output, package data,
-filesystem authority, or a new ViewRegistry mount generation.
+UI-3. One structural input change produces at most one accepted projection and
+one row-index construction. `body` never recomputes either value, and the
+`showsNoResults` path shares the same accepted projection as the list path.
 
-BR-4. The coordinator performs O(affected Bridge panes) current mounted-view
-lookups through `ViewRegistry` and submits a non-awaiting dirty/request-refresh
-operation. Global runtime ingestion never waits for provider, Git, package,
-delta, content-store, WebKit, or React completion.
+UI-4. Worktree status, pull-request count, and notification count are read by
+the visible keyed row that renders them. A status-only change wakes the affected
+row, does not rebuild grouping/order, and does not make collapsed groups or the
+parent list observe every resolved worktree.
 
-BR-4a. Composition supplies Bridge refresh with one narrow, lifetime-safe
-MainActor current-association capability (or equivalent controller-owned
-association state updated by the coordinator). It answers only whether the
-current mounted controller still owns the expected pane/worktree association.
-`BridgePaneController` does not import or read `WorkspaceStore`, atoms,
-`ViewRegistry`, or filesystem authority through this capability, and the
-capability must not create a strong ownership cycle.
+UI-5. Topology faults remain explicit typed outcomes. Duplicate identities are
+never hidden by dictionary overwrite. The projection owner accepts only an
+already-installed canonical topology snapshot and cannot repair, persist, or
+mint repository/worktree identity.
 
-BR-5. `BridgePaneController` remains the single refresh lifecycle owner. It may
-have at most one active refresh and one latest-convergent dirty follow-up for
-this input. No second scheduler, mailbox framework, participant registry, or
-atom-owned workflow is introduced.
+UI-6. Trace identity refresh has one explicit effect route per accepted
+topology/pane-association/enrichment change. A broad observation and an explicit
+coordinator callback must not independently schedule the same fleet snapshot.
+Equal trace-identity snapshots are suppressed before sink update.
 
-BR-6. Bridge invalidation is current-state convergence, not exact filesystem
-history. Multiple matching invalidations may coalesce, but the last accepted
-demand cannot be lost. An unmounted pane receives no live invalidation, matching
-current behavior; mounting/loading obtains current package state through the
-existing source provider.
+## Main-Pane And AppKit Contract
 
-BR-7. `ViewRegistry` resolves the concrete currently mounted Bridge controller
-immediately before submitting demand. `BridgePaneController` owns its lifecycle,
-active task, package ID, and review generation. Cancellation, controller
-lifecycle, package/review identity, and the injected current pane/worktree
-association predicate are revalidated after reentrant awaits and immediately
-before content activation and final state commit. Teardown, replacement, newer
-package, orphaning, or reassociation makes older work a no-op. A new cross-owner
-mount token is forbidden without a demonstrated ABA path that survives these
-checks.
+MP-1. The existing bounded startup lanes are frozen architecture for this goal:
+off-main strict SQLite composition preparation, one lean MainActor installation,
+window presentation, geometry-gated concurrent terminal/nonterminal mounting,
+and post-presentation repository/filesystem/Git startup. Steady-state
+optimization must not reopen startup persistence, identity, or mount ownership.
 
-BR-8. Bridge review pipeline, change index, and content store retain expensive
-work off-main. MainActor applies only a compact, internally consistent accepted
-package/delta/status mutation.
+MP-2. AppKit observations are split by responsibility:
+
+- tab membership owns host creation/removal and pane-slot membership;
+- active-tab/pane selection owns visible-host and focus changes;
+- welcome/topology/recent-target state owns empty-state content only;
+- pane membership owns pane-inbox presentation pruning; and
+- layout owns geometry/layout work, not topology or host-membership scanning.
+
+One observed change must not invoke unrelated responsibilities.
+
+MP-3. `viewWillLayout` does not walk all panes to create slots or all tab hosts
+to reassert unchanged visibility. Pane/tab lifecycle edges install/remove hosts
+and slots; active-selection edges update only the previous and next visible
+hosts. Existing equality guards remain defensive.
+
+MP-4. Active-tab restoration first proves that all target visible hosts exist.
+If none are missing, it performs no pane-fleet ordering or all-tab frame
+resolution. When hosts are missing, it resolves only the target panes while
+preserving startup-owner routing for an unsettled prepared cohort.
+
+MP-5. Pane management projection is computed once when management and location
+targets are identical. A distinct drawer/location target may require one second
+projection. This slice does not add an atom-owned management cache.
+
+MP-6. Title, tab-title, CWD, and other state-like semantic facts are normalized
+and equal-suppressed at the earliest existing owner before metadata mutation,
+runtime publication, topology lookup, pane-graph invalidation, or tab-bar
+refresh. Changed values retain exact semantic ordering and existing consumers.
+
+MP-7. Geometry has one owner per interaction turn. Live split resize may keep
+the immediate visible-terminal update needed for feel, but the subsequent
+bounds callback must not force the same unchanged surface geometry/refresh
+again. Startup/failed-placeholder retry remains explicit and separate.
+
+MP-8. Keyed pane-graph storage, hidden-host teardown, and a new File View runtime
+are revisit options, not default implementation. They require post-cut evidence
+showing that the narrower changes leave those sources attributable and dominant.
 
 ## MainActor And Atom Boundaries
 
@@ -466,9 +527,9 @@ MA-1. MainActor continues to own AppKit, Ghostty host interaction, observable
 terminal presentation state, canonical atoms, current mounted-view lookup, and
 compact accepted mutations.
 
-MA-2. MainActor must not perform filesystem traversal, Git reads, package
-construction, large serialization, path canonicalization, per-event all-pane
-filtering, or repeated all-fleet reconstruction.
+MA-2. MainActor must not perform filesystem traversal, Git reads, large
+serialization, path canonicalization, Repo Explorer grouping/filtering/index
+construction, per-event all-pane filtering, or repeated all-fleet reconstruction.
 
 MA-3. Callback-side offer cost for a coalescible terminal sample is bounded O(1)
 copy/classification/key replacement. MainActor task count and state mutation
@@ -477,8 +538,8 @@ subscribers, replay capacity, tabs, panes, repositories, or worktrees.
 
 MA-4. Atoms remain pure current state or pure derivation. They do not own signal
 classification, debounce windows, timers, filesystem projection, path
-canonicalization, Bridge refresh, queues, persistence, revisions, leases,
-pagers, participants, or repair.
+canonicalization, Repo Explorer workflow, queues, persistence, revisions,
+leases, pagers, participants, or repair.
 
 MA-5. Coordinators and runtime owners decide effects. Atom mutation methods
 remain narrow and non-public where the current architecture requires it.
@@ -498,9 +559,9 @@ TY-3. Local-only signal cases cannot call the semantic publication helper. The
 smallest SwiftSyntax rule may enforce this after behavior is cut over; no new
 lint framework or shell-based architecture checker is introduced.
 
-TY-4. Removal of the global `paneFilesystemContext` event is compiler-enforced.
-Production code cannot construct it, and tests prove direct Bridge behavior
-rather than preserving obsolete envelope construction.
+TY-4. Repo Explorer `body` cannot directly invoke the fleet structural projector
+or construct the row index after cutover. The feature projection owner is the
+only production construction edge; visible rows retain keyed fact reads.
 
 TY-5. Enforcement is proportionate to what each mechanism can prove:
 
@@ -508,8 +569,8 @@ TY-5. Enforcement is proportionate to what each mechanism can prove:
   declared-input, keyed-read, comparator, import, and placement boundaries;
 - narrow new SwiftSyntax rules protect only mechanically recognizable forbidden
   publication/construction edges from TY-2 through TY-4;
-- targeted structural tests protect named filesystem/Git/Bridge heavy-work
-  seams and atom workflow exclusions;
+- targeted structural tests protect named filesystem/Git/Repo Explorer/AppKit
+  heavy-work seams and atom workflow exclusions;
 - Victoria queue-age and service-time evidence proves actual MainActor cost.
 
 No general “pure atom” or “expensive MainActor” heuristic lint is claimed.
@@ -528,9 +589,10 @@ before and after Git discovery where the current source requires it.
 SEC-3. Callback routing remains bound to a current registered source and uses
 deepest-root ownership for nested worktrees.
 
-SEC-4. Registration, scan run, demand coverage, pane context, topology, and
-package/mount identities remain where they are required to reject stale or ABA
-results. Compact does not mean deleting currentness evidence.
+SEC-4. Registration, scan run, demand coverage, pane context, topology,
+terminal-surface lifetime, and projection request identity remain where they are
+required to reject stale or ABA results. Compact does not mean deleting
+currentness evidence.
 
 SEC-5. Only complete, current, authoritative scan evidence may express
 destructive absence. Partial, unavailable, failed, timed-out, cancelled,
@@ -548,7 +610,7 @@ SEC-8. New instrumentation in this slice is content-safe before sink fanout:
 controlled code-owned bodies plus aggregate counts, durations, and bounded
 buckets only. Neither JSONL nor OTLP receives raw paths, pane/surface/
 notification IDs, terminal/search/notification content, URLs, prompts,
-payloads, errors, tokens, Git output, or package data from these new producers.
+payloads, errors, tokens, Git output, or projected row content from these new producers.
 OTLP projection remains defense in depth and export remains fail-open. This does
 not redesign or make a broad safety claim about unrelated existing local logs or
 JSONL producers.
@@ -604,17 +666,16 @@ pane capture. Pane/CWD/activity/active-worktree mutations update only affected
 entries. Cold bootstrap and actual topology mutation batches still converge to
 an independent final-state oracle through the existing topology-effect edge.
 
-P-7. Relevant filesystem/Git changes submit invalidation only to matching
-currently mounted Bridge controllers. Unrelated, non-Bridge, unmounted, and
-stale-context panes receive none. No global `paneFilesystemContext` envelope is
-posted.
+P-7. Repo Explorer structural inputs produce one accepted off-main projection
+and one row index. Repeated/superseded inputs converge to the latest oracle;
+status-only updates do not rebuild grouping; collapsed groups do not subscribe
+to every status; visible keyed rows update branch/PR/notification state.
 
-P-8. Gated and overlapping Bridge refreshes prove one active plus one convergent
-follow-up, no stale post-await commit, no global-ingestion wait on build, and a
-final package equal to an independent provider oracle. The stale cell also
-orphans or reassigns the pane without replacing its controller or package
-generation and proves that the old-worktree result cannot activate content or
-commit final state.
+P-8. AppKit/main-pane tests prove responsibility-specific observation, no
+pane/tab membership scan from ordinary layout, no forced fleet restore when
+visible hosts exist, target-only missing-host frame resolution, one management
+projection for identical targets, title/CWD equality suppression, and no
+duplicate unchanged geometry refresh. Prepared startup ownership remains intact.
 
 P-8a. Focused deterministic regression proof preserves registered-root
 authority, canonical/deepest-root containment, existing topology/currentness
@@ -625,8 +686,8 @@ content canaries.
 ### Runtime performance proof
 
 P-9. Runtime proof reuses the existing isolated debug app identity, marker-
-scoped Victoria stack, performance recorder, IPC surface, Bridge observability,
-and PID-targeted native automation. It extends those surfaces only with bounded
+scoped Victoria stack, performance recorder, IPC surface, and PID-targeted
+native automation. It extends those surfaces only with bounded
 aggregate resource/admission metrics; it adds no backend, heartbeat, ledger, or
 correctness dependency on telemetry.
 
@@ -654,14 +715,20 @@ time. The owned measurements include:
 - runtime-channel and global posts by semantic class;
 - EventBus subscriber deliveries, replay writes, drops, and high-water lag;
 - filesystem full-reconciliation requests versus fixed-key updates;
-- affected Bridge invalidations, coalesced demands, active refreshes, stale
-  rejections, and final commits;
+- Repo Explorer structural inputs, requested/coalesced/stale/accepted
+  projections, row-index builds, keyed visible-row updates, and equal applies;
+- trace-identity refresh requests, coalesced requests, fleet captures, and equal
+  snapshot suppressions;
+- AppKit observation callbacks by responsibility, pane/tab host membership
+  scans, active-host changes, pane-view restore candidates, management-context
+  projections, geometry passes, and equal-geometry suppressions;
 - process CPU time/duty, physical footprint/RSS high-water and post-quiescence
   footprint, bounded pending storage, and relevant task/allocation counts;
 - MainActor queue age, compact-apply service, admission count, and targeted
   operation duty;
-- existing Git queue/running/timeout/final-pending evidence;
-- existing Bridge package/delta/content/apply/render stage distributions.
+- existing Git queue/running/timeout/final-pending evidence; and
+- existing sidebar projection/row-index, tab-bar refresh, pane-layout,
+  pane-restore, and terminal-geometry distributions.
 
 Aggregate Victoria distributions must expose threshold-resolving buckets at or
 inside 1, 2, 5, 8, and 16 ms for the targeted MainActor metrics, plus p95, p99,
@@ -677,10 +744,10 @@ monolithic harness. Each cell has one declared evidence role:
    structural/correctness proof;
 2. watched-folder/Git proportionality through the existing large-worktree
    workload — paired comparative performance plus correctness proof;
-3. Bridge refresh convergence with overlapping invalidations — deterministic
-   correctness plus paired existing-stage performance distributions where the
-   baseline metric population is identical;
-4. PID-targeted native terminal/notification/Bridge smoke — candidate-only
+3. Repo Explorer/AppKit/main-pane proportionality under the same large-worktree
+   and interaction workload — deterministic correctness plus paired existing
+   distributions where the metric population is identical;
+4. PID-targeted native terminal/sidebar/tab/main-pane smoke — candidate-only
    behavior proof; and
 5. one combined real-app pressure qualification — paired primary CPU,
    allocation/retained-memory, physical-footprint/RSS, and targeted-MainActor
@@ -691,11 +758,12 @@ samples across at least 10 live pane/surface keys and covers every disposition.
 Retained semantic facts are interleaved below observed fact-only saturation so
 the cell proves isolation from sample pressure rather than redesigning delivery.
 The watched-folder cell retains at least 100 repositories/worktrees and multiple
-Git writers. The Bridge cell includes invalidations during an active refresh.
+Git writers. The UI cell includes status-only changes, topology/origin changes,
+collapsed and expanded groups, active-tab switching, layout, and split resize.
 Exact workload floors and one-sided noise bands are frozen by plan review before
 candidate performance work; insufficient pressure invalidates a trial.
 
-P-12c. Cells 2 and 5, plus the comparable distributions in cell 3, use an
+P-12c. Cells 2, 3, and 5 use an
 unscored warm-up and at least three qualifying baseline and candidate trials.
 Percentiles and normalized resource
 measurements are calculated per trial and compared using median per-trial values;
@@ -705,14 +773,16 @@ budget and labels fixture-adequacy floors separately from product budgets.
 P-12d. A qualifying resource interval begins at the first scored workload action
 and ends after the same bounded quiescence condition in both builds; warm-up and
 launch setup are excluded. Process CPU duty is process CPU-time delta divided by
-that wall interval and is additionally normalized by accepted work only when
-work counts differ. Physical memory uses the same OS population and sampling
-cadence for both builds—macOS physical footprint is preferred; RSS may substitute
-only symmetrically—and records interval high-water plus the same
-post-quiescence sample. Targeted MainActor duty is the summed service time of one
-declared, identical operation inventory divided by the interval; it must not be
-called global MainActor occupancy. Admission is normalized by raw translated
-signals or the named accepted-work population. Allocation/retained-byte evidence
+that wall interval and is additionally normalized by external accepted stimuli
+only when stimulus counts differ. Physical memory uses the same OS population
+and sampling cadence for both builds—macOS physical footprint is preferred; RSS
+may substitute only symmetrically—and records interval high-water plus the same
+post-quiescence sample. Paired targeted MainActor duty is the summed service time
+of one declared operation inventory present with identical metric semantics in
+both builds, divided by the interval; it must not be called global MainActor
+occupancy. Candidate-only Terminal route/commit queue age, admission, drain,
+activity, compact-apply, and quiescence metrics are excluded from paired duty and
+remain absolute structural/interaction gates. Allocation/retained-byte evidence
 uses the same named owner scopes and measurement mechanism in both builds.
 
 P-13. Structural budgets are absolute:
@@ -720,10 +790,12 @@ P-13. Structural budgets are absolute:
 - raw local terminal sample global posts/replay/deliveries: `0`;
 - more than one pending scheduled drain per live terminal accumulator key: `0`;
 - retained terminal sample storage growth with raw sample count: `0`;
-- derived `paneFilesystemContext` global posts/replay/deliveries: `0`;
 - semantic-fact drops during the declared mixed sample-pressure workload: `0`;
 - unrelated workspace actions causing full filesystem reconciliation: `0`;
-- stale Bridge commits: `0`;
+- status-only changes causing Repo Explorer structural projection: `0`;
+- more than one accepted structural projection/row index for one current input: `0`;
+- ordinary layout causing pane/tab host membership scans: `0`;
+- already-complete active-tab restore causing fleet pane ordering/frame resolution: `0`;
 - accepted/queued logical watched-folder and Git demand after bounded
   quiescence: `0`; timed-out physical drains may remain only while still counted
   against the configured physical slot bound and unable to mutate current truth.
@@ -735,22 +807,23 @@ P-14. Initial interaction/resource budgets are:
   during terminal pressure;
 - fewer than three targeted MainActor service samples at or above 20 ms in any
   qualifying trial, and none at or above 60 ms;
-- normalized CPU, attributable allocation/retained-byte pressure, MainActor
-  admission, and targeted MainActor duty improve beyond the plan-calibrated
-  one-sided noise band against the instrumented baseline;
+- normalized CPU, attributable allocation/retained-byte pressure, and paired
+  targeted MainActor duty improve beyond the plan-calibrated one-sided noise
+  band against the instrumented baseline; candidate-only Terminal admission and
+  task counts must independently prove sublinear contraction and zero final debt;
 - peak and post-quiescence physical footprint/RSS do not regress beyond the
   plan-calibrated one-sided noise band. When the baseline shows repeatable
   workload-attributable physical-footprint growth above that band, the candidate
   must improve it beyond the band; all new pending storage remains structurally
   bounded;
 - zero regression in semantic counts, final state, native interaction, Git
-  boundedness, or Bridge correctness.
+  boundedness, sidebar content, tab/main-pane behavior, or startup readiness.
 
-If baseline queue age already meets the absolute budget, the candidate must keep
-it within the calibrated one-sided regression band while satisfying structural
-contraction and resource improvement. If it misses, the candidate must both meet
-the absolute budget and improve the median tail beyond the calibrated one-sided
-noise band. One best-case sample or proxy counter does not pass.
+Callback-to-current-batch-commit queue age is a candidate-only metric because
+the behavioral baseline has no semantically equivalent route/commit emitter. It
+must meet the absolute p95/p99 budgets in every qualifying candidate trial and
+cannot satisfy or be used for a paired improvement claim. One best-case sample
+or proxy counter does not pass.
 
 P-15. Stability proof includes crash-free workload execution, successful
 bounded quiescence, exact final state, no growth in critical EventBus failures,
@@ -762,7 +835,8 @@ terminal/IPC readiness. It does not require an arbitrary multi-day soak.
 P-16. Native proof is one bounded smoke, separate from statistical cells. It
 validates visible typing/caret response, search start/query/navigation/close,
 scroll-away and follow-bottom recovery, cursor/link behavior, notification
-appearance/clearing, and refreshed Bridge content. It does not substitute for
+appearance/clearing, Repo Explorer status/grouping, tab switching, pane-host
+visibility, and split-resize behavior. It does not substitute for
 deterministic, integration, or Victoria evidence.
 
 ## Alternatives And Tradeoffs
@@ -790,14 +864,8 @@ signal classes do not need.
 ### Redesign EventBus into topics or a fact plane
 
 Rejected. Existing low-rate semantic facts and authorized worktree facts remain
-on the current bus. Producer admission and one Bridge-only reflection are the
-actual scoped problems.
-
-### Keep `paneFilesystemContext` for possible future consumers
-
-Rejected. No second production consumer exists. A global critical event is not a
-free extension point. If a second real consumer appears, it should trigger a new
-consumer contract based on its exact semantics.
+on the current bus. Producer admission, proportional filesystem effects, and UI
+projection/invalidation breadth are the scoped problems.
 
 ### Replace the projection index with a persistent root database
 
@@ -811,16 +879,32 @@ workspace actions. Existing accepted topology batches may retain one full
 reconciliation until post-cut evidence identifies topology reconstruction itself
 as hot.
 
-### Add a ViewRegistry mount generation for Bridge refresh
+### Keep Repo Explorer projection in `body`
 
-Rejected. Current-controller lookup plus controller cancellation and
-package/review/pane/worktree revalidation owns the failure path. A cross-owner
-token is justified only by a demonstrated ABA case that survives those checks.
+Rejected. Memoizing one call inside a single body evaluation would remove only
+the visible 2:1 duplication. It would still rebuild grouping/index state on
+status-only changes and keep fleet work on MainActor.
 
-### Move activity or Bridge workflow into atoms
+### Convert all pane/tab storage to keyed atoms now
+
+Rejected for this slice. Keyed pane storage may ultimately be appropriate, but
+it changes a canonical state boundary and a large reader/writer surface. First
+remove equal semantic writes, broad AppKit responsibility coupling, layout
+scans, and measured Repo Explorer reconstruction. Revisit only if post-cut
+evidence still attributes dominant invalidation to pane dictionary storage.
+
+### Add a generic UI projection scheduler or hidden-host lifecycle system
+
+Rejected. Repo Explorer needs one feature-local latest-wins projection owner.
+AppKit host membership already has concrete lifecycle edges. A general runtime,
+registry, lease, or host-eviction framework would add more ownership than the
+measured paths require.
+
+### Move activity or UI projection workflow into atoms
 
 Rejected. Atoms are current state and pure derivation. Timers, coalescence,
-currentness, I/O, and workflow remain with runtime/coordinator/controller owners.
+currentness, off-main projection, I/O, and workflow remain with feature runtime
+or coordinator owners.
 
 ## Non-Goals
 
@@ -835,7 +919,13 @@ currentness, I/O, and workflow remain with runtime/coordinator/controller owners
   filesystem watcher/scanner/scheduler.
 - No Git operation-model expansion, network Git, worktree mutation, repository
   locking, or timeout widening.
-- No terminal search, scrollbar, notification, inbox, or Bridge UI redesign.
+- No terminal search, scrollbar, notification, inbox, sidebar visual, tab, or
+  main-pane visual redesign.
+- No Bridge, BridgeWeb, package/content refresh, WebKit/React, or
+  `paneFilesystemContext` cutover in this goal.
+- No new native File View/CodeViewer runtime or file-loading redesign; current
+  production reachability does not justify it.
+- No startup composition, persistence, identity, or prepared-mount redesign.
 - No change to strict SQLite loading, exact stored ZMX identity, or UUIDv7 rules
   for newly generated durable IDs.
 - No implementation sequence, file-edit list, worker assignment, exact command
@@ -851,9 +941,14 @@ Reopen a broader design only when current evidence shows one of these conditions
 - a second product consumer needs pane-scoped filesystem invalidation;
 - topology reconstruction itself, rather than unconditional triggering, becomes
   the measured hot path;
-- a concrete Bridge controller ABA survives current-controller lookup,
-  cancellation, and final package/review/pane/worktree checks;
 - unmounted panes require exact live filesystem history;
+- post-cut measurement still attributes dominant SwiftUI invalidation to broad
+  pane-dictionary storage, justifying a separate keyed atom-family cutover;
+- hidden tab hosts demonstrably reevaluate or retain material resources after
+  source dedupe and responsibility-specific observation, justifying a separate
+  host residency design;
+- native CodeViewer becomes a real production filesystem-change consumer and
+  first-mount I/O is measured as a material interaction problem;
 - remaining semantic facts produce sustained critical pressure or explicit
   replay gaps on the existing bus;
 - the existing fact-only newest-buffer semantics cause an observed product or
