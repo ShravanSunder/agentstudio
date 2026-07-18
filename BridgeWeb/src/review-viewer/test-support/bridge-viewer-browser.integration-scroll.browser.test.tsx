@@ -125,9 +125,7 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 		await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
 		await expect.poll(() => harness.renderedCodeViewItemIds().length).toBeGreaterThan(1);
 		await expect
-			.poll(() =>
-				harness.viewportCommandVisibleItemIds().some((itemIds) => itemIds.length > 0),
-			)
+			.poll(() => harness.viewportCommandVisibleItemIds().some((itemIds) => itemIds.length > 0))
 			.toBe(true);
 		await advanceBridgeReviewRecoveryWitnessFrames(4);
 		const codePanel = harness.renderResult.container.querySelector(
@@ -185,9 +183,10 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 		const visibleNonselectedPaint = harness
 			.paintedCodeViewItems()
 			.find((paintedItem) => paintedItem.itemId === visibleNonselectedItemId);
-		expect(visibleNonselectedPaint?.paintedLineCount, JSON.stringify(transitionTrace)).toBeGreaterThan(
-			0,
-		);
+		expect(
+			visibleNonselectedPaint?.paintedLineCount,
+			JSON.stringify(transitionTrace),
+		).toBeGreaterThan(0);
 	});
 
 	test('retains Review selection disclosure and scroll across an inactive generation replacement', async () => {
