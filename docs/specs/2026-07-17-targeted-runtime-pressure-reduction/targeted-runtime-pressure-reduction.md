@@ -744,9 +744,9 @@ monolithic harness. Each cell has one declared evidence role:
    structural/correctness proof;
 2. watched-folder/Git proportionality through the existing large-worktree
    workload — paired comparative performance plus correctness proof;
-3. Repo Explorer/AppKit/main-pane proportionality under the same large-worktree
-   and interaction workload — deterministic correctness plus paired existing
-   distributions where the metric population is identical;
+3. Repo Explorer/AppKit/main-pane proportionality — deterministic correctness
+   plus existing distributions collected inside the watched-folder/Git and
+   combined pressure cells where the metric population is identical;
 4. PID-targeted native terminal/sidebar/tab/main-pane smoke — candidate-only
    behavior proof; and
 5. one combined real-app pressure qualification — paired primary CPU,
@@ -758,12 +758,16 @@ samples across at least 10 live pane/surface keys and covers every disposition.
 Retained semantic facts are interleaved below observed fact-only saturation so
 the cell proves isolation from sample pressure rather than redesigning delivery.
 The watched-folder cell retains at least 100 repositories/worktrees and multiple
-Git writers. The UI cell includes status-only changes, topology/origin changes,
-collapsed and expanded groups, active-tab switching, layout, and split resize.
-Exact workload floors and one-sided noise bands are frozen by plan review before
-candidate performance work; insufficient pressure invalidates a trial.
+Git writers. Repo Explorer/AppKit correctness covers status-only changes,
+topology/origin changes, collapsed and expanded groups, active-tab switching,
+layout, and split resize through focused deterministic tests. The bounded native
+smoke exercises only interactions exposed by existing reliable PID-targeted
+control surfaces; missing Accessibility geometry does not authorize a new IPC,
+AX, foreground-control, or benchmark seam. Exact workload floors and one-sided
+noise bands are frozen only for the paired watched-folder/Git and combined
+pressure cells; insufficient pressure invalidates those trials.
 
-P-12c. Cells 2, 3, and 5 use an
+P-12c. Cells 2 and 5 use an
 unscored warm-up and at least three qualifying baseline and candidate trials.
 Percentiles and normalized resource
 measurements are calculated per trial and compared using median per-trial values;
@@ -836,8 +840,11 @@ P-16. Native proof is one bounded smoke, separate from statistical cells. It
 validates visible typing/caret response, search start/query/navigation/close,
 scroll-away and follow-bottom recovery, cursor/link behavior, notification
 appearance/clearing, Repo Explorer status/grouping, tab switching, pane-host
-visibility, and split-resize behavior. It does not substitute for
-deterministic, integration, or Victoria evidence.
+visibility, and only geometry interactions addressable through existing reliable
+control surfaces. Focused geometry tests own split-resize correctness when the
+isolated debug window exposes no stable Accessibility divider or pane geometry.
+The smoke does not substitute for deterministic, integration, or Victoria
+evidence.
 
 ## Alternatives And Tradeoffs
 

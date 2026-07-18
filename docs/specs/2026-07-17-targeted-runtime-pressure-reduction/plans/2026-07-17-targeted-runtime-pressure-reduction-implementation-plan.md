@@ -282,8 +282,7 @@ Record for every trial:
 Trial policy:
 
 - one unscored warm-up and at least three qualifying trials for watched-folder/
-  Git, the separate paired Repo Explorer/AppKit UI cell, and combined real-app
-  pressure;
+  Git and combined real-app pressure;
 - Repo Explorer/sidebar, tab-bar, pane-layout/restore, and terminal-geometry
   distributions are paired only when baseline and candidate have identical
   metric populations; otherwise the changed metric is absolute-only;
@@ -296,9 +295,6 @@ Before behavior changes begin, `baseline/baseline-calibration.md` also freezes:
 
 - the literal Terminal burst command, exact record body/length/count, and
   payload SHA-256;
-- the exact native key chords, tab and pane target roles, action ordering,
-  successful-action counts, split-view divider starting geometry, resize delta,
-  and return geometry; and
 - one stable expanded Repo Explorer group containing at least one visible
   status row plus one stable collapsed group. The receipt records how those
   fixture roles/identifiers are reconstructed in every baseline and candidate
@@ -559,8 +555,10 @@ Focused command:
 mise run test -- --filter 'TerminalRuntimeTests|WorkspacePaneGraphAtomTests|PaneTabViewControllerTests|WorkspaceSurfaceCoordinatorActiveTabRestoreTests|PaneManagementContextTests|GhosttySurfaceViewGeometryCommitTests|TerminalGeometrySynchronizationTests|WorkspacePreparedContentMountCoordinatorTests'
 ```
 
-Checkpoint: commit after focused proof, build/lint, and one marker-scoped native
-interaction pass covering tab switch and resize.
+Checkpoint: commit after focused proof and build/lint. Final bounded native smoke
+in T8 covers only interactions exposed by existing reliable PID-targeted control
+surfaces; missing divider Accessibility geometry does not create another proof
+or product seam.
 
 Split trigger: the narrow cuts require canonical atom-family conversion, hidden
 host eviction, startup redesign, or a new UI runtime.
@@ -617,9 +615,10 @@ Performance cells:
 
 1. Candidate-only deterministic Terminal contraction/activity equivalence.
 2. Paired watched-folder/Git workload through the existing unchanged verifier.
-3. Repo Explorer/AppKit proportionality under the same large-repository fixture,
-   with deterministic latest-projection proof and paired existing distributions
-   only where baseline and candidate populations are identical.
+3. Repo Explorer/AppKit proportionality through deterministic latest-projection,
+   owner/host/restore/geometry proof plus existing distributions collected by
+   the watched-folder/Git and combined cells where metric populations are
+   identical.
 4. One candidate-only PID-targeted native smoke.
 5. Paired combined real-app resource qualification.
 6. One non-scored real-tree diagnostic using the existing watched-folder action
@@ -685,21 +684,14 @@ invalidate comparability merely because they differ. The external populations
 are not added into one synthetic unit. Secondary per-lane ratios may diagnose a
 failed trial but cannot replace the primary gate.
 
-The separate paired UI cell reuses the same 118-repository fixture but is not
-folded into the resource interval. Before scoring, create the second disposable
-terminal tab named by the T2 fixture-role receipt. Against the exact debug PID,
-replay the frozen native recipe: 20 `nextTab`/`prevTab` cycles using its recorded
-key chords, 20 visible-pane focus changes between its recorded pane roles, and
-10 split-view resize out-and-back cycles using its recorded divider start,
-delta, and return geometry while Git status updates continue. Use the existing
-command shortcuts and accessibility surfaces; do not add IPC command execution
-or a committed driver. Baseline and candidate must receive the same successful
-action counts and target-role sequence. This cell proves
-tab/main-pane/layout/resize proportionality and supplies paired sidebar,
-tab-bar, pane-layout/restore, management-context, and terminal-geometry
-distributions where their metric definitions are identical.
+There is no separate paired UI statistical cell. Repo Explorer/AppKit/main-pane
+correctness is deterministic, their existing runtime distributions are observed
+inside the watched-folder/Git and combined cells, and the candidate receives one
+bounded native smoke. Missing background Accessibility divider geometry does not
+authorize a new IPC/AX seam, foreground takeover, committed driver, or repeated
+UI benchmark.
 
-For paired cells 2, 3, and 5, T2 records one warm-up and at least three
+For paired cells 2 and 5, T2 records one warm-up and at least three
 qualifying baseline trials, and T8 records one warm-up and at least three
 qualifying candidate trials. Compare median per-trial values against frozen
 bands; never pool trials.
@@ -745,8 +737,11 @@ Native smoke uses the existing debug runner, verifier, IPC client, notification
 verification surfaces, and PID-targeted Peekaboo/computer-use. It checks
 typing/caret, search lifecycle, scroll-away/follow-bottom, cursor/link,
 notification appearance/clearing, Repo Explorer status/group visibility, tab
-switching, pane-host visibility, and split-resize behavior. It runs in the
-background where supported and never replaces the production app.
+switching, pane-host visibility, and only geometry interactions addressable
+through existing reliable control surfaces. Focused tests own split-resize
+correctness when the isolated window exposes no stable Accessibility geometry.
+The smoke runs in the background where supported and never replaces the
+production app.
 
 Stability includes an explicit relaunch gate after the workload/native smoke:
 terminate only the exact debug PID recorded by the fresh state file, wait
