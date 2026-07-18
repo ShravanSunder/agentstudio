@@ -256,8 +256,17 @@ three Git trials remain diagnostic/calibration evidence for the discovered
 sidebar/AppKit pressure, but they are not the frozen paired baseline after the
 instrumentation manifest changes.
 
-Artifact root:
+Durable receipt root:
 `tmp/performance-proof/2026-07-17-targeted-runtime-pressure-reduction/baseline/`
+
+Live disposable fixture/proof roots must use the verifier's existing
+`AGENTSTUDIO_PERF_PROOF_ROOT` override under
+`~/.agentstudio-db/performance-baselines/2026-07-17-targeted-runtime-pressure-reduction/runs`,
+outside both configured watched development roots. After exact-PID cleanup,
+copy the compact immutable receipt files into the durable receipt root and omit
+the disposable fixture repositories. This prevents the user's stable app from
+reacting to benchmark-created repositories while preserving an auditable trial
+receipt; it adds no runner, harness, or product behavior.
 
 Record for every trial:
 
@@ -613,6 +622,14 @@ Performance cells:
    only where baseline and candidate populations are identical.
 4. One candidate-only PID-targeted native smoke.
 5. Paired combined real-app resource qualification.
+6. One non-scored real-tree diagnostic using the existing watched-folder action
+   to add `/Users/shravansunder/Documents/dev/open-source` to the isolated
+   candidate debug workspace. Record repo/worktree discovery, bounded aggregate
+   event/admission work, CPU, RSS/footprint, MainActor stack attribution,
+   quiescence, and native responsiveness. This mutable real tree is diagnostic
+   evidence only and cannot replace or alter the fixed paired population. Do
+   not mutate repositories, acquire Git optional locks, or export the raw path
+   as a telemetry dimension.
 
 Frozen combined-cell workload, executed as direct operator commands and not as
 a committed script:
