@@ -41,6 +41,7 @@ extension GitWorkingDirectoryProjector {
     private func quarantineWorktreePath(worktreeId: UUID) {
         guard quarantinedWorktreeIds.insert(worktreeId).inserted else { return }
         pendingByWorktreeId.removeValue(forKey: worktreeId)
+        clearImmediateRefreshIntent(worktreeId: worktreeId)
         emitPathQuarantineTelemetry(worktreeId: worktreeId, quarantined: true)
     }
 

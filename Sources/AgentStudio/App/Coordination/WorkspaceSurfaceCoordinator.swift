@@ -149,7 +149,6 @@ final class WorkspaceSurfaceCoordinator {
             filesystemSource
             ?? FilesystemGitPipeline(
                 bus: paneEventBus,
-                gitCoalescingWindow: .milliseconds(200),
                 performanceTraceRecorder: performanceTraceRecorder
             )
         let visibilityTierResolver = StoreVisibilityTierResolver(store: store)

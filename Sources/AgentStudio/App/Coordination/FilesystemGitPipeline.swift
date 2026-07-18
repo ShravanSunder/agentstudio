@@ -28,9 +28,9 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
         forgeStatusProvider: any ForgeStatusProvider = GitHubCLIForgeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
-        filesystemDebounceWindow: Duration = .milliseconds(500),
-        filesystemMaxFlushLatency: Duration = .seconds(2),
-        gitCoalescingWindow: Duration = .milliseconds(200),
+        filesystemDebounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
+        filesystemMaxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency,
+        gitCoalescingWindow: Duration = AppPolicies.GitRefresh.filesystemDerivedCoalescingWindow,
         gitPeriodicRefreshInterval: Duration? = nil,
         gitRefreshPolicy: AppPolicies.GitRefresh.Policy = AppPolicies.GitRefresh.defaultPolicy,
         gitSleepClock: any Clock<Duration> & Sendable = ContinuousClock(),
@@ -119,7 +119,9 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     }
 
     func refreshWatchedFolders(_ paths: [URL]) async -> WatchedFolderRefreshSummary {
-        await filesystemActor.refreshWatchedFolders(paths)
+        let summary = await filesystemActor.refreshWatchedFolders(paths)
+        await gitWorkingDirectoryProjector.refreshRegisteredWorktreesImmediately()
+        return summary
     }
 
     func applyScopeChange(_ change: ScopeChange) async {

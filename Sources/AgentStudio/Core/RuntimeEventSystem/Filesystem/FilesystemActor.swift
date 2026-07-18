@@ -94,8 +94,8 @@ actor FilesystemActor {
         groupedWatchedFolderScanner: @escaping @Sendable (URL) async -> [RepoScanner.RepoScanGroup] = {
             await RepoScanner().scanForGitReposGrouped(in: $0)
         },
-        debounceWindow: Duration = .milliseconds(500),
-        maxFlushLatency: Duration = .seconds(2)
+        debounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
+        maxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency
     ) {
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
@@ -112,8 +112,8 @@ actor FilesystemActor {
             await RepoScanner().scanForGitReposGrouped(in: $0)
         },
         sleepClock: C,
-        debounceWindow: Duration = .milliseconds(500),
-        maxFlushLatency: Duration = .seconds(2)
+        debounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
+        maxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency
     ) where C.Duration == Duration, C: Sendable {
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient

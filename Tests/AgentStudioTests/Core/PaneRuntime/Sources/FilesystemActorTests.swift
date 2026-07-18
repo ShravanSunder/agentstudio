@@ -620,6 +620,89 @@ struct FilesystemActorTests {
         await actor.shutdown()
     }
 
+    @Test("default debounce flushes an isolated change after 500 milliseconds of quiet")
+    func defaultDebounceFlushesIsolatedChangeAfterQuietWindow() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
+            sleepClock: clock
+        )
+
+        let observed = ObservedFilesystemChanges()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        let collectionTask = Task {
+            for await envelope in stream {
+                await observed.record(envelope)
+            }
+        }
+        defer { collectionTask.cancel() }
+
+        let worktreeId = UUID()
+        await actor.register(
+            worktreeId: worktreeId,
+            repoId: worktreeId,
+            rootPath: URL(fileURLWithPath: "/tmp/default-debounce-\(UUID().uuidString)")
+        )
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Isolated.swift"])
+
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(499))
+        await Task.yield()
+        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
+
+        clock.advance(by: .milliseconds(1))
+        let changeset = await observed.next()
+        #expect(changeset.paths == ["Sources/Isolated.swift"])
+
+        await actor.shutdown()
+    }
+
+    @Test("default maximum latency forces a flush after 10 seconds of continuous changes")
+    func defaultMaximumLatencyForcesContinuousStormFlush() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
+            sleepClock: clock
+        )
+
+        let observed = ObservedFilesystemChanges()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        let collectionTask = Task {
+            for await envelope in stream {
+                await observed.record(envelope)
+            }
+        }
+        defer { collectionTask.cancel() }
+
+        let worktreeId = UUID()
+        await actor.register(
+            worktreeId: worktreeId,
+            repoId: worktreeId,
+            rootPath: URL(fileURLWithPath: "/tmp/default-max-latency-\(UUID().uuidString)")
+        )
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Change-0.swift"])
+        await clock.waitForPendingSleepCount()
+
+        for changeIndex in 1...24 {
+            clock.advance(by: .milliseconds(400))
+            await actor.enqueueRawPaths(
+                worktreeId: worktreeId,
+                paths: ["Sources/Change-\(changeIndex).swift"]
+            )
+        }
+        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
+
+        clock.advance(by: .milliseconds(400))
+        let changeset = await observed.next()
+        #expect(changeset.paths.count == 25)
+
+        await actor.shutdown()
+    }
+
     @Test("max latency flushes pending changes even when debounce keeps extending")
     func maxLatencyFlushesPendingChanges() async throws {
         let bus = EventBus<RuntimeEnvelope>()

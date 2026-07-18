@@ -522,6 +522,87 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
     }
 
+    @Test("fixed coalescing window does not reset when a newer batch arrives")
+    func fixedCoalescingWindowDoesNotResetForNewerBatch() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = CallCounter()
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            _ = await calls.increment()
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                branch: "main",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .milliseconds(500),
+            sleepClock: clock
+        )
+
+        await actor.start()
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/fixed-window-\(UUID().uuidString)")
+        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
+        await clock.waitForPendingSleepCount()
+
+        clock.advance(by: .milliseconds(400))
+        await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
+        let newerBatchWasAccepted = await waitUntil {
+            await actor.pendingByWorktreeId[worktreeId]?.batchSeq == 2
+        }
+        #expect(newerBatchWasAccepted)
+
+        clock.advance(by: .milliseconds(100))
+        let computeCompletedAtOriginalDeadline = await waitUntil {
+            await calls.value() == 1
+        }
+        #expect(computeCompletedAtOriginalDeadline)
+
+        await actor.shutdown()
+    }
+
+    @Test("startup registration bypasses filesystem-derived coalescing")
+    func startupRegistrationBypassesFilesystemDerivedCoalescing() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = CallCounter()
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            _ = await calls.increment()
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                branch: "startup",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .milliseconds(500),
+            sleepClock: clock
+        )
+
+        await actor.start()
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/startup-bypass-\(UUID().uuidString)")
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+
+        let registrationComputedWithoutClockAdvance = await waitUntil {
+            await calls.value() == 1
+        }
+        #expect(registrationComputedWithoutClockAdvance)
+
+        await actor.shutdown()
+    }
+
     @Test("independent worktrees run independently")
     func independentWorktreesRunIndependently() async throws {
         let bus = EventBus<RuntimeEnvelope>()

@@ -93,6 +93,9 @@ enum AppPolicies {
         static let defaultStatusReadTimeout: Duration = .seconds(1)
         static let defaultDiscoveryReadTimeout: Duration = .seconds(2)
         static let defaultDetachedStatusReadLimit: Int = 4
+        static let filesystemDebounceWindow: Duration = .milliseconds(500)
+        static let filesystemMaxFlushLatency: Duration = .seconds(10)
+        static let filesystemDerivedCoalescingWindow: Duration = .milliseconds(500)
 
         struct Policy: Equatable, Sendable {
             let activeCadence: Duration
