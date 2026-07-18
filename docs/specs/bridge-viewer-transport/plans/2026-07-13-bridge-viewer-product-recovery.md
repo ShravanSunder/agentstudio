@@ -1,7 +1,8 @@
 # Bridge Viewer Product Recovery Implementation Plan
 
-Status: implementation active; 2026-07-17 worktree-sharing amendment accepted
-after one bounded Fable review and one parent remediation. S8c is executable.
+Status: implementation active; S9 is checkpointed. Packaged LaunchServices,
+representative performance workloads, final quality, review, CI and PR readiness
+remain open.
 
 Goal id: 2026-07-13-bridge-recovery
 
@@ -33,8 +34,8 @@ checkpointed:
 - Expensive File manifest and Review package-template construction is
   application-scoped and single-flighted per worktree/semantic key/freshness;
   panes retain independent authority, workers, publication and presentation.
-- Browser, hosted WebKit, packaged LaunchServices WKWebView, immutable
-  correctness/p99 workloads, quality gates, implementation review, CI and PR
+- Browser, hosted WebKit, packaged LaunchServices WKWebView, two durable
+  representative correctness/p99 workloads, quality gates, implementation review, CI and PR
   readiness are proven at the final source and artifact identity.
 - Pierre remains unmodified. The terminal is PR ready and not merged.
 
@@ -690,8 +691,9 @@ Purpose:
   streams and restored UI;
 - prove File/Review deep traversal, final source correlation and disposition;
 - prove S2 publication replay, S3 activity/dirty behavior, S4 command reuse/
-  duplication, S6 timeout/late discard, reset/reconnect/cancel, two panes and
-  telemetry off/on/failure.
+  duplication, S6 timeout/late discard, reset/reconnect/cancel and two panes;
+- run required telemetry for the correlated journey and one bounded
+  disabled/unavailable fail-open check without cloning the journey.
 
 Permanent RED:
 
@@ -849,14 +851,17 @@ Checkpoint: dedicated Vite E2E commit.
 
 Split trigger: consolidate if a second provider/config/runtime appears.
 
-### S10a — Immutable 84-Cell Product Correctness And p99 Matrix
+### S10a — Two Durable Product Correctness, Memory And p99 Workloads
 
 Purpose:
 
-- correct stale package-first/mock benchmark scaffolds;
-- close 21 product rows x browser/packaged runtimes x telemetry off/on;
-- keep correctness, memory/main-thread work and p99 in the same immutable
-  candidate matrix.
+- replace stale package-first/mock benchmark scaffolds with exactly two durable
+  representative product workloads: controlled real-worktree Chromium and the
+  packaged LaunchServices WKWebView app;
+- exercise the required File and Review interaction families and source/cache
+  states inside each realistic journey without a Cartesian cell matrix; and
+- keep correctness, memory/main-thread work and p95/p99 bound to the same
+  immutable candidate and fixture identities.
 
 Starting policy freeze before the first measured launch:
 
@@ -879,40 +884,55 @@ slice; S10a cannot measure first and back-fit the policy afterward.
 
 Proof contract:
 
-- exactly 84 valid cells;
-- three fresh launches per runtime/telemetry cohort;
-- first launch is warm-up and excluded;
-- at least 100 attempted measured actions per measured launch;
+- exactly one controlled real-worktree Chromium workload and one packaged
+  LaunchServices WKWebView workload;
+- three fresh launches per workload: one correctness/warmup launch and two
+  measured launches;
+- every required File/Review family and its realistic fresh-display,
+  worker-cache and cold-miss states exercised in the journey, with at least 50
+  attempted actions per family/state cohort in each measured launch and 100
+  pooled; family/state cohorts never pool;
 - per-launch and pooled nearest-rank p95/p99, with release evaluation against
-  the maximum measured-launch percentile for each cell/cohort; never average
-  launch percentiles or let a pooled percentile hide one bad launch;
+  the maximum measured-launch percentile for each family/state cohort; never
+  average launch percentiles or let a pooled percentile hide one bad launch;
+- required telemetry enabled and non-lossy for performance; one separate
+  telemetry-disabled/unavailable fail-open journey per runtime, not a cloned
+  performance cohort;
 - every correctness/telemetry failure retained numerically;
 - complete manifest, final real hunk/File bytes, stable tree/CodeView, heap and
-  main-thread stop lines; and
-- retained-byte attribution by coordinator artifact, pane-bound overlay,
-  worker/Pierre copy, in-flight provider work and draining tombstone. Registry
-  counters alone cannot claim payload release while CoW storage remains live.
+  main-thread stop lines;
+- startup and cold package-build durations reported separately with sample
+  count and maximum, never mislabeled as interaction p99; and
+- settled baseline, workload peak and post-close/drain retained-byte
+  attribution by coordinator artifact, pane-bound overlay, worker/Pierre copy,
+  in-flight provider work and draining tombstone. Registry counters alone
+  cannot claim payload release while CoW storage remains live.
 
 Freshness:
 
 - candidate SHA/diff, fixture/oracle digest, machine, viewport, browser/WebKit/
-  Pierre/worker versions, process/marker, telemetry mode, launch/cell/attempt.
+  Pierre/worker versions, process/marker, telemetry mode and
+  workload/launch/family/state/attempt.
 
 Dependencies: S8c and S9.
 
-Checkpoint: immutable product matrix commit/evidence.
+Checkpoint: two representative product workload commit/evidence.
 
-Reconverge on missing/invalid cells, lossy required telemetry, whole-item
-physics failure or any stop-line miss. Do not weaken the matrix or add a File
-cap.
+Reconverge on a missing family/state, lossy required telemetry, whole-item
+physics failure or any stop-line miss. Do not multiply scenarios into a matrix,
+weaken the workloads or add a File cap.
 
-### S10b — Five-Repo Blocked-Read Workload And Capacity Calibration
+### S10b — Durable Scheduler/Construction Integration And Capacity Calibration
 
 Purpose:
 
-- exercise five repositories, several worktrees, duplicate panes, one
-  deliberately blocked native read, background invalidation storms and selected
-  foreground work;
+- add a durable AgentStudio integration over the production Bridge scheduler
+  and worktree construction coordinator using five disposable repositories,
+  several worktrees, duplicate panes, one controllably held read, background
+  invalidation storms and selected foreground work;
+- compose that product integration with the agentstudio-git package's permanent
+  blocking-executor routing/cancellation tests instead of adding a public native
+  read-freeze API;
 - prove operation-class and worktree isolation;
 - prove exact duplicate panes perform one physical File/Review construction,
   while one-field-different semantic keys remain isolated; and
@@ -934,9 +954,12 @@ Freshness:
 - candidate/package pin, fixture repo/worktree identities, scheduler config,
   class/slot/draining ids, machine/process/marker.
 
-Dependencies: S6, S8b and S8c.
+Dependencies: S6, S8c and the pinned package blocking-executor tests. Packaged
+S8b evidence is consumed for final runtime correlation but does not own the
+deterministic held-read seam.
 
-Checkpoint: blocked-read workload and measured-policy commit.
+Checkpoint: durable scheduler/construction integration and measured-policy
+commit.
 
 Reconverge if capacities are unstable or workload cannot observe physical
 custody. Discovery/status capacities cannot be copied.
@@ -1022,8 +1045,8 @@ Terminal: PR ready, not merged.
       |
     S9 dedicated Vite E2E
       |
-      +-- S10a immutable 84-cell matrix
-      +-- S10b blocked-read/capacity workload
+      +-- S10a browser and packaged representative workloads
+      +-- S10b scheduler/construction integration and capacity calibration
       |
     Join D: final measured candidate
       |
@@ -1037,8 +1060,8 @@ claim and checkpoint. S8 through S11 are serial by runtime/evidence identity.
 
 | Requirement / claim | Source | Owning slice | Proof modality and layer | Evidence source | Freshness guard | RED/GREEN | Fits slice |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Complete File streaming and deep-scroll stability | R42-R49, R61, R65 | achieved checkpoints; S8b, S9, S10a, S11a freshness | unit, Browser, packaged, E2E, matrix | parent-run checksum/DOM/disposition and runtime evidence | final source, selected path, file identity, bundle/server/process | existing regression plus final green | yes |
-| Hierarchical Review and continuous complete order | R41-R46, R56, R61 | achieved checkpoints; S8b, S9, S10a, S11a freshness | unit, Browser, packaged, E2E, matrix | parent traversal/tree/header/content evidence | source/manifest/layout/Pierre/runtime identity | existing regression plus final green | yes |
+| Complete File streaming and deep-scroll stability | R42-R49, R61, R65 | achieved checkpoints; S8b, S9, S10a, S11a freshness | unit, Browser, packaged, E2E, representative workloads | parent-run checksum/DOM/disposition and runtime evidence | final source, selected path, file identity, bundle/server/process | existing regression plus final green | yes |
+| Hierarchical Review and continuous complete order | R41-R46, R56, R61 | achieved checkpoints; S8b, S9, S10a, S11a freshness | unit, Browser, packaged, E2E, representative workloads | parent traversal/tree/header/content evidence | source/manifest/layout/Pierre/runtime identity | existing regression plus final green | yes |
 | One pane worker and no legacy owner | R42, R49, R54-R57, R61 | S2, S7, S11a | unit, integration, static, packaged | parent source/asset/trace audit | final diff, worker, bundle assets | permanent static red/green | yes |
 | Synchronous close and post-await suppression | R67 | S1 | unit, fault injection, hosted native, static | parent gate/mutation/residue snapshots | pane/gate epoch and request identity | permanent RED required | yes |
 | Transactional A-to-B publication and replay | R67 | S2 | native/worker unit, integration, hosted WebKit | parent A/B phase, DOM/disposition, replay and residue | publication/source/stream/lease identities | permanent matrix RED | yes, one vertical join |
@@ -1050,7 +1073,7 @@ claim and checkpoint. S8 through S11 are serial by runtime/evidence identity.
 | Current BridgeWeb regressions and structure | repo gates | S0a, S0b, S7 | focused/full unit, architecture, static, check/build | parent exact counts and command exits | HEAD, lock/config/source hashes | current 23 RED to zero | yes after split |
 | Full packaged product behavior | R41-R70, WebKit constraints | S8a, S8b, S8c | SwiftPM WebKit transport/lifecycle, packaged LaunchServices paint, IPC, Victoria, visual | parent bundle/PID/source/DOM/disposition evidence | source/assets/executable/PID/launch/marker | missing journey RED | yes after proof-owner split |
 | One honest Vite E2E owner | R61, R65 | S9 | deterministic and disposable live-worktree E2E | parent independent source oracle and readable DOM | config/server/provider/browser/source generation | absent owner RED | yes |
-| Whole-item correctness, memory and p99 | R41, R57, R61, R62 | S10a | immutable 84-cell matrix | parent completeness validator and numeric results | candidate/fixture/machine/runtime/marker | invalid/missing cell RED | yes after workload split |
+| Whole-item correctness, memory and p99 | R41, R57, R61, R62 | S10a | controlled-browser and packaged representative workloads | parent completeness validator and numeric results | candidate/fixture/machine/runtime/marker | missing family/state or stop-line RED | yes after workload split |
 | No Pierre modification/private path | non-goal, R57/R61 | S7, S11a | dependency/source/asset audit and static negative | parent final diff and package audit | final diff, lockfile, Pierre version | static RED to green | yes |
 | Full quality, review, CI and PR readiness | terminal | S11a-c | full pyramid, review and PR gates | parent commands, review reduction and GitHub state | final PR head/check SHA | administrative gates plus product reds | yes |
 
@@ -1109,8 +1132,9 @@ Benchmark and workload:
 
     mise run bridge-viewer-benchmark
     mise run verify-bridge-headless-manifest
-    <new immutable 84-cell verifier from S10a>
-    <new blocked-read multi-worktree verifier from S10b>
+    <controlled-browser representative workload verifier from S10a>
+    <packaged representative workload verifier from S10a>
+    <durable scheduler/construction integration from S10b>
 
 Final repository checks:
 
@@ -1171,8 +1195,8 @@ Return to planning/spec discussion when:
 - true-return physical custody cannot be preserved;
 - required producer/task residue cannot be observed;
 - packaged worker-initiated custom-scheme streaming fails;
-- the immutable matrix is incomplete/lossy or whole-item physics misses a stop
-  line;
+- either representative workload is incomplete/lossy or whole-item physics
+  misses a stop line;
 - scheduler capacities are unstable;
 - a File cap or Pierre change appears necessary; or
 - a failing validation layer belongs outside the approved code path.

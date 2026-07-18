@@ -158,18 +158,25 @@ Internal stop lines apply in both environments:
 - blank/wrong items, false adjacency, wedges, disappearance, stale paint: zero; and
 - required telemetry loss, sequence gaps, or lifecycle-correlation gaps: zero.
 
-One gated benchmark cell fixes runtime, family, source/cache state, telemetry,
-fixture, viewport, machine profile, commit, bundled Pierre version, and worker mode.
-Every cell runs in three fresh browser/app launches with one excluded warmup and
-at least 100 attempted measured actions per launch. Every launch and the pooled
-cohort pass nearest-rank p95/p99; the maximum launch percentile is reported,
-never averaged. Warmup correctness failures fail the launch, and all failures
-remain numeric R62 samples.
-
-The applicability manifest is closed. EVERY row/state runs in BOTH
-`controlled_dev_chromium` and `packaged_wkwebview`, with telemetry off and on.
-`surface` means stimulus -> painted endpoint.
-
+Performance uses two durable representative workloads, not a Cartesian matrix:
+- `controlled_dev_chromium`: disposable real-worktree Vite source, production
+  pane worker, restored UI and public Pierre; and
+- `packaged_wkwebview`: LaunchServices current-worktree app, native
+  `agentstudio-git`, custom-scheme streams and the same product path.
+Each runs three fresh launches: one correctness/warmup and two measured. The
+measured launches cover every required File/Review family/state cohort with at
+least 50 attempts per cohort per launch and 100 pooled. Each measured launch
+and pooled cohort pass nearest-rank p95/p99 per family/state; states never pool.
+Report the maximum launch percentile, never its average. Any correctness
+failure remains an R62 sample and fails the workload.
+Performance telemetry is required and non-lossy. One fail-open journey per
+runtime covers telemetry disabled/unavailable without duplicating performance.
+Report startup/cold-package count and maximum, not interaction p99. Memory
+records settled baseline, workload peak and post-close/drain state attributed
+to shared construction, pane bindings, worker/Pierre copies, in-flight reads
+and draining tombstones.
+`surface` means stimulus -> painted endpoint; required families/states run
+inside each representative journey rather than independent benchmark cells.
 | Required family | Stimulus -> endpoint | Required source/cache states |
 | --- | --- | --- |
 | Review selection feedback | Review rail select -> Review rail chrome/selected placeholder | fresh display, worker cache, cold miss |
@@ -183,17 +190,12 @@ The applicability manifest is closed. EVERY row/state runs in BOTH
 | File rail scroll | File rail gesture -> rail motion + correct rows | resident rows |
 | File content scroll | file-content gesture -> motion + correct complete-file rows, including final content | resident complete item |
 
-No required row/state is `not_applicable`. Exploratory families are report-only.
-Different cells/invariants cannot pool; one action may emit distinct family rows
-under one interaction id.
-
-The thresholds are floors. Measured headroom may strengthen them. They must not
-be weakened without explicit user agreement.
+No required family/state is `not_applicable`; exploratory families are report-only.
+Family/state invariants cannot pool; one action may emit correlated samples.
+Thresholds are floors and cannot weaken without explicit user agreement.
 
 ## WebKit Constraints
-
 The architecture uses these WebKit constraints and gates:
-
 - All named `WKScriptMessageHandler` handlers for one `WKWebView` share one IPC
   delivery lane. Splitting command, telemetry, and demand across handler names
   provides routing semantics only, not isolation or independent backpressure.
@@ -1436,9 +1438,8 @@ render disposition. Deterministic fixtures use an independent fixture oracle.
 The real-worktree Vite browser lane and packaged Swift lane use an independent
 live-git/source oracle; worker/store attributes cannot serve as their own oracle.
 
-A benchmark cell is the Cartesian product of runtime, surface, interaction,
-cache class, and telemetry state named in the success contract. Browser timing
-starts at the trusted committing event timestamp before handler delivery;
+A workload sample names runtime, surface, interaction, cache state and telemetry
+state. Browser timing starts at the trusted committing timestamp before handler delivery;
 `input_queue_wait` ends at the first handler instruction. Synthetic DOM
 `.click()` is not a timing stimulus. Semantic IPC timing starts on the
 controller's monotonic clock before dispatch and ends at correlated post-paint
@@ -1455,7 +1456,7 @@ never clock reset; cross-clock values are not subtracted without calibration.
 | rail/CodeView content painted | settled desired rows/item content are correct, checksum-matching, nonblank, and painted |
 
 Published scroll budgets require both motion and correct-content endpoints.
-Every attempted row records cell, launch, interaction/attempt id, outcome,
+Every attempted row records workload, launch, interaction/attempt id, outcome,
 duration, and a deadline fixed before execution:
 `max(1000 ms, 5 * applicable p99 budget)`. Success uses endpoint minus start;
 detected wrong/stale/blank/disappeared/superseded uses detection minus start;
