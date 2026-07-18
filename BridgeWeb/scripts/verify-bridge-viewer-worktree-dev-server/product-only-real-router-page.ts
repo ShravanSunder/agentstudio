@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import type {
+	Browser,
 	Page,
 	Request as PlaywrightRequest,
 	Response as PlaywrightResponse,
@@ -27,6 +28,7 @@ import {
 	proveReviewTreeSelection,
 	waitForReviewProductTerminalState,
 } from './product-only-real-router-review-proof.ts';
+import { waitForProductBrowserFrameSettlement } from './product-only-real-router-settlement.ts';
 
 export {
 	mountedHeaderOrderViolationForExpectedOrder,
@@ -35,6 +37,7 @@ export {
 
 const productJourneyTimeoutMilliseconds = 120_000;
 const productCompositionSettleTimeoutMilliseconds = 10_000;
+const productJourneyOwnedDeadlineMilliseconds = 120_000;
 const maximumCapturedConsoleErrors = 32;
 const maximumCapturedConsoleErrorCharacters = 500;
 
@@ -84,6 +87,7 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 		deviceScaleFactor: 1,
 		viewport: { height: 980, width: 1728 },
 	});
+	const ownedJourneyDeadline = createOwnedProductJourneyDeadline({ browser, page });
 	let journeyCompleted = false;
 	let mainFrameDocumentGeneration = 0;
 	page.on('framenavigated', (frame): void => {
@@ -257,6 +261,7 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 			workers: observedWorkers,
 		};
 	} finally {
+		await ownedJourneyDeadline.dispose();
 		await page.close();
 		await browser.close();
 		try {
@@ -494,12 +499,11 @@ export class BridgeViewerRealRouterObserver {
 			await this.#waitForProductRequestQuiescence();
 			const observedActivityRevision = this.#productActivityRevision;
 			// oxlint-disable-next-line eslint/no-await-in-loop -- The browser-frame checkpoint must follow the body-completion barrier serially.
-			await this.#page.evaluate(
-				() =>
-					new Promise<void>((resolve): void => {
-						requestAnimationFrame((): void => resolve());
-					}),
-			);
+			await waitForProductBrowserFrameSettlement({
+				page: this.#page,
+				stage: 'product-request-quiescence',
+				timeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
+			});
 			if (
 				observedActivityRevision === this.#productActivityRevision &&
 				this.#productRequestsAreQuiescent()
@@ -580,6 +584,42 @@ export class BridgeViewerRealRouterObserver {
 			},
 		);
 	}
+}
+
+interface OwnedProductJourneyDeadline {
+	readonly dispose: () => Promise<void>;
+}
+
+function createOwnedProductJourneyDeadline(props: {
+	readonly browser: Browser;
+	readonly page: Page;
+}): OwnedProductJourneyDeadline {
+	let deadlineCleanup: Promise<void> | null = null;
+	const deadlineReason = 'BRIDGE_PRODUCT_JOURNEY_DEADLINE_EXCEEDED';
+	const timeout = setTimeout((): void => {
+		deadlineCleanup = closeOwnedProductJourneyBrowser({
+			browser: props.browser,
+			page: props.page,
+			reason: deadlineReason,
+		});
+	}, productJourneyOwnedDeadlineMilliseconds);
+	return {
+		dispose: async (): Promise<void> => {
+			clearTimeout(timeout);
+			await deadlineCleanup;
+		},
+	};
+}
+
+async function closeOwnedProductJourneyBrowser(props: {
+	readonly browser: Browser;
+	readonly page: Page;
+	readonly reason: string;
+}): Promise<void> {
+	await Promise.allSettled([
+		props.page.close({ reason: props.reason }),
+		props.browser.close({ reason: props.reason }),
+	]);
 }
 
 async function installLegacyIntakeObserver(page: Page): Promise<void> {

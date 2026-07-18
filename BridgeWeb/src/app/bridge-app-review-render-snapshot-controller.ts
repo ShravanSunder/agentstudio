@@ -2,6 +2,7 @@ import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import {
+	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerReviewIntakeReadyCommand,
 	encodeBridgeWorkerSelectCommand,
@@ -65,6 +66,7 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly clearSelectedReviewItemId: () => void;
 	readonly commitSelectedReviewItemId: (itemId: string) => void;
 	readonly displayStore: BridgeReviewDirectDisplayStore;
+	readonly emitHoveredReviewItemIntent: (itemId: string | null) => void;
 	readonly emitSelectedReviewItemIntent: (
 		itemId: string,
 		selectedSource: 'keyboard' | 'programmatic' | 'user',
@@ -145,6 +147,7 @@ export function useBridgeReviewRenderSnapshotController(
 		[codeViewRenderedItemIds],
 	);
 	const workerEpochRef = useRef(0);
+	const hoveredReviewItemIdRef = useRef<string | null>(null);
 	const reviewIntakeReadyAttemptRef = useRef<BridgeReviewIntakeReadyAttempt | null>(null);
 	const markFileViewedFailureCallbacksRef = useRef<Map<string, () => void>>(new Map());
 	const settleWorkerRequests = useCallback((): void => {
@@ -205,6 +208,21 @@ export function useBridgeReviewRenderSnapshotController(
 					surface: 'review',
 				}),
 			);
+		},
+		[props.reviewClient],
+	);
+	const emitHoveredReviewItemIntent = useCallback(
+		(itemId: string | null): void => {
+			if (hoveredReviewItemIdRef.current === itemId) return;
+			props.reviewClient.send(
+				encodeBridgeWorkerHoverCommand({
+					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+					hoveredItemId: itemId,
+					requestId: 'review-client-owned',
+					surface: 'review',
+				}),
+			);
+			hoveredReviewItemIdRef.current = itemId;
 		},
 		[props.reviewClient],
 	);
@@ -276,6 +294,7 @@ export function useBridgeReviewRenderSnapshotController(
 		clearSelectedReviewItemId,
 		commitSelectedReviewItemId,
 		displayStore,
+		emitHoveredReviewItemIntent,
 		emitSelectedReviewItemIntent,
 		markFileViewed,
 		panelChromeSlice,

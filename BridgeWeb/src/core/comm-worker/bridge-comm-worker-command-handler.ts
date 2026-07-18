@@ -3,6 +3,15 @@ import {
 	rejectStaleOrReplayedBridgeWorkerCommand,
 	type BridgeCommWorkerIntentEpochDomain,
 } from './bridge-comm-worker-command-admission.js';
+import type {
+	BridgeCommWorkerCommandHandler,
+	BridgeCommWorkerDemandExecutionScheduleRequest,
+	BridgeCommWorkerReviewMetadataApplicationTransaction,
+	BridgeCommWorkerReviewRenderFulfillmentLifecycleAdvance,
+	BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
+	BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
+	CreateBridgeCommWorkerCommandHandlerProps,
+} from './bridge-comm-worker-command-handler-contracts.js';
 import {
 	assertNeverBridgeWorkerCommand,
 	buildBridgeWorkerDegradedHealthEvent,
@@ -18,6 +27,7 @@ import {
 } from './bridge-comm-worker-file-view-runtime-source.js';
 import type { BridgeCommWorkerFileMetadataDemand } from './bridge-comm-worker-product-controller.js';
 import { buildBridgeWorkerReadyHealthEvent } from './bridge-comm-worker-protocol.js';
+import { handleBridgeCommWorkerReviewHoverCommand } from './bridge-comm-worker-review-hover-command.js';
 import {
 	applyBridgeCommWorkerReviewMetadataApplication,
 	type BridgeCommWorkerReviewMetadataApplication,
@@ -29,7 +39,6 @@ import {
 	type BridgeCommWorkerStore,
 	type BridgeCommWorkerViewportRange,
 } from './bridge-comm-worker-store.js';
-import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
 import {
 	isBridgeWorkerFileViewContentMetadata,
 	type BridgeWorkerFileViewContentMetadata,
@@ -37,10 +46,8 @@ import {
 	type BridgeWorkerFileQueryUpdateCommand,
 	type BridgeWorkerMainToServerMessage,
 	type BridgeWorkerReviewContentMetadata,
-	type BridgeWorkerReviewContentRequestDescriptor,
 	type BridgeWorkerReviewInvalidateCommand,
 	type BridgeWorkerReviewProjectionUpdateCommand,
-	type BridgeWorkerReviewRenderSemantics,
 	type BridgeWorkerRenderDispositionCommand,
 	type BridgeWorkerSelectCommand,
 	type BridgeWorkerServerToMainMessage,
@@ -48,7 +55,6 @@ import {
 } from './bridge-worker-contracts.js';
 import {
 	BridgeWorkerRenderFulfillmentRegistry,
-	type BridgeWorkerRenderFulfillmentIdentifierPurpose,
 	type BridgeWorkerRenderFulfillmentRegistryContext,
 } from './bridge-worker-render-fulfillment-registry.js';
 
@@ -58,106 +64,16 @@ export type { BridgeCommWorkerFileViewRuntimeSource } from './bridge-comm-worker
 
 export type { BridgeCommWorkerFileMetadataDemand } from './bridge-comm-worker-product-controller.js';
 
-export interface CreateBridgeCommWorkerCommandHandlerProps {
-	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
-	readonly contentRequestDescriptors?: readonly BridgeWorkerReviewContentRequestDescriptor[];
-	readonly renderSemantics?: readonly BridgeWorkerReviewRenderSemantics[];
-	readonly rows: readonly BridgeCommWorkerRow[];
-	readonly createSequence?: () => number;
-	readonly createRenderIdentifier?: (
-		purpose: BridgeWorkerRenderFulfillmentIdentifierPurpose,
-	) => string;
-	readonly now?: () => number;
-	readonly onReviewMetadataPostCommitFailure?: (error: unknown) => void;
-	readonly renderFulfillmentContext?: Omit<BridgeWorkerRenderFulfillmentRegistryContext, 'surface'>;
-	readonly renderReceiptLeaseDurationMilliseconds?: number;
-	readonly renderRetryBackoffMilliseconds?: number;
-	readonly scheduleDemandExecution?: (
-		request: BridgeCommWorkerDemandExecutionScheduleRequest,
-	) => void;
-	readonly scheduleReviewMetadataReset?: (
-		request: BridgeCommWorkerReviewMetadataResetScheduleRequest,
-	) => void;
-	readonly scheduleSelectedReviewContentReadyPreparation: (
-		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
-	) => void;
-	readonly scheduleSelectedFileViewContentReadyPreparation: (
-		request: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
-	) => void;
-	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
-	readonly updateReviewRuntimeSource?: (source: BridgeCommWorkerReviewRuntimeSource) => void;
-	readonly updateFileViewRuntimeSource?: (source: BridgeCommWorkerFileViewRuntimeSource) => void;
-	readonly updateFileMetadataDemand?: (demand: BridgeCommWorkerFileMetadataDemand) => void;
-	readonly updateFileDisplayQuery?: (
-		command: BridgeWorkerFileQueryUpdateCommand,
-	) => readonly BridgeWorkerServerToMainMessage[];
-	readonly updateReviewDisplayProjection?: (
-		command: BridgeWorkerReviewProjectionUpdateCommand,
-	) => readonly BridgeWorkerServerToMainMessage[];
-	readonly requestFileDisplayResync?: (
-		command: BridgeWorkerFileDisplayResyncCommand,
-	) => readonly BridgeWorkerServerToMainMessage[];
-	readonly applyRenderDisposition?: (props: {
-		readonly command: BridgeWorkerRenderDispositionCommand;
-		readonly store: BridgeCommWorkerStore;
-	}) => readonly BridgeWorkerServerToMainMessage[];
-}
-
-export interface BridgeCommWorkerDemandExecutionScheduleRequest {
-	readonly cause: 'reviewInvalidate' | 'reviewMetadata' | 'viewport';
-	readonly affectedItemIds?: readonly string[];
-	readonly epoch: number;
-	readonly forceExecutionItemIds?: readonly string[];
-	readonly sourceChurnRevision?: number;
-	readonly store: BridgeCommWorkerStore;
-}
-
-export interface BridgeCommWorkerReviewMetadataResetScheduleRequest {
-	readonly affectedItemIds: readonly string[];
-	readonly cause: 'reviewMetadata';
-	readonly epoch: number;
-	readonly readReviewRuntimeSource: () => BridgeCommWorkerReviewRuntimeSource;
-	readonly store: BridgeCommWorkerStore;
-}
-
-export interface BridgeCommWorkerSelectedReviewContentReadyPreparationRequest {
-	readonly epoch: number;
-	readonly itemId: string;
-	readonly store: BridgeCommWorkerStore;
-}
-
-export interface BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest {
-	readonly epoch: number;
-	readonly itemId: string;
-	readonly store: BridgeCommWorkerStore;
-}
-
-export interface BridgeCommWorkerCommandHandler {
-	readonly applyReviewMetadataApplication: (
-		application: BridgeCommWorkerReviewMetadataApplication,
-	) => readonly BridgeWorkerServerToMainMessage[];
-	readonly prepareReviewMetadataApplication: (
-		application: BridgeCommWorkerReviewMetadataApplication,
-	) => BridgeCommWorkerReviewMetadataApplicationTransaction;
-	readonly applyFileViewRuntimeSource: (props: {
-		readonly epoch: number;
-		readonly source: BridgeCommWorkerFileViewRuntimeSource;
-	}) => readonly BridgeWorkerServerToMainMessage[];
-	readonly applyFileViewRuntimeMutation: (props: {
-		readonly epoch: number;
-		readonly mutation: BridgeCommWorkerFileViewRuntimeMutation;
-	}) => readonly BridgeWorkerServerToMainMessage[];
-	readonly handleMessage: (
-		message: BridgeWorkerMainToServerMessage,
-	) => readonly BridgeWorkerServerToMainMessage[];
-}
-
-export interface BridgeCommWorkerReviewMetadataApplicationTransaction {
-	readonly commit: () => void;
-	readonly messages: readonly BridgeWorkerServerToMainMessage[];
-	readonly rollback: () => void;
-	readonly runPostCommitEffects: () => void;
-}
+export type {
+	BridgeCommWorkerCommandHandler,
+	BridgeCommWorkerDemandExecutionScheduleRequest,
+	BridgeCommWorkerReviewMetadataApplicationTransaction,
+	BridgeCommWorkerReviewMetadataResetScheduleRequest,
+	BridgeCommWorkerReviewRenderFulfillmentLifecycleAdvance,
+	BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
+	BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
+	CreateBridgeCommWorkerCommandHandlerProps,
+} from './bridge-comm-worker-command-handler-contracts.js';
 
 export function createBridgeCommWorkerCommandHandler(
 	props: CreateBridgeCommWorkerCommandHandlerProps,
@@ -174,7 +90,9 @@ export function createBridgeCommWorkerCommandHandler(
 			...(props.createRenderIdentifier === undefined
 				? {}
 				: { createIdentifier: props.createRenderIdentifier }),
-			...(props.now === undefined ? {} : { now: props.now }),
+			...(props.renderFulfillmentNow === undefined && props.now === undefined
+				? {}
+				: { now: props.renderFulfillmentNow ?? props.now }),
 			receiptLeaseDurationMilliseconds: props.renderReceiptLeaseDurationMilliseconds ?? 5000,
 			retryBackoffMilliseconds: props.renderRetryBackoffMilliseconds ?? 25,
 		});
@@ -294,6 +212,39 @@ export function createBridgeCommWorkerCommandHandler(
 	};
 
 	return {
+		advanceReviewRenderFulfillmentLifecycle: (
+			atMilliseconds,
+		): BridgeCommWorkerReviewRenderFulfillmentLifecycleAdvance => {
+			reviewStore.renderFulfillmentRegistry.expireReceiptLeases(atMilliseconds);
+			const releasedItemIds =
+				reviewStore.renderFulfillmentRegistry.releaseReadyRetries(atMilliseconds);
+			if (releasedItemIds.length > 0) {
+				const releasedItemIdSet = new Set(releasedItemIds);
+				const reviewState = reviewStore.getState();
+				if (
+					reviewState.selectedDemandEnabled &&
+					reviewState.selectedId !== null &&
+					releasedItemIdSet.has(reviewState.selectedId)
+				) {
+					props.scheduleSelectedReviewContentReadyPreparation({
+						epoch: reviewState.selectedEpoch,
+						itemId: reviewState.selectedId,
+						store: reviewStore,
+					});
+				}
+				props.scheduleDemandExecution?.({
+					affectedItemIds: releasedItemIds,
+					cause: 'renderFulfillment',
+					epoch: currentIntentEpochByDomain.review,
+					forceExecutionItemIds: releasedItemIds,
+					store: reviewStore,
+				});
+			}
+			return {
+				nextWakeAtMilliseconds:
+					reviewStore.renderFulfillmentRegistry.nextLifecycleWakeAtMilliseconds(),
+			};
+		},
 		applyReviewMetadataApplication: (application) => {
 			const transaction = prepareReviewMetadataApplication(application);
 			transaction.commit();
@@ -489,12 +440,19 @@ function handleBridgeWorkerCommand(
 					store: props.store,
 				})
 			);
+		case 'hover':
+			return handleBridgeCommWorkerReviewHoverCommand({
+				message: props.message,
+				store: props.store,
+				...(props.scheduleDemandExecution === undefined
+					? {}
+					: { scheduleDemandExecution: props.scheduleDemandExecution }),
+			});
 		case 'markFileViewed':
 		case 'metadataInterestUpdate':
 		case 'reviewIntakeReady':
 		case 'activeViewerModeUpdate':
 			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
-		case 'hover':
 		case 'mode':
 			return [buildBridgeWorkerUnimplementedHealthEvent(props.message)];
 		default:

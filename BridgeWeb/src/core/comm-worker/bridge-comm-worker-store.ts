@@ -41,6 +41,7 @@ export interface BridgeCommWorkerStoreState {
 	readonly orderedIds: Array<string | undefined>;
 	readonly indexById: Map<string, number>;
 	readonly childrenByParentId: Map<string, Set<string>>;
+	readonly hoveredItemId: string | null;
 	readonly selectedId: string | null;
 	readonly selectedEpoch: number;
 	readonly selectedDemandEnabled: boolean;
@@ -83,6 +84,10 @@ export interface ApplyBridgeCommWorkerViewportFactProps {
 	readonly visibleItemIds: readonly string[];
 	readonly firstVisibleIndex: number;
 	readonly lastVisibleIndex: number;
+}
+
+export interface ApplyBridgeCommWorkerHoveredFactProps {
+	readonly hoveredItemId: string | null;
 }
 
 export interface ApplyBridgeCommWorkerContentReadyProps {
@@ -166,6 +171,9 @@ export interface BridgeCommWorkerStore {
 	readonly restoreRollbackSnapshot: (snapshot: BridgeCommWorkerStoreRollbackSnapshot) => void;
 	readonly subscribe: StoreApi<BridgeCommWorkerStoreState>['subscribe'];
 	readonly actions: {
+		readonly applyHoveredFact: (
+			props: ApplyBridgeCommWorkerHoveredFactProps,
+		) => BridgeCommWorkerTouchedResult;
 		readonly applySelectedFact: (
 			props: ApplyBridgeCommWorkerSelectedFactProps,
 		) => BridgeCommWorkerTouchedResult;
@@ -237,6 +245,34 @@ export function createBridgeCommWorkerStore(
 		},
 		subscribe: store.subscribe,
 		actions: {
+			applyHoveredFact: (
+				fact: ApplyBridgeCommWorkerHoveredFactProps,
+			): BridgeCommWorkerTouchedResult => {
+				const previousState = store.getState();
+				if (previousState.hoveredItemId === fact.hoveredItemId) {
+					return { touchedKeys: [] };
+				}
+				store.setState({
+					...previousState,
+					hoveredItemId: fact.hoveredItemId,
+					demandByKey: buildDemandByKey({
+						contentMetadataByItemId: previousState.contentMetadataByItemId,
+						hoveredItemId: fact.hoveredItemId,
+						selectedDemandEpoch: readSelectedDemandEpoch(previousState),
+						selectedId: previousState.selectedId,
+						visibleIds: previousState.visibleIds,
+					}),
+				});
+				return {
+					touchedKeys: [
+						'hoveredItemId',
+						...(previousState.hoveredItemId === null
+							? []
+							: [`demand:${previousState.hoveredItemId}`]),
+						...(fact.hoveredItemId === null ? [] : [`demand:${fact.hoveredItemId}`]),
+					],
+				};
+			},
 			applySelectedFact: (
 				fact: ApplyBridgeCommWorkerSelectedFactProps,
 			): BridgeCommWorkerTouchedResult => {
@@ -252,6 +288,7 @@ export function createBridgeCommWorkerStore(
 						selectedId: fact.itemId,
 						demandByKey: buildDemandByKey({
 							contentMetadataByItemId: state.contentMetadataByItemId,
+							hoveredItemId: state.hoveredItemId,
 							selectedId: fact.itemId,
 							selectedDemandEpoch: selectedDemandEnabled ? fact.epoch : null,
 							visibleIds: state.visibleIds,
@@ -325,6 +362,7 @@ export function createBridgeCommWorkerStore(
 					availabilityByItemId: nextAvailabilityByItemId,
 					demandByKey: buildDemandByKey({
 						contentMetadataByItemId: state.contentMetadataByItemId,
+						hoveredItemId: state.hoveredItemId,
 						selectedId: state.selectedId,
 						selectedDemandEpoch: readSelectedDemandEpoch(state),
 						visibleIds,
@@ -488,6 +526,7 @@ export function createBridgeCommWorkerStore(
 					availabilityByItemId: nextAvailabilityByItemId,
 					demandByKey: buildDemandByKey({
 						contentMetadataByItemId: previousState.contentMetadataByItemId,
+						hoveredItemId: previousState.hoveredItemId,
 						selectedId: previousState.selectedId,
 						selectedDemandEpoch,
 						visibleIds: previousState.visibleIds,
@@ -517,6 +556,7 @@ export function createBridgeCommWorkerStore(
 					),
 					demandByKey: buildDemandByKey({
 						contentMetadataByItemId: previousState.contentMetadataByItemId,
+						hoveredItemId: previousState.hoveredItemId,
 						selectedDemandEpoch,
 						selectedId: fact.itemId,
 						visibleIds: previousState.visibleIds,
@@ -638,6 +678,7 @@ function cloneBridgeCommWorkerStoreState(
 		),
 		contentMetadataByItemId: new Map(state.contentMetadataByItemId),
 		demandByKey: new Map(state.demandByKey),
+		hoveredItemId: state.hoveredItemId,
 		indexById: new Map(state.indexById),
 		orderedIds: [...state.orderedIds],
 		paintReadyByItemId: new Map(state.paintReadyByItemId),
@@ -729,6 +770,7 @@ function commitBridgeCommWorkerReviewSourceUpdate(props: {
 		...props.sourceIndexes,
 		demandByKey: buildDemandByKey({
 			contentMetadataByItemId: props.sourceIndexes.contentMetadataByItemId,
+			hoveredItemId: props.previousState.hoveredItemId,
 			selectedId,
 			selectedDemandEpoch,
 			visibleIds: props.previousState.visibleIds,
@@ -766,6 +808,7 @@ function buildInitialBridgeCommWorkerStoreState(
 		selectedId: null,
 		selectedEpoch: 0,
 		selectedDemandEnabled: false,
+		hoveredItemId: null,
 		viewportRange: null,
 		visibleIds: [],
 		demandByKey: new Map<string, string>(),
@@ -839,6 +882,7 @@ function resolveReviewInvalidationItemIds(props: {
 
 function buildDemandByKey(props: {
 	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerContentMetadata>;
+	readonly hoveredItemId: string | null;
 	readonly selectedId: string | null;
 	readonly selectedDemandEpoch: number | null;
 	readonly visibleIds: readonly string[];

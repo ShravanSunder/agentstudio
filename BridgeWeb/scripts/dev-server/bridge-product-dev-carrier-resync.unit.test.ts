@@ -89,7 +89,15 @@ describe('Bridge product dev pane carrier resync', () => {
 		}
 		const firstStream = await openMetadataStream(baseURL, 'stream-1', null);
 		const firstFrames = new MetadataFrames(baseURL, firstStream.reader);
-		await firstFrames.waitForCount(1);
+		await firstFrames.waitFor((frame) => frame.kind === 'metadataStream.accepted');
+		const foregroundPresentation = await firstFrames.waitFor(
+			(frame) => frame.kind === 'pane.presentation',
+		);
+		expect(foregroundPresentation).toMatchObject({
+			activityRevision: 1,
+			nativeActivity: 'foreground',
+			refreshingLanes: [],
+		});
 		const oldSubscriptionId = 'subscription-old';
 		const opened = await postControl(
 			baseURL,
@@ -109,8 +117,14 @@ describe('Bridge product dev pane carrier resync', () => {
 		if (opened.kind !== 'subscription.openAccepted') {
 			throw new Error('Expected old subscription acceptance.');
 		}
-		const beforeClose = await firstFrames.waitForCount(3);
-		const lastAcceptedStreamSequence = beforeClose.at(-1)?.streamSequence ?? -1;
+		const committedSourceFrame = await firstFrames.waitFor(
+			(frame) =>
+				frame.kind === 'subscription.data' &&
+				frame.subscriptionId === oldSubscriptionId &&
+				frame.data.subscriptionKind === 'file.metadata' &&
+				frame.data.event.eventKind === 'file.sourceAccepted',
+		);
+		const lastAcceptedStreamSequence = committedSourceFrame.streamSequence;
 		firstStream.close();
 		await requireMetadataStreamClosure(metadataStreamClosures, 0);
 
@@ -120,12 +134,17 @@ describe('Bridge product dev pane carrier resync', () => {
 			lastAcceptedStreamSequence,
 		);
 		const replacementFrames = new MetadataFrames(baseURL, replacementStream.reader);
-		const replacementAccepted = (await replacementFrames.waitForCount(1))[0];
+		const replacementAccepted = await replacementFrames.waitFor(
+			(frame) => frame.kind === 'metadataStream.accepted',
+		);
 		expect(replacementAccepted).toMatchObject({
 			kind: 'metadataStream.accepted',
 			resumeDisposition: 'snapshot_required',
 			streamSequence: lastAcceptedStreamSequence + 1,
 		});
+		const replacementForegroundPresentation = await replacementFrames.waitFor(
+			(frame) => frame.kind === 'pane.presentation',
+		);
 
 		const resyncRequest = controlRequest(
 			{
@@ -151,7 +170,7 @@ describe('Bridge product dev pane carrier resync', () => {
 		});
 		expect(resynced).toMatchObject({
 			kind: 'resync.accepted',
-			metadataStreamSequenceBarrier: lastAcceptedStreamSequence + 1,
+			metadataStreamSequenceBarrier: replacementForegroundPresentation.streamSequence,
 			nextExpectedRequestSequence: 5,
 			reconciliation: [
 				{
@@ -183,13 +202,20 @@ describe('Bridge product dev pane carrier resync', () => {
 			kind: 'subscription.openAccepted',
 			subscriptionId: 'subscription-fresh',
 		});
-		const freshFrames = await replacementFrames.waitForCount(3);
-		const freshLastStreamSequence = freshFrames.at(-1)?.streamSequence ?? -1;
+		const freshSourceFrame = await replacementFrames.waitFor(
+			(frame) =>
+				frame.kind === 'subscription.data' &&
+				frame.subscriptionId === 'subscription-fresh' &&
+				frame.data.subscriptionKind === 'file.metadata' &&
+				frame.data.event.eventKind === 'file.sourceAccepted',
+		);
+		const freshLastStreamSequence = freshSourceFrame.streamSequence;
 		replacementStream.close();
 		await requireMetadataStreamClosure(metadataStreamClosures, 1);
 		const emptyListStream = await openMetadataStream(baseURL, 'stream-3', freshLastStreamSequence);
 		const emptyListFrames = new MetadataFrames(baseURL, emptyListStream.reader);
-		await emptyListFrames.waitForCount(1);
+		await emptyListFrames.waitFor((frame) => frame.kind === 'metadataStream.accepted');
+		await emptyListFrames.waitFor((frame) => frame.kind === 'pane.presentation');
 		const emptyListRequest = controlRequest(
 			{
 				activeSubscriptions: [],
@@ -242,8 +268,12 @@ class MetadataFrames {
 		this.#reader = reader;
 	}
 
-	async waitForCount(count: number): Promise<readonly BridgeProductMetadataFrame[]> {
-		while (this.#frames.length < count) {
+	async waitFor(
+		predicate: (frame: BridgeProductMetadataFrame) => boolean,
+	): Promise<BridgeProductMetadataFrame> {
+		while (true) {
+			const matchingFrame = this.#frames.find(predicate);
+			if (matchingFrame !== undefined) return matchingFrame;
 			// oxlint-disable-next-line no-await-in-loop -- Protocol frames are ordered.
 			const chunk = await this.#reader.read();
 			if (chunk.done) throw new Error('Metadata stream ended early.');
@@ -254,7 +284,6 @@ class MetadataFrames {
 			}
 			this.#frames.push(...frames);
 		}
-		return [...this.#frames];
 	}
 }
 

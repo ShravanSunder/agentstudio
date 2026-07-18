@@ -57,6 +57,7 @@ export interface ReviewViewerShellProps {
 	readonly selectedContentLoadingItemId?: string | null;
 	readonly selectedContentPaintTelemetryStart?: SelectedContentPaintTelemetryStart | null;
 	readonly onSelectItem: (itemId: string) => void;
+	readonly onHoveredItemIdChange?: (itemId: string | null) => void;
 	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
 	readonly selectedContentText?: string | null;
 	readonly selectedCodeViewItem?: BridgeMainCodeViewItem | null;
@@ -365,6 +366,9 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								key={bridgeTreesDisclosurePolicyIdentity}
 								presentationPositionKey={props.presentationPositionKey}
 								onSelectItem={props.onSelectItem}
+								{...(props.onHoveredItemIdChange === undefined
+									? {}
+									: { onHoveredItemIdChange: props.onHoveredItemIdChange })}
 								{...(props.onTreeVisibleItemIdsChange === undefined
 									? {}
 									: { onVisibleItemIdsChange: props.onTreeVisibleItemIdsChange })}

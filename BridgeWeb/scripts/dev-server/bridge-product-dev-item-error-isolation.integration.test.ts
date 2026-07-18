@@ -76,7 +76,15 @@ describe('Bridge product dev item-error isolation', () => {
 			request: controlRequest(authority, { kind: 'workerSession.open', request: null }, 1),
 		});
 		const stream = await MetadataStreamClient.open({ authority, baseURL });
-		await stream.nextAndObserve();
+		await stream.nextMatchingAndObserve((frame) => frame.kind === 'metadataStream.accepted');
+		const foregroundPresentation = await stream.nextMatchingAndObserve(
+			(frame) => frame.kind === 'pane.presentation',
+		);
+		expect(foregroundPresentation).toMatchObject({
+			activityRevision: 1,
+			nativeActivity: 'foreground',
+			refreshingLanes: [],
+		});
 
 		const reviewSubscriptionId = 'review-subscription-item-error';
 		await postControl({
@@ -93,8 +101,17 @@ describe('Bridge product dev item-error isolation', () => {
 				2,
 			),
 		});
-		await stream.nextAndObserve();
-		const reviewSourceFrame = await stream.nextAndObserve();
+		await stream.nextMatchingAndObserve(
+			(frame) =>
+				frame.kind === 'subscription.accepted' && frame.subscriptionId === reviewSubscriptionId,
+		);
+		const reviewSourceFrame = await stream.nextMatchingAndObserve(
+			(frame) =>
+				frame.kind === 'subscription.data' &&
+				frame.subscriptionId === reviewSubscriptionId &&
+				frame.data.subscriptionKind === 'review.metadata' &&
+				frame.data.event.eventKind === 'review.sourceAccepted',
+		);
 
 		const fileSource = await postControl({
 			authority,
@@ -137,9 +154,13 @@ describe('Bridge product dev item-error isolation', () => {
 		if (fileOpened.kind !== 'subscription.openAccepted') {
 			throw new Error('Expected a File subscription for item-error proof.');
 		}
-		await stream.nextAndObserve();
-		await stream.nextAndObserve();
-		await stream.nextAndObserve();
+		await stream.nextMatchingAndObserve(
+			(frame) =>
+				frame.kind === 'subscription.data' &&
+				frame.subscriptionId === fileSubscriptionId &&
+				frame.data.subscriptionKind === 'file.metadata' &&
+				frame.data.event.eventKind === 'file.sourceAccepted',
+		);
 
 		// Act
 		const failingInterest = fileInterestState([failingPath]);
@@ -158,8 +179,14 @@ describe('Bridge product dev item-error isolation', () => {
 				updateId: 'file-item-error-update',
 			}),
 		});
-		await stream.nextAndObserve();
-		const unavailableFrame = await stream.nextAndObserve();
+		const unavailableFrame = await stream.nextMatchingAndObserve(
+			(frame) =>
+				frame.kind === 'subscription.data' &&
+				frame.subscriptionId === fileSubscriptionId &&
+				frame.data.subscriptionKind === 'file.metadata' &&
+				frame.data.event.eventKind === 'file.descriptorReady' &&
+				frame.data.event.path === failingPath,
+		);
 
 		const healthyInterest = fileInterestState([failingPath, healthyPath]);
 		await postControl({
@@ -177,8 +204,14 @@ describe('Bridge product dev item-error isolation', () => {
 				updateId: 'file-item-recovery-update',
 			}),
 		});
-		await stream.nextAndObserve();
-		const healthyFrame = await stream.nextAndObserve();
+		const healthyFrame = await stream.nextMatchingAndObserve(
+			(frame) =>
+				frame.kind === 'subscription.data' &&
+				frame.subscriptionId === fileSubscriptionId &&
+				frame.data.subscriptionKind === 'file.metadata' &&
+				frame.data.event.eventKind === 'file.descriptorReady' &&
+				frame.data.event.path === healthyPath,
+		);
 		await postControl({
 			authority,
 			baseURL,
@@ -193,7 +226,10 @@ describe('Bridge product dev item-error isolation', () => {
 				7,
 			),
 		});
-		const reviewCancelledFrame = await stream.nextAndObserve();
+		const reviewCancelledFrame = await stream.nextMatchingAndObserve(
+			(frame) =>
+				frame.kind === 'subscription.cancelled' && frame.subscriptionId === reviewSubscriptionId,
+		);
 
 		// Assert
 		expect(unavailableFrame).toMatchObject({
@@ -392,6 +428,16 @@ class MetadataStreamClient {
 		expect(response.status).toBe(204);
 		expect(await response.text()).toBe('');
 		return frame;
+	}
+
+	async nextMatchingAndObserve(
+		predicate: (frame: BridgeProductMetadataFrame) => boolean,
+	): Promise<BridgeProductMetadataFrame> {
+		while (true) {
+			// oxlint-disable-next-line no-await-in-loop -- Every preceding physical frame must be observed before the matching frame can arrive.
+			const frame = await this.nextAndObserve();
+			if (predicate(frame)) return frame;
+		}
 	}
 
 	close(): Promise<void> {

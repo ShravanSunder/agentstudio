@@ -20,7 +20,6 @@ import {
 	type ScheduledSelectedReviewPreparation,
 } from './bridge-comm-worker-command-handler.test-support.js';
 import {
-	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
@@ -603,7 +602,7 @@ describe('Bridge comm worker command handler', () => {
 		expect(scheduledResetCount).toBe(0);
 	});
 
-	test('unsupported commands return degraded health instead of silent success', () => {
+	test('remaining unsupported commands return degraded health instead of silent success', () => {
 		const handler = createBridgeCommWorkerCommandHandler({
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
@@ -612,14 +611,6 @@ describe('Bridge comm worker command handler', () => {
 		});
 
 		const commandMessages = [
-			handler.handleMessage(
-				encodeBridgeWorkerHoverCommand({
-					requestId: 'request-hover',
-					epoch: 1,
-					surface: 'review',
-					hoveredItemId: 'item-1',
-				}),
-			),
 			handler.handleMessage(
 				encodeBridgeWorkerModeCommand({
 					requestId: 'request-mode',
@@ -630,17 +621,6 @@ describe('Bridge comm worker command handler', () => {
 		];
 
 		expect(commandMessages).toEqual([
-			[
-				{
-					wireVersion: 1,
-					direction: 'serverWorkerToMain',
-					transferDescriptors: [],
-					kind: 'health',
-					requestId: 'request-hover',
-					status: 'degraded',
-					message: 'Bridge comm worker command hover is not implemented.',
-				},
-			],
 			[
 				{
 					wireVersion: 1,

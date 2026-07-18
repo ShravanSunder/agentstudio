@@ -115,6 +115,16 @@ describe('Bridge product dev pane carrier', () => {
 		const stream = await openMetadataStream(baseURL, authority);
 		const streamAccepted = await stream.nextFrame();
 		expect(await postMetadataObservation(baseURL, streamAccepted, authority.capability)).toBe(204);
+		const foregroundPresentation = await stream.nextFrame();
+		expect(foregroundPresentation).toMatchObject({
+			activityRevision: 1,
+			kind: 'pane.presentation',
+			nativeActivity: 'foreground',
+			refreshingLanes: [],
+		});
+		expect(
+			await postMetadataObservation(baseURL, foregroundPresentation, authority.capability),
+		).toBe(204);
 		await postControl(
 			baseURL,
 			controlRequest(
@@ -232,6 +242,16 @@ describe('Bridge product dev pane carrier', () => {
 		// Act: observation is out-of-band and an exact replay does not consume requestSequence.
 		expect(await postMetadataObservation(baseURL, accepted, authority.capability)).toBe(204);
 		expect(await postMetadataObservation(baseURL, accepted, authority.capability)).toBe(204);
+		const foregroundPresentation = await stream.nextFrame();
+		expect(foregroundPresentation).toMatchObject({
+			activityRevision: 1,
+			kind: 'pane.presentation',
+			nativeActivity: 'foreground',
+			refreshingLanes: [],
+		});
+		expect(
+			await postMetadataObservation(baseURL, foregroundPresentation, authority.capability),
+		).toBe(204);
 		const reviewOpen = await postControl(
 			baseURL,
 			controlRequest(

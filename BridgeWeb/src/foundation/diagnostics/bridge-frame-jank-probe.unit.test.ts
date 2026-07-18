@@ -133,11 +133,30 @@ describe('Bridge frame jank probe', () => {
 		);
 
 		for (const modeSource of [reviewModeSource, fileModeSource]) {
-			expect(modeSource).toContain('viewerIsActive: isActiveRef.current');
-			expect(modeSource).not.toContain('if (!isActiveRef.current)');
+			const onJankSampleSource = readRequiredCallbackSource(
+				modeSource,
+				'onJankSample: (sample): void => {',
+			);
+			expect(onJankSampleSource).toContain('viewerIsActive: isActiveRef.current');
+			expect(onJankSampleSource).not.toContain('if (!isActiveRef.current)');
 		}
 	});
 });
+
+function readRequiredCallbackSource(source: string, callbackStart: string): string {
+	const callbackStartIndex = source.indexOf(callbackStart);
+	if (callbackStartIndex < 0) throw new Error(`Expected callback source: ${callbackStart}`);
+	const bodyStartIndex = callbackStartIndex + callbackStart.length - 1;
+	let braceDepth = 0;
+	for (let index = bodyStartIndex; index < source.length; index += 1) {
+		const character = source[index];
+		if (character === '{') braceDepth += 1;
+		if (character !== '}') continue;
+		braceDepth -= 1;
+		if (braceDepth === 0) return source.slice(callbackStartIndex, index + 1);
+	}
+	throw new Error(`Expected balanced callback source: ${callbackStart}`);
+}
 
 interface FakePerformanceEntryProps {
 	readonly startTime: number;

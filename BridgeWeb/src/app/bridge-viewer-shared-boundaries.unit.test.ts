@@ -170,8 +170,9 @@ describe('BridgeViewer shared component boundaries', () => {
 		expect(filterMenu).toContain('border-[var(--bridge-menu-border)]');
 		expect(filterMenu).toContain('ring-[var(--bridge-menu-ring)]');
 		expect(filterMenu).not.toContain('rgb(137_180_250_/_0.28)');
-		expect(reviewFacetMenu).toContain('border-[var(--bridge-menu-border)]');
-		expect(reviewFacetMenu).toContain('ring-[var(--bridge-menu-ring)]');
+		expect(reviewFacetMenu).toContain('bridgeViewerFilterMenuSurfaceClassName');
+		expect(reviewFacetMenu).not.toContain('border-[var(--bridge-menu-border)]');
+		expect(reviewFacetMenu).not.toContain('ring-[var(--bridge-menu-ring)]');
 		expect(reviewFacetMenu).not.toContain('rgb(137_180_250_/_0.28)');
 	});
 });

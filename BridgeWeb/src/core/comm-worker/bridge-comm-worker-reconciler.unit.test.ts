@@ -72,6 +72,57 @@ describe('Bridge comm worker demand reconciler', () => {
 			},
 		]);
 	});
+
+	test('reconciles hover as speculative below selected and visible membership', () => {
+		// Arrange
+		const selected = makeReviewContentMetadata('selected');
+		const visible = makeReviewContentMetadata('visible');
+		const hovered = makeReviewContentMetadata('hovered');
+		const contentMetadataByItemId = new Map(
+			[selected, visible, hovered].map((metadata) => [metadata.itemId, metadata]),
+		);
+
+		// Act
+		const speculativeMembership = reconcileBridgeCommWorkerDemandMembership({
+			contentMetadataByItemId,
+			hoveredItemId: hovered.itemId,
+			selectedDemandEpoch: 12,
+			selectedId: selected.itemId,
+			visibleIds: [visible.itemId],
+		});
+		const visiblePrecedenceMembership = reconcileBridgeCommWorkerDemandMembership({
+			contentMetadataByItemId,
+			hoveredItemId: visible.itemId,
+			selectedDemandEpoch: 12,
+			selectedId: selected.itemId,
+			visibleIds: [visible.itemId],
+		});
+		const selectedPrecedenceMembership = reconcileBridgeCommWorkerDemandMembership({
+			contentMetadataByItemId,
+			hoveredItemId: selected.itemId,
+			selectedDemandEpoch: 12,
+			selectedId: selected.itemId,
+			visibleIds: [visible.itemId],
+		});
+
+		// Assert
+		expect(serializeBridgeCommWorkerDemandMembership(speculativeMembership)).toEqual(
+			new Map([
+				['selected', 'selected:12'],
+				['visible', 'visible'],
+				['hovered', 'speculative'],
+			]),
+		);
+		expect(visiblePrecedenceMembership.membersByItemId.get('visible')).toEqual({
+			itemId: 'visible',
+			role: 'visible',
+		});
+		expect(selectedPrecedenceMembership.membersByItemId.get('selected')).toEqual({
+			itemId: 'selected',
+			role: 'selected',
+			selectedDemandEpoch: 12,
+		});
+	});
 });
 
 function makeReviewContentMetadata(

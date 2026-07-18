@@ -190,6 +190,10 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		}
 	>();
 	const activeVisiblePreparations = new Set<BridgeWorkerReviewContentReadyPreparationTicket>();
+	const activeSpeculativePreparationsByItemId = new Map<
+		string,
+		ActiveSpeculativeReviewPreparation
+	>();
 	const latestSelectedPreparationByItemId = new Map<
 		string,
 		BridgeCommWorkerSelectedReviewContentReadyPreparationRequest
@@ -288,7 +292,23 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 			visibleDemandGenerationByItemId,
 			workerDerivationEpoch,
 		});
-		let enqueued = false;
+		let enqueued = reconcileSpeculativeReviewDemandExecution({
+			activePreparationsByItemId: activeSpeculativePreparationsByItemId,
+			budget: props.budget,
+			createSequence: props.createSequence,
+			epoch: request.epoch,
+			...(props.openReviewContent === undefined ? {} : { openContent: props.openReviewContent }),
+			fetchReviewContentResource,
+			port: props.port,
+			pump: props.pump,
+			recordPreparationCompletion: props.recordPreparationCompletion,
+			onPreparationSettled: rederiveLatestDemandExecution,
+			requestPreparationDrain: props.requestPreparationDrain,
+			reviewRuntimeSource,
+			signal: admittedWorkSignal,
+			store: request.store,
+			workerDerivationEpoch,
+		});
 		let startedItemCount = 0;
 		for (const ticket of tickets) {
 			if (ticket.enqueued) {
@@ -313,15 +333,29 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 					props.requestPreparationDrain();
 				}
 			});
-		} else if (activeVisiblePreparations.size === 0 && latestDemandExecutionRequest === request) {
+		} else if (
+			activeVisiblePreparations.size === 0 &&
+			activeSpeculativePreparationsByItemId.size === 0 &&
+			latestDemandExecutionRequest === request
+		) {
 			latestDemandExecutionRequest = null;
 		}
 		return enqueued;
 	};
 
+	function rederiveLatestDemandExecution(): void {
+		if (activeSelectedPreparationByItemId.size > 0 || latestDemandExecutionRequest === null) {
+			return;
+		}
+		if (enqueueVisibleDemandExecutionFromRequest(latestDemandExecutionRequest)) {
+			props.requestPreparationDrain();
+		}
+	}
+
 	const scheduleSelectedContentReadyPreparation = (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	): void => {
+		cancelSpeculativeReviewPreparations(activeSpeculativePreparationsByItemId);
 		latestSelectedPreparationByItemId.set(request.itemId, request);
 		if (!isWorkAdmitted()) {
 			return;
@@ -373,9 +407,12 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 						latestSelectedPreparationByItemId.delete(request.itemId);
 					}
 				}
+				rederiveLatestDemandExecution();
 			});
 			props.recordPreparationCompletion(trackedCompletion);
 			props.markPreparationDrainRequired();
+		} else {
+			rederiveLatestDemandExecution();
 		}
 	};
 
@@ -419,6 +456,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		activeSelectedPreparationByItemId.clear();
 		for (const ticket of activeVisiblePreparations) ticket.cancel();
 		activeVisiblePreparations.clear();
+		cancelSpeculativeReviewPreparations(activeSpeculativePreparationsByItemId);
 		demandInFlightItemIds.clear();
 		if (activeSourceResetEpoch !== null) {
 			props.pump.cancel(`review-source-reset:${activeSourceResetEpoch}`);
@@ -454,6 +492,140 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 			activeWorkerDerivationEpoch = workerDerivationEpoch;
 		},
 	};
+}
+
+interface ReconcileSpeculativeReviewDemandExecutionProps {
+	readonly activePreparationsByItemId: Map<string, ActiveSpeculativeReviewPreparation>;
+	readonly budget: BridgeWorkerPierreRenderBudget;
+	readonly createSequence: () => number;
+	readonly epoch: number;
+	readonly fetchReviewContentResource?: BridgeWorkerReviewContentResourceFetch;
+	readonly openContent?: BridgeWorkerReviewContentOpen;
+	readonly onPreparationSettled: () => void;
+	readonly port: BridgeCommWorkerPort;
+	readonly pump: WorkerContentPreparationPump;
+	readonly recordPreparationCompletion: (completion: Promise<void>) => void;
+	readonly requestPreparationDrain: () => void;
+	readonly reviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource;
+	readonly signal: AbortSignal;
+	readonly store: BridgeCommWorkerStore;
+	readonly workerDerivationEpoch: number;
+}
+
+interface ActiveSpeculativeReviewPreparation {
+	readonly abortController: AbortController;
+	readonly detachParentAbort: () => void;
+	readonly ticket: BridgeWorkerReviewContentReadyPreparationTicket;
+}
+
+function reconcileSpeculativeReviewDemandExecution(
+	props: ReconcileSpeculativeReviewDemandExecutionProps,
+): boolean {
+	const hoveredItemId = speculativeReviewDemandItemIdFromState(props.store.getState());
+	for (const [itemId, preparation] of props.activePreparationsByItemId) {
+		if (itemId === hoveredItemId) continue;
+		cancelSpeculativeReviewPreparation(preparation);
+		props.activePreparationsByItemId.delete(itemId);
+	}
+	if (
+		hoveredItemId === null ||
+		props.activePreparationsByItemId.has(hoveredItemId) ||
+		props.activePreparationsByItemId.size >=
+			bridgeContentDemandExecutionPolicy.speculativeStartConcurrency ||
+		!doesReviewDemandNeedExecution(props.store, hoveredItemId) ||
+		!hasReviewRuntimeSourceContent(props.reviewRuntimeSource, hoveredItemId)
+	) {
+		return false;
+	}
+	const abortContext = createSpeculativeReviewAbortContext(props.signal);
+	const ticket = enqueueBridgeWorkerReviewContentReadyPreparation({
+		bridgeDemandRank: { lane: 'speculative', priority: 1 },
+		budget: {
+			className: 'background',
+			maxBytes: props.budget.maxBytes,
+			maxWindowLines: props.budget.maxWindowLines,
+		},
+		contentRequestDescriptors: props.reviewRuntimeSource.contentRequestDescriptors,
+		demandKey: 'speculative',
+		epoch: props.epoch,
+		...(props.fetchReviewContentResource === undefined
+			? {}
+			: { fetchReviewContentResource: props.fetchReviewContentResource }),
+		...(props.openContent === undefined ? {} : { openContent: props.openContent }),
+		isDemandCurrent: (): boolean =>
+			props.store.getState().demandByKey.get(hoveredItemId) === 'speculative',
+		itemId: hoveredItemId,
+		port: props.port,
+		preparationRank: 'speculative',
+		pump: props.pump,
+		renderSemantics: props.reviewRuntimeSource.renderSemantics,
+		requestPreparationDrain: props.requestPreparationDrain,
+		sequence: props.createSequence(),
+		signal: abortContext.abortController.signal,
+		store: props.store,
+		workerDerivationEpoch: props.workerDerivationEpoch,
+	});
+	if (!ticket.enqueued) {
+		abortContext.detachParentAbort();
+		return false;
+	}
+	const preparation: ActiveSpeculativeReviewPreparation = {
+		...abortContext,
+		ticket,
+	};
+	props.activePreparationsByItemId.set(hoveredItemId, preparation);
+	const trackedCompletion = ticket.completion.finally((): void => {
+		abortContext.detachParentAbort();
+		if (props.activePreparationsByItemId.get(hoveredItemId) === preparation) {
+			props.activePreparationsByItemId.delete(hoveredItemId);
+		}
+		props.onPreparationSettled();
+	});
+	props.recordPreparationCompletion(trackedCompletion);
+	props.requestPreparationDrain();
+	return true;
+}
+
+function cancelSpeculativeReviewPreparations(
+	activePreparationsByItemId: Map<string, ActiveSpeculativeReviewPreparation>,
+): void {
+	for (const preparation of activePreparationsByItemId.values()) {
+		cancelSpeculativeReviewPreparation(preparation);
+	}
+	activePreparationsByItemId.clear();
+}
+
+function cancelSpeculativeReviewPreparation(preparation: ActiveSpeculativeReviewPreparation): void {
+	preparation.abortController.abort('review_hover_changed');
+	preparation.ticket.cancel();
+	preparation.detachParentAbort();
+}
+
+function createSpeculativeReviewAbortContext(
+	parentSignal: AbortSignal,
+): Pick<ActiveSpeculativeReviewPreparation, 'abortController' | 'detachParentAbort'> {
+	const abortController = new AbortController();
+	const abortFromParent = (): void => {
+		abortController.abort(parentSignal.reason);
+	};
+	if (parentSignal.aborted) {
+		abortFromParent();
+	} else {
+		parentSignal.addEventListener('abort', abortFromParent, { once: true });
+	}
+	return {
+		abortController,
+		detachParentAbort: (): void => {
+			parentSignal.removeEventListener('abort', abortFromParent);
+		},
+	};
+}
+
+function speculativeReviewDemandItemIdFromState(state: BridgeCommWorkerStoreState): string | null {
+	for (const [itemId, demandKey] of state.demandByKey) {
+		if (demandKey === 'speculative') return itemId;
+	}
+	return null;
 }
 
 interface EnqueueVisibleBridgeCommWorkerReviewDemandExecutionProps {
@@ -592,6 +764,15 @@ function doesVisibleReviewDemandNeedExecution(
 		return true;
 	}
 	return fulfillment.stage === 'desired' || fulfillment.stage === 'retry_wait';
+}
+
+function doesReviewDemandNeedExecution(store: BridgeCommWorkerStore, itemId: string): boolean {
+	const availability = store.getState().availabilityByItemId.get(itemId);
+	if (availability === 'failed' || availability === 'unavailable') return false;
+	const fulfillment = store.renderFulfillmentRegistry.getItemState(itemId);
+	return (
+		fulfillment === null || fulfillment.stage === 'desired' || fulfillment.stage === 'retry_wait'
+	);
 }
 
 function markVisibleReviewDemandSourceChurn(props: {

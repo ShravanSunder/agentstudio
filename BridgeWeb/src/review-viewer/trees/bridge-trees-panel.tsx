@@ -75,6 +75,7 @@ export interface BridgeReviewTreesPanelProps {
 	readonly searchText: string;
 	readonly selectionRevealRequest?: BridgeReviewTreeSelectionRevealRequest | null;
 	readonly onSelectItem: (itemId: string) => void;
+	readonly onHoveredItemIdChange?: (itemId: string | null) => void;
 	readonly onVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryTraceContext?: BridgeTraceContext | null;
@@ -105,6 +106,14 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	const initialSourceRef = useRef(source);
 	const onSelectItemRef = useRef(props.onSelectItem);
 	onSelectItemRef.current = props.onSelectItem;
+	const onHoveredItemIdChangeRef = useRef(props.onHoveredItemIdChange);
+	onHoveredItemIdChangeRef.current = props.onHoveredItemIdChange;
+	useEffect(
+		(): (() => void) => (): void => {
+			onHoveredItemIdChangeRef.current?.(null);
+		},
+		[],
+	);
 	const onVisibleItemIdsChange = props.onVisibleItemIdsChange;
 	const telemetryRecorder = props.telemetryRecorder;
 	const telemetryTraceContext = props.telemetryTraceContext ?? null;
@@ -279,6 +288,16 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		},
 		[model, telemetryRecorder, telemetryTraceContext],
 	);
+	const publishHoveredReviewItem = useCallback((event: Event | null): void => {
+		const hoveredItemId =
+			event === null
+				? null
+				: reviewTreeItemIdForEventTarget({
+						primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
+						target: event,
+					});
+		onHoveredItemIdChangeRef.current?.(hoveredItemId);
+	}, []);
 
 	useEffect((): (() => void) => {
 		let scrollElement: BridgePierreTreeScrollOwner | null = null;
@@ -355,8 +374,15 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			className="h-full min-h-0 overflow-hidden bg-[var(--bridge-surface-bg)] text-[var(--bridge-text-secondary)]"
 			data-testid="bridge-review-trees-panel"
 			onClickCapture={(event): void => selectClickedFileRow(event.nativeEvent)}
-			onPointerOverCapture={(event): void => measureHoverToRender(event.nativeEvent)}
-			onPointerMoveCapture={(event): void => measureHoverToRender(event.nativeEvent)}
+			onPointerLeave={(): void => publishHoveredReviewItem(null)}
+			onPointerOverCapture={(event): void => {
+				publishHoveredReviewItem(event.nativeEvent);
+				measureHoverToRender(event.nativeEvent);
+			}}
+			onPointerMoveCapture={(event): void => {
+				publishHoveredReviewItem(event.nativeEvent);
+				measureHoverToRender(event.nativeEvent);
+			}}
 		>
 			<FileTree model={model} style={bridgeViewerTreeStyle} />
 		</div>
@@ -365,7 +391,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 
 export function reviewTreeItemIdForEventTarget(props: {
 	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
-	readonly target: EventTarget | null;
+	readonly target: Event | EventTarget | null;
 }): string | null {
 	return (
 		reviewTreeSelectionForEventTarget({

@@ -12,6 +12,7 @@ import {
 	type BridgeViewerReviewMountedHeaderOrderViolation,
 	type BridgeViewerReviewTreeSelectionProof,
 } from './product-only-real-router-contract.ts';
+import { waitForProductBrowserFrameSettlement } from './product-only-real-router-settlement.ts';
 
 const productJourneyTimeoutMilliseconds = 120_000;
 const productCompositionSettleTimeoutMilliseconds = 10_000;
@@ -291,14 +292,7 @@ export async function proveReviewTreeSelection(props: {
 			{ timeout: productCompositionSettleTimeoutMilliseconds },
 		);
 	});
-	await props.page.evaluate(
-		() =>
-			new Promise<void>((resolve): void => {
-				requestAnimationFrame((): void => {
-					requestAnimationFrame((): void => resolve());
-				});
-			}),
-	);
+	await waitForFreshReviewFrameSettlement({ page: props.page, stage: 'tree-selection' });
 	const afterSelection = await readFreshReviewViewportState(props.page);
 	const targetVisibleItem = afterSelection.visibleItems.find(
 		(item): boolean => item.itemId === targetItemId,
@@ -447,7 +441,7 @@ async function captureFreshReviewHydrationWindow(props: {
 	readonly page: Page;
 	readonly selectedItemId: string | null;
 }): Promise<FreshReviewHydrationWindowSnapshot> {
-	await waitForProductCompositionState(async (): Promise<void> => {
+	const hydrationWindowSettled = await waitForProductCompositionState(async (): Promise<void> => {
 		await props.page.waitForFunction(
 			({ excludedItemIds, selectedItemId, selectors }): boolean => {
 				const codePanel = document.querySelector(selectors.reviewCodePanel);
@@ -510,14 +504,18 @@ async function captureFreshReviewHydrationWindow(props: {
 			{ timeout: productCompositionSettleTimeoutMilliseconds },
 		);
 	});
-	await props.page.evaluate(
-		() =>
-			new Promise<void>((resolve): void => {
-				requestAnimationFrame((): void => {
-					requestAnimationFrame((): void => resolve());
-				});
-			}),
-	);
+	if (!hydrationWindowSettled) {
+		const state = await readFreshReviewViewportState(props.page);
+		throw new Error(
+			`REVIEW_FRESH_ROUTE_HYDRATION_WINDOW_TIMEOUT:${JSON.stringify({
+				excludedItemIds: props.excludedItemIds,
+				scrollTop: state.codeScroll.scrollTop,
+				selectedItemId: props.selectedItemId,
+				visibleItems: state.visibleItems,
+			})}`,
+		);
+	}
+	await waitForFreshReviewFrameSettlement({ page: props.page, stage: 'hydration-window' });
 	const excludedItemIdSet = new Set(props.excludedItemIds);
 	const state = await readFreshReviewViewportState(props.page);
 	const visibleNonSelectedItems = state.visibleItems.filter(
@@ -666,14 +664,42 @@ async function scrollFreshReviewCodeView(props: {
 		},
 		{ nextScrollTop, selector: bridgeViewerProductOnlySelectors.reviewCodeScrollOwner },
 	);
-	await props.page.evaluate(
-		() =>
-			new Promise<void>((resolve): void => {
-				requestAnimationFrame((): void => {
-					requestAnimationFrame((): void => resolve());
-				});
-			}),
-	);
+	try {
+		await props.page.waitForFunction(
+			({ expectedScrollTop, selector }): boolean => {
+				const scrollOwner = document.querySelector(selector);
+				return (
+					scrollOwner instanceof HTMLElement &&
+					Math.abs(scrollOwner.scrollTop - expectedScrollTop) <= 1
+				);
+			},
+			{
+				expectedScrollTop: nextScrollTop,
+				selector: bridgeViewerProductOnlySelectors.reviewCodeScrollOwner,
+			},
+			{ timeout: productCompositionSettleTimeoutMilliseconds },
+		);
+	} catch (error: unknown) {
+		if (!(error instanceof errors.TimeoutError)) throw error;
+		throw new Error(`REVIEW_FRESH_ROUTE_SCROLL_SETTLEMENT_TIMEOUT:${nextScrollTop}`, {
+			cause: error,
+		});
+	}
+	await waitForFreshReviewFrameSettlement({
+		page: props.page,
+		stage: `scroll:${nextScrollTop}`,
+	});
+}
+
+async function waitForFreshReviewFrameSettlement(props: {
+	readonly page: Page;
+	readonly stage: string;
+}): Promise<void> {
+	await waitForProductBrowserFrameSettlement({
+		page: props.page,
+		stage: `review-fresh-route:${props.stage}`,
+		timeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
+	});
 }
 
 export function nextFreshReviewTraversalScrollTop(props: {

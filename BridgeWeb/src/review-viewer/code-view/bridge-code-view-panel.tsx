@@ -55,6 +55,7 @@ import {
 	createBridgeCodeViewProgrammaticRevealGate,
 } from './bridge-code-view-programmatic-reveal-gate.js';
 import { prepareBridgeCodeViewPublicationPresentationItem } from './bridge-code-view-publication-presentation.js';
+import { shouldPreserveBridgeCodeViewReadableItemDuringLoading } from './bridge-code-view-readable-loading-preservation.js';
 import {
 	observeBridgeCodeViewRenderFulfillment,
 	reconcileBridgeCodeViewRenderFulfillment,
@@ -871,6 +872,15 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					itemId === props.selectedItemId ? (props.selectedItemPresentation ?? null) : null,
 				);
 				const existingItem = codeViewHandle.getItem(itemId);
+				if (
+					shouldPreserveBridgeCodeViewReadableItemDuringLoading({
+						existingItem,
+						itemDescriptor: loadingItemDescriptor,
+						loadingItem,
+					})
+				) {
+					continue;
+				}
 				if (
 					bridgeCodeViewLoadingPlaceholderMatchesDescriptor({
 						existingItem,

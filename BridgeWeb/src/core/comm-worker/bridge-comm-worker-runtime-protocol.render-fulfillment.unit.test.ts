@@ -194,7 +194,18 @@ describe('Bridge comm worker runtime render fulfillment', () => {
 
 	test('re-demands a ready visible Review publication after matching terminal rejection', async () => {
 		// Arrange
-		const harness = await createReviewRenderPublicationHarness('visible');
+		const scheduledWakes: TestScheduledRenderFulfillmentWake[] = [];
+		const harness = await createReviewRenderPublicationHarness(
+			'visible',
+			() => 0,
+			(delayMilliseconds, wake): (() => void) => {
+				const scheduledWake = { active: true, delayMilliseconds, wake };
+				scheduledWakes.push(scheduledWake);
+				return (): void => {
+					scheduledWake.active = false;
+				};
+			},
+		);
 		const firstPublication = harness.publication;
 		const nextDrainIndex = harness.scheduledDrains.length;
 
@@ -217,17 +228,6 @@ describe('Bridge comm worker runtime render fulfillment', () => {
 			harness.postedMessages,
 			'request-reject-visible-publication',
 		).toMatchObject({ status: 'ready' });
-		harness.dispatch.message(
-			encodeBridgeWorkerViewportCommand({
-				epoch: reviewIntentEpoch + 1,
-				firstVisibleIndex: 0,
-				lastVisibleIndex: 0,
-				phase: 'settled',
-				requestId: 'request-re-demand-rejected-visible-publication',
-				surface: 'review',
-				visibleItemIds: [reviewItemId],
-			}),
-		);
 		await driveScheduledPreparationRounds({
 			nextDrainIndex,
 			scheduledDrains: harness.scheduledDrains,
@@ -245,8 +245,99 @@ describe('Bridge comm worker runtime render fulfillment', () => {
 		expect(publications[1]?.renderReceiptIdentity.attemptId).not.toBe(
 			firstPublication.renderReceiptIdentity.attemptId,
 		);
+		const secondPublication = publications[1];
+		if (secondPublication === undefined) {
+			throw new Error('Expected the rejection retry publication.');
+		}
+		dispatchDisposition(harness, {
+			disposition: 'queued',
+			identity: secondPublication.renderReceiptIdentity,
+			requestId: 'request-queued-after-rejection-retry',
+		});
+		dispatchDisposition(harness, {
+			disposition: 'applied',
+			identity: secondPublication.renderReceiptIdentity,
+			requestId: 'request-applied-after-rejection-retry',
+		});
+		dispatchDisposition(harness, {
+			disposition: 'painted',
+			identity: secondPublication.renderReceiptIdentity,
+			requestId: 'request-painted-after-rejection-retry',
+		});
+		expect(scheduledWakes.every((scheduledWake) => !scheduledWake.active)).toBe(true);
+	});
+
+	test('re-demands a visible Review publication after its receipt lease expires', async () => {
+		// Arrange
+		let nowMilliseconds = 0;
+		const scheduledWakes: TestScheduledRenderFulfillmentWake[] = [];
+		const harness = await createReviewRenderPublicationHarness(
+			'visible',
+			() => nowMilliseconds,
+			(delayMilliseconds, wake): (() => void) => {
+				const scheduledWake = { active: true, delayMilliseconds, wake };
+				scheduledWakes.push(scheduledWake);
+				return (): void => {
+					scheduledWake.active = false;
+				};
+			},
+		);
+		const firstPublication = harness.publication;
+		const nextDrainIndex = harness.scheduledDrains.length;
+		expect(scheduledWakes).toMatchObject([{ active: true, delayMilliseconds: 5_000 }]);
+
+		// Act: no disposition and no second viewport command arrive.
+		nowMilliseconds = 5_000;
+		runScheduledRenderFulfillmentWake(scheduledWakes[0]);
+		expect(scheduledWakes[1]).toMatchObject({ active: true, delayMilliseconds: 25 });
+		nowMilliseconds = 5_025;
+		runScheduledRenderFulfillmentWake(scheduledWakes[1]);
+		await driveScheduledPreparationRounds({
+			nextDrainIndex,
+			scheduledDrains: harness.scheduledDrains,
+		});
+
+		// Assert
+		const publications = harness.postedMessages.flatMap(({ message }) =>
+			message.kind === 'reviewPierreRenderJob' ? [message] : [],
+		);
+		expect(publications).toHaveLength(2);
+		expect(publications[1]?.renderReceiptIdentity).toMatchObject({
+			publicationId: firstPublication.renderReceiptIdentity.publicationId,
+			submissionId: firstPublication.renderReceiptIdentity.submissionId,
+		});
+		expect(publications[1]?.renderReceiptIdentity.attemptId).not.toBe(
+			firstPublication.renderReceiptIdentity.attemptId,
+		);
+
+		const secondPublication = publications[1];
+		if (secondPublication === undefined) {
+			throw new Error('Expected the lease-expiry retry publication.');
+		}
+		dispatchDisposition(harness, {
+			disposition: 'queued',
+			identity: secondPublication.renderReceiptIdentity,
+			requestId: 'request-queued-after-lease-retry',
+		});
+		dispatchDisposition(harness, {
+			disposition: 'applied',
+			identity: secondPublication.renderReceiptIdentity,
+			requestId: 'request-applied-after-lease-retry',
+		});
+		dispatchDisposition(harness, {
+			disposition: 'painted',
+			identity: secondPublication.renderReceiptIdentity,
+			requestId: 'request-painted-after-lease-retry',
+		});
+		expect(scheduledWakes.every((scheduledWake) => !scheduledWake.active)).toBe(true);
 	});
 });
+
+interface TestScheduledRenderFulfillmentWake {
+	active: boolean;
+	readonly delayMilliseconds: number;
+	readonly wake: () => void;
+}
 
 interface ReviewRenderPublicationHarness {
 	readonly dispatch: ReturnType<typeof createRecordingBridgeCommWorkerPort>['dispatch'];
@@ -257,6 +348,8 @@ interface ReviewRenderPublicationHarness {
 
 async function createReviewRenderPublicationHarness(
 	demand: 'selected' | 'visible' = 'selected',
+	now?: () => number,
+	scheduleRenderFulfillmentWake?: (delayMilliseconds: number, wake: () => void) => () => void,
 ): Promise<ReviewRenderPublicationHarness> {
 	const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 	const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
@@ -266,7 +359,8 @@ async function createReviewRenderPublicationHarness(
 		bridgeDemandRank: { lane: 'selected', priority: 0 },
 		budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 		openReviewContent: openReviewContentFromDescriptorMap,
-		pump: createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => 0 }),
+		...(now === undefined ? {} : { now }),
+		pump: createWorkerContentPreparationPump({ maxSliceMs: 8, now: now ?? (() => 0) }),
 		renderFulfillmentContext: {
 			paneSessionId: runtimePaneSessionId,
 			workerInstanceId: runtimeWorkerInstanceId,
@@ -274,6 +368,7 @@ async function createReviewRenderPublicationHarness(
 		schedulePreparationDrain: (drain): void => {
 			scheduledDrains.push(drain);
 		},
+		...(scheduleRenderFulfillmentWake === undefined ? {} : { scheduleRenderFulfillmentWake }),
 	});
 	openReviewProductSources.add(reviewProductSource);
 	postedMessages.length = 0;
@@ -305,6 +400,16 @@ async function createReviewRenderPublicationHarness(
 		scheduledDrains,
 	});
 	return { dispatch, postedMessages, publication, scheduledDrains };
+}
+
+function runScheduledRenderFulfillmentWake(
+	scheduledWake: TestScheduledRenderFulfillmentWake | undefined,
+): void {
+	if (scheduledWake === undefined || !scheduledWake.active) {
+		throw new Error('Expected an active Review render-fulfillment wake.');
+	}
+	scheduledWake.active = false;
+	scheduledWake.wake();
 }
 
 function makeReviewRuntimeSource(): BridgeCommWorkerReviewRuntimeSource {

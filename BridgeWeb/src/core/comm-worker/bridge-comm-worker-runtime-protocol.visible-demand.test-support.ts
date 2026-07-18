@@ -1,7 +1,13 @@
-import type { BridgeCommWorkerPreparationDrain } from './bridge-comm-worker-runtime-protocol.js';
+import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
+import {
+	registerBridgeCommWorkerRuntimePortProtocol,
+	type BridgeCommWorkerPreparationDrain,
+} from './bridge-comm-worker-runtime-protocol.js';
 import {
 	assertBridgeCommWorkerPreparationDrain,
+	createBridgeCommWorkerReviewProductTestSource,
 	flushBridgeWorkerRuntimeContinuations,
+	type BridgeCommWorkerReviewProductTestSource,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import type { BridgeWorkerReviewContentOpen } from './bridge-worker-review-content-fetch.js';
 
@@ -133,4 +139,57 @@ export async function drainBridgeWorkerVisibleDemandRuntimeUntilQuiescent(props:
 			);
 		}
 	}
+}
+
+type InitialReviewSource = BridgeCommWorkerReviewRuntimeSource;
+
+export async function registerBridgeRuntimeWithInitialReviewSource(
+	port: Parameters<typeof registerBridgeCommWorkerRuntimePortProtocol>[0],
+	props: Parameters<typeof registerBridgeCommWorkerRuntimePortProtocol>[1] & InitialReviewSource,
+): Promise<BridgeCommWorkerReviewProductTestSource> {
+	const {
+		contentItems,
+		contentRequestDescriptors,
+		renderSemantics,
+		rows,
+		schedulePreparationDrain,
+		...runtimeProps
+	} = props;
+	if (schedulePreparationDrain === undefined) {
+		throw new Error('Expected a visible-demand test preparation scheduler.');
+	}
+	const initializationDrains: BridgeCommWorkerPreparationDrain[] = [];
+	let isInitializingSource = true;
+	const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
+	registerBridgeCommWorkerRuntimePortProtocol(port, {
+		...runtimeProps,
+		productTransport: reviewProductSource.productTransport,
+		schedulePreparationDrain: (drain): void => {
+			if (isInitializingSource) {
+				initializationDrains.push(drain);
+				return;
+			}
+			schedulePreparationDrain(drain);
+		},
+	});
+	reviewProductSource.publishSource(
+		{
+			contentItems,
+			contentRequestDescriptors,
+			renderSemantics,
+			rows,
+		},
+		4,
+	);
+	await flushBridgeWorkerRuntimeContinuations();
+	for (let drainRound = 0; drainRound < 16; drainRound += 1) {
+		const drainsForRound = initializationDrains.splice(0);
+		if (drainsForRound.length === 0) break;
+		// oxlint-disable-next-line no-await-in-loop -- Each bounded round exposes source-reset continuation drains.
+		await Promise.all(drainsForRound.map((drain) => drain()));
+		// oxlint-disable-next-line no-await-in-loop -- Continuations publish their next drain at a microtask boundary.
+		await flushBridgeWorkerRuntimeContinuations();
+	}
+	isInitializingSource = false;
+	return reviewProductSource;
 }

@@ -546,6 +546,34 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		expect(reviewProofSource).not.toContain("return path !== null && !path.includes('/')");
 		expect(reviewProofSource).not.toContain('contentStates[headerIndex]');
 	});
+
+	test('bounds Review hydration settlement and owns browser cleanup before journey timeout returns', async () => {
+		// Arrange
+		const [journeySource, reviewProofSource, settlementSource] = await Promise.all([
+			readFile(new URL('./product-only-real-router-page.ts', import.meta.url), 'utf8'),
+			readFile(new URL('./product-only-real-router-review-proof.ts', import.meta.url), 'utf8'),
+			readFile(new URL('./product-only-real-router-settlement.ts', import.meta.url), 'utf8'),
+		]);
+
+		// Act
+		const hydrationTimeoutIsTerminal = reviewProofSource.includes(
+			'REVIEW_FRESH_ROUTE_HYDRATION_WINDOW_TIMEOUT',
+		);
+		const frameSettlementIsBounded = reviewProofSource.includes(
+			'waitForFreshReviewFrameSettlement',
+		);
+		const journeyOwnsDeadlineCleanup = journeySource.includes('createOwnedProductJourneyDeadline');
+
+		// Assert
+		expect(hydrationTimeoutIsTerminal).toBe(true);
+		expect(frameSettlementIsBounded).toBe(true);
+		expect(journeyOwnsDeadlineCleanup).toBe(true);
+		expect(journeySource).toContain('BRIDGE_PRODUCT_JOURNEY_DEADLINE_EXCEEDED');
+		expect(journeySource).not.toContain('requestAnimationFrame');
+		expect(reviewProofSource).not.toContain('requestAnimationFrame');
+		expect(settlementSource).toContain('page.waitForFunction');
+		expect(settlementSource).toContain('{ timeout: props.timeoutMilliseconds }');
+	});
 });
 
 function makePassingProductOnlyProof(

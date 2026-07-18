@@ -82,6 +82,10 @@ export interface RegisterBridgeCommWorkerRuntimePortProtocolProps {
 		readonly paneSessionId: string;
 		readonly workerInstanceId: string;
 	};
+	readonly scheduleRenderFulfillmentWake?: (
+		delayMilliseconds: number,
+		wake: () => void,
+	) => () => void;
 	readonly schedulePreparationDrain?: (drain: BridgeCommWorkerPreparationDrain) => void;
 	readonly sendProductControl?: BridgeCommWorkerProductControlSender;
 	readonly productControlTimeoutMilliseconds?: number;
@@ -107,6 +111,8 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		});
 	const schedulePreparationDrain =
 		props.schedulePreparationDrain ?? scheduleDefaultBridgeCommWorkerPreparationDrain;
+	const scheduleRenderFulfillmentWake =
+		props.scheduleRenderFulfillmentWake ?? scheduleDefaultBridgeRenderFulfillmentWake;
 	let sendProductControl = props.sendProductControl ?? rejectUninstalledBridgeProductControl;
 	const productTransport = props.productTransport;
 	const openFileViewContent: BridgeWorkerFileViewContentOpen =
@@ -124,6 +130,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const preparationCompletions: Promise<void>[] = [];
 	let drainScheduled = false;
 	let shouldRequestDrainAfterMessage = false;
+	let cancelReviewRenderFulfillmentWake: (() => void) | null = null;
 	const panePresentationAuthority = new BridgeCommWorkerPanePresentationAuthority();
 	let fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource = {
 		contentItems: [],
@@ -255,6 +262,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		drainScheduled = false;
 		const completions = preparationCompletions.splice(0, preparationCompletions.length);
 		const runResult = pump.runUntilBudget();
+		advanceReviewRenderFulfillmentLifecycle();
 		const completionResults = await Promise.allSettled(completions);
 		const rejectedCompletion = completionResults.find(
 			(result): result is PromiseRejectedResult => result.status === 'rejected',
@@ -356,6 +364,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		renderSemantics: [],
 		rows: [],
 		createSequence,
+		...(props.now === undefined ? {} : { renderFulfillmentNow: props.now }),
 		...(props.renderFulfillmentContext === undefined
 			? {}
 			: { renderFulfillmentContext: props.renderFulfillmentContext }),
@@ -410,6 +419,24 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 						}),
 				}),
 	});
+	const advanceReviewRenderFulfillmentLifecycle = (): void => {
+		const nowMilliseconds = props.now?.() ?? performance.now();
+		const lifecycleAdvance = handler.advanceReviewRenderFulfillmentLifecycle(nowMilliseconds);
+		cancelReviewRenderFulfillmentWake?.();
+		cancelReviewRenderFulfillmentWake = null;
+		if (lifecycleAdvance.nextWakeAtMilliseconds === null) return;
+		cancelReviewRenderFulfillmentWake = scheduleRenderFulfillmentWake(
+			Math.max(0, lifecycleAdvance.nextWakeAtMilliseconds - nowMilliseconds),
+			(): void => {
+				cancelReviewRenderFulfillmentWake = null;
+				shouldRequestDrainAfterMessage = false;
+				advanceReviewRenderFulfillmentLifecycle();
+				if (shouldRequestDrainAfterMessage || pump.getPendingWorkIds().length > 0) {
+					requestPreparationDrain();
+				}
+			},
+		);
+	};
 	if (productTransport !== undefined) {
 		productTransport.setPaneSurfaceSelectionFrameSink?.((frame): void => {
 			port.postMessage(bridgeWorkerNativeSurfaceSelectionRequestFromMetadataFrame(frame));
@@ -597,6 +624,12 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			handlerStartedAtMilliseconds -
 			(parsedMessage.data.issuedAtMilliseconds ?? handlerStartedAtMilliseconds);
 		const messages = handler.handleMessage(parsedMessage.data);
+		if (
+			parsedMessage.data.command === 'renderDisposition' &&
+			parsedMessage.data.receipt.surface === 'review'
+		) {
+			advanceReviewRenderFulfillmentLifecycle();
+		}
 		const handlerDurationMilliseconds =
 			readBridgeCommWorkerRuntimeNowMilliseconds(props.now) - handlerStartedAtMilliseconds;
 		recordBridgeCommWorkerTaskTelemetry({
@@ -709,6 +742,14 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		}
 	});
 	port.start?.();
+}
+
+function scheduleDefaultBridgeRenderFulfillmentWake(
+	delayMilliseconds: number,
+	wake: () => void,
+): () => void {
+	const timeoutId = globalThis.setTimeout(wake, delayMilliseconds);
+	return (): void => globalThis.clearTimeout(timeoutId);
 }
 
 async function rejectUninstalledBridgeProductControl(

@@ -62,6 +62,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const clearSelectedReviewItemId = controller.clearSelectedReviewItemId;
 	const commitSelectedReviewItemId = controller.commitSelectedReviewItemId;
 	const displayStore = controller.displayStore;
+	const emitHoveredReviewItemIntent = controller.emitHoveredReviewItemIntent;
 	const emitSelectedReviewItemIntent = controller.emitSelectedReviewItemIntent;
 	const markFileViewed = controller.markFileViewed;
 	const panelChromeSlice = controller.panelChromeSlice;
@@ -116,10 +117,16 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		const wasActive = wasReviewViewportActiveRef.current;
 		wasReviewViewportActiveRef.current = isActive;
 		if (wasActive && !isActive) {
+			emitHoveredReviewItemIntent(null);
 			setReviewCodeViewVisibleItemIds([]);
 			setReviewTreeVisibleItemIds([]);
 		}
-	}, [isActive, setReviewCodeViewVisibleItemIds, setReviewTreeVisibleItemIds]);
+	}, [
+		emitHoveredReviewItemIntent,
+		isActive,
+		setReviewCodeViewVisibleItemIds,
+		setReviewTreeVisibleItemIds,
+	]);
 	const publishCodeViewVisibleItemIds = useCallback(
 		(itemIds: readonly string[]): void => {
 			if (isActive) setReviewCodeViewVisibleItemIds(itemIds);
@@ -131,6 +138,12 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 			if (isActive) setReviewTreeVisibleItemIds(itemIds);
 		},
 		[isActive, setReviewTreeVisibleItemIds],
+	);
+	const publishHoveredReviewItemId = useCallback(
+		(itemId: string | null): void => {
+			if (isActive) emitHoveredReviewItemIntent(itemId);
+		},
+		[emitHoveredReviewItemIntent, isActive],
 	);
 	const openTreeSearch = useCallback((): void => {
 		setTreeSearchOpen(true);
@@ -245,6 +258,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		onTreeSearchTextChange: updateTreeSearchTextFromActiveTree,
 		onFileClassFilterChange: setFileClassFilter,
 		onGitStatusFilterChange: setGitStatusFilter,
+		onHoveredItemIdChange: publishHoveredReviewItemId,
 	});
 	return (
 		<BridgeReviewViewerShellBoundary
@@ -284,6 +298,7 @@ function reviewPresentationState(props: {
 	readonly onTreeSearchTextChange: (searchText: string) => void;
 	readonly onFileClassFilterChange: (filter: BridgeFileClass | 'all') => void;
 	readonly onGitStatusFilterChange: (filter: BridgeFileChangeKind | 'all') => void;
+	readonly onHoveredItemIdChange: (itemId: string | null) => void;
 }): BridgeReviewViewerPresentationState {
 	if (props.reviewSourceSlice === null) return { status: 'empty' };
 	if (props.reviewSourceSlice.status === 'failed') {
@@ -306,6 +321,7 @@ function reviewPresentationState(props: {
 			},
 			onFileClassFilterChange: props.onFileClassFilterChange,
 			onGitStatusFilterChange: props.onGitStatusFilterChange,
+			onHoveredItemIdChange: props.onHoveredItemIdChange,
 			panelChromeSlice: props.panelChromeSlice,
 			presentationPositionKey: props.presentationPositionKey,
 			presentationRegistry: props.presentationSnapshot.presentationRegistry,

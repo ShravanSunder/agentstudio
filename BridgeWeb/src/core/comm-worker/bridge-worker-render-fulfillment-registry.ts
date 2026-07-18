@@ -207,6 +207,24 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		return Object.freeze(releasedItemIds);
 	}
 
+	nextLifecycleWakeAtMilliseconds(): number | null {
+		let nextWakeAtMilliseconds: number | null = null;
+		for (const currentState of this.#fulfillmentByItemId.values()) {
+			const candidateWakeAtMilliseconds =
+				currentState.stage === 'retry_wait'
+					? currentState.retryAtMilliseconds
+					: currentState.activeAttempt?.receiptLeaseExpiresAtMilliseconds;
+			if (
+				candidateWakeAtMilliseconds !== null &&
+				candidateWakeAtMilliseconds !== undefined &&
+				(nextWakeAtMilliseconds === null || candidateWakeAtMilliseconds < nextWakeAtMilliseconds)
+			) {
+				nextWakeAtMilliseconds = candidateWakeAtMilliseconds;
+			}
+		}
+		return nextWakeAtMilliseconds;
+	}
+
 	getItemState(itemId: string): BridgeWorkerRenderFulfillmentState | null {
 		return this.#fulfillmentByItemId.get(itemId) ?? null;
 	}

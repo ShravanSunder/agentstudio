@@ -25,6 +25,7 @@ import { buildBridgeWorkerPierreRenderJob } from '../../core/comm-worker/bridge-
 import type { BridgeWorkerRenderDispositionReceipt } from '../../core/comm-worker/bridge-worker-render-fulfillment.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
+import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
 import { BridgeCodeViewPanel } from './bridge-code-view-panel.js';
@@ -49,6 +50,144 @@ interface PendingAnimationFrame {
 }
 
 describe('BridgeCodeViewPanel render fulfillment', () => {
+	test('keeps Pierre-retained readable content when the same semantic item is selected without a keyed frontend copy', async () => {
+		// Arrange: Pierre already owns a hydrated visible item, while the controller-facing keyed
+		// copy will disappear before selection. This is the split state observed during Review clicks.
+		const mountedCodeView: { current: CodeView | null } = { current: null };
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalSetup = CodeView.prototype.setup;
+		CodeView.prototype.setup = function captureMountedCodeView(root: HTMLElement): void {
+			mountedCodeView.current = this;
+			originalSetup.call(this, root);
+		};
+		const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
+			cancelAnimationFrame: (frameHandle): void => cancelAnimationFrame(frameHandle),
+			nowMilliseconds: (): number => performance.now(),
+			requestAnimationFrame: (callback): number => requestAnimationFrame(callback),
+			sendDisposition: (): void => {},
+		});
+		const publicationItem = requireExactReviewPierreDiffItem(
+			makeReviewPublication({
+				contentsMarker: 'retained-readable-selection',
+				publicationSequence: 1,
+				version: 17,
+			}).job.payload.item,
+		);
+		const retainedReadableItem = prepareBridgeMainPierreItemForPresentation({
+			currentItem: undefined,
+			presentationItem: publicationItem,
+		}).item;
+		const reviewPackage = makeBridgeReviewPackage();
+		const reviewItem = reviewPackage.itemsById[publicationItem.id];
+		if (reviewItem === undefined) {
+			throw new Error('Expected the Review fixture item for retained-readable selection.');
+		}
+		const semanticallyCurrentReviewPackage = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				[publicationItem.id]: {
+					...reviewItem,
+					cacheKey: publicationItem.bridgeMetadata.cacheKey,
+				},
+			},
+		} satisfies BridgeReviewPackage;
+		const projection = buildBridgeReviewProjection({
+			reviewPackage: semanticallyCurrentReviewPackage,
+			request: { facets: [], mode: { kind: 'normalReview' } },
+		});
+		const panelProps = {
+			presentationPositionKey: 'retained-readable-selection-position',
+			projection,
+			renderFulfillmentCoordinator,
+			reviewPackage: semanticallyCurrentReviewPackage,
+			selectedCodeViewItem: null,
+			selectedItemId: null,
+			visibleCodeViewItems: [retainedReadableItem],
+			workerPoolEnabled: false,
+		};
+		const rendered = render(<BridgeCodeViewPanel {...panelProps} />);
+
+		try {
+			await settleBridgeCodeViewState(
+				(): boolean =>
+					mountedCodeView.current?.getItem(publicationItem.id) === retainedReadableItem,
+				'Expected Pierre to retain the hydrated visible Review item before selection.',
+			);
+
+			// Act: the same semantic item becomes selected after its keyed frontend copy was reset.
+			await act(async (): Promise<void> => {
+				rendered.rerender(
+					<BridgeCodeViewPanel
+						{...panelProps}
+						selectedContentLoadingItemId={publicationItem.id}
+						selectedItemId={publicationItem.id}
+						visibleCodeViewItems={[]}
+					/>,
+				);
+				await Promise.resolve();
+			});
+			await act(async (): Promise<void> => {
+				await new Promise<void>((resolve): void => {
+					requestAnimationFrame((): void => resolve());
+				});
+				await Promise.resolve();
+			});
+
+			// Assert: selection alone must not blank semantically current readable residency.
+			const itemAfterSelection = requireCurrentReviewPierreDiffItem(
+				requireMountedCodeView(mountedCodeView.current),
+				publicationItem.id,
+			);
+			expect(itemAfterSelection.bridgeMetadata.contentState).toBe('hydrated');
+			expect(itemAfterSelection).toBe(retainedReadableItem);
+
+			// Act: the same item id now describes different source content.
+			const changedReviewPackage = {
+				...semanticallyCurrentReviewPackage,
+				revision: semanticallyCurrentReviewPackage.revision + 1,
+				itemsById: {
+					...semanticallyCurrentReviewPackage.itemsById,
+					[publicationItem.id]: {
+						...reviewItem,
+						cacheKey: 'changed-base-content|changed-head-content',
+						itemVersion: reviewItem.itemVersion + 1,
+					},
+				},
+			} satisfies BridgeReviewPackage;
+			const changedProjection = buildBridgeReviewProjection({
+				reviewPackage: changedReviewPackage,
+				request: { facets: [], mode: { kind: 'normalReview' } },
+			});
+			await act(async (): Promise<void> => {
+				rendered.rerender(
+					<BridgeCodeViewPanel
+						{...panelProps}
+						projection={changedProjection}
+						reviewPackage={changedReviewPackage}
+						selectedContentLoadingItemId={publicationItem.id}
+						selectedItemId={publicationItem.id}
+						visibleCodeViewItems={[]}
+					/>,
+				);
+				await Promise.resolve();
+			});
+
+			// Assert: readable residency is not preserved across a content-identity change.
+			await settleBridgeCodeViewState((): boolean => {
+				const currentItem = mountedCodeView.current?.getItem(publicationItem.id);
+				return (
+					currentItem !== undefined &&
+					isExactReviewPierreDiffItem(currentItem) &&
+					currentItem.bridgeMetadata.contentState === 'loading'
+				);
+			}, 'Expected changed Review content identity to replace retained residency with loading.');
+		} finally {
+			CodeView.prototype.setup = originalSetup;
+			renderFulfillmentCoordinator.dispose();
+		}
+	});
+
 	test('adapts Review items with main versions, preserves collapse, and reuses exact painted residency', async () => {
 		// Arrange: hold Pierre's public post-render callback so every fulfillment transition is
 		// deterministic, while retaining a real mounted CodeView and its public readback APIs.

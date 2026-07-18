@@ -177,15 +177,36 @@ function makeObserverHarness(): {
 } {
 	const eventHandlers = new Map<PageEventName, PageEventHandler[]>();
 	const animationFrameResolvers: Array<() => void> = [];
+	let activeFrameSettlement:
+		| {
+				settled: boolean;
+				readonly waiters: Array<() => void>;
+		  }
+		| undefined;
 	const pageShape = {
-		evaluate: (): Promise<void> =>
-			new Promise((resolve): void => {
-				animationFrameResolvers.push(resolve);
-			}),
+		evaluate: async (): Promise<void> => {
+			const frameSettlement = { settled: false, waiters: [] as Array<() => void> };
+			activeFrameSettlement = frameSettlement;
+			animationFrameResolvers.push((): void => {
+				frameSettlement.settled = true;
+				for (const resolveWaiter of frameSettlement.waiters) resolveWaiter();
+				frameSettlement.waiters.length = 0;
+			});
+		},
 		on: (eventName: PageEventName, eventHandler: PageEventHandler): void => {
 			const handlers = eventHandlers.get(eventName) ?? [];
 			handlers.push(eventHandler);
 			eventHandlers.set(eventName, handlers);
+		},
+		waitForFunction: async (): Promise<void> => {
+			const frameSettlement = activeFrameSettlement;
+			if (frameSettlement === undefined) {
+				throw new Error('Frame settlement wait began before a frame was scheduled.');
+			}
+			if (frameSettlement.settled) return;
+			await new Promise<void>((resolve): void => {
+				frameSettlement.waiters.push(resolve);
+			});
 		},
 	};
 
