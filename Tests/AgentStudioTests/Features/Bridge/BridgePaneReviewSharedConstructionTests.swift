@@ -7,6 +7,111 @@ import Testing
 
 @Suite("Bridge pane Review shared construction")
 struct BridgePaneReviewSharedConstructionTests {
+    @Test("exact duplicate Review panes share one held scheduled construction")
+    func exactDuplicateReviewConstructionSharesOneHeldScheduledBuild() async throws {
+        // Arrange
+        let baseOID = String(repeating: "a", count: 40)
+        let filePath = "Sources/App.swift"
+        let constructionReadGate = BridgeGitContentReadGate()
+        let selectedContentReadGate = BridgeGitContentReadGate()
+        let fixture = try BridgeSharedReviewConstructionFixture.make(
+            contentReadGateByLocator: [
+                GitContentLocator(target: .workingTree, path: filePath): constructionReadGate,
+                GitContentLocator(target: .commit(baseOID), path: filePath): selectedContentReadGate,
+            ]
+        )
+        defer { fixture.removeTestRoot() }
+        let firstAcquisition = Task {
+            try await fixture.firstBinder.acquire(
+                fixture.request(packageId: "package-pane-one", generation: 1)
+            )
+        }
+        let secondAcquisition = Task {
+            try await fixture.secondBinder.acquire(
+                fixture.request(packageId: "package-pane-two", generation: 7)
+            )
+        }
+        await constructionReadGate.waitUntilStarted()
+        _ = await fixture.constructionEventProbe.waitFor(.consumerJoined)
+
+        // Act
+        let heldConstructionSnapshot = await fixture.coordinator.snapshot()
+        let heldSchedulerSnapshot = await fixture.scheduler.snapshot()
+        let selectedContentRead = Task {
+            try await fixture.firstClient.loadGitContentPayload(
+                GitContentRequest(
+                    repositoryPath: fixture.repositoryPath,
+                    target: .commit(baseOID),
+                    path: filePath,
+                    maxSizeBytes: Int64(AppPolicies.Bridge.contentMaxBytesPerItem)
+                ),
+                operationClass: .selectedVisibleContent,
+                freshnessKey: BridgeGitReadFreshnessKey(token: "selected-content-progress")
+            )
+        }
+        await selectedContentReadGate.waitUntilStarted()
+        let concurrentSchedulerSnapshot = await fixture.scheduler.snapshot()
+        await selectedContentReadGate.release()
+        let selectedContent = try await selectedContentRead.value
+        let stillHeldConstructionSnapshot = await fixture.coordinator.snapshot()
+        await constructionReadGate.release()
+        let firstBinding = try await firstAcquisition.value
+        let secondBinding = try await secondAcquisition.value
+
+        // Assert
+        #expect(heldConstructionSnapshot.entryCount == 1)
+        #expect(heldConstructionSnapshot.inFlightCount == 1)
+        #expect(heldConstructionSnapshot.waiterCount == 2)
+        #expect(heldConstructionSnapshot.leaseCount == 0)
+        #expect(heldSchedulerSnapshot.runningCountByOperationClass[.reviewMetadata] == 1)
+        #expect(heldSchedulerSnapshot.occupiedSlotIds.count == 1)
+        #expect(concurrentSchedulerSnapshot.runningCountByOperationClass[.reviewMetadata] == 1)
+        #expect(concurrentSchedulerSnapshot.runningCountByOperationClass[.selectedVisibleContent] == 1)
+        #expect(concurrentSchedulerSnapshot.occupiedSlotIds.count == 2)
+        #expect(selectedContent.data == Data("base-a".utf8))
+        #expect(stillHeldConstructionSnapshot.entryCount == 1)
+        #expect(stillHeldConstructionSnapshot.inFlightCount == 1)
+        #expect(
+            firstBinding.artifactPin.constructionLease.entryNonce
+                == secondBinding.artifactPin.constructionLease.entryNonce
+        )
+        #expect(
+            firstBinding.artifactPin.constructionLease.leaseNonce
+                != secondBinding.artifactPin.constructionLease.leaseNonce
+        )
+        #expect(firstBinding.result.package.packageId == "package-pane-one")
+        #expect(secondBinding.result.package.packageId == "package-pane-two")
+        #expect(firstBinding.result.package.reviewGeneration.rawValue == 1)
+        #expect(secondBinding.result.package.reviewGeneration.rawValue == 7)
+        #expect(await fixture.gitClient.recordedDiffRequests().count == 1)
+        let contentRequests = await fixture.gitClient.recordedContentRequests()
+        #expect(contentRequests.count { $0.target == .workingTree } == 1)
+        #expect(contentRequests.count { $0.target == .commit(baseOID) } == 1)
+
+        await firstBinding.artifactPin.releaseAndWait()
+        await secondBinding.artifactPin.releaseAndWait()
+        await fixture.waitUntilConstructionEntryIsRemoved()
+        await fixture.waitUntilBackingDirectoryIsEmpty()
+        let drainedConstructionSnapshot = await fixture.coordinator.snapshot()
+        let drainedSchedulerSnapshot = await fixture.scheduler.snapshot()
+        #expect(drainedConstructionSnapshot.entryCount == 0)
+        #expect(drainedConstructionSnapshot.waiterCount == 0)
+        #expect(drainedConstructionSnapshot.leaseCount == 0)
+        #expect(drainedConstructionSnapshot.payloadCount == 0)
+        #expect(drainedConstructionSnapshot.inFlightCount == 0)
+        #expect(drainedConstructionSnapshot.locatorCount == 0)
+        #expect(drainedConstructionSnapshot.drainingTombstoneCount == 0)
+        #expect(drainedConstructionSnapshot.retainedArtifactByteCount == 0)
+        #expect(drainedSchedulerSnapshot.queuedCountByOperationClass.isEmpty)
+        #expect(drainedSchedulerSnapshot.runningCountByOperationClass.isEmpty)
+        #expect(drainedSchedulerSnapshot.drainingCountByOperationClass.isEmpty)
+        #expect(drainedSchedulerSnapshot.activeOperationIds.isEmpty)
+        #expect(drainedSchedulerSnapshot.occupiedSlotIds.isEmpty)
+        #expect(drainedSchedulerSnapshot.logicalWaiterCount == 0)
+        #expect(drainedSchedulerSnapshot.scheduledDeadlineCount == 0)
+        await fixture.scheduler.shutdown()
+    }
+
     @MainActor
     @Test("logical cancellation and close retain backing until the physical Git read returns")
     func cancellationAndCloseRetainBackingUntilPhysicalReturn() async throws {
