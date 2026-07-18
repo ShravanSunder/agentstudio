@@ -7,7 +7,8 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
     @Test("each lease awaits one shared preparation before reading windows")
     func preparationIsReadOncePerLease() async throws {
         // Arrange
-        let coordinator = BridgeWorktreeProductConstructionCoordinator()
+        let eventProbe = BridgeWorktreeProductConstructionEventProbe()
+        let coordinator = BridgeWorktreeProductConstructionCoordinator(eventSink: eventProbe.eventSink)
         let gate = BridgeProgressiveFileConstructionGate()
         let key = makeBridgeProgressiveFileConstructionKey()
         let firstLeaseTask = Task {
@@ -49,6 +50,7 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
         #expect(firstWindow.window == finalWindow)
         await coordinator.release(firstLease)
         await coordinator.release(secondLease)
+        _ = await eventProbe.waitFor(.entryRemoved)
         await assertBridgeConstructionCoordinatorDrained(coordinator)
     }
 
@@ -223,7 +225,8 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
     @Test("cancelling one tail read preserves its lease peer and build")
     func tailReadCancellationIsPerConsumer() async throws {
         // Arrange
-        let coordinator = BridgeWorktreeProductConstructionCoordinator()
+        let eventProbe = BridgeWorktreeProductConstructionEventProbe()
+        let coordinator = BridgeWorktreeProductConstructionCoordinator(eventSink: eventProbe.eventSink)
         let gate = BridgeProgressiveFileConstructionGate()
         let key = makeBridgeProgressiveFileConstructionKey()
         let firstLeaseTask = Task {
@@ -267,6 +270,7 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
         #expect(snapshot.leaseCount == 2)
         await coordinator.release(firstLease)
         await coordinator.release(peerLease)
+        _ = await eventProbe.waitFor(.entryRemoved)
         await assertBridgeConstructionCoordinatorDrained(coordinator)
     }
 

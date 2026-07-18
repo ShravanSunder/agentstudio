@@ -214,6 +214,30 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
                 record: record,
                 dimensions: &dimensions
             )
+            appendBridgeDimension(
+                name: "native_capacity_event",
+                attributeKey: "agentstudio.bridge.native_capacity.event",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendBridgeDimension(
+                name: "operation_class",
+                attributeKey: "agentstudio.bridge.native_capacity.operation_class",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendBridgeDimension(
+                name: "activity_rank",
+                attributeKey: "agentstudio.bridge.native_capacity.activity_rank",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendBridgeDimension(
+                name: "product_kind",
+                attributeKey: "agentstudio.bridge.native_capacity.product_kind",
+                record: record,
+                dimensions: &dimensions
+            )
         }
         return dimensions
     }
@@ -274,6 +298,24 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         "agentstudio.bridge.metadata_manifest.emitted_total",
         "agentstudio.bridge.metadata_manifest.expected_total",
         "agentstudio.bridge.metadata_manifest.remaining_total",
+        "agentstudio.bridge.native_capacity.coalesced_waiter.count",
+        "agentstudio.bridge.native_capacity.deadline.count",
+        "agentstudio.bridge.native_capacity.draining.count",
+        "agentstudio.bridge.native_capacity.entry.count",
+        "agentstudio.bridge.native_capacity.fairness_history.count",
+        "agentstudio.bridge.native_capacity.in_flight.count",
+        "agentstudio.bridge.native_capacity.lease.count",
+        "agentstudio.bridge.native_capacity.locator.count",
+        "agentstudio.bridge.native_capacity.logical_waiter.count",
+        "agentstudio.bridge.native_capacity.occupied_slot.count",
+        "agentstudio.bridge.native_capacity.pane_activity.count",
+        "agentstudio.bridge.native_capacity.payload.count",
+        "agentstudio.bridge.native_capacity.queued.count",
+        "agentstudio.bridge.native_capacity.retained_artifact_byte.count",
+        "agentstudio.bridge.native_capacity.running.count",
+        "agentstudio.bridge.native_capacity.tombstone.count",
+        "agentstudio.bridge.native_capacity.waiter.count",
+        "agentstudio.bridge.native_capacity.worktree.count",
         "agentstudio.bridge.telemetry.dropped_count",
     ]
 

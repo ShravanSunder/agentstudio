@@ -13,6 +13,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case atomMutation = "performance.atom.mutation"
         case atomRead = "performance.atom.read"
         case bridgeGitReadScheduler = "performance.bridge.git_read_scheduler"
+        case bridgeWorktreeProductConstruction = "performance.bridge.worktree_product_construction"
         case commandBarFilter = "performance.commandbar.filter"
         case commandBarItems = "performance.commandbar.items"
         case coordinatorWrite = "performance.coordinator.write"

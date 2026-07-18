@@ -833,13 +833,16 @@ actor BridgeWorktreeProductConstructionCoordinator {
         entry: BridgeConstructionEntry,
         leaseNonce: UInt64? = nil
     ) {
-        eventSink?(
+        guard let eventSink else { return }
+        eventSink(
             BridgeWorktreeProductConstructionEvent(
                 kind: kind,
                 productKind: entry.identity.key.productKind,
                 epoch: entry.identity.epoch,
                 entryNonce: entry.nonce,
-                leaseNonce: leaseNonce
+                leaseNonce: leaseNonce,
+                worktreeHash: entry.identity.key.worktree.stableRootIdentity,
+                snapshot: kind == .entryRemoved ? snapshot() : snapshot(replacing: entry)
             )
         )
     }

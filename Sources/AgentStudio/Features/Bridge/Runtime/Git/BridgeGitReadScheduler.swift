@@ -42,6 +42,7 @@ actor BridgeGitReadScheduler {
         let id: UInt64
         let identity: OperationIdentity
         let enqueueOrder: UInt64
+        let enqueueInstant: ContinuousClock.Instant
         let body: OperationBody
         var phase: OperationPhase
         var waiters: [UInt64: LogicalWaiter]
@@ -248,6 +249,7 @@ actor BridgeGitReadScheduler {
             id: operationId,
             identity: identity,
             enqueueOrder: enqueueOrder,
+            enqueueInstant: ContinuousClock().now,
             body: body,
             phase: .queued,
             waiters: [waiter.id: scheduledWaiter],
@@ -294,10 +296,10 @@ actor BridgeGitReadScheduler {
 
         waiter.deadline?.cancel()
         waiter.fail(error)
+        operationsByIdentity[identity] = operation
         emit(eventKind, operation: operation)
 
         guard operation.waiters.isEmpty else {
-            operationsByIdentity[identity] = operation
             return
         }
 
@@ -405,9 +407,11 @@ actor BridgeGitReadScheduler {
 
         if let slotId = slotId(for: operation.phase) {
             operationIdBySlotId.removeValue(forKey: slotId)
+            removeOperation(operation)
             emit(.slotReleased, operation: operation, slotId: slotId)
+        } else {
+            removeOperation(operation)
         }
-        removeOperation(operation)
         if lifecycle == .active {
             drainQueuedOperations()
         } else {
@@ -478,13 +482,25 @@ actor BridgeGitReadScheduler {
         operation: OperationState,
         slotId: BridgeGitReadSlotID? = nil
     ) {
-        eventSink?(
+        guard let eventSink else { return }
+        let queueWait: Duration? =
+            switch kind {
+            case .started:
+                operation.enqueueInstant.duration(to: ContinuousClock().now)
+            case .queued, .coalesced, .logicalTimeout, .logicalCancellation, .draining,
+                .physicallyReturned, .slotReleased:
+                nil
+            }
+        eventSink(
             BridgeGitReadSchedulerEvent(
                 kind: kind,
                 operationId: operation.id,
                 slotId: slotId,
                 operationClass: operation.identity.operationClass,
-                worktreeKey: operation.identity.worktreeKey
+                worktreeKey: operation.identity.worktreeKey,
+                activityRank: activityRank(for: operation.identity.worktreeKey),
+                queueWait: queueWait,
+                snapshot: snapshot()
             )
         )
     }

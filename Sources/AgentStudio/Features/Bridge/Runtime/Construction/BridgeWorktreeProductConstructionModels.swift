@@ -163,6 +163,8 @@ struct BridgeWorktreeProductConstructionEvent: Sendable {
     let epoch: BridgeWorktreeFreshnessEpoch
     let entryNonce: UInt64
     let leaseNonce: UInt64?
+    let worktreeHash: String
+    let snapshot: BridgeWorktreeProductConstructionSnapshot
 }
 
 typealias BridgeWorktreeProductConstructionEventSink =

@@ -15,6 +15,19 @@ enum BridgeGitReadActivityRank: Int, Comparable, Sendable {
     static func < (lhs: Self, rhs: Self) -> Bool {
         lhs.rawValue < rhs.rawValue
     }
+
+    var telemetryToken: String {
+        switch self {
+        case .unranked:
+            return "unranked"
+        case .dormant:
+            return "dormant"
+        case .loadedHidden:
+            return "loaded_hidden"
+        case .foreground:
+            return "foreground"
+        }
+    }
 }
 
 struct BridgeGitReadWorktreeKey: Hashable, Sendable {
@@ -229,6 +242,9 @@ struct BridgeGitReadSchedulerEvent: Sendable {
     let slotId: BridgeGitReadSlotID?
     let operationClass: BridgeGitReadOperationClass
     let worktreeKey: BridgeGitReadWorktreeKey
+    let activityRank: BridgeGitReadActivityRank
+    let queueWait: Duration?
+    let snapshot: BridgeGitReadSchedulerSnapshot
 }
 
 typealias BridgeGitReadSchedulerEventSink = @Sendable (BridgeGitReadSchedulerEvent) -> Void

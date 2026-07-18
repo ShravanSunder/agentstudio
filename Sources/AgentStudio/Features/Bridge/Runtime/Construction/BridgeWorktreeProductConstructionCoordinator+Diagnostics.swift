@@ -1,5 +1,17 @@
 extension BridgeWorktreeProductConstructionCoordinator {
     func snapshot() -> BridgeWorktreeProductConstructionSnapshot {
+        makeSnapshot(entries: entriesByNonce.values)
+    }
+
+    func snapshot(replacing entry: BridgeConstructionEntry) -> BridgeWorktreeProductConstructionSnapshot {
+        var currentEntries = entriesByNonce
+        currentEntries[entry.nonce] = entry
+        return makeSnapshot(entries: currentEntries.values)
+    }
+
+    private func makeSnapshot<Entries: Sequence>(
+        entries: Entries
+    ) -> BridgeWorktreeProductConstructionSnapshot where Entries.Element == BridgeConstructionEntry {
         var waiterCount = 0
         var leaseCount = 0
         var payloadCount = 0
@@ -8,7 +20,9 @@ extension BridgeWorktreeProductConstructionCoordinator {
         var tombstoneCount = 0
         var retainedByteCount = 0
 
-        for entry in entriesByNonce.values {
+        var entryCount = 0
+        for entry in entries {
+            entryCount += 1
             waiterCount +=
                 entry.waiters.count
                 + (entry.progressiveFileState?.pendingReadCount ?? 0)
@@ -27,7 +41,7 @@ extension BridgeWorktreeProductConstructionCoordinator {
         }
 
         return BridgeWorktreeProductConstructionSnapshot(
-            entryCount: entriesByNonce.count,
+            entryCount: entryCount,
             waiterCount: waiterCount,
             leaseCount: leaseCount,
             payloadCount: payloadCount,
