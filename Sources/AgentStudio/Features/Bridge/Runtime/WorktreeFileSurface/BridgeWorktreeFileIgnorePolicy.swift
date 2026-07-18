@@ -60,6 +60,33 @@ struct BridgeWorktreeFileIgnorePolicy: Sendable {
         )
     }
 
+    static func load(
+        rootURL: URL,
+        gitReadContext: BridgeGitReadContext,
+        statusResult: GitWorkingTreeStatusResult,
+        trackedFilePathsTimeout: Duration = AppPolicies.Bridge.worktreeFileManifestStatusReadTimeout,
+        trackedFilePathsLoader: @escaping BridgeWorktreeTrackedFilePathsLoader = loadTrackedFilePaths
+    ) async -> Self {
+        async let filesystemPathFilter = FilesystemPathFilter.loadOffExecutor(forRootPath: rootURL)
+        async let trackedFilePathsTask = boundedTrackedFilePaths(
+            rootURL: rootURL,
+            gitReadContext: gitReadContext,
+            timeout: trackedFilePathsTimeout,
+            loader: trackedFilePathsLoader
+        )
+        let trackedFilePaths = await trackedFilePathsTask
+        let publishableFilePaths = publishableFilePaths(
+            rootURL: rootURL,
+            trackedFilePaths: trackedFilePaths,
+            statusResult: statusResult
+        )
+        return await Self(
+            filesystemPathFilter: filesystemPathFilter,
+            publishableFilePaths: publishableFilePaths,
+            trackedPathsAndAncestors: trackedPathsAndAncestors(trackedFilePaths ?? [])
+        )
+    }
+
     func isIgnored(relativePath: String) -> Bool {
         let normalizedPath = Self.normalized(relativePath)
         guard !normalizedPath.isEmpty, normalizedPath != "." else {
@@ -75,6 +102,23 @@ struct BridgeWorktreeFileIgnorePolicy: Sendable {
             return false
         }
         return filesystemPathFilter.isIgnored(relativePath: normalizedPath)
+    }
+
+    /// Attribution estimate for retained manifest strings plus conservative
+    /// per-entry collection overhead. This is not a heap-size oracle; it is a
+    /// stable lower-cost accounting unit for comparing retained construction payloads.
+    var estimatedRetainedByteCount: Int {
+        let publishedPathBytes =
+            publishableFilePaths?.reduce(0) {
+                $0 + $1.utf8.count + 32
+            } ?? 0
+        let trackedPathBytes = trackedPathsAndAncestors.reduce(0) {
+            $0 + $1.utf8.count + 32
+        }
+        return filesystemPathFilter.estimatedRetainedByteCount
+            + 64
+            + publishedPathBytes
+            + trackedPathBytes
     }
 
     @concurrent nonisolated static func loadTrackedFilePaths(rootURL: URL) async throws -> Set<String> {
@@ -98,7 +142,9 @@ struct BridgeWorktreeFileIgnorePolicy: Sendable {
                     worktreeKey: gitReadContext.worktreeKey,
                     operationClass: .reviewMetadata,
                     coalescingKey: BridgeGitReadCoalescingKey(token: "tracked-paths-default"),
-                    freshnessKey: BridgeGitReadFreshnessKey(token: UUID().uuidString),
+                    freshnessKey: BridgeGitReadFreshnessKey(
+                        token: gitReadContext.scopeKey.token
+                    ),
                     deadline: timeout
                 ),
                 operation: { try await loader(rootURL) }

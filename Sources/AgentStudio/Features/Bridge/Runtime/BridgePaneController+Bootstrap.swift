@@ -41,6 +41,7 @@ struct BridgeProductSessionDependencyInput {
     let runtime: BridgeRuntime
     let state: BridgePaneState
     let gitReadContext: BridgeGitReadContext?
+    let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator?
     let reviewContentLoaderCache: BridgeReviewContentLoaderCache
     let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
     let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
@@ -451,10 +452,13 @@ extension BridgePaneController {
                 paneId: UUID(uuidString: input.paneSessionId),
                 runtime: input.runtime,
                 state: input.state
-            ), let gitReadContext = input.gitReadContext {
+            ), let gitReadContext = input.gitReadContext,
+                let constructionCoordinator = input.worktreeProductConstructionCoordinator
+            {
                 BridgePaneProductFileMetadataSource(
                     authority: authority,
-                    gitReadContext: gitReadContext
+                    gitReadContext: gitReadContext,
+                    constructionCoordinator: constructionCoordinator
                 )
             } else {
                 BridgeUnavailablePaneProductFileMetadataSource()

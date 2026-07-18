@@ -722,7 +722,7 @@ extension BridgeProductFileMetadataEvent {
         return descriptor
     }
 
-    fileprivate var sourceForTest: BridgeProductFileSourceIdentity {
+    var sourceForTest: BridgeProductFileSourceIdentity {
         switch self {
         case .sourceAccepted(let event): event.source
         case .treeWindow(let event): event.source
@@ -733,7 +733,7 @@ extension BridgeProductFileMetadataEvent {
         }
     }
 
-    fileprivate var treeWindowRowsForTest: [BridgeProductFileTreeRow] {
+    var treeWindowRowsForTest: [BridgeProductFileTreeRow] {
         guard case .treeWindow(let window) = self else { return [] }
         return window.rows
     }
@@ -744,18 +744,6 @@ extension BridgeProductFileMetadataEvent {
             guard case .upsertRows(let rows) = operation else { return [] }
             return rows
         }
-    }
-}
-
-actor ProductFileMetadataEventCollector {
-    private(set) var events: [BridgeProductFileMetadataEvent] = []
-
-    func append(_ event: BridgeProductFileMetadataEvent) {
-        events.append(event)
-    }
-
-    func removeAll() {
-        events.removeAll(keepingCapacity: false)
     }
 }
 
@@ -778,7 +766,7 @@ struct ProductFileSourceFixture {
         demandedIndex: Int = 0,
         productAdmission suppliedProductAdmission: BridgeProductAdmissionTestContext? = nil
     ) throws {
-        guard (0..<fileCount).contains(demandedIndex) else {
+        guard fileCount == 0 || (0..<fileCount).contains(demandedIndex) else {
             throw ProductFileSourceFixtureError.invalidDemandedIndex
         }
         productAdmission = try suppliedProductAdmission ?? BridgeProductAdmissionTestContext.make()
@@ -802,6 +790,11 @@ struct ProductFileSourceFixture {
     }
 
     func makeSource(
+        paneId: UUID? = nil,
+        constructionCoordinator: BridgeWorktreeProductConstructionCoordinator? = nil,
+        snapshotPreparationLoader: BridgePaneProductFileSnapshotPreparationLoader? = nil,
+        sharedSnapshotBuilder: @escaping BridgePaneProductFileSharedSnapshotBuilder =
+            BridgeWorktreeFileMaterializer.buildSharedSnapshot,
         ignorePolicyLoader: @escaping BridgePaneProductFileIgnorePolicyLoader = loadTestBridgeFileIgnorePolicy,
         treeRowRefresher: BridgePaneProductFileTreeRowRefresher? = nil,
         descriptorMaterializer: @escaping BridgePaneProductFileDescriptorMaterializer =
@@ -809,7 +802,7 @@ struct ProductFileSourceFixture {
     ) -> BridgePaneProductFileMetadataSource {
         BridgePaneProductFileMetadataSource(
             authority: .init(
-                paneId: paneId,
+                paneId: paneId ?? self.paneId,
                 worktree: Worktree(
                     id: worktreeId,
                     repoId: repoId,
@@ -818,21 +811,30 @@ struct ProductFileSourceFixture {
                 )
             ),
             gitReadContext: makeBridgeGitReadContext(rootURL: rootURL),
+            constructionCoordinator: constructionCoordinator ?? BridgeWorktreeProductConstructionCoordinator(),
             statusProvider: ProductFileSourceStatusProvider(),
+            snapshotPreparationLoader: snapshotPreparationLoader,
+            sharedSnapshotBuilder: sharedSnapshotBuilder,
             ignorePolicyLoader: ignorePolicyLoader,
             treeRowRefresher: treeRowRefresher,
             descriptorMaterializer: descriptorMaterializer
         )
     }
 
-    func openSnapshot() throws -> BridgeProductSubscriptionSnapshot {
+    func openSnapshot(cwdScope: String? = nil) throws -> BridgeProductSubscriptionSnapshot {
+        let cwdScopeValue: Any
+        if let cwdScope {
+            cwdScopeValue = cwdScope
+        } else {
+            cwdScopeValue = NSNull()
+        }
         let request = try controlRequest(
             kind: "subscription.open",
             requestSequence: 2,
             values: [
                 "subscription": [
                     "source": [
-                        "cwdScope": NSNull(),
+                        "cwdScope": cwdScopeValue,
                         "freshness": "live",
                         "includeStatuses": true,
                         "repoId": repoId.uuidString,
@@ -975,26 +977,4 @@ struct ProductFileSourceFixture {
             from: JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         )
     }
-}
-
-private struct ProductFileSourceStatusProvider: GitWorkingTreeStatusProvider {
-    func statusResult(
-        for _: URL,
-        pathspecs _: [String]?
-    ) async -> GitWorkingTreeStatusResult {
-        .available(
-            GitWorkingTreeStatus(
-                summary: .init(changed: 1, staged: 2, untracked: 3),
-                branch: "main",
-                origin: nil
-            )
-        )
-    }
-}
-
-private enum ProductFileSourceFixtureError: Error {
-    case invalidContentRequest
-    case invalidControlRequest
-    case invalidDemandedIndex
-    case missingSubscription
 }

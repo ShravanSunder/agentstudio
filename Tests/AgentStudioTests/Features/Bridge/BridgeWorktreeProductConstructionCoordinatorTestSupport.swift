@@ -165,7 +165,7 @@ actor BridgeProgressiveFileConstructionStateHarness {
     private var pendingReadWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     func publishPreparation(retainedByteCount: Int = 0) throws {
-        try state.publishPreparation(
+        _ = try state.publishPreparation(
             makeBridgeSharedFileSnapshotPreparation(retainedByteCount: retainedByteCount)
         )
     }

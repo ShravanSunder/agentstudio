@@ -346,7 +346,8 @@ extension WebKitSerializedTests {
                             path: repoURL
                         )
                     ),
-                    gitReadContext: makeBridgeGitReadContext(rootURL: repoURL)
+                    gitReadContext: makeBridgeGitReadContext(rootURL: repoURL),
+                    constructionCoordinator: BridgeWorktreeProductConstructionCoordinator()
                 )
             )
         }

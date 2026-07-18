@@ -1,9 +1,10 @@
 import Foundation
 
 actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducing {
-    private struct SubscriptionContext: Sendable {
+    struct SubscriptionContext: Sendable {
         let manifestIndex: BridgeWorktreeFileManifestIndex
         var openedSource: BridgeWorktreeFileOpenedSource
+        var constructionLease: BridgeSharedFileSnapshotConsumerLease?
         let productAdmission: BridgeProductAdmissionContext
         let productSource: BridgeProductFileSourceIdentity
         var descriptorByPath: [String: BridgeProductFileDescriptorReadyPayload]
@@ -62,18 +63,21 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         let subscriptionId: String
     }
 
-    private let authority: BridgePaneProductFileSourceAuthority
-    private let descriptorMaterializer: BridgePaneProductFileDescriptorMaterializer
-    private let ignorePolicyLoader: BridgePaneProductFileIgnorePolicyLoader
-    private let treeRowRefresher: BridgePaneProductFileTreeRowRefresher
-    private let statusProvider: any GitWorkingTreeStatusProvider
-    private var contextBySubscriptionId: [String: SubscriptionContext] = [:]
-    private var nextSourceGeneration = 0
+    let authority: BridgePaneProductFileSourceAuthority
+    let descriptorMaterializer: BridgePaneProductFileDescriptorMaterializer
+    let sharedConstructionBinder: BridgePaneProductFileSharedConstructionBinder
+    let treeRowRefresher: BridgePaneProductFileTreeRowRefresher
+    var contextBySubscriptionId: [String: SubscriptionContext] = [:]
+    var nextSourceGeneration = 0
 
     init(
         authority: BridgePaneProductFileSourceAuthority,
         gitReadContext: BridgeGitReadContext,
+        constructionCoordinator: BridgeWorktreeProductConstructionCoordinator,
         statusProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
+        snapshotPreparationLoader: BridgePaneProductFileSnapshotPreparationLoader? = nil,
+        sharedSnapshotBuilder: @escaping BridgePaneProductFileSharedSnapshotBuilder =
+            BridgeWorktreeFileMaterializer.buildSharedSnapshot,
         ignorePolicyLoader: BridgePaneProductFileIgnorePolicyLoader? = nil,
         treeRowRefresher: BridgePaneProductFileTreeRowRefresher? = nil,
         descriptorMaterializer: @escaping BridgePaneProductFileDescriptorMaterializer =
@@ -81,17 +85,44 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     ) {
         self.authority = authority
         self.descriptorMaterializer = descriptorMaterializer
-        self.ignorePolicyLoader =
-            ignorePolicyLoader ?? { rootURL in
-                await BridgeWorktreeFileIgnorePolicy.load(
-                    rootURL: rootURL,
-                    gitReadContext: gitReadContext,
-                    statusProvider: AgentStudioGitWorkingTreeStatusProvider(
-                        timeout: AppPolicies.Bridge.worktreeFileManifestStatusReadTimeout
+        let resolvedPreparationLoader: BridgePaneProductFileSnapshotPreparationLoader =
+            if let snapshotPreparationLoader {
+                snapshotPreparationLoader
+            } else if let ignorePolicyLoader {
+                { rootURL, _ in
+                    async let ignorePolicy = ignorePolicyLoader(rootURL)
+                    async let statusResult = statusProvider.statusResult(for: rootURL)
+                    let preparation = await BridgeSharedFileSnapshotPreparation(
+                        ignorePolicy: ignorePolicy,
+                        statusResult: statusResult,
+                        retainedByteCount: 0
                     )
-                )
+                    return BridgeSharedFileSnapshotPreparation(
+                        ignorePolicy: preparation.ignorePolicy,
+                        statusResult: preparation.statusResult,
+                        retainedByteCount:
+                            BridgeWorktreeFileMaterializer.estimatedPreparationRetainedByteCount(
+                                ignorePolicy: preparation.ignorePolicy,
+                                statusResult: preparation.statusResult
+                            )
+                    )
+                }
+            } else {
+                { rootURL, constructionGitReadContext in
+                    await BridgeWorktreeFileMaterializer.prepareSharedSnapshot(
+                        rootURL: rootURL,
+                        gitReadContext: constructionGitReadContext,
+                        statusProvider: statusProvider
+                    )
+                }
             }
-        self.statusProvider = statusProvider
+        self.sharedConstructionBinder = BridgePaneProductFileSharedConstructionBinder(
+            coordinator: constructionCoordinator,
+            gitReadContext: gitReadContext,
+            preparationLoader: resolvedPreparationLoader,
+            snapshotBuilder: sharedSnapshotBuilder,
+            worktree: authority.worktree
+        )
         self.treeRowRefresher =
             treeRowRefresher ?? { rootURL, relativePaths, includeAncestorDirectories in
                 await BridgeWorktreeFileMaterializer.refreshTreeRows(
@@ -100,16 +131,6 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                     includeAncestorDirectories: includeAncestorDirectories
                 )
             }
-    }
-
-    func currentSource() -> BridgeProductFileSourceCurrentResult {
-        .available(
-            BridgeProductFileSourceSpec(
-                currentAuthorityRepoId: authority.worktree.repoId,
-                currentAuthorityRootPathToken: authority.worktree.stableKey,
-                currentAuthorityWorktreeId: authority.worktree.id
-            )
-        )
     }
 
     func open(
@@ -123,6 +144,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         else {
             return
         }
+        await cancel(subscriptionId: subscription.subscriptionId)
         guard
             let context = try installContext(
                 subscription: subscription,
@@ -137,50 +159,71 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             (productAdmission.withValidAdmission { true }) == true
         else { return }
         try await emit(.sourceAccepted(.init(source: productSource)))
-
-        let ignorePolicy = await ignorePolicyLoader(authority.worktree.path)
-        try Task.checkCancellation()
-        var preparedContext: SubscriptionContext?
-        let didPrepareContext =
-            foregroundWorkAdmission.withValidAdmission {
-                productAdmission.withValidAdmission { () -> Bool in
-                    guard var context = contextBySubscriptionId[subscription.subscriptionId],
-                        context.productSource == productSource,
-                        context.productAdmission.matches(productAdmission)
-                    else { return false }
-                    context.openedSource = context.openedSource.withIgnorePolicy(ignorePolicy)
-                    contextBySubscriptionId[subscription.subscriptionId] = context
-                    preparedContext = context
-                    return true
-                } ?? false
-            } == true
-        guard didPrepareContext, let preparedContext else { return }
-
-        guard
-            try await enumerateInitialTree(
-                .init(
-                    emit: emit,
-                    foregroundWorkAdmission: foregroundWorkAdmission,
-                    manifestIndex: preparedContext.manifestIndex,
-                    openedSource: preparedContext.openedSource,
-                    pathScope: pathScope,
-                    productAdmission: productAdmission,
-                    productSource: productSource,
-                    subscription: subscription
-                )
-            )
-        else { return }
-        guard sourceSpec.includeStatuses else { return }
-        try await publishCurrentStatus(
-            emit: emit,
-            productAdmission: productAdmission,
-            productSource: productSource,
-            foregroundWorkAdmission: foregroundWorkAdmission
+        let constructionLease = try await sharedConstructionBinder.acquire(
+            openedSource: context.openedSource
         )
+        guard
+            attachConstructionLease(
+                constructionLease,
+                subscriptionId: subscription.subscriptionId,
+                productSource: productSource,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
+            )
+        else {
+            await sharedConstructionBinder.release(constructionLease)
+            return
+        }
+        do {
+            let preparation = try await sharedConstructionBinder.preparation(for: constructionLease)
+            guard
+                let preparedContext = applyPreparation(
+                    preparation,
+                    subscriptionId: subscription.subscriptionId,
+                    productSource: productSource,
+                    productAdmission: productAdmission,
+                    foregroundWorkAdmission: foregroundWorkAdmission
+                ),
+                try await enumerateInitialTree(
+                    .init(
+                        emit: emit,
+                        foregroundWorkAdmission: foregroundWorkAdmission,
+                        manifestIndex: preparedContext.manifestIndex,
+                        openedSource: preparedContext.openedSource,
+                        pathScope: pathScope,
+                        productAdmission: productAdmission,
+                        productSource: productSource,
+                        subscription: subscription
+                    ),
+                    constructionLease: constructionLease
+                )
+            else {
+                await releaseContext(
+                    subscriptionId: subscription.subscriptionId,
+                    expectedSource: productSource
+                )
+                return
+            }
+            guard sourceSpec.includeStatuses else { return }
+            try await publishCurrentStatus(
+                preparation.statusResult,
+                emit: emit,
+                productAdmission: productAdmission,
+                productSource: productSource,
+                foregroundWorkAdmission: foregroundWorkAdmission
+            )
+        } catch {
+            await releaseContext(
+                subscriptionId: subscription.subscriptionId,
+                expectedSource: productSource
+            )
+            throw error
+        }
     }
 
     private func enumerateInitialTree(
-        _ request: InitialTreeEnumerationRequest
+        _ request: InitialTreeEnumerationRequest,
+        constructionLease: BridgeSharedFileSnapshotConsumerLease
     ) async throws -> Bool {
         guard
             await request.manifestIndex.beginEnumeration(
@@ -189,14 +232,27 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             )
         else { return false }
         var emittedWindow = false
-        for try await batch in BridgeWorktreeFileMaterializer.materializeTreeRowWindows(
-            request: BridgeWorktreeFileMaterializationRequest(
-                rootURL: authority.worktree.path,
-                openedSource: request.openedSource
-            ),
-            afterCount: 0,
-            windowSize: BridgeProductWireContract.maximumFileMetadataTreeWindowRowCount
-        ) {
+        var cursor = BridgeSharedFileSnapshotCursor(nextWindowOrdinal: 0)
+        readLoop: while true {
+            let read = try await sharedConstructionBinder.nextRead(
+                for: constructionLease,
+                cursor: cursor
+            )
+            let batch: BridgeWorktreeTreeRowWindowBatch
+            switch read {
+            case .window(let window):
+                batch = BridgeWorktreeTreeRowWindowBatch(
+                    discoveredRowCount: window.discoveredRowCount,
+                    isFinalWindow: window.isFinalWindow,
+                    rows: window.rows,
+                    startIndex: window.startIndex
+                )
+                cursor = BridgeSharedFileSnapshotCursor(
+                    nextWindowOrdinal: cursor.nextWindowOrdinal + 1
+                )
+            case .completed:
+                break readLoop
+            }
             try Task.checkCancellation()
             guard
                 isCurrent(
@@ -263,33 +319,6 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             productAdmission: request.productAdmission,
             foregroundWorkAdmission: request.foregroundWorkAdmission
         )
-    }
-
-    private func publishCurrentStatus(
-        emit: BridgePaneProductFileMetadataEventSink,
-        productAdmission: BridgeProductAdmissionContext,
-        productSource: BridgeProductFileSourceIdentity,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
-    ) async throws {
-        switch await statusProvider.statusResult(for: authority.worktree.path) {
-        case .available(let status):
-            guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                (productAdmission.withValidAdmission { true }) == true
-            else { return }
-            try await emit(
-                BridgePaneProductFileMetadataEncoding.statusEvent(
-                    status,
-                    source: productSource
-                )
-            )
-        case .unavailable:
-            guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                (productAdmission.withValidAdmission { true }) == true
-            else { return }
-            try await emit(
-                .statusPatch(.init(patch: .invalidated, source: productSource))
-            )
-        }
     }
 
     func update(
@@ -480,26 +509,6 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         }
     }
 
-    func cancel(subscriptionId: String) {
-        contextBySubscriptionId.removeValue(forKey: subscriptionId)
-    }
-
-    func diagnosticSnapshot() async -> BridgeFileMetadataSourceDiagnostics {
-        let contexts = Array(contextBySubscriptionId.values)
-        var manifestRowCount = 0
-        for context in contexts {
-            manifestRowCount += await context.manifestIndex.count
-        }
-        return BridgeFileMetadataSourceDiagnostics(
-            descriptorCount: contexts.reduce(0) { $0 + $1.descriptorByPath.count },
-            inFlightDescriptorCount: contexts.reduce(0) {
-                $0 + $1.inFlightDescriptorInterestRevisionByPath.count
-            },
-            manifestRowCount: manifestRowCount,
-            subscriptionCount: contexts.count
-        )
-    }
-
     func publish(
         status: GitWorkingTreeStatus,
         productAdmission: BridgeProductAdmissionContext,
@@ -666,16 +675,6 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     }
 
     private func isCurrent(
-        subscriptionId: String,
-        source: BridgeProductFileSourceIdentity,
-        productAdmission: BridgeProductAdmissionContext
-    ) -> Bool {
-        guard let context = contextBySubscriptionId[subscriptionId] else { return false }
-        return context.productSource == source
-            && context.productAdmission.matches(productAdmission)
-    }
-
-    private func isCurrent(
         _ subscription: BridgeProductSubscriptionSnapshot,
         source: BridgeProductFileSourceIdentity,
         productAdmission: BridgeProductAdmissionContext
@@ -702,6 +701,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         let openedSource = try BridgeWorktreeFileSourceProvider.openSource(
             spec: legacySourceSpec,
             worktree: authority.worktree,
+            paneIdentity: authority.paneId,
             subscriptionGeneration: sourceGeneration
         )
         let productSource = try BridgeProductFileSourceIdentity(
@@ -718,6 +718,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                 productAdmission: productAdmission
             ),
             openedSource: openedSource,
+            constructionLease: nil,
             productAdmission: productAdmission,
             productSource: productSource,
             descriptorByPath: [:],
@@ -758,6 +759,25 @@ extension BridgePaneProductFileMetadataSource {
         let rowChunks = try BridgePaneProductFileMetadataEncoding.boundedProductRowChunks(
             batch.rows
         )
+        if rowChunks.isEmpty, batch.isFinalWindow {
+            guard request.foregroundWorkAdmission.withValidAdmission({ true }) == true,
+                (request.productAdmission.withValidAdmission { true }) == true
+            else { return false }
+            try await request.emit(
+                .treeWindow(
+                    try .init(
+                        finalWindow: true,
+                        lineage: .init(lane: .foreground, loadedBy: .startupWindow),
+                        pathScope: request.pathScope,
+                        rows: [],
+                        source: request.productSource,
+                        startIndex: batch.startIndex,
+                        totalRowCount: batch.discoveredRowCount
+                    )
+                )
+            )
+            return true
+        }
         var emittedRowCount = 0
         for (chunkIndex, rows) in rowChunks.enumerated() {
             let isLastChunk = chunkIndex + 1 == rowChunks.count

@@ -29,6 +29,7 @@ enum BridgeWorktreeFileSourceProvider {
     static func openSource(
         spec: BridgeWorktreeFileSurfaceSourceSpec,
         worktree: Worktree,
+        paneIdentity: UUID? = nil,
         subscriptionGeneration: Int
     ) throws -> BridgeWorktreeFileOpenedSource {
         guard spec.repoId == worktree.repoId, spec.worktreeId == worktree.id else {
@@ -54,8 +55,10 @@ enum BridgeWorktreeFileSourceProvider {
                 rootPath: rootPath
             )
         }
+        let sourceIdentityPrefix = paneIdentity.map { "pane-\($0.uuidString)-" } ?? ""
         let source = BridgeWorktreeFileSurfaceSourceIdentity(
-            sourceId: "worktree-\(worktree.id.uuidString)-\(subscriptionGeneration)",
+            sourceId:
+                "\(sourceIdentityPrefix)worktree-\(worktree.id.uuidString)-\(subscriptionGeneration)",
             repoId: worktree.repoId.uuidString,
             worktreeId: worktree.id.uuidString,
             subscriptionGeneration: subscriptionGeneration,

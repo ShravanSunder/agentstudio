@@ -102,7 +102,8 @@ struct BridgeProductFileSourceCurrentTests {
         )
         let fileMetadataSource = BridgePaneProductFileMetadataSource(
             authority: .init(paneId: UUIDv7.generate(), worktree: worktree),
-            gitReadContext: makeBridgeGitReadContext(rootURL: rootURL)
+            gitReadContext: makeBridgeGitReadContext(rootURL: rootURL),
+            constructionCoordinator: BridgeWorktreeProductConstructionCoordinator()
         )
         let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let provider = BridgePaneProductSchemeProvider(

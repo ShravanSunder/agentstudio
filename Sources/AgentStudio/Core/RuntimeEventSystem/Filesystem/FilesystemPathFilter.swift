@@ -18,6 +18,15 @@ struct FilesystemPathFilter: Sendable {
 
     private let ignoredRules: [GitIgnoreRule]
 
+    var estimatedRetainedByteCount: Int {
+        ignoredRules.reduce(32) { partialResult, rule in
+            partialResult
+                + rule.originalPattern.utf8.count
+                + rule.compiledRegex.pattern.utf8.count
+                + 64
+        }
+    }
+
     static func load(forRootPath rootPath: URL) -> Self {
         let gitIgnorePath = rootPath.appending(path: ".gitignore")
         let fileContents: String

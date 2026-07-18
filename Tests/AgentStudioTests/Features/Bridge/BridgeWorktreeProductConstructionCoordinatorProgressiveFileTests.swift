@@ -4,6 +4,54 @@ import Testing
 
 @Suite("Bridge progressive File construction coordinator")
 struct BridgeProgressiveFileConstructionCoordinatorTests {
+    @Test("each lease awaits one shared preparation before reading windows")
+    func preparationIsReadOncePerLease() async throws {
+        // Arrange
+        let coordinator = BridgeWorktreeProductConstructionCoordinator()
+        let gate = BridgeProgressiveFileConstructionGate()
+        let key = makeBridgeProgressiveFileConstructionKey()
+        let firstLeaseTask = Task {
+            try await coordinator.acquireProgressiveFile(key: key, build: gate.run)
+        }
+        await gate.waitUntilStarted()
+        let firstLease = try await firstLeaseTask.value
+        let secondLease = try await coordinator.acquireProgressiveFile(key: key, build: gate.run)
+        await #expect(throws: BridgeWorktreeProductConstructionError.filePreparationReadRequired) {
+            try await coordinator.nextFileSnapshotRead(
+                for: firstLease,
+                cursor: .init(nextWindowOrdinal: 0)
+            )
+        }
+        let firstPreparationTask = Task {
+            try await coordinator.readFileSnapshotPreparation(for: firstLease)
+        }
+        let secondPreparationTask = Task {
+            try await coordinator.readFileSnapshotPreparation(for: secondLease)
+        }
+
+        // Act
+        try await gate.publishPreparation(retainedByteCount: 48)
+        let firstPreparation = try await firstPreparationTask.value
+        let secondPreparation = try await secondPreparationTask.value
+        let finalWindow = makeBridgeSharedFileSnapshotWindow(ordinal: 0, isFinalWindow: true)
+        try await gate.append(finalWindow)
+        await gate.succeed()
+
+        // Assert
+        #expect(firstPreparation.retainedByteCount == 48)
+        #expect(secondPreparation.retainedByteCount == 48)
+        let retriedPreparation = try await coordinator.readFileSnapshotPreparation(for: firstLease)
+        #expect(retriedPreparation.retainedByteCount == firstPreparation.retainedByteCount)
+        let firstWindow = try await coordinator.nextFileSnapshotRead(
+            for: firstLease,
+            cursor: .init(nextWindowOrdinal: 0)
+        )
+        #expect(firstWindow.window == finalWindow)
+        await coordinator.release(firstLease)
+        await coordinator.release(secondLease)
+        await assertBridgeConstructionCoordinatorDrained(coordinator)
+    }
+
     @Test("late consumer replays retained windows and tails one shared build")
     func lateConsumerReplaysAndTails() async throws {
         // Arrange
@@ -17,6 +65,7 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
         await gate.waitUntilStarted()
         let firstLease = try await firstLeaseTask.value
         try await gate.publishPreparation()
+        _ = try await coordinator.readFileSnapshotPreparation(for: firstLease)
         let firstWindow = makeBridgeSharedFileSnapshotWindow(ordinal: 0, isFinalWindow: false)
         try await gate.append(firstWindow)
         let firstRead = try await coordinator.nextFileSnapshotRead(
@@ -26,6 +75,7 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
 
         // Act
         let secondLease = try await coordinator.acquireProgressiveFile(key: key, build: gate.run)
+        _ = try await coordinator.readFileSnapshotPreparation(for: secondLease)
         let replayedRead = try await coordinator.nextFileSnapshotRead(
             for: secondLease,
             cursor: .init(nextWindowOrdinal: 0)
@@ -49,6 +99,7 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
         await gate.succeed(retainedNonwindowByteCount: 16)
         _ = await eventProbe.waitFor(.buildReady)
         let lateLease = try await coordinator.acquireProgressiveFile(key: key, build: gate.run)
+        _ = try await coordinator.readFileSnapshotPreparation(for: lateLease)
         let lateFirstRead = try await coordinator.nextFileSnapshotRead(
             for: lateLease,
             cursor: .init(nextWindowOrdinal: 0)
@@ -93,6 +144,8 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
         let slowLease = try await slowLeaseTask.value
         let peerLease = try await coordinator.acquireProgressiveFile(key: key, build: gate.run)
         try await gate.publishPreparation()
+        _ = try await coordinator.readFileSnapshotPreparation(for: slowLease)
+        _ = try await coordinator.readFileSnapshotPreparation(for: peerLease)
         let firstWindow = makeBridgeSharedFileSnapshotWindow(ordinal: 0, isFinalWindow: false)
         let finalWindow = makeBridgeSharedFileSnapshotWindow(ordinal: 1, isFinalWindow: true)
         try await gate.append(firstWindow)
@@ -145,6 +198,7 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
             try await gate.append(firstWindow)
         }
         try await gate.publishPreparation()
+        _ = try await coordinator.readFileSnapshotPreparation(for: lease)
         await #expect(throws: BridgeWorktreeProductConstructionError.noncontiguousFileWindow) {
             try await gate.append(
                 makeBridgeSharedFileSnapshotWindow(ordinal: 1, isFinalWindow: false)
@@ -179,6 +233,8 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
         let firstLease = try await firstLeaseTask.value
         let peerLease = try await coordinator.acquireProgressiveFile(key: key, build: gate.run)
         try await gate.publishPreparation()
+        _ = try await coordinator.readFileSnapshotPreparation(for: firstLease)
+        _ = try await coordinator.readFileSnapshotPreparation(for: peerLease)
         let cancelledRead = Task {
             try await coordinator.nextFileSnapshotRead(
                 for: firstLease,
@@ -327,6 +383,7 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
         await gate.waitUntilStarted()
         let lease = try await leaseTask.value
         try await gate.publishPreparation()
+        _ = try await coordinator.readFileSnapshotPreparation(for: lease)
         try await gate.append(
             makeBridgeSharedFileSnapshotWindow(
                 ordinal: 0,
@@ -407,6 +464,7 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
         await gate.waitUntilStarted(count: 2)
         let reopenedLease = try await reopenedLeaseTask.value
         try await gate.publishPreparation(invocation: 2)
+        _ = try await coordinator.readFileSnapshotPreparation(for: reopenedLease)
         try await gate.append(
             makeBridgeSharedFileSnapshotWindow(ordinal: 0, isFinalWindow: true),
             invocation: 2

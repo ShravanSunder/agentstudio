@@ -20,6 +20,16 @@ typealias BridgePaneProductFileMetadataEventSink =
 typealias BridgePaneProductFileIgnorePolicyLoader =
     @Sendable (URL) async -> BridgeWorktreeFileIgnorePolicy
 
+typealias BridgePaneProductFileSnapshotPreparationLoader =
+    @Sendable (URL, BridgeGitReadContext) async -> BridgeSharedFileSnapshotPreparation
+
+typealias BridgePaneProductFileSharedSnapshotBuilder =
+    @Sendable (
+        BridgeWorktreeFileMaterializationRequest,
+        BridgeSharedFileSnapshotPreparation,
+        BridgeSharedFileSnapshotPublisher
+    ) async throws -> BridgeSharedFileSnapshotCompletion
+
 typealias BridgePaneProductFileTreeRowRefresher =
     @Sendable (URL, Set<String>, Bool) async -> BridgeWorktreeRefreshedTreeRows
 

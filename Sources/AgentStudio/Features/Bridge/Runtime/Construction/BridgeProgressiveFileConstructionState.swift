@@ -20,11 +20,17 @@ struct BridgeProgressiveFileConstructionState {
         let continuation: CheckedContinuation<BridgeSharedFileSnapshotRead, any Error>
     }
 
+    private struct PendingPreparationRead {
+        let cancellationState: ReadCancellationState
+        let continuation: CheckedContinuation<BridgeSharedFileSnapshotPreparation, any Error>
+    }
+
     private var preparation: BridgeSharedFileSnapshotPreparation?
     private var windows: [BridgeSharedFileSnapshotWindow] = []
     private var nextWindowStartIndex = 0
     private var didAppendFinalWindow = false
     private var pendingReadsByLeaseNonce: [UInt64: PendingRead] = [:]
+    private var pendingPreparationReadsByLeaseNonce: [UInt64: PendingPreparationRead] = [:]
 
     private(set) var retainedWindowByteCount = 0
 
@@ -33,10 +39,12 @@ struct BridgeProgressiveFileConstructionState {
     }
 
     var pendingReadCount: Int {
-        pendingReadsByLeaseNonce.count
+        pendingReadsByLeaseNonce.count + pendingPreparationReadsByLeaseNonce.count
     }
 
-    mutating func publishPreparation(_ preparation: BridgeSharedFileSnapshotPreparation) throws {
+    mutating func publishPreparation(
+        _ preparation: BridgeSharedFileSnapshotPreparation
+    ) throws -> Set<UInt64> {
         guard self.preparation == nil else {
             throw BridgeWorktreeProductConstructionError.preparationAlreadyPublished
         }
@@ -44,6 +52,54 @@ struct BridgeProgressiveFileConstructionState {
             throw BridgeWorktreeProductConstructionError.invalidRetainedByteCount
         }
         self.preparation = preparation
+        var deliveredLeaseNonces = Set<UInt64>()
+        let pendingReads = pendingPreparationReadsByLeaseNonce
+        pendingPreparationReadsByLeaseNonce.removeAll(keepingCapacity: false)
+        for (leaseNonce, pendingRead) in pendingReads {
+            if pendingRead.cancellationState.isCancelled {
+                pendingRead.continuation.resume(throwing: CancellationError())
+            } else {
+                deliveredLeaseNonces.insert(leaseNonce)
+                pendingRead.continuation.resume(returning: preparation)
+            }
+        }
+        return deliveredLeaseNonces
+    }
+
+    mutating func enqueuePreparationRead(
+        leaseNonce: UInt64,
+        cancellationState: ReadCancellationState,
+        continuation: CheckedContinuation<BridgeSharedFileSnapshotPreparation, any Error>
+    ) -> Bool {
+        guard !cancellationState.isCancelled else {
+            continuation.resume(throwing: CancellationError())
+            return false
+        }
+        if let preparation {
+            continuation.resume(returning: preparation)
+            return true
+        }
+        guard pendingPreparationReadsByLeaseNonce[leaseNonce] == nil else {
+            continuation.resume(
+                throwing: BridgeWorktreeProductConstructionError.fileReadAlreadyPending
+            )
+            return false
+        }
+        pendingPreparationReadsByLeaseNonce[leaseNonce] = PendingPreparationRead(
+            cancellationState: cancellationState,
+            continuation: continuation
+        )
+        return false
+    }
+
+    func hasPendingPreparationRead(leaseNonce: UInt64) -> Bool {
+        pendingPreparationReadsByLeaseNonce[leaseNonce] != nil
+    }
+
+    mutating func cancelPendingPreparationRead(leaseNonce: UInt64) {
+        pendingPreparationReadsByLeaseNonce.removeValue(forKey: leaseNonce)?.continuation.resume(
+            throwing: CancellationError()
+        )
     }
 
     mutating func append(_ window: BridgeSharedFileSnapshotWindow) throws {
@@ -129,6 +185,11 @@ struct BridgeProgressiveFileConstructionState {
     }
 
     mutating func failPendingReads(with error: any Error) {
+        let pendingPreparationReads = pendingPreparationReadsByLeaseNonce.values
+        pendingPreparationReadsByLeaseNonce.removeAll(keepingCapacity: false)
+        for pendingRead in pendingPreparationReads {
+            pendingRead.continuation.resume(throwing: error)
+        }
         let pendingReads = pendingReadsByLeaseNonce.values
         pendingReadsByLeaseNonce.removeAll(keepingCapacity: false)
         for pendingRead in pendingReads {

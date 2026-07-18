@@ -105,6 +105,7 @@ enum BridgeWorktreeProductConstructionError: Error, Equatable, Sendable {
     case acquisitionModeMismatch
     case invalidFileConsumerLease
     case invalidFileSnapshotCursor
+    case filePreparationReadRequired
     case preparationRequired
     case preparationAlreadyPublished
     case noncontiguousFileWindow
