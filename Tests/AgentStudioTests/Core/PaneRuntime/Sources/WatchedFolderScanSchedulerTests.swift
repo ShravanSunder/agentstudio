@@ -5,6 +5,58 @@ import Testing
 
 @Suite("Watched-folder scan scheduler")
 struct WatchedFolderScanSchedulerTests {
+    @Test("logical dirty follow-up count includes queued, pending, and leased custody")
+    func logicalDirtyFollowUpCountIncludesAllRetainedCustody() async throws {
+        let queuedFixture = try SchedulerFixture(maximumConcurrentScans: 1)
+        let suspended = try queuedFixture.makeRequest(name: "dirty-suspended")
+        let blocker = try queuedFixture.makeRequest(name: "dirty-blocker")
+        _ = await queuedFixture.scheduler.submit(suspended)
+        let suspendedStart = await queuedFixture.scanner.nextStart()
+        _ = await queuedFixture.scheduler.submit(blocker)
+        _ = await queuedFixture.scheduler.submit(
+            WatchedFolderScanRequest(canonicalRoot: suspended.canonicalRoot, cause: .callback)
+        )
+        await queuedFixture.scanner.suspend(suspendedStart)
+        _ = await queuedFixture.scanner.nextStart()
+
+        guard case .active(let queuedState) = await queuedFixture.scheduler.stateSnapshot() else {
+            Issue.record("expected active queued-suspended dirty state")
+            return
+        }
+        #expect(queuedState.dirtyFollowUps == 1)
+        await queuedFixture.scheduler.shutdown()
+
+        let resultFixture = try SchedulerFixture(maximumConcurrentScans: 1)
+        let resultRequest = try resultFixture.makeRequest(name: "dirty-result")
+        _ = await resultFixture.scheduler.submit(resultRequest)
+        let resultStart = await resultFixture.scanner.nextStart()
+        _ = await resultFixture.scheduler.submit(
+            WatchedFolderScanRequest(canonicalRoot: resultRequest.canonicalRoot, cause: .callback)
+        )
+        await resultFixture.scanner.finish(resultStart, with: completeResult())
+        try await resultFixture.waitForPendingResultCount(1)
+
+        guard case .active(let pendingState) = await resultFixture.scheduler.stateSnapshot() else {
+            Issue.record("expected active pending-result dirty state")
+            return
+        }
+        #expect(pendingState.dirtyFollowUps == 1)
+
+        let lease = try await resultFixture.nextLease()
+        guard case .active(let leasedState) = await resultFixture.scheduler.stateSnapshot() else {
+            Issue.record("expected active leased-result dirty state")
+            return
+        }
+        #expect(leasedState.dirtyFollowUps == 1)
+        #expect(await resultFixture.transfer(lease) == .transferred)
+        guard case .active(let transferredState) = await resultFixture.scheduler.stateSnapshot() else {
+            Issue.record("expected active transferred dirty follow-up state")
+            return
+        }
+        #expect(transferredState.dirtyFollowUps == 0)
+        await resultFixture.scheduler.shutdown()
+    }
+
     @Test("queued collapse retains exact coverage through the newest demand")
     func queuedCollapseRetainsNewestDemandCoverage() async throws {
         let fixture = try SchedulerFixture(maximumConcurrentScans: 1)
@@ -197,7 +249,7 @@ struct WatchedFolderScanSchedulerTests {
                     awaitingValidations: 0,
                     pendingResults: 2,
                     leasedResults: 0,
-                    runningAndDirty: 0,
+                    dirtyFollowUps: 0,
                     resultCustodyHighWater: 2
                 )
             )
@@ -343,7 +395,7 @@ struct WatchedFolderScanSchedulerTests {
                     awaitingValidations: 0,
                     pendingResults: 1,
                     leasedResults: 0,
-                    runningAndDirty: 0,
+                    dirtyFollowUps: 0,
                     resultCustodyHighWater: 1
                 )
             )

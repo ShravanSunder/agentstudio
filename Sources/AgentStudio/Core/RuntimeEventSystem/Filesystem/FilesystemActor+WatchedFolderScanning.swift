@@ -54,6 +54,7 @@ extension FilesystemActor {
                 continue
             }
         }
+        await recordLogicalDebtSnapshotIfChanged()
 
         guard !watchedFolderScanState.isShuttingDown, !receiptsBySourceID.isEmpty else {
             startFallbackRescan()
@@ -138,6 +139,7 @@ extension FilesystemActor {
                 )
             else { continue }
             _ = await watchedFolderScanScheduler.retireRegistration(registration.registeredRoot)
+            await recordLogicalDebtSnapshotIfChanged()
             fseventStreamClient.unregister(worktreeId: registration.legacyCallbackRoutingID)
             watchedFolderScanState.sourceIDByLegacyCallbackRoutingID.removeValue(
                 forKey: registration.legacyCallbackRoutingID
@@ -160,6 +162,7 @@ extension FilesystemActor {
             }
             if let existing = watchedFolderScanState.registrationsBySourceID[sourceID] {
                 _ = await watchedFolderScanScheduler.retireRegistration(existing.registeredRoot)
+                await recordLogicalDebtSnapshotIfChanged()
                 fseventStreamClient.unregister(worktreeId: existing.legacyCallbackRoutingID)
                 watchedFolderScanState.sourceIDByLegacyCallbackRoutingID.removeValue(
                     forKey: existing.legacyCallbackRoutingID
@@ -240,6 +243,7 @@ extension FilesystemActor {
         case .accepted(let acceptance):
             watchedFolderScanState.latestDemandCoverageBySourceID[sourceID] = acceptance.coverage
             ensureWatchedFolderResultDrainStarted()
+            await recordLogicalDebtSnapshotIfChanged()
         case .rejected:
             return
         }

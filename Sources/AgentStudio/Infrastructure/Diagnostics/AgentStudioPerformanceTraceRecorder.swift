@@ -8,8 +8,10 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case commandBarFilter = "performance.commandbar.filter"
         case commandBarItems = "performance.commandbar.items"
         case coordinatorWrite = "performance.coordinator.write"
+        case filesystemLogicalDebt = "performance.filesystem.logical_debt"
         case gitAdmission = "performance.git.admission"
         case gitEventPosted = "performance.git.event_posted"
+        case gitLogicalDebt = "performance.git.logical_debt"
         case gitSnapshotDedup = "performance.git.snapshot_dedup"
         case gitStatusComputed = "performance.git.status"
         case gitStatusUnavailable = "performance.git.status_unavailable"
@@ -23,6 +25,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case paneViewRestoreVisible = "performance.pane_view.restore_visible"
         case repoAndWorktreeLookup = "performance.topology.repo_and_worktree"
         case processMallocZone = "performance.process.malloc_zone"
+        case runtimeDeliverySnapshot = "performance.runtime_delivery.snapshot"
         case sidebarFilterInput = "performance.sidebar.filter_input"
         case sidebarProjection = "performance.sidebar.projection"
         case sidebarRowIndex = "performance.sidebar.row_index"
@@ -38,30 +41,50 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     private let traceRuntime: AgentStudioTraceRuntime?
     private let eventQueue: AgentStudioTraceEventQueue?
     private let processMemorySampler: AgentStudioProcessMemorySampler?
+    private let runtimeDeliveryPerformanceReporter: RuntimeDeliveryPerformanceReporter?
 
-    init(traceRuntime: AgentStudioTraceRuntime?) {
+    init(
+        traceRuntime: AgentStudioTraceRuntime?,
+        runtimeDeliveryPerformanceReporter: RuntimeDeliveryPerformanceReporter? = nil,
+        processMemorySampleWait: @escaping AgentStudioProcessMemorySampler.WaitForNextSample =
+            AgentStudioProcessMemorySampler.waitOneSecond
+    ) {
         self.traceRuntime = traceRuntime
         if let traceRuntime, traceRuntime.isEnabled(.performance) {
+            runtimeDeliveryPerformanceReporter?.enable()
+            self.runtimeDeliveryPerformanceReporter = runtimeDeliveryPerformanceReporter
             let eventQueue = AgentStudioTraceEventQueue(traceRuntime: traceRuntime)
             self.eventQueue = eventQueue
-            let processMemorySampler = AgentStudioProcessMemorySampler { snapshot in
+            let processMemorySampler = AgentStudioProcessMemorySampler(
+                waitForNextSample: processMemorySampleWait
+            ) { snapshot in
                 eventQueue.record(
                     tag: .performance,
                     body: Event.processMallocZone.rawValue,
                     eventTimeUnixNano: traceRuntime.timestampUnixNano(),
                     attributes: snapshot.traceAttributes
                 )
+                if let runtimeDeliverySnapshot = runtimeDeliveryPerformanceReporter?.snapshot() {
+                    eventQueue.record(
+                        tag: .performance,
+                        body: Event.runtimeDeliverySnapshot.rawValue,
+                        eventTimeUnixNano: traceRuntime.timestampUnixNano(),
+                        attributes: runtimeDeliverySnapshot.traceAttributes
+                    )
+                }
             }
             self.processMemorySampler = processMemorySampler
             processMemorySampler.start()
         } else {
             self.eventQueue = nil
             self.processMemorySampler = nil
+            self.runtimeDeliveryPerformanceReporter = nil
         }
     }
 
     deinit {
         processMemorySampler?.cancel()
+        runtimeDeliveryPerformanceReporter?.disable()
     }
 
     var isEnabled: Bool {
@@ -113,6 +136,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
 
     func drain() async throws {
         await processMemorySampler?.stop()
+        runtimeDeliveryPerformanceReporter?.disable()
         try await eventQueue?.drain()
         if eventQueue == nil {
             try await traceRuntime?.flush()

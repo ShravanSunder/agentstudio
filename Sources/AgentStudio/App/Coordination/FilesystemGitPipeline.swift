@@ -40,7 +40,8 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             bus: bus,
             fseventStreamClient: fseventStreamClient,
             debounceWindow: filesystemDebounceWindow,
-            maxFlushLatency: filesystemMaxFlushLatency
+            maxFlushLatency: filesystemMaxFlushLatency,
+            performanceTraceRecorder: performanceTraceRecorder
         )
         self.gitWorkingDirectoryProjector = GitWorkingDirectoryProjector(
             bus: bus,

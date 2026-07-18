@@ -7,6 +7,67 @@ import Testing
 
 @Suite("GitWorkingDirectoryProjector")
 struct GitWorkingDirectoryProjectorTests {
+    @Test("logical debt trace records retry insertion and pending dequeue transitions")
+    func logicalDebtTraceRecordsRetryAndPendingDequeueTransitions() async throws {
+        let traceRuntime = makeGitLogicalDebtTraceRuntime()
+        let recorder = AgentStudioPerformanceTraceRecorder(
+            traceRuntime: traceRuntime,
+            processMemorySampleWait: { false }
+        )
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = CallCounter()
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            let callCount = await calls.increment()
+            if callCount == 1 {
+                return nil
+            }
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                branch: "retry-success",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            sleepClock: clock,
+            refreshPolicy: AppPolicies.GitRefresh.Policy(
+                backgroundStripeCount: 1,
+                maxConcurrentStatusComputes: 1,
+                maxNilStatusRetries: 1,
+                nilStatusRetryDelay: .milliseconds(50)
+            ),
+            performanceTraceRecorder: recorder
+        )
+        await actor.start()
+
+        let worktreeId = UUIDv7.generate()
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                rootPath: URL(fileURLWithPath: "/tmp/git-logical-debt-trace-\(UUIDv7.generate().uuidString)"),
+                batchSeq: 1
+            )
+        )
+        let retryScheduled = await waitUntilYielding { clock.pendingSleepCount == 1 }
+        #expect(retryScheduled)
+        clock.advance(by: .milliseconds(50))
+        let reachedZeroDebt = await waitUntil {
+            let callCount = await calls.value()
+            let snapshot = await actor.logicalDebtSnapshot()
+            return callCount == 2 && snapshot.logicalDebtCount == 0
+        }
+        #expect(reachedZeroDebt)
+
+        await actor.shutdown()
+        try await recorder.drain()
+        let debtCounts = try gitLogicalDebtTraceCounts(from: traceRuntime)
+        #expect(debtCounts == [2, 1, 2, 1, 2, 1, 0])
+    }
+
     @Test("default provider emits real SDK-backed initial git snapshot")
     func defaultProviderEmitsRealSDKBackedInitialGitSnapshot() async throws {
         let repoURL = try FilesystemTestGitRepo.create(named: "projector-default-sdk-provider")
@@ -249,6 +310,14 @@ struct GitWorkingDirectoryProjectorTests {
             return
         }
         #expect(await observed.snapshotCount(for: worktreeId) == 0)
+        let retryOwnsLogicalPendingDebt = await waitUntil {
+            let snapshot = await actor.logicalDebtSnapshot()
+            return snapshot.retryPendingCount == 1
+                && snapshot.logicalPendingCount == 1
+                && snapshot.logicalRunningCount == 0
+                && snapshot.logicalDebtCount == 1
+        }
+        #expect(retryOwnsLogicalPendingDebt)
 
         clock.advance(by: .milliseconds(50))
 
@@ -259,6 +328,10 @@ struct GitWorkingDirectoryProjectorTests {
         }
         #expect(retriedAndEmittedSnapshot)
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
+        let reachedZeroDebt = await waitUntil {
+            await actor.logicalDebtSnapshot().logicalDebtCount == 0
+        }
+        #expect(reachedZeroDebt)
 
         await actor.shutdown()
         collectionTask.cancel()
@@ -629,6 +702,10 @@ struct GitWorkingDirectoryProjectorTests {
             await Task.yield()
         }
         #expect(await calls.value() == policy.maxConcurrentStatusComputes)
+        let boundedDebtSnapshot = await actor.logicalDebtSnapshot()
+        #expect(boundedDebtSnapshot.logicalPendingCount == 4)
+        #expect(boundedDebtSnapshot.logicalRunningCount == 2)
+        #expect(boundedDebtSnapshot.logicalDebtCount == 6)
 
         await gate.open()
         let drainedAllQueuedWork = await waitUntil {
@@ -645,6 +722,13 @@ struct GitWorkingDirectoryProjectorTests {
             return true
         }
         #expect(emittedAllSnapshots)
+        let reachedZeroDebt = await waitUntil {
+            let snapshot = await actor.logicalDebtSnapshot()
+            return snapshot.logicalPendingCount == 0
+                && snapshot.logicalRunningCount == 0
+                && snapshot.logicalDebtCount == 0
+        }
+        #expect(reachedZeroDebt)
 
         await actor.shutdown()
         collectionTask.cancel()
@@ -2080,5 +2164,34 @@ private actor CallOrderRecorder {
 
     func record(_ label: String) {
         recordedLabels.append(label)
+    }
+}
+
+private func makeGitLogicalDebtTraceRuntime() -> AgentStudioTraceRuntime {
+    AgentStudioTraceRuntime(
+        configuration: AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+            "AGENTSTUDIO_TRACE_DIR": FileManager.default.temporaryDirectory.path,
+            "AGENTSTUDIO_TRACE_NAME": "git-logical-debt-transitions-\(UUIDv7.generate().uuidString)",
+            "AGENTSTUDIO_TRACE_TAGS": "performance",
+        ]),
+        processIdentifier: 925
+    )
+}
+
+private func gitLogicalDebtTraceCounts(
+    from traceRuntime: AgentStudioTraceRuntime
+) throws -> [Int] {
+    let outputFileURL = try #require(traceRuntime.outputFileURL)
+    let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+    return try contents.split(separator: "\n").compactMap { line in
+        let data = Data(line.utf8)
+        guard let record = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            record["body"] as? String == "performance.git.logical_debt",
+            let attributes = record["attributes"] as? [String: Any]
+        else {
+            return nil
+        }
+        return attributes["agentstudio.performance.git.logical_debt.count"] as? Int
     }
 }

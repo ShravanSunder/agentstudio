@@ -117,7 +117,7 @@ final class AgentStudioProcessMemorySampler: @unchecked Sendable {
         }
     }
 
-    private static func waitOneSecond() async -> Bool {
+    static func waitOneSecond() async -> Bool {
         do {
             try await Task.sleep(nanoseconds: 1_000_000_000)
             return !Task.isCancelled

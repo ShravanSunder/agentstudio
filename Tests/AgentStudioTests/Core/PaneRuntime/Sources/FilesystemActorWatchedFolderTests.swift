@@ -5,6 +5,39 @@ import Testing
 
 @Suite("FilesystemActor Watched Folders")
 struct FilesystemActorWatchedFolderTests {
+    @Test("logical debt reaches zero only after watched-folder result transfer")
+    func logicalDebtReachesZeroAfterResultTransfer() async throws {
+        let fixture = try await WatchedFolderActorFixture()
+        defer { fixture.removeTemporaryRoot() }
+
+        let refresh = Task {
+            await fixture.actor.refreshWatchedFolders([fixture.watchedPath])
+        }
+        let start = await fixture.scanner.nextStart()
+
+        let runningSnapshot = await fixture.actor.logicalDebtSnapshot()
+        #expect(runningSnapshot.watchedFolderActiveQuantumCount == 1)
+        #expect(runningSnapshot.logicalDebtCount == 1)
+
+        await fixture.scanner.finish(start, with: completeResult(entries: []))
+        _ = await refresh.value
+        let reachedZeroDebt = await waitUntilWatchedFolderLogicalDebt(
+            fixture.actor,
+            equals: 0
+        )
+        #expect(reachedZeroDebt)
+        let finalSnapshot = await fixture.actor.logicalDebtSnapshot()
+        #expect(finalSnapshot.watchedFolderReadyCount == 0)
+        #expect(finalSnapshot.watchedFolderActiveQuantumCount == 0)
+        #expect(finalSnapshot.watchedFolderAwaitingValidationCount == 0)
+        #expect(finalSnapshot.watchedFolderPendingResultCount == 0)
+        #expect(finalSnapshot.watchedFolderLeasedResultCount == 0)
+        #expect(finalSnapshot.watchedFolderDirtyFollowUpCount == 0)
+        #expect(finalSnapshot.logicalDebtCount == 0)
+
+        await fixture.actor.shutdown()
+    }
+
     @Test("binding result-drain state retains awaitable shutdown custody")
     func bindingResultDrainStateRetainsAwaitableShutdownCustody() async throws {
         let gate = ResultDrainTaskGate()
@@ -753,6 +786,20 @@ private func boundedYields() async {
     for _ in 0..<200 {
         await Task.yield()
     }
+}
+
+private func waitUntilWatchedFolderLogicalDebt(
+    _ actor: FilesystemActor,
+    equals expectedCount: Int,
+    maxTurns: Int = 10_000
+) async -> Bool {
+    for _ in 0..<maxTurns {
+        if await actor.logicalDebtSnapshot().logicalDebtCount == expectedCount {
+            return true
+        }
+        await Task.yield()
+    }
+    return await actor.logicalDebtSnapshot().logicalDebtCount == expectedCount
 }
 
 private enum WatchedFolderActorTestError: Error {

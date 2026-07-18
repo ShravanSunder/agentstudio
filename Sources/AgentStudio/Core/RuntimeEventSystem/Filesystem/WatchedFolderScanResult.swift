@@ -276,7 +276,7 @@ struct WatchedFolderScanSchedulerActiveState: Equatable, Sendable {
     let awaitingValidations: Int
     let pendingResults: Int
     let leasedResults: Int
-    let runningAndDirty: Int
+    let dirtyFollowUps: Int
     let resultCustodyHighWater: Int
 }
 

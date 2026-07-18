@@ -282,6 +282,111 @@ struct EventBusRuntimeEnvelopeTests {
         #expect(clearedDiagnostics.retainedRecoveryDiagnostics.isEmpty)
     }
 
+    @Test("performance debt tracks stalled delivery and returns to zero after consumption")
+    func performanceDebtTracksStalledDeliveryAndConsumption() async {
+        let reporter = RuntimeDeliveryPerformanceReporter()
+        reporter.enable()
+        let bus = EventBus<RuntimeEnvelope>(performanceReporter: reporter)
+        let paneId = PaneId.generateUUIDv7()
+        let subscription = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "performanceDebtStalled"
+        )
+
+        for seq in 1...3 {
+            _ = await bus.post(makePaneEnvelope(paneId: paneId, seq: UInt64(seq)))
+        }
+
+        #expect(reporter.snapshot().eventBusActiveDeliveryDebt == 3)
+        #expect(reporter.snapshot().eventBusActiveSubscriberCount == 1)
+
+        var iterator = subscription.makeAsyncIterator()
+        for expectedDebt in [2, 1, 0] {
+            _ = await iterator.next()
+            #expect(reporter.snapshot().eventBusActiveDeliveryDebt == UInt64(expectedDebt))
+        }
+    }
+
+    @Test("lossy replacement drops stay separate from active delivery debt")
+    func lossyReplacementDropsStaySeparateFromDebt() async {
+        let reporter = RuntimeDeliveryPerformanceReporter()
+        reporter.enable()
+        let bus = EventBus<RuntimeEnvelope>(performanceReporter: reporter)
+        let paneId = PaneId.generateUUIDv7()
+        let subscription = await bus.subscribe(
+            policy: .lossyNewest(1),
+            subscriberName: "performanceDebtLossy"
+        )
+
+        for seq in 1...8 {
+            _ = await bus.post(makePaneEnvelope(paneId: paneId, seq: UInt64(seq)))
+        }
+
+        let pressuredSnapshot = reporter.snapshot()
+        #expect(pressuredSnapshot.eventBusActiveDeliveryDebt == 1)
+        #expect(pressuredSnapshot.eventBusLiveDroppedCount == 7)
+
+        var iterator = subscription.makeAsyncIterator()
+        _ = await iterator.next()
+        #expect(reporter.snapshot().eventBusActiveDeliveryDebt == 0)
+    }
+
+    @Test("replay delivery contributes debt while retained replay storage does not")
+    func replayDeliveryContributesOnlyWhilePending() async {
+        let reporter = RuntimeDeliveryPerformanceReporter()
+        reporter.enable()
+        let bus = EventBus<RuntimeEnvelope>(
+            replayConfiguration: .init(
+                capacityPerSource: 4,
+                sourceKey: { envelope in envelope.source.description }
+            ),
+            performanceReporter: reporter
+        )
+        let paneId = PaneId.generateUUIDv7()
+        for seq in 1...4 {
+            _ = await bus.post(makePaneEnvelope(paneId: paneId, seq: UInt64(seq)))
+        }
+
+        let subscription = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "performanceDebtReplay"
+        )
+        #expect(reporter.snapshot().eventBusActiveDeliveryDebt == 4)
+
+        var iterator = subscription.makeAsyncIterator()
+        for _ in 1...4 {
+            _ = await iterator.next()
+        }
+
+        #expect(reporter.snapshot().eventBusActiveDeliveryDebt == 0)
+        #expect(await bus.diagnosticsSnapshot().activeSubscribers.first?.replayStatus == .complete)
+    }
+
+    @Test("subscriber termination retires undelivered debt without leaving active debt")
+    func subscriberTerminationRetiresUndeliveredDebt() async {
+        let reporter = RuntimeDeliveryPerformanceReporter()
+        reporter.enable()
+        let bus = EventBus<RuntimeEnvelope>(performanceReporter: reporter)
+        let paneId = PaneId.generateUUIDv7()
+        var subscription: EventBusSubscription<RuntimeEnvelope>? = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "performanceDebtTermination"
+        )
+        for seq in 1...3 {
+            _ = await bus.post(makePaneEnvelope(paneId: paneId, seq: UInt64(seq)))
+        }
+        #expect(reporter.snapshot().eventBusActiveDeliveryDebt == 3)
+        #expect(subscription != nil)
+
+        subscription = nil
+        await assertBusDrained(bus)
+
+        let retiredSnapshot = reporter.snapshot()
+        #expect(retiredSnapshot.eventBusActiveDeliveryDebt == 0)
+        #expect(retiredSnapshot.eventBusRetiredUndeliveredCount == 3)
+        #expect(retiredSnapshot.eventBusActiveSubscriberCount == 0)
+    }
+
     private func makePaneEnvelope(paneId: PaneId, seq: UInt64) -> RuntimeEnvelope {
         .pane(
             PaneEnvelope.test(

@@ -395,7 +395,7 @@ extension WatchedFolderScanScheduler {
                 awaitingValidations: counts.awaitingValidation,
                 pendingResults: counts.pending,
                 leasedResults: counts.leased,
-                runningAndDirty: counts.runningAndDirty,
+                dirtyFollowUps: counts.dirtyFollowUps,
                 resultCustodyHighWater: resultCustodyHighWater
             )
         )

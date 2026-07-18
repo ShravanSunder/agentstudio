@@ -74,6 +74,7 @@ actor FilesystemActor {
     let watchedFolderScanScheduler: WatchedFolderScanScheduler
     private let debounceWindow: Duration
     private let maxFlushLatency: Duration
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
 
     private var roots: [UUID: RootState] = [:]
     private var pendingChangesByWorktreeId: [UUID: PendingWorktreeChanges] = [:]
@@ -84,6 +85,8 @@ actor FilesystemActor {
 
     private var ingressTask: Task<Void, Never>?
     private var drainTask: Task<Void, Never>?
+    var lastRecordedLogicalDebtSnapshot: FilesystemLogicalDebtSnapshot?
+    var logicalDebtSnapshotPublicationRevision: UInt64 = 0
     private var hasShutdown = false
 
     init(
@@ -91,7 +94,8 @@ actor FilesystemActor {
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
         watchedFolderScanScheduler: WatchedFolderScanScheduler = .production(),
         debounceWindow: Duration = .milliseconds(500),
-        maxFlushLatency: Duration = .seconds(2)
+        maxFlushLatency: Duration = .seconds(2),
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
@@ -99,6 +103,7 @@ actor FilesystemActor {
         schedulingClock = .continuous()
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
+        self.performanceTraceRecorder = performanceTraceRecorder
     }
 
     init<C: Clock>(
@@ -107,7 +112,8 @@ actor FilesystemActor {
         watchedFolderScanScheduler: WatchedFolderScanScheduler = .production(),
         sleepClock: C,
         debounceWindow: Duration = .milliseconds(500),
-        maxFlushLatency: Duration = .seconds(2)
+        maxFlushLatency: Duration = .seconds(2),
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) where C.Duration == Duration, C: Sendable {
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
@@ -115,6 +121,7 @@ actor FilesystemActor {
         schedulingClock = .make(clock: sleepClock)
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
+        self.performanceTraceRecorder = performanceTraceRecorder
     }
 
     isolated deinit {
@@ -314,6 +321,7 @@ actor FilesystemActor {
         }
 
         scheduleDrainIfNeeded()
+        await recordLogicalDebtSnapshotIfChanged()
     }
 
     func startIngressTaskIfNeeded() {
@@ -337,7 +345,9 @@ actor FilesystemActor {
         guard hasPendingPaths else { return }
 
         drainTask = Task { [weak self] in
-            await self?.drainPendingChanges()
+            guard let self else { return }
+            await self.drainPendingChanges()
+            await self.recordLogicalDebtSnapshotIfChanged()
         }
     }
 
@@ -386,6 +396,14 @@ actor FilesystemActor {
 
     private var hasPendingPaths: Bool {
         pendingChangesByWorktreeId.values.contains(where: \.hasPendingChanges)
+    }
+
+    var pendingWorktreeLogicalDebtCount: Int {
+        pendingChangesByWorktreeId.values.count(where: \.hasPendingChanges)
+    }
+
+    var drainTaskLogicalDebtCount: Int {
+        drainTask == nil ? 0 : 1
     }
 
     nonisolated private static func isGitIgnoreReloadPath(rawPath: String, relativePath: String) -> Bool {

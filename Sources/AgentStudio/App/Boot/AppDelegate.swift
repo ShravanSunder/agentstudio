@@ -116,7 +116,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         startupTraceRecorder: AgentStudioStartupTraceRecorder
     ) {
         self.traceRuntime = traceRuntime
-        self.performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
+        self.performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(
+            traceRuntime: traceRuntime,
+            runtimeDeliveryPerformanceReporter: PaneRuntimeEventBus.performanceReporter
+        )
         self.startupTraceRecorder = startupTraceRecorder
         super.init()
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)

@@ -143,7 +143,7 @@ extension WatchedFolderScanScheduler {
         var awaitingValidation = 0
         var pending = 0
         var leased = 0
-        var runningAndDirty = 0
+        var dirtyFollowUps = 0
     }
 
     struct ReadySelectionInspection: Equatable, Sendable {
@@ -277,22 +277,31 @@ extension WatchedFolderScanScheduler {
 
         private mutating func adjustCounts(for state: RootSchedulingState, delta: Int) {
             switch state {
-            case .queuedNew, .queuedSuspended, .queuedSuspendedAndDirty:
+            case .queuedNew, .queuedSuspended:
                 counts.ready += delta
+            case .queuedSuspendedAndDirty:
+                counts.ready += delta
+                counts.dirtyFollowUps += delta
             case .running:
                 counts.active += delta
             case .runningAndDirty:
                 counts.active += delta
-                counts.runningAndDirty += delta
+                counts.dirtyFollowUps += delta
             case .awaitingValidation:
                 counts.awaitingValidation += delta
             case .awaitingValidationAndDirty:
                 counts.awaitingValidation += delta
-                counts.runningAndDirty += delta
-            case .pendingResult, .pendingResultAndDirty:
+                counts.dirtyFollowUps += delta
+            case .pendingResult:
                 counts.pending += delta
-            case .leasedResult, .leasedResultAndDirty:
+            case .pendingResultAndDirty:
+                counts.pending += delta
+                counts.dirtyFollowUps += delta
+            case .leasedResult:
                 counts.leased += delta
+            case .leasedResultAndDirty:
+                counts.leased += delta
+                counts.dirtyFollowUps += delta
             }
         }
 

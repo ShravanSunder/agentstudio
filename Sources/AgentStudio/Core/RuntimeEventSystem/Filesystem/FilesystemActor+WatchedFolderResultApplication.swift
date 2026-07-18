@@ -51,6 +51,7 @@ extension FilesystemActor {
                     leaseID: lease.leaseID,
                     resolution: .transferred
                 )
+                await recordLogicalDebtSnapshotIfChanged()
                 switch resolution {
                 case .transferred, .staleResultDiscarded:
                     break
