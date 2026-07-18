@@ -266,19 +266,8 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
     private static func measurement(
         for sample: AgentStudioOTLPPerformanceMetricSample
     ) -> AgentStudioOTLPPerformanceMeasurement? {
-        if cumulativeCounterMetricLabels.contains(sample.label) {
-            return .counter(sample)
-        }
-        return .gauge(sample)
+        .gauge(sample)
     }
-
-    private static let cumulativeCounterMetricLabels: Set<String> = [
-        "agentstudio_performance_bridge_active_refresh_count",
-        "agentstudio_performance_bridge_coalesced_demand_count",
-        "agentstudio_performance_bridge_final_commit_count",
-        "agentstudio_performance_bridge_invalidation_count",
-        "agentstudio_performance_bridge_stale_rejection_count",
-    ]
 
     private static func doubleValue(_ value: AgentStudioTraceValue?) -> Double? {
         switch value {

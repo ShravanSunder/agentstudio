@@ -175,45 +175,6 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
-    func bridgeRefreshOccurrenceCountsAreCountersAndElapsedTimeIsDistributed() throws {
-        let record = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 458,
-            severityText: .info,
-            body: "performance.bridge.refresh",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.bridge.performance.swift", version: "0.1.0"),
-            attributes: [
-                "agentstudio.bridge.phase": .string("final_commit"),
-                "agentstudio.bridge.plane": .string("data"),
-                "agentstudio.bridge.priority": .string("warm"),
-                "agentstudio.bridge.slice": .string("diff_package_delta"),
-                "agentstudio.performance.bridge.active_refresh.count": .int(1),
-                "agentstudio.performance.bridge.final_commit.count": .int(1),
-                "agentstudio.performance.elapsed_ms": .double(2.5),
-            ]
-        )
-
-        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
-
-        #expect(metricEvent.measurements.count == 3)
-        #expect(
-            metricEvent.measurements.filter { measurement in
-                if case .counter = measurement { return true }
-                return false
-            }.count == 2)
-        #expect(
-            metricEvent.measurements.contains { measurement in
-                if case .distribution(let sample) = measurement {
-                    return sample.label == AgentStudioOTLPPerformanceMetrics.elapsedMetricLabel
-                }
-                return false
-            })
-    }
-
-    @Test
     func bridgePerformanceRecordProjectsOnlySafeBridgeMetrics() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 124,
