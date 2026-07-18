@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { useLayoutEffect } from 'react';
 
 import {
+	bridgeViewerChromeCompactMetadataClassName,
 	bridgeViewerChromeIconButtonClassName,
 	bridgeViewerChromeLucideIconClassName,
 } from '../../app/bridge-viewer-chrome.js';
@@ -775,7 +776,10 @@ function renderBridgeCodeViewHeaderMetadata(props: RenderBridgeCodeViewHeaderPro
 
 	return (
 		<span
-			className="ml-auto inline-flex min-w-0 items-center gap-2 text-[11px] text-[var(--bridge-text-muted)]"
+			className={cn(
+				bridgeViewerChromeCompactMetadataClassName,
+				'ml-auto inline-flex min-w-0 items-center gap-2 text-[var(--bridge-text-muted)]',
+			)}
 			data-bridge-code-view-content-state={contentState}
 			data-testid="bridge-code-view-header-metadata"
 		>

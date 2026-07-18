@@ -227,6 +227,31 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			const pierreDeletionCounters = [
 				...pierreContainer.shadowRoot.querySelectorAll('[data-deletions-count]'),
 			];
+			const pierreHeaderTitle = pierreContainer.shadowRoot.querySelector('[data-title]');
+			if (!(pierreHeaderTitle instanceof HTMLElement)) {
+				throw new Error('Expected the surrounding Pierre header navigation title.');
+			}
+			const surroundingNavigationFontSize = Number.parseFloat(
+				getComputedStyle(pierreHeaderTitle).fontSize,
+			);
+			expect(surroundingNavigationFontSize).toBe(13);
+			for (const metadataCount of metadataCounts) {
+				const metadataCountStyle = getComputedStyle(metadataCount);
+				const metadataCountFontSize = Number.parseFloat(metadataCountStyle.fontSize);
+				expect(metadataCountFontSize).toBe(10);
+				expect(metadataCountFontSize).toBeLessThan(surroundingNavigationFontSize);
+				expect(Number.parseFloat(metadataCountStyle.lineHeight)).toBe(10);
+				expect(metadataCountStyle.fontVariantNumeric).toContain('tabular-nums');
+				const metadataCountBox = metadataCount.getBoundingClientRect();
+				const headerTitleBox = pierreHeaderTitle.getBoundingClientRect();
+				expect(
+					Math.abs(
+						metadataCountBox.y +
+							metadataCountBox.height / 2 -
+							(headerTitleBox.y + headerTitleBox.height / 2),
+					),
+				).toBeLessThanOrEqual(1);
+			}
 			expect(pierreAdditionCounters).toHaveLength(1);
 			expect(pierreDeletionCounters).toHaveLength(1);
 			for (const pierreCounter of [...pierreAdditionCounters, ...pierreDeletionCounters]) {

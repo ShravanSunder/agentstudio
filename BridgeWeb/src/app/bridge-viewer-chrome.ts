@@ -12,6 +12,8 @@ export const bridgeViewerChromeIconButtonClassName = 'h-6 min-h-6 w-6 min-w-6 ro
 export const bridgeViewerChromeIconClassName =
 	'inline-flex size-3 shrink-0 items-center justify-center text-[10px] leading-none';
 
+export const bridgeViewerChromeCompactMetadataClassName = 'text-[10px] leading-none tabular-nums';
+
 export const bridgeViewerChromeLucideIconClassName = 'size-3.5';
 
 export const bridgeViewerChromeSegmentedControlClassName =
