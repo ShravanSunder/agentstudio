@@ -7,17 +7,22 @@ Parent contract: [AgentStudio Performance Boundaries](../2026-07-10-agentstudio-
 
 ## Product Intent
 
-AgentStudio should remain responsive while terminals produce output, users search
-or interact with terminal presentation, watched folders contain hundreds of
-repositories, Git refreshes run, and Bridge review panes rebuild.
+AgentStudio should use materially less CPU, attributable allocation/retained
+memory pressure, task scheduling, and MainActor service while terminals produce
+output, users search or interact with terminal presentation, watched folders
+contain hundreds of repositories, Git refreshes run, and Bridge review panes
+rebuild. Process physical footprint/RSS is also measured, but it is a paired
+guardrail rather than the sole memory signal because allocator and VM caching can
+hide reclaimed transient allocations after the owned work has quiesced.
 
 The cleaned branch already has the important heavy-work owners: Ghostty owns its
 host callbacks, `FilesystemActor` owns authorized filesystem ingestion,
 bounded schedulers own scanning and Git reads, `FilesystemProjectionIndex` owns
 off-main projection, and Bridge actors own package construction. The remaining
-problem is narrower: ordinary local samples and Bridge-only invalidations still
-expand into shared replay, fanout, reducer, and recurring fleet work that their
-actual consumers do not need.
+problem is narrower: ordinary local samples become one MainActor job each before
+expanding into shared replay, fanout, reducer, and activity processing; unrelated
+workspace actions still trigger fleet capture; and Bridge-only invalidations
+still traverse the global bus before reaching one consumer.
 
 This design reduces that expansion using existing owners. It does not create a
 new event system, callback architecture, admission framework, persistence
@@ -27,28 +32,28 @@ system, repair system, or diagnostic subsystem.
 
 The design is successful when all of the following are true:
 
-1. Terminal presentation samples remain fully functional but produce no runtime
-   envelope, runtime replay record, global EventBus post, global replay record,
-   or IPC wait event.
-2. Scrollbar-derived activity and inbox behavior remain equivalent through a
-   narrow local evidence route.
-3. Local sample pressure can no longer occupy the bounded semantic-fact channel
-   or displace retained facts. This slice preserves, rather than redesigns, the
-   channel's existing fact-only saturation semantics.
-4. Fixed-key workspace changes no longer schedule a full repository/worktree/
-   pane capture. Fleet reconciliation occurs only when the operation is actually
-   fleet-wide.
-5. Filesystem and Git facts refresh only matching mounted Bridge panes without
-   creating derived `paneFilesystemContext` EventBus traffic or awaiting Bridge
-   package construction in global ingestion.
-6. MainActor performs only the existing Ghostty routing obligation, equal-write-
-   suppressed local state, small immutable captures, O(affected keys) delivery,
-   and compact accepted UI/canonical mutations.
-7. The current filesystem authority, Git capacity, strict state, atom purity,
-   Bridge currentness, and telemetry privacy boundaries remain intact.
-8. Paired runtime evidence demonstrates reduced amplification and an improved or
-   already-within-budget interaction tail without correctness or stability
-   regression.
+1. Coalescible Ghostty presentation/activity samples are copied and classified
+   synchronously, retained in bounded keyed state, and drained in batches rather
+   than creating one MainActor task and one consumer call per raw sample.
+2. Terminal presentation remains fully functional while those samples produce
+   no runtime envelope, replay record, EventBus post/delivery, or IPC wait event.
+3. Scrollbar evidence is compressed without losing positive output growth,
+   reset/decrease boundaries, pinned/observed edges, or quiet settlement; heavy
+   activity projection runs off MainActor and publishes semantic transitions.
+4. Exact commands and semantic facts keep their existing ordered behavior. Local
+   sample pressure cannot occupy their bounded channel; fact-only saturation is
+   preserved as a separate pre-existing limitation.
+5. Unrelated workspace actions no longer schedule a full repository/worktree/
+   pane capture. Actual topology changes retain one batched reconciliation;
+   pane, CWD, activity, and active-worktree changes use fixed-key edges.
+6. Filesystem and Git facts refresh only matching mounted Bridge panes without
+   derived `paneFilesystemContext` traffic or awaiting Bridge construction in
+   global ingestion.
+7. MainActor performs only bounded capture/current lookup, one compact apply per
+   drained batch, O(affected keys) delivery, and accepted UI/canonical mutations.
+8. Paired runtime evidence proves lower CPU, attributable allocation/retained
+   memory pressure, scheduling/fanout amplification, and targeted MainActor duty
+   without material physical-footprint/RSS, correctness, or stability regression.
 
 ## Current-State Baseline
 
@@ -57,8 +62,8 @@ The design is successful when all of the following are true:
 `Ghostty.CallbackRouter.action_cb` must return Ghostty's handled Boolean
 synchronously. `Ghostty.ActionRouter` copies and translates payloads, then
 creates a `Task { @MainActor }` for each routed action. `TerminalRuntime` updates
-observable state and currently calls `PaneRuntimeEventChannel.emit` for local
-presentation samples and semantic facts alike.
+observable state and calls `PaneRuntimeEventChannel.emit` for local presentation
+samples and semantic facts alike.
 
 Each channel emission performs sequence allocation, envelope construction,
 optional local replay, local subscriber fanout, and an offer to a
@@ -67,9 +72,11 @@ shared EventBus. The shared bus appends every posted envelope to a 256-entry-
 per-source replay and yields it to every subscriber.
 
 Downstream lossy consolidation happens only after those costs. The MainActor
-workspace coordinator also performs tab lookup before ignoring many terminal
-sample cases. `persistForReplay: false` skips only the runtime's local replay; it
-does not prevent global posting or global replay.
+`TerminalActivityRouter` also consumes every scrollbar sample, mutates activity
+windows, updates atom state, and cancels/recreates quiet tasks. The workspace
+coordinator performs tab lookup before ignoring many sample cases.
+`persistForReplay: false` skips only local replay; it does not prevent global
+posting or global replay.
 
 ### Scrollbar semantics
 
@@ -123,24 +130,38 @@ design's improvement.
 ```text
 Ghostty callback and payload translation                 unchanged owner
   owns: synchronous handled result, borrowed-payload copy
-  exposes: translated Ghostty signal through existing MainActor route
-                         │
-                         ▼
-TerminalRuntime                                          admission owner
-  owns: current local terminal state and exhaustive disposition
-  exposes:
-    local presentation update ───────────────► mounted terminal presentation
-    local activity evidence ─────────────────► TerminalActivityEvidenceConsumer
-                                                bound by AppDelegate composition
-                                                to TerminalActivityRouter
-    exact semantic fact ─────────────────────► PaneRuntimeEventChannel
+  exposes: strict copied signal disposition + surface-lifetime key
+             │
+             ├── exact command/fact ─────────► existing MainActor route
+             │                                      │
+             │                                      ▼
+             │                                TerminalRuntime
+             │                                      │ semantic facts only
+             │                                      ▼
+             │                                PaneRuntimeEventChannel
+             │                                      │
+             │                                      ▼
+             │                                existing EventBus
+             │
+             └── coalescible sample ─────────► TerminalSampleAccumulator
+                                                bounded by live surfaces +
+                                                fixed signal keys
                                                      │
-                                                     ▼
-                                               existing EventBus
+                          ┌──────────────────────────┴──────────────────────┐
+                          ▼                                                 ▼
+                 one MainActor batch apply                    activity aggregate
+                 latest presentation state                              │
+                                                                         ▼
+                                                        TerminalActivityRouter actor
+                                                        off-main state/timers
+                                                                         │
+                                                                         ▼
+                                                        semantic transitions +
+                                                        compact MainActor state
 
 FilesystemActor / GitWorkingDirectoryProjector       unchanged authority
   owns: registered roots, routing, filtering, bounded Git worktree facts
-  coordinated by: FilesystemGitPipeline topology update
+  coordinated by: existing pipeline and accepted topology effects
   exposes: existing authorized worktree facts through existing EventBus
                          │
                          ▼
@@ -150,7 +171,8 @@ FilesystemProjectionIndex                             off-main projection owner
                          │
                          ▼
 WorkspaceSurfaceCoordinator                           composition edge
-  owns: current mounted-view lookup and O(affected Bridge panes) delivery
+  owns: current mounted-view lookup, current-association capability,
+        and O(affected Bridge panes) delivery
                          │
                          ▼
 BridgePaneController                                  refresh owner
@@ -164,7 +186,8 @@ Bridge review actors                                  heavy-work owners
 
 These surfaces are separable:
 
-- Terminal admission may change without changing filesystem or Bridge routing.
+- Terminal batching may change without changing exact facts, EventBus,
+  filesystem, or Bridge routing.
 - Filesystem trigger proportionality may change without changing Bridge package
   construction.
 - Direct Bridge invalidation may change without changing EventBus implementation
@@ -180,31 +203,37 @@ synchronous handled-result semantics remain unchanged. This spec does not move
 `ghostty_app_tick`, redesign `action_cb`, add a gather thread, or claim callbacks
 are safe to execute on an unproven actor.
 
-TR-2. The existing per-action MainActor routing hop is accepted debt for this
-slice. Work after resolution is contracted. Removing that hop requires separate
-source-proven thread-affinity and lifetime design if post-cut measurement still
-identifies it as the dominant term.
+TR-2. After synchronously copying any borrowed payload, the Terminal feature
+classifies each signal before choosing its MainActor scheduling path. Exact
+commands and semantic facts retain the existing route. Coalescible presentation
+and activity samples enter one Terminal-owned keyed accumulator that permits at
+most one scheduled MainActor drain per live surface while work is pending. The
+same narrow per-surface serialization boundary admits meaning-changing local
+lifecycle barriers; it does not turn semantic facts into queued samples.
 
-TR-3. `TerminalRuntime` is the exhaustive product admission boundary. Every
-translated signal receives one compile-time-visible disposition. Routing control
-state uses a discriminated union; it is not represented by optional callbacks,
-multiple booleans, string tags, or a default “emit everything” branch.
+TR-3. Signal disposition is one exhaustive discriminated union. It distinguishes
+exact command/fact, latest presentation value, activity evidence, and diagnostic
+outcome. It contains no optional callback, multiple-Boolean lifecycle, string
+tag, or default “emit everything” branch. `TerminalRuntime` remains the semantic
+publication boundary after current pane/surface resolution; it is not the first
+place where coalescible samples are contracted.
 
-TR-3a. The local activity edge is a required Terminal-feature protocol whose
-input is a typed value containing pane identity, current surface/runtime
-generation, previous and current scrollbar state, and observation time. The
-protocol contains no Inbox or App composition policy. `AppDelegate`, as the
-composition root that already constructs `TerminalActivityRouter`, creates that
-router before terminal runtime composition and injects it through
-`WorkspaceSurfaceCoordinator`. Production runtime construction has no unbound
-or optional control state; tests may use an explicit no-op implementation.
+TR-3a. The accumulator is a narrow Terminal implementation, not a generic
+mailbox or reusable admission framework. Its coalescible retained storage is
+bounded by the number of live surfaces and a compile-time-fixed signal-key set,
+not by raw sample count. Callback offers and lifecycle barriers have one
+synchronous per-surface linearization point and are safe under reentrant or
+concurrent callback delivery. The accumulator retains copied Sendable values
+and non-retaining lifetime identity only—never borrowed C pointers, a strong
+`SurfaceView`, controller, atom, Inbox policy, or EventBus state.
 
 ### Signal classification
 
 | Signal class | Current examples | Required route | Runtime/global replay |
 | --- | --- | --- | --- |
-| Local presentation | scrollbar viewport; cell and initial size; size limits; mouse shape/visibility/link; key sequence/table; color/config presentation; search start/end/matches/selection | Equal-write-suppressed current local state or existing Ghostty-owned presentation behavior | Never |
-| Local activity evidence | total rows, previous/current pinned state, observation/attention context, output timing | Ordered O(1) input to the existing terminal activity owner | Raw evidence never; derived outcomes only |
+| Local presentation | scrollbar viewport; cell and initial size; size limits; mouse shape/visibility/link; key sequence/table; color/config presentation; search matches/selection | Keyed latest value, one batch apply, equal-write suppression | Never |
+| Local ordered lifecycle | search start/end and other local state boundaries whose order changes meaning | Exact local transition without runtime/global publication | Never |
+| Local activity evidence | total rows, pinned edges, observation/attention context, output timing | Bounded sufficient-statistics aggregate to off-main activity owner | Raw evidence never; derived outcomes only |
 | Local state plus semantic transition | progress, secure input, renderer health, read-only | Current state stays local; deduped cross-feature/IPC transitions retain their existing semantic route | Only changed semantic transitions |
 | Exact semantic fact | command finished, bell, desktop notification, deduped title/tab title/CWD, lifecycle/security facts | `PaneRuntimeEventChannel` and existing EventBus | Domain-specific existing replay |
 | Host command/control | tab/split/navigation/close, URL/clipboard/undo/redo/prompt/config control | Preserve the existing direct or exact command/control behavior | Never converted into a lossy UI sample |
@@ -216,51 +245,80 @@ presentation, and search state. These cases must not call
 `PaneRuntimeEventChannel.emit`, appear in `PaneRuntime.subscribe`, consume local
 or global replay, reach EventBus subscribers, or satisfy IPC event waits.
 
-TR-5. Local does not mean discarded. The last current-generation value required
-by the mounted surface or observable runtime remains available. Equal repeated
-values do not wake Observation or invoke activity processing.
+TR-5. Local does not mean discarded. The latest current-surface presentation
+value remains available. Equal repeated presentation values do not wake
+Observation. They are not treated as new output evidence unless a distinct
+semantic signal proves activity.
 
 TR-6. Search remains a typed lifecycle, with inactive and active states distinct
 at compile time. Unknown match count or selection may remain optional evidence
 inside the active state; optional values must not encode whether search itself is
 active. Search start, query, next/previous, match total, selected match, cancel,
 close, keyboard responder behavior, overlay hit testing, and visible result text
-remain unchanged.
+remain unchanged. Search start/end are exact local lifecycle barriers. Each
+barrier splits or invalidates pending search values from the prior lifecycle;
+match/selection values carry that local lifecycle identity, and a late batch from
+an ended search cannot synthesize or reactivate active search state.
 
-TR-7. Local presentation and activity input are bound to the current pane/
-surface runtime generation. Close, replacement, remount, or teardown invalidates
-late work. A sample from generation N cannot mutate generation N+1.
+TR-7. Every offer, batch, drain, and cleanup is scoped to one terminal-surface
+lifetime, not an address-derived `ObjectIdentifier` alone. The lifetime key may
+reuse existing managed-surface identity or a narrow non-durable Terminal-local
+token. A batch resolves the current surface-to-pane/runtime mapping and verifies
+that same lifetime immediately before apply. Close, replacement, remount, or
+teardown uses compare-and-remove semantics: old cleanup cannot delete replacement
+work, and an old batch cannot apply to a new surface even if an address is reused.
+No new durable ID or cross-owner runtime generation is introduced solely for
+sample batching.
 
 ### Scrollbar activity contract
 
-TR-8. A scrollbar callback produces two independent products:
+TR-8. Scrollbar callbacks produce two independent batch products:
 
-1. current viewport state for presentation; and
-2. ordered typed activity evidence for the existing activity owner.
+1. the latest viewport state for one compact presentation apply; and
+2. a bounded activity aggregate for off-main projection.
 
-The second route is a private Terminal-feature seam, not a generic local event
-bus, mailbox, actor-per-pane fleet, replay log, or persisted history.
+The second route is a private Terminal-feature seam, not a generic event bus,
+actor-per-pane fleet, replay log, or persisted history.
 
-TR-9. The safe default is direct ordered O(1) evidence delivery. If a later plan
-chooses coalescence, its sufficient statistics must preserve at least:
+TR-9. One batch preserves sufficient statistics rather than only its final
+viewport value. At minimum it retains:
 
-- positive row growth that occurred before a total-row reset or decrease;
+- cumulative positive row growth, including growth before a reset/decrease;
 - first and latest qualifying activity time;
-- pinned-to-bottom entry even when the final sample is not pinned;
+- pinned-to-bottom entry/exit edges even when the final value hides them;
 - attended/observed suppression and reset;
-- agent-settled promotion and revocation state;
-- close, stop, replacement, and generation cancellation.
+- sample count plus first/latest total and pinned state; and
+- close, stop, replacement, and cancellation boundaries.
 
-Latest viewport state alone is not sufficient evidence.
+While a drain is active, new samples update the next bounded batch and request at
+most one follow-up drain. Exact semantic facts never enter or wait behind this
+state. Exact local lifecycle changes and activity-affecting control transitions
+instead act as narrow barriers: earlier affected sample state is detached,
+retired, or epoch-invalidated before the boundary, and later samples belong to
+the next side of the boundary.
 
-TR-10. Existing activity policy remains owned by `TerminalActivityRouter`, not
-an atom. `TerminalActivityAtom` remains current state/derived read state. Inbox
-clearing consumes a typed derived pinned/observed outcome or another equally
-narrow local contract; Inbox no longer subscribes to raw scrollbar events.
+TR-10. Activity windows, quiet timing, output/settled projection, and revocation
+remain owned by `TerminalActivityRouter`, which consumes batch aggregates off
+MainActor. A narrow MainActor context/sink supplies attended/agent classification
+and applies compact current read state. `TerminalActivityAtom` stores current
+state only; it does not classify events or own timers. Inbox consumes derived
+pinned/observed and settled outcomes, never raw scrollbar samples.
 
-TR-11. Unseen activity, agent-settled promotion/revocation, first-output
-evidence, pinned-to-bottom clearing, read/dismiss behavior, and quiet-window
-timing remain behaviorally equivalent under identical injected-clock sequences.
+TR-10a. Attention, observation, read/dismiss, close, reset, and semantic signals
+that revoke or split activity windows enter the activity owner as typed ordered
+controls. When one of those MainActor-owned controls crosses pending evidence,
+the boundary first detaches the earlier aggregate and submits aggregate then
+control in semantic order; later evidence enters a new aggregate. The activity
+actor does not infer historical attention from whichever state happens to be
+current when a delayed batch arrives. This is a private Terminal/Inbox control
+seam, not EventBus replacement or atom workflow.
+
+TR-11. An injected-clock semantic oracle—not delivery-count parity—proves unseen
+activity, agent-settled promotion/revocation, first-output evidence,
+pinned-to-bottom clearing, read/dismiss behavior, and quiet settlement. Duplicate
+presentation samples with no new evidence do not extend activity windows. The
+oracle includes gated-drain interleavings for focus/blur, observation/read,
+reset, close/replacement, and activity-resetting semantic signals.
 
 ### Semantic-fact contract
 
@@ -282,9 +340,10 @@ does not replace newest buffering with an unbounded queue, introduce rejection/
 gap semantics, or change EventBus delivery. A measured fact-only overflow or
 replay-gap regression is a revisit trigger for a separate delivery contract.
 
-TR-15. Content-bearing semantic envelopes that remain in local or global replay
+TR-15. Content-bearing semantic envelopes that remain in local runtime replay
 retain realistic payload-aware byte accounting plus existing count and TTL
-bounds. No new stringify fallback may log retained payload content.
+bounds. Global EventBus replay remains unchanged and count-bounded per source.
+No new stringify fallback may log retained payload content.
 
 ## Filesystem Projection Contract
 
@@ -307,13 +366,13 @@ the current registered-source identity.
 
 ### Proportional trigger model
 
-FS-4. A full topology/pane snapshot is permitted only for cold in-memory index
-bootstrap, an explicit rebuild, or a genuine fleet-wide topology reconciliation.
-It is not a valid tail action for every workspace command.
+FS-4. A full topology snapshot is permitted for cold in-memory bootstrap, an
+explicit rebuild, or one accepted actual-topology mutation batch. It is not a
+valid tail action for every workspace command, pane change, selection, layout,
+sidebar, inbox, or presentation mutation.
 
 FS-5. Ordinary changes use the narrowest existing owner edge:
 
-- topology addition/removal/change updates only affected registrations;
 - pane mount/create/close updates only that pane's membership;
 - CWD/worktree reassignment updates only that pane and affected worktree
   activity;
@@ -321,37 +380,26 @@ FS-5. Ordinary changes use the narrowest existing owner edge:
 - unrelated layout, sidebar, inbox, presentation, and no-op actions schedule no
   filesystem root/activity reconciliation.
 
-FS-5a. Canonical topology effects cross into runtime owners as one strict
-`FilesystemTopologyUpdate`-equivalent discriminated union owned by the existing
-`FilesystemGitPipeline`:
+FS-5a. Accepted `WorktreeTopologyDelta` batches remain the ordered topology
+effect edge. They may trigger one existing full source/index reconciliation per
+accepted batch. This spec does not add a second topology-delta algebra or a new
+cross-owner generation protocol. Incremental topology authority is a revisit
+only if post-cut evidence shows actual topology reconciliation—not unconditional
+triggering—is still a dominant cost.
 
-- `replace(generation, contexts)` is permitted for cold bootstrap, explicit
-  rebuild, or genuine fleet replacement;
-- `delta(generation, upsertedContexts, removedWorktreeIds)` is required for
-  fixed-key topology change.
-
-The update is an effect derived from accepted canonical topology; it is never a
-second topology source of truth. Stale generations are rejected. The pipeline
-applies one coherent generation to `GitWorkingDirectoryProjector` and
-`FilesystemActor` before subsequent registration/change evidence is eligible,
-and the coordinator applies the same accepted generation to
-`FilesystemProjectionIndex`. An added worktree is authorized in the Git
-projector before the filesystem actor emits its registration; removal stops the
-filesystem source before revoking the projector context, so late evidence is
-rejected without enumerating unrelated worktrees.
-
-FS-6. Fixed changed-key work is O(changed keys plus affected memberships), not
-O(all repositories + all worktrees + all panes). A genuine topology replacement
-may remain fleet-wide and must be measured as such.
+FS-6. Pane/CWD/activity/active-worktree work is O(changed keys plus affected
+memberships), not O(all repositories + all worktrees + all panes). One accepted
+topology batch may remain fleet-wide and is measured separately.
 
 FS-7. `FilesystemProjectionIndex` remains an actor-owned, in-memory,
 rebuildable index. It owns no atoms, persistence, repair, durable journal,
 consumer registry, mounted-view truth, or canonical product topology.
 
-FS-8. Index mutation and projection ordering remains provable. The implementation
-may simplify today's pending snapshots, generations, and waiters only when one
-serialized boundary or equivalent typed currentness contract prevents an older
-source snapshot from rolling back a newer pane update.
+FS-8. Existing index mutation and projection ordering remains provable. The
+implementation may simplify today's pending snapshots, generations, and waiters
+only when one serialized boundary or equivalent typed currentness check prevents
+an older source snapshot from rolling back a newer pane update. No new
+persistence or durable generation is introduced.
 
 FS-9. Stale, superseded, and inapplicable outcomes are explicit discriminated
 states, not `nil` or overloaded empty arrays. Currentness is revalidated
@@ -369,16 +417,23 @@ are hard-cut. The compiler should make construction of a derived Bridge-only
 runtime envelope impossible after cutover; no compatibility dual path remains.
 
 BR-3. The projection actor returns a Bridge-specific invalidation only for an
-affected Bridge pane. The contract is a strict discriminated union of reason,
-such as relevant CWD-subtree change or Git-working-tree change, and carries:
-pane identity, current worktree association, source/projection generation, and
-the ephemeral controller-mount generation issued by `ViewRegistry`. It does not
-carry raw paths, CWD, Git output, package data, or filesystem authority.
+affected Bridge pane. The compact contract carries a typed reason, pane identity,
+and current worktree association. Projection/pane/topology currentness is checked
+before delivery; it does not carry raw paths, CWD, Git output, package data,
+filesystem authority, or a new ViewRegistry mount generation.
 
 BR-4. The coordinator performs O(affected Bridge panes) current mounted-view
 lookups through `ViewRegistry` and submits a non-awaiting dirty/request-refresh
 operation. Global runtime ingestion never waits for provider, Git, package,
 delta, content-store, WebKit, or React completion.
+
+BR-4a. Composition supplies Bridge refresh with one narrow, lifetime-safe
+MainActor current-association capability (or equivalent controller-owned
+association state updated by the coordinator). It answers only whether the
+current mounted controller still owns the expected pane/worktree association.
+`BridgePaneController` does not import or read `WorkspaceStore`, atoms,
+`ViewRegistry`, or filesystem authority through this capability, and the
+capability must not create a strong ownership cycle.
 
 BR-5. `BridgePaneController` remains the single refresh lifecycle owner. It may
 have at most one active refresh and one latest-convergent dirty follow-up for
@@ -391,15 +446,15 @@ demand cannot be lost. An unmounted pane receives no live invalidation, matching
 current behavior; mounting/loading obtains current package state through the
 existing source provider.
 
-BR-7. `ViewRegistry` owns the ephemeral monotonic mount generation because it
-already owns the current mounted view; it is not a durable identifier or second
-registry. `BridgePaneController` owns its lifecycle and review generation.
-Source/projection generation is owned by `FilesystemProjectionIndex`. Package
-ID, review generation, pane/worktree association, mount generation, and
-controller lifecycle are revalidated before content activation and again
-immediately before the final MainActor state commit after all reentrant awaits.
-Teardown, replacement, a newer package, or reassociation makes an older result a
-no-op.
+BR-7. `ViewRegistry` resolves the concrete currently mounted Bridge controller
+immediately before submitting demand. `BridgePaneController` owns its lifecycle,
+active task, package ID, and review generation. Cancellation, controller
+lifecycle, package/review identity, and the injected current pane/worktree
+association predicate are revalidated after reentrant awaits and immediately
+before content activation and final state commit. Teardown, replacement, newer
+package, orphaning, or reassociation makes older work a no-op. A new cross-owner
+mount token is forbidden without a demonstrated ABA path that survives these
+checks.
 
 BR-8. Bridge review pipeline, change index, and content store retain expensive
 work off-main. MainActor applies only a compact, internally consistent accepted
@@ -415,10 +470,10 @@ MA-2. MainActor must not perform filesystem traversal, Git reads, package
 construction, large serialization, path canonicalization, per-event all-pane
 filtering, or repeated all-fleet reconstruction.
 
-MA-3. MainActor service for a local terminal sample is bounded decoding plus
-equal-suppressed O(1) state/evidence application. Its downstream work does not
-scale with EventBus subscribers, replay capacity, tabs, panes, repositories, or
-worktrees.
+MA-3. Callback-side offer cost for a coalescible terminal sample is bounded O(1)
+copy/classification/key replacement. MainActor task count and state mutation
+scale with drained batches and changed keys, not raw sample count, EventBus
+subscribers, replay capacity, tabs, panes, repositories, or worktrees.
 
 MA-4. Atoms remain pure current state or pure derivation. They do not own signal
 classification, debounce windows, timers, filesystem projection, path
@@ -435,9 +490,9 @@ with explicit invariants. Optional values represent genuinely absent payload
 evidence, not lifecycle, acceptance, currentness, or ownership states.
 
 TY-2. The terminal disposition switch is exhaustive over current translated
-signals. Adding a new Ghostty signal without choosing local presentation, local
-activity, semantic fact, host command/control, or diagnostic disposition fails
-compilation or architecture lint.
+signals. Adding a Ghostty signal without choosing exact command/fact, latest
+presentation, activity evidence, exact local lifecycle, or diagnostic outcome
+fails compilation or architecture lint.
 
 TY-3. Local-only signal cases cannot call the semantic publication helper. The
 smallest SwiftSyntax rule may enforce this after behavior is cut over; no new
@@ -506,8 +561,10 @@ accounts for variable strings and collections.
 
 ### Structural proof
 
-P-1. Every local-only terminal case produces the correct current local state or
-Ghostty presentation behavior and exactly zero:
+P-1. Every coalescible terminal case produces the correct current presentation
+state with at most one scheduled drain per live surface while work is pending,
+bounded storage independent of raw sample count, and lifetime-scoped
+compare/apply/remove behavior under close and address reuse, plus exactly zero:
 
 - `PaneRuntimeEventChannel` emissions;
 - runtime subscription events;
@@ -516,55 +573,70 @@ Ghostty presentation behavior and exactly zero:
 - global subscriber deliveries;
 - IPC wait results.
 
-P-2. A large interleaved sample stream cannot change the count or order of
+P-2. A large burst proves raw coalescible sample count is greater than MainActor
+drain/task count, final state equals an independent last-value oracle, and
+activity aggregates equal an independent sufficient-statistics oracle. Gated
+drains also prove reentrant/concurrent offers cannot lose replacements, create
+duplicate drains, or cross a local lifecycle barrier.
+
+P-3. An interleaved sample stream cannot change the count or order of
 command-finished, bell, desktop-notification, title/CWD, progress,
 secure-input, renderer-health, lifecycle, or security facts.
 
-P-3. The same sample-pressure cell proves zero semantic-fact drops and unchanged
-runtime/IPC replay behavior. Fact-only overload is not used to claim a new
-delivery guarantee in this slice.
+P-3a. The same sample-pressure cell proves zero semantic-fact drops and
+unchanged runtime/IPC replay behavior while semantic facts are acknowledged or
+paced below observed fact-only saturation. Fact-only overload remains a
+non-gating revisit signal and is not used to claim a new delivery guarantee.
 
-P-4. Identical injected-clock scrollbar sequences produce identical activity,
-first-output, agent-settled/revoked, pinned/observed, read, dismiss, and inbox
-clearing outcomes. Reset/decrease, close/replacement, and pinned-edge sequences
-are included.
+P-4. Injected-clock raw sequences and their aggregated equivalents produce the
+same semantic activity, first-output, agent-settled/revoked, pinned/observed,
+read, dismiss, and inbox-clearing outcomes. Reset/decrease, growth before reset,
+close/replacement, duplicate-state, pinned-edge, focus/blur, observation during a
+pending batch, and activity-resetting semantic-signal sequences are included.
 
 P-5. Search, mouse/cursor/visibility/link, cell geometry, scrollbar presentation,
-and terminal commands retain their final state and native behavior.
+and terminal commands retain their final state and native behavior. Gated
+start/matches/end and start/selection/cancel sequences prove a late batch cannot
+reactivate or overwrite an ended search lifecycle.
 
 P-6. Ordinary unrelated and fixed-key workspace changes cause no full topology/
 pane capture. Pane/CWD/activity/active-worktree mutations update only affected
-entries. Cold bootstrap and genuine topology reconciliation still converge to an
-independent final-state oracle.
+entries. Cold bootstrap and actual topology mutation batches still converge to
+an independent final-state oracle through the existing topology-effect edge.
 
 P-7. Relevant filesystem/Git changes submit invalidation only to matching
-mounted Bridge panes. Unrelated, non-Bridge, unmounted, stale-context, and stale-
-mount panes receive none. No global `paneFilesystemContext` envelope is posted.
+currently mounted Bridge controllers. Unrelated, non-Bridge, unmounted, and
+stale-context panes receive none. No global `paneFilesystemContext` envelope is
+posted.
 
 P-8. Gated and overlapping Bridge refreshes prove one active plus one convergent
 follow-up, no stale post-await commit, no global-ingestion wait on build, and a
-final package equal to an independent provider oracle.
+final package equal to an independent provider oracle. The stale cell also
+orphans or reassigns the pane without replacing its controller or package
+generation and proves that the old-worktree result cannot activate content or
+commit final state.
 
 P-8a. Focused deterministic regression proof preserves registered-root
-authority, canonical/deepest-root containment, topology-generation/ABA
+authority, canonical/deepest-root containment, existing topology/currentness
 rejection, non-destructive incomplete evidence, Git logical-timeout versus
-physical-drain capacity, payload-aware replay bounds, and new-producer
-JSONL/OTLP content canaries.
+physical-drain capacity, local replay bounds, and new-producer JSONL/OTLP
+content canaries.
 
 ### Runtime performance proof
 
 P-9. Runtime proof reuses the existing isolated debug app identity, marker-
 scoped Victoria stack, performance recorder, IPC surface, Bridge observability,
-and PID-targeted native automation. It adds no runner, backend, heartbeat,
-ledger, or correctness dependency on telemetry.
+and PID-targeted native automation. It extends those surfaces only with bounded
+aggregate resource/admission metrics; it adds no backend, heartbeat, ledger, or
+correctness dependency on telemetry.
 
-P-10. Baseline and candidate use the same debug flavor, deterministic bundle/
-data-root configuration, hardware/display environment, active pane, terminal-
-output pressure, search/scroll interaction, watched-folder fixture, Git mutation
-pattern, Bridge mutation pattern, trace tags, and trial policy. Every trial has a
-fresh marker and PID. Baseline and candidate must record distinct immutable
-source revision and executable/build fingerprints; stale or cross-marker rows
-cannot satisfy either cell.
+P-10. Comparative cells use the same debug flavor, deterministic bundle/data
+root, hardware/display environment, workload inputs, trace tags, and trial
+policy. The behavioral baseline is the pinned source revision plus the same
+behavior-preserving instrumentation layer used by the candidate. Every trial has
+a fresh marker and PID and records immutable behavioral source, instrumentation,
+and executable/build fingerprints. Metrics absent or semantically different in
+the baseline use absolute gates only.
 
 P-11. Reproducible scale proof uses generated fixtures and the existing
 large-worktree workload. A separate local qualification may use the configured
@@ -572,17 +644,22 @@ development roots under `/Users/shravansunder/Documents/dev/open-source` and
 `/Users/shravansunder/Documents/dev/project-dev`; raw roots remain local and are
 never exported as telemetry dimensions.
 
-P-12. Metrics are aggregate and distinguish queue age from service time. The
-owned measurements include:
+P-12. Metrics are aggregate, content-safe, and distinguish queue age from service
+time. The owned measurements include:
 
 - translated terminal signals by controlled class;
-- local state/evidence applications and equal-write suppressions;
+- raw coalescible samples, accumulator replacements, scheduled drains,
+  follow-up drains, MainActor tasks, activity aggregates, compact applies, and
+  equal-write suppressions;
 - runtime-channel and global posts by semantic class;
 - EventBus subscriber deliveries, replay writes, drops, and high-water lag;
 - filesystem full-reconciliation requests versus fixed-key updates;
 - affected Bridge invalidations, coalesced demands, active refreshes, stale
   rejections, and final commits;
-- MainActor queue age and compact-apply service;
+- process CPU time/duty, physical footprint/RSS high-water and post-quiescence
+  footprint, bounded pending storage, and relevant task/allocation counts;
+- MainActor queue age, compact-apply service, admission count, and targeted
+  operation duty;
 - existing Git queue/running/timeout/final-pending evidence;
 - existing Bridge package/delta/content/apply/render stage distributions.
 
@@ -593,28 +670,56 @@ not acceptance evidence.
 
 ### Workload and statistical contract
 
-P-12a. The deterministic contraction cell processes at least 100,000 local-only
-terminal samples across at least 10 current-generation panes and interleaves at
-least 1,000 retained semantic facts. It is valid only when every local signal
-class and every retained semantic class appears.
+P-12a. Proof is split by existing product seams instead of building one new
+monolithic harness. Each cell has one declared evidence role:
 
-P-12b. Each runtime trial is bounded to 60 seconds and is valid only when it
-contains at least 10,000 local terminal sample applications, 500 measured
-callback-to-local-commit observations, active typing plus search/scroll
-interaction, at least 100 repositories, 100 worktrees, 10 panes, four concurrent
-Git mutation sources, and 50 relevant Bridge invalidations including at least 10
-arriving while a refresh is active. Insufficient pressure or samples invalidates
-the trial; it does not pass as a low-latency result.
+1. deterministic terminal contraction and activity equivalence — candidate-only
+   structural/correctness proof;
+2. watched-folder/Git proportionality through the existing large-worktree
+   workload — paired comparative performance plus correctness proof;
+3. Bridge refresh convergence with overlapping invalidations — deterministic
+   correctness plus paired existing-stage performance distributions where the
+   baseline metric population is identical;
+4. PID-targeted native terminal/notification/Bridge smoke — candidate-only
+   behavior proof; and
+5. one combined real-app pressure qualification — paired primary CPU,
+   allocation/retained-memory, physical-footprint/RSS, and targeted-MainActor
+   resource proof.
 
-P-12c. Baseline and candidate each run one unscored warm-up followed by five
-qualifying trials. Percentiles are calculated per trial from the named metric
-population, then compared using the median per-trial p95 and p99; trials are not
-pooled. The 20 percent comparison applies specifically to
-callback-to-current-local-commit queue-age p95.
+P-12b. The deterministic terminal cell processes at least 100,000 coalescible
+samples across at least 10 live pane/surface keys and covers every disposition.
+Retained semantic facts are interleaved below observed fact-only saturation so
+the cell proves isolation from sample pressure rather than redesigning delivery.
+The watched-folder cell retains at least 100 repositories/worktrees and multiple
+Git writers. The Bridge cell includes invalidations during an active refresh.
+Exact workload floors and one-sided noise bands are frozen by plan review before
+candidate performance work; insufficient pressure invalidates a trial.
+
+P-12c. Cells 2 and 5, plus the comparable distributions in cell 3, use an
+unscored warm-up and at least three qualifying baseline and candidate trials.
+Percentiles and normalized resource
+measurements are calculated per trial and compared using median per-trial values;
+trials are not pooled. The plan records calibration evidence for every nonzero
+budget and labels fixture-adequacy floors separately from product budgets.
+
+P-12d. A qualifying resource interval begins at the first scored workload action
+and ends after the same bounded quiescence condition in both builds; warm-up and
+launch setup are excluded. Process CPU duty is process CPU-time delta divided by
+that wall interval and is additionally normalized by accepted work only when
+work counts differ. Physical memory uses the same OS population and sampling
+cadence for both builds—macOS physical footprint is preferred; RSS may substitute
+only symmetrically—and records interval high-water plus the same
+post-quiescence sample. Targeted MainActor duty is the summed service time of one
+declared, identical operation inventory divided by the interval; it must not be
+called global MainActor occupancy. Admission is normalized by raw translated
+signals or the named accepted-work population. Allocation/retained-byte evidence
+uses the same named owner scopes and measurement mechanism in both builds.
 
 P-13. Structural budgets are absolute:
 
 - raw local terminal sample global posts/replay/deliveries: `0`;
+- more than one pending scheduled drain per live terminal accumulator key: `0`;
+- retained terminal sample storage growth with raw sample count: `0`;
 - derived `paneFilesystemContext` global posts/replay/deliveries: `0`;
 - semantic-fact drops during the declared mixed sample-pressure workload: `0`;
 - unrelated workspace actions causing full filesystem reconciliation: `0`;
@@ -623,21 +728,29 @@ P-13. Structural budgets are absolute:
   quiescence: `0`; timed-out physical drains may remain only while still counted
   against the configured physical slot bound and unable to mutate current truth.
 
-P-14. Initial interaction/MainActor budgets are:
+P-14. Initial interaction/resource budgets are:
 
 - compact MainActor apply p95 below 2 ms and p99 below 5 ms;
-- callback-to-current-local-commit queue age p95 below 8 ms and p99 below 16 ms
-  during the declared pressure workload;
+- callback-to-current-batch-commit queue age p95 below 8 ms and p99 below 16 ms
+  during terminal pressure;
 - fewer than three targeted MainActor service samples at or above 20 ms in any
   qualifying trial, and none at or above 60 ms;
+- normalized CPU, attributable allocation/retained-byte pressure, MainActor
+  admission, and targeted MainActor duty improve beyond the plan-calibrated
+  one-sided noise band against the instrumented baseline;
+- peak and post-quiescence physical footprint/RSS do not regress beyond the
+  plan-calibrated one-sided noise band. When the baseline shows repeatable
+  workload-attributable physical-footprint growth above that band, the candidate
+  must improve it beyond the band; all new pending storage remains structurally
+  bounded;
 - zero regression in semantic counts, final state, native interaction, Git
   boundedness, or Bridge correctness.
 
-If the baseline median queue-age p95 is already below 8 ms and p99 below 16 ms,
-meeting the absolute budgets plus structural zeroes and staying within 10
-percent of both baseline medians is sufficient. Otherwise the candidate must
-meet the absolute budgets and improve median queue-age p95 by at least 20
-percent. One best-case sample or event presence does not pass.
+If baseline queue age already meets the absolute budget, the candidate must keep
+it within the calibrated one-sided regression band while satisfying structural
+contraction and resource improvement. If it misses, the candidate must both meet
+the absolute budget and improve the median tail beyond the calibrated one-sided
+noise band. One best-case sample or proxy counter does not pass.
 
 P-15. Stability proof includes crash-free workload execution, successful
 bounded quiescence, exact final state, no growth in critical EventBus failures,
@@ -646,10 +759,11 @@ Git/native drains, no late-result mutation, bounded runtime-channel/replay
 high-water and final retained debt, and successful debug-app relaunch with
 terminal/IPC readiness. It does not require an arbitrary multi-day soak.
 
-P-16. Native proof validates visible typing/caret response, search start/query/
-navigation/close, scroll-away and follow-bottom recovery, cursor/link behavior,
-notification appearance/clearing, and refreshed Bridge content. Native proof
-does not substitute for deterministic, integration, or Victoria evidence.
+P-16. Native proof is one bounded smoke, separate from statistical cells. It
+validates visible typing/caret response, search start/query/navigation/close,
+scroll-away and follow-bottom recovery, cursor/link behavior, notification
+appearance/clearing, and refreshed Bridge content. It does not substitute for
+deterministic, integration, or Victoria evidence.
 
 ## Alternatives And Tradeoffs
 
@@ -659,12 +773,19 @@ Rejected. It preserves all work before the reducer: MainActor envelope creation,
 replay, subscriber fanout, outbound buffering, queueing, and irrelevant
 deliveries.
 
+### Remove EventBus fanout but keep one MainActor job per sample
+
+Rejected. It improves downstream amplification while preserving task creation,
+routing lookup, activity processing, and timer churn proportional to raw
+Ghostty callback volume. The contraction boundary must precede scheduling for
+coalescible samples.
+
 ### Add a gather thread or generic mailbox/admission framework
 
-Rejected. The current goal can be satisfied through `TerminalRuntime`, the
-existing activity owner, the existing projection actor, and the existing Bridge
-controller. A general framework adds lifecycle, capacity, shutdown, fairness,
-and proof burden before a second use case exists.
+Rejected. A Terminal-owned fixed-key accumulator is required, but a reusable
+admission framework is not. A general framework adds leases, revisions,
+registries, generic capacity policy, cleanup, and proof burden that these fixed
+signal classes do not need.
 
 ### Redesign EventBus into topics or a fact plane
 
@@ -683,6 +804,19 @@ consumer contract based on its exact semantics.
 Rejected. Root authority and topology already have owners. The required index is
 rebuildable runtime projection, not durable truth.
 
+### Add an incremental topology update algebra before measuring topology work
+
+Rejected. The known expansion is unconditional triggering after ordinary
+workspace actions. Existing accepted topology batches may retain one full
+reconciliation until post-cut evidence identifies topology reconstruction itself
+as hot.
+
+### Add a ViewRegistry mount generation for Bridge refresh
+
+Rejected. Current-controller lookup plus controller cancellation and
+package/review/pane/worktree revalidation owns the failure path. A cross-owner
+token is justified only by a demonstrated ABA case that survives those checks.
+
 ### Move activity or Bridge workflow into atoms
 
 Rejected. Atoms are current state and pure derivation. Timers, coalescence,
@@ -692,11 +826,13 @@ currentness, I/O, and workflow remain with runtime/coordinator/controller owners
 
 - No Ghostty tick, callback ownership, surface lifetime, or vendor redesign.
 - No EventBus implementation, topic, replay-model, or subscriber redesign.
-- No gather thread, actor-per-pane fleet, generic mailbox, generic admission
-  framework, consumer registry, or universal signal plane.
+- No gather thread, actor-per-pane fleet, generic mailbox/admission framework,
+  lease/revision protocol, consumer registry, or universal signal plane. The
+  narrow fixed-key Terminal accumulator in this spec is explicitly in scope.
 - No new persistence, SQLite schema, migration, repair, quarantine, revision,
   journal, lease, pager, participant, checkpoint, or diagnostic ledger.
-- No persistent root index or replacement filesystem watcher/scanner/scheduler.
+- No persistent root index, second topology-delta algebra, or replacement
+  filesystem watcher/scanner/scheduler.
 - No Git operation-model expansion, network Git, worktree mutation, repository
   locking, or timeout widening.
 - No terminal search, scrollbar, notification, inbox, or Bridge UI redesign.
@@ -709,15 +845,17 @@ currentness, I/O, and workflow remain with runtime/coordinator/controller owners
 
 Reopen a broader design only when current evidence shows one of these conditions:
 
-- the retained per-action MainActor hop remains the attributable dominant input
-  latency term after contraction;
+- exact low-rate actions, after coalescible samples are contracted, remain the
+  attributable dominant input-latency term;
 - a second genuine consumer needs a removed local terminal sample;
 - a second product consumer needs pane-scoped filesystem invalidation;
 - topology reconstruction itself, rather than unconditional triggering, becomes
   the measured hot path;
+- a concrete Bridge controller ABA survives current-controller lookup,
+  cancellation, and final package/review/pane/worktree checks;
 - unmounted panes require exact live filesystem history;
 - remaining semantic facts produce sustained critical pressure or explicit
-  replay gaps on the existing bus.
+  replay gaps on the existing bus;
 - the existing fact-only newest-buffer semantics cause an observed product or
   IPC loss after local samples are removed.
 
