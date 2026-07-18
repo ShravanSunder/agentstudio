@@ -22,6 +22,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case paneViewRestore = "performance.pane_view.restore"
         case paneViewRestoreVisible = "performance.pane_view.restore_visible"
         case repoAndWorktreeLookup = "performance.topology.repo_and_worktree"
+        case processMallocZone = "performance.process.malloc_zone"
         case sidebarFilterInput = "performance.sidebar.filter_input"
         case sidebarProjection = "performance.sidebar.projection"
         case sidebarRowIndex = "performance.sidebar.row_index"
@@ -36,14 +37,31 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
 
     private let traceRuntime: AgentStudioTraceRuntime?
     private let eventQueue: AgentStudioTraceEventQueue?
+    private let processMemorySampler: AgentStudioProcessMemorySampler?
 
     init(traceRuntime: AgentStudioTraceRuntime?) {
         self.traceRuntime = traceRuntime
         if let traceRuntime, traceRuntime.isEnabled(.performance) {
-            self.eventQueue = AgentStudioTraceEventQueue(traceRuntime: traceRuntime)
+            let eventQueue = AgentStudioTraceEventQueue(traceRuntime: traceRuntime)
+            self.eventQueue = eventQueue
+            let processMemorySampler = AgentStudioProcessMemorySampler { snapshot in
+                eventQueue.record(
+                    tag: .performance,
+                    body: Event.processMallocZone.rawValue,
+                    eventTimeUnixNano: traceRuntime.timestampUnixNano(),
+                    attributes: snapshot.traceAttributes
+                )
+            }
+            self.processMemorySampler = processMemorySampler
+            processMemorySampler.start()
         } else {
             self.eventQueue = nil
+            self.processMemorySampler = nil
         }
+    }
+
+    deinit {
+        processMemorySampler?.cancel()
     }
 
     var isEnabled: Bool {
@@ -94,6 +112,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     }
 
     func drain() async throws {
+        await processMemorySampler?.stop()
         try await eventQueue?.drain()
         if eventQueue == nil {
             try await traceRuntime?.flush()

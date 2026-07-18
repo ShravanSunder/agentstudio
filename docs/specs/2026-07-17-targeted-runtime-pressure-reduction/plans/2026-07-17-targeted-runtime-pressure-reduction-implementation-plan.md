@@ -124,31 +124,26 @@ Write surface:
 - `AgentStudioOTLPPerformanceMetrics.swift`
 - `AgentStudioOTLPBootstrapper.swift`
 - new `AgentStudioProcessMemorySampler.swift`
-- `Features/Terminal/Ghostty/GhosttyActionRouter.swift`
-- `Core/RuntimeEventSystem/Runtime/PaneRuntimeEventChannel.swift`
-- `Core/RuntimeEventSystem/Events/EventBus.swift` only for already-owned
-  aggregate post/delivery/replay/drop counters that are not currently exported
-- `App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift`
-- `App/Coordination/FilesystemProjectionIndex.swift`
-- `Features/Terminal/Routing/TerminalActivityRouter.swift`
 - `Features/Bridge/Runtime/BridgePaneController+DiffCommands.swift`
+- `Features/Bridge/Runtime/BridgePaneController.swift` only to extend its
+  existing bounded native telemetry call with typed numeric attributes
 - existing diagnostics and owner tests
 
 Frozen comparative measurement manifest:
 
 | Event/body or external sample | Emitter file and owning symbol | Owner scope | Value and normalization | Comparison | Scored membership |
 | --- | --- | --- | --- | --- | --- |
-| `performance.terminal.action_capture` | `GhosttyActionRouter.swift`; `handleAction` around copied-action classification | process | elapsed ms and translated-action count; per translated action | paired | every call inside the marker and scored monotonic interval |
-| `performance.terminal.mainactor_route` | `GhosttyActionRouter.swift`; current `routeActionToTerminalRuntimeOnMainActor` and its candidate successor | process | queue-age ms, service ms, task/admission count; per translated action | paired | enqueue and completion both belong to the scored interval |
-| `performance.terminal.local_sample` | `GhosttyActionRouter.swift`; controlled disposition admission | process and disposition, never pane/surface ID | offered/replaced/equal-suppressed count; per raw coalescible sample | paired for offered samples; candidate-only for replacement/suppression | offer belongs to interval |
+| `performance.terminal.action_capture` | T3 copied-action classification boundary | process and controlled disposition only | elapsed ms and translated-action count from the bounded owner | candidate-only absolute | classification belongs to interval |
+| `performance.terminal.mainactor_route` | T3 accumulator enqueue and compact-apply successor | process and controlled disposition only | queue-age ms, service ms, task/admission count | candidate-only absolute | enqueue and completion both belong to the scored interval |
+| `performance.terminal.local_sample` | T3 controlled disposition admission | process and disposition, never pane/surface ID | offered/replaced/equal-suppressed count | candidate-only absolute | offer belongs to interval |
 | `performance.terminal.drain` | T3 Terminal-local accumulator; `offer`, scheduled drain, and follow-up completion | process and fixed disposition key | scheduled/follow-up/pending count and retained entry/estimated byte gauge; per offer | candidate-only absolute | drain scheduled or completed inside interval |
-| `performance.terminal.compact_apply` | `TerminalRuntime.swift`; current presentation mutation boundary and T3 batched successor | process and disposition | queue-age ms, service ms, accepted/equal-suppressed mutation count; per apply | paired for current-state mutation/service; candidate-only for batch counters | enqueue and commit both inside interval |
-| `performance.terminal.activity_projection` | `TerminalActivityRouter.swift`; evidence admission, aggregate projection, accepted compact apply | process and semantic outcome | evidence/aggregate/fact/apply count and service ms; per evidence or aggregate as named | paired for evidence/facts/applies; candidate-only aggregate count | admission or commit inside interval |
-| `performance.runtime_channel.admission` | `PaneRuntimeEventChannel.swift`; `emit` | process and semantic event class | local post/replay/outbound/drop count; per admitted fact | paired | emit inside interval |
-| `performance.eventbus.delivery` | `EventBus.swift`; `post` and subscriber yield result | process and semantic event class | posts/deliveries/replay/drops; per posted fact | paired | post/yield inside interval |
-| `performance.filesystem.projection` | `WorkspaceSurfaceCoordinator+FilesystemSource.swift`; full-sync request/fixed-key request/apply boundary and `FilesystemProjectionIndex.applyPaneUpdate` | process and request kind | full-sync/fixed-key/update/apply count and elapsed ms; per workspace action or source batch as named | paired | request accepted inside interval |
+| `performance.terminal.compact_apply` | T3 compact presentation apply boundary | process and disposition | queue-age ms, service ms, accepted/equal-suppressed mutation count | candidate-only absolute | enqueue and commit both inside interval |
+| `performance.terminal.activity_projection` | T4 bounded activity aggregate owner | process and semantic outcome | evidence/aggregate/fact/apply count and service ms | candidate-only absolute | aggregate admission or commit inside interval |
+| `performance.runtime_channel.admission` | T3 fact-only runtime-channel boundary | process and finite semantic event class | local post/replay/outbound/drop count | candidate-only absolute | admitted fact belongs to interval |
+| `performance.eventbus.delivery` | existing EventBus diagnostics plus the T3 fact-only route | process and finite semantic event class | posts/deliveries/replay/drops | existing aggregate diagnostics for baseline; candidate-only class detail | diagnostics snapshot belongs to interval |
+| existing `performance.coordinator.write` filesystem phases | `WorkspaceSurfaceCoordinator+FilesystemSource.swift`; existing source-sync and pane-projection records | process and existing controlled phase | existing counts plus total/index/MainActor-apply durations | paired without emitter changes | existing bounded record belongs to interval |
 | `performance.bridge.refresh` | `BridgePaneController+DiffCommands.swift`; current event handler/refresh and T6 direct-dirty successor | process and refresh phase | invalidation/coalesced-demand/active/stale-reject/final-commit count and elapsed ms; per accepted invalidation | paired for invalidation/refresh/commit and existing stages; candidate-only coalescing/stale counters | invalidation accepted inside interval |
-| `performance.process.malloc_zone` | `AgentStudioProcessMemorySampler.swift`; one diagnostics-owned sampler installed by `AgentStudioOTLPBootstrapper` only when performance tracing is enabled | exact process default malloc zone in both builds | `blocks_in_use` count plus `size_in_use`, `max_size_in_use`, and `size_allocated` bytes from `malloc_zone_statistics`; report interval high-water, end-minus-start growth, and post-quiescence value; normalize by scored wall interval and separately by each accepted-work population only for diagnosis | paired attributable allocation/retained-byte evidence | one sample/second inside the scored interval plus one post-quiescence sample |
+| `performance.process.malloc_zone` | `AgentStudioProcessMemorySampler.swift`; one diagnostics-owned sampler installed by `AgentStudioPerformanceTraceRecorder` only when performance tracing is enabled | all process malloc zones in both builds | `blocks_in_use` count plus `size_in_use`, `max_size_in_use`, and `size_allocated` bytes from `malloc_zone_statistics(nil, ...)`; report interval high-water, end-minus-start growth, and post-quiescence value; normalize by scored wall interval and separately by each accepted-work population only for diagnosis | paired attributable allocation/retained-byte evidence | one sample/second inside the scored interval plus one post-quiescence sample |
 | process CPU | direct `ps -o time=` start/end reading for the exact candidate PID | process | CPU-time delta / scored wall interval; additionally per accepted work only when counts differ | paired | two boundary samples |
 | RSS | direct `ps -o rss=` for the exact PID | process | KiB, one sample/second; interval maximum and post-quiescence | paired secondary confirmation | timestamps inside interval plus one post-quiescence sample |
 | physical footprint | direct `/usr/bin/footprint -p <pid>` | process plus child/helper population declared in the receipt | physical-footprint bytes at scored start, fixed 45-second point, and post-quiescence; no `vmmap` polling | paired primary physical-memory evidence | three fixed samples |
@@ -156,10 +151,15 @@ Frozen comparative measurement manifest:
 The targeted MainActor duty inventory is exactly
 `terminal.action_capture`, `terminal.mainactor_route`,
 `terminal.compact_apply`, the MainActor apply phase of
-`filesystem.projection`, and the MainActor commit phase of `bridge.refresh`.
-No other operation may be added to one side of the comparison. Path metrics are
-event-driven and record every owned boundary call. The only product timer added
-by T1 is the one-second, performance-tag-gated, fail-open default malloc-zone
+filesystem phases of `coordinator.write`, and the MainActor commit phase of
+`bridge.refresh`.
+No other operation may be added to one side of the comparison. Existing bounded
+filesystem and Bridge seams remain event-driven. T1 must not add a trace-log
+record per Terminal callback, runtime-channel emit, or EventBus delivery. Their
+exact counters and duration buckets are installed only when T3/T4 create
+bounded owners and are absolute candidate gates rather than paired metrics. The
+only product timer added
+by T1 is the one-second, performance-tag-gated, fail-open all-malloc-zones
 sampler; it is installed identically in baseline and candidate and stops with
 the trace runtime. External RSS sampling is once per second. Physical footprint
 is sampled only at the three fixed points above to keep perturbation bounded.
@@ -216,7 +216,7 @@ Record for every trial:
   bucket/operation-inventory digest, trace tags, debug identity, marker, PID,
   hardware/display facts, workload population, and scored interval;
 - direct start/end process CPU-time readings, one-second `ps -o rss=` and
-  default-malloc-zone samples, fixed-point `/usr/bin/footprint -p <pid>`
+  all-malloc-zones samples, fixed-point `/usr/bin/footprint -p <pid>`
   snapshots, and candidate-only event-driven retained entry/estimated-byte
   gauges; do not poll `vmmap`;
 - marker-scoped Victoria counts/distributions and final debt/quiescence.
@@ -560,10 +560,10 @@ Timing/resource gates:
   frozen one-sided noise band;
 - fewer than three targeted service samples `>=20 ms` and none `>=60 ms` per
   qualifying trial;
-- CPU, default-malloc-zone `blocks_in_use`, `size_in_use`,
+- CPU, all-malloc-zones `blocks_in_use`, `size_in_use`,
   `max_size_in_use`, and `size_allocated`, MainActor admission, and targeted
   MainActor duty improve beyond the frozen one-sided noise band. Allocation/
-  retained-byte comparison uses only the identically sampled default-zone scope;
+  retained-byte comparison uses only the identically sampled all-zones scope;
   candidate-only owner estimates cannot satisfy this gate;
 - peak and post-quiescence physical footprint do not regress beyond the band.
   If baseline has repeatable workload-attributable footprint growth above the

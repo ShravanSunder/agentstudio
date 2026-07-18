@@ -83,6 +83,42 @@ extension WebKitSerializedTests {
             #expect(contentRegister.stringAttributes["agentstudio.bridge.slice"] == "diff_package_metadata")
         }
 
+        @Test("filesystem refresh records bounded invalidation and commit telemetry")
+        func filesystemRefreshRecordsBoundedInvalidationAndCommitTelemetry() async throws {
+            let recorder = BridgeTelemetryRecorderSpy()
+            let fixture = makeRefreshRevisionFixture(telemetryRecorder: recorder)
+            defer { fixture.controller.teardown() }
+            let loadResult = await fixture.controller.handleDiffCommand(
+                .loadDiff(
+                    DiffArtifact(
+                        diffId: UUIDv7.generate(),
+                        worktreeId: fixture.headEndpoint.worktreeId,
+                        patchData: Data()
+                    )
+                ),
+                commandId: fixture.commandId,
+                correlationId: nil
+            )
+            await setRefreshComparison(fixture, changedFile: fixture.refreshedFile)
+
+            await postRefreshEvent(fixture, path: "Sources/App/New.swift", batchSeq: 1)
+
+            #expect(loadResult == .success(commandId: fixture.commandId))
+            let refreshSamples = await recorder.samples().filter { $0.name == "performance.bridge.refresh" }
+            #expect(refreshSamples.count == 2)
+            let invalidation = try #require(
+                refreshSamples.first { $0.stringAttributes["agentstudio.bridge.phase"] == "invalidation" }
+            )
+            let finalCommit = try #require(
+                refreshSamples.first { $0.stringAttributes["agentstudio.bridge.phase"] == "final_commit" }
+            )
+            #expect(invalidation.numericAttributes["agentstudio.performance.bridge.invalidation.count"] == 1)
+            #expect(invalidation.numericAttributes["agentstudio.performance.bridge.coalesced_demand.count"] == 0)
+            #expect(finalCommit.numericAttributes["agentstudio.performance.bridge.active_refresh.count"] == 1)
+            #expect(finalCommit.numericAttributes["agentstudio.performance.bridge.final_commit.count"] == 1)
+            #expect(finalCommit.durationMilliseconds != nil)
+        }
+
         @Test("release-style telemetry policy disables bridge telemetry wiring")
         func releaseStyleTelemetryPolicyDisablesBridgeTelemetryWiring() async {
             let recorder = BridgeTelemetryRecorderSpy()
@@ -121,7 +157,7 @@ extension WebKitSerializedTests {
     }
 }
 
-private actor BridgeTelemetryRecorderSpy: BridgePerformanceTraceRecording {
+actor BridgeTelemetryRecorderSpy: BridgePerformanceTraceRecording {
     private var recordedSamples: [BridgeTelemetrySample] = []
     private var recordedDrops: [BridgeTelemetryDropReason] = []
 

@@ -116,6 +116,16 @@ struct AgentStudioPerformanceTraceRecorderTests {
         #expect(AgentStudioPerformanceTraceRecorder.milliseconds(from: duration) == 2250.5)
     }
 
+    @Test
+    func durationHistogramResolvesRuntimePressureBudgets() {
+        let buckets = AgentStudioOTLPPerformanceMetrics.elapsedHistogramBuckets
+
+        for requiredBoundary in [0.25, 0.5, 1, 2, 5, 8, 16, 20, 60] {
+            #expect(buckets.contains(requiredBoundary))
+        }
+        #expect(buckets == buckets.sorted())
+    }
+
     private func temporaryTraceDirectoryURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-performance-trace-recorder-tests", isDirectory: true)

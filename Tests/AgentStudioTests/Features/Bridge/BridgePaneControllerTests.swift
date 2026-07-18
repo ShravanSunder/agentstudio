@@ -715,7 +715,8 @@ extension WebKitSerializedTests {
 
         @Test("filesystem context refresh coalesces overlapping refresh events")
         func filesystemContextRefreshCoalescesOverlappingRefreshEvents() async throws {
-            let fixture = makeRefreshRevisionFixture()
+            let telemetryRecorder = BridgeTelemetryRecorderSpy()
+            let fixture = makeRefreshRevisionFixture(telemetryRecorder: telemetryRecorder)
             defer { fixture.controller.teardown() }
             let loadResult = await fixture.controller.handleDiffCommand(
                 .loadDiff(
@@ -759,6 +760,18 @@ extension WebKitSerializedTests {
             _ = await (firstRefresh, secondRefresh, thirdRefresh)
 
             #expect(await fixture.provider.recordedComparisonRequestsCount() == 3)
+            let refreshSamples = await telemetryRecorder.samples().filter {
+                $0.name == "performance.bridge.refresh"
+            }
+            let invalidationCount = refreshSamples.reduce(0.0) { partialResult, sample in
+                partialResult + (sample.numericAttributes["agentstudio.performance.bridge.invalidation.count"] ?? 0)
+            }
+            let coalescedDemandCount = refreshSamples.reduce(0.0) { partialResult, sample in
+                partialResult
+                    + (sample.numericAttributes["agentstudio.performance.bridge.coalesced_demand.count"] ?? 0)
+            }
+            #expect(invalidationCount == 3)
+            #expect(coalescedDemandCount == 2)
             expectRefreshPackageState(
                 fixture,
                 itemId: "item-newer",

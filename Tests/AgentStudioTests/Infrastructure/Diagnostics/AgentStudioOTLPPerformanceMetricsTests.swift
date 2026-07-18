@@ -139,6 +139,81 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func processMallocRecordProjectsPairedMemoryGauges() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 457,
+            severityText: .info,
+            body: "performance.process.malloc_zone",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.process.malloc.blocks_in_use": .int(7),
+                "agentstudio.performance.process.malloc.size_in_use_bytes": .int(11),
+                "agentstudio.performance.process.malloc.maximum_size_in_use_bytes": .int(13),
+                "agentstudio.performance.process.malloc.size_allocated_bytes": .int(17),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.eventName == "performance.process.malloc_zone")
+        #expect(
+            metricEvent.samples.map(\.label) == [
+                "agentstudio_performance_process_malloc_blocks_in_use",
+                "agentstudio_performance_process_malloc_maximum_size_in_use_bytes",
+                "agentstudio_performance_process_malloc_size_allocated_bytes",
+                "agentstudio_performance_process_malloc_size_in_use_bytes",
+            ])
+        #expect(
+            metricEvent.measurements.allSatisfy { measurement in
+                if case .gauge = measurement { return true }
+                return false
+            })
+    }
+
+    @Test
+    func bridgeRefreshOccurrenceCountsAreCountersAndElapsedTimeIsDistributed() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 458,
+            severityText: .info,
+            body: "performance.bridge.refresh",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.swift", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.phase": .string("final_commit"),
+                "agentstudio.bridge.plane": .string("data"),
+                "agentstudio.bridge.priority": .string("warm"),
+                "agentstudio.bridge.slice": .string("diff_package_delta"),
+                "agentstudio.performance.bridge.active_refresh.count": .int(1),
+                "agentstudio.performance.bridge.final_commit.count": .int(1),
+                "agentstudio.performance.elapsed_ms": .double(2.5),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.measurements.count == 3)
+        #expect(
+            metricEvent.measurements.filter { measurement in
+                if case .counter = measurement { return true }
+                return false
+            }.count == 2)
+        #expect(
+            metricEvent.measurements.contains { measurement in
+                if case .distribution(let sample) = measurement {
+                    return sample.label == AgentStudioOTLPPerformanceMetrics.elapsedMetricLabel
+                }
+                return false
+            })
+    }
+
+    @Test
     func bridgePerformanceRecordProjectsOnlySafeBridgeMetrics() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 124,

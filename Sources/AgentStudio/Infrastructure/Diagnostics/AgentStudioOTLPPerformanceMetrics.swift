@@ -5,7 +5,8 @@ final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
     static let elapsedMetricLabel = "agentstudio_performance_event_elapsed_ms"
     static let elapsedMaximumMetricLabel = "agentstudio_performance_event_elapsed_ms_max"
     static let elapsedHistogramBuckets: [Double] = [
-        0, 5, 10, 25, 50, 75, 100, 150, 200, 250, 350, 500, 650, 750, 900, 1000, 1050, 1100,
+        0, 0.25, 0.5, 1, 2, 5, 8, 10, 16, 20, 25, 50, 60, 75, 100, 150, 200, 250, 350, 500, 650, 750,
+        900, 1000, 1050, 1100,
         1250, 1500, 2000, 2500, 5000, 7500, 10_000,
     ]
 
@@ -265,11 +266,19 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
     private static func measurement(
         for sample: AgentStudioOTLPPerformanceMetricSample
     ) -> AgentStudioOTLPPerformanceMeasurement? {
-        switch sample.label {
-        default:
-            return .gauge(sample)
+        if cumulativeCounterMetricLabels.contains(sample.label) {
+            return .counter(sample)
         }
+        return .gauge(sample)
     }
+
+    private static let cumulativeCounterMetricLabels: Set<String> = [
+        "agentstudio_performance_bridge_active_refresh_count",
+        "agentstudio_performance_bridge_coalesced_demand_count",
+        "agentstudio_performance_bridge_final_commit_count",
+        "agentstudio_performance_bridge_invalidation_count",
+        "agentstudio_performance_bridge_stale_rejection_count",
+    ]
 
     private static func doubleValue(_ value: AgentStudioTraceValue?) -> Double? {
         switch value {
