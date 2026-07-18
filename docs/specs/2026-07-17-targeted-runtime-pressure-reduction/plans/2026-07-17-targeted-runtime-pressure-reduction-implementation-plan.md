@@ -293,9 +293,16 @@ Before behavior changes begin, `baseline/baseline-calibration.md` also freezes:
   fixture roles/identifiers are reconstructed in every baseline and candidate
   trial without exporting them as telemetry dimensions.
 
-Use `verify-git-refresh-performance-workload` and all other existing proof
-scripts unchanged. Additional direct commands/queries are recorded in receipts,
-not converted into a committed runner/comparator.
+Use the existing proof surfaces rather than creating a new runner or comparator.
+One proof-only correction is authorized for
+`verify-git-refresh-performance-workload` and its existing focused Swift test:
+materialize the generated fixture through the real strict-SQLite datastore
+before launch, then keep the exact candidate PID alive through the bounded
+common-quiescence endpoint and final resource capture. Apply the same correction
+to baseline and candidate, record its digest, and exclude fixture setup from the
+scored interval. This correction must not add a production import/diagnostic
+surface, schema copy, migration, IPC command, generic harness, or product/runtime
+behavior. Additional direct commands/queries remain receipt-only.
 
 Gate: parent verifies calibration receipt and identical instrumentation contract.
 If common metric meaning changes later, invalidate the comparison and recollect;
