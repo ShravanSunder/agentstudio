@@ -59,6 +59,49 @@ struct BridgePaneProductReviewMetadataSourceTests {
         }
     }
 
+    @Test("diff statistics do not publish unverified full-content extent facts")
+    func omitsUnverifiedExtentFacts() async throws {
+        // Arrange
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let originalPackage = makeReviewPackage(itemCount: 1)
+        let itemId = try #require(originalPackage.orderedItemIds.first)
+        let originalItem = try #require(originalPackage.itemsById[itemId])
+        let package = replacingReviewPackage(
+            originalPackage,
+            revision: originalPackage.revision,
+            itemsById: [
+                itemId: reviewItemWithDiffStatistics(
+                    originalItem,
+                    additions: 2,
+                    deletions: 1
+                )
+            ]
+        )
+        let source = BridgePaneProductReviewMetadataSource()
+        let collector = ReviewMetadataEventCollector()
+        try await source.open(
+            subscription: try reviewSubscription(),
+            productAdmission: productAdmission.context
+        ) { event, _ in
+            try await collector.append(event)
+        }
+
+        // Act
+        _ = try await deliverReviewPackage(
+            package,
+            through: source,
+            productAdmission: productAdmission.context
+        )
+
+        // Assert
+        let snapshotEvent = try #require(await collector.events.dropFirst().first)
+        guard case .snapshot(let snapshot) = snapshotEvent else {
+            Issue.record("Expected initial Review metadata snapshot")
+            return
+        }
+        #expect(snapshot.extentFacts.isEmpty)
+    }
+
     @Test("same revision update is a no-op and one changed package emits a bounded delta")
     func updatesWithMinimalLineageCorrectDelta() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
@@ -819,82 +862,6 @@ private func reviewSubscription(interestRevision: Int = 0) throws -> BridgeProdu
     )
 }
 
-private func makeReviewPackage(itemCount: Int, includesContentRoles: Bool = true) -> BridgeReviewPackage {
-    let repoId = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
-    let worktreeId = UUID(uuidString: "00000000-0000-4000-8000-000000000002")!
-    let items = (0..<itemCount).map { index in
-        makeBridgeReviewItemDescriptor(
-            itemId: String(format: "review-item-%05d", index),
-            path: String(format: "Sources/Module%02d/File%05d.swift", index % 32, index),
-            fileClass: .source,
-            contentRoles: includesContentRoles ? nil : .init()
-        )
-    }
-    let orderedItemIds = items.map(\.itemId)
-    return BridgeReviewPackage(
-        packageId: "review-package-1",
-        schemaVersion: 1,
-        reviewGeneration: 7,
-        revision: 11,
-        query: BridgeReviewQuery(
-            queryId: "review-query-1",
-            queryKind: .compare,
-            repoId: repoId,
-            worktreeId: worktreeId,
-            baseEndpointId: "review-base-endpoint",
-            headEndpointId: "review-head-endpoint",
-            comparisonSemantics: .threeDot,
-            pathScope: [],
-            fileTarget: nil,
-            viewFilter: BridgeViewFilter(showBinaryFiles: true, showLargeFiles: true),
-            grouping: BridgeChangeGrouping(kind: .folder),
-            provenanceFilter: BridgeProvenanceFilter()
-        ),
-        baseEndpoint: reviewEndpoint(
-            endpointId: "review-base-endpoint",
-            kind: .gitRef,
-            repoId: repoId,
-            worktreeId: worktreeId
-        ),
-        headEndpoint: reviewEndpoint(
-            endpointId: "review-head-endpoint",
-            kind: .workingTree,
-            repoId: repoId,
-            worktreeId: worktreeId
-        ),
-        orderedItemIds: orderedItemIds,
-        itemsById: Dictionary(uniqueKeysWithValues: items.map { ($0.itemId, $0) }),
-        groups: [],
-        summary: BridgeReviewPackageSummary(
-            filesChanged: itemCount,
-            additions: itemCount,
-            deletions: itemCount,
-            visibleFileCount: itemCount,
-            hiddenFileCount: 0
-        ),
-        filterState: BridgeViewFilter(showBinaryFiles: true, showLargeFiles: true),
-        generatedAtUnixMilliseconds: 100
-    )
-}
-
-private func reviewEndpoint(
-    endpointId: String,
-    kind: BridgeSourceEndpoint.Kind,
-    repoId: UUID,
-    worktreeId: UUID
-) -> BridgeSourceEndpoint {
-    BridgeSourceEndpoint(
-        endpointId: endpointId,
-        kind: kind,
-        repoId: repoId,
-        worktreeId: worktreeId,
-        label: endpointId,
-        createdAtUnixMilliseconds: 100,
-        contentSetHash: nil,
-        providerIdentity: "provider:\(endpointId)"
-    )
-}
-
 private func replacingReviewItem(
     in package: BridgeReviewPackage,
     itemId: String,
@@ -910,6 +877,39 @@ private func replacingReviewItem(
         contentRoles: previous.contentRoles
     )
     return replacingReviewPackage(package, revision: revision, itemsById: itemsById)
+}
+
+private func reviewItemWithDiffStatistics(
+    _ item: BridgeReviewItemDescriptor,
+    additions: Int,
+    deletions: Int
+) -> BridgeReviewItemDescriptor {
+    BridgeReviewItemDescriptor(
+        itemId: item.itemId,
+        itemKind: item.itemKind,
+        itemVersion: item.itemVersion,
+        basePath: item.basePath,
+        headPath: item.headPath,
+        changeKind: item.changeKind,
+        fileClass: item.fileClass,
+        language: item.language,
+        extension: item.extension,
+        sizeBytes: item.sizeBytes,
+        baseContentHash: item.baseContentHash,
+        headContentHash: item.headContentHash,
+        contentHashAlgorithm: item.contentHashAlgorithm,
+        additions: additions,
+        deletions: deletions,
+        isHiddenByDefault: item.isHiddenByDefault,
+        hiddenReason: item.hiddenReason,
+        reviewPriority: item.reviewPriority,
+        contentRoles: item.contentRoles,
+        cacheKey: item.cacheKey,
+        provenance: item.provenance,
+        annotationSummary: item.annotationSummary,
+        reviewState: item.reviewState,
+        collapsed: item.collapsed
+    )
 }
 
 private func replacingReviewSource(

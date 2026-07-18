@@ -341,7 +341,6 @@ function selectBridgeWorkerReviewDiffPlan(
 		budget: props.budget,
 		resourcesByRole: props.resourcesByRole,
 		roles: presentResources.map((resource) => resource.role),
-		semantics: props.semantics,
 	});
 	const contentCacheKey = `${contentCacheKeyForNullableResource(diffSides.base)}|${contentCacheKeyForNullableResource(diffSides.head)}`;
 	const contentHash = `${contentHashForNullableResource(diffSides.base)}|${contentHashForNullableResource(diffSides.head)}`;
@@ -374,7 +373,6 @@ function selectBridgeWorkerReviewFilePlan(
 		budget: props.budget,
 		resourcesByRole: props.resourcesByRole,
 		roles: [resource.role],
-		semantics: props.semantics,
 	});
 	const contentCacheKey = contentCacheKeyForResource(resource);
 	const language = languageForReviewRenderJob({
@@ -449,6 +447,7 @@ function createBridgeWorkerCodeViewDiffItem(props: {
 		bridgeMetadata: bridgeWorkerCodeViewItemMetadata({
 			cacheKey: props.contentCacheKey,
 			contentRoles: loadedDiffContentRoles({ base: props.base, head: props.head }),
+			observedLineCount: lineCountForFetchedReviewResources([props.base, props.head]),
 			semantics: props.semantics,
 			window: props.window,
 		}),
@@ -470,6 +469,7 @@ function createBridgeWorkerCodeViewFileItem(props: {
 		bridgeMetadata: bridgeWorkerCodeViewItemMetadata({
 			cacheKey: props.contentCacheKey,
 			contentRoles: [props.resource.role],
+			observedLineCount: lineCountForFetchedReviewResources([props.resource]),
 			semantics: props.semantics,
 			window: props.window,
 		}),
@@ -502,6 +502,7 @@ function createPierreFileContentsForReviewResource(props: {
 function bridgeWorkerCodeViewItemMetadata(props: {
 	readonly cacheKey: string;
 	readonly contentRoles: readonly BridgeWorkerReviewContentRole[];
+	readonly observedLineCount: number;
 	readonly semantics: BridgeWorkerReviewRenderSemantics;
 	readonly window: BridgeWorkerPierreRenderWindow;
 }): BridgeWorkerCodeViewFileItem['bridgeMetadata'] {
@@ -511,10 +512,7 @@ function bridgeWorkerCodeViewItemMetadata(props: {
 		contentState: props.window.endLine < props.window.totalLineCount ? 'windowed' : 'hydrated',
 		contentRoles: props.contentRoles,
 		cacheKey: props.cacheKey,
-		lineCount: lineCountForContentRoles({
-			contentRoles: props.contentRoles,
-			semantics: props.semantics,
-		}),
+		lineCount: props.observedLineCount,
 	};
 }
 
@@ -537,21 +535,14 @@ function loadedDiffContentRoles(props: {
 	return roles;
 }
 
-function lineCountForContentRoles(props: {
-	readonly contentRoles: readonly BridgeWorkerReviewContentRole[];
-	readonly semantics: BridgeWorkerReviewRenderSemantics;
-}): number | null {
-	let totalLineCount = 0;
-	let matchedRoleCount = 0;
-	for (const role of props.contentRoles) {
-		const lineCount = props.semantics.contentLineCountsByRole[role];
-		if (lineCount === null || lineCount === undefined) {
-			continue;
-		}
-		totalLineCount += lineCount;
-		matchedRoleCount += 1;
-	}
-	return matchedRoleCount === 0 ? null : totalLineCount;
+function lineCountForFetchedReviewResources(
+	resources: readonly (BridgeWorkerFetchedReviewContentResource | null)[],
+): number {
+	return resources.reduce(
+		(totalLineCount, resource) =>
+			totalLineCount + lineCountForFetchedReviewContent(resource?.text ?? ''),
+		0,
+	);
 }
 
 function windowTextForBridgeWorkerCodeView(props: {
@@ -640,14 +631,11 @@ function renderWindowForRoles(props: {
 	readonly budget: BridgeWorkerPierreRenderBudget;
 	readonly resourcesByRole: BridgeWorkerFetchedResourceByRole;
 	readonly roles: readonly BridgeWorkerReviewContentRole[];
-	readonly semantics: BridgeWorkerReviewRenderSemantics;
 }): BridgeWorkerPierreRenderWindow {
 	const totalLineCount = Math.max(
 		0,
-		...props.roles.map(
-			(role) =>
-				props.semantics.contentLineCountsByRole[role] ??
-				lineCountForFetchedReviewContent(props.resourcesByRole.get(role)?.text ?? ''),
+		...props.roles.map((role) =>
+			lineCountForFetchedReviewContent(props.resourcesByRole.get(role)?.text ?? ''),
 		),
 	);
 	return {

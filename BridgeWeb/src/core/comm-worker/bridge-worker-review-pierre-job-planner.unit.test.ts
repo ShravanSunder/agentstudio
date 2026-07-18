@@ -116,6 +116,8 @@ describe('Bridge worker review Pierre job planner', () => {
 	});
 
 	test('plans modified review diffs from base and head content windows', () => {
+		const baseText = completeFetchedText('let before = 1;', 120);
+		const headText = completeFetchedText('let after = 2;', 80);
 		const job = planBridgeWorkerReviewPierreRenderJob({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: {
@@ -128,14 +130,14 @@ describe('Bridge worker review Pierre job planner', () => {
 					contentHash: 'sha256:item-1:base',
 					lineCount: 120,
 					role: 'base',
-					text: 'let before = 1;\n',
+					text: baseText,
 				}),
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:head',
 					language: 'typescript',
 					lineCount: 80,
 					role: 'head',
-					text: 'let after = 2;\n',
+					text: headText,
 				}),
 			],
 			semantics: makeRenderSemantics({
@@ -263,6 +265,7 @@ describe('Bridge worker review Pierre job planner', () => {
 	});
 
 	test('plans one-sided added review diffs from the head side only', () => {
+		const headText = completeFetchedText('let added = true;', 33);
 		const job = planBridgeWorkerReviewPierreRenderJob({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: {
@@ -275,7 +278,7 @@ describe('Bridge worker review Pierre job planner', () => {
 					contentHash: 'sha256:item-1:head',
 					lineCount: 33,
 					role: 'head',
-					text: 'let added = true;\n',
+					text: headText,
 				}),
 			],
 			semantics: makeRenderSemantics({
@@ -420,7 +423,46 @@ describe('Bridge worker review Pierre job planner', () => {
 		}
 	});
 
+	test('uses complete fetched text instead of stale metadata to establish hydrated Review extent', () => {
+		const job = planBridgeWorkerReviewPierreRenderJob({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 10,
+			},
+			resources: [
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:head',
+					role: 'head',
+					text: 'line 1\nline 2\nline 3\nline 4\n',
+				}),
+			],
+			semantics: makeRenderSemantics({
+				basePath: null,
+				changeKind: 'added',
+				contentLineCountsByRole: { head: 2 },
+				headPath: 'Sources/App/Added.swift',
+				itemKind: 'file',
+			}),
+		});
+
+		expect(job?.window).toEqual({
+			startLine: 1,
+			endLine: 4,
+			totalLineCount: 4,
+		});
+		expect(job?.payload.kind).toBe('codeViewDiffItem');
+		if (job?.payload.kind === 'codeViewDiffItem') {
+			expect(job.payload.item.bridgeMetadata.contentState).toBe('hydrated');
+			expect(job.payload.item.bridgeMetadata.lineCount).toBe(4);
+			expect(job.payload.item.fileDiff.additionLines).toHaveLength(4);
+			expect(job.payload.item.fileDiff.additionLines.join('')).toContain('line 4');
+		}
+	});
+
 	test('plans file text jobs from a single preferred resource and language fallback', () => {
+		const fileText = completeFetchedText('plain file content', 45);
 		const job = planBridgeWorkerReviewPierreRenderJob({
 			bridgeDemandRank: { lane: 'visible', priority: 10 },
 			budget: {
@@ -434,7 +476,7 @@ describe('Bridge worker review Pierre job planner', () => {
 					language: null,
 					lineCount: 45,
 					role: 'file',
-					text: 'plain file content\n',
+					text: fileText,
 				}),
 			],
 			semantics: makeRenderSemantics({
@@ -453,10 +495,8 @@ describe('Bridge worker review Pierre job planner', () => {
 		});
 		expect(job?.payload.kind).toBe('codeViewFileItem');
 		if (job?.payload.kind === 'codeViewFileItem') {
-			expect(job.payloadByteLength).toBe(
-				new TextEncoder().encode('plain file content\n').byteLength,
-			);
-			expect(job.payload.item.file.contents).toBe('plain file content\n');
+			expect(job.payloadByteLength).toBe(new TextEncoder().encode(fileText).byteLength);
+			expect(job.payload.item.file.contents).toBe(fileText);
 			expect(job.payload.item.bridgeMetadata.contentRoles).toEqual(['file']);
 		}
 	});
@@ -713,6 +753,14 @@ function makeRenderSemantics(
 		contentLineCountsByRole: {},
 		...overrides,
 	};
+}
+
+function completeFetchedText(firstLine: string, totalLineCount: number): string {
+	const remainingLines = Array.from(
+		{ length: Math.max(0, totalLineCount - 1) },
+		(_, lineIndex) => `// complete fetched line ${lineIndex + 2}`,
+	);
+	return [firstLine, ...remainingLines].join('\n') + '\n';
 }
 
 function makeFetchedReviewContentResource(props: {

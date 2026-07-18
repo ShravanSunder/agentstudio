@@ -421,7 +421,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         if let treeSplice = treeSplice(from: currentTreeRows, to: nextTreeRows) {
             operations.append(treeSplice)
         }
-        let extentFacts = try changedItems.flatMap(productExtentFacts)
+        let extentFacts = changedItems.flatMap(authoritativeProductExtentFacts)
         if !extentFacts.isEmpty { operations.append(.upsertExtentFacts(extentFacts)) }
 
         let previousDescriptorIds = (removedIds + updatedIds).flatMap { itemId in
@@ -613,7 +613,7 @@ private struct ReviewProjectedItem {
 
     init(item: BridgeReviewItemDescriptor, package: BridgeReviewPackage) throws {
         self.contentSources = try productContentSources(for: item, package: package)
-        self.extentFacts = try productExtentFacts(item)
+        self.extentFacts = authoritativeProductExtentFacts(item)
         self.metadata = try productItem(item, loadedBy: .startupWindow, lane: .foreground)
     }
 }
@@ -696,18 +696,12 @@ private func productContentSources(
     }
 }
 
-private func productExtentFacts(
-    _ item: BridgeReviewItemDescriptor
-) throws -> [BridgeProductReviewExtentFactValue] {
-    try item.contentRoles.allHandles.map { handle in
-        let lineCount: Int
-        switch handle.role {
-        case .base: lineCount = max(item.deletions, 1)
-        case .head, .file: lineCount = max(item.additions, 1)
-        case .diff: lineCount = max(item.additions + item.deletions, 1)
-        }
-        return try .init(contentRole: handle.role, itemId: item.itemId, lineCount: lineCount)
-    }
+private func authoritativeProductExtentFacts(
+    _: BridgeReviewItemDescriptor
+) -> [BridgeProductReviewExtentFactValue] {
+    // Diff statistics count changed lines, not the complete source extent. A
+    // truthful total is established only after the worker fetches the whole body.
+    []
 }
 
 private func productTreeRows(
