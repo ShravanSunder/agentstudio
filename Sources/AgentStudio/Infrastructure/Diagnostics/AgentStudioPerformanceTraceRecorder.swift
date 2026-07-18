@@ -1,5 +1,33 @@
 import Foundation
 
+struct TerminalAccumulatorDrainPerformanceSnapshot: Equatable, Sendable {
+    let offeredCount: UInt64
+    let replacedCount: UInt64
+    let equalSuppressedCount: UInt64
+    let scheduledDrainCount: UInt64
+    let followUpDrainCount: UInt64
+    let mainActorTaskCount: UInt64
+    let activityAggregateCount: UInt64
+    let retainedEntryCount: UInt64
+    let retainedSizeBytes: UInt64
+}
+
+struct TerminalCompactApplyPerformanceSnapshot: Equatable, Sendable {
+    let equalWriteSuppressedCount: UInt64
+}
+
+struct FilesystemEffectPerformanceSnapshot: Equatable, Sendable {
+    let fullReconciliationRequestCount: UInt64
+    let affectedKeyRequestCount: UInt64
+}
+
+struct TraceIdentityPerformanceSnapshot: Equatable, Sendable {
+    let refreshRequestCount: UInt64
+    let coalescedRequestCount: UInt64
+    let fleetCaptureCount: UInt64
+    let equalSnapshotSuppressedCount: UInt64
+}
+
 final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     enum Event: String, Sendable {
         case atomDerived = "performance.atom.derived"
@@ -8,6 +36,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case commandBarFilter = "performance.commandbar.filter"
         case commandBarItems = "performance.commandbar.items"
         case coordinatorWrite = "performance.coordinator.write"
+        case filesystemEffectSnapshot = "performance.filesystem.effect_snapshot"
         case filesystemLogicalDebt = "performance.filesystem.logical_debt"
         case gitAdmission = "performance.git.admission"
         case gitEventPosted = "performance.git.event_posted"
@@ -32,10 +61,13 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case sidebarResize = "performance.sidebar.resize"
         case sidebarToggle = "performance.sidebar.toggle"
         case tabBarRefresh = "performance.tabbar.refresh"
+        case terminalAccumulatorDrain = "performance.terminal.accumulator_drain"
+        case terminalCompactApply = "performance.terminal.compact_apply"
         case terminalForceGeometrySync = "performance.terminal.force_geometry_sync"
         case terminalGeometrySync = "performance.terminal.geometry_sync"
         case terminalMountLayout = "performance.terminal.mount_layout"
         case terminalSurfaceSizeDidChange = "performance.terminal.surface_size"
+        case traceIdentitySnapshot = "performance.trace_identity.snapshot"
     }
 
     private let traceRuntime: AgentStudioTraceRuntime?
@@ -114,6 +146,78 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         record(event, attributes: mergedAttributes)
     }
 
+    func recordTerminalAccumulatorDrain(
+        _ snapshot: TerminalAccumulatorDrainPerformanceSnapshot,
+        queueAge: Duration
+    ) {
+        recordDuration(
+            .terminalAccumulatorDrain,
+            duration: queueAge,
+            attributes: [
+                "agentstudio.performance.terminal.accumulator.offered.count": Self.traceInteger(
+                    snapshot.offeredCount),
+                "agentstudio.performance.terminal.accumulator.replaced.count": Self.traceInteger(
+                    snapshot.replacedCount),
+                "agentstudio.performance.terminal.accumulator.equal_suppressed.count": Self.traceInteger(
+                    snapshot.equalSuppressedCount),
+                "agentstudio.performance.terminal.accumulator.scheduled_drain.count": Self.traceInteger(
+                    snapshot.scheduledDrainCount),
+                "agentstudio.performance.terminal.accumulator.follow_up_drain.count": Self.traceInteger(
+                    snapshot.followUpDrainCount),
+                "agentstudio.performance.terminal.accumulator.mainactor_task.count": Self.traceInteger(
+                    snapshot.mainActorTaskCount),
+                "agentstudio.performance.terminal.activity_aggregate.count": Self.traceInteger(
+                    snapshot.activityAggregateCount),
+                "agentstudio.performance.terminal.accumulator.retained_entry.count": Self.traceInteger(
+                    snapshot.retainedEntryCount),
+                "agentstudio.performance.terminal.accumulator.retained_size_bytes": Self.traceInteger(
+                    snapshot.retainedSizeBytes),
+            ]
+        )
+    }
+
+    func recordTerminalCompactApply(
+        _ snapshot: TerminalCompactApplyPerformanceSnapshot,
+        serviceTime: Duration
+    ) {
+        recordDuration(
+            .terminalCompactApply,
+            duration: serviceTime,
+            attributes: [
+                "agentstudio.performance.terminal.equal_write_suppressed.count": Self.traceInteger(
+                    snapshot.equalWriteSuppressedCount)
+            ]
+        )
+    }
+
+    func recordFilesystemEffectSnapshot(_ snapshot: FilesystemEffectPerformanceSnapshot) {
+        record(
+            .filesystemEffectSnapshot,
+            attributes: [
+                "agentstudio.performance.filesystem.full_reconciliation_request.count": Self.traceInteger(
+                    snapshot.fullReconciliationRequestCount),
+                "agentstudio.performance.filesystem.affected_key_request.count": Self.traceInteger(
+                    snapshot.affectedKeyRequestCount),
+            ]
+        )
+    }
+
+    func recordTraceIdentitySnapshot(_ snapshot: TraceIdentityPerformanceSnapshot) {
+        record(
+            .traceIdentitySnapshot,
+            attributes: [
+                "agentstudio.performance.trace_identity.refresh_request.count": Self.traceInteger(
+                    snapshot.refreshRequestCount),
+                "agentstudio.performance.trace_identity.coalesced_request.count": Self.traceInteger(
+                    snapshot.coalescedRequestCount),
+                "agentstudio.performance.trace_identity.fleet_capture.count": Self.traceInteger(
+                    snapshot.fleetCaptureCount),
+                "agentstudio.performance.trace_identity.equal_snapshot_suppressed.count": Self.traceInteger(
+                    snapshot.equalSnapshotSuppressedCount),
+            ]
+        )
+    }
+
     func measure<T>(
         _ event: Event,
         attributes: [String: AgentStudioTraceValue] = [:],
@@ -148,6 +252,10 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         let secondsMilliseconds = Double(components.seconds) * 1000
         let attosecondsMilliseconds = Double(components.attoseconds) / 1_000_000_000_000_000
         return secondsMilliseconds + attosecondsMilliseconds
+    }
+
+    private static func traceInteger(_ value: UInt64) -> AgentStudioTraceValue {
+        .int(Int(clamping: value))
     }
 
 }

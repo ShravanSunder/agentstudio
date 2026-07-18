@@ -175,6 +175,77 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func runtimePressureAggregateDeltasAreCountersWhileRetainedValuesStayGauges() throws {
+        let factory = RecordingMetricsFactory()
+        let metrics = AgentStudioOTLPPerformanceMetrics(factory: factory)
+        let dimensions = [("event", "performance.terminal.accumulator_drain")]
+        let firstRecord = Self.projectedPerformanceRecord(
+            body: "performance.terminal.accumulator_drain",
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(3),
+                "agentstudio.performance.terminal.accumulator.offered.count": .int(10),
+                "agentstudio.performance.terminal.accumulator.replaced.count": .int(8),
+                "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(4),
+                "agentstudio.performance.terminal.accumulator.retained_size_bytes": .int(256),
+            ]
+        )
+        let secondRecord = Self.projectedPerformanceRecord(
+            body: "performance.terminal.accumulator_drain",
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(1),
+                "agentstudio.performance.terminal.accumulator.offered.count": .int(5),
+                "agentstudio.performance.terminal.accumulator.replaced.count": .int(3),
+                "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(2),
+                "agentstudio.performance.terminal.accumulator.retained_size_bytes": .int(128),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: firstRecord))
+        metrics.record(firstRecord)
+        metrics.record(secondRecord)
+
+        #expect(
+            metricEvent.measurements.contains { measurement in
+                if case .counter(let sample) = measurement {
+                    return sample.label == "agentstudio_performance_terminal_accumulator_offered_count"
+                }
+                return false
+            })
+        #expect(
+            metricEvent.measurements.contains { measurement in
+                if case .gauge(let sample) = measurement {
+                    return sample.label == "agentstudio_performance_terminal_accumulator_retained_entry_count"
+                }
+                return false
+            })
+        #expect(
+            factory.counter(
+                label: "agentstudio_performance_terminal_accumulator_offered_count",
+                dimensions: dimensions
+            )?.totalValue == 15)
+        #expect(
+            factory.counter(
+                label: "agentstudio_performance_terminal_accumulator_replaced_count",
+                dimensions: dimensions
+            )?.totalValue == 11)
+        #expect(
+            factory.recorder(
+                label: "agentstudio_performance_terminal_accumulator_retained_entry_count",
+                dimensions: dimensions
+            )?.values == [4, 2])
+        #expect(
+            factory.recorder(
+                label: "agentstudio_performance_terminal_accumulator_retained_size_bytes",
+                dimensions: dimensions
+            )?.values == [256, 128])
+        #expect(
+            factory.recorder(
+                label: AgentStudioOTLPPerformanceMetrics.elapsedMetricLabel,
+                dimensions: dimensions
+            )?.values == [3, 1])
+    }
+
+    @Test
     func commonQuiescenceRecordsProjectExactAggregateGaugeSeries() throws {
         let records = [
             Self.projectedPerformanceRecord(

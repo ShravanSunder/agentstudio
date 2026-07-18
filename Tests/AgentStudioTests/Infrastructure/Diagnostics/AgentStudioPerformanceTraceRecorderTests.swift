@@ -6,6 +6,68 @@ import Testing
 @Suite
 struct AgentStudioPerformanceTraceRecorderTests {
     @Test
+    func recorderEmitsTypedRuntimePressureAggregateSnapshots() async throws {
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "runtime-pressure-aggregates",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 914,
+            timeUnixNano: { 122 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+
+        recorder.recordTerminalAccumulatorDrain(
+            TerminalAccumulatorDrainPerformanceSnapshot(
+                offeredCount: 100,
+                replacedCount: 80,
+                equalSuppressedCount: 10,
+                scheduledDrainCount: 1,
+                followUpDrainCount: 1,
+                mainActorTaskCount: 1,
+                activityAggregateCount: 2,
+                retainedEntryCount: 4,
+                retainedSizeBytes: 256
+            ),
+            queueAge: .milliseconds(3)
+        )
+        recorder.recordTerminalCompactApply(
+            TerminalCompactApplyPerformanceSnapshot(equalWriteSuppressedCount: 7),
+            serviceTime: .milliseconds(1)
+        )
+        recorder.recordFilesystemEffectSnapshot(
+            FilesystemEffectPerformanceSnapshot(
+                fullReconciliationRequestCount: 0,
+                affectedKeyRequestCount: 12
+            )
+        )
+        recorder.recordTraceIdentitySnapshot(
+            TraceIdentityPerformanceSnapshot(
+                refreshRequestCount: 9,
+                coalescedRequestCount: 8,
+                fleetCaptureCount: 1,
+                equalSnapshotSuppressedCount: 1
+            )
+        )
+        try await recorder.drain()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"performance.terminal.accumulator_drain\""))
+        #expect(contents.contains("\"body\":\"performance.terminal.compact_apply\""))
+        #expect(contents.contains("\"body\":\"performance.filesystem.effect_snapshot\""))
+        #expect(contents.contains("\"body\":\"performance.trace_identity.snapshot\""))
+        #expect(contents.contains("\"agentstudio.performance.terminal.accumulator.offered.count\":100"))
+        #expect(contents.contains("\"agentstudio.performance.terminal.accumulator.retained_entry.count\":4"))
+        #expect(contents.contains("\"agentstudio.performance.terminal.equal_write_suppressed.count\":7"))
+        #expect(contents.contains("\"agentstudio.performance.filesystem.affected_key_request.count\":12"))
+        #expect(contents.contains("\"agentstudio.performance.trace_identity.coalesced_request.count\":8"))
+    }
+
+    @Test
     func recorderEmitsPerformanceRecordsThroughTraceRuntime() async throws {
         let traceDirectory = temporaryTraceDirectoryURL()
         let runtime = AgentStudioTraceRuntime(
