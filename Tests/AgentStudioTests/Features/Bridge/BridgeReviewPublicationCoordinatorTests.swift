@@ -196,7 +196,8 @@ struct BridgeReviewPublicationCoordinatorTests {
 
         // Act
         productAdmission.close()
-        coordinator.close()
+        let closeDrain = coordinator.close()
+        let repeatedCloseDrain = coordinator.close()
         let commitResult = coordinator.commit(
             token,
             productAdmission: productAdmission.context,
@@ -206,6 +207,10 @@ struct BridgeReviewPublicationCoordinatorTests {
         )
 
         // Assert
+        #expect(closeDrain.artifactPins.isEmpty)
+        #expect(closeDrain.priorReleaseTask == nil)
+        #expect(repeatedCloseDrain.artifactPins.isEmpty)
+        #expect(repeatedCloseDrain.priorReleaseTask == nil)
         #expect(commitResult == .closed)
         #expect(coordinator.diagnosticSnapshot == .closed)
     }
@@ -235,7 +240,8 @@ struct BridgeReviewPublicationCoordinatorTests {
 
         // Act
         productAdmission.close()
-        coordinator.close()
+        let closeDrain = coordinator.close()
+        let repeatedCloseDrain = coordinator.close()
         let deliveryOutcome = coordinator.recordTransportDeliveryDisposition(
             .transportAcknowledged,
             publicationId: committedPublication.publicationId,
@@ -243,6 +249,10 @@ struct BridgeReviewPublicationCoordinatorTests {
         )
 
         // Assert
+        #expect(closeDrain.artifactPins.isEmpty)
+        #expect(closeDrain.priorReleaseTask == nil)
+        #expect(repeatedCloseDrain.artifactPins.isEmpty)
+        #expect(repeatedCloseDrain.priorReleaseTask == nil)
         #expect(deliveryOutcome == .closed)
         #expect(coordinator.diagnosticSnapshot == .closed)
         #expect(
@@ -517,9 +527,10 @@ struct BridgeReviewPublicationCoordinatorTests {
         #expect(transportOutcome == .committed(delivery: .transportAcknowledged))
         #expect(retiringAfterTransport.map(\.packageId) == [publicationA.package.packageId])
         #expect(applicationRecorded)
-        #expect(coordinator.diagnosticSnapshot.retiring.isEmpty)
+        #expect(coordinator.diagnosticSnapshot.retiring.map(\.packageId) == [publicationA.package.packageId])
         #expect(coordinator.diagnosticSnapshot.activeContentLeaseCount == 1)
         #expect(coordinator.settleContentLease(leaseA))
+        #expect(coordinator.diagnosticSnapshot.retiring.isEmpty)
         #expect(coordinator.diagnosticSnapshot.activeContentLeaseCount == 0)
     }
 
@@ -578,16 +589,20 @@ struct BridgeReviewPublicationCoordinatorTests {
 
         // Assert
         #expect(!delayedBApplication)
-        #expect(retiringAfterStaleB.map(\.packageId) == [publicationA.package.packageId])
+        #expect(
+            Set(retiringAfterStaleB.map(\.packageId))
+                == Set([publicationA.package.packageId, publicationB.package.packageId])
+        )
         #expect(currentCApplication)
-        #expect(coordinator.diagnosticSnapshot.retiring.isEmpty)
+        #expect(coordinator.diagnosticSnapshot.retiring.map(\.packageId) == [publicationA.package.packageId])
         #expect(coordinator.diagnosticSnapshot.activeContentLeaseCount == 1)
         #expect(coordinator.settleContentLease(leaseA))
+        #expect(coordinator.diagnosticSnapshot.retiring.isEmpty)
         #expect(coordinator.diagnosticSnapshot.activeContentLeaseCount == 0)
     }
 
-    @Test("final frozen pre-commit A lease settlement retires A")
-    func finalFrozenPreCommitALeaseSettlementRetiresA() async throws {
+    @Test("settled A remains admitted until exact B application")
+    func settledARemainsAdmittedUntilExactBApplication() async throws {
         // Arrange
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         let coordinator = BridgeReviewPublicationCoordinator()
@@ -640,17 +655,26 @@ struct BridgeReviewPublicationCoordinatorTests {
         let firstSettlement = coordinator.settleContentLease(firstLeaseA)
         let retiringAfterFirstSettlement = coordinator.diagnosticSnapshot.retiring
         let finalSettlement = coordinator.settleContentLease(secondLeaseA)
+        let retiringBeforeApplication = coordinator.diagnosticSnapshot.retiring
+        let applicationRecorded = coordinator.recordWorkerApplication(
+            publicationId: try #require(
+                coordinator.committedPublicationForReplay(productAdmission: productAdmission.context)
+            ).publicationId,
+            productAdmission: productAdmission.context
+        )
 
         // Assert
         #expect(firstSettlement)
         #expect(retiringAfterFirstSettlement.map(\.packageId) == [publicationA.package.packageId])
         #expect(finalSettlement)
+        #expect(retiringBeforeApplication.map(\.packageId) == [publicationA.package.packageId])
+        #expect(applicationRecorded)
         #expect(coordinator.diagnosticSnapshot.retiring.isEmpty)
         #expect(coordinator.diagnosticSnapshot.active?.packageId == publicationB.package.packageId)
     }
 
-    @Test("no new A lease may be minted after B commits")
-    func noNewALeaseMayBeMintedAfterBCommits() async throws {
+    @Test("R1 remains leaseable until exact R2 application and rejects afterward")
+    func r1LeaseAdmissionClosesAtExactR2Application() async throws {
         // Arrange
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         let coordinator = BridgeReviewPublicationCoordinator()
@@ -691,6 +715,20 @@ struct BridgeReviewPublicationCoordinatorTests {
         )
 
         // Act
+        let lateLeaseA = coordinator.acquireContentLease(
+            handleId: publicationA.contentHandles[0].handleId,
+            packageId: publicationA.package.packageId,
+            requestedGeneration: publicationA.package.reviewGeneration,
+            sourceIdentity: publicationA.package.query.queryId,
+            productAdmission: productAdmission.context
+        )
+        let committedB = try #require(
+            coordinator.committedPublicationForReplay(productAdmission: productAdmission.context)
+        )
+        let applicationRecorded = coordinator.recordWorkerApplication(
+            publicationId: committedB.publicationId,
+            productAdmission: productAdmission.context
+        )
         let rejectedLeaseA = coordinator.acquireContentLease(
             handleId: publicationA.contentHandles[0].handleId,
             packageId: publicationA.package.packageId,
@@ -700,9 +738,13 @@ struct BridgeReviewPublicationCoordinatorTests {
         )
 
         // Assert
+        #expect(lateLeaseA != nil)
+        #expect(applicationRecorded)
         #expect(rejectedLeaseA == nil)
         #expect(coordinator.settleContentLease(admittedLeaseA))
+        #expect(coordinator.settleContentLease(try #require(lateLeaseA)))
         #expect(!coordinator.settleContentLease(admittedLeaseA))
+        #expect(coordinator.diagnosticSnapshot.retiring.isEmpty)
     }
 }
 

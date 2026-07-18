@@ -21,6 +21,37 @@ protocol BridgeReviewSourceProvider: Sendable {
     ) async throws -> BridgeContentStreamResult
 }
 
+protocol BridgeSharedReviewConstructionClient: Sendable {
+    func resolveEndpoint(
+        _ request: BridgeEndpointResolutionRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeSourceEndpoint
+    func compareEndpoints(
+        _ request: BridgeEndpointComparisonRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeEndpointComparison
+    func readTree(
+        _ request: BridgeTreeReadRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeTreeReadResult
+    func readReviewItemDescriptor(
+        _ request: BridgeReviewItemDescriptorRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeReviewItemDescriptor
+    func captureSharedContent(
+        handles: [BridgeContentHandle],
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeSharedReviewContentBacking
+    func installSharedContent(
+        backing: BridgeSharedReviewContentBacking,
+        handles: [BridgeContentHandle]
+    ) async throws
+}
+
+protocol BridgeSharedReviewConstructionSourceProvider: BridgeReviewSourceProvider,
+    BridgeSharedReviewConstructionClient
+{}
+
 extension BridgeReviewSourceProvider {
     func streamContent(
         _ request: BridgeContentStreamRequest,

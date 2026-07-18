@@ -39,6 +39,11 @@ enum BridgeWorktreeProductConstructionArtifact: Sendable {
             return template.contentLocatorCount
         }
     }
+
+    func invalidateBacking() {
+        guard case .reviewTemplate(let template) = self else { return }
+        template.invalidateBacking()
+    }
 }
 
 struct BridgeWorktreeProductConstructionContext: Sendable {
@@ -47,12 +52,32 @@ struct BridgeWorktreeProductConstructionContext: Sendable {
     let entryNonce: UInt64
 }
 
+struct BridgeWorktreeProductConstructionFreshnessContext: Sendable {
+    let worktree: BridgeWorktreeIdentityKey
+    let epoch: BridgeWorktreeFreshnessEpoch
+}
+
 struct BridgeWorktreeProductConstructionLease: Sendable {
     let key: BridgeWorktreeProductConstructionKey
     let epoch: BridgeWorktreeFreshnessEpoch
     let entryNonce: UInt64
     let leaseNonce: UInt64
     let artifact: BridgeWorktreeProductConstructionArtifact
+}
+
+enum BridgeWorktreeProductConstructionLeaseRelease: Sendable {
+    case retainedByOtherLeases
+    case artifactInvalidated
+    case noMatchingLease
+
+    var requiresArtifactCleanupDrain: Bool {
+        switch self {
+        case .retainedByOtherLeases:
+            return false
+        case .artifactInvalidated, .noMatchingLease:
+            return true
+        }
+    }
 }
 
 struct BridgeSharedFileSnapshotConsumerLease: Equatable, Sendable {
@@ -102,6 +127,7 @@ typealias BridgeSharedFileSnapshotBuildOperation =
 enum BridgeWorktreeProductConstructionError: Error, Equatable, Sendable {
     case coordinatorClosed
     case invalidated
+    case freshnessEpochMismatch
     case artifactKindMismatch
     case acquisitionModeMismatch
     case invalidFileConsumerLease

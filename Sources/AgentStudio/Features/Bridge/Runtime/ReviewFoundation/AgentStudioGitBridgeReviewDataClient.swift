@@ -9,9 +9,21 @@ import Foundation
 /// so later content loads can stay handle-based without putting Git DTOs into
 /// `BridgeReviewPipeline` or BridgeWeb contracts.
 actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClient>: BridgeGitReviewDataClient {
+    enum ContentSource: Sendable {
+        case live(target: GitDiffTarget, path: String)
+        case shared(
+            backing: BridgeSharedReviewContentBacking,
+            identity: BridgeSharedReviewContentIdentity
+        )
+    }
+
     struct ContentLocator: Sendable {
-        let target: GitDiffTarget
-        let path: String
+        let source: ContentSource
+        let reviewGeneration: BridgeReviewGeneration
+    }
+
+    struct ContentLocatorIdentity: Hashable, Sendable {
+        let handleId: String
         let reviewGeneration: BridgeReviewGeneration
     }
 
@@ -42,29 +54,73 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
     let client: LocalClient
     let gitReadContext: BridgeGitReadContext
     let gitDataPlaneReadTimeout: Duration
-    var locatorByHandleId: [String: ContentLocator] = [:]
+    let sharedContentRootURL: URL
+    var locatorByIdentity: [ContentLocatorIdentity: ContentLocator] = [:]
 
     init(
         repositoryPath: URL,
         client: LocalClient,
         gitReadContext: BridgeGitReadContext,
-        gitDataPlaneReadTimeout: Duration = AppPolicies.Bridge.defaultGitDataPlaneReadTimeout
+        gitDataPlaneReadTimeout: Duration = AppPolicies.Bridge.defaultGitDataPlaneReadTimeout,
+        sharedContentRootURL: URL = AgentStudioGitBridgeReviewDataClient.defaultSharedContentRootURL
     ) {
         self.repositoryPath = repositoryPath
         self.client = client
         self.gitReadContext = gitReadContext
         self.gitDataPlaneReadTimeout = gitDataPlaneReadTimeout
+        self.sharedContentRootURL = sharedContentRootURL
     }
 
     func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint {
-        request.endpoint
+        try await resolveEndpoint(
+            request,
+            freshnessKey: BridgeGitReadFreshnessKey(
+                token: "\(gitReadContext.scopeKey.token):resolve:\(request.endpoint.providerIdentity)"
+            )
+        )
+    }
+
+    func resolveEndpoint(
+        _ request: BridgeEndpointResolutionRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeSourceEndpoint {
+        let endpoint = request.endpoint
+        guard endpoint.kind == .gitRef else { return endpoint }
+        guard !endpoint.providerIdentity.isEmpty else {
+            throw BridgeProviderFailure.unavailableEndpoint(endpointId: endpoint.endpointId)
+        }
+        let resolved = try await loadGitResolvedRevision(
+            GitRevisionResolutionRequest(
+                repositoryPath: repositoryPath,
+                target: .named(endpoint.providerIdentity)
+            ),
+            freshnessKey: freshnessKey
+        )
+        return BridgeSourceEndpoint(
+            endpointId: endpoint.endpointId,
+            kind: endpoint.kind,
+            repoId: endpoint.repoId,
+            worktreeId: endpoint.worktreeId,
+            label: endpoint.label,
+            createdAtUnixMilliseconds: endpoint.createdAtUnixMilliseconds,
+            contentSetHash: resolved.oid,
+            providerIdentity: resolved.oid
+        )
     }
 
     func compareEndpoints(_ request: BridgeEndpointComparisonRequest) async throws -> BridgeEndpointComparison {
+        try await compareEndpoints(
+            request,
+            freshnessKey: gitReadFreshnessKey(for: request.reviewGeneration)
+        )
+    }
+
+    func compareEndpoints(
+        _ request: BridgeEndpointComparisonRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeEndpointComparison {
         let baseTarget = try gitTarget(for: request.baseEndpoint)
         let headTarget = try gitTarget(for: request.headEndpoint)
-        let freshnessKey = gitReadFreshnessKey(for: request.reviewGeneration)
-        pruneContentLocators(to: request.reviewGeneration)
         let changedFiles: [BridgeEndpointChangedFile]
         do {
             let diff = try await loadGitDiff(
@@ -130,8 +186,17 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
     }
 
     func readTree(_ request: BridgeTreeReadRequest) async throws -> BridgeTreeReadResult {
+        try await readTree(
+            request,
+            freshnessKey: gitReadFreshnessKey(for: request.reviewGeneration)
+        )
+    }
+
+    func readTree(
+        _ request: BridgeTreeReadRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeTreeReadResult {
         let revision = try gitRevisionTarget(for: request.endpoint)
-        let freshnessKey = gitReadFreshnessKey(for: request.reviewGeneration)
         var descriptors: [BridgeReviewItemDescriptor] = []
         for path in treeReadPaths(from: request.pathScope) {
             let tree = try await loadGitTree(
@@ -170,9 +235,17 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
     func readReviewItemDescriptor(_ request: BridgeReviewItemDescriptorRequest) async throws
         -> BridgeReviewItemDescriptor
     {
+        try await readReviewItemDescriptor(
+            request,
+            freshnessKey: gitReadFreshnessKey(for: request.reviewGeneration)
+        )
+    }
+
+    func readReviewItemDescriptor(
+        _ request: BridgeReviewItemDescriptorRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeReviewItemDescriptor {
         let target = try gitTarget(for: request.endpoint)
-        let freshnessKey = gitReadFreshnessKey(for: request.reviewGeneration)
-        pruneContentLocators(to: request.reviewGeneration)
         let contentRequest = GitContentRequest(
             repositoryPath: repositoryPath,
             target: target,
@@ -197,9 +270,8 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
                 )
             )
             if let handle = descriptor.contentRoles.file {
-                locatorByHandleId[handle.handleId] = ContentLocator(
-                    target: target,
-                    path: request.path,
+                locatorByIdentity[contentLocatorIdentity(for: handle)] = ContentLocator(
+                    source: .live(target: target, path: request.path),
                     reviewGeneration: request.reviewGeneration
                 )
             }
@@ -300,12 +372,6 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         )
     }
 
-    private func pruneContentLocators(to reviewGeneration: BridgeReviewGeneration) {
-        locatorByHandleId = locatorByHandleId.filter { _, locator in
-            locator.reviewGeneration == reviewGeneration
-        }
-    }
-
     private func gitRevisionTarget(for endpoint: BridgeSourceEndpoint) throws -> GitRevisionTarget {
         switch endpoint.kind {
         case .gitRef:
@@ -331,7 +397,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
     }
 
     func loadContent(_ request: BridgeContentLoadRequest) async throws -> BridgeContentLoadResult {
-        guard let locator = locatorByHandleId[request.handle.handleId] else {
+        guard let locator = locatorByIdentity[contentLocatorIdentity(for: request.handle)] else {
             throw BridgeProviderFailure.missingContent(handleId: request.handle.handleId)
         }
         guard locator.reviewGeneration == request.requestedGeneration,
@@ -342,15 +408,10 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
                 requestedGeneration: request.requestedGeneration
             )
         }
-        let content = try await loadGitContent(
-            GitContentRequest(
-                repositoryPath: repositoryPath,
-                target: locator.target,
-                path: locator.path,
-                maxSizeBytes: Int64(AppPolicies.Bridge.contentMaxBytesPerItem)
-            ),
+        let content = try await contentPayload(
+            for: locator,
             handle: request.handle,
-            freshnessKey: gitReadFreshnessKey(for: request.requestedGeneration)
+            requestedGeneration: request.requestedGeneration
         )
         return BridgeContentLoadResult(
             handle: request.handle,
@@ -366,7 +427,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         chunkByteCount: Int,
         emitChunk: BridgeContentStreamEmitter
     ) async throws -> BridgeContentStreamResult {
-        guard let locator = locatorByHandleId[request.handle.handleId] else {
+        guard let locator = locatorByIdentity[contentLocatorIdentity(for: request.handle)] else {
             throw BridgeProviderFailure.missingContent(handleId: request.handle.handleId)
         }
         guard locator.reviewGeneration == request.requestedGeneration,
@@ -377,7 +438,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
                 requestedGeneration: request.requestedGeneration
             )
         }
-        guard locator.target == .workingTree else {
+        guard case .live(target: .workingTree, path: let path) = locator.source else {
             let result = try await loadContent(
                 BridgeContentLoadRequest(
                     handle: request.handle,
@@ -400,7 +461,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         }
         return try await streamWorkingTreeContent(
             handle: request.handle,
-            path: locator.path,
+            path: path,
             chunkByteCount: chunkByteCount,
             emitChunk: emitChunk
         )
@@ -567,10 +628,16 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
             role: role,
             reviewGeneration: reviewGeneration
         )
-        locatorByHandleId[handle.handleId] = ContentLocator(
-            target: target,
-            path: path,
+        locatorByIdentity[contentLocatorIdentity(for: handle)] = ContentLocator(
+            source: .live(target: target, path: path),
             reviewGeneration: reviewGeneration
+        )
+    }
+
+    func contentLocatorIdentity(for handle: BridgeContentHandle) -> ContentLocatorIdentity {
+        ContentLocatorIdentity(
+            handleId: handle.handleId,
+            reviewGeneration: handle.reviewGeneration
         )
     }
 

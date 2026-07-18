@@ -9,9 +9,10 @@ struct GitContentLocator: Hashable, Sendable {
 }
 
 actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
-    private let diffSnapshot: GitDiffSnapshot
+    private var diffSnapshot: GitDiffSnapshot
     private let diffFailure: GitDataPlaneError?
-    private let contentByLocator: [GitContentLocator: GitContentPayload]
+    private var contentByLocator: [GitContentLocator: GitContentPayload]
+    private var resolvedRevisionByTarget: [GitRevisionTarget: GitResolvedRevision]
     private let contentFailureByLocator: [GitContentLocator: GitDataPlaneError]
     private let treeSnapshotByRequest: [GitTreeReadRequest: GitTreeSnapshot]
     private let treeFailure: GitDataPlaneError?
@@ -19,10 +20,13 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     private let statusFailure: GitDataPlaneError?
     private let statusSnapshotByOptions: [GitStatusOptions: GitStatusSnapshot]
     private let statusFailureByOptions: [GitStatusOptions: GitDataPlaneError]
+    private let contentReadGateByLocator: [GitContentLocator: BridgeGitContentReadGate]
+    private let revisionResolutionGate: BridgeGitContentReadGate?
     private var diffRequests: [GitDiffRequest] = []
     private var contentRequests: [GitContentRequest] = []
     private var treeRequests: [GitTreeReadRequest] = []
     private var statusRequests: [(URL, GitStatusOptions)] = []
+    private var revisionResolutionRequests: [GitRevisionResolutionRequest] = []
 
     init(
         diffSnapshot: GitDiffSnapshot = GitDiffSnapshot(files: []),
@@ -34,7 +38,10 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         statusSnapshot: GitStatusSnapshot? = nil,
         statusFailure: GitDataPlaneError? = nil,
         statusSnapshotByOptions: [GitStatusOptions: GitStatusSnapshot] = [:],
-        statusFailureByOptions: [GitStatusOptions: GitDataPlaneError] = [:]
+        statusFailureByOptions: [GitStatusOptions: GitDataPlaneError] = [:],
+        resolvedRevisionByTarget: [GitRevisionTarget: GitResolvedRevision] = [:],
+        contentReadGateByLocator: [GitContentLocator: BridgeGitContentReadGate] = [:],
+        revisionResolutionGate: BridgeGitContentReadGate? = nil
     ) {
         self.diffSnapshot = diffSnapshot
         self.diffFailure = diffFailure
@@ -46,6 +53,9 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         self.statusFailure = statusFailure
         self.statusSnapshotByOptions = statusSnapshotByOptions
         self.statusFailureByOptions = statusFailureByOptions
+        self.resolvedRevisionByTarget = resolvedRevisionByTarget
+        self.contentReadGateByLocator = contentReadGateByLocator
+        self.revisionResolutionGate = revisionResolutionGate
     }
 
     func repositoryIdentity(for worktreePath: URL) async throws(GitDataPlaneError) -> GitRepositoryIdentity {
@@ -118,7 +128,14 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     func resolveRevision(_ request: GitRevisionResolutionRequest) async throws(GitDataPlaneError)
         -> GitResolvedRevision
     {
-        throw GitDataPlaneError.unsupported(message: "not used")
+        revisionResolutionRequests.append(request)
+        guard let revision = resolvedRevisionByTarget[request.target] else {
+            throw GitDataPlaneError.unsupported(message: "missing revision")
+        }
+        if let revisionResolutionGate {
+            await revisionResolutionGate.waitUntilReleased()
+        }
+        return revision
     }
 
     func trackedPaths(
@@ -164,6 +181,9 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     func content(_ request: GitContentRequest) async throws(GitDataPlaneError) -> GitContentPayload {
         contentRequests.append(request)
         let locator = GitContentLocator(target: request.target, path: request.path)
+        if let contentReadGate = contentReadGateByLocator[locator] {
+            await contentReadGate.waitUntilReleased()
+        }
         if let failure = contentFailureByLocator[locator] {
             throw failure
         }
@@ -191,5 +211,56 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
 
     func recordedStatusOptions() -> [GitStatusOptions] {
         statusRequests.map(\.1)
+    }
+
+    func recordedRevisionResolutionRequests() -> [GitRevisionResolutionRequest] {
+        revisionResolutionRequests
+    }
+
+    func replaceDiffSnapshot(_ snapshot: GitDiffSnapshot) {
+        diffSnapshot = snapshot
+    }
+
+    func replaceContent(_ content: GitContentPayload, for locator: GitContentLocator) {
+        contentByLocator[locator] = content
+    }
+
+    func replaceResolvedRevision(
+        _ revision: GitResolvedRevision,
+        for target: GitRevisionTarget
+    ) {
+        resolvedRevisionByTarget[target] = revision
+    }
+}
+
+actor BridgeGitContentReadGate {
+    private var didStart = false
+    private var didRelease = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitUntilStarted() async {
+        guard !didStart else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilReleased() async {
+        didStart = true
+        let waiters = startWaiters
+        startWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
+        guard !didRelease else { return }
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        didRelease = true
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
     }
 }

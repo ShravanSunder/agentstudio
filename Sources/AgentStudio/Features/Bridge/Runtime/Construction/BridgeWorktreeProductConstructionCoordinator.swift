@@ -17,6 +17,7 @@ actor BridgeWorktreeProductConstructionCoordinator {
 
     func acquire(
         key: BridgeWorktreeProductConstructionKey,
+        expectedEpoch: BridgeWorktreeFreshnessEpoch? = nil,
         build:
             @escaping @Sendable (BridgeWorktreeProductConstructionContext) async throws
             -> BridgeWorktreeProductConstructionArtifact
@@ -24,6 +25,9 @@ actor BridgeWorktreeProductConstructionCoordinator {
         try ensureOpen()
         try Task.checkCancellation()
         let epoch = currentEpoch(for: key.worktree)
+        guard expectedEpoch == nil || expectedEpoch == epoch else {
+            throw BridgeWorktreeProductConstructionError.freshnessEpochMismatch
+        }
         let identity = BridgeConstructionBuildIdentity(key: key, epoch: epoch)
         let leaseNonce = takeNextLeaseNonce()
         let cancellationState = BridgeConstructionCancellationState()
@@ -144,19 +148,23 @@ actor BridgeWorktreeProductConstructionCoordinator {
         return advancedEpoch
     }
 
-    func release(_ lease: BridgeWorktreeProductConstructionLease) {
+    @discardableResult
+    func release(
+        _ lease: BridgeWorktreeProductConstructionLease
+    ) -> BridgeWorktreeProductConstructionLeaseRelease {
         guard var entry = entriesByNonce[lease.entryNonce],
             entry.identity.key == lease.key,
             entry.identity.epoch == lease.epoch,
             entry.activeLeaseNonces.remove(lease.leaseNonce) != nil
-        else { return }
+        else { return .noMatchingLease }
 
         emit(.leaseReleased, entry: entry, leaseNonce: lease.leaseNonce)
         guard entry.activeLeaseNonces.isEmpty else {
             entriesByNonce[entry.nonce] = entry
-            return
+            return .retainedByOtherLeases
         }
         removeEntry(entry)
+        return .artifactInvalidated
     }
 
     func release(_ lease: BridgeSharedFileSnapshotConsumerLease) {
@@ -571,10 +579,18 @@ actor BridgeWorktreeProductConstructionCoordinator {
         entryNonce: UInt64,
         result: Result<BridgeWorktreeProductConstructionArtifact, any Error>
     ) {
-        guard var entry = entriesByNonce[entryNonce] else { return }
+        guard var entry = entriesByNonce[entryNonce] else {
+            if case .success(let artifact) = result {
+                artifact.invalidateBacking()
+            }
+            return
+        }
         entry.isInFlight = false
 
         guard case .building = entry.phase else {
+            if case .success(let artifact) = result {
+                artifact.invalidateBacking()
+            }
             emit(.staleCompletionDropped, entry: entry)
             removeEntry(entry)
             return
@@ -582,6 +598,9 @@ actor BridgeWorktreeProductConstructionCoordinator {
         guard currentEpoch(for: entry.identity.key.worktree) == entry.identity.epoch,
             currentEntryNonceByIdentity[entry.identity] == entryNonce
         else {
+            if case .success(let artifact) = result {
+                artifact.invalidateBacking()
+            }
             failWaiters(in: &entry, with: BridgeWorktreeProductConstructionError.invalidated)
             emit(.staleCompletionDropped, entry: entry)
             removeEntry(entry)
@@ -595,6 +614,7 @@ actor BridgeWorktreeProductConstructionCoordinator {
             removeEntry(entry)
         case .success(let artifact):
             guard artifact.productKind == entry.identity.key.productKind else {
+                artifact.invalidateBacking()
                 failWaiters(in: &entry, with: BridgeWorktreeProductConstructionError.artifactKindMismatch)
                 emit(.buildFailed, entry: entry)
                 removeEntry(entry)
@@ -615,6 +635,7 @@ actor BridgeWorktreeProductConstructionCoordinator {
                 entry.activeLeaseNonces.insert(waiter.leaseNonce)
             }
             guard !entry.activeLeaseNonces.isEmpty else {
+                artifact.invalidateBacking()
                 removeEntry(entry)
                 return
             }
@@ -765,6 +786,9 @@ actor BridgeWorktreeProductConstructionCoordinator {
     }
 
     private func removeEntry(_ entry: BridgeConstructionEntry) {
+        if case .ready(let artifact) = entry.phase {
+            artifact.invalidateBacking()
+        }
         if currentEntryNonceByIdentity[entry.identity] == entry.nonce {
             currentEntryNonceByIdentity.removeValue(forKey: entry.identity)
         }
@@ -817,6 +841,18 @@ actor BridgeWorktreeProductConstructionCoordinator {
                 entryNonce: entry.nonce,
                 leaseNonce: leaseNonce
             )
+        )
+    }
+}
+
+extension BridgeWorktreeProductConstructionCoordinator {
+    func freshnessContext(
+        for worktree: BridgeWorktreeIdentityKey
+    ) throws -> BridgeWorktreeProductConstructionFreshnessContext {
+        try ensureOpen()
+        return BridgeWorktreeProductConstructionFreshnessContext(
+            worktree: worktree,
+            epoch: currentEpoch(for: worktree)
         )
     }
 }

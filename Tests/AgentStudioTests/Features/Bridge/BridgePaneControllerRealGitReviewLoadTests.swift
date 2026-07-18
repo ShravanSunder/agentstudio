@@ -1,3 +1,4 @@
+import AgentStudioGit
 import Foundation
 import Testing
 
@@ -23,20 +24,35 @@ extension WebKitSerializedTests {
             defer { FilesystemTestGitRepo.destroy(repoURL) }
             try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
             let harness = try await RealGitReviewLoadHarness.make(repositoryURL: repoURL)
-            defer { harness.controller.teardown() }
+            defer {
+                harness.controller.teardown()
+                harness.removeSharedContentRoot()
+            }
             let metadataLease = try await harness.openReviewMetadataSubscription()
+            let metadataEventsTask = Task { @MainActor in
+                let sourceAcceptedEvent = try await harness.nextReviewMetadataEvent(
+                    for: metadataLease
+                )
+                let snapshotEvent = try await harness.nextReviewMetadataEvent(for: metadataLease)
+                return (sourceAcceptedEvent, snapshotEvent)
+            }
 
             // Act
             let result = await harness.controller.loadInitialReviewPackageIfPossible(correlationId: nil)
-            let sourceAcceptedEvent = try await harness.nextReviewMetadataEvent(for: metadataLease)
-            let snapshotEvent = try await harness.nextReviewMetadataEvent(for: metadataLease)
-
-            // Assert
             let completedResult = try #require(result)
             guard case .success = completedResult else {
+                metadataEventsTask.cancel()
+                try await closeBridgeProductSessionProducer(
+                    metadataLease,
+                    in: harness.installation.session
+                )
+                _ = await metadataEventsTask.result
                 Issue.record("Real-git Review package load failed: \(String(describing: completedResult))")
                 return
             }
+            let (sourceAcceptedEvent, snapshotEvent) = try await metadataEventsTask.value
+
+            // Assert
             let package = try #require(harness.controller.paneState.diff.packageMetadata)
             #expect(harness.controller.paneState.diff.status == .ready)
 
@@ -50,8 +66,36 @@ extension WebKitSerializedTests {
             #expect(sourceAcceptedEvent.generation == package.reviewGeneration.rawValue)
             #expect(snapshotEvent.packageId == package.packageId)
             #expect(snapshotEvent.revision == package.revision)
-            try await closeBridgeProductSessionProducer(metadataLease, in: harness.installation.session)
+            let trackedItem = try #require(
+                package.itemsById.values.first { $0.headPath == "tracked.txt" }
+            )
+            let trackedBaseHandle = try #require(trackedItem.contentRoles.base)
+            let trackedHeadHandle = try #require(trackedItem.contentRoles.head)
+            let trackedBaseContent = try await harness.reviewSourceProvider.loadContent(
+                BridgeContentLoadRequest(
+                    handle: trackedBaseHandle,
+                    requestedGeneration: package.reviewGeneration
+                )
+            )
+            let trackedHeadContent = try await harness.reviewSourceProvider.loadContent(
+                BridgeContentLoadRequest(
+                    handle: trackedHeadHandle,
+                    requestedGeneration: package.reviewGeneration
+                )
+            )
+            #expect(trackedBaseContent.data == Data("initial\n".utf8))
+            #expect(trackedHeadContent.data == Data("initial\nupdated\n".utf8))
+            #expect(harness.controller.reviewSharedConstructionBinder != nil)
+            let constructionSnapshot = await harness.constructionCoordinator.snapshot()
+            #expect(constructionSnapshot.entryCount == 1)
+            #expect(constructionSnapshot.leaseCount == 1)
+            #expect(constructionSnapshot.payloadCount == 1)
+            #expect(constructionSnapshot.locatorCount > 0)
+            #expect(await harness.controller.teardown().value)
             #expect((await harness.installation.session.producerSnapshot()).hasZeroResidue)
+            await assertBridgeConstructionCoordinatorDrained(harness.constructionCoordinator)
+            #expect(await harness.reviewDataClient.registeredContentLocatorCount() == 0)
+            #expect(harness.sharedContentBackingChildren().isEmpty)
         }
     }
 }
@@ -61,13 +105,27 @@ private struct RealGitReviewLoadHarness {
     let capabilityHeader: String
     let controlDispatcher: BridgeProductSchemeControlDispatcher
     let controller: BridgePaneController
+    let constructionCoordinator: BridgeWorktreeProductConstructionCoordinator
     let installation: BridgeProductSessionInstallation
     let productAdmission: BridgeProductAdmissionContext
     let productProvider: BridgePaneProductSchemeProvider
+    let reviewDataClient: AgentStudioGitBridgeReviewDataClient<LibGit2AgentStudioGitLocalClient>
+    let reviewSourceProvider: BridgeGitReviewSourceProvider
+    let sharedContentRootURL: URL
 
     static func make(repositoryURL: URL) async throws -> Self {
         let paneId = UUIDv7.generate()
         let gitReadContext = makeBridgeGitReadContext(rootURL: repositoryURL)
+        let constructionCoordinator = BridgeWorktreeProductConstructionCoordinator()
+        let sharedContentRootURL = FileManager.default.temporaryDirectory
+            .appending(path: "bridge-real-git-review-content-\(UUIDv7.generate().uuidString)")
+        let reviewDataClient = AgentStudioGitBridgeReviewDataClient(
+            repositoryPath: repositoryURL,
+            client: LibGit2AgentStudioGitLocalClient(),
+            gitReadContext: gitReadContext,
+            sharedContentRootURL: sharedContentRootURL
+        )
+        let reviewSourceProvider = BridgeGitReviewSourceProvider(client: reviewDataClient)
         let controller = BridgePaneController(
             paneId: paneId,
             state: BridgePaneState(
@@ -88,11 +146,9 @@ private struct RealGitReviewLoadHarness {
                     cwd: repositoryURL
                 )
             ),
-            reviewSourceProvider: BridgeReviewSourceProviderFactory.gitProvider(
-                repositoryPath: repositoryURL,
-                gitReadContext: gitReadContext
-            ),
+            reviewSourceProvider: reviewSourceProvider,
             gitReadContext: gitReadContext,
+            worktreeProductConstructionCoordinator: constructionCoordinator,
             initialPaneActivity: .foreground
         )
         let productProvider = try #require(controller.productSchemeProvider)
@@ -113,10 +169,25 @@ private struct RealGitReviewLoadHarness {
             capabilityHeader: capabilityHeader,
             controlDispatcher: controlDispatcher,
             controller: controller,
+            constructionCoordinator: constructionCoordinator,
             installation: installation,
             productAdmission: productAdmission,
-            productProvider: productProvider
+            productProvider: productProvider,
+            reviewDataClient: reviewDataClient,
+            reviewSourceProvider: reviewSourceProvider,
+            sharedContentRootURL: sharedContentRootURL
         )
+    }
+
+    func sharedContentBackingChildren() -> [URL] {
+        (try? FileManager.default.contentsOfDirectory(
+            at: sharedContentRootURL,
+            includingPropertiesForKeys: nil
+        )) ?? []
+    }
+
+    func removeSharedContentRoot() {
+        try? FileManager.default.removeItem(at: sharedContentRootURL)
     }
 
     func openReviewMetadataSubscription() async throws -> BridgeProductProducerLease {
@@ -176,28 +247,11 @@ private struct RealGitReviewLoadHarness {
                 from: reviewOpenResponseBytes
             )
         else {
-            throw RealGitReviewMetadataEventError.expectedReviewSubscriptionAccepted
+            throw RealGitReviewMetadataEventError.expectedReviewSubscriptionControlAccepted
         }
-        let subscriptionAcceptedFrame = try realGitReviewMetadataFrame(
-            from: try #require(
-                await consumeNextBridgeProductProducerFrame(
-                    for: metadataLease,
-                    from: installation.session,
-                    productAdmission: productAdmission
-                )
-            )
-        )
-        guard case .subscriptionAccepted = subscriptionAcceptedFrame else {
-            throw RealGitReviewMetadataEventError.expectedReviewSubscriptionAccepted
-        }
-        return metadataLease
-    }
-
-    func nextReviewMetadataEvent(
-        for metadataLease: BridgeProductProducerLease
-    ) async throws -> BridgeProductReviewMetadataEvent {
-        try realGitReviewEvent(
-            from: try realGitReviewMetadataFrame(
+        var observedSubscriptionAcceptance = false
+        for _ in 0..<2 {
+            let frame = try realGitReviewMetadataFrame(
                 from: try #require(
                     await consumeNextBridgeProductProducerFrame(
                         for: metadataLease,
@@ -206,13 +260,45 @@ private struct RealGitReviewLoadHarness {
                     )
                 )
             )
+            switch frame {
+            case .panePresentation(let presentation):
+                #expect(presentation.nativeActivity == .foreground)
+            case .subscriptionAccepted:
+                observedSubscriptionAcceptance = true
+            default:
+                throw RealGitReviewMetadataEventError.unexpectedReviewSubscriptionFrame(
+                    String(describing: frame)
+                )
+            }
+            if observedSubscriptionAcceptance { break }
+        }
+        guard observedSubscriptionAcceptance else {
+            throw RealGitReviewMetadataEventError.expectedReviewSubscriptionFrameAccepted
+        }
+        return metadataLease
+    }
+
+    func nextReviewMetadataEvent(
+        for metadataLease: BridgeProductProducerLease
+    ) async throws -> BridgeProductReviewMetadataEvent {
+        let frame = try realGitReviewMetadataFrame(
+            from: try #require(
+                await consumeNextBridgeProductProducerFrame(
+                    for: metadataLease,
+                    from: installation.session,
+                    productAdmission: productAdmission
+                )
+            )
         )
+        return try realGitReviewEvent(from: frame)
     }
 }
 
 private enum RealGitReviewMetadataEventError: Error {
     case expectedMetadataStreamAccepted
-    case expectedReviewSubscriptionAccepted
+    case expectedReviewSubscriptionControlAccepted
+    case expectedReviewSubscriptionFrameAccepted
+    case unexpectedReviewSubscriptionFrame(String)
     case expectedReviewMetadataEvent
     case expectedSingleMetadataFrame
     case expectedWorkerSessionAccepted

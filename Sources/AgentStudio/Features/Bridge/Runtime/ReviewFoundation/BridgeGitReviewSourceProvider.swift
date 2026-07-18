@@ -88,3 +88,74 @@ actor BridgeGitReviewSourceProvider: BridgeReviewSourceProvider {
         )
     }
 }
+
+extension BridgeGitReviewSourceProvider: BridgeSharedReviewConstructionSourceProvider {
+    func resolveEndpoint(
+        _ request: BridgeEndpointResolutionRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeSourceEndpoint {
+        guard let client = client as? any BridgeSharedReviewConstructionClient else {
+            throw unsupportedSharedConstruction()
+        }
+        return try await client.resolveEndpoint(request, freshnessKey: freshnessKey)
+    }
+
+    func compareEndpoints(
+        _ request: BridgeEndpointComparisonRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeEndpointComparison {
+        guard let client = client as? any BridgeSharedReviewConstructionClient else {
+            throw unsupportedSharedConstruction()
+        }
+        return try await client.compareEndpoints(request, freshnessKey: freshnessKey)
+    }
+
+    func readTree(
+        _ request: BridgeTreeReadRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeTreeReadResult {
+        guard let client = client as? any BridgeSharedReviewConstructionClient else {
+            throw unsupportedSharedConstruction()
+        }
+        return try await client.readTree(request, freshnessKey: freshnessKey)
+    }
+
+    func readReviewItemDescriptor(
+        _ request: BridgeReviewItemDescriptorRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeReviewItemDescriptor {
+        guard let client = client as? any BridgeSharedReviewConstructionClient else {
+            throw unsupportedSharedConstruction()
+        }
+        return try await client.readReviewItemDescriptor(request, freshnessKey: freshnessKey)
+    }
+
+    func captureSharedContent(
+        handles: [BridgeContentHandle],
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeSharedReviewContentBacking {
+        guard let client = client as? any BridgeSharedReviewConstructionClient else {
+            throw unsupportedSharedConstruction()
+        }
+        return try await client.captureSharedContent(
+            handles: handles,
+            freshnessKey: freshnessKey
+        )
+    }
+
+    func installSharedContent(
+        backing: BridgeSharedReviewContentBacking,
+        handles: [BridgeContentHandle]
+    ) async throws {
+        guard let client = client as? any BridgeSharedReviewConstructionClient else {
+            throw unsupportedSharedConstruction()
+        }
+        try await client.installSharedContent(backing: backing, handles: handles)
+    }
+
+    private func unsupportedSharedConstruction() -> BridgeProviderFailure {
+        BridgeProviderFailure.providerFailed(
+            message: "Review provider does not support shared immutable content"
+        )
+    }
+}

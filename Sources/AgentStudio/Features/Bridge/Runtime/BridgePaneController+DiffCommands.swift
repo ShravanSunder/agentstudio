@@ -144,13 +144,14 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         var reviewLoadStage = "request"
         let buildReason = consumePendingReviewPackageBuildReason(default: .initialIntake)
         do {
-            let result = try await loadReviewPackageResult(
+            let constructionResult = try await loadReviewPackageResult(
                 artifact: artifact,
                 reviewGeneration: reset.reviewGeneration,
                 buildReason: buildReason,
                 reviewLoadStage: &reviewLoadStage,
                 packageTraceContext: packageTraceContext
             )
+            let result = constructionResult.result
             guard
                 acceptReviewPackageLoadResult(
                     reset: reset,
@@ -159,11 +160,12 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     packageTraceContext: packageTraceContext
                 )
             else {
+                await constructionResult.releaseArtifactPin()
                 pendingReviewPackageBuildReasons.insert(buildReason)
                 return .failure(.invalidPayload(description: "Stale bridge review load"))
             }
             let load = try await makeReviewPackageLoadData(
-                result: result,
+                constructionResult: constructionResult,
                 contentHandles: result.registeredContentHandles,
                 productAdmission: productAdmission,
                 reviewLoadStage: &reviewLoadStage,
@@ -181,6 +183,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     foregroundWorkAdmission: foregroundWorkAdmission
                 )
             else {
+                await load.releaseArtifactPin()
                 pendingReviewPackageBuildReasons.insert(buildReason)
                 return .failure(.invalidPayload(description: "Stale bridge review load"))
             }
@@ -335,14 +338,14 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         buildReason: BridgeReviewPackageBuildReason,
         reviewLoadStage: inout String,
         packageTraceContext: BridgeTraceContext?
-    ) async throws -> BridgeReviewPipelineResult {
+    ) async throws -> BridgeReviewPackageConstructionResult {
         let request = makeReviewPipelineRequest(artifact: artifact, reviewGeneration: reviewGeneration)
         let packageBuildStart = ContinuousClock.now
-        let result: BridgeReviewPipelineResult
+        let constructionResult: BridgeReviewPackageConstructionResult
         var telemetryReason = buildReason
         do {
             reviewLoadStage = "package"
-            result = try await reviewPipeline.loadPackage(request)
+            constructionResult = try await acquireReviewPackage(request)
         } catch {
             guard shouldRetryUnresolvedHeadBaseline(after: error) else {
                 throw error
@@ -356,7 +359,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 baselineOverride: .unstaged
             )
             reviewLoadStage = "packageFallback"
-            result = try await reviewPipeline.loadPackage(fallbackRequest)
+            constructionResult = try await acquireReviewPackage(fallbackRequest)
             telemetryReason = .fallbackUnresolvedHead
         }
         await recordSwiftTelemetry(
@@ -371,24 +374,31 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 from: packageBuildStart.duration(to: ContinuousClock.now)
             )
         )
-        return result
+        return constructionResult
     }
 
     private func makeReviewPackageLoadData(
-        result: BridgeReviewPipelineResult,
+        constructionResult: BridgeReviewPackageConstructionResult,
         contentHandles: [BridgeContentHandle],
         productAdmission: BridgeProductAdmissionContext,
         fallbackRevision: Int? = nil,
         reviewLoadStage: inout String,
         packageTraceContext: BridgeTraceContext?
     ) async throws -> BridgeReviewPackageLoadData {
+        let result = constructionResult.result
         let deltaBuildStart = ContinuousClock.now
         reviewLoadStage = "delta"
-        let changeIndexLoad = try await reviewChangeIndex.prepareExplicitLoad(
-            result.package,
-            fallbackRevision: fallbackRevision,
-            productAdmission: productAdmission
-        )
+        let changeIndexLoad: BridgeChangeIndexPreparedLoad
+        do {
+            changeIndexLoad = try await reviewChangeIndex.prepareExplicitLoad(
+                result.package,
+                fallbackRevision: fallbackRevision,
+                productAdmission: productAdmission
+            )
+        } catch {
+            await constructionResult.releaseArtifactPin()
+            throw error
+        }
         await recordSwiftTelemetry(
             name: "performance.bridge.swift.delta_build",
             phase: "delta_build",
@@ -404,15 +414,18 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 BridgeReviewPublicationCandidate(
                     package: changeIndexLoad.package,
                     delta: changeIndexLoad.delta,
-                    contentHandles: contentHandles
+                    contentHandles: contentHandles,
+                    artifactPin: constructionResult.artifactPin
                 )
             )
         else {
+            await constructionResult.releaseArtifactPin()
             throw BridgeProviderFailure.providerFailed(
                 message: "Invalid bridge Review publication candidate"
             )
         }
         guard productAdmission.withValidAdmission({ true }) == true else {
+            await constructionResult.releaseArtifactPin()
             throw BridgeChangeIndexError.admissionClosed
         }
         return BridgeReviewPackageLoadData(
@@ -498,7 +511,10 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         }
         let currentPackage = currentPublication.package
         do {
-            let (result, packageTraceContext) = try await loadReviewPackageForRefresh(currentPackage)
+            let (constructionResult, packageTraceContext) = try await loadReviewPackageForRefresh(
+                currentPackage
+            )
+            let result = constructionResult.result
             guard
                 !Task.isCancelled,
                 foregroundWorkAdmission.withValidAdmission({ true }) == true,
@@ -510,12 +526,13 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     return true
                 }) == true
             else {
+                await constructionResult.releaseArtifactPin()
                 return .stale
             }
 
             var reviewLoadStage = "delta"
             let load = try await makeReviewPackageLoadData(
-                result: result,
+                constructionResult: constructionResult,
                 contentHandles: result.registeredContentHandles,
                 productAdmission: productAdmission,
                 fallbackRevision: currentPackage.revision,
@@ -530,10 +547,12 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     productAdmission: productAdmission
                 )
             else {
+                await load.releaseArtifactPin()
                 return .stale
             }
             guard !Self.isUnchangedSameLineageLoad(load, currentPublication: currentPublication)
             else {
+                await load.releaseArtifactPin()
                 return .succeeded
             }
             let contentRegisterStart = ContinuousClock.now
@@ -575,11 +594,14 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private func loadReviewPackageForRefresh(
         _ currentPackage: BridgeReviewPackage
-    ) async throws -> (result: BridgeReviewPipelineResult, traceContext: BridgeTraceContext?) {
+    ) async throws -> (
+        result: BridgeReviewPackageConstructionResult,
+        traceContext: BridgeTraceContext?
+    ) {
         let packageTraceContext = makeRootTraceContext()
         let packageBuildStart = ContinuousClock.now
         let buildReason = consumePendingReviewPackageBuildReason(default: .filesystemRefresh)
-        let result = try await reviewPipeline.loadPackage(
+        let result = try await acquireReviewPackage(
             BridgeReviewPipelineRequest(
                 packageId: currentPackage.packageId,
                 query: currentPackage.query,
@@ -615,20 +637,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             && load.package.reviewGeneration == currentPackage.reviewGeneration
             && load.package.query.queryId == currentPackage.query.queryId
             && load.package.revision == currentPackage.revision
-    }
-
-    private func consumePendingReviewPackageBuildReason(
-        default defaultReason: BridgeReviewPackageBuildReason
-    ) -> BridgeReviewPackageBuildReason {
-        let reasonPriority: [BridgeReviewPackageBuildReason] = [
-            .fallbackUnresolvedHead,
-            .initialIntake,
-            .productResync,
-            .filesystemRefresh,
-        ]
-        let selected = reasonPriority.first { pendingReviewPackageBuildReasons.contains($0) } ?? defaultReason
-        pendingReviewPackageBuildReasons.removeAll()
-        return selected
     }
 
     private func retainCommittedReviewOrSetInitialFailure(

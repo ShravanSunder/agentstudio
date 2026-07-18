@@ -50,6 +50,7 @@ final class BridgePaneController {
     let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
     let productSchemeProvider: BridgePaneProductSchemeProvider?
     let reviewPipeline: BridgeReviewPipeline
+    let reviewSharedConstructionBinder: BridgePaneReviewSharedConstructionBinder?
     let reviewChangeIndex = BridgeChangeIndex()
     let bridgePaneState: BridgePaneState
     var nextReviewGeneration: BridgeReviewGeneration = 0
@@ -136,17 +137,15 @@ final class BridgePaneController {
         self.refreshAdmissionCoordinator = resolvedRefreshAdmissionCoordinator
         let resolvedReviewPublicationCoordinator = BridgeReviewPublicationCoordinator()
         self.reviewPublicationCoordinator = resolvedReviewPublicationCoordinator
-        self.reviewPipeline = BridgeReviewPipeline(provider: resolvedReviewSourceProvider)
-        let runtimePaneId = PaneId(uuid: paneId)
-        let defaultMetadata = Self.makeDefaultRuntimeMetadata(paneId: runtimePaneId, state: state)
-        let resolvedMetadata = (metadata ?? defaultMetadata).canonicalizedIdentity(
-            paneId: runtimePaneId,
-            contentType: Self.contentType(for: state)
+        let resolvedReviewPipeline = BridgeReviewPipeline(provider: resolvedReviewSourceProvider)
+        self.reviewPipeline = resolvedReviewPipeline
+        self.reviewSharedConstructionBinder = Self.makeReviewSharedConstructionBinder(
+            coordinator: worktreeProductConstructionCoordinator,
+            pipeline: resolvedReviewPipeline,
+            provider: resolvedReviewSourceProvider,
+            state: state
         )
-        let resolvedRuntime = BridgeRuntime(
-            paneId: runtimePaneId,
-            metadata: resolvedMetadata
-        )
+        let resolvedRuntime = Self.makeRuntime(paneId, for: state, overriding: metadata)
         self.runtime = resolvedRuntime
         let resolvedProductSessionDependencies =
             productSessionDependencies
@@ -343,8 +342,9 @@ final class BridgePaneController {
             isTeardownStarted = true
             refreshAdmissionCoordinator.close()
             productAdmissionGate.close()
-            reviewPublicationCoordinator.close()
-            activeReviewRefreshTask?.cancel()
+            let reviewPublicationCloseDrain = reviewPublicationCoordinator.close()
+            let reviewRefreshTask = activeReviewRefreshTask
+            reviewRefreshTask?.cancel()
             activeReviewRefreshTask = nil
             let reviewContentLoaderCache = reviewContentLoaderCache
             let productSchemeProvider = productSchemeProvider
@@ -356,6 +356,11 @@ final class BridgePaneController {
                 async let contentDemandDrain: Void? = productSchemeProvider?.closeAndDrain()
                 await reviewContentLoaderCache.closeAndDrain()
                 _ = await contentDemandDrain
+                async let closePublicationDrain: Void = reviewPublicationCloseDrain.releaseAndWait()
+                await reviewRefreshTask?.value
+                let lateArtifactPinReleaseTask = reviewPublicationCoordinator.takeArtifactPinReleaseTask()
+                await closePublicationDrain
+                await lateArtifactPinReleaseTask?.value
             }
             runtime.resetForControllerTeardown()
             isBridgeReady = false
@@ -558,6 +563,23 @@ final class BridgePaneController {
             paneId: paneId,
             contentType: contentType,
             title: title
+        )
+    }
+
+    private static func makeRuntime(
+        _ paneId: UUID,
+        for state: BridgePaneState,
+        overriding metadata: PaneMetadata?
+    ) -> BridgeRuntime {
+        let runtimePaneId = PaneId(uuid: paneId)
+        let defaultMetadata = makeDefaultRuntimeMetadata(paneId: runtimePaneId, state: state)
+        let resolvedMetadata = (metadata ?? defaultMetadata).canonicalizedIdentity(
+            paneId: runtimePaneId,
+            contentType: contentType(for: state)
+        )
+        return BridgeRuntime(
+            paneId: runtimePaneId,
+            metadata: resolvedMetadata
         )
     }
 

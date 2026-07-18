@@ -3,6 +3,32 @@ import CryptoKit
 import Foundation
 
 extension AgentStudioGitBridgeReviewDataClient {
+    func loadGitResolvedRevision(
+        _ request: GitRevisionResolutionRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitResolvedRevision {
+        let client = self.client
+        do {
+            return try await scheduledGitRead(
+                operationClass: .reviewMetadata,
+                coalescingKey: try gitReadCoalescingKey(domain: "resolve-revision", request: request),
+                freshnessKey: freshnessKey
+            ) {
+                try await client.resolveRevision(request)
+            }
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
+            throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
+        }
+    }
+
     func loadGitDiff(
         _ request: GitDiffRequest,
         freshnessKey: BridgeGitReadFreshnessKey
@@ -84,13 +110,15 @@ extension AgentStudioGitBridgeReviewDataClient {
     func loadGitContent(
         _ request: GitContentRequest,
         handle: BridgeContentHandle?,
-        freshnessKey: BridgeGitReadFreshnessKey
+        freshnessKey: BridgeGitReadFreshnessKey,
+        physicalReadLease: (@Sendable () throws -> BridgeSharedReviewContentBacking.ReadLease)? = nil
     ) async throws -> GitContentPayload {
         do {
             return try await loadGitContentPayload(
                 request,
                 operationClass: .selectedVisibleContent,
-                freshnessKey: freshnessKey
+                freshnessKey: freshnessKey,
+                physicalReadLease: physicalReadLease
             )
         } catch BridgeGitReadSchedulerError.timedOut {
             throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
@@ -108,7 +136,8 @@ extension AgentStudioGitBridgeReviewDataClient {
     func loadGitContentPayload(
         _ request: GitContentRequest,
         operationClass: BridgeGitReadOperationClass = .reviewMetadata,
-        freshnessKey: BridgeGitReadFreshnessKey
+        freshnessKey: BridgeGitReadFreshnessKey,
+        physicalReadLease: (@Sendable () throws -> BridgeSharedReviewContentBacking.ReadLease)? = nil
     ) async throws -> GitContentPayload {
         let client = self.client
         return try await scheduledGitRead(
@@ -116,7 +145,9 @@ extension AgentStudioGitBridgeReviewDataClient {
             coalescingKey: try gitReadCoalescingKey(domain: "content", request: request),
             freshnessKey: freshnessKey
         ) {
-            try await client.content(request)
+            let readLease = try physicalReadLease?()
+            defer { readLease?.settle() }
+            return try await client.content(request)
         }
     }
 

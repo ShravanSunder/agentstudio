@@ -5,6 +5,19 @@ struct BridgeReviewPublicationCandidate: Equatable, Sendable {
     let package: BridgeReviewPackage
     let delta: BridgeReviewDelta?
     let contentHandles: [BridgeContentHandle]
+    let artifactPin: BridgeReviewPublicationArtifactPin?
+
+    init(
+        package: BridgeReviewPackage,
+        delta: BridgeReviewDelta?,
+        contentHandles: [BridgeContentHandle],
+        artifactPin: BridgeReviewPublicationArtifactPin? = nil
+    ) {
+        self.package = package
+        self.delta = delta
+        self.contentHandles = contentHandles
+        self.artifactPin = artifactPin
+    }
 }
 
 /// An immutable Review publication validated and indexed off-main before it
@@ -13,6 +26,7 @@ struct BridgeReviewPreparedPublication: Equatable, Sendable {
     let package: BridgeReviewPackage
     let delta: BridgeReviewDelta?
     let contentHandles: [BridgeContentHandle]
+    let artifactPin: BridgeReviewPublicationArtifactPin?
 
     private let contentHandleById: [String: BridgeContentHandle]
 
@@ -73,6 +87,7 @@ struct BridgeReviewPreparedPublication: Equatable, Sendable {
         self.package = package
         self.delta = delta
         self.contentHandles = contentHandles
+        artifactPin = candidate.artifactPin
         contentHandleById = suppliedHandleById
     }
 
@@ -142,6 +157,28 @@ struct BridgeReviewPublicationStateSnapshot: Equatable, Sendable {
     let isClosed: Bool
 }
 
+struct BridgeReviewPublicationCloseDrain: Sendable {
+    let artifactPins: [BridgeReviewPublicationArtifactPin]
+    let priorReleaseTask: Task<Void, Never>?
+
+    func releaseAndWait() async {
+        await withTaskGroup(of: Void.self) { taskGroup in
+            if let priorReleaseTask {
+                taskGroup.addTask {
+                    await priorReleaseTask.value
+                }
+            }
+            for artifactPin in artifactPins {
+                taskGroup.addTask {
+                    await artifactPin.releaseAndWait()
+                }
+            }
+        }
+    }
+
+    static let empty = Self(artifactPins: [], priorReleaseTask: nil)
+}
+
 /// Owns one pane's native Review package and descriptor publication authority.
 ///
 /// Expensive candidate preparation and delivery stay off-main. This coordinator
@@ -162,7 +199,8 @@ final class BridgeReviewPublicationCoordinator {
 
     private struct RetiringPublication {
         let publication: Publication
-        var frozenContentLeaseIds: Set<UUID>
+        var activeContentLeaseIds: Set<UUID>
+        var acceptsNewContentLeases: Bool
     }
 
     private var activePublication: Publication?
@@ -170,6 +208,8 @@ final class BridgeReviewPublicationCoordinator {
     private var pendingPublication: PendingPublication?
     private var retiringPublicationById: [UUID: RetiringPublication] = [:]
     private var isClosed = false
+    private var artifactPinReleaseTail: Task<Void, Never>?
+    private var artifactPinReleaseTailGeneration: UInt64 = 0
 
     var diagnosticSnapshot: BridgeReviewPublicationStateSnapshot {
         BridgeReviewPublicationStateSnapshot(
@@ -193,7 +233,10 @@ final class BridgeReviewPublicationCoordinator {
         _ preparedPublication: BridgeReviewPreparedPublication,
         productAdmission: BridgeProductAdmissionContext
     ) -> BridgeReviewPublicationToken? {
-        guard !isClosed else { return nil }
+        guard !isClosed else {
+            releaseArtifactPin(preparedPublication.artifactPin)
+            return nil
+        }
         var stagedToken: BridgeReviewPublicationToken?
         _ = productAdmission.withValidAdmission {
             guard !isClosed,
@@ -207,6 +250,7 @@ final class BridgeReviewPublicationCoordinator {
                 )
             else { return }
             let token = BridgeReviewPublicationToken(publicationId: UUIDv7.generate())
+            releasePublication(pendingPublication?.publication)
             pendingPublication = PendingPublication(
                 publication: Publication(
                     publicationId: token.publicationId,
@@ -216,6 +260,9 @@ final class BridgeReviewPublicationCoordinator {
                 predecessorPublicationId: activePublication?.publicationId
             )
             stagedToken = token
+        }
+        if stagedToken == nil {
+            releaseArtifactPin(preparedPublication.artifactPin)
         }
         return stagedToken
     }
@@ -232,6 +279,7 @@ final class BridgeReviewPublicationCoordinator {
             guard pendingMatches(token, productAdmission: productAdmission) else {
                 return BridgeReviewPublicationOutcome.superseded
             }
+            releasePublication(pendingPublication?.publication)
             pendingPublication = nil
             return .rejectedBeforeCommit
         } ?? .closed
@@ -270,7 +318,7 @@ final class BridgeReviewPublicationCoordinator {
             let previousActive = activePublication
             activePublication = pendingPublication.publication
             self.pendingPublication = nil
-            freezeRetiringAuthority(previousActive)
+            beginRetiringAuthority(previousActive)
 
             let committedPublication = Self.committed(pendingPublication.publication)
             presentCommitted(committedPublication)
@@ -359,13 +407,14 @@ final class BridgeReviewPublicationCoordinator {
         guard !isClosed else { return nil }
         var acquiredLease: BridgeReviewContentAuthorityLease?
         _ = productAdmission.withValidAdmission {
-            guard let activePublication,
-                activePublication.productAdmission.matches(productAdmission),
-                activePublication.preparedPublication.package.packageId == packageId,
-                activePublication.preparedPublication.package.reviewGeneration
-                    == requestedGeneration,
-                activePublication.preparedPublication.package.query.queryId == sourceIdentity,
-                let handle = activePublication.preparedPublication.contentHandle(
+            guard
+                let authorityPublication = contentAuthorityPublication(
+                    packageId: packageId,
+                    requestedGeneration: requestedGeneration,
+                    sourceIdentity: sourceIdentity,
+                    productAdmission: productAdmission
+                ),
+                let handle = authorityPublication.preparedPublication.contentHandle(
                     handleId: handleId,
                     reviewGeneration: requestedGeneration
                 )
@@ -374,12 +423,16 @@ final class BridgeReviewPublicationCoordinator {
             }
             let lease = BridgeReviewContentAuthorityLease(
                 leaseId: UUIDv7.generate(),
-                publicationId: activePublication.publicationId,
+                publicationId: authorityPublication.publicationId,
                 packageId: packageId,
                 sourceIdentity: sourceIdentity,
                 handle: handle
             )
             contentLeaseById[lease.leaseId] = lease
+            if var retiringPublication = retiringPublicationById[authorityPublication.publicationId] {
+                retiringPublication.activeContentLeaseIds.insert(lease.leaseId)
+                retiringPublicationById[authorityPublication.publicationId] = retiringPublication
+            }
             acquiredLease = lease
         }
         return acquiredLease
@@ -431,18 +484,31 @@ final class BridgeReviewPublicationCoordinator {
             else {
                 return false
             }
-            retiringPublicationById.removeAll(keepingCapacity: false)
+            closeRetiringContentAdmission()
             return true
         } ?? false
     }
 
-    func close() {
-        guard !isClosed else { return }
+    func close() -> BridgeReviewPublicationCloseDrain {
+        guard !isClosed else { return .empty }
         isClosed = true
+        let artifactPins = ownedArtifactPins()
+        let priorReleaseTask = takeArtifactPinReleaseTask()
         activePublication = nil
         contentLeaseById.removeAll(keepingCapacity: false)
         pendingPublication = nil
         retiringPublicationById.removeAll(keepingCapacity: false)
+        return BridgeReviewPublicationCloseDrain(
+            artifactPins: artifactPins,
+            priorReleaseTask: priorReleaseTask
+        )
+    }
+
+    func takeArtifactPinReleaseTask() -> Task<Void, Never>? {
+        let releaseTask = artifactPinReleaseTail
+        artifactPinReleaseTail = nil
+        artifactPinReleaseTailGeneration &+= 1
+        return releaseTask
     }
 
     private func pendingMatches(
@@ -463,35 +529,129 @@ final class BridgeReviewPublicationCoordinator {
             && activePublication.productAdmission.matches(productAdmission)
     }
 
-    private func freezeRetiringAuthority(
+    private func beginRetiringAuthority(
         _ publication: Publication?
     ) {
         guard let publication else { return }
-        let frozenContentLeaseIds = Set(
+        let activeContentLeaseIds = Set(
             contentLeaseById.values.lazy
                 .filter { $0.publicationId == publication.publicationId }
                 .map(\.leaseId)
         )
-        guard !frozenContentLeaseIds.isEmpty else {
-            retiringPublicationById.removeValue(forKey: publication.publicationId)
-            return
-        }
         retiringPublicationById[publication.publicationId] = RetiringPublication(
             publication: publication,
-            frozenContentLeaseIds: frozenContentLeaseIds
+            activeContentLeaseIds: activeContentLeaseIds,
+            acceptsNewContentLeases: true
         )
     }
 
     private func settleFrozenRetiringLease(_ lease: BridgeReviewContentAuthorityLease) {
         guard var retiringPublication = retiringPublicationById[lease.publicationId],
-            retiringPublication.frozenContentLeaseIds.remove(lease.leaseId) != nil
+            retiringPublication.activeContentLeaseIds.remove(lease.leaseId) != nil
         else {
             return
         }
-        if retiringPublication.frozenContentLeaseIds.isEmpty {
+        if retiringPublication.activeContentLeaseIds.isEmpty,
+            !retiringPublication.acceptsNewContentLeases
+        {
+            releasePublication(retiringPublication.publication)
             retiringPublicationById.removeValue(forKey: lease.publicationId)
         } else {
             retiringPublicationById[lease.publicationId] = retiringPublication
+        }
+    }
+
+    private func contentAuthorityPublication(
+        packageId: String,
+        requestedGeneration: BridgeReviewGeneration,
+        sourceIdentity: String,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> Publication? {
+        if let activePublication,
+            publicationMatchesContentRequest(
+                activePublication,
+                packageId: packageId,
+                requestedGeneration: requestedGeneration,
+                sourceIdentity: sourceIdentity,
+                productAdmission: productAdmission
+            )
+        {
+            return activePublication
+        }
+        return retiringPublicationById.values.first { retiringPublication in
+            retiringPublication.acceptsNewContentLeases
+                && publicationMatchesContentRequest(
+                    retiringPublication.publication,
+                    packageId: packageId,
+                    requestedGeneration: requestedGeneration,
+                    sourceIdentity: sourceIdentity,
+                    productAdmission: productAdmission
+                )
+        }?.publication
+    }
+
+    private func publicationMatchesContentRequest(
+        _ publication: Publication,
+        packageId: String,
+        requestedGeneration: BridgeReviewGeneration,
+        sourceIdentity: String,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> Bool {
+        publication.productAdmission.matches(productAdmission)
+            && publication.preparedPublication.package.packageId == packageId
+            && publication.preparedPublication.package.reviewGeneration == requestedGeneration
+            && publication.preparedPublication.package.query.queryId == sourceIdentity
+    }
+
+    private func closeRetiringContentAdmission() {
+        for publicationId in Array(retiringPublicationById.keys) {
+            guard var retiringPublication = retiringPublicationById[publicationId] else { continue }
+            retiringPublication.acceptsNewContentLeases = false
+            if retiringPublication.activeContentLeaseIds.isEmpty {
+                releasePublication(retiringPublication.publication)
+                retiringPublicationById.removeValue(forKey: publicationId)
+            } else {
+                retiringPublicationById[publicationId] = retiringPublication
+            }
+        }
+    }
+
+    private func releasePublication(_ publication: Publication?) {
+        releaseArtifactPin(publication?.preparedPublication.artifactPin)
+    }
+
+    private func releaseArtifactPin(_ artifactPin: BridgeReviewPublicationArtifactPin?) {
+        guard let artifactPin else { return }
+        enqueueArtifactPinRelease(artifactPin)
+    }
+
+    private func enqueueArtifactPinRelease(_ artifactPin: BridgeReviewPublicationArtifactPin) {
+        let priorReleaseTask = artifactPinReleaseTail
+        let artifactPinReleaseTask = Task {
+            await artifactPin.releaseAndWait()
+        }
+        artifactPinReleaseTailGeneration &+= 1
+        let releaseGeneration = artifactPinReleaseTailGeneration
+        artifactPinReleaseTail = Task { @MainActor [weak self] in
+            await priorReleaseTask?.value
+            await artifactPinReleaseTask.value
+            guard self?.artifactPinReleaseTailGeneration == releaseGeneration else { return }
+            self?.artifactPinReleaseTail = nil
+        }
+    }
+
+    private func ownedArtifactPins() -> [BridgeReviewPublicationArtifactPin] {
+        let publications =
+            [activePublication, pendingPublication?.publication]
+            + retiringPublicationById.values.map(\.publication)
+        var seenPinIdentities: Set<ObjectIdentifier> = []
+        return publications.compactMap { publication in
+            guard let artifactPin = publication?.preparedPublication.artifactPin,
+                seenPinIdentities.insert(ObjectIdentifier(artifactPin)).inserted
+            else {
+                return nil
+            }
+            return artifactPin
         }
     }
 
