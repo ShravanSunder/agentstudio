@@ -174,9 +174,11 @@ is sampled only at the three fixed points above to keep perturbation bounded.
 Candidate-only structures and counters use absolute gates and are never called
 comparative.
 
-Duration histograms use bucket upper bounds at `0.25`, `0.5`, `1`, `2`, `5`,
-`8`, `16`, `20`, `60`, `100`, `250`, `500`, `1_000`, `2_500`, `5_000`, and
-`10_000` ms. Counts and byte gauges are not histogrammed. Each qualifying
+Duration histograms use the common source bucket upper bounds at `0`, `0.25`,
+`0.5`, `1`, `2`, `5`, `8`, `10`, `16`, `20`, `25`, `50`, `60`, `75`, `100`,
+`150`, `200`, `250`, `350`, `500`, `650`, `750`, `900`, `1_000`, `1_050`,
+`1_100`, `1_250`, `1_500`, `2_000`, `2_500`, `5_000`, `7_500`, and `10_000`
+ms. Counts and byte gauges are not histogrammed. Each qualifying
 trial receipt records the exact manifest text digest, event schema digest,
 emitter source hash, owner scope, unit, normalizer, bucket vector, and scored
 monotonic start/end timestamps. A source or semantic mismatch makes the metric
