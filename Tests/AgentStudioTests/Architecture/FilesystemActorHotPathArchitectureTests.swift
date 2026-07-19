@@ -78,6 +78,30 @@ struct FilesystemActorHotPathArchitectureTests {
         #expect(!projectorSource.contains("coalescingWindow: Duration = .zero"))
     }
 
+    @Test("filesystem ingress reuses registered canonical roots")
+    func filesystemIngressReusesRegisteredCanonicalRoots() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let filesystemActorSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemActor.swift"
+            ),
+            encoding: .utf8
+        )
+        let ingressBody = try #require(
+            filesystemActorSource.slice(
+                from: "private func ingestRawPaths(worktreeId: UUID, paths: [String]) async",
+                to: "func startIngressTaskIfNeeded()"
+            )
+        )
+
+        #expect(
+            ingressBody.contains(
+                "canonicalRootsByWorktree: roots.mapValues(\\.canonicalRootPath)"
+            )
+        )
+        #expect(!ingressBody.contains("rootsByWorktree: roots.mapValues(\\.rootPath)"))
+    }
+
     @Test("git snapshot projection skips workspace topology root lookup")
     func gitSnapshotProjectionSkipsWorkspaceTopologyRootLookup() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

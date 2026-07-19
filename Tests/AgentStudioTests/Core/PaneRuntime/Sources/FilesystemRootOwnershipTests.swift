@@ -99,4 +99,24 @@ struct FilesystemRootOwnershipTests {
 
         #expect(owned == nil)
     }
+
+    @Test("precanonicalized roots preserve deepest ownership")
+    func precanonicalizedRootsPreserveDeepestOwnership() {
+        let parentWorktreeId = UUID()
+        let nestedWorktreeId = UUID()
+        let ownership = FilesystemRootOwnership(
+            canonicalRootsByWorktree: [
+                parentWorktreeId: "/tmp/root",
+                nestedWorktreeId: "/tmp/root/nested",
+            ]
+        )
+
+        let owned = ownership.route(
+            sourceWorktreeId: parentWorktreeId,
+            rawPath: "/tmp/root/nested/Sources/App.swift"
+        )
+
+        #expect(owned?.worktreeId == nestedWorktreeId)
+        #expect(owned?.relativePath == "Sources/App.swift")
+    }
 }

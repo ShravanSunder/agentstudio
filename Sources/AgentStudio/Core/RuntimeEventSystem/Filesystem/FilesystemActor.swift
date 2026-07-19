@@ -280,7 +280,7 @@ actor FilesystemActor {
         guard !paths.isEmpty else { return }
 
         let ownership = FilesystemRootOwnership(
-            rootsByWorktree: roots.mapValues(\.rootPath)
+            canonicalRootsByWorktree: roots.mapValues(\.canonicalRootPath)
         )
 
         for rawPath in paths {
