@@ -6,9 +6,9 @@ Accepted source:
 `docs/specs/2026-07-17-targeted-runtime-pressure-reduction/targeted-runtime-pressure-reduction.md`
 
 Accepted source SHA-256:
-`52ca5f8e7d2ca8c214688e9873d2b1601e8da9ba6482853f16dc7f23e41f4c7e`
+`20e4cc61da49fb0f41755c594be3335e71939a07e26d516f3b938a6c1906174e`
 
-Source coverage: `856/856` lines
+Source coverage: `888/888` lines
 
 Behavioral baseline source: `5dea96b6`
 
@@ -21,10 +21,11 @@ EventBus fanout, task creation, and MainActor service under two pressures:
 2. Watched-folder, filesystem-projection, and Git-refresh activity across large
    repository populations.
 
-The implementation contracts local Terminal samples before shared publication,
-keeps semantic facts exact, replaces unconditional filesystem fleet capture with
-affected-key effects, and proves the result with permanent tests plus the
-existing debug, IPC, Victoria, and watched-folder workload surfaces.
+The implementation contracts local Terminal samples and replaceable title
+metadata before shared publication, keeps commands and non-replaceable semantic
+facts exact, replaces unconditional filesystem fleet capture with affected-key
+effects, and proves the result with permanent tests plus the existing debug,
+IPC, Victoria, and watched-folder workload surfaces.
 
 Repo Explorer, AppKit hosts, tabs, panes, notifications, and startup are
 unchanged downstream regression consumers. They are not implementation lanes.
@@ -39,6 +40,8 @@ merged by this goal.
 - A narrow, fixed-key `TerminalLocalActionAccumulator` owned by Terminal.
 - Exhaustive typed classification before per-sample MainActor scheduling.
 - Local/coalesced scrollbar, search, and mouse presentation state.
+- Latest-per-surface title/tab-title contraction with changed contracted values
+  retaining the existing semantic route.
 - Bounded scrollbar activity aggregates and off-main activity projection.
 - Exact existing command/fact order and EventBus/replay/IPC behavior.
 - Affected-key pane, CWD, activity, and active-worktree filesystem effects.
@@ -65,7 +68,7 @@ merged by this goal.
 
 | Requirement | Spec source | Owner | Required proof | Freshness guard |
 | --- | --- | --- | --- | --- |
-| R1. Coalescible Terminal samples use bounded/sublinear admission and create zero runtime/replay/EventBus/IPC traffic. | TR-1..TR-9, TR-13..TR-15, P-1..P-3a | T3 | red/green tests; 100,000 samples across 10+ live surface keys; zero final debt | current candidate HEAD; exhaustive translated-signal inventory |
+| R1. Coalescible Terminal samples and replaceable title metadata use bounded/sublinear admission; local-only samples create zero runtime/replay/EventBus/IPC traffic, while changed contracted titles retain their existing semantic route. | TR-1..TR-9, TR-12..TR-15, P-1..P-3a | T3/T3a | red/green tests; 100,000 samples across 10+ live surface keys; title-burst last-value oracle; zero final debt | current candidate HEAD; exhaustive translated-signal inventory |
 | R2. Search, presentation, activity, notification, and exact semantic behavior remain correct while activity projection moves off-main. | TR-6, TR-8..TR-12, P-4/P-5 | T3 | injected-clock activity oracle; search barriers; exact-fact order; existing Inbox/activity regressions | current surface lifetime and candidate executable |
 | R3. Ordinary workspace changes are affected-key work and actual topology changes still converge. | FS-1..FS-9, P-6/P-7 | T4 | recording-source/index/coordinator tests; topology oracle; existing large-worktree workload | current candidate HEAD; fresh marker; zero logical debt |
 | R4. Filesystem authority, containment, currentness, incomplete-evidence safety, Git capacity, no-lock behavior, telemetry privacy, and replay bounds remain intact. | SEC-1..SEC-9, P-7 | T2a/T3/T4 | authority, containment, timeout, late-result, shell-Git, replay, and content-canary suites | current registration identity, candidate HEAD, and workload run |
@@ -92,6 +95,9 @@ that task. Do not weaken or move proof to a later catch-all phase.
     T3 Terminal contraction  T4 Filesystem affected-key effects
        │                       │
        └───────────┬───────────┘
+                   ▼
+    T3a measured title-metadata contraction follow-up
+                   │
                    ▼
     T5 focused/full validation + Victoria/debug smoke
                    │
@@ -242,19 +248,21 @@ Tests stay in the permanent Swift Testing suite beside these owners.
 1. Copy borrowed Ghostty payloads before callback return and preserve the
    synchronous handled Boolean.
 2. Classify every translated action through one exhaustive discriminated enum:
-   exact command/fact, latest presentation, activity evidence, exact local
-   lifecycle, or diagnostic outcome.
-3. Preserve the current route and order for exact commands and semantic facts.
-4. Offer copied coalescible values to one synchronous per-surface linearization
-   point with a fixed compile-time key set. Storage is bounded by live surfaces
-   and keys, never raw sample count.
+   exact command/fact, latest presentation, latest semantic metadata, activity
+   evidence, exact local lifecycle, or diagnostic outcome.
+3. Preserve the current route and order for exact commands and non-replaceable
+   semantic facts. Changed contracted title metadata re-enters the same existing
+   semantic route only after the latest-value drain.
+4. Offer copied coalescible values and title/tab-title metadata to one synchronous
+   per-surface linearization point with a fixed compile-time key set. Storage is
+   bounded by live surfaces and keys, never raw input count.
 5. Allow at most one scheduled drain per live surface while work is pending,
    with one convergent follow-up when offers arrive during a drain.
 6. Reuse existing managed-surface identity plus non-retaining lifetime evidence.
    Revalidate before apply and compare-and-remove on cleanup so old work cannot
    affect a replacement or reused address.
-7. Apply latest scrollbar/search/mouse presentation in one compact MainActor
-   batch and suppress equal writes.
+7. Apply latest scrollbar/search/mouse presentation and title/tab-title metadata
+   in one compact MainActor batch and suppress equal writes.
 8. Keep initial size, cell size, and configuration on existing direct host
    paths. Do not retain diagnostic-only values solely for obsolete replay.
 9. Model search active/inactive as a discriminated lifecycle. Start/end/cancel
@@ -278,17 +286,19 @@ Tests stay in the permanent Swift Testing suite beside these owners.
     pane-classification candidacy gate as compatibility vocabulary for terminal
     output settled on an already-classified pane. Do not rename or treat them as
     agent `working`, `blocked`, or `idle` lifecycle authority.
-15. Equal-suppress title, tab title, CWD, progress, secure-input,
-    renderer-health, and other state-like semantic facts at
-    `TerminalRuntime`'s current-state boundary. Changed values retain exact
+15. Contract title and tab title by terminal-surface lifetime before MainActor
+    scheduling. One drain applies the latest value and emits at most one changed
+    fact through `TerminalRuntime`; CWD, progress, secure-input, renderer-health,
+    and other state-like semantic facts remain equal-suppressed at
+    `TerminalRuntime`'s current-state boundary. Changed emitted values retain
     sequence, replay, EventBus, IPC, and Inbox behavior.
 16. Hard-cut raw scrollbar, search, and mouse presentation from
     `PaneRuntimeEventChannel`, replay, EventBus, and IPC waits. Exact semantic
     facts remain unchanged.
 17. Keep `GhosttyActionDisposition.classify` exhaustive without a `default`
     branch. A newly translated Ghostty action must fail compilation until it is
-    assigned an exact, latest-value, activity-evidence, ordered-local-lifecycle,
-    or diagnostic disposition.
+    assigned an exact, latest-presentation, latest-semantic-metadata,
+    activity-evidence, ordered-local-lifecycle, or diagnostic disposition.
 18. Make Inbox semantic classification exhaustive over the closed
     `PaneRuntimeEvent` families and the nested Terminal/activity cases it owns.
     Explicit typed ignore reasons replace catch-all `default` behavior. Opaque
@@ -315,8 +325,9 @@ Add the smallest failing permanent tests first:
   Inbox behavior, including gated aggregate-before-control order and later-epoch
   separation for focus/blur, observation/read, reset, revocation, close, and
   replacement.
-- Equal semantic title/CWD/progress/security/renderer values publish nothing;
-  changed values retain exact sequence and existing IPC/Inbox behavior.
+- Title/tab-title bursts apply and publish only the latest changed value per
+  drain; equal contracted titles publish nothing; CWD/progress/security/renderer
+  values retain their current equality and exact-route behavior.
 - No post-stop or post-close mutation.
 
 Focused gate:
@@ -331,6 +342,57 @@ activity/Inbox consumer cutover, and focused proof are green.
 Stop/replan if T3 requires a generic mailbox, actor-per-pane fleet, durable
 generation, strong view retention, EventBus implementation change, atom
 workflow, screen polling, lifecycle hooks, or wall-clock test sleeps.
+
+## T3a — Contract Measured Title Metadata Pressure
+
+Runtime proof found a previously uncontracted `setTitle` burst: 155 translated
+title actions in 24 seconds correlated with 186 tab-bar refreshes, 188 pane
+layout passes, and 58,979 atom reads. Scrollbar/activity contraction produced
+only four drains in the same interval. This follow-up completes the accepted
+source-contraction boundary; it does not create a new architecture or reopen the
+spec/plan review cycle.
+
+Write surface is limited to the existing Terminal classifier/accumulator/router,
+`TerminalRuntime`, the narrow pane-title equality guard, `TerminalActivityAtom`
+no-op suppression, and their permanent tests. Do not change EventBus, Ghostty,
+zmx, tab-bar observation, pane/layout implementation, persistence workflow, or
+filesystem/Git owners.
+
+Implementation contract:
+
+1. Classify copied title and tab-title values as latest semantic metadata.
+2. Retain one latest title value per live surface in the existing accumulator;
+   schedule at most one MainActor drain plus the existing bounded follow-up.
+3. Retain the latest callback kind because both title kinds update shared runtime
+   metadata but only `setTitle` updates `SurfaceView`. Fold direct `SurfaceView`
+   title application and `TerminalRuntime` delivery into the compact drain rather
+   than creating two MainActor tasks per raw callback.
+4. Preserve the existing changed-title sequence/replay/EventBus/IPC contract
+   after contraction. Intermediate replaced titles are not observable history.
+5. Treat every later non-title exact command/fact/control for the same surface as
+   a barrier: flush the pending earlier title first. Flush or retire pending title
+   work before surface teardown, and preserve the first-title startup milestone.
+6. Equality-suppress canonical pane-title writes. `TerminalActivityAtom` writes
+   only for event families it actually consumes and only when its snapshot
+   changes. Atoms remain pure current state.
+
+Red/green proof:
+
+- a large title/tab-title burst retains and applies the independent latest-value
+  oracle with bounded scheduled/follow-up drains;
+- equal values cause no runtime fact, pane-atom observation, or activity-atom
+  observation;
+- one changed contracted value retains current IPC `titleChanged`, replay,
+  sequence, and coordinator behavior;
+- interleaved exact facts retain count and order; close/replacement rejects stale
+  title work; title precedes a later exact barrier; `setTabTitle` does not begin
+  mutating `SurfaceView`; and
+- aggregate metrics prove raw title inputs exceed MainActor tasks, compact
+  applies, runtime posts, tab refreshes, and layouts with zero final debt.
+
+Focused gate remains the T3 focused `mise run test` filter followed by
+`mise run build` and `mise run lint`. Commit this bounded follow-up after green
+proof, then return directly to T5 runtime comparison.
 
 ## T4 — Replace Unconditional Fleet Capture With Affected-Key Effects
 
@@ -493,6 +555,12 @@ search lifecycle, scroll-away/follow-bottom, cursor/link behavior, notification
 appearance/clearing, watched-folder discovery, Git convergence, and basic
 pane/tab/startup stability as regression observation.
 
+Keep the candidate debug workload below 50 owned terminal panes/zmx sessions at
+all times. Record the exact debug identity, candidate PID, owned pane/session
+population, and lifecycle cleanup. Generate pressure with bounded terminal
+output through existing IPC rather than spawning terminal populations. Confirm
+owned processes/sessions are clean before relaunch and after the run.
+
 Do not take foreground control of, terminate, or modify production, beta, or
 another debug AgentStudio process.
 
@@ -540,9 +608,10 @@ and require fresh accepted IPC current-pane and terminal-status readiness.
 2. T2a candidate-only aggregate metric vocabulary.
 3. T3 Terminal contraction.
 4. T4 filesystem affected-key effects.
-5. T5 typed-admission guard, durable docs, and integrated runtime proof.
-6. One review-remediation checkpoint.
-7. PR-ready state.
+5. T3a measured title-metadata contraction follow-up.
+6. T5 typed-admission guard, durable docs, and integrated runtime proof.
+7. One review-remediation checkpoint.
+8. PR-ready state.
 
 Every product checkpoint requires scoped proof first. Never stage `.agents/`.
 Rollback is a commit-level revert of a failing hard cut; retain no dual route,

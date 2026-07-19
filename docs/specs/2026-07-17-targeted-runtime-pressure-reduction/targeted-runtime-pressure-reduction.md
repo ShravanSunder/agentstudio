@@ -33,9 +33,10 @@ system, repair system, or diagnostic subsystem.
 
 The design is successful when all of the following are true:
 
-1. Coalescible Ghostty presentation/activity samples are copied and classified
-   synchronously, retained in bounded keyed state, and drained in batches rather
-   than creating one MainActor task and one consumer call per raw sample.
+1. Coalescible Ghostty presentation/activity samples and replaceable title
+   metadata are copied and classified synchronously, retained in bounded keyed
+   state, and drained in batches rather than creating one MainActor task and one
+   consumer call per raw value.
 2. Terminal presentation remains fully functional while those samples produce
    no runtime envelope, replay record, EventBus post/delivery, or IPC wait event.
 3. Scrollbar evidence is compressed without losing positive output growth,
@@ -138,14 +139,14 @@ Ghostty callback and payload translation                 unchanged owner
              │                                      ▼
              │                                existing EventBus
              │
-             └── coalescible sample ─────────► TerminalLocalActionAccumulator
+             └── coalescible sample/metadata ───► TerminalLocalActionAccumulator
                                                 bounded by live surfaces +
                                                 fixed signal keys
                                                      │
                           ┌──────────────────────────┴──────────────────────┐
                           ▼                                                 ▼
                  one MainActor batch apply                    activity aggregate
-                 latest presentation state                              │
+                 latest presentation/title state                        │
                                                                          ▼
                                                         TerminalActivityProjector actor
                                                         off-main state/timers
@@ -198,18 +199,22 @@ are safe to execute on an unproven actor.
 
 TR-2. After synchronously copying any borrowed payload, the Terminal feature
 classifies each signal before choosing its MainActor scheduling path. Exact
-commands and semantic facts retain the existing route. Coalescible presentation
-and activity samples enter one Terminal-owned keyed accumulator that permits at
-most one scheduled MainActor drain per live surface while work is pending. The
-same narrow per-surface serialization boundary admits meaning-changing local
-lifecycle barriers; it does not turn semantic facts into queued samples.
+commands and non-replaceable semantic facts retain the existing route.
+Coalescible presentation/activity samples and title/tab-title metadata enter one
+Terminal-owned keyed accumulator that permits at most one scheduled MainActor
+drain per live surface while work is pending. A drained title remains a changed
+semantic fact on the existing runtime/EventBus/IPC route; intermediate replaced
+titles do not. The same narrow per-surface serialization boundary admits
+meaning-changing local lifecycle barriers; it does not turn commands or
+non-replaceable facts into queued samples.
 
 TR-3. Signal disposition is one exhaustive discriminated union. It distinguishes
-exact command/fact, latest presentation value, activity evidence, and diagnostic
-outcome. It contains no optional callback, multiple-Boolean lifecycle, string
-tag, or default “emit everything” branch. `TerminalRuntime` remains the semantic
-publication boundary after current pane/surface resolution; it is not the first
-place where coalescible samples are contracted.
+exact command/fact, latest presentation value, latest semantic metadata,
+activity evidence, and diagnostic outcome. It contains no optional callback,
+multiple-Boolean lifecycle, string tag, or default “emit everything” branch.
+`TerminalRuntime` remains the semantic publication boundary after current
+pane/surface resolution; it is not the first place where coalescible samples or
+metadata are contracted.
 
 TR-3a. The accumulator is a narrow Terminal implementation, not a generic
 mailbox or reusable admission framework. Its coalescible retained storage is
@@ -225,11 +230,12 @@ and non-retaining lifetime identity only—never borrowed C pointers, a strong
 | Signal class | Current examples | Required route | Runtime/global replay |
 | --- | --- | --- | --- |
 | Local presentation | scrollbar viewport; mouse shape/visibility; search matches/selection | Keyed latest value, one batch apply, equal-write suppression | Never |
+| Latest semantic metadata | title and tab title | Keyed latest value, one batch apply through `TerminalRuntime`, equal-write suppression | Only the changed contracted value retains existing replay/EventBus/IPC behavior |
 | Local ordered lifecycle | search start/end and other local state boundaries whose order changes meaning | Exact local transition without runtime/global publication | Never |
 | Local activity evidence | total rows, pinned edges, observation/attention context, output timing | Bounded sufficient-statistics aggregate to off-main activity owner | Raw evidence never; derived outcomes only |
 | Direct host state | initial size, cell size, current configuration snapshot | Preserve the existing direct `SurfaceView` cache/update; do not duplicate it in runtime or accumulator state | Never |
 | Local state plus semantic transition | progress, secure input, renderer health, read-only | Current state stays local; deduped cross-feature/IPC transitions retain their existing semantic route | Only changed semantic transitions |
-| Exact semantic fact | command finished, bell, desktop notification, deduped title/tab title/CWD, lifecycle/security facts | `PaneRuntimeEventChannel` and existing EventBus | Domain-specific existing replay |
+| Exact semantic fact | command finished, bell, desktop notification, CWD, lifecycle/security facts | `PaneRuntimeEventChannel` and existing EventBus | Domain-specific existing replay |
 | Host command/control | tab/split/navigation/close, URL/clipboard/undo/redo/prompt/config control | Preserve the existing direct or exact command/control behavior | Never converted into a lossy UI sample |
 | Diagnostic-only | size limits, mouse link, key sequence/table, color change, deferred/unhandled outcomes with no demonstrated product consumer | Existing bounded diagnostic treatment or typed drop | Never |
 
@@ -290,9 +296,10 @@ viewport value. At minimum it retains:
 - sample count plus first/latest total and pinned state; and
 - close, stop, replacement, and cancellation boundaries.
 
-While a drain is active, new samples update the next bounded batch and request at
-most one follow-up drain. Exact semantic facts never enter or wait behind this
-state. Exact local lifecycle changes and activity-affecting control transitions
+While a drain is active, new samples and replaceable title metadata update the
+next bounded batch and request at most one follow-up drain. Exact commands and
+non-replaceable semantic facts never enter or wait behind this state. Exact local
+lifecycle changes and activity-affecting control transitions
 instead act as narrow barriers: earlier affected sample state is detached,
 retired, or epoch-invalidated before the boundary, and later samples belong to
 the next side of the boundary.
@@ -350,11 +357,24 @@ method, screen polling, detection manifest, or Ghostty/zmx modification.
 
 ### Semantic-fact contract
 
-TR-12. Title, tab title, CWD, progress, secure-input, renderer-health, and other
-state-like semantic facts are emitted only when their semantic value changes.
-Progress remains available to the stable IPC `progressChanged` condition;
-secure-input activation and renderer-unhealthy transitions remain available to
-Inbox; renderer-healthy remains available to IPC.
+TR-12. Title and tab title are first contracted by terminal-surface lifetime;
+one drain applies only the latest value and emits at most one changed semantic
+fact through the existing sequence/replay/EventBus/IPC route. CWD, progress,
+secure-input, renderer-health, and other state-like semantic facts are emitted
+only when their semantic value changes. Progress remains available to the stable
+IPC `progressChanged` condition; secure-input activation and renderer-unhealthy
+transitions remain available to Inbox; renderer-healthy remains available to
+IPC.
+
+TR-12a. Title contraction preserves the latest callback kind because
+`titleChanged` and `tabTitleChanged` share runtime metadata and IPC matching but
+remain distinct event vocabulary. `setTitle` additionally updates the current
+`SurfaceView` title; `setTabTitle` does not gain that side effect. Before routing
+any later non-title exact command/fact/control for the same surface, the Terminal
+owner flushes earlier pending title metadata. Surface teardown also flushes or
+retires pending title work before lifetime removal. The first accepted title
+callback still satisfies the existing startup title-ready milestone even when
+the contracted value equals current runtime metadata and produces no mutation.
 
 TR-13. Retained semantic facts preserve the current per-pane sequence,
 `PaneRuntimeEventChannel`, runtime subscription/replay, IPC `afterSequence`, and
@@ -444,8 +464,9 @@ MA-2. MainActor must not perform filesystem traversal, Git reads, large
 serialization, path canonicalization, per-event all-pane filtering, or repeated
 all-fleet reconstruction.
 
-MA-3. Callback-side offer cost for a coalescible terminal sample is bounded O(1)
-copy/classification/key replacement. MainActor task count and state mutation
+MA-3. Callback-side offer cost for a coalescible terminal sample or replaceable
+title value is bounded O(1) copy/classification/key replacement. MainActor task
+count and state mutation
 scale with drained batches and changed keys, not raw sample count, EventBus
 subscribers, replay capacity, tabs, panes, repositories, or worktrees.
 
@@ -465,8 +486,8 @@ evidence, not lifecycle, acceptance, currentness, or ownership states.
 
 TY-2. The terminal disposition switch is exhaustive over current translated
 signals. Adding a Ghostty signal without choosing exact command/fact, latest
-presentation, activity evidence, exact local lifecycle, or diagnostic outcome
-fails compilation or architecture lint.
+presentation, latest semantic metadata, activity evidence, exact local
+lifecycle, or diagnostic outcome fails compilation or architecture lint.
 
 TY-3. Local-only signal cases cannot call the semantic publication helper. The
 smallest SwiftSyntax rule may enforce this after behavior is cut over; no new
@@ -552,8 +573,12 @@ drains also prove reentrant/concurrent offers cannot lose replacements, create
 duplicate drains, or cross a local lifecycle barrier.
 
 P-3. An interleaved sample stream cannot change the count or order of
-command-finished, bell, desktop-notification, title/CWD, progress,
-secure-input, renderer-health, lifecycle, or security facts.
+command-finished, bell, desktop-notification, CWD, progress, secure-input,
+renderer-health, lifecycle, or security facts. Interleaved title/tab-title
+bursts preserve the latest value, emit at most one changed fact per drain, and
+do not reorder those non-replaceable facts. A later exact command/fact/control
+observes the earlier contracted title first, and close/replacement cannot apply
+stale title work to a retired surface lifetime.
 
 P-3a. The same sample-pressure cell proves zero semantic-fact drops and
 unchanged runtime/IPC replay behavior while semantic facts are acknowledged or
@@ -734,6 +759,13 @@ appearance/clearing, watched-folder repository discovery, Git-status convergence
 and basic pane/tab/startup stability through existing reliable control surfaces.
 It does not add an Accessibility, IPC, UI-driver, or benchmark seam and does not
 substitute for deterministic, integration, or Victoria evidence.
+
+P-16a. Candidate debug proof owns fewer than 50 terminal panes/sessions at all
+times. Every run records the exact debug identity, candidate PID, created pane
+and zmx-session population, and confirms owned lifecycle cleanup before relaunch
+or completion. Terminal pressure comes from bounded output sent through existing
+IPC, not unbounded pane/session creation. Production, beta, other debug
+identities, and their terminal processes remain untouched.
 
 ## Alternatives And Tradeoffs
 
