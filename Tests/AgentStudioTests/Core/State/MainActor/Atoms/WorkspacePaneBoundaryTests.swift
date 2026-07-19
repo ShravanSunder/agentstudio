@@ -10,7 +10,9 @@ struct WorkspacePaneBoundaryTests {
     func paneGraphStateStripsCursorAndDisplayFields() throws {
         let repoId = UUID()
         let worktreeId = UUID()
+        let paneId = UUIDv7.generate()
         let pane = Pane(
+            id: paneId,
             content: .terminal(
                 TerminalState(
                     provider: .zmx,
@@ -34,7 +36,13 @@ struct WorkspacePaneBoundaryTests {
                 ),
                 note: "ship it"
             ),
-            kind: .layout(drawer: Drawer(paneIds: [], isExpanded: true))
+            kind: .layout(
+                drawer: Drawer(
+                    parentPaneId: paneId,
+                    paneIds: [],
+                    isExpanded: true
+                )
+            )
         )
         let graphAtom = WorkspacePaneGraphAtom()
 

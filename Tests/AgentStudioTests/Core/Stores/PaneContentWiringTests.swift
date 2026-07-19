@@ -191,13 +191,15 @@ final class PaneContentWiringTests {
 
     @Test
 
-    func test_updatePaneWebviewState_marksDirty() async {
+    func test_updatePaneWebviewState_marksDirty() async throws {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com")!)),
             metadata: PaneMetadata(title: "Web")
         )
-        _ = await store.flushAsync()
+        store.appendTab(Tab(paneId: pane.id))
+        let flushOutcome = await store.flushAsync()
+        try #require(flushOutcome == .persisted)
         #expect(!(store.isDirty))
 
         // Act

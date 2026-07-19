@@ -309,9 +309,14 @@ final class PaneContentTests {
     @Test
 
     func test_decode_missingVersion_defaultsTo1() throws {
+        let storedSessionID = "restored-session-without-prefix"
         let json: [String: Any] = [
             "type": "terminal",
-            "state": ["provider": "zmx", "lifetime": "persistent"],
+            "state": [
+                "provider": "zmx",
+                "lifetime": "persistent",
+                "zmxSessionID": storedSessionID,
+            ],
         ]
         let data = try JSONSerialization.data(withJSONObject: json)
 
@@ -320,6 +325,7 @@ final class PaneContentTests {
         if case .terminal(let state) = decoded {
             #expect(state.provider == .zmx)
             #expect(state.lifetime == .persistent)
+            #expect(state.zmxSessionID.rawValue == storedSessionID)
         } else {
             Issue.record("Expected .terminal, got \(decoded)")
         }

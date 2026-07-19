@@ -81,7 +81,7 @@ final class ZmxBackendTests {
 
     @Test
 
-    func test_attachCommand_format() {
+    func test_attachCommand_format() throws {
         // Arrange
         let handle = makePaneSessionHandle(
             id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344"
@@ -92,10 +92,15 @@ final class ZmxBackendTests {
 
         // Assert
         #expect(!(cmd.contains("ZMX_DIR=")))
-        #expect(cmd.hasPrefix("\"/usr/local/bin/zmx\""))
-        #expect(cmd.contains("attach"))
-        #expect(cmd.contains("\"as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344\""))
-        #expect(cmd.contains("-i -l"))
+        #expect(
+            try shellParsedArguments(from: cmd) == [
+                "/usr/local/bin/zmx",
+                "attach",
+                "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344",
+                "/bin/zsh",
+                "-i",
+                "-l",
+            ])
         // No ghost.conf, no mouse-off, no unbind-key
         #expect(!(cmd.contains("ghost.conf")))
         #expect(!(cmd.contains("mouse")))
@@ -104,7 +109,7 @@ final class ZmxBackendTests {
 
     @Test
 
-    func test_attachCommand_escapesPathsWithSpaces() {
+    func test_attachCommand_escapesPathsWithSpaces() throws {
         // Arrange
         let spacedBackend = ZmxBackend(
             executor: executor,
@@ -120,7 +125,15 @@ final class ZmxBackendTests {
 
         // Assert
         #expect(!(cmd.contains("/Users/test user/.agentstudio/zmx")))
-        #expect(cmd.contains("\"/Users/test user/bin/zmx\""))
+        #expect(
+            try shellParsedArguments(from: cmd) == [
+                "/Users/test user/bin/zmx",
+                "attach",
+                "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344",
+                "/bin/zsh",
+                "-i",
+                "-l",
+            ])
     }
 
     @Test
@@ -342,26 +355,27 @@ final class ZmxBackendTests {
 
     @Test
 
-    func test_discoverOrphanSessions_filtersCorrectly() async {
+    func test_discoverOrphanSessions_excludesOnlyExactStoredIdentity() async {
         // Arrange
         executor.enqueue(
             ProcessResult(
                 exitCode: 0,
                 stdout:
-                    "as-abc-111-222\trunning\nas-def-333-444\trunning\nuser-session\trunning\nas-ghi-555-666\trunning",
+                    "restored-opaque-session\trunning\nas-def-333-444\trunning\nrestored-opaque-session-shadow\trunning",
                 stderr: ""
             ))
 
         // Act
         let orphans = await backend.discoverOrphanSessions(
-            excluding: [restoredSessionID("as-abc-111-222")]
+            excluding: [restoredSessionID("restored-opaque-session")]
         )
 
         // Assert
-        #expect(orphans.count == 2)
-        #expect(orphans.contains(restoredSessionID("as-def-333-444")))
-        #expect(orphans.contains(restoredSessionID("as-ghi-555-666")))
-        #expect(!orphans.contains(restoredSessionID("user-session")))
+        #expect(
+            orphans == [
+                restoredSessionID("as-def-333-444"),
+                restoredSessionID("restored-opaque-session-shadow"),
+            ])
     }
 
     @Test
@@ -381,9 +395,11 @@ final class ZmxBackendTests {
         )
 
         // Assert
-        #expect(orphans.count == 1)
-        #expect(orphans.contains(restoredSessionID("as-d--aabb--ccdd")))
-        #expect(!orphans.contains(restoredSessionID("user-session")))
+        #expect(
+            orphans == [
+                restoredSessionID("as-d--aabb--ccdd"),
+                restoredSessionID("user-session"),
+            ])
     }
 
     @Test
@@ -432,9 +448,11 @@ final class ZmxBackendTests {
         )
 
         // Assert
-        #expect(orphans.count == 1)
-        #expect(orphans.contains(restoredSessionID("as-d--aabb--ccdd")))
-        #expect(!orphans.contains(restoredSessionID("user-session")))
+        #expect(
+            orphans == [
+                restoredSessionID("as-d--aabb--ccdd"),
+                restoredSessionID("user-session"),
+            ])
     }
 
     // MARK: - destroySessionByID
@@ -569,4 +587,24 @@ final class ZmxBackendTests {
         }
         return sessionID
     }
+}
+
+private func shellParsedArguments(from command: String) throws -> [String] {
+    let outputPipe = Pipe()
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+    process.arguments = ["-c", "set -- \(command); printf '%s\\n' \"$@\""]
+    process.standardOutput = outputPipe
+
+    try process.run()
+    process.waitUntilExit()
+
+    let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
+    let decodedOutput = try #require(String(data: output, encoding: .utf8))
+    #expect(process.terminationStatus == 0)
+    return
+        decodedOutput
+        .split(separator: "\n", omittingEmptySubsequences: false)
+        .dropLast()
+        .map(String.init)
 }

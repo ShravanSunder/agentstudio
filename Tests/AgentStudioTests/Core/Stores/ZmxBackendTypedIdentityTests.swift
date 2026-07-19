@@ -22,7 +22,15 @@ struct ZmxBackendTypedIdentityTests {
         let attachCommand = backend.attachCommand(for: handle)
         try await backend.destroyPaneSession(handle)
 
-        #expect(attachCommand.contains("\"\(storedText)\""))
+        #expect(
+            try shellParsedTypedIdentityArguments(from: attachCommand) == [
+                "/usr/local/bin/zmx",
+                "attach",
+                storedText,
+                "/bin/zsh",
+                "-i",
+                "-l",
+            ])
         #expect(executor.calls.single?.args == ["kill", storedText])
     }
 
@@ -47,4 +55,24 @@ struct ZmxBackendTypedIdentityTests {
         let expectedLegacy = try #require(ZmxSessionID(restoring: legacyText))
         #expect(inventory.sessionIDs == Set([expectedUUIDV4, expectedLegacy]))
     }
+}
+
+private func shellParsedTypedIdentityArguments(from command: String) throws -> [String] {
+    let outputPipe = Pipe()
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+    process.arguments = ["-c", "set -- \(command); printf '%s\\n' \"$@\""]
+    process.standardOutput = outputPipe
+
+    try process.run()
+    process.waitUntilExit()
+
+    let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
+    let decodedOutput = try #require(String(data: output, encoding: .utf8))
+    #expect(process.terminationStatus == 0)
+    return
+        decodedOutput
+        .split(separator: "\n", omittingEmptySubsequences: false)
+        .dropLast()
+        .map(String.init)
 }
