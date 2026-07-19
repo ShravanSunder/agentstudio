@@ -49,4 +49,31 @@ struct AgentStudioRuntimePressureOTLPProjectionTests {
         #expect(!renderedProjection.contains("terminal output"))
         #expect(!renderedProjection.contains("private error"))
     }
+
+    @Test
+    func terminalCompactApplyProjectionKeepsTypedActivityRoundTripFields() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 603,
+            severityText: .info,
+            body: "performance.terminal.compact_apply",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.terminal.activity_projection.submitted": .bool(true),
+                "agentstudio.performance.terminal.activity_projection.round_trip_ms": .double(4.5),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(
+            projection.attributes["agentstudio.performance.terminal.activity_projection.submitted"]
+                == .bool(true))
+        #expect(
+            projection.attributes["agentstudio.performance.terminal.activity_projection.round_trip_ms"]
+                == .double(4.5))
+    }
 }
