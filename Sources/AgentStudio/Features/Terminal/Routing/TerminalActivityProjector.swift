@@ -160,6 +160,11 @@ actor TerminalActivityProjector {
         let compactStateChanged = state.scrollbarState != latestState || state.outputBurst != outputBurst
         state.outputBurst = outputBurst
         let previousPinned = state.isPinnedToBottom
+        let observationTransitions = pinnedObservationTransitions(
+            previousIsPinnedToBottom: previousPinned,
+            aggregate: aggregate,
+            latestIsPinnedToBottom: latestState.isPinnedToBottom
+        )
         state.isPinnedToBottom = latestState.isPinnedToBottom
         state.scrollbarState = latestState
 
@@ -224,16 +229,41 @@ actor TerminalActivityProjector {
         if isFirstOutput {
             outcomes.append(.firstOutput(surfaceID: surfaceID, paneID: paneID))
         }
-        if previousPinned != latestState.isPinnedToBottom {
+        for isPinnedToBottom in observationTransitions {
             outcomes.append(
                 .paneObservationChanged(
                     surfaceID: surfaceID,
                     paneID: paneID,
-                    isPinnedToBottom: latestState.isPinnedToBottom
+                    isPinnedToBottom: isPinnedToBottom
                 )
             )
         }
         return outcomes
+    }
+
+    private func pinnedObservationTransitions(
+        previousIsPinnedToBottom: Bool?,
+        aggregate: TerminalScrollbarActivityAggregate,
+        latestIsPinnedToBottom: Bool
+    ) -> [Bool] {
+        var projectedIsPinnedToBottom = previousIsPinnedToBottom ?? false
+        var transitions: [Bool] = []
+        func appendChangedState(_ isPinnedToBottom: Bool) {
+            guard isPinnedToBottom != projectedIsPinnedToBottom else { return }
+            transitions.append(isPinnedToBottom)
+            projectedIsPinnedToBottom = isPinnedToBottom
+        }
+
+        appendChangedState(aggregate.firstIsPinnedToBottom)
+        if aggregate.firstIsPinnedToBottom {
+            if aggregate.didExitPinnedToBottom { appendChangedState(false) }
+            if aggregate.didEnterPinnedToBottom { appendChangedState(true) }
+        } else {
+            if aggregate.didEnterPinnedToBottom { appendChangedState(true) }
+            if aggregate.didExitPinnedToBottom { appendChangedState(false) }
+        }
+        appendChangedState(latestIsPinnedToBottom)
+        return transitions
     }
 
     func applyOrderedControl(

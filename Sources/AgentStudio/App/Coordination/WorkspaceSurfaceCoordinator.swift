@@ -185,7 +185,9 @@ final class WorkspaceSurfaceCoordinator {
         batchedRuntimeEventsTask?.cancel()
         filesystemSyncTask?.cancel()
         let filesystemSource = filesystemSource
+        let filesystemProjectionIndex = filesystemProjectionIndex
         Task {
+            await filesystemProjectionIndex.shutdown()
             await filesystemSource.shutdown()
         }
     }
@@ -217,6 +219,8 @@ final class WorkspaceSurfaceCoordinator {
             task.cancel()
         }
         runtimeEventBridgeTasks.removeAll()
+
+        await filesystemProjectionIndex.shutdown()
 
         if let activeCWDTask {
             await activeCWDTask.value

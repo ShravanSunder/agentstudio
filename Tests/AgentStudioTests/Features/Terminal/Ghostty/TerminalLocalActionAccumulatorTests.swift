@@ -65,6 +65,40 @@ struct TerminalLocalActionAccumulatorTests {
         )
     }
 
+    @Test("title deadline registration and immediate upgrade admit one drain without scheduler debt")
+    func titleDeadlineAndImmediateUpgradeConvergeOnOneDrain() async throws {
+        let surfaceID = UUIDv7.generate()
+        let controlledExecutor = ControlledDrainSchedulerExecutor()
+        let drainOwner = TerminalSchedulerTestDrainOwner()
+        let scheduler = TerminalLocalActionDrainScheduler(
+            drain: drainOwner.drain,
+            scheduleTitleDeadline: controlledExecutor.recordTitleDeadline,
+            enqueueMainActorDrain: controlledExecutor.recordMainActorAdmission
+        )
+        let accumulator = TerminalLocalActionAccumulator(
+            scheduleDrain: scheduler.schedule,
+            scheduleFollowUpDrain: scheduler.scheduleFollowUp,
+            cancelScheduledTitleDrain: scheduler.cancel
+        )
+        drainOwner.install(accumulator)
+
+        accumulator.offer(.titleChanged("title"), for: surfaceID)
+        #expect(controlledExecutor.pendingTitleDeadlineCount == 1)
+        try controlledExecutor.claimNextTitleDeadline()
+        #expect(controlledExecutor.pendingMainActorAdmissionCount == 1)
+
+        // Immediate work lands after the deadline claim but before its queued
+        // MainActor operation begins. It must reuse the live claim.
+        accumulator.offer(.mouseShape(.text), for: surfaceID)
+        #expect(controlledExecutor.pendingMainActorAdmissionCount == 1)
+
+        try await controlledExecutor.runNextMainActorAdmission()
+        #expect(drainOwner.recordedSurfaceIDs == [surfaceID])
+        #expect(scheduler.pendingDrainClaimCount == 0)
+        #expect(accumulator.pendingSurfaceCount == 0)
+        #expect(accumulator.retainedEntryCount == 0)
+    }
+
     @Test("title work does not reschedule an immediate drain")
     func titleWorkDoesNotRescheduleImmediateDrain() {
         let scheduler = DrainScheduleRecorder()
@@ -139,6 +173,88 @@ struct TerminalLocalActionAccumulatorTests {
         let tabOnlyBatch = try #require(accumulator.beginDrain(for: tabOnlySurfaceID))
         #expect(tabOnlyBatch.titleMetadata?.runtimeTitle == .tabTitleChanged("tab-only"))
         #expect(tabOnlyBatch.titleMetadata?.surfaceTitle == nil)
+    }
+
+    @Test("exact title barriers report only exact title accounting and no extra MainActor task")
+    func exactTitleBarrierAccountingIsHonest() throws {
+        let scheduler = DrainScheduleRecorder()
+        let accumulator = TerminalLocalActionAccumulator(scheduleDrain: scheduler.record)
+        let surfaceID = UUIDv7.generate()
+
+        accumulator.offer(.mouseShape(.text), for: surfaceID)
+        accumulator.offer(.titleChanged("A"), for: surfaceID)
+        accumulator.offer(.titleChanged("A"), for: surfaceID)
+        accumulator.offer(.tabTitleChanged("C"), for: surfaceID)
+
+        let barrier = try #require(accumulator.detachTitleBeforeExactBarrier(for: surfaceID))
+        #expect(barrier.metadata.runtimeTitle == .tabTitleChanged("C"))
+        #expect(barrier.metadata.surfaceTitle == "A")
+        #expect(barrier.metrics.offeredCount == 3)
+        #expect(barrier.metrics.replacedCount == 1)
+        #expect(barrier.metrics.equalSuppressedCount == 1)
+        #expect(barrier.metrics.scheduledDrainCount == 0)
+        #expect(barrier.metrics.followUpDrainCount == 0)
+        let performanceSnapshot = Ghostty.ActionRouter.terminalAccumulatorDrainPerformanceSnapshot(for: barrier)
+        #expect(performanceSnapshot.mainActorTaskCount == 0)
+        #expect(performanceSnapshot.activityAggregateCount == 0)
+        #expect(performanceSnapshot.retainedEntryCount == 2)
+        #expect(
+            Ghostty.ActionRouter.terminalAccumulatorQueueAge(
+                firstOfferedAtNanoseconds: barrier.firstOfferedAtNanoseconds,
+                currentUptimeNanoseconds: barrier.firstOfferedAtNanoseconds + 50
+            ) == .nanoseconds(50)
+        )
+
+        let remainingBatch = try #require(accumulator.beginDrain(for: surfaceID))
+        #expect(remainingBatch.presentation.mouseShape == .text)
+        #expect(remainingBatch.titleMetadata == nil)
+        #expect(remainingBatch.metrics.offeredCount == 1)
+        #expect(remainingBatch.metrics.replacedCount == 0)
+        #expect(remainingBatch.metrics.equalSuppressedCount == 0)
+        #expect(remainingBatch.metrics.scheduledDrainCount == 1)
+        #expect(accumulator.finishDrain(for: surfaceID) == .idle)
+    }
+
+    @Test("metric subtraction rejects values outside the pending batch")
+    func metricSubtractionRequiresSubset() {
+        let pendingMetrics = TerminalLocalAccumulatorMetrics(
+            offeredCount: 2,
+            replacedCount: 1,
+            equalSuppressedCount: 0,
+            scheduledDrainCount: 1,
+            followUpDrainCount: 0
+        )
+        let invalidTitleMetrics = TerminalLocalAccumulatorMetrics(
+            offeredCount: 3,
+            replacedCount: 1,
+            equalSuppressedCount: 0,
+            scheduledDrainCount: 1,
+            followUpDrainCount: 0
+        )
+
+        #expect(pendingMetrics.subtracting(invalidTitleMetrics) == nil)
+    }
+
+    @Test("exact title barriers leave mixed follow-up scheduling metrics with the remaining batch")
+    func exactTitleBarrierPreservesMixedFollowUpMetrics() throws {
+        let scheduler = DrainScheduleRecorder()
+        let accumulator = TerminalLocalActionAccumulator(scheduleDrain: scheduler.record)
+        let surfaceID = UUIDv7.generate()
+
+        accumulator.offer(.mouseShape(.text), for: surfaceID)
+        _ = try #require(accumulator.beginDrain(for: surfaceID))
+        accumulator.offer(.titleChanged("A"), for: surfaceID)
+        accumulator.offer(.mouseVisibility(true), for: surfaceID)
+        #expect(accumulator.finishDrain(for: surfaceID) == .followUpScheduled)
+
+        let barrier = try #require(accumulator.detachTitleBeforeExactBarrier(for: surfaceID))
+        #expect(barrier.metrics.followUpDrainCount == 0)
+
+        let remainingBatch = try #require(accumulator.beginDrain(for: surfaceID))
+        #expect(remainingBatch.presentation.mouseVisibility == true)
+        #expect(remainingBatch.titleMetadata == nil)
+        #expect(remainingBatch.metrics.followUpDrainCount == 1)
+        #expect(accumulator.finishDrain(for: surfaceID) == .idle)
     }
 
     @Test("large title burst schedules one bounded drain and retains the latest kind")
@@ -416,6 +532,70 @@ private final class DrainScheduleRecorder: @unchecked Sendable {
         lock.withLock {
             storage.append(.init(surfaceID: surfaceID, schedule: schedule))
         }
+    }
+}
+
+private final class ControlledDrainSchedulerExecutor: @unchecked Sendable {
+    private let lock = NSLock()
+    private var titleDeadlines: [DispatchWorkItem] = []
+    private var mainActorAdmissions: [TerminalMainActorDrainOperation] = []
+
+    var pendingTitleDeadlineCount: Int {
+        lock.withLock { titleDeadlines.count }
+    }
+
+    var pendingMainActorAdmissionCount: Int {
+        lock.withLock { mainActorAdmissions.count }
+    }
+
+    func recordTitleDeadline(_ workItem: DispatchWorkItem) {
+        lock.withLock {
+            titleDeadlines.append(workItem)
+        }
+    }
+
+    func recordMainActorAdmission(_ operation: @escaping TerminalMainActorDrainOperation) {
+        lock.withLock {
+            mainActorAdmissions.append(operation)
+        }
+    }
+
+    func claimNextTitleDeadline() throws {
+        let workItem = try #require(lock.withLock { titleDeadlines.isEmpty ? nil : titleDeadlines.removeFirst() })
+        workItem.perform()
+    }
+
+    func runNextMainActorAdmission() async throws {
+        let operation = try #require(
+            lock.withLock { mainActorAdmissions.isEmpty ? nil : mainActorAdmissions.removeFirst() }
+        )
+        await operation()
+    }
+}
+
+private final class TerminalSchedulerTestDrainOwner: @unchecked Sendable {
+    private let lock = NSLock()
+    private var accumulator: TerminalLocalActionAccumulator?
+    private var drainedSurfaceIDs: [UUID] = []
+
+    var recordedSurfaceIDs: [UUID] {
+        lock.withLock { drainedSurfaceIDs }
+    }
+
+    func install(_ accumulator: TerminalLocalActionAccumulator) {
+        lock.withLock {
+            self.accumulator = accumulator
+        }
+    }
+
+    @MainActor
+    func drain(_ surfaceID: UUID) async {
+        guard let accumulator = lock.withLock({ accumulator }) else { return }
+        guard accumulator.beginDrain(for: surfaceID) != nil else { return }
+        lock.withLock {
+            drainedSurfaceIDs.append(surfaceID)
+        }
+        _ = accumulator.finishDrain(for: surfaceID)
     }
 }
 

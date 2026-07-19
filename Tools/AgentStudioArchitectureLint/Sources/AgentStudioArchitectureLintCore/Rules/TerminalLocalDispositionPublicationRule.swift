@@ -25,6 +25,7 @@ struct TerminalLocalDispositionPublicationRule: ArchitectureRule {
 private final class TerminalLocalDispositionPublicationVisitor: SyntaxVisitor {
     private static let localDispositionNames: Set<String> = [
         "latestPresentation",
+        "latestSemanticMetadata",
         "activityEvidence",
         "exactLocalLifecycle",
         "diagnostic",

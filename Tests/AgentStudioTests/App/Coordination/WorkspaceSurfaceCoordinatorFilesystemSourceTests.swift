@@ -350,6 +350,120 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
         await subscriber.shutdown()
     }
 
+    @Test("derived filesystem publication rejects a stale pane context")
+    func derivedFilesystemPublicationRejectsStalePaneContext() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir.appending(path: "publication-currentness-repo"))
+        let worktree = try #require(harness.store.repo(repo.id)?.worktrees.first { $0.isMainWorktree })
+        let firstPane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let staleCwd = worktree.path.appending(path: "stale")
+        let secondPane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: staleCwd)
+        )
+        harness.store.appendTab(Tab(paneId: firstPane.id))
+
+        let coordinator = makeCoordinator(
+            store: harness.store,
+            source: OrderedRecordingFilesystemSource(),
+            index: FilesystemProjectionIndex(),
+            bus: harness.bus
+        )
+        defer { Task { await coordinator.shutdown() } }
+        await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
+
+        let subscriber = await harness.makeSubscriber()
+        await waitForBusSubscriberCount(harness.bus, atLeast: 1)
+        harness.store.paneAtom.updatePaneCWD(secondPane.id, cwd: worktree.path.appending(path: "current"))
+
+        let currentEnvelope = paneFilesystemEnvelope(
+            pane: firstPane,
+            context: PaneFilesystemContext(
+                paneId: PaneId(existingUUID: firstPane.id),
+                repoId: repo.id,
+                cwd: worktree.path,
+                worktreeId: worktree.id
+            ),
+            sequence: 1
+        )
+        let staleEnvelope = paneFilesystemEnvelope(
+            pane: secondPane,
+            context: PaneFilesystemContext(
+                paneId: PaneId(existingUUID: secondPane.id),
+                repoId: repo.id,
+                cwd: staleCwd,
+                worktreeId: worktree.id
+            ),
+            sequence: 1
+        )
+
+        await coordinator.publishCurrentDerivedFilesystemEnvelopes([currentEnvelope, staleEnvelope])
+
+        await assertEventuallyAsync("only current pane context should publish") {
+            await subscriber.snapshot().count == 1
+        }
+        let publishedPaneIds = RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot()).map(\.paneId)
+        #expect(publishedPaneIds == [PaneId(existingUUID: firstPane.id)])
+
+        await subscriber.shutdown()
+    }
+
+    @Test("shutdown retires a filesystem projection before awaiting reducer tasks")
+    func shutdownRetiresFilesystemProjectionBeforeAwaitingReducerTasks() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir.appending(path: "shutdown-projection-repo"))
+        let worktree = try #require(harness.store.repo(repo.id)?.worktrees.first { $0.isMainWorktree })
+        let pane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        harness.store.appendTab(Tab(paneId: pane.id))
+
+        let source = OrderedRecordingFilesystemSource()
+        let index = GateableFilesystemProjectionIndex()
+        await index.pauseNextProjection()
+        let coordinator = makeCoordinator(
+            store: harness.store,
+            source: source,
+            index: index,
+            bus: harness.bus
+        )
+        await source.waitForOperation(.assertTopology)
+
+        await harness.bus.post(
+            RuntimeEnvelopeHarness.filesystemEnvelope(
+                event: .filesChanged(
+                    changeset: FileChangeset(
+                        worktreeId: worktree.id,
+                        repoId: repo.id,
+                        rootPath: worktree.path,
+                        paths: ["Sources/App.swift"],
+                        timestamp: ContinuousClock().now,
+                        batchSeq: 10
+                    )
+                ),
+                repoId: repo.id,
+                worktreeId: worktree.id
+            )
+        )
+        await index.waitForPausedProjection()
+
+        let shutdownTask = Task { @MainActor in
+            await coordinator.shutdown()
+        }
+        await index.waitForShutdown()
+        await shutdownTask.value
+
+        #expect(await index.shutdownInvocationCount() == 1)
+    }
+
     private func makeHarness() -> FilesystemCoordinatorHarness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-filesystem-coordinator-\(UUID().uuidString)")
@@ -379,6 +493,25 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
             windowLifecycleStore: WindowLifecycleAtom()
         )
     }
+}
+
+private func paneFilesystemEnvelope(
+    pane: Pane,
+    context: PaneFilesystemContext,
+    sequence: UInt64
+) -> RuntimeEnvelope {
+    .pane(
+        PaneEnvelope(
+            source: .pane(context.paneId),
+            seq: sequence,
+            timestamp: .now,
+            paneId: context.paneId,
+            paneKind: pane.metadata.contentType,
+            event: .paneFilesystemContext(
+                .cwdSubtreeChanged(context: context, paths: ["Sources/App.swift"], batchSeq: sequence)
+            )
+        )
+    )
 }
 
 @MainActor
@@ -637,6 +770,30 @@ private actor GateableFilesystemProjectionIndex: WorkspaceFilesystemProjectionIn
     private var resumeSourceSyncContinuations: [CheckedContinuation<Void, Never>] = []
     private var pausedProjectionContinuations: [CheckedContinuation<Void, Never>] = []
     private var resumeProjectionContinuations: [CheckedContinuation<Void, Never>] = []
+    private var recordedShutdownInvocationCount = 0
+    private var shutdownWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func shutdown() async {
+        recordedShutdownInvocationCount += 1
+        let waiters = shutdownWaiters
+        shutdownWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        resumePausedProjection()
+        await base.shutdown()
+    }
+
+    func waitForShutdown() async {
+        guard recordedShutdownInvocationCount == 0 else { return }
+        await withCheckedContinuation { continuation in
+            shutdownWaiters.append(continuation)
+        }
+    }
+
+    func shutdownInvocationCount() -> Int {
+        recordedShutdownInvocationCount
+    }
 
     func pauseNextSourceSync() {
         sourceSyncPauseCount += 1

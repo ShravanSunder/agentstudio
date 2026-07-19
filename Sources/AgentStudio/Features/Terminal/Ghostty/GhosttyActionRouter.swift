@@ -21,9 +21,17 @@ extension Ghostty {
         static let localActionDrainScheduler = TerminalLocalActionDrainScheduler { surfaceID in
             await drainLocalActions(for: surfaceID)
         }
-        static let localActionAccumulator = TerminalLocalActionAccumulator { surfaceID, schedule in
-            localActionDrainScheduler.schedule(surfaceID, schedule)
-        }
+        static let localActionAccumulator = TerminalLocalActionAccumulator(
+            scheduleDrain: { surfaceID, schedule in
+                localActionDrainScheduler.schedule(surfaceID, schedule)
+            },
+            scheduleFollowUpDrain: { surfaceID, schedule in
+                localActionDrainScheduler.scheduleFollowUp(surfaceID, schedule)
+            },
+            cancelScheduledTitleDrain: { surfaceID in
+                localActionDrainScheduler.cancel(for: surfaceID)
+            }
+        )
         static let explicitlyRoutedTags: Set<GhosttyActionTag> = [
             .newTab,
             .ringBell,
@@ -683,9 +691,10 @@ extension Ghostty {
                 surfaceID: resolvedSurfaceView.managedSurfaceID,
                 accumulator: localActionAccumulator
             )
+            let precedingTitle: TerminalPrecedingTitleBarrier?
             switch disposition {
-            case .routeExactFactOrControl:
-                break
+            case .routeExactFactOrControl(let sealedTitle):
+                precedingTitle = sealedTitle
             case .updateDirectHostState:
                 Task { @MainActor [weak resolvedSurfaceView] in
                     guard let resolvedSurfaceView else { return }
@@ -701,14 +710,15 @@ extension Ghostty {
             }
 
             let surfaceViewObjectId = ObjectIdentifier(resolvedSurfaceView)
-            let surfaceID = resolvedSurfaceView.managedSurfaceID
             // Preserve Ghostty's synchronous handled contract while the actual runtime
             // delivery completes on MainActor.
             Task { @MainActor [weak resolvedSurfaceView] in
-                if localActionAccumulator.hasPendingActions(for: surfaceID) {
-                    await flushLocalActions(for: surfaceID)
-                }
                 if let resolvedSurfaceView {
+                    if let surfaceTitle = precedingTitle?.metadata.surfaceTitle,
+                        resolvedSurfaceView.title != surfaceTitle
+                    {
+                        resolvedSurfaceView.titleDidChange(surfaceTitle)
+                    }
                     updateSurfaceHostCache(
                         actionTag: actionTag,
                         payload: payload,
@@ -716,12 +726,22 @@ extension Ghostty {
                     )
                 }
                 let routingLookup = routingLookupProvider()
-                _ = routeActionToTerminalRuntimeOnMainActor(
+                _ = routeExactFactOrControlOnMainActor(
+                    precedingTitle: precedingTitle,
                     actionTag: actionTag,
                     payload: payload,
-                    surfaceViewObjectId: surfaceViewObjectId,
+                    surfaceViewObjectID: surfaceViewObjectId,
                     routingLookup: routingLookup
                 )
+                if let precedingTitle, let resolvedSurfaceView {
+                    resolvedSurfaceView.performanceTraceRecorder?.recordTerminalAccumulatorDrain(
+                        terminalAccumulatorDrainPerformanceSnapshot(for: precedingTitle),
+                        queueAge: terminalAccumulatorQueueAge(
+                            firstOfferedAtNanoseconds: precedingTitle.firstOfferedAtNanoseconds,
+                            currentUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                        )
+                    )
+                }
             }
             return handledResult
         }
@@ -836,9 +856,5 @@ extension Ghostty {
             return true
         }
 
-        static func surfaceView(from surface: ghostty_surface_t) -> SurfaceView? {
-            guard let userdata = ghostty_surface_userdata(surface) else { return nil }
-            return Unmanaged<SurfaceView>.fromOpaque(userdata).takeUnretainedValue()
-        }
     }
 }

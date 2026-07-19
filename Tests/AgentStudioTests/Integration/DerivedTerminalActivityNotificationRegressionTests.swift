@@ -135,6 +135,62 @@ struct DerivedTerminalActivityNotificationRegressionTests {
         await fixture.shutdown()
     }
 
+    @Test("transient entry to bottom clears observed pane unread state before final unpinned state")
+    func transientEntryToBottomClearsObservedPaneUnreadState() async {
+        let fixture = await makeFixture()
+        let paneId = PaneId.generateUUIDv7()
+        _ = addTerminalPane(paneId, to: fixture)
+        makeWindowKey(fixture.windowLifecycle)
+        await waitForAttendedPane(
+            paneId.uuid,
+            in: fixture,
+            description: "pane should be attended before receiving pinned edges"
+        )
+        fixture.inboxAtom.append(
+            InboxNotification(
+                id: UUIDv7.generate(),
+                timestamp: Date(timeIntervalSince1970: 100),
+                kind: .unseenActivity,
+                title: "Output available",
+                body: nil,
+                source: .pane(.init(paneId: paneId.uuid)),
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+        )
+        let states = [
+            ScrollbarState(top: 0, bottom: 10, total: 100),
+            ScrollbarState(top: 90, bottom: 100, total: 100),
+            ScrollbarState(top: 0, bottom: 10, total: 100),
+        ]
+
+        await fixture.terminalRouter.consumeTerminalActivityInput(
+            .aggregate(
+                surfaceID: paneId.uuid,
+                paneID: paneId.uuid,
+                input: TerminalActivityAggregateInput(
+                    aggregate: makeAggregate(states: states),
+                    latestState: states[2],
+                    context: TerminalActivityProjectionContext(
+                        isAttended: true,
+                        isAgentClassified: false,
+                        outputBurstThreshold: fixture.terminalActivity.outputBurstThreshold
+                    )
+                )
+            )
+        )
+
+        await assertEventuallyMain("transient pinned entry should clear the observed pane notification") {
+            fixture.inboxAtom.notifications.count == 1
+                && fixture.inboxAtom.notifications[0].isRead
+                && fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox
+                && fixture.inboxAtom.globalUnreadCount == 0
+        }
+        #expect(fixture.terminalActivity.snapshot(for: paneId.uuid)?.scrollbarState == states[2])
+
+        await fixture.shutdown()
+    }
+
     private func makeFixture() async -> Fixture {
         let bus = EventBus<RuntimeEnvelope>()
         let inboxAtom = InboxNotificationAtom()
@@ -306,5 +362,20 @@ struct DerivedTerminalActivityNotificationRegressionTests {
         }
         await fixture.clock.waitForPendingSleepGeneration(initialSleepGeneration)
         fixture.clock.advance(by: AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration)
+    }
+
+    private func makeAggregate(states: [ScrollbarState]) -> TerminalScrollbarActivityAggregate {
+        let firstState = states[0]
+        var aggregate = TerminalScrollbarActivityAggregate(
+            state: firstState,
+            observedAtMilliseconds: 1000
+        )
+        for (index, state) in states.dropFirst().enumerated() {
+            aggregate.merge(
+                state: state,
+                observedAtMilliseconds: 1100 + Int64(index * 100)
+            )
+        }
+        return aggregate
     }
 }

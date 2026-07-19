@@ -6,9 +6,9 @@ Accepted source:
 `docs/specs/2026-07-17-targeted-runtime-pressure-reduction/targeted-runtime-pressure-reduction.md`
 
 Accepted source SHA-256:
-`eeb3cb8ed6bdf55ca65dc249be8295de7fa44ad003028c396d0c59dfa4e58f1d`
+`6f8ca2cd26d520d7f76854272c925a5720c707a18b506866a24b00c29f46cbcd`
 
-Source coverage: `896/896` lines
+Source coverage: `902/902` lines
 
 Behavioral baseline source: `5dea96b6`
 
@@ -545,9 +545,12 @@ runner or shell/regex checker.
    semantic-fact drops, unrelated-action full reconciliation, duplicate
    trace-identity fleet capture, and post-quiescence logical filesystem/Git debt.
 6. Require compact MainActor apply p95 below 2 ms and p99 below 5 ms;
-   callback-to-current-batch-commit queue age p95 below 8 ms and p99 below
-   16 ms; fewer than three targeted service samples at or above 20 ms; and none
-   at or above 60 ms per qualifying trial.
+   callback-to-current-batch-commit queue age for immediate presentation,
+   activity, and ordered-local-lifecycle batches p95 below 8 ms and p99 below
+   16 ms; title-only metadata publication no later than its fixed, non-sliding
+   250 ms maximum-latency window; fewer than three targeted service samples at
+   or above 20 ms; and none at or above 60 ms per qualifying trial. Report the
+   title window separately from immediate-batch queue-age percentiles.
 7. Require CPU, attributable allocation/retained-byte pressure, and paired
    targeted MainActor duty to improve beyond the frozen noise band. Peak and
    post-quiescence physical footprint/RSS cannot regress beyond the band.

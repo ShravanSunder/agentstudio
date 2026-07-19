@@ -1,6 +1,7 @@
 import Foundation
 
 protocol WorkspaceFilesystemProjectionIndexing: Sendable {
+    func shutdown() async
     func reconcileSourceSync(_ request: FilesystemSourceSyncRequest) async -> FilesystemSourceSyncDiff
     func commitSourceSync(requestGeneration: UInt64, topologyGeneration: UInt64) async -> Bool
     @discardableResult
@@ -76,6 +77,11 @@ enum PaneFilesystemProjectionAdmission: Sendable {
 }
 
 actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
+    private enum PaneUpdateWaitOutcome: Sendable {
+        case ready
+        case cancelled
+    }
+
     private struct IndexedWorktree: Sendable, Equatable {
         let repoId: UUID
         let rootPath: URL
@@ -109,7 +115,19 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
     private var appliedPaneUpdateGeneration: UInt64 = 0
     private var canonicalPathByRawPath: [String: String] = [:]
     private var pendingSourceSyncsByRequestGeneration: [UInt64: PendingSourceSyncSnapshot] = [:]
-    private var paneUpdateWaiters: [UInt64: [CheckedContinuation<Void, Never>]] = [:]
+    private var paneUpdateWaiters: [UInt64: [CheckedContinuation<PaneUpdateWaitOutcome, Never>]] = [:]
+    private var isShutdown = false
+
+    func shutdown() async {
+        guard !isShutdown else { return }
+        isShutdown = true
+        pendingSourceSyncsByRequestGeneration.removeAll(keepingCapacity: false)
+        let waiters = paneUpdateWaiters.values.flatMap { $0 }
+        paneUpdateWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume(returning: .cancelled)
+        }
+    }
 
     func reconcileSourceSync(_ request: FilesystemSourceSyncRequest) async -> FilesystemSourceSyncDiff {
         let nextWorktreesById = buildWorktreeIndex(from: request.topologyEntries)
@@ -257,7 +275,9 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
     }
 
     func projectPaneFilesystem(_ request: PaneFilesystemProjectionRequest) async -> PaneFilesystemProjectionResult {
-        await waitForPaneUpdates(through: request.paneContextGeneration)
+        guard await waitForPaneUpdates(through: request.paneContextGeneration) == .ready else {
+            return emptyProjectionResult(for: request)
+        }
         guard case .worktree(let worktreeEnvelope) = request.envelope else {
             return emptyProjectionResult(for: request)
         }
@@ -282,9 +302,10 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
         )
     }
 
-    private func waitForPaneUpdates(through generation: UInt64) async {
-        guard appliedPaneUpdateGeneration < generation else { return }
-        await withCheckedContinuation { continuation in
+    private func waitForPaneUpdates(through generation: UInt64) async -> PaneUpdateWaitOutcome {
+        guard !isShutdown else { return .cancelled }
+        guard appliedPaneUpdateGeneration < generation else { return .ready }
+        return await withCheckedContinuation { continuation in
             paneUpdateWaiters[generation, default: []].append(continuation)
         }
     }
@@ -294,7 +315,7 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
         for generation in readyGenerations {
             let waiters = paneUpdateWaiters.removeValue(forKey: generation) ?? []
             for waiter in waiters {
-                waiter.resume()
+                waiter.resume(returning: .ready)
             }
         }
     }
@@ -337,7 +358,7 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
         else {
             return nil
         }
-        let cwd = (entry.cwd ?? worktree.rootPath).standardizedFileURL.resolvingSymlinksInPath()
+        let cwd = (entry.cwd ?? worktree.rootPath).standardizedFileURL
         return IndexedPane(
             paneId: entry.paneId,
             paneKind: entry.paneKind,

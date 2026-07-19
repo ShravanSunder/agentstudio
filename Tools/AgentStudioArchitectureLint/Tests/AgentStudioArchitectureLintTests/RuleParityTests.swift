@@ -176,7 +176,7 @@ struct RuleParityTests {
         let diagnostics = try lint(files: [fixture])
             .filter { $0.ruleID == "agentstudio_terminal_local_disposition_publication" }
 
-        #expect(diagnostics.map(\.line) == [8, 11, 14, 17])
+        #expect(diagnostics.map(\.line) == [8, 11, 14, 17, 20])
         #expect(
             Set(diagnostics.map(\.message)) == [
                 "GhosttyActionDisposition local-only cases must contract locally before routeActionToTerminalRuntimeOnMainActor"

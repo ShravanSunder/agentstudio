@@ -156,10 +156,7 @@ extension WorkspaceSurfaceCoordinator {
             else {
                 return true
             }
-            await Self.publishDerivedFilesystemEnvelopes(
-                derivedEnvelopes,
-                to: paneEventBus
-            )
+            await publishCurrentDerivedFilesystemEnvelopes(derivedEnvelopes)
         }
         return true
     }
@@ -526,12 +523,10 @@ extension WorkspaceSurfaceCoordinator {
         )
     }
 
-    @concurrent nonisolated private static func publishDerivedFilesystemEnvelopes(
-        _ envelopes: [RuntimeEnvelope],
-        to paneEventBus: EventBus<RuntimeEnvelope>
-    ) async {
+    func publishCurrentDerivedFilesystemEnvelopes(_ envelopes: [RuntimeEnvelope]) async {
         let logger = Logger(subsystem: "com.agentstudio", category: "WorkspaceSurfaceCoordinator")
         for envelope in envelopes {
+            guard isCurrentDerivedFilesystemEnvelope(envelope) else { continue }
             let result = await paneEventBus.post(envelope)
             if result.droppedCount > 0 {
                 logger.warning(
@@ -539,6 +534,44 @@ extension WorkspaceSurfaceCoordinator {
                 )
             }
         }
+    }
+
+    private func isCurrentDerivedFilesystemEnvelope(_ envelope: RuntimeEnvelope) -> Bool {
+        guard
+            case .pane(let paneEnvelope) = envelope,
+            case .paneFilesystemContext(let event) = paneEnvelope.event
+        else {
+            return false
+        }
+        let projectedContext: PaneFilesystemContext
+        switch event {
+        case .cwdSubtreeChanged(let context, _, _), .gitWorkingTreeInCwd(let context, _, _, _):
+            projectedContext = context
+        }
+        guard paneEnvelope.paneId == projectedContext.paneId else { return false }
+        return currentPaneFilesystemContext(paneId: projectedContext.paneId.uuid) == projectedContext
+    }
+
+    private func currentPaneFilesystemContext(paneId: UUID) -> PaneFilesystemContext? {
+        guard store.paneAtom.graphAtom.paneState(paneId) != nil else { return nil }
+        guard
+            let pane = store.paneAtom.pane(paneId),
+            let repoId = pane.repoId ?? pane.metadata.repoId,
+            let worktreeId = pane.worktreeId ?? pane.metadata.worktreeId
+        else {
+            return nil
+        }
+        let cwd =
+            pane.metadata.cwd
+            ?? store.repositoryTopologyAtom.worktree(worktreeId)?.path
+            ?? pane.metadata.launchDirectory
+        guard let cwd else { return nil }
+        return PaneFilesystemContext(
+            paneId: PaneId(existingUUID: paneId),
+            repoId: repoId,
+            cwd: cwd.standardizedFileURL,
+            worktreeId: worktreeId
+        )
     }
 
     private func makeFilesystemProjectionEnvelope(_ intent: PaneFilesystemProjectionIntent) -> RuntimeEnvelope {

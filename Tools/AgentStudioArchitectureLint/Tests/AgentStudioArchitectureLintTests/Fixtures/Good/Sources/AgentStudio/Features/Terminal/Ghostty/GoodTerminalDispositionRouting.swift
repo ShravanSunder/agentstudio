@@ -6,6 +6,9 @@ enum GoodTerminalDispositionRouting {
         case .latestPresentation(let presentation):
             offerLocalPresentation(presentation)
             return handledResult
+        case .latestSemanticMetadata(let metadata):
+            offerLocalSemanticMetadata(metadata)
+            return handledResult
         case .activityEvidence(let evidence):
             offerLocalActivityEvidence(evidence)
             return handledResult

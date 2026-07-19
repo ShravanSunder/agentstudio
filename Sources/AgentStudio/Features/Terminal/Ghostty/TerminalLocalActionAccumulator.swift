@@ -70,6 +70,12 @@ struct TerminalTitleMetadataBatch: Sendable, Equatable {
     var surfaceTitle: String?
 }
 
+struct TerminalPrecedingTitleBarrier: Sendable, Equatable {
+    let metadata: TerminalTitleMetadataBatch
+    let metrics: TerminalLocalAccumulatorMetrics
+    let firstOfferedAtNanoseconds: UInt64
+}
+
 struct TerminalScrollbarActivityAggregate: Sendable, Equatable {
     let firstObservedAtMilliseconds: Int64
     private(set) var latestObservedAtMilliseconds: Int64
@@ -117,6 +123,24 @@ struct TerminalLocalAccumulatorMetrics: Sendable, Equatable {
     var equalSuppressedCount: UInt64 = 0
     var scheduledDrainCount: UInt64 = 0
     var followUpDrainCount: UInt64 = 0
+
+    func subtracting(_ subset: Self) -> Self? {
+        guard
+            offeredCount >= subset.offeredCount,
+            replacedCount >= subset.replacedCount,
+            equalSuppressedCount >= subset.equalSuppressedCount,
+            scheduledDrainCount >= subset.scheduledDrainCount,
+            followUpDrainCount >= subset.followUpDrainCount
+        else { return nil }
+
+        return Self(
+            offeredCount: offeredCount - subset.offeredCount,
+            replacedCount: replacedCount - subset.replacedCount,
+            equalSuppressedCount: equalSuppressedCount - subset.equalSuppressedCount,
+            scheduledDrainCount: scheduledDrainCount - subset.scheduledDrainCount,
+            followUpDrainCount: followUpDrainCount - subset.followUpDrainCount
+        )
+    }
 }
 
 struct TerminalLocalActionBatch: Sendable, Equatable {
@@ -184,7 +208,10 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         var searchLifecycle: TerminalSearchLifecycleSummary?
         var titleMetadata: TerminalTitleMetadataBatch?
         var metrics = TerminalLocalAccumulatorMetrics()
+        var titleMetrics = TerminalLocalAccumulatorMetrics()
         var firstOfferedAtNanoseconds: UInt64?
+        var firstTitleOfferedAtNanoseconds: UInt64?
+        var firstNonTitleOfferedAtNanoseconds: UInt64?
 
         var hasWork: Bool {
             presentation.scrollbarState != nil
@@ -216,23 +243,43 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         var activityContext: TerminalActivityProjectionContext?
     }
 
+    // Lock order is accumulator -> scheduler. Scheduler callbacks only register,
+    // upgrade, cancel, or record a follow-up claim; they never call back into the
+    // accumulator while either lock is held.
     private let lock = NSLock()
     private let scheduleDrain: @Sendable (UUID, TerminalLocalDrainSchedule) -> Void
+    private let scheduleFollowUpDrain: @Sendable (UUID, TerminalLocalDrainSchedule) -> Void
+    private let cancelScheduledTitleDrain: @Sendable (UUID) -> Void
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
 
-    init(scheduleDrain: @escaping @Sendable (UUID, TerminalLocalDrainSchedule) -> Void) {
+    init(
+        scheduleDrain: @escaping @Sendable (UUID, TerminalLocalDrainSchedule) -> Void,
+        scheduleFollowUpDrain: (@Sendable (UUID, TerminalLocalDrainSchedule) -> Void)? = nil,
+        cancelScheduledTitleDrain: @escaping @Sendable (UUID) -> Void = { _ in }
+    ) {
         self.scheduleDrain = scheduleDrain
+        self.scheduleFollowUpDrain = scheduleFollowUpDrain ?? scheduleDrain
+        self.cancelScheduledTitleDrain = cancelScheduledTitleDrain
     }
 
     @discardableResult
     func offer(_ action: TerminalLocalAccumulatorAction, for surfaceID: UUID) -> TerminalLocalAccumulatorOfferResult {
-        var requestedSchedule: TerminalLocalDrainSchedule?
-        let result = lock.withLock { () -> TerminalLocalAccumulatorOfferResult in
+        lock.withLock { () -> TerminalLocalAccumulatorOfferResult in
             var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
+            let offeredAtNanoseconds = DispatchTime.now().uptimeNanoseconds
             if state.pending.firstOfferedAtNanoseconds == nil {
-                state.pending.firstOfferedAtNanoseconds = DispatchTime.now().uptimeNanoseconds
+                state.pending.firstOfferedAtNanoseconds = offeredAtNanoseconds
+            }
+            if isTitleAction(action), state.pending.firstTitleOfferedAtNanoseconds == nil {
+                state.pending.firstTitleOfferedAtNanoseconds = offeredAtNanoseconds
+            }
+            if !isTitleAction(action), state.pending.firstNonTitleOfferedAtNanoseconds == nil {
+                state.pending.firstNonTitleOfferedAtNanoseconds = offeredAtNanoseconds
             }
             state.pending.metrics.offeredCount += 1
+            if isTitleAction(action) {
+                state.pending.titleMetrics.offeredCount += 1
+            }
             let mutationResult = apply(action, to: &state)
             guard mutationResult != .rejectedInactiveSearch else {
                 if state.pending.hasWork || state.phase != .idle || state.search.isActive {
@@ -245,23 +292,67 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
             case .idle:
                 state.phase = .scheduled(actionSchedule)
                 state.pending.metrics.scheduledDrainCount += 1
-                requestedSchedule = actionSchedule
+                if isTitleAction(action) {
+                    state.pending.titleMetrics.scheduledDrainCount += 1
+                }
                 statesBySurfaceID[surfaceID] = state
+                scheduleDrain(surfaceID, actionSchedule)
                 return .scheduled
             case .scheduled(.titleWindow) where actionSchedule == .immediate:
                 state.phase = .scheduled(.immediate)
                 state.pending.metrics.scheduledDrainCount += 1
-                requestedSchedule = .immediate
+                statesBySurfaceID[surfaceID] = state
+                scheduleDrain(surfaceID, .immediate)
+                return mutationResult
             case .scheduled, .draining:
                 break
             }
             statesBySurfaceID[surfaceID] = state
             return mutationResult
         }
-        if let requestedSchedule {
-            scheduleDrain(surfaceID, requestedSchedule)
+    }
+
+    /// Seals the latest title admitted before an exact fact/control. Cancellation
+    /// is ordered under the same per-surface lock so a later title cannot lose its
+    /// newly registered deadline to the earlier barrier.
+    func detachTitleBeforeExactBarrier(for surfaceID: UUID) -> TerminalPrecedingTitleBarrier? {
+        lock.withLock {
+            guard var state = statesBySurfaceID[surfaceID], let titleMetadata = state.pending.titleMetadata
+            else { return nil }
+
+            state.pending.titleMetadata = nil
+            let titleMetrics = state.pending.titleMetrics
+            let firstTitleOfferedAtNanoseconds =
+                state.pending.firstTitleOfferedAtNanoseconds
+                ?? DispatchTime.now().uptimeNanoseconds
+            guard let remainingMetrics = state.pending.metrics.subtracting(titleMetrics) else {
+                preconditionFailure("Title metrics must be a subset of pending accumulator metrics")
+            }
+            state.pending.metrics = remainingMetrics
+            state.pending.titleMetrics = TerminalLocalAccumulatorMetrics()
+            state.pending.firstTitleOfferedAtNanoseconds = nil
+            if state.phase == .scheduled(.titleWindow) {
+                cancelScheduledTitleDrain(surfaceID)
+                state.phase = .idle
+            }
+
+            if !state.pending.hasWork {
+                state.pending.firstOfferedAtNanoseconds = nil
+                if state.phase == .idle, !state.search.isActive {
+                    statesBySurfaceID.removeValue(forKey: surfaceID)
+                } else {
+                    statesBySurfaceID[surfaceID] = state
+                }
+            } else {
+                state.pending.firstOfferedAtNanoseconds = state.pending.firstNonTitleOfferedAtNanoseconds
+                statesBySurfaceID[surfaceID] = state
+            }
+            return TerminalPrecedingTitleBarrier(
+                metadata: titleMetadata,
+                metrics: titleMetrics,
+                firstOfferedAtNanoseconds: firstTitleOfferedAtNanoseconds
+            )
         }
-        return result
     }
 
     func beginDrain(
@@ -337,14 +428,16 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
     }
 
     func finishDrain(for surfaceID: UUID) -> TerminalLocalAccumulatorDrainCompletion {
-        var requestedSchedule: TerminalLocalDrainSchedule?
-        let completion = lock.withLock { () -> TerminalLocalAccumulatorDrainCompletion in
+        lock.withLock { () -> TerminalLocalAccumulatorDrainCompletion in
             guard var state = statesBySurfaceID[surfaceID], state.phase == .draining else { return .idle }
             if let followUpSchedule = state.pending.drainSchedule {
                 state.phase = .scheduled(followUpSchedule)
                 state.pending.metrics.followUpDrainCount += 1
+                if followUpSchedule == .titleWindow {
+                    state.pending.titleMetrics.followUpDrainCount += 1
+                }
                 statesBySurfaceID[surfaceID] = state
-                requestedSchedule = followUpSchedule
+                scheduleFollowUpDrain(surfaceID, followUpSchedule)
                 return .followUpScheduled
             }
             if state.search.isActive {
@@ -355,10 +448,6 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
             }
             return .idle
         }
-        if let requestedSchedule {
-            scheduleDrain(surfaceID, requestedSchedule)
-        }
-        return completion
     }
 
     func removeSurface(_ surfaceID: UUID) {
@@ -403,6 +492,16 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         case .scrollbar, .mouseShape, .mouseVisibility, .searchStarted, .searchEnded, .searchMatches,
             .searchSelection:
             return .immediate
+        }
+    }
+
+    private func isTitleAction(_ action: TerminalLocalAccumulatorAction) -> Bool {
+        switch action {
+        case .titleChanged, .tabTitleChanged:
+            return true
+        case .scrollbar, .mouseShape, .mouseVisibility, .searchStarted, .searchEnded, .searchMatches,
+            .searchSelection:
+            return false
         }
     }
 
@@ -543,6 +642,7 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
             surfaceTitle: surfaceTitle
         )
         record(result, replacedExistingValue: hadCurrentValue, in: &state.pending.metrics)
+        record(result, replacedExistingValue: hadCurrentValue, in: &state.pending.titleMetrics)
         return result
     }
 

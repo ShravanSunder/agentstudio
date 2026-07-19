@@ -451,6 +451,37 @@ struct FilesystemProjectionIndexTests {
         #expect(projection.paths == ["docs/readme.md"])
     }
 
+    @Test("shutdown retires a projection waiting for a discarded pane generation")
+    func shutdownRetiresProjectionWaitingForDiscardedPaneGeneration() async {
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/repo")
+        let index = FilesystemProjectionIndex()
+
+        let projectionTask = Task {
+            await index.projectPaneFilesystem(
+                PaneFilesystemProjectionRequest(
+                    requestGeneration: 1,
+                    paneContextGeneration: 1,
+                    topologyGeneration: 0,
+                    envelope: filesystemEnvelope(
+                        repoId: repoId,
+                        worktreeId: worktreeId,
+                        rootPath: rootPath
+                    )
+                )
+            )
+        }
+
+        await Task.yield()
+        await index.shutdown()
+        let result = await projectionTask.value
+
+        #expect(result.intents.isEmpty)
+        #expect(result.paneCount == 0)
+        #expect(result.worktreeCount == 0)
+    }
+
     @Test("pane removal prunes projection facts")
     func paneRemovalPrunesProjectionFacts() async {
         let repoId = UUID()

@@ -2,7 +2,7 @@ import Foundation
 import GhosttyKit
 
 enum GhosttyTranslatedActionAdmission: Sendable, Equatable {
-    case routeExactFactOrControl
+    case routeExactFactOrControl(precedingTitle: TerminalPrecedingTitleBarrier?)
     case updateDirectHostState
     case handledLocally
 }
@@ -15,7 +15,9 @@ extension Ghostty.ActionRouter {
     ) -> GhosttyTranslatedActionAdmission {
         switch GhosttyActionDisposition.classify(event) {
         case .exactFactOrControl:
-            return .routeExactFactOrControl
+            return .routeExactFactOrControl(
+                precedingTitle: accumulator.detachTitleBeforeExactBarrier(for: surfaceID)
+            )
         case .latestPresentation(let presentation):
             offerLocalPresentation(presentation, for: surfaceID, accumulator: accumulator)
             return .handledLocally
@@ -225,24 +227,57 @@ extension Ghostty.ActionRouter {
             serviceTime: applyStartedAt.duration(to: clock.now)
         )
         let currentUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
-        let queueAgeNanoseconds =
-            currentUptimeNanoseconds >= batch.firstOfferedAtNanoseconds
-            ? currentUptimeNanoseconds - batch.firstOfferedAtNanoseconds
-            : 0
         surfaceView.performanceTraceRecorder?.recordTerminalAccumulatorDrain(
-            TerminalAccumulatorDrainPerformanceSnapshot(
-                offeredCount: batch.metrics.offeredCount,
-                replacedCount: batch.metrics.replacedCount,
-                equalSuppressedCount: batch.metrics.equalSuppressedCount,
-                scheduledDrainCount: batch.metrics.scheduledDrainCount,
-                followUpDrainCount: batch.metrics.followUpDrainCount,
-                mainActorTaskCount: 1,
-                activityAggregateCount: batch.activity == nil ? 0 : 1,
-                retainedEntryCount: UInt64(batch.retainedEntryCount),
-                retainedSizeBytes: UInt64(batch.retainedEntryCount * 64)
-            ),
-            queueAge: .nanoseconds(Int64(clamping: queueAgeNanoseconds))
+            terminalAccumulatorDrainPerformanceSnapshot(for: batch),
+            queueAge: terminalAccumulatorQueueAge(
+                firstOfferedAtNanoseconds: batch.firstOfferedAtNanoseconds,
+                currentUptimeNanoseconds: currentUptimeNanoseconds
+            )
         )
+    }
+
+    static func terminalAccumulatorDrainPerformanceSnapshot(
+        for batch: TerminalLocalActionBatch
+    ) -> TerminalAccumulatorDrainPerformanceSnapshot {
+        TerminalAccumulatorDrainPerformanceSnapshot(
+            offeredCount: batch.metrics.offeredCount,
+            replacedCount: batch.metrics.replacedCount,
+            equalSuppressedCount: batch.metrics.equalSuppressedCount,
+            scheduledDrainCount: batch.metrics.scheduledDrainCount,
+            followUpDrainCount: batch.metrics.followUpDrainCount,
+            mainActorTaskCount: 1,
+            activityAggregateCount: batch.activity == nil ? 0 : 1,
+            retainedEntryCount: UInt64(batch.retainedEntryCount),
+            retainedSizeBytes: UInt64(batch.retainedEntryCount * 64)
+        )
+    }
+
+    static func terminalAccumulatorDrainPerformanceSnapshot(
+        for barrier: TerminalPrecedingTitleBarrier
+    ) -> TerminalAccumulatorDrainPerformanceSnapshot {
+        let retainedEntryCount = barrier.metadata.surfaceTitle == nil ? 1 : 2
+        return TerminalAccumulatorDrainPerformanceSnapshot(
+            offeredCount: barrier.metrics.offeredCount,
+            replacedCount: barrier.metrics.replacedCount,
+            equalSuppressedCount: barrier.metrics.equalSuppressedCount,
+            scheduledDrainCount: barrier.metrics.scheduledDrainCount,
+            followUpDrainCount: barrier.metrics.followUpDrainCount,
+            mainActorTaskCount: 0,
+            activityAggregateCount: 0,
+            retainedEntryCount: UInt64(retainedEntryCount),
+            retainedSizeBytes: UInt64(retainedEntryCount * 64)
+        )
+    }
+
+    static func terminalAccumulatorQueueAge(
+        firstOfferedAtNanoseconds: UInt64,
+        currentUptimeNanoseconds: UInt64
+    ) -> Duration {
+        let queueAgeNanoseconds =
+            currentUptimeNanoseconds >= firstOfferedAtNanoseconds
+            ? currentUptimeNanoseconds - firstOfferedAtNanoseconds
+            : 0
+        return .nanoseconds(Int64(clamping: queueAgeNanoseconds))
     }
 
     @MainActor
@@ -262,6 +297,29 @@ extension Ghostty.ActionRouter {
             payload = .tabTitleChanged(title)
         }
         _ = routeActionToTerminalRuntimeOnMainActor(
+            actionTag: actionTag,
+            payload: payload,
+            surfaceViewObjectId: surfaceViewObjectID,
+            routingLookup: routingLookup
+        )
+    }
+
+    @MainActor
+    static func routeExactFactOrControlOnMainActor(
+        precedingTitle: TerminalPrecedingTitleBarrier?,
+        actionTag: UInt32,
+        payload: GhosttyAdapter.ActionPayload,
+        surfaceViewObjectID: ObjectIdentifier,
+        routingLookup: any GhosttyActionRoutingLookup
+    ) -> Bool {
+        if let precedingTitle {
+            routeContractedTitleMetadata(
+                precedingTitle.metadata.runtimeTitle,
+                surfaceViewObjectID: surfaceViewObjectID,
+                routingLookup: routingLookup
+            )
+        }
+        return routeActionToTerminalRuntimeOnMainActor(
             actionTag: actionTag,
             payload: payload,
             surfaceViewObjectId: surfaceViewObjectID,

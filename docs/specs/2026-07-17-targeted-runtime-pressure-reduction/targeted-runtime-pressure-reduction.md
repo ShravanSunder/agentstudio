@@ -731,8 +731,11 @@ P-13. Structural budgets are absolute:
 P-14. Initial interaction/resource budgets are:
 
 - compact MainActor apply p95 below 2 ms and p99 below 5 ms;
-- callback-to-current-batch-commit queue age p95 below 8 ms and p99 below 16 ms
-  during terminal pressure;
+- callback-to-current-batch-commit queue age for immediate presentation,
+  activity, and ordered-local-lifecycle batches p95 below 8 ms and p99 below
+  16 ms during terminal pressure;
+- title-only metadata publication no later than its fixed, non-sliding 250 ms
+  maximum-latency window; an earlier exact barrier may shorten that latency;
 - fewer than three targeted MainActor service samples at or above 20 ms in any
   qualifying trial, and none at or above 60 ms;
 - normalized CPU, attributable allocation/retained-byte pressure, and paired
@@ -748,10 +751,13 @@ P-14. Initial interaction/resource budgets are:
   boundedness, downstream sidebar/pane/tab behavior, or startup readiness.
 
 Callback-to-current-batch-commit queue age is a candidate-only metric because
-the behavioral baseline has no semantically equivalent route/commit emitter. It
-must meet the absolute p95/p99 budgets in every qualifying candidate trial and
-cannot satisfy or be used for a paired improvement claim. One best-case sample
-or proxy counter does not pass.
+the behavioral baseline has no semantically equivalent route/commit emitter.
+Immediate batches must meet the absolute p95/p99 budgets in every qualifying
+candidate trial. Title-only batches instead meet the fixed 250 ms publication
+window defined by TR-2 and TR-12; they are reported separately and are never
+mixed into the immediate-batch percentile. Neither metric can satisfy or be
+used for a paired improvement claim. One best-case sample or proxy counter does
+not pass.
 
 P-15. Stability proof includes crash-free workload execution, successful
 bounded quiescence, exact final state, no growth in critical EventBus failures,

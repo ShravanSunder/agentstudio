@@ -238,6 +238,58 @@ struct TerminalActivityProjectorTests {
         #expect(firstOutputCount == 1)
     }
 
+    @Test("aggregate preserves transient entry and exit from pinned bottom")
+    func aggregatePreservesTransientPinnedEntryAndExit() async {
+        let projector = TerminalActivityProjector(clock: TestPushClock())
+        let recorder = OutcomeRecorder()
+        await projector.configure { outcomes in recorder.record(outcomes) }
+        let paneID = UUIDv7.generate()
+        let surfaceID = UUIDv7.generate()
+        let states = [
+            ScrollbarState(top: 0, bottom: 10, total: 100),
+            ScrollbarState(top: 90, bottom: 100, total: 100),
+            ScrollbarState(top: 0, bottom: 10, total: 100),
+        ]
+
+        await projector.ingest(
+            surfaceID: surfaceID,
+            paneID: paneID,
+            aggregate: makeAggregate(states: states),
+            latestState: states[2],
+            context: attendedContext
+        )
+
+        #expect(observationStates(in: recorder.outcomes) == [true, false])
+        #expect(latestCompactScrollbarState(in: recorder.outcomes) == states[2])
+        await projector.reset()
+    }
+
+    @Test("aggregate preserves transient exit and return to pinned bottom")
+    func aggregatePreservesTransientPinnedExitAndEntry() async {
+        let projector = TerminalActivityProjector(clock: TestPushClock())
+        let recorder = OutcomeRecorder()
+        await projector.configure { outcomes in recorder.record(outcomes) }
+        let paneID = UUIDv7.generate()
+        let surfaceID = UUIDv7.generate()
+        let states = [
+            ScrollbarState(top: 90, bottom: 100, total: 100),
+            ScrollbarState(top: 0, bottom: 10, total: 100),
+            ScrollbarState(top: 90, bottom: 100, total: 100),
+        ]
+
+        await projector.ingest(
+            surfaceID: surfaceID,
+            paneID: paneID,
+            aggregate: makeAggregate(states: states),
+            latestState: states[2],
+            context: attendedContext
+        )
+
+        #expect(observationStates(in: recorder.outcomes) == [true, false, true])
+        #expect(latestCompactScrollbarState(in: recorder.outcomes) == states[2])
+        await projector.reset()
+    }
+
     @Test("quiet settlement is derived by the projector actor")
     func quietSettlementIsProjectorOwned() async {
         let clock = TestPushClock()
@@ -534,5 +586,48 @@ struct TerminalActivityProjectorTests {
             observedAtMilliseconds: latestObservedAtMilliseconds
         )
         return aggregate
+    }
+
+    private var attendedContext: TerminalActivityProjectionContext {
+        TerminalActivityProjectionContext(
+            isAttended: true,
+            isAgentClassified: false,
+            outputBurstThreshold: 30
+        )
+    }
+
+    private func makeAggregate(states: [ScrollbarState]) -> TerminalScrollbarActivityAggregate {
+        let firstState = states[0]
+        var aggregate = TerminalScrollbarActivityAggregate(
+            state: firstState,
+            observedAtMilliseconds: 1000
+        )
+        for (index, state) in states.dropFirst().enumerated() {
+            aggregate.merge(
+                state: state,
+                observedAtMilliseconds: 1100 + Int64(index * 100)
+            )
+        }
+        return aggregate
+    }
+
+    private func observationStates(
+        in outcomes: [TerminalActivityProjectionOutcome]
+    ) -> [Bool] {
+        outcomes.compactMap { outcome in
+            guard case .paneObservationChanged(_, _, let isPinnedToBottom) = outcome else {
+                return nil
+            }
+            return isPinnedToBottom
+        }
+    }
+
+    private func latestCompactScrollbarState(
+        in outcomes: [TerminalActivityProjectionOutcome]
+    ) -> ScrollbarState? {
+        outcomes.compactMap { outcome -> ScrollbarState? in
+            guard case .compactStateChanged(let update) = outcome else { return nil }
+            return update.scrollbarState
+        }.last
     }
 }

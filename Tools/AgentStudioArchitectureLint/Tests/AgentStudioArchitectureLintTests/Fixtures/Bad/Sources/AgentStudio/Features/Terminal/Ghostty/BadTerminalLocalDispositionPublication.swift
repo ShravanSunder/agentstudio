@@ -7,6 +7,9 @@ enum BadTerminalLocalDispositionPublication {
             recordLocalPresentation()
             routeActionToTerminalRuntimeOnMainActor()
             return handledResult
+        case .latestSemanticMetadata:
+            routeActionToTerminalRuntimeOnMainActor()
+            return handledResult
         case .activityEvidence:
             Self.routeActionToTerminalRuntimeOnMainActor()
             return handledResult
