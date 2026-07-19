@@ -1,4 +1,5 @@
 import Foundation
+import GhosttyKit
 
 enum GhosttyTranslatedActionAdmission: Sendable, Equatable {
     case routeExactFactOrControl
@@ -17,6 +18,9 @@ extension Ghostty.ActionRouter {
             return .routeExactFactOrControl
         case .latestPresentation(let presentation):
             offerLocalPresentation(presentation, for: surfaceID, accumulator: accumulator)
+            return .handledLocally
+        case .latestSemanticMetadata(let metadata):
+            offerLatestSemanticMetadata(metadata, for: surfaceID, accumulator: accumulator)
             return .handledLocally
         case .activityEvidence(let evidence):
             offerLocalActivityEvidence(evidence, for: surfaceID, accumulator: accumulator)
@@ -112,6 +116,19 @@ extension Ghostty.ActionRouter {
         }
     }
 
+    static func offerLatestSemanticMetadata(
+        _ metadata: TerminalLatestSemanticMetadataAction,
+        for surfaceID: UUID,
+        accumulator: TerminalLocalActionAccumulator
+    ) {
+        switch metadata {
+        case .titleChanged(let title):
+            accumulator.offer(.titleChanged(title), for: surfaceID)
+        case .tabTitleChanged(let title):
+            accumulator.offer(.tabTitleChanged(title), for: surfaceID)
+        }
+    }
+
     static func offerLocalLifecycle(
         _ lifecycle: TerminalLocalLifecycleAction,
         for surfaceID: UUID,
@@ -163,9 +180,21 @@ extension Ghostty.ActionRouter {
         {
             surfaceView.updateHostScrollbarState(scrollbarState)
         }
+        if let surfaceTitle = batch.titleMetadata?.surfaceTitle,
+            surfaceView.title != surfaceTitle
+        {
+            surfaceView.titleDidChange(surfaceTitle)
+        }
         let clock = ContinuousClock()
         let applyStartedAt = clock.now
         let equalWriteSuppressedCount = runtime.applyLocalActionBatch(batch)
+        if let runtimeTitle = batch.titleMetadata?.runtimeTitle {
+            routeContractedTitleMetadata(
+                runtimeTitle,
+                surfaceViewObjectID: ObjectIdentifier(surfaceView),
+                routingLookup: SurfaceManager.shared
+            )
+        }
         if let aggregate = batch.activity,
             let latestState = batch.presentation.scrollbarState,
             let context = batch.activityContext
@@ -206,6 +235,30 @@ extension Ghostty.ActionRouter {
                 retainedSizeBytes: UInt64(batch.retainedEntryCount * 64)
             ),
             queueAge: .nanoseconds(Int64(clamping: queueAgeNanoseconds))
+        )
+    }
+
+    @MainActor
+    static func routeContractedTitleMetadata(
+        _ metadata: TerminalLatestSemanticMetadataAction,
+        surfaceViewObjectID: ObjectIdentifier,
+        routingLookup: any GhosttyActionRoutingLookup
+    ) {
+        let actionTag: UInt32
+        let payload: GhosttyAdapter.ActionPayload
+        switch metadata {
+        case .titleChanged(let title):
+            actionTag = UInt32(GHOSTTY_ACTION_SET_TITLE.rawValue)
+            payload = .titleChanged(title)
+        case .tabTitleChanged(let title):
+            actionTag = UInt32(GHOSTTY_ACTION_SET_TAB_TITLE.rawValue)
+            payload = .tabTitleChanged(title)
+        }
+        _ = routeActionToTerminalRuntimeOnMainActor(
+            actionTag: actionTag,
+            payload: payload,
+            surfaceViewObjectId: surfaceViewObjectID,
+            routingLookup: routingLookup
         )
     }
 }

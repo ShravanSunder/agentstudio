@@ -5,6 +5,57 @@ import Testing
 
 @Suite("Terminal local action accumulator")
 struct TerminalLocalActionAccumulatorTests {
+    @Test("title callbacks retain independent latest runtime and surface values")
+    func titleCallbacksRetainIndependentLatestValues() throws {
+        let scheduler = DrainScheduleRecorder()
+        let accumulator = TerminalLocalActionAccumulator(scheduleDrain: scheduler.record)
+        let surfaceID = UUIDv7.generate()
+
+        #expect(accumulator.offer(.titleChanged("window"), for: surfaceID) == .scheduled)
+        #expect(accumulator.offer(.tabTitleChanged("tab"), for: surfaceID) == .coalesced)
+
+        #expect(scheduler.scheduledSurfaceIDs == [surfaceID])
+        #expect(accumulator.hasPendingActions(for: surfaceID))
+        let batch = try #require(accumulator.beginDrain(for: surfaceID))
+        #expect(batch.titleMetadata?.runtimeTitle == .tabTitleChanged("tab"))
+        #expect(batch.titleMetadata?.surfaceTitle == "window")
+        #expect(batch.metrics.offeredCount == 2)
+        #expect(batch.metrics.replacedCount == 1)
+        #expect(accumulator.finishDrain(for: surfaceID) == .idle)
+        #expect(!accumulator.hasPendingActions(for: surfaceID))
+        #expect(accumulator.retainedEntryCount == 0)
+
+        let tabOnlySurfaceID = UUIDv7.generate()
+        accumulator.offer(.tabTitleChanged("tab-only"), for: tabOnlySurfaceID)
+        let tabOnlyBatch = try #require(accumulator.beginDrain(for: tabOnlySurfaceID))
+        #expect(tabOnlyBatch.titleMetadata?.runtimeTitle == .tabTitleChanged("tab-only"))
+        #expect(tabOnlyBatch.titleMetadata?.surfaceTitle == nil)
+    }
+
+    @Test("large title burst schedules one bounded drain and retains the latest kind")
+    func largeTitleBurstIsBounded() throws {
+        let scheduler = DrainScheduleRecorder()
+        let accumulator = TerminalLocalActionAccumulator(scheduleDrain: scheduler.record)
+        let surfaceID = UUIDv7.generate()
+
+        for index in 0..<100_000 {
+            if index.isMultiple(of: 2) {
+                accumulator.offer(.titleChanged("window-\(index)"), for: surfaceID)
+            } else {
+                accumulator.offer(.tabTitleChanged("tab-\(index)"), for: surfaceID)
+            }
+        }
+
+        #expect(scheduler.scheduledSurfaceIDs == [surfaceID])
+        #expect(accumulator.retainedEntryCount <= TerminalLocalActionAccumulator.maximumRetainedEntriesPerSurface)
+        let batch = try #require(accumulator.beginDrain(for: surfaceID))
+        #expect(batch.titleMetadata?.runtimeTitle == .tabTitleChanged("tab-99999"))
+        #expect(batch.titleMetadata?.surfaceTitle == "window-99998")
+        #expect(batch.metrics.offeredCount == 100_000)
+        #expect(batch.metrics.replacedCount == 99_999)
+        #expect(accumulator.finishDrain(for: surfaceID) == .idle)
+    }
+
     @Test("one hundred thousand samples retain fixed state and preserve sufficient statistics")
     func largeBurstIsBounded() throws {
         let scheduler = DrainScheduleRecorder()
@@ -195,6 +246,10 @@ struct TerminalLocalActionAccumulatorTests {
         #expect(accumulator.retainedEntryCount == 1)
         let replacement = try #require(accumulator.beginDrain(for: replacementSurfaceID))
         #expect(replacement.presentation.mouseShape == .pointer)
+
+        accumulator.offer(.titleChanged("stale"), for: oldSurfaceID)
+        accumulator.removeSurface(oldSurfaceID)
+        #expect(accumulator.beginDrain(for: oldSurfaceID) == nil)
     }
 
     @Test("context transition detaches earlier evidence from later samples")

@@ -186,6 +186,99 @@ struct GhosttyActionRouterTests {
         #expect(runtime.metadata.title == "test")
     }
 
+    @Test("contracted tab title retains its runtime event kind and replay route")
+    func contractedTabTitleRetainsRuntimeRoute() async throws {
+        let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
+        let surfaceId = UUIDv7.generate()
+        let paneUUID = UUIDv7.generate()
+        let paneId = PaneId(existingUUID: paneUUID)
+        let runtime = TerminalRuntime(
+            paneId: paneId,
+            metadata: PaneMetadata(paneId: paneId, title: "Before")
+        )
+        let runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(runtime)
+        let lookup = FakeActionRoutingLookup(
+            surfaceIdsByViewObjectId: [surfaceViewObjectId: surfaceId],
+            paneIdsBySurfaceId: [surfaceId: paneUUID]
+        )
+        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
+        defer {
+            Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry)
+        }
+
+        Ghostty.ActionRouter.routeContractedTitleMetadata(
+            .tabTitleChanged("After"),
+            surfaceViewObjectID: surfaceViewObjectId,
+            routingLookup: lookup
+        )
+
+        #expect(runtime.metadata.title == "After")
+        let replay = await runtime.eventsSince(seq: 0)
+        #expect(replay.events.count == 1)
+        let envelope = try #require(replay.events.first)
+        guard case .pane(let paneEnvelope) = envelope else {
+            Issue.record("expected pane runtime envelope")
+            return
+        }
+        guard case .terminal(.tabTitleChanged(let title)) = paneEnvelope.event else {
+            Issue.record("expected contracted tab-title runtime event")
+            return
+        }
+        #expect(title == "After")
+    }
+
+    @Test("equal contracted first title still records startup readiness")
+    func equalContractedFirstTitleRecordsStartupReadiness() async throws {
+        let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
+        let surfaceId = UUIDv7.generate()
+        let paneUUID = UUIDv7.generate()
+        let paneId = PaneId(existingUUID: paneUUID)
+        let runtime = TerminalRuntime(
+            paneId: paneId,
+            metadata: PaneMetadata(paneId: paneId, title: "Same")
+        )
+        let runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(runtime)
+        let lookup = FakeActionRoutingLookup(
+            surfaceIdsByViewObjectId: [surfaceViewObjectId: surfaceId],
+            paneIdsBySurfaceId: [surfaceId: paneUUID]
+        )
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+                "AGENTSTUDIO_TRACE_NAME": "equal-title-startup",
+                "AGENTSTUDIO_TRACE_TAGS": "terminal.startup",
+            ]),
+            processIdentifier: 255,
+            sessionID: "equal-title-startup",
+            timeUnixNano: { 910 }
+        )
+        let startupRecorder = AgentStudioStartupTraceRecorder(traceRuntime: traceRuntime)
+        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
+        Ghostty.ActionRouter.bindStartupTraceRecorder(startupRecorder)
+        defer {
+            Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry)
+            Ghostty.ActionRouter.bindStartupTraceRecorder(nil)
+        }
+
+        Ghostty.ActionRouter.routeContractedTitleMetadata(
+            .titleChanged("Same"),
+            surfaceViewObjectID: surfaceViewObjectId,
+            routingLookup: lookup
+        )
+        try await startupRecorder.drain()
+
+        #expect((await runtime.eventsSince(seq: 0)).events.isEmpty)
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("terminal.startup.title_ready"))
+    }
+
     @Test("registered surface routes commandFinished payload through runtime envelope")
     func actionRouter_endToEnd_commandFinishedPayloadReachesRuntime() async {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))

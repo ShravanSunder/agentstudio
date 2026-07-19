@@ -8,6 +8,8 @@ enum TerminalLocalAccumulatorAction: Sendable, Equatable {
     case searchEnded
     case searchMatches(Int?)
     case searchSelection(Int?)
+    case titleChanged(String)
+    case tabTitleChanged(String)
 }
 
 enum TerminalSearchLifecycleState: Sendable, Equatable {
@@ -61,6 +63,11 @@ struct TerminalLocalPresentationBatch: Sendable, Equatable {
     var mouseShape: TerminalMouseShape?
     var mouseVisibility: Bool?
     var searchUpdate: TerminalSearchPresentationUpdate?
+}
+
+struct TerminalTitleMetadataBatch: Sendable, Equatable {
+    var runtimeTitle: TerminalLatestSemanticMetadataAction
+    var surfaceTitle: String?
 }
 
 struct TerminalScrollbarActivityAggregate: Sendable, Equatable {
@@ -118,6 +125,7 @@ struct TerminalLocalActionBatch: Sendable, Equatable {
     let activity: TerminalScrollbarActivityAggregate?
     let activityContext: TerminalActivityProjectionContext?
     let searchLifecycle: TerminalSearchLifecycleSummary?
+    let titleMetadata: TerminalTitleMetadataBatch?
     let metrics: TerminalLocalAccumulatorMetrics
     let firstOfferedAtNanoseconds: UInt64
 
@@ -128,6 +136,10 @@ struct TerminalLocalActionBatch: Sendable, Equatable {
         if presentation.mouseVisibility != nil { count += 1 }
         if presentation.searchUpdate != nil { count += 1 }
         if activity != nil { count += 1 }
+        if titleMetadata != nil {
+            count += 1
+            if titleMetadata?.surfaceTitle != nil { count += 1 }
+        }
         return count
     }
 }
@@ -147,7 +159,7 @@ enum TerminalLocalAccumulatorDrainCompletion: Sendable, Equatable {
 /// Terminal-owned fixed-key contraction point for high-rate local Ghostty signals.
 /// It retains no view, runtime, borrowed pointer, or globally replayable event.
 final class TerminalLocalActionAccumulator: @unchecked Sendable {
-    static let maximumRetainedEntriesPerSurface = 7
+    static let maximumRetainedEntriesPerSurface = 9
 
     private enum DrainPhase {
         case idle
@@ -165,6 +177,7 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         var activity: TerminalScrollbarActivityAggregate?
         var activityContext: TerminalActivityProjectionContext?
         var searchLifecycle: TerminalSearchLifecycleSummary?
+        var titleMetadata: TerminalTitleMetadataBatch?
         var metrics = TerminalLocalAccumulatorMetrics()
         var firstOfferedAtNanoseconds: UInt64?
 
@@ -175,6 +188,7 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
                 || presentation.searchUpdate != nil
                 || activity != nil
                 || searchLifecycle != nil
+                || titleMetadata != nil
         }
     }
 
@@ -245,6 +259,7 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
                     ? nil
                     : detached.activityContext ?? state.activityContext ?? defaultActivityContext,
                 searchLifecycle: detached.searchLifecycle,
+                titleMetadata: detached.titleMetadata,
                 metrics: detached.metrics,
                 firstOfferedAtNanoseconds: detached.firstOfferedAtNanoseconds
                     ?? DispatchTime.now().uptimeNanoseconds
@@ -333,6 +348,12 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         }
     }
 
+    func hasPendingActions(for surfaceID: UUID) -> Bool {
+        lock.withLock {
+            statesBySurfaceID[surfaceID]?.pending.hasWork == true
+        }
+    }
+
     var retainedEntryCount: Int {
         lock.withLock {
             statesBySurfaceID.values.reduce(into: 0) { result, state in
@@ -342,6 +363,10 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
                 if state.pending.presentation.searchUpdate != nil { result += 1 }
                 if state.pending.activity != nil { result += 1 }
                 if state.pending.searchLifecycle != nil { result += 1 }
+                if state.pending.titleMetadata != nil {
+                    result += 1
+                    if state.pending.titleMetadata?.surfaceTitle != nil { result += 1 }
+                }
             }
         }
     }
@@ -352,25 +377,11 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
     ) -> TerminalLocalAccumulatorOfferResult {
         switch action {
         case .scrollbar(let scrollbarState, let observedAtMilliseconds):
-            let hadCurrentValue = state.pending.presentation.scrollbarState != nil
-            let result = replacementResult(current: state.pending.presentation.scrollbarState, next: scrollbarState)
-            if result == .equalSuppressed {
-                record(result, replacedExistingValue: hadCurrentValue, in: &state.pending.metrics)
-                return result
-            }
-            state.pending.presentation.scrollbarState = scrollbarState
-            if var activity = state.pending.activity {
-                activity.merge(state: scrollbarState, observedAtMilliseconds: observedAtMilliseconds)
-                state.pending.activity = activity
-            } else {
-                state.pending.activity = TerminalScrollbarActivityAggregate(
-                    state: scrollbarState,
-                    observedAtMilliseconds: observedAtMilliseconds
-                )
-                state.pending.activityContext = state.activityContext
-            }
-            record(result, replacedExistingValue: hadCurrentValue, in: &state.pending.metrics)
-            return result
+            return applyScrollbar(
+                scrollbarState,
+                observedAtMilliseconds: observedAtMilliseconds,
+                to: &state
+            )
         case .mouseShape(let mouseShape):
             let hadCurrentValue = state.pending.presentation.mouseShape != nil
             let result = replacementResult(current: state.pending.presentation.mouseShape, next: mouseShape)
@@ -446,7 +457,58 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
             state.pending.presentation.searchUpdate = update
             record(result, replacedExistingValue: hadCurrentValue, in: &state.pending.metrics)
             return result
+        case .titleChanged(let title):
+            return applyTitleMetadata(.titleChanged(title), to: &state)
+        case .tabTitleChanged(let title):
+            return applyTitleMetadata(.tabTitleChanged(title), to: &state)
         }
+    }
+
+    private func applyScrollbar(
+        _ scrollbarState: ScrollbarState,
+        observedAtMilliseconds: Int64,
+        to state: inout SurfaceState
+    ) -> TerminalLocalAccumulatorOfferResult {
+        let hadCurrentValue = state.pending.presentation.scrollbarState != nil
+        let result = replacementResult(current: state.pending.presentation.scrollbarState, next: scrollbarState)
+        if result == .equalSuppressed {
+            record(result, replacedExistingValue: hadCurrentValue, in: &state.pending.metrics)
+            return result
+        }
+        state.pending.presentation.scrollbarState = scrollbarState
+        if var activity = state.pending.activity {
+            activity.merge(state: scrollbarState, observedAtMilliseconds: observedAtMilliseconds)
+            state.pending.activity = activity
+        } else {
+            state.pending.activity = TerminalScrollbarActivityAggregate(
+                state: scrollbarState,
+                observedAtMilliseconds: observedAtMilliseconds
+            )
+            state.pending.activityContext = state.activityContext
+        }
+        record(result, replacedExistingValue: hadCurrentValue, in: &state.pending.metrics)
+        return result
+    }
+
+    private func applyTitleMetadata(
+        _ metadata: TerminalLatestSemanticMetadataAction,
+        to state: inout SurfaceState
+    ) -> TerminalLocalAccumulatorOfferResult {
+        let hadCurrentValue = state.pending.titleMetadata != nil
+        let result = replacementResult(current: state.pending.titleMetadata?.runtimeTitle, next: metadata)
+        let surfaceTitle: String?
+        switch metadata {
+        case .titleChanged(let title):
+            surfaceTitle = title
+        case .tabTitleChanged:
+            surfaceTitle = state.pending.titleMetadata?.surfaceTitle
+        }
+        state.pending.titleMetadata = TerminalTitleMetadataBatch(
+            runtimeTitle: metadata,
+            surfaceTitle: surfaceTitle
+        )
+        record(result, replacedExistingValue: hadCurrentValue, in: &state.pending.metrics)
+        return result
     }
 
     private func replacementResult<Value: Equatable>(

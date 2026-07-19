@@ -342,6 +342,22 @@ final class ObservableStoreTests {
     }
 
     @Test
+    func test_observationTracking_doesNotFireOnEqualPaneTitleUpdate() {
+        let pane = store.createPane(title: "Unchanged")
+        let flag = ObservationFlag()
+        withObservationTracking {
+            _ = store.panes
+        } onChange: {
+            flag.fired = true
+        }
+
+        store.updatePaneTitle(pane.id, title: "Unchanged")
+
+        #expect(!flag.fired)
+        #expect(store.pane(pane.id)?.title == "Unchanged")
+    }
+
+    @Test
 
     func test_observationTracking_firesOnActivePaneChange() {
         // Arrange

@@ -16,6 +16,11 @@ enum TerminalLocalLifecycleAction: Sendable, Equatable {
     case searchEnded
 }
 
+enum TerminalLatestSemanticMetadataAction: Sendable, Equatable {
+    case titleChanged(String)
+    case tabTitleChanged(String)
+}
+
 enum GhosttyDiagnosticDisposition: Sendable, Equatable {
     case directHostState
     case localOnly
@@ -26,6 +31,7 @@ enum GhosttyDiagnosticDisposition: Sendable, Equatable {
 enum GhosttyActionDisposition: Sendable, Equatable {
     case exactFactOrControl(GhosttyEvent)
     case latestPresentation(TerminalLocalPresentationAction)
+    case latestSemanticMetadata(TerminalLatestSemanticMetadataAction)
     case activityEvidence(TerminalLocalActivityEvidence)
     case exactLocalLifecycle(TerminalLocalLifecycleAction)
     case diagnostic(GhosttyDiagnosticDisposition)
@@ -40,6 +46,10 @@ enum GhosttyActionDisposition: Sendable, Equatable {
             return .latestPresentation(.searchMatches(totalMatches))
         case .searchSelectionChanged(let selectedMatchIndex):
             return .latestPresentation(.searchSelection(selectedMatchIndex))
+        case .titleChanged(let title):
+            return .latestSemanticMetadata(.titleChanged(title))
+        case .tabTitleChanged(let title):
+            return .latestSemanticMetadata(.tabTitleChanged(title))
         case .scrollbarChanged(let state):
             return .activityEvidence(.scrollbar(state))
         case .searchStarted(let query):
@@ -55,7 +65,7 @@ enum GhosttyActionDisposition: Sendable, Equatable {
         case .unhandled:
             return .diagnostic(.unhandled)
         case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,
-            .toggleSplitZoom, .titleChanged, .tabTitleChanged, .cwdChanged, .commandFinished,
+            .toggleSplitZoom, .cwdChanged, .commandFinished,
             .progressReportUpdated, .readOnlyChanged, .secureInputRequested, .secureInputChanged,
             .rendererHealthChanged, .configReloadRequested, .promptTitleRequested,
             .desktopNotificationRequested, .openURLRequested, .undoRequested, .redoRequested,

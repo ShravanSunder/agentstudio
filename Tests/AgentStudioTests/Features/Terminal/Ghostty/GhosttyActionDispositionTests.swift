@@ -32,12 +32,21 @@ struct GhosttyActionDispositionTests {
         #expect(GhosttyActionDisposition.classify(.searchEnded) == .exactLocalLifecycle(.searchEnded))
     }
 
+    @Test("title metadata is contracted before semantic publication")
+    func titleMetadataIsContracted() {
+        #expect(
+            GhosttyActionDisposition.classify(.titleChanged("window"))
+                == .latestSemanticMetadata(.titleChanged("window")))
+        #expect(
+            GhosttyActionDisposition.classify(.tabTitleChanged("tab"))
+                == .latestSemanticMetadata(.tabTitleChanged("tab")))
+    }
+
     @Test("semantic facts retain their exact route")
     func semanticFactsRemainExact() {
         let events: [GhosttyEvent] = [
             .commandFinished(exitCode: 0, duration: 12),
             .bellRang,
-            .titleChanged("title"),
             .cwdChanged("/tmp"),
             .progressReportUpdated(ProgressState(kind: .set, percent: 50)),
             .secureInputChanged(true),

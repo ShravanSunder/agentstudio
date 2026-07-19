@@ -19,6 +19,16 @@ struct TerminalActivityAtomTests {
         )
     }
 
+    @Test("ignored terminal events do not create observable activity state")
+    func ignoredTerminalEventsDoNotCreateState() {
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let paneId = PaneId.generateUUIDv7()
+
+        atom.consume(paneEnvelope(paneId: paneId, event: .titleChanged("build")))
+
+        #expect(atom.snapshot(for: paneId.uuid) == nil)
+    }
+
     @Test("tracks every progress state including non-error and remove")
     func tracksEveryProgressStateIncludingNonErrorAndRemove() {
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)

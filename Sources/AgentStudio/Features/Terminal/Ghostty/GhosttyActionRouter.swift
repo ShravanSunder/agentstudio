@@ -220,13 +220,6 @@ extension Ghostty {
                     return false
                 }
                 let title = String(cString: titlePtr)
-                if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface,
-                    let resolvedSurfaceView = surfaceView(from: surface)
-                {
-                    Task { @MainActor [weak resolvedSurfaceView] in
-                        resolvedSurfaceView?.titleDidChange(title)
-                    }
-                }
                 return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
                     payload: .titleChanged(title),
@@ -707,9 +700,13 @@ extension Ghostty {
             }
 
             let surfaceViewObjectId = ObjectIdentifier(resolvedSurfaceView)
+            let surfaceID = resolvedSurfaceView.managedSurfaceID
             // Preserve Ghostty's synchronous handled contract while the actual runtime
             // delivery completes on MainActor.
             Task { @MainActor [weak resolvedSurfaceView] in
+                if localActionAccumulator.hasPendingActions(for: surfaceID) {
+                    await drainLocalActions(for: surfaceID)
+                }
                 if let resolvedSurfaceView {
                     updateSurfaceHostCache(
                         actionTag: actionTag,

@@ -372,10 +372,11 @@ final class WorkspacePaneGraphAtom {
     }
 
     func updatePaneTitle(_ paneId: UUID, title: String) {
-        guard paneStates[paneId] != nil else {
+        guard let currentState = paneStates[paneId] else {
             workspacePaneLogger.warning("updatePaneTitle: pane \(paneId) not found")
             return
         }
+        guard currentState.metadata.title != title else { return }
         paneStates[paneId]?.metadata.title = title
     }
 

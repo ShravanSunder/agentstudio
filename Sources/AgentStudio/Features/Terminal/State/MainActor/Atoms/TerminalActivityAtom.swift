@@ -103,9 +103,10 @@ final class TerminalActivityAtom {
                 to: &snapshot
             )
         default:
-            break
+            return
         }
 
+        guard snapshotsByPaneId[paneId] != snapshot else { return }
         snapshotsByPaneId[paneId] = snapshot
     }
 
@@ -117,6 +118,7 @@ final class TerminalActivityAtom {
         var snapshot = snapshotsByPaneId[update.paneID] ?? TerminalActivitySnapshot(paneId: update.paneID)
         snapshot.scrollbarState = update.scrollbarState
         snapshot.outputBurst = update.outputBurst
+        guard snapshotsByPaneId[update.paneID] != snapshot else { return }
         snapshotsByPaneId[update.paneID] = snapshot
     }
 
