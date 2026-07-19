@@ -1208,6 +1208,16 @@ latest-value slots; aggregation retains bounded sufficient statistics. These
 are distinct contraction operations and neither is downstream lossy bus
 deduplication.
 
+Terminal performance records keep the service and end-to-end boundaries
+separate. `performance.terminal.compact_apply` uses `elapsed_ms` only for the
+synchronous host, observable, and contracted-title work performed by one
+MainActor drain. The same record carries the typed
+`activity_projection.submitted` decision and, when submitted,
+`activity_projection.round_trip_ms` for the awaited projector hop and MainActor
+outcome return. `performance.terminal.accumulator_drain` remains the
+callback-to-current-batch-commit queue-age measure. A timer that spans the
+projector `await` is not evidence of continuous MainActor occupancy.
+
 The filesystem path preserves `FilesystemActor` as source authority while
 keeping `FilesystemProjectionIndex` rebuildable. Ordinary effects name only the
 affected pane or worktree; unrelated admitted actions schedule nothing.

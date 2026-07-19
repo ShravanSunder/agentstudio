@@ -184,6 +184,8 @@ extension Ghostty.ActionRouter {
             return
         }
 
+        let clock = ContinuousClock()
+        let compactApplyStartedAt = clock.now
         if let scrollbarState = batch.presentation.scrollbarState,
             surfaceView.hostScrollbarState != scrollbarState
         {
@@ -194,8 +196,6 @@ extension Ghostty.ActionRouter {
         {
             surfaceView.titleDidChange(surfaceTitle)
         }
-        let clock = ContinuousClock()
-        let applyStartedAt = clock.now
         let equalWriteSuppressedCount = runtime.applyLocalActionBatch(batch)
         if let runtimeTitle = batch.titleMetadata?.runtimeTitle {
             routeContractedTitleMetadata(
@@ -204,10 +204,13 @@ extension Ghostty.ActionRouter {
                 routingLookup: SurfaceManager.shared
             )
         }
+        let compactApplyServiceTime = compactApplyStartedAt.duration(to: clock.now)
+        let activityProjectionRoundTrip: TerminalActivityProjectionRoundTripPerformance
         if let aggregate = batch.activity,
             let latestState = batch.presentation.scrollbarState,
             let context = batch.activityContext
         {
+            let projectionStartedAt = clock.now
             await submitTerminalActivityInput(
                 .aggregate(
                     surfaceID: surfaceID,
@@ -219,12 +222,16 @@ extension Ghostty.ActionRouter {
                     )
                 )
             )
+            activityProjectionRoundTrip = .completed(projectionStartedAt.duration(to: clock.now))
+        } else {
+            activityProjectionRoundTrip = .notSubmitted
         }
         surfaceView.performanceTraceRecorder?.recordTerminalCompactApply(
             TerminalCompactApplyPerformanceSnapshot(
-                equalWriteSuppressedCount: UInt64(equalWriteSuppressedCount)
+                equalWriteSuppressedCount: UInt64(equalWriteSuppressedCount),
+                activityProjectionRoundTrip: activityProjectionRoundTrip
             ),
-            serviceTime: applyStartedAt.duration(to: clock.now)
+            serviceTime: compactApplyServiceTime
         )
         let currentUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
         surfaceView.performanceTraceRecorder?.recordTerminalAccumulatorDrain(

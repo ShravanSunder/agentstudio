@@ -14,6 +14,12 @@ struct TerminalAccumulatorDrainPerformanceSnapshot: Equatable, Sendable {
 
 struct TerminalCompactApplyPerformanceSnapshot: Equatable, Sendable {
     let equalWriteSuppressedCount: UInt64
+    let activityProjectionRoundTrip: TerminalActivityProjectionRoundTripPerformance
+}
+
+enum TerminalActivityProjectionRoundTripPerformance: Equatable, Sendable {
+    case notSubmitted
+    case completed(Duration)
 }
 
 struct FilesystemEffectPerformanceSnapshot: Equatable, Sendable {
@@ -180,13 +186,23 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         _ snapshot: TerminalCompactApplyPerformanceSnapshot,
         serviceTime: Duration
     ) {
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.terminal.equal_write_suppressed.count": Self.traceInteger(
+                snapshot.equalWriteSuppressedCount)
+        ]
+        switch snapshot.activityProjectionRoundTrip {
+        case .notSubmitted:
+            attributes["agentstudio.performance.terminal.activity_projection.submitted"] = .bool(false)
+        case .completed(let duration):
+            attributes["agentstudio.performance.terminal.activity_projection.submitted"] = .bool(true)
+            attributes["agentstudio.performance.terminal.activity_projection.round_trip_ms"] = .double(
+                Self.milliseconds(from: duration)
+            )
+        }
         recordDuration(
             .terminalCompactApply,
             duration: serviceTime,
-            attributes: [
-                "agentstudio.performance.terminal.equal_write_suppressed.count": Self.traceInteger(
-                    snapshot.equalWriteSuppressedCount)
-            ]
+            attributes: attributes
         )
     }
 

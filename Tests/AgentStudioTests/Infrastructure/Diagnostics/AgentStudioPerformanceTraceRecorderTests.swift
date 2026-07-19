@@ -35,8 +35,18 @@ struct AgentStudioPerformanceTraceRecorderTests {
             queueAge: .milliseconds(3)
         )
         recorder.recordTerminalCompactApply(
-            TerminalCompactApplyPerformanceSnapshot(equalWriteSuppressedCount: 7),
+            TerminalCompactApplyPerformanceSnapshot(
+                equalWriteSuppressedCount: 7,
+                activityProjectionRoundTrip: .completed(.milliseconds(4))
+            ),
             serviceTime: .milliseconds(1)
+        )
+        recorder.recordTerminalCompactApply(
+            TerminalCompactApplyPerformanceSnapshot(
+                equalWriteSuppressedCount: 0,
+                activityProjectionRoundTrip: .notSubmitted
+            ),
+            serviceTime: .milliseconds(2)
         )
         recorder.recordFilesystemEffectSnapshot(
             FilesystemEffectPerformanceSnapshot(
@@ -63,6 +73,9 @@ struct AgentStudioPerformanceTraceRecorderTests {
         #expect(contents.contains("\"agentstudio.performance.terminal.accumulator.offered.count\":100"))
         #expect(contents.contains("\"agentstudio.performance.terminal.accumulator.retained_entry.count\":4"))
         #expect(contents.contains("\"agentstudio.performance.terminal.equal_write_suppressed.count\":7"))
+        #expect(contents.contains("\"agentstudio.performance.terminal.activity_projection.submitted\":true"))
+        #expect(contents.contains("\"agentstudio.performance.terminal.activity_projection.submitted\":false"))
+        #expect(contents.contains("\"agentstudio.performance.terminal.activity_projection.round_trip_ms\":4"))
         #expect(contents.contains("\"agentstudio.performance.filesystem.affected_key_request.count\":12"))
         #expect(contents.contains("\"agentstudio.performance.trace_identity.coalesced_request.count\":8"))
     }
