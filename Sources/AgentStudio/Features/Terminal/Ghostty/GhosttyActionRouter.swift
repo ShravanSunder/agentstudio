@@ -684,38 +684,25 @@ extension Ghostty {
             }
 
             let event = GhosttyAdapter.shared.translate(actionTag: actionTag, payload: payload)
-            switch GhosttyActionDisposition.classify(event) {
-            case .exactFactOrControl:
+            let disposition = admitTranslatedActionToTerminalRuntime(
+                event,
+                surfaceID: resolvedSurfaceView.managedSurfaceID,
+                accumulator: localActionAccumulator
+            )
+            switch disposition {
+            case .routeExactFactOrControl:
                 break
-            case .latestPresentation(let presentation):
-                offerLocalPresentation(
-                    presentation,
-                    for: resolvedSurfaceView.managedSurfaceID
-                )
-                return handledResult
-            case .activityEvidence(let evidence):
-                offerLocalActivityEvidence(
-                    evidence,
-                    for: resolvedSurfaceView.managedSurfaceID
-                )
-                return handledResult
-            case .exactLocalLifecycle(let lifecycle):
-                offerLocalLifecycle(
-                    lifecycle,
-                    for: resolvedSurfaceView.managedSurfaceID
-                )
-                return handledResult
-            case .diagnostic(let diagnostic):
-                if diagnostic == .directHostState {
-                    Task { @MainActor [weak resolvedSurfaceView] in
-                        guard let resolvedSurfaceView else { return }
-                        updateSurfaceHostCache(
-                            actionTag: actionTag,
-                            payload: payload,
-                            surfaceView: resolvedSurfaceView
-                        )
-                    }
+            case .updateDirectHostState:
+                Task { @MainActor [weak resolvedSurfaceView] in
+                    guard let resolvedSurfaceView else { return }
+                    updateSurfaceHostCache(
+                        actionTag: actionTag,
+                        payload: payload,
+                        surfaceView: resolvedSurfaceView
+                    )
                 }
+                return handledResult
+            case .handledLocally:
                 return handledResult
             }
 

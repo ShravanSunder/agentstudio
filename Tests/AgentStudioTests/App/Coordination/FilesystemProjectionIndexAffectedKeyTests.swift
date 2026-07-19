@@ -259,6 +259,7 @@ struct FilesystemProjectionIndexAffectedKeyTests {
                     cwd: pane.2
                 )
             ],
+            appliedContextsByWorktreeId: [:],
             appliedActivityByWorktreeId: [:],
             activePaneWorktreeId: nil,
             appliedActivePaneWorktreeId: nil

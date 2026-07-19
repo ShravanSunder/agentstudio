@@ -72,6 +72,13 @@ actor TerminalActivityProjector {
         var generation: UInt64
     }
 
+    private struct ActivityWindowCloseTarget: Sendable {
+        let windowID: UUID
+        let surfaceID: UUID
+        let paneID: UUID
+        let generation: UInt64
+    }
+
     private struct PaneState {
         let surfaceID: UUID
         var outputBurst: TerminalOutputBurstState
@@ -91,6 +98,8 @@ actor TerminalActivityProjector {
     private var paneStates: [UUID: PaneState] = [:]
     private var unseenCloseTasks: [UUID: Task<Void, Never>] = [:]
     private var agentCloseTasks: [UUID: Task<Void, Never>] = [:]
+    private var unseenRetirementTasks: [UUID: Task<Void, Never>] = [:]
+    private var agentRetirementTasks: [UUID: Task<Void, Never>] = [:]
 
     init(
         unseenQuietDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
@@ -315,6 +324,8 @@ actor TerminalActivityProjector {
         for task in agentCloseTasks.values { task.cancel() }
         unseenCloseTasks.removeAll()
         agentCloseTasks.removeAll()
+        unseenRetirementTasks.removeAll()
+        agentRetirementTasks.removeAll()
         paneStates.removeAll()
         outcomeSink = nil
     }
@@ -401,9 +412,18 @@ actor TerminalActivityProjector {
         guard let window = state.unseenWindow else { return }
         let delay = self.delay
         let duration = unseenQuietDuration
+        let retirementTask = unseenRetirementTasks.removeValue(forKey: paneID)
+        let closeTarget = ActivityWindowCloseTarget(
+            windowID: window.id,
+            surfaceID: window.surfaceID,
+            paneID: window.paneID,
+            generation: window.generation
+        )
         unseenCloseTasks[paneID] = Task { [weak self] in
+            await retirementTask?.value
+            guard !Task.isCancelled else { return }
             do { try await delay.wait(duration) } catch { return }
-            await self?.closeUnseenWindow(paneID: paneID, generation: window.generation)
+            await self?.closeUnseenWindow(target: closeTarget)
         }
     }
 
@@ -412,47 +432,64 @@ actor TerminalActivityProjector {
         guard let candidate = state.agentCandidate else { return }
         let delay = self.delay
         let duration = agentSettledQuietDuration
+        let retirementTask = agentRetirementTasks.removeValue(forKey: paneID)
+        let closeTarget = ActivityWindowCloseTarget(
+            windowID: candidate.id,
+            surfaceID: candidate.surfaceID,
+            paneID: candidate.paneID,
+            generation: candidate.generation
+        )
         agentCloseTasks[paneID] = Task { [weak self] in
+            await retirementTask?.value
+            guard !Task.isCancelled else { return }
             do { try await delay.wait(duration) } catch { return }
-            await self?.closeAgentCandidate(paneID: paneID, generation: candidate.generation)
+            await self?.closeAgentCandidate(target: closeTarget)
         }
     }
 
-    private func closeUnseenWindow(paneID: UUID, generation: UInt64) async {
-        guard var state = paneStates[paneID],
+    private func closeUnseenWindow(target: ActivityWindowCloseTarget) async {
+        guard var state = paneStates[target.paneID],
+            state.surfaceID == target.surfaceID,
             let window = state.unseenWindow,
-            window.generation == generation
+            window.id == target.windowID,
+            window.surfaceID == target.surfaceID,
+            window.paneID == target.paneID,
+            window.generation == target.generation
         else { return }
-        unseenCloseTasks[paneID] = nil
+        unseenCloseTasks[target.paneID] = nil
         state.unseenWindow = nil
-        paneStates[paneID] = state
+        paneStates[target.paneID] = state
         guard window.rowsAdded > 0 else { return }
         await emit([
             .unseenActivitySettled(
                 surfaceID: window.surfaceID,
-                paneID: paneID,
+                paneID: target.paneID,
                 activity: settledActivity(window, quietDuration: unseenQuietDuration)
             )
         ])
     }
 
-    private func closeAgentCandidate(paneID: UUID, generation: UInt64) async {
-        guard var state = paneStates[paneID],
+    private func closeAgentCandidate(target: ActivityWindowCloseTarget) async {
+        guard var state = paneStates[target.paneID],
+            state.surfaceID == target.surfaceID,
             let candidate = state.agentCandidate,
-            candidate.generation == generation
+            candidate.id == target.windowID,
+            candidate.surfaceID == target.surfaceID,
+            candidate.paneID == target.paneID,
+            candidate.generation == target.generation
         else { return }
-        agentCloseTasks[paneID] = nil
+        agentCloseTasks[target.paneID] = nil
         state.agentCandidate = nil
         guard isAgentSettledCandidate(candidate) else {
-            paneStates[paneID] = state
+            paneStates[target.paneID] = state
             return
         }
         state.agentSettledLatestRows = candidate.latestRows
-        paneStates[paneID] = state
+        paneStates[target.paneID] = state
         await emit([
             .agentSettledActivityPromoted(
                 surfaceID: candidate.surfaceID,
-                paneID: paneID,
+                paneID: target.paneID,
                 activity: settledActivity(candidate, quietDuration: agentSettledQuietDuration)
             )
         ])
@@ -492,11 +529,23 @@ actor TerminalActivityProjector {
     }
 
     private func cancelUnseenWindow(for paneID: UUID) {
-        unseenCloseTasks.removeValue(forKey: paneID)?.cancel()
+        guard let closeTask = unseenCloseTasks.removeValue(forKey: paneID) else { return }
+        closeTask.cancel()
+        let precedingRetirementTask = unseenRetirementTasks[paneID]
+        unseenRetirementTasks[paneID] = Task {
+            await precedingRetirementTask?.value
+            await closeTask.value
+        }
     }
 
     private func cancelAgentCandidate(for paneID: UUID) {
-        agentCloseTasks.removeValue(forKey: paneID)?.cancel()
+        guard let closeTask = agentCloseTasks.removeValue(forKey: paneID) else { return }
+        closeTask.cancel()
+        let precedingRetirementTask = agentRetirementTasks[paneID]
+        agentRetirementTasks[paneID] = Task {
+            await precedingRetirementTask?.value
+            await closeTask.value
+        }
     }
 
     private static func milliseconds(_ duration: Duration) -> Int {

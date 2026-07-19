@@ -19,7 +19,8 @@ enum GoodTerminalDispositionRouting {
 
         routeActionToTerminalRuntimeOnMainActor()
 
-        switch unrelatedDisposition(event) {
+        let unrelatedDispositionResult = unrelatedDisposition(event)
+        switch unrelatedDispositionResult {
         case .latestPresentation:
             routeActionToTerminalRuntimeOnMainActor()
         default:

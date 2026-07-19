@@ -66,6 +66,22 @@ private final class TerminalLocalDispositionPublicationVisitor: SyntaxVisitor {
         return .visitChildren
     }
 
+    override func visitPost(_ node: FunctionCallExprSyntax) {
+        guard Self.isGhosttyActionDispositionClassification(ExprSyntax(node)),
+            !Self.isDirectSwitchSubject(node)
+        else {
+            return
+        }
+
+        violations.append(
+            ArchitectureViolation(
+                position: node.positionAfterSkippingLeadingTrivia,
+                message:
+                    "GhosttyActionDisposition.classify results must be consumed directly by a switch"
+            )
+        )
+    }
+
     private static func isGhosttyActionDispositionClassification(_ expression: ExprSyntax) -> Bool {
         guard let call = expression.as(FunctionCallExprSyntax.self),
             let memberAccess = call.calledExpression.as(MemberAccessExprSyntax.self)
@@ -74,6 +90,15 @@ private final class TerminalLocalDispositionPublicationVisitor: SyntaxVisitor {
         }
         return memberAccess.base?.trimmedDescription == "GhosttyActionDisposition"
             && memberAccess.declName.baseName.text == "classify"
+    }
+
+    private static func isDirectSwitchSubject(_ call: FunctionCallExprSyntax) -> Bool {
+        guard let switchExpression = call.parent?.as(SwitchExprSyntax.self),
+            let subjectCall = switchExpression.subject.as(FunctionCallExprSyntax.self)
+        else {
+            return false
+        }
+        return subjectCall.id == call.id
     }
 
     private static func containsLocalDisposition(_ label: SwitchCaseSyntax.Label) -> Bool {

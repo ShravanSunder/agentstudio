@@ -80,10 +80,20 @@ struct CIFastLaneWorkflowTests {
         let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
         let swiftTestTaskScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
         let defaultTestCase = try shellCase(named: "test", in: swiftTestTaskScript)
+        let forwardedArgumentsBlock = try namedBlock(
+            startingWith: "if [ \"$#\" -gt 0 ]; then",
+            endingBefore: "\nfi\n",
+            in: swiftTestTaskScript
+        )
         let coverageTask = try miseTask(named: "test-coverage", in: miseConfig)
         let generalE2ETask = try miseTask(named: "test-e2e", in: miseConfig)
         let zmxE2ETask = try miseTask(named: "test-zmx-e2e", in: miseConfig)
 
+        #expect(
+            forwardedArgumentsBlock.contains(
+                "swift test --skip-build \"$@\" --skip ZmxE2ETests --build-path \"$BUILD_PATH\""
+            )
+        )
         #expect(defaultTestCase.contains("--filter E2ESerializedTests --skip ZmxE2ETests"))
         #expect(!defaultTestCase.contains("SWIFT_TEST_INCLUDE_ZMX_E2E"))
         #expect(coverageTask.contains("--filter E2ESerializedTests --skip ZmxE2ETests"))

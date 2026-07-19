@@ -122,14 +122,11 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
             result[worktreeId] = !(nextPaneIdsByWorktreeId[worktreeId]?.isEmpty ?? true)
         }
 
-        let currentContextsByWorktreeId = worktreesById.mapValues { worktree in
-            WorktreeFilesystemContext(repoId: worktree.repoId, rootPath: worktree.rootPath)
-        }
         let nextContextsByWorktreeId = nextWorktreesById.mapValues { worktree in
             WorktreeFilesystemContext(repoId: worktree.repoId, rootPath: worktree.rootPath)
         }
 
-        let currentWorktreeIds = Set(currentContextsByWorktreeId.keys)
+        let currentWorktreeIds = Set(request.appliedContextsByWorktreeId.keys)
         let nextWorktreeIds = Set(nextContextsByWorktreeId.keys)
         let removedWorktreeIds = currentWorktreeIds.subtracting(nextWorktreeIds)
             .sorted(by: sortUUIDs)
@@ -137,7 +134,7 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
         let registrations =
             nextContextsByWorktreeId
             .filter { worktreeId, context in
-                currentContextsByWorktreeId[worktreeId] != context
+                request.appliedContextsByWorktreeId[worktreeId] != context
             }
             .map { worktreeId, context in
                 FilesystemSourceSyncDiff.Registration(

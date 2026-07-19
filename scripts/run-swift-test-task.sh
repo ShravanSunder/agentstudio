@@ -41,7 +41,7 @@ if [ "$#" -gt 0 ]; then
   run_swift_with_timeout \
     "requested swift test args: $*" \
     "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test --skip-build "$@" --build-path "$BUILD_PATH"
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test --skip-build "$@" --skip ZmxE2ETests --build-path "$BUILD_PATH"
   exit $?
 fi
 

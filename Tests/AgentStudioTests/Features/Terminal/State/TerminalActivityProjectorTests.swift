@@ -6,6 +6,106 @@ import Testing
 @MainActor
 @Suite("Terminal activity projector", .serialized)
 struct TerminalActivityProjectorTests {
+    private final class LateCompletionClock: Clock, @unchecked Sendable {
+        struct Instant: Sendable, Comparable, Hashable, InstantProtocol {
+            fileprivate let nanoseconds: Int64
+
+            func advanced(by duration: Duration) -> Self {
+                let components = duration.components
+                return .init(
+                    nanoseconds: nanoseconds
+                        + components.seconds * 1_000_000_000
+                        + components.attoseconds / 1_000_000_000
+                )
+            }
+
+            func duration(to other: Self) -> Duration {
+                .nanoseconds(other.nanoseconds - nanoseconds)
+            }
+
+            static func < (lhs: Self, rhs: Self) -> Bool {
+                lhs.nanoseconds < rhs.nanoseconds
+            }
+        }
+
+        private struct PendingSleep {
+            let generation: Int
+            let continuation: UnsafeContinuation<Void, Never>
+        }
+
+        private struct GenerationWaiter {
+            let generation: Int
+            let continuation: UnsafeContinuation<Void, Never>
+        }
+
+        private let lock = NSLock()
+        private var nextGeneration = 0
+        private var pendingSleeps: [PendingSleep] = []
+        private var generationWaiters: [GenerationWaiter] = []
+
+        var now: Instant { .init(nanoseconds: 0) }
+        var minimumResolution: Duration { .zero }
+
+        func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
+            let generation = lock.withLock {
+                defer { nextGeneration += 1 }
+                return nextGeneration
+            }
+            await withUnsafeContinuation { continuation in
+                var readyWaiters: [UnsafeContinuation<Void, Never>] = []
+                lock.withLock {
+                    pendingSleeps.append(.init(generation: generation, continuation: continuation))
+                    readyWaiters = removeReadyWaiters()
+                }
+                for waiter in readyWaiters {
+                    waiter.resume()
+                }
+            }
+        }
+
+        func waitForPendingSleep(generation: Int) async {
+            let isPending = lock.withLock {
+                pendingSleeps.contains { $0.generation == generation }
+            }
+            guard !isPending else { return }
+
+            await withUnsafeContinuation { continuation in
+                let shouldResume = lock.withLock {
+                    if pendingSleeps.contains(where: { $0.generation == generation }) {
+                        return true
+                    }
+                    generationWaiters.append(.init(generation: generation, continuation: continuation))
+                    return false
+                }
+                if shouldResume {
+                    continuation.resume()
+                }
+            }
+        }
+
+        func resumeSleep(generation: Int) {
+            let continuation = lock.withLock { () -> UnsafeContinuation<Void, Never>? in
+                guard let index = pendingSleeps.firstIndex(where: { $0.generation == generation }) else {
+                    return nil
+                }
+                return pendingSleeps.remove(at: index).continuation
+            }
+            continuation?.resume()
+        }
+
+        private func removeReadyWaiters() -> [UnsafeContinuation<Void, Never>] {
+            var readyWaiters: [UnsafeContinuation<Void, Never>] = []
+            generationWaiters.removeAll { waiter in
+                guard pendingSleeps.contains(where: { $0.generation == waiter.generation }) else {
+                    return false
+                }
+                readyWaiters.append(waiter.continuation)
+                return true
+            }
+            return readyWaiters
+        }
+    }
+
     private final class OutcomeRecorder: @unchecked Sendable {
         private let lock = NSLock()
         private var recordedOutcomes: [TerminalActivityProjectionOutcome] = []
@@ -172,6 +272,128 @@ struct TerminalActivityProjectorTests {
         }
     }
 
+    @Test("late unseen callback cannot settle a replacement window with the same generation")
+    func lateUnseenCallbackCannotSettleReplacementWindow() async {
+        let clock = LateCompletionClock()
+        let projector = TerminalActivityProjector(
+            unseenQuietDuration: .milliseconds(750),
+            clock: clock
+        )
+        let recorder = OutcomeRecorder()
+        await projector.configure { outcomes in recorder.record(outcomes) }
+        let context = TerminalActivityProjectionContext(
+            isAttended: false,
+            isAgentClassified: false,
+            outputBurstThreshold: 30
+        )
+        let paneID = UUIDv7.generate()
+        let oldSurfaceID = UUIDv7.generate()
+        let replacementSurfaceID = UUIDv7.generate()
+
+        await projector.ingest(
+            surfaceID: oldSurfaceID,
+            paneID: paneID,
+            aggregate: makeAggregate(firstTotal: 100, latestTotal: 140),
+            latestState: ScrollbarState(top: 100, bottom: 140, total: 140),
+            context: context
+        )
+        await clock.waitForPendingSleep(generation: 0)
+        await projector.ingest(
+            surfaceID: replacementSurfaceID,
+            paneID: paneID,
+            aggregate: makeAggregate(firstTotal: 200, latestTotal: 260),
+            latestState: ScrollbarState(top: 220, bottom: 260, total: 260),
+            context: context
+        )
+
+        clock.resumeSleep(generation: 0)
+        await clock.waitForPendingSleep(generation: 1)
+
+        #expect(await projector.scheduledTimerCount == 1)
+        #expect(
+            recorder.outcomes.contains { outcome in
+                if case .unseenActivitySettled = outcome { return true }
+                return false
+            } == false)
+
+        clock.resumeSleep(generation: 1)
+        await assertEventuallyAsync("replacement unseen window should settle from its own callback") {
+            recorder.outcomes.contains { outcome in
+                guard case .unseenActivitySettled(let surfaceID, let outcomePaneID, _) = outcome else {
+                    return false
+                }
+                return surfaceID == replacementSurfaceID && outcomePaneID == paneID
+            }
+        }
+        await projector.reset()
+    }
+
+    @Test("late agent callback cannot promote a replacement candidate with the same generation")
+    func lateAgentCallbackCannotPromoteReplacementCandidate() async {
+        let clock = LateCompletionClock()
+        let projector = TerminalActivityProjector(
+            agentSettledQuietDuration: .seconds(180),
+            clock: clock
+        )
+        let recorder = OutcomeRecorder()
+        await projector.configure { outcomes in recorder.record(outcomes) }
+        let context = TerminalActivityProjectionContext(
+            isAttended: true,
+            isAgentClassified: true,
+            outputBurstThreshold: 30
+        )
+        let paneID = UUIDv7.generate()
+        let oldSurfaceID = UUIDv7.generate()
+        let replacementSurfaceID = UUIDv7.generate()
+
+        await projector.ingest(
+            surfaceID: oldSurfaceID,
+            paneID: paneID,
+            aggregate: makeAggregate(
+                firstTotal: 100,
+                latestTotal: 700,
+                firstObservedAtMilliseconds: 1000,
+                latestObservedAtMilliseconds: 62_000
+            ),
+            latestState: ScrollbarState(top: 660, bottom: 700, total: 700),
+            context: context
+        )
+        await clock.waitForPendingSleep(generation: 0)
+        await projector.ingest(
+            surfaceID: replacementSurfaceID,
+            paneID: paneID,
+            aggregate: makeAggregate(
+                firstTotal: 200,
+                latestTotal: 800,
+                firstObservedAtMilliseconds: 63_000,
+                latestObservedAtMilliseconds: 124_000
+            ),
+            latestState: ScrollbarState(top: 760, bottom: 800, total: 800),
+            context: context
+        )
+
+        clock.resumeSleep(generation: 0)
+        await clock.waitForPendingSleep(generation: 1)
+
+        #expect(await projector.scheduledTimerCount == 1)
+        #expect(
+            recorder.outcomes.contains { outcome in
+                if case .agentSettledActivityPromoted = outcome { return true }
+                return false
+            } == false)
+
+        clock.resumeSleep(generation: 1)
+        await assertEventuallyAsync("replacement agent candidate should promote from its own callback") {
+            recorder.outcomes.contains { outcome in
+                guard case .agentSettledActivityPromoted(let surfaceID, let outcomePaneID, _) = outcome else {
+                    return false
+                }
+                return surfaceID == replacementSurfaceID && outcomePaneID == paneID
+            }
+        }
+        await projector.reset()
+    }
+
     @Test("ordered observation applies earlier evidence before clearing activity windows")
     func orderedObservationClearsEarlierEvidence() async {
         let projector = TerminalActivityProjector(clock: TestPushClock())
@@ -297,14 +519,19 @@ struct TerminalActivityProjectorTests {
         await projector.reset()
     }
 
-    private func makeAggregate(firstTotal: Int, latestTotal: Int) -> TerminalScrollbarActivityAggregate {
+    private func makeAggregate(
+        firstTotal: Int,
+        latestTotal: Int,
+        firstObservedAtMilliseconds: Int64 = 1000,
+        latestObservedAtMilliseconds: Int64 = 1100
+    ) -> TerminalScrollbarActivityAggregate {
         var aggregate = TerminalScrollbarActivityAggregate(
             state: ScrollbarState(top: max(0, firstTotal - 10), bottom: firstTotal, total: firstTotal),
-            observedAtMilliseconds: 1000
+            observedAtMilliseconds: firstObservedAtMilliseconds
         )
         aggregate.merge(
             state: ScrollbarState(top: max(0, latestTotal - 10), bottom: latestTotal, total: latestTotal),
-            observedAtMilliseconds: 1100
+            observedAtMilliseconds: latestObservedAtMilliseconds
         )
         return aggregate
     }

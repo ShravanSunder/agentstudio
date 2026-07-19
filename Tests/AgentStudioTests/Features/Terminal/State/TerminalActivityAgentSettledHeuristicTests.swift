@@ -295,11 +295,14 @@ struct TerminalActivityAgentSettledHeuristicTests {
         }
 
         nowMilliseconds.set(304_000)
+        let suppressedCycleSleepGeneration = clock.scheduledSleepGeneration
         await postScrollbar(total: 1300, seq: 4, paneKind: .agent, paneId: paneId, through: router)
+        await clock.waitForPendingSleepCount(atLeast: 1, fromGeneration: suppressedCycleSleepGeneration)
         clock.advance(by: .seconds(180))
         #expect(await Self.agentSettledPromotionCount(from: subscriber) == 1)
 
         router.markUnseenActivityObserved(paneId: paneId.uuid)
+        await clock.waitForPendingSleepCount(exactly: 0)
         nowMilliseconds.set(366_000)
         let observedCycleStartGeneration = clock.scheduledSleepGeneration
         await postScrollbar(total: 1300, seq: 5, paneKind: .agent, paneId: paneId, through: router)

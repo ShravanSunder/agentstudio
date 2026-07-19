@@ -1,6 +1,36 @@
 import Foundation
 
+enum GhosttyTranslatedActionAdmission: Sendable, Equatable {
+    case routeExactFactOrControl
+    case updateDirectHostState
+    case handledLocally
+}
+
 extension Ghostty.ActionRouter {
+    static func admitTranslatedActionToTerminalRuntime(
+        _ event: GhosttyEvent,
+        surfaceID: UUID,
+        accumulator: TerminalLocalActionAccumulator
+    ) -> GhosttyTranslatedActionAdmission {
+        switch GhosttyActionDisposition.classify(event) {
+        case .exactFactOrControl:
+            return .routeExactFactOrControl
+        case .latestPresentation(let presentation):
+            offerLocalPresentation(presentation, for: surfaceID, accumulator: accumulator)
+            return .handledLocally
+        case .activityEvidence(let evidence):
+            offerLocalActivityEvidence(evidence, for: surfaceID, accumulator: accumulator)
+            return .handledLocally
+        case .exactLocalLifecycle(let lifecycle):
+            offerLocalLifecycle(lifecycle, for: surfaceID, accumulator: accumulator)
+            return .handledLocally
+        case .diagnostic(.directHostState):
+            return .updateDirectHostState
+        case .diagnostic(.localOnly), .diagnostic(.deferred), .diagnostic(.unhandled):
+            return .handledLocally
+        }
+    }
+
     @MainActor
     static func flushLocalActions(for surfaceID: UUID) async {
         await drainLocalActions(for: surfaceID)
@@ -50,27 +80,29 @@ extension Ghostty.ActionRouter {
 
     static func offerLocalPresentation(
         _ presentation: TerminalLocalPresentationAction,
-        for surfaceID: UUID
+        for surfaceID: UUID,
+        accumulator: TerminalLocalActionAccumulator
     ) {
         switch presentation {
         case .mouseShape(let shape):
-            localActionAccumulator.offer(.mouseShape(shape), for: surfaceID)
+            accumulator.offer(.mouseShape(shape), for: surfaceID)
         case .mouseVisibility(let isVisible):
-            localActionAccumulator.offer(.mouseVisibility(isVisible), for: surfaceID)
+            accumulator.offer(.mouseVisibility(isVisible), for: surfaceID)
         case .searchMatches(let totalMatches):
-            localActionAccumulator.offer(.searchMatches(totalMatches), for: surfaceID)
+            accumulator.offer(.searchMatches(totalMatches), for: surfaceID)
         case .searchSelection(let selectedMatchIndex):
-            localActionAccumulator.offer(.searchSelection(selectedMatchIndex), for: surfaceID)
+            accumulator.offer(.searchSelection(selectedMatchIndex), for: surfaceID)
         }
     }
 
     static func offerLocalActivityEvidence(
         _ evidence: TerminalLocalActivityEvidence,
-        for surfaceID: UUID
+        for surfaceID: UUID,
+        accumulator: TerminalLocalActionAccumulator
     ) {
         switch evidence {
         case .scrollbar(let state):
-            localActionAccumulator.offer(
+            accumulator.offer(
                 .scrollbar(
                     state,
                     observedAtMilliseconds: Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
@@ -82,13 +114,14 @@ extension Ghostty.ActionRouter {
 
     static func offerLocalLifecycle(
         _ lifecycle: TerminalLocalLifecycleAction,
-        for surfaceID: UUID
+        for surfaceID: UUID,
+        accumulator: TerminalLocalActionAccumulator
     ) {
         switch lifecycle {
         case .searchStarted(let query):
-            localActionAccumulator.offer(.searchStarted(query: query), for: surfaceID)
+            accumulator.offer(.searchStarted(query: query), for: surfaceID)
         case .searchEnded:
-            localActionAccumulator.offer(.searchEnded, for: surfaceID)
+            accumulator.offer(.searchEnded, for: surfaceID)
         }
     }
 

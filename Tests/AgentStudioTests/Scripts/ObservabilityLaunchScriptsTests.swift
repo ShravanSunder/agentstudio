@@ -65,7 +65,11 @@ struct ObservabilityLaunchScriptsTests {
         #expect(wrapperScript.contains("PREBUILD_TIMEOUT_SECONDS=$PREBUILD_TIMEOUT_SECONDS"))
         #expect(wrapperScript.contains("run_swift_with_timeout"))
         #expect(wrapperScript.contains("requested swift test args: $*"))
-        #expect(wrapperScript.contains("swift test --skip-build \"$@\" --build-path \"$BUILD_PATH\""))
+        #expect(
+            wrapperScript.contains(
+                "swift test --skip-build \"$@\" --skip ZmxE2ETests --build-path \"$BUILD_PATH\""
+            )
+        )
         #expect(testHelperScript.contains("Timeout in seconds for the one-time test bundle build"))
         #expect(testHelperScript.contains("\"prebuild test bundles\" \\\n    \"$PREBUILD_TIMEOUT_SECONDS\""))
         #expect(testHelperScript.contains("swift_test_output_has_failures()"))

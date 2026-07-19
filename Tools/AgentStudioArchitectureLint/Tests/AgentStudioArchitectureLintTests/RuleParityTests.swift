@@ -205,6 +205,28 @@ struct RuleParityTests {
             ])
     }
 
+    @Test("Terminal local disposition publication rule rejects stored classifier results")
+    func terminalLocalDispositionPublicationRuleRejectsStoredClassifierResults() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent("Bad")
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("AgentStudio")
+            .appendingPathComponent("Features")
+            .appendingPathComponent("Terminal")
+            .appendingPathComponent("Ghostty")
+            .appendingPathComponent("BadTerminalStoredDispositionClassification.swift")
+            .path
+
+        let diagnostics = try lint(files: [fixture])
+            .filter { $0.ruleID == "agentstudio_terminal_local_disposition_publication" }
+
+        #expect(diagnostics.map(\.line) == [3])
+        #expect(
+            diagnostics.map(\.message) == [
+                "GhosttyActionDisposition.classify results must be consumed directly by a switch"
+            ])
+    }
+
     @Test("tooltip source rule scopes raw help to migrated dense controls")
     func tooltipSourceRuleScopesRawHelpToMigratedDenseControls() {
         let migratedDiagnostics = TooltipSourceRule().validate(

@@ -40,6 +40,7 @@ struct FilesystemProjectionIndexTests {
                         cwd: URL(fileURLWithPath: "/tmp/repo/active")
                     )
                 ],
+                appliedContextsByWorktreeId: [:],
                 appliedActivityByWorktreeId: [:],
                 activePaneWorktreeId: activeWorktreeId,
                 appliedActivePaneWorktreeId: nil
@@ -78,6 +79,7 @@ struct FilesystemProjectionIndexTests {
             paneEntries: [
                 .init(paneId: paneId, paneKind: .terminal, repoId: repoId, worktreeId: worktreeId, cwd: rootPath)
             ],
+            appliedContextsByWorktreeId: [:],
             appliedActivityByWorktreeId: [:],
             activePaneWorktreeId: worktreeId,
             appliedActivePaneWorktreeId: nil
@@ -91,6 +93,9 @@ struct FilesystemProjectionIndexTests {
                 paneContextGeneration: 1,
                 topologyEntries: request.topologyEntries,
                 paneEntries: request.paneEntries,
+                appliedContextsByWorktreeId: [
+                    worktreeId: WorktreeFilesystemContext(repoId: repoId, rootPath: rootPath)
+                ],
                 appliedActivityByWorktreeId: secondAppliedActivity,
                 activePaneWorktreeId: worktreeId,
                 appliedActivePaneWorktreeId: worktreeId
@@ -119,6 +124,7 @@ struct FilesystemProjectionIndexTests {
                     .init(repoId: repoId, worktreeId: worktreeId, rootPath: rootPath, isUnavailable: false)
                 ],
                 paneEntries: [],
+                appliedContextsByWorktreeId: [:],
                 appliedActivityByWorktreeId: [:],
                 activePaneWorktreeId: nil,
                 appliedActivePaneWorktreeId: nil
@@ -151,6 +157,9 @@ struct FilesystemProjectionIndexTests {
                 paneEntries: [
                     .init(paneId: paneId, paneKind: .terminal, repoId: repoId, worktreeId: worktreeId, cwd: rootPath)
                 ],
+                appliedContextsByWorktreeId: [
+                    worktreeId: WorktreeFilesystemContext(repoId: repoId, rootPath: rootPath)
+                ],
                 appliedActivityByWorktreeId: [worktreeId: false],
                 activePaneWorktreeId: nil,
                 appliedActivePaneWorktreeId: nil
@@ -158,6 +167,42 @@ struct FilesystemProjectionIndexTests {
         )
 
         #expect(diff.activityUpdates == [.init(worktreeId: worktreeId, isActiveInApp: true)])
+    }
+
+    @Test("source sync registration diff uses applied source baseline")
+    func sourceSyncRegistrationDiffUsesAppliedSourceBaseline() async {
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/repo")
+        let index = FilesystemProjectionIndex()
+        let request = FilesystemSourceSyncRequest(
+            requestGeneration: 1,
+            paneContextGeneration: 1,
+            topologyEntries: [
+                .init(repoId: repoId, worktreeId: worktreeId, rootPath: rootPath, isUnavailable: false)
+            ],
+            paneEntries: [],
+            appliedContextsByWorktreeId: [:],
+            appliedActivityByWorktreeId: [:],
+            activePaneWorktreeId: nil,
+            appliedActivePaneWorktreeId: nil
+        )
+        _ = await reconcileAndCommit(index, request, topologyGeneration: 1)
+
+        let diff = await index.reconcileSourceSync(
+            FilesystemSourceSyncRequest(
+                requestGeneration: 2,
+                paneContextGeneration: 1,
+                topologyEntries: request.topologyEntries,
+                paneEntries: request.paneEntries,
+                appliedContextsByWorktreeId: [:],
+                appliedActivityByWorktreeId: [worktreeId: false],
+                activePaneWorktreeId: nil,
+                appliedActivePaneWorktreeId: nil
+            )
+        )
+
+        #expect(diff.registerWorktrees.map(\.worktreeId) == [worktreeId])
     }
 
     @Test("filesystem projection filters paths by indexed pane cwd")
@@ -184,6 +229,7 @@ struct FilesystemProjectionIndexTests {
                         cwd: rootPath.appending(path: "src")
                     )
                 ],
+                appliedContextsByWorktreeId: [:],
                 appliedActivityByWorktreeId: [:],
                 activePaneWorktreeId: worktreeId,
                 appliedActivePaneWorktreeId: nil
@@ -261,6 +307,7 @@ struct FilesystemProjectionIndexTests {
                         cwd: rootPath.appending(path: "src")
                     )
                 ],
+                appliedContextsByWorktreeId: [:],
                 appliedActivityByWorktreeId: [:],
                 activePaneWorktreeId: worktreeId,
                 appliedActivePaneWorktreeId: nil
@@ -342,6 +389,7 @@ struct FilesystemProjectionIndexTests {
                         cwd: rootPath.appending(path: "src")
                     )
                 ],
+                appliedContextsByWorktreeId: [:],
                 appliedActivityByWorktreeId: [:],
                 activePaneWorktreeId: nil,
                 appliedActivePaneWorktreeId: nil
@@ -421,6 +469,7 @@ struct FilesystemProjectionIndexTests {
                 paneEntries: [
                     .init(paneId: paneId, paneKind: .terminal, repoId: repoId, worktreeId: worktreeId, cwd: rootPath)
                 ],
+                appliedContextsByWorktreeId: [:],
                 appliedActivityByWorktreeId: [:],
                 activePaneWorktreeId: worktreeId,
                 appliedActivePaneWorktreeId: nil
@@ -483,6 +532,7 @@ struct FilesystemProjectionIndexTests {
             paneEntries: [
                 .init(paneId: paneId, paneKind: .terminal, repoId: repoId, worktreeId: oldWorktreeId, cwd: rootPath)
             ],
+            appliedContextsByWorktreeId: [:],
             appliedActivityByWorktreeId: [:],
             activePaneWorktreeId: nil,
             appliedActivePaneWorktreeId: nil
@@ -498,6 +548,9 @@ struct FilesystemProjectionIndexTests {
                 ],
                 paneEntries: [
                     .init(paneId: paneId, paneKind: .terminal, repoId: repoId, worktreeId: newWorktreeId, cwd: rootPath)
+                ],
+                appliedContextsByWorktreeId: [
+                    oldWorktreeId: WorktreeFilesystemContext(repoId: repoId, rootPath: rootPath)
                 ],
                 appliedActivityByWorktreeId: [:],
                 activePaneWorktreeId: nil,
@@ -531,8 +584,7 @@ struct FilesystemProjectionIndexTests {
 
     @Test("stale source sync commit does not roll back newer pane update")
     func staleSourceSyncCommitDoesNotRollBackNewerPaneUpdate() async {
-        let repoId = UUID()
-        let worktreeId = UUID()
+        let (repoId, worktreeId) = (UUID(), UUID())
         let paneId = UUIDv7.generate()
         let rootPath = URL(fileURLWithPath: "/tmp/repo")
         let index = FilesystemProjectionIndex()
@@ -553,6 +605,7 @@ struct FilesystemProjectionIndexTests {
                         cwd: rootPath.appending(path: "src")
                     )
                 ],
+                appliedContextsByWorktreeId: [:],
                 appliedActivityByWorktreeId: [:],
                 activePaneWorktreeId: nil,
                 appliedActivePaneWorktreeId: nil
@@ -576,6 +629,7 @@ struct FilesystemProjectionIndexTests {
                         cwd: rootPath.appending(path: "src")
                     )
                 ],
+                appliedContextsByWorktreeId: [worktreeId: .init(repoId: repoId, rootPath: rootPath)],
                 appliedActivityByWorktreeId: [worktreeId: true],
                 activePaneWorktreeId: nil,
                 appliedActivePaneWorktreeId: nil

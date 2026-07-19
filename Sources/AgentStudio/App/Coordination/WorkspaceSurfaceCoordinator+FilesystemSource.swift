@@ -284,6 +284,7 @@ extension WorkspaceSurfaceCoordinator {
                 paneContextGeneration: paneContextGeneration,
                 topologyEntries: topologyEntries,
                 paneEntries: paneEntries,
+                appliedContextsByWorktreeId: filesystemRegisteredContextsByWorktreeId,
                 appliedActivityByWorktreeId: filesystemActivityByWorktreeId,
                 activePaneWorktreeId: activePaneWorktreeId,
                 appliedActivePaneWorktreeId: filesystemLastActivePaneWorktreeId
@@ -361,6 +362,7 @@ extension WorkspaceSurfaceCoordinator {
         for worktreeId in syncDiff.unregisterWorktreeIds {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             await filesystemSource.unregister(worktreeId: worktreeId)
+            recordAppliedFilesystemSourceUnregister(worktreeId: worktreeId)
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             unregisteredCount += 1
         }
@@ -369,11 +371,16 @@ extension WorkspaceSurfaceCoordinator {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             if filesystemRegisteredContextsByWorktreeId[registration.worktreeId] != nil {
                 await filesystemSource.unregister(worktreeId: registration.worktreeId)
+                recordAppliedFilesystemSourceUnregister(worktreeId: registration.worktreeId)
                 guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
                 unregisteredCount += 1
             }
             await filesystemSource.register(
                 worktreeId: registration.worktreeId,
+                repoId: registration.repoId,
+                rootPath: registration.rootPath
+            )
+            filesystemRegisteredContextsByWorktreeId[registration.worktreeId] = WorktreeFilesystemContext(
                 repoId: registration.repoId,
                 rootPath: registration.rootPath
             )
@@ -387,6 +394,7 @@ extension WorkspaceSurfaceCoordinator {
                 worktreeId: activityUpdate.worktreeId,
                 isActiveInApp: activityUpdate.isActiveInApp
             )
+            filesystemActivityByWorktreeId[activityUpdate.worktreeId] = activityUpdate.isActiveInApp
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             activityWriteCount += 1
         }
@@ -394,6 +402,7 @@ extension WorkspaceSurfaceCoordinator {
         if syncDiff.shouldUpdateActivePaneWorktree {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             await filesystemSource.setActivePaneWorktree(worktreeId: syncDiff.activePaneWorktreeId)
+            filesystemLastActivePaneWorktreeId = syncDiff.activePaneWorktreeId
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             activePaneWriteCount = 1
         }
@@ -407,6 +416,7 @@ extension WorkspaceSurfaceCoordinator {
                 contextsByWorktreeId: syncDiff.contextsByWorktreeId
             )
         )
+        recordAppliedFilesystemTopologyAssertion(syncDiff.contextsByWorktreeId)
         guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
 
         return FilesystemSourceSyncWriteMetrics(
@@ -417,6 +427,29 @@ extension WorkspaceSurfaceCoordinator {
             topologyGeneration: topologyGeneration,
             filesystemSourceDuration: sourceStart.duration(to: clock.now)
         )
+    }
+
+    private func recordAppliedFilesystemSourceUnregister(worktreeId: UUID) {
+        filesystemRegisteredContextsByWorktreeId.removeValue(forKey: worktreeId)
+        filesystemActivityByWorktreeId.removeValue(forKey: worktreeId)
+        if filesystemLastActivePaneWorktreeId == worktreeId {
+            filesystemLastActivePaneWorktreeId = nil
+        }
+    }
+
+    private func recordAppliedFilesystemTopologyAssertion(
+        _ contextsByWorktreeId: [UUID: WorktreeFilesystemContext]
+    ) {
+        let desiredWorktreeIds = Set(contextsByWorktreeId.keys)
+        filesystemRegisteredContextsByWorktreeId = contextsByWorktreeId
+        filesystemActivityByWorktreeId = filesystemActivityByWorktreeId.filter { worktreeId, _ in
+            desiredWorktreeIds.contains(worktreeId)
+        }
+        if let filesystemLastActivePaneWorktreeId,
+            !desiredWorktreeIds.contains(filesystemLastActivePaneWorktreeId)
+        {
+            self.filesystemLastActivePaneWorktreeId = nil
+        }
     }
 
     private func continueFilesystemSourceWrites(for requestGeneration: UInt64) -> Bool {
