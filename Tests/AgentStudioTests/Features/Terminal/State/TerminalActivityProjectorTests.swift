@@ -7,12 +7,23 @@ import Testing
 @Suite("Terminal activity projector", .serialized)
 struct TerminalActivityProjectorTests {
     private final class OutcomeRecorder: @unchecked Sendable {
-        private(set) var outcomes: [TerminalActivityProjectionOutcome] = []
-        private(set) var batches: [[TerminalActivityProjectionOutcome]] = []
+        private let lock = NSLock()
+        private var recordedOutcomes: [TerminalActivityProjectionOutcome] = []
+        private var recordedBatches: [[TerminalActivityProjectionOutcome]] = []
+
+        var outcomes: [TerminalActivityProjectionOutcome] {
+            lock.withLock { recordedOutcomes }
+        }
+
+        var batches: [[TerminalActivityProjectionOutcome]] {
+            lock.withLock { recordedBatches }
+        }
 
         func record(_ batch: [TerminalActivityProjectionOutcome]) {
-            batches.append(batch)
-            outcomes.append(contentsOf: batch)
+            lock.withLock {
+                recordedBatches.append(batch)
+                recordedOutcomes.append(contentsOf: batch)
+            }
         }
     }
 

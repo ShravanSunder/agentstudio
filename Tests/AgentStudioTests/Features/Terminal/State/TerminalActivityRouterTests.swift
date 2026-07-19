@@ -391,12 +391,17 @@ struct TerminalActivityRouterTests {
         await clock.waitForPendingSleepCount(atLeast: 1)
         clock.advance(by: .milliseconds(750))
 
-        await assertEventuallyAsync("quiet period should publish one settled fact") {
-            RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot()).count {
+        _ = await subscriber.firstEvent { envelope in
+            RuntimeEnvelopeHarness.paneEvents(from: [envelope]).contains {
                 if case .terminalActivity(.unseenActivitySettled) = $0.event { return true }
                 return false
-            } == 1
+            }
         }
+        let settledEventCount = RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot()).count {
+            if case .terminalActivity(.unseenActivitySettled) = $0.event { return true }
+            return false
+        }
+        #expect(settledEventCount == 1)
         await router.stop()
         await subscriber.shutdown()
     }
@@ -503,12 +508,17 @@ struct TerminalActivityRouterTests {
         )
         await clock.waitForPendingSleepGeneration(firstGeneration + 1)
         clock.advance(by: .milliseconds(750))
-        await assertEventuallyAsync("replacement timer should settle exactly one window") {
-            RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot()).count {
+        _ = await subscriber.firstEvent { envelope in
+            RuntimeEnvelopeHarness.paneEvents(from: [envelope]).contains {
                 if case .terminalActivity(.unseenActivitySettled) = $0.event { return true }
                 return false
-            } == 1
+            }
         }
+        let settledEventCount = RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot()).count {
+            if case .terminalActivity(.unseenActivitySettled) = $0.event { return true }
+            return false
+        }
+        #expect(settledEventCount == 1)
         await router.stop()
         await subscriber.shutdown()
     }

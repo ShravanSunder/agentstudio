@@ -6,6 +6,12 @@ import Testing
 @MainActor
 @Suite("TerminalActivityRouter derived activity events", .serialized)
 struct TerminalActivityDerivedEventTests {
+    private typealias SettledEventRecord = (
+        source: EventSource,
+        seq: UInt64,
+        activity: TerminalSettledActivity
+    )
+
     private final class MillisecondBox: @unchecked Sendable {
         private let lock = NSLock()
         private var value: Int64
@@ -206,7 +212,14 @@ struct TerminalActivityDerivedEventTests {
             await derivedPaneEvents(from: subscriber).count == 1
         }
 
-        router.markUnseenActivityObserved(paneId: paneId.uuid)
+        await router.consumeTerminalActivityInput(
+            .orderedControl(
+                surfaceID: paneId.uuid,
+                paneID: paneId.uuid,
+                precedingAggregate: nil,
+                control: .observed
+            )
+        )
         let secondInitialSleepGeneration = clock.scheduledSleepGeneration
         await postScrollbackBurst(paneId: paneId, totals: [200, 220, 240], through: router)
         await waitForLatestRows(240, paneId: paneId, atom: atom)
@@ -220,13 +233,18 @@ struct TerminalActivityDerivedEventTests {
         await assertEventuallyAsync("second window should settle") {
             await derivedPaneEvents(from: subscriber).count == 2
         }
-        let events = await derivedPaneEvents(from: subscriber)
+        let allEvents = await derivedTerminalActivityEvents(from: subscriber)
+        #expect(allEvents.map(\.seq) == [1, 2, 3])
+        let events: [SettledEventRecord] = allEvents.compactMap { record in
+            guard case .unseenActivitySettled(let activity) = record.event else { return nil }
+            return (source: record.source, seq: record.seq, activity: activity)
+        }
         #expect(
             events.map(\.source) == [
                 .system(.builtin(.terminalActivityRouter)),
                 .system(.builtin(.terminalActivityRouter)),
             ])
-        #expect(events.map(\.seq) == [1, 2])
+        #expect(events.map(\.seq) == [2, 3])
 
         await router.stop()
         await subscriber.shutdown()
@@ -241,11 +259,20 @@ struct TerminalActivityDerivedEventTests {
     private func derivedPaneEvents(
         from subscriber: RecordingSubscriber<RuntimeEnvelope>
     ) async -> [(source: EventSource, seq: UInt64, activity: TerminalSettledActivity)] {
-        RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot()).compactMap { record in
-            guard case .terminalActivity(.unseenActivitySettled(let activity)) = record.event else {
+        await derivedTerminalActivityEvents(from: subscriber).compactMap { record in
+            guard case .unseenActivitySettled(let activity) = record.event else {
                 return nil
             }
             return (source: record.source, seq: record.seq, activity: activity)
+        }
+    }
+
+    private func derivedTerminalActivityEvents(
+        from subscriber: RecordingSubscriber<RuntimeEnvelope>
+    ) async -> [(source: EventSource, seq: UInt64, event: TerminalActivityEvent)] {
+        RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot()).compactMap { record in
+            guard case .terminalActivity(let event) = record.event else { return nil }
+            return (source: record.source, seq: record.seq, event: event)
         }
     }
 
