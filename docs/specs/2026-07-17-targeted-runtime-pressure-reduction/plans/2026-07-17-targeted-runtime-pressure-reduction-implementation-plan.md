@@ -6,9 +6,9 @@ Accepted source:
 `docs/specs/2026-07-17-targeted-runtime-pressure-reduction/targeted-runtime-pressure-reduction.md`
 
 Accepted source SHA-256:
-`20e4cc61da49fb0f41755c594be3335e71939a07e26d516f3b938a6c1906174e`
+`eeb3cb8ed6bdf55ca65dc249be8295de7fa44ad003028c396d0c59dfa4e58f1d`
 
-Source coverage: `888/888` lines
+Source coverage: `896/896` lines
 
 Behavioral baseline source: `5dea96b6`
 
