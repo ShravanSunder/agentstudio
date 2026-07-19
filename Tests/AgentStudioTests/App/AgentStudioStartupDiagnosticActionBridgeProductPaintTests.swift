@@ -43,6 +43,51 @@ struct BridgeProductPaintStartupDiagnosticTests {
         #expect(javaScript.contains("bridge-viewer-context-file"))
         #expect(javaScript.contains("data-item-path"))
         #expect(javaScript.contains("__bridgeFrameLivenessProbe?.rafAlive"))
+        #expect(javaScript.contains("paintedElementCount"))
+        #expect(javaScript.contains("decodedSourceCorrelationCount"))
+        #expect(javaScript.contains("reviewSurfaceRoleCandidateCount"))
+        #expect(javaScript.contains("reviewIdentityCandidateCount"))
+        #expect(javaScript.contains("reviewSelectedItemCandidateCount"))
+        #expect(javaScript.contains("reviewWholePositionCandidateCount"))
+        #expect(javaScript.contains("reviewDigestCandidateCount"))
+        #expect(javaScript.contains("reviewPaintedDispositionCandidateCount"))
+        #expect(javaScript.contains("reviewCanaryCandidateCount"))
+        #expect(javaScript.contains("activeViewerModeIsReview"))
+        #expect(javaScript.contains("reviewMetadataItemCount"))
+        #expect(javaScript.contains("reviewShellPresent"))
+        #expect(javaScript.contains("reviewSelectedItemPresent"))
+        #expect(javaScript.contains("reviewSelectedPathPresent"))
+        #expect(javaScript.contains("globalThis.__bridgeReviewSelectionDiagnostic"))
+        #expect(javaScript.contains("initialSelectionRequestedCount"))
+        #expect(javaScript.contains("initialSelectionSchedulingAcceptedCount"))
+        #expect(javaScript.contains("selectionScheduledCount"))
+        #expect(javaScript.contains("selectionFirstFrameReachedCount"))
+        #expect(javaScript.contains("selectionSecondFrameReachedCount"))
+        #expect(javaScript.contains("selectionSubmittedCount"))
+        #expect(javaScript.contains("selectionDroppedCount"))
+    }
+
+    @Test("Review identity-chain diagnostic is independent of the full painted-source match")
+    func reviewIdentityChainDiagnosticUsesIdentityCandidates() throws {
+        let javaScript = AppDelegate.bridgeProductPaintCorrelationJavaScript(
+            relativePath: "tracked.txt",
+            sha256: "expected-sha",
+            canary: "expected-canary"
+        )
+        let assignmentStart = try #require(
+            javaScript.range(of: "const reviewIdentityChainMatched =")
+        )
+        let assignmentEnd = try #require(
+            javaScript.range(
+                of: "const reviewPaintedSourceMatchCount =",
+                range: assignmentStart.upperBound..<javaScript.endIndex
+            )
+        )
+        let assignment = javaScript[assignmentStart.lowerBound..<assignmentEnd.lowerBound]
+
+        #expect(assignment.contains("reviewIdentityCandidateCount > 0"))
+        #expect(!assignment.contains("reviewMatches"))
+        #expect(!assignment.contains("expectedCanary"))
     }
 
     @Test("Bridge product paint diagnostic reloads and proves worker replacement replay")
@@ -59,8 +104,8 @@ struct BridgeProductPaintStartupDiagnosticTests {
         #expect(source.contains("worker_replacement_observed"))
     }
 
-    @Test("Bridge product paint diagnostic focuses and proves its exact host is visible before paint")
-    func bridgeProductPaintDiagnosticFocusesVisibleHostBeforePaint() throws {
+    @Test("Bridge product paint diagnostic focuses before the correlated paint wait")
+    func bridgeProductPaintDiagnosticFocusesBeforeCorrelatedPaintWait() throws {
         let source = try String(
             contentsOfFile:
                 "Sources/AgentStudio/App/Boot/AppDelegate+BridgeProductPaintCorrelationStartupDiagnostics.swift",
@@ -71,16 +116,14 @@ struct BridgeProductPaintStartupDiagnosticTests {
                 of: "paneTabViewController()?.execute(.focusPane, target: pane.id, targetType: .pane)"
             )
         )
-        let visibilityRange = try #require(
-            source.range(of: "waitForBridgeProductPaintHostVisibility(controller: bridgeView.controller)")
-        )
         let correlationRange = try #require(
             source.range(of: "let initialProof = await waitForBridgeProductPaintCorrelation(")
         )
 
-        #expect(focusRange.lowerBound < visibilityRange.lowerBound)
-        #expect(visibilityRange.lowerBound < correlationRange.lowerBound)
-        #expect(source.contains("document.visibilityState === 'visible'"))
+        #expect(focusRange.lowerBound < correlationRange.lowerBound)
+        #expect(!source.contains("waitForBridgeProductPaintHostVisibility"))
+        #expect(source.contains("snapshot.documentVisibilityState == \"visible\""))
+        #expect(source.contains("documentVisibilityState: document.visibilityState"))
     }
 
 }

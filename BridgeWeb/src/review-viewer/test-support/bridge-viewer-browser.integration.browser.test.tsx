@@ -5,11 +5,6 @@ import { cleanup, render } from 'vitest-browser-react';
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../../app/bridge-app.css';
 import {
-	useBridgeReviewNavigationController,
-	type BridgeReviewNavigationTarget,
-	type BridgeReviewNavigationSelectionSource,
-} from '../../app/bridge-app-review-navigation-controller.js';
-import {
 	useBridgeReviewSelectionController,
 	type BridgeReviewSelectionSource,
 } from '../../app/bridge-app-review-selection-controller.js';
@@ -17,18 +12,22 @@ import {
 	BridgeReviewViewerShellBoundary,
 	type BridgeReviewViewerPresentationState,
 } from '../../app/bridge-app-review-viewer-shell-boundary.js';
-import type { BridgeViewerNavigationCommand } from '../../app/bridge-viewer-navigation-models.js';
 import { createBridgeMainRenderFulfillmentCoordinator } from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
+import type { BridgeWorkerRenderSourceCorrelation } from '../../core/comm-worker/bridge-worker-pierre-render-job.js';
 import { createBridgeReviewItemRegistry } from '../../foundation/review-package/bridge-review-item-registry.js';
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
+import { createBridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
+import {
+	reviewNavigationCommand,
+	ReviewNavigationControllerProbe,
+} from './bridge-review-navigation-controller.browser.test-support.js';
 import {
 	advanceBridgeReviewRecoveryWitnessFrames,
 	disposeBridgeReviewRecoveryWitnessHarnesses,
 	makeBridgeReviewRecoveryWitnessFiles,
 	renderBridgeReviewRecoveryWitness,
 } from './bridge-viewer-browser.recovery-witness.test-support.js';
-
 const readyPresentationRenderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
 	cancelAnimationFrame: (_frameHandle): void => {},
 	nowMilliseconds: (): number => 0,
@@ -37,6 +36,9 @@ const readyPresentationRenderFulfillmentCoordinator = createBridgeMainRenderFulf
 	},
 	sendDisposition: (_receipt): void => {},
 });
+const disabledBridgeTelemetryRecorderRef = {
+	current: createBridgeTelemetryRecorder(null),
+} as const;
 
 describe('Bridge Review production recovery Browser witnesses', () => {
 	afterEach(async (): Promise<void> => {
@@ -78,7 +80,6 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			expect(harness.pierreTreePath(directoryPath)?.getAttribute('aria-expanded')).toBe('true');
 		}
 	});
-
 	test('opens and updates recovered Review tree search synchronously', async () => {
 		// Arrange
 		const files = makeBridgeReviewRecoveryWitnessFiles({
@@ -89,6 +90,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		const harness = renderBridgeReviewRecoveryWitness(files);
 		await harness.publishDisplay();
 		await expect.element(harness.renderResult.getByTestId('review-viewer-shell')).toBeVisible();
+		expect(document.querySelector('[data-testid="bridge-review-search-toggle"]')).not.toBeNull();
 
 		// Act
 		await act(async (): Promise<void> => {
@@ -96,9 +98,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		});
 
 		// Assert
-		await expect
-			.element(harness.renderResult.getByTestId('bridge-review-search-toggle'))
-			.toHaveAttribute('aria-pressed', 'true');
+		expect(document.querySelector('[data-testid="bridge-review-search-toggle"]')).toBeNull();
 		await expect
 			.poll(() => harness.pierreSearchInput(), {
 				message:
@@ -235,7 +235,6 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		expect(document.querySelector('[data-testid="bridge-review-search-input"]')).toBeNull();
 		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toHaveLength(9);
 	});
-
 	test('Review facets replace visible rows with required ancestors and Clear restores the tree', async () => {
 		// Arrange
 		const files = makeBridgeReviewRecoveryWitnessFiles({
@@ -297,7 +296,6 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		// Assert
 		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toHaveLength(9);
 	});
-
 	test('reveals ancestors for explicit Review navigation without changing fresh disclosure', async () => {
 		// Arrange
 		const files = makeBridgeReviewRecoveryWitnessFiles({
@@ -324,7 +322,6 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			'true',
 		);
 	});
-
 	test('resets a fresh Review epoch fully expanded without replaying an old selection reveal', async () => {
 		// Arrange
 		const files = makeBridgeReviewRecoveryWitnessFiles({
@@ -353,7 +350,6 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		expect(harness.pierreTreePath('Sources')?.getAttribute('aria-expanded')).toBe('true');
 		expect(harness.selectionScrollToPathSampleCount()).toBe(initialSelectionScrollCount);
 	});
-
 	test('does not replay an old selection reveal after a same-generation Review package replacement', async () => {
 		// Arrange: Vite can replace package/source identity while retaining generation 1.
 		const files = makeBridgeReviewRecoveryWitnessFiles({
@@ -383,7 +379,6 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		expect(harness.pierreTreePath('Sources')?.getAttribute('aria-expanded')).toBe('true');
 		expect(harness.selectionScrollToPathSampleCount()).toBe(initialSelectionScrollCount);
 	});
-
 	test('defers an inactive ready presentation and resets it after a fallback state', async () => {
 		// Arrange
 		const readyPresentation = makeReadyReviewPresentationState('activation-review');
@@ -412,7 +407,6 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			.element(rendered.getByTestId('bridge-review-projection-pending-shell'))
 			.toBeVisible();
 	});
-
 	test('keeps selection local-first and mark-viewed retries bounded across A to B to A', async () => {
 		// Arrange
 		const events: string[] = [];
@@ -470,7 +464,6 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			'intent:item-a:user',
 		]);
 	});
-
 	test('paints local Review selection before sending the typed worker intent', async () => {
 		// Arrange
 		const files = makeBridgeReviewRecoveryWitnessFiles({
@@ -603,6 +596,56 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			'G0 REVIEW CONTINUOUS DOCUMENT MISSING: expected one production Pierre CodeView to contain every ready Review item; selected-only rendering omitted middle/final content.',
 		).toContain(files[1]?.contentMarker);
 		expect(renderedCodeText).toContain(files[2]?.contentMarker);
+	});
+
+	test('stamps source correlation after ordinary Review publication reaches Pierre paint', async () => {
+		// Arrange
+		const fixtureFile = makeBridgeReviewRecoveryWitnessFiles({
+			count: 1,
+			lineCount: 3,
+			markerPrefix: 'PAINT_CORRELATION',
+		})[0];
+		if (fixtureFile === undefined) throw new Error('Review paint-correlation fixture is missing.');
+		const sourceCorrelation = {
+			descriptorId: 'review-paint-correlation-descriptor',
+			itemId: fixtureFile.itemId,
+			observedSha256: 'a'.repeat(64),
+			position: 'whole',
+			requestId: 'review-paint-correlation-request',
+			role: 'head',
+			sourceGeneration: 1,
+			sourceIdentity: 'review-paint-correlation-source',
+		} satisfies BridgeWorkerRenderSourceCorrelation;
+		const harness = renderBridgeReviewRecoveryWitness([{ ...fixtureFile, sourceCorrelation }]);
+
+		// Act
+		await harness.publishDisplay();
+		await harness.publishContentForItemIds([fixtureFile.itemId]);
+		await expect.poll(() => harness.paintedSourceCorrelationElements()).toHaveLength(1);
+
+		// Assert
+		const [paintedElement] = harness.paintedSourceCorrelationElements();
+		expect(paintedElement?.isConnected).toBe(true);
+		const encodedSourceCorrelations = paintedElement?.getAttribute(
+			'data-bridge-painted-source-correlations',
+		);
+		const paintedPublicationId = paintedElement?.getAttribute('data-bridge-painted-publication-id');
+		expect(encodedSourceCorrelations).not.toBeNull();
+		expect(paintedPublicationId).not.toBeNull();
+		expect(
+			paintedElement === undefined ? '' : harness.paintedSourceCorrelationText(paintedElement),
+		).toContain(fixtureFile.contentMarker);
+		const decodedSourceCorrelations: unknown = JSON.parse(encodedSourceCorrelations ?? 'null');
+		expect(decodedSourceCorrelations).toEqual([
+			{
+				...sourceCorrelation,
+				disposition: 'painted',
+				pierreItemId: fixtureFile.itemId,
+				publicationId: paintedPublicationId,
+				semanticItemId: fixtureFile.itemId,
+				surface: 'review',
+			},
+		]);
 	});
 
 	test('appends streamed Review metadata into continuous projection order without tree clicks', async () => {
@@ -757,6 +800,7 @@ function ReviewSelectionControllerProbe(props: { readonly events: string[] }): R
 		isActive: true,
 		markFileViewed,
 		selectedItemId,
+		telemetryRecorderRef: disabledBridgeTelemetryRecorderRef,
 	});
 	return (
 		<>
@@ -772,61 +816,6 @@ function ReviewSelectionControllerProbe(props: { readonly events: string[] }): R
 			<button onClick={(): void => void controller.selectReviewItem('item-missing')} type="button">
 				Select unknown Review item
 			</button>
-		</>
-	);
-}
-
-function ReviewNavigationControllerProbe(props: { readonly events: string[] }): ReactElement {
-	const [catalogRevision, setCatalogRevision] = useState(1);
-	const [navigationCommand, setNavigationCommand] = useState<BridgeViewerNavigationCommand>(() =>
-		reviewNavigationCommand('command-two', 'item-two'),
-	);
-	const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-	const orderedItemIds = ['item-one', 'item-two'] as const;
-	const clearReviewSelection = useCallback((): void => {
-		props.events.push('clear');
-		setSelectedItemId(null);
-	}, [props.events]);
-	const onTargetOutsideAcceptedProjection = useCallback(
-		(target: BridgeReviewNavigationTarget): void => {
-			props.events.push(`outside:${target.itemId ?? target.path ?? 'unknown'}`);
-		},
-		[props.events],
-	);
-	const selectReviewItem = useCallback(
-		(itemId: string, selectedSource: BridgeReviewNavigationSelectionSource): true => {
-			props.events.push(`select:${itemId}:${selectedSource}`);
-			setSelectedItemId(itemId);
-			return true;
-		},
-		[props.events],
-	);
-	useBridgeReviewNavigationController({
-		catalogRevision,
-		clearReviewSelection,
-		getReviewItem: (): undefined => undefined,
-		isActive: true,
-		navigationCommand,
-		onTargetOutsideAcceptedProjection,
-		orderedItemIds,
-		selectedItemId,
-		selectInitialReviewItem: selectReviewItem,
-		selectReviewItem,
-	});
-	return (
-		<>
-			<button onClick={(): void => setCatalogRevision((revision) => revision + 1)} type="button">
-				Advance Review catalog revision
-			</button>
-			<button
-				onClick={(): void =>
-					setNavigationCommand(reviewNavigationCommand('command-missing', 'item-missing'))
-				}
-				type="button"
-			>
-				Navigate outside Review projection
-			</button>
-			<output data-testid="review-navigation-selection">{selectedItemId ?? 'none'}</output>
 		</>
 	);
 }
@@ -851,24 +840,6 @@ function makeReadyReviewPresentationState(
 			selectedItemId: null,
 		},
 		status: 'ready',
-	};
-}
-
-function reviewNavigationCommand(
-	commandId: string,
-	reviewItemId: string,
-): BridgeViewerNavigationCommand {
-	return {
-		commandId,
-		commandKind: 'activateTarget',
-		context: 'review',
-		restoreMemory: false,
-		source: { sourceId: 'review-fixture', sourceKind: 'fixture' },
-		target: {
-			comparisonId: 'review-comparison',
-			reviewItemId,
-			targetKind: 'diff',
-		},
 	};
 }
 

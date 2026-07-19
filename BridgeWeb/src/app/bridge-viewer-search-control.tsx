@@ -14,12 +14,15 @@ export interface BridgeViewerSearchControlProps {
 	readonly testId: string;
 }
 
-export function BridgeViewerSearchControl(props: BridgeViewerSearchControlProps): ReactElement {
+export function BridgeViewerSearchControl(
+	props: BridgeViewerSearchControlProps,
+): ReactElement | null {
+	if (props.isActive) return null;
+
 	return (
 		<div className="relative flex min-w-0 items-center" data-testid={props.testId}>
 			<BridgeViewerButton
 				ariaLabel="Search files"
-				ariaPressed={props.isActive}
 				className={bridgeViewerChromeIconButtonClassName}
 				onClick={props.onOpenSearch}
 				testId={props.searchToggleTestId}

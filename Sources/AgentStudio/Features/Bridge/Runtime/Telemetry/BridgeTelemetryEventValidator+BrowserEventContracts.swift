@@ -452,7 +452,7 @@ extension BridgeTelemetryEventValidator {
         case "review_metadata_apply":
             "intake"
         case "selection_commit":
-            "worker"
+            "local"
         default:
             "content"
         }

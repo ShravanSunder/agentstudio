@@ -1,6 +1,12 @@
 import { useCallback, useLayoutEffect, useRef } from 'react';
 
 import type { BridgeWorkerSelectCommand } from '../core/comm-worker/bridge-worker-contracts.js';
+import {
+	recordBridgeReviewSelectionDiagnosticStage,
+	type BridgeReviewSelectionDiagnosticStage,
+} from '../foundation/diagnostics/bridge-review-selection-diagnostic.js';
+import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
+import { recordBridgeReviewSelectionCommitTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 
 export type BridgeReviewSelectionSource = BridgeWorkerSelectCommand['selectedSource'];
 
@@ -11,6 +17,7 @@ export interface UseBridgeReviewSelectionControllerProps {
 	readonly isActive: boolean;
 	readonly markFileViewed: (itemId: string, onDeliveryFailure?: () => void) => boolean | void;
 	readonly selectedItemId: string | null;
+	readonly telemetryRecorderRef: { readonly current: BridgeTelemetryRecorder };
 }
 
 export interface BridgeReviewSelectionController {
@@ -46,6 +53,7 @@ export function useBridgeReviewSelectionController(
 			onPostPaintSelection: (itemId, selectedSource): void => {
 				latestPropsRef.current.emitSelectIntent(itemId, selectedSource);
 			},
+			onSelectionIntentDiagnosticStage: recordBridgeReviewSelectionDiagnosticStage,
 			isPendingIntentCurrent: (itemId): boolean =>
 				latestPropsRef.current.isActive &&
 				selectedItemIdRef.current === itemId &&
@@ -86,6 +94,7 @@ export function useBridgeReviewSelectionController(
 	);
 	const beginForegroundReviewSelection = useCallback(
 		(itemId: string, selectedSource: BridgeReviewSelectionSource = 'user'): boolean => {
+			const presentationChanged = selectedItemIdRef.current !== itemId;
 			const accepted = commitBridgeReviewPresentationSelection({
 				commitLocalSelection: props.commitLocalSelection,
 				currentSelectedItemId: selectedItemIdRef.current,
@@ -97,10 +106,21 @@ export function useBridgeReviewSelectionController(
 			});
 			if (accepted) {
 				selectedItemIdRef.current = itemId;
+				if (presentationChanged) {
+					recordBridgeReviewSelectionCommitTelemetrySample({
+						telemetryRecorder: props.telemetryRecorderRef.current,
+					});
+				}
 			}
 			return accepted;
 		},
-		[props.commitLocalSelection, props.hasReviewItem, props.isActive, selectIntentScheduler],
+		[
+			props.commitLocalSelection,
+			props.hasReviewItem,
+			props.isActive,
+			props.telemetryRecorderRef,
+			selectIntentScheduler,
+		],
 	);
 	const selectReviewItem = useCallback(
 		(itemId: string, selectedSource: BridgeReviewSelectionSource = 'user'): boolean => {
@@ -149,6 +169,7 @@ export function createBridgeReviewPostPaintSelectionFrameScheduler(props: {
 		itemId: string,
 		selectedSource: BridgeReviewSelectionSource,
 	) => void;
+	readonly onSelectionIntentDiagnosticStage?: (stage: BridgeReviewSelectionDiagnosticStage) => void;
 	readonly isPendingIntentCurrent: (itemId: string) => boolean;
 	readonly requestAnimationFrame: (callback: FrameRequestCallback) => number;
 }): BridgeReviewPostPaintSelectionFrameScheduler {
@@ -167,19 +188,24 @@ export function createBridgeReviewPostPaintSelectionFrameScheduler(props: {
 		pendingFrameId = null;
 	};
 	const schedule = (itemId: string, selectedSource: BridgeReviewSelectionSource): void => {
+		props.onSelectionIntentDiagnosticStage?.('selection_scheduled');
 		pendingIntent = { itemId, selectedSource };
 		if (pendingFrameId !== null) {
 			return;
 		}
 		pendingFrameId = props.requestAnimationFrame((): void => {
+			props.onSelectionIntentDiagnosticStage?.('selection_first_frame_reached');
 			pendingFrameId = props.requestAnimationFrame((): void => {
+				props.onSelectionIntentDiagnosticStage?.('selection_second_frame_reached');
 				pendingFrameId = null;
 				const intent = pendingIntent;
 				pendingIntent = null;
 				if (intent === null || !props.isPendingIntentCurrent(intent.itemId)) {
+					props.onSelectionIntentDiagnosticStage?.('selection_dropped');
 					return;
 				}
 				props.onPostPaintSelection(intent.itemId, intent.selectedSource);
+				props.onSelectionIntentDiagnosticStage?.('selection_submitted');
 			});
 		});
 	};

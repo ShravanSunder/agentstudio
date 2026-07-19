@@ -40,6 +40,7 @@ export interface BridgeMainRenderedItemReadback {
 		readonly setAttribute: (qualifiedName: string, value: string) => void;
 	};
 	readonly item: BridgeMainRenderPublicationItem;
+	readonly readableContentMatchesItem: boolean;
 }
 
 export interface BridgeMainRenderReadback {
@@ -411,7 +412,11 @@ function retainAndStampPaintedSourceCorrelation(
 			publicationId: entry.publication.renderReceiptIdentity.publicationId,
 		} satisfies BridgeMainRetainedPaintedEvidence;
 		retainedPaintedEvidenceByFinalItem.set(entry.item, evidence);
-		stampRetainedPaintedEvidence(renderedItem, evidence);
+		if (renderedItem.readableContentMatchesItem) {
+			stampRetainedPaintedEvidence(renderedItem, evidence);
+		} else {
+			clearPaintedSourceCorrelation(renderedItem);
+		}
 	} catch {
 		// Packaged proof metadata is diagnostic-only and cannot gate product fulfillment.
 	}
@@ -428,7 +433,7 @@ function synchronizeRetainedPaintedEvidence(
 	const renderedItem = matchingRenderedItemForExactItem(item, readback);
 	if (renderedItem === null) return;
 	const evidence = retainedPaintedEvidenceByFinalItem.get(item);
-	if (evidence === undefined) {
+	if (evidence === undefined || !renderedItem.readableContentMatchesItem) {
 		clearPaintedSourceCorrelation(renderedItem);
 		return;
 	}

@@ -11,6 +11,7 @@ import {
 	recordBridgeFrameJankTelemetrySample,
 	recordBridgeSelectedContentDroppedTelemetrySample,
 	recordBridgeSelectedContentPaintedTelemetrySample,
+	recordBridgeReviewSelectionCommitTelemetrySample,
 	recordBridgeTreeAnchorRestoreTelemetrySample,
 	recordBridgeTreeClickToRowHighlightTelemetrySample,
 	recordBridgeTreeHoverToRenderTelemetrySample,
@@ -26,6 +27,25 @@ afterEach(() => {
 });
 
 describe('bridge viewer telemetry adapter flushing', () => {
+	test('records one scrub-safe local Review selection commit and flushes once', () => {
+		const recorder = makeCapturingRecorder();
+
+		recordBridgeReviewSelectionCommitTelemetrySample({
+			telemetryRecorder: recorder,
+		});
+
+		expect(recorder.samples).toHaveLength(1);
+		expect(recorder.samples[0]?.stringAttributes).toEqual(
+			expect.objectContaining({
+				'agentstudio.bridge.result': 'success',
+				'agentstudio.bridge.result_reason': 'none',
+				'agentstudio.bridge.transport': 'local',
+				'agentstudio.bridge.viewer': 'review',
+			}),
+		);
+		expect(recorder.flushForces).toEqual([undefined]);
+	});
+
 	test('uses idle-scheduled flushing for hot interaction samples', () => {
 		const recorder = makeCapturingRecorder();
 

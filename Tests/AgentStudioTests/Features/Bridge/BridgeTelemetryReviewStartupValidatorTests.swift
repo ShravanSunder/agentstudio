@@ -62,7 +62,7 @@ struct BridgeTelemetryReviewStartupValidatorTests {
                     plane: "data",
                     priority: "warm",
                     slice: "review_projection",
-                    transport: "worker",
+                    transport: "local",
                     extraStrings: [
                         "agentstudio.bridge.result": "success",
                         "agentstudio.bridge.result_reason": "none",
@@ -74,6 +74,29 @@ struct BridgeTelemetryReviewStartupValidatorTests {
         for sample in acceptedBatches {
             #expect(validator.validate(sample) == .accepted)
         }
+    }
+
+    @Test
+    func validatorRejectsWorkerTransportForLocalSelectionCommit() {
+        let validator = BridgeTelemetryEventValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let sample = sampleWithWebAttributes(
+            WebSampleProps(
+                name: "performance.bridge.web.selection_commit",
+                phase: "selection_commit",
+                plane: "data",
+                priority: "warm",
+                slice: "review_projection",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.result_reason": "none",
+                ]
+            )
+        )
+
+        #expect(validator.validate(sample) == .dropped(.unsafeAttribute))
     }
 
     @Test

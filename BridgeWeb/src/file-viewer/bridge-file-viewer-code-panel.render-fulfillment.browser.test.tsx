@@ -17,7 +17,10 @@ import {
 	type BridgeMainRenderPublicationItem,
 } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import type { BridgeWorkerFilePierreRenderJobEvent } from '../core/comm-worker/bridge-worker-contracts.js';
-import { buildBridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
+import {
+	buildBridgeWorkerPierreRenderJob,
+	type BridgeWorkerRenderSourceCorrelation,
+} from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { BridgeWorkerRenderDispositionReceipt } from '../core/comm-worker/bridge-worker-render-fulfillment.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import { bridgePierreOptionalHighlightLanguage } from '../review-viewer/workers/pierre/bridge-pierre-language-normalization.js';
@@ -162,7 +165,10 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				'Expected Pierre rendered membership to carry the exact main-adapted File object.',
 			);
 			await settleBridgeCodeViewState(
-				(): boolean => hasPostRenderForItem(capturedPostRenders, firstFinalItem),
+				(): boolean =>
+					capturedPostRenders.some(
+						(invocation): boolean => invocation.contextItem === firstFinalItem,
+					),
 				'Expected Pierre onPostRender callback for the exact main-adapted File object.',
 			);
 			const firstPostRender = requirePostRenderForItem(capturedPostRenders, firstFinalItem);
@@ -183,7 +189,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			});
 			expect(dispositionKinds(dispositions)).toEqual(['queued']);
 
-			const wrongContextItem = copyItemWithVersion(firstFinalItem, 92);
+			const wrongContextItem = { ...firstFinalItem, version: 92 };
 			await invokeCapturedPostRenderWithinAct({
 				contextItem: wrongContextItem,
 				invocation: firstPostRender,
@@ -223,9 +229,21 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
 			expect(dispositionKinds(dispositions)).toEqual(['queued']);
 			firstCodeView.getRenderedItems = originalGetRenderedItems;
-
 			// Only the exact final callback plus connected public readback advances fulfillment.
-			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
+			const renderedSourceLines = (): readonly Element[] =>
+				queryOpenShadowRoots(matchingRenderedItem.element, '[data-line][data-line-index]');
+			const [exactSourceText] = renderedSourceLines().map((line): string => line.textContent ?? '');
+			if (exactSourceText === undefined) {
+				throw new Error('Expected real Pierre File source rows in its open shadow roots.');
+			}
+			const writeLiveSourceText = (sourceText: string): void => {
+				for (const sourceLine of renderedSourceLines()) sourceLine.textContent = sourceText;
+			};
+			await invokeCapturedPostRenderWithinAct({
+				beforeInvoke: (): void => writeLiveSourceText(''),
+				invocation: firstPostRender,
+				phase: 'update',
+			});
 			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied']);
 			expect(pendingAnimationFrames).toHaveLength(1);
 			expect(dispositionKinds(dispositions)).not.toContain('painted');
@@ -235,7 +253,25 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 					'Expected matching File post-render readback to schedule paint validation.',
 				);
 			}
-			pendingPaintFrame.callback(nowMilliseconds);
+			await act(async (): Promise<void> => {
+				writeLiveSourceText('');
+				pendingPaintFrame.callback(nowMilliseconds);
+				await Promise.resolve();
+			});
+			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied', 'painted']);
+			expect(paintedSourceCorrelations(matchingRenderedItem.element)).toBeNull();
+			await invokeCapturedPostRenderWithinAct({
+				beforeInvoke: (): void => writeLiveSourceText('unrelated skeletal content'),
+				invocation: firstPostRender,
+				phase: 'update',
+			});
+			expect(paintedSourceCorrelations(matchingRenderedItem.element)).toBeNull();
+			await invokeCapturedPostRenderWithinAct({
+				beforeInvoke: (): void => writeLiveSourceText(exactSourceText),
+				invocation: firstPostRender,
+				phase: 'update',
+			});
+			expect(paintedSourceCorrelations(matchingRenderedItem.element)).not.toBeNull();
 			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied', 'painted']);
 
 			const secondPublication = makeFilePublication({
@@ -290,35 +326,26 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				'Expected Pierre rendered membership to carry the exact second main-adapted File object.',
 			);
 			await settleBridgeCodeViewState(
-				(): boolean => hasPostRenderForItem(capturedPostRenders, secondFinalItem),
+				(): boolean =>
+					capturedPostRenders.some(
+						(invocation): boolean => invocation.contextItem === secondFinalItem,
+					),
 				'Expected Pierre onPostRender callback for the exact second main-adapted File object.',
 			);
 			const secondPostRender = requirePostRenderForItem(capturedPostRenders, secondFinalItem);
-
 			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
 			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied', 'painted', 'queued']);
 			await invokeCapturedPostRenderWithinAct({ invocation: secondPostRender, phase: 'update' });
-			expect(dispositionKinds(dispositions)).toEqual([
-				'queued',
-				'applied',
-				'painted',
-				'queued',
-				'applied',
-			]);
+			const secondAppliedKinds = ['queued', 'applied', 'painted', 'queued', 'applied'];
+			expect(dispositionKinds(dispositions)).toEqual(secondAppliedKinds);
 			expect(pendingAnimationFrames).toHaveLength(1);
 			const secondPendingPaintFrame = pendingAnimationFrames.shift();
 			if (secondPendingPaintFrame === undefined) {
 				throw new Error('Expected the second exact File attempt to schedule paint validation.');
 			}
 			secondPendingPaintFrame.callback(nowMilliseconds);
-			expect(dispositionKinds(dispositions)).toEqual([
-				'queued',
-				'applied',
-				'painted',
-				'queued',
-				'applied',
-				'painted',
-			]);
+			const secondPaintedKinds = [...secondAppliedKinds, 'painted'];
+			expect(dispositionKinds(dispositions)).toEqual(secondPaintedKinds);
 		} finally {
 			CodeView.prototype.setup = originalSetup;
 			CodeView.prototype.setOptions = originalSetOptions;
@@ -334,6 +361,16 @@ function makeFilePublication(props: {
 }): BridgeWorkerFilePierreRenderJobEvent {
 	const itemId = 'file-1';
 	const cacheKey = `cache-${props.contentsMarker}`;
+	const sourceCorrelation = {
+		descriptorId: `descriptor-${props.contentsMarker}`,
+		itemId,
+		observedSha256: 'd'.repeat(64),
+		position: 'whole',
+		requestId: `request-${props.contentsMarker}`,
+		role: 'file',
+		sourceGeneration: props.publicationSequence,
+		sourceIdentity: `source-${props.contentsMarker}`,
+	} satisfies BridgeWorkerRenderSourceCorrelation;
 	const job = buildBridgeWorkerPierreRenderJob({
 		bridgeDemandRank: { lane: 'selected', priority: props.publicationSequence },
 		budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
@@ -364,6 +401,7 @@ function makeFilePublication(props: {
 			kind: 'codeViewFileItem',
 		},
 		renderKind: 'fileText',
+		sourceCorrelations: [sourceCorrelation],
 		window: { endLine: 1, startLine: 1, totalLineCount: 1 },
 	});
 	return {
@@ -391,22 +429,24 @@ function makeFilePublication(props: {
 	};
 }
 
-function copyItemWithVersion(item: CodeViewItem, version: number): CodeViewItem {
-	return { ...item, version };
-}
-
 function dispositionKinds(
 	dispositions: readonly BridgeWorkerRenderDispositionReceipt[],
 ): readonly BridgeWorkerRenderDispositionReceipt['disposition'][] {
 	return dispositions.map((receipt) => receipt.disposition);
 }
 
+function paintedSourceCorrelations(element: Element): string | null {
+	return element.getAttribute('data-bridge-painted-source-correlations');
+}
+
 async function invokeCapturedPostRenderWithinAct(props: {
+	readonly beforeInvoke?: () => void;
 	readonly contextItem?: CodeViewItem;
 	readonly invocation: CapturedBridgeFilePostRender;
 	readonly phase: PostRenderPhase;
 }): Promise<void> {
 	await act(async (): Promise<void> => {
+		props.beforeInvoke?.();
 		props.invocation.invoke({
 			phase: props.phase,
 			...(props.contextItem === undefined ? {} : { contextItem: props.contextItem }),
@@ -431,13 +471,6 @@ function requirePostRenderForItem(
 		throw new Error(`Expected Pierre onPostRender callback for exact File item ${item.id}.`);
 	}
 	return invocation;
-}
-
-function hasPostRenderForItem(
-	invocations: readonly CapturedBridgeFilePostRender[],
-	item: CodeViewItem,
-): boolean {
-	return invocations.some((candidate): boolean => candidate.contextItem === item);
 }
 
 function captureBridgeFilePostRender(props: {
@@ -497,6 +530,19 @@ function isPostRenderPhase(value: unknown): value is PostRenderPhase {
 
 function isUnknownRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 	return typeof value === 'object' && value !== null;
+}
+
+function queryOpenShadowRoots(root: Element | ShadowRoot, selector: string): readonly Element[] {
+	const matches = [...root.querySelectorAll(selector)];
+	if (root instanceof Element && root.shadowRoot !== null) {
+		matches.push(...queryOpenShadowRoots(root.shadowRoot, selector));
+	}
+	for (const descendant of root.querySelectorAll('*')) {
+		if (descendant.shadowRoot !== null) {
+			matches.push(...queryOpenShadowRoots(descendant.shadowRoot, selector));
+		}
+	}
+	return matches;
 }
 
 function requireExactFilePierreItem(item: BridgeMainRenderPublicationItem): ExactFilePierreItem {

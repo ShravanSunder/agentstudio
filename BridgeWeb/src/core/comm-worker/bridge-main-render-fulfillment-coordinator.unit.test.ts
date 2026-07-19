@@ -64,6 +64,7 @@ describe('Bridge main render fulfillment coordinator', () => {
 		const renderedItem: BridgeMainRenderedItemReadback | null = {
 			element: testRenderedElement(true),
 			item: publicationItem,
+			readableContentMatchesItem: true,
 		};
 		const readback = {
 			readCurrentItem: (): BridgeMainRenderPublicationItem | undefined => currentItem,
@@ -140,6 +141,7 @@ describe('Bridge main render fulfillment coordinator', () => {
 			let renderedItem: BridgeMainRenderedItemReadback | null = {
 				element: testRenderedElement(true),
 				item: publicationItem,
+				readableContentMatchesItem: true,
 			};
 			const readback = {
 				readCurrentItem: (): BridgeMainRenderPublicationItem | undefined => currentItem,
@@ -159,13 +161,21 @@ describe('Bridge main render fulfillment coordinator', () => {
 			// Act
 			switch (staleReadbackKind) {
 				case 'disconnected':
-					renderedItem = { element: testRenderedElement(false), item: publicationItem };
+					renderedItem = {
+						element: testRenderedElement(false),
+						item: publicationItem,
+						readableContentMatchesItem: true,
+					};
 					break;
 				case 'replaced-current':
 					currentItem = replacementItem;
 					break;
 				case 'mismatched-rendered':
-					renderedItem = { element: testRenderedElement(true), item: replacementItem };
+					renderedItem = {
+						element: testRenderedElement(true),
+						item: replacementItem,
+						readableContentMatchesItem: true,
+					};
 					break;
 			}
 			harness.setNowMilliseconds(rejectedAtMilliseconds);

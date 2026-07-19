@@ -13,6 +13,75 @@ import {
 import type { BridgeWorkerRenderSourceCorrelation } from './bridge-worker-pierre-render-job.js';
 
 describe('Bridge main render fulfillment coordinator paint evidence', () => {
+	test('defers correlated readable-paint evidence without duplicating the terminal disposition', () => {
+		// Arrange
+		const harness = createCoordinatorHarness(110);
+		const sourceCorrelation = {
+			descriptorId: 'descriptor-review-readable-paint',
+			itemId: 'review-readable-paint',
+			observedSha256: 'b'.repeat(64),
+			position: 'whole',
+			requestId: 'content-request-review-readable-paint',
+			role: 'head',
+			sourceGeneration: 7,
+			sourceIdentity: 'review-readable-paint-source',
+		} satisfies BridgeWorkerRenderSourceCorrelation;
+		const publication = makeReviewPublication({
+			itemId: sourceCorrelation.itemId,
+			publicationSequence: 3,
+			sourceCorrelations: [sourceCorrelation],
+		});
+		const publicationItem = publication.job.payload.item;
+		const renderedElementAttributes = new Map<string, string>();
+		let readableContentMatchesItem = false;
+		const readback = {
+			readCurrentItem: (): BridgeMainRenderPublicationItem => publicationItem,
+			readRenderedItem: () => ({
+				element: testRenderedElement(true, renderedElementAttributes),
+				item: publicationItem,
+				readableContentMatchesItem,
+			}),
+		};
+		harness.coordinator.acceptPublication(publication);
+		bindPublicationItemAsFinal(harness.coordinator, publication);
+		harness.coordinator.markPublicationQueued(publication);
+		harness.coordinator.observePostRender({
+			...readback,
+			contextItem: publicationItem,
+			itemId: publication.job.itemId,
+			phase: 'mount',
+		});
+
+		// Act: the item is connected, but Pierre has not populated its readable body yet.
+		harness.animationFrames.runActiveFrame(1);
+
+		// Assert: product residency settles, but the readable-source proof does not stamp early.
+		expect(harness.dispositions).toEqual([
+			expectedDisposition(publication, 'queued', 110),
+			expectedDisposition(publication, 'applied', 110),
+			expectedDisposition(publication, 'painted', 110),
+		]);
+		expect(renderedElementAttributes.size).toBe(0);
+
+		// Act: Pierre's next post-render event exposes readable content for the exact item.
+		readableContentMatchesItem = true;
+		harness.setNowMilliseconds(120);
+		harness.coordinator.observePostRender({
+			...readback,
+			contextItem: publicationItem,
+			itemId: publication.job.itemId,
+			phase: 'update',
+		});
+
+		// Assert: later readable synchronization stamps retained lineage without another receipt.
+		expect(harness.dispositions).toEqual([
+			expectedDisposition(publication, 'queued', 110),
+			expectedDisposition(publication, 'applied', 110),
+			expectedDisposition(publication, 'painted', 110),
+		]);
+		expect(renderedElementAttributes.has('data-bridge-painted-source-correlations')).toBe(true);
+	});
+
 	test('stamps exact source correlation and publication identity on the connected rendered element only at the paint boundary', () => {
 		// Arrange
 		const harness = createCoordinatorHarness(130);
@@ -39,6 +108,7 @@ describe('Bridge main render fulfillment coordinator paint evidence', () => {
 			readRenderedItem: (): BridgeMainRenderedItemReadback => ({
 				element: renderedElement,
 				item: publicationItem,
+				readableContentMatchesItem: true,
 			}),
 		};
 		harness.coordinator.acceptPublication(publication);
@@ -135,6 +205,7 @@ describe('Bridge main render fulfillment coordinator paint evidence', () => {
 			readRenderedItem: (): BridgeMainRenderedItemReadback => ({
 				element: renderedElement,
 				item: publicationItem,
+				readableContentMatchesItem: true,
 			}),
 		};
 		harness.coordinator.acceptPublication(publication);
@@ -195,6 +266,7 @@ describe('Bridge main render fulfillment coordinator paint evidence', () => {
 			readRenderedItem: (): BridgeMainRenderedItemReadback => ({
 				element: renderedElement,
 				item: publicationItem,
+				readableContentMatchesItem: true,
 			}),
 		};
 		harness.coordinator.acceptPublication(publication);
@@ -268,6 +340,7 @@ describe('Bridge main render fulfillment coordinator paint evidence', () => {
 			readRenderedItem: (): BridgeMainRenderedItemReadback => ({
 				element: pooledElement,
 				item: renderedItem,
+				readableContentMatchesItem: true,
 			}),
 		};
 		harness.coordinator.acceptPublication(paintedPublication);

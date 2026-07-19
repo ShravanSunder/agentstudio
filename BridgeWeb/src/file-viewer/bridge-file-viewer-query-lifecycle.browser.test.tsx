@@ -75,10 +75,23 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 			/>,
 		);
 		await waitForMetadataTreeRowCount(6);
+		expect(document.querySelector('[data-testid="worktree-file-search-toggle"]')).not.toBeNull();
 
 		// Act: open the product-owned field and enter a text query.
 		await act(async (): Promise<void> => {
 			await renderResult.getByTestId('worktree-file-search-toggle').click();
+		});
+
+		// Assert: the field replaces the trigger and owns focus while search is open.
+		expect(document.querySelector('[data-testid="worktree-file-search-toggle"]')).toBeNull();
+		const searchInput = renderResult.getByTestId('worktree-file-search-input').element();
+		if (!(searchInput instanceof HTMLInputElement)) {
+			throw new Error('Expected the visible File search input.');
+		}
+		expect(document.activeElement).toBe(searchInput);
+
+		// Act: enter a text query.
+		await act(async (): Promise<void> => {
 			await renderResult.getByTestId('worktree-file-search-input').fill('AppDelegate');
 		});
 		await settleBridgeFileViewerBrowserUpdates();

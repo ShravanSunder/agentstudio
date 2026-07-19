@@ -102,6 +102,9 @@ struct BridgePaneReviewSharedConstructionBinder: Sendable {
             } catch BridgeWorktreeProductConstructionError.freshnessEpochMismatch {
                 try Task.checkCancellation()
                 continue
+            } catch BridgeWorktreeProductConstructionError.invalidated {
+                try Task.checkCancellation()
+                continue
             }
         }
         guard case .reviewTemplate(let template) = lease.artifact else {

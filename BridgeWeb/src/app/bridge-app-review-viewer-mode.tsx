@@ -176,6 +176,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		isActive,
 		markFileViewed,
 		selectedItemId,
+		telemetryRecorderRef,
 	});
 	const selectReviewItem = selectionController.selectReviewItem;
 	const selectReviewItemAndRevealTree = useCallback(

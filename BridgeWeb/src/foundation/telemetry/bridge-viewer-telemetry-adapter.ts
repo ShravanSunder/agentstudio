@@ -186,6 +186,10 @@ export interface BridgeSelectedContentDroppedTelemetrySampleProps {
 	readonly viewer: 'review';
 }
 
+export interface BridgeReviewSelectionCommitTelemetrySampleProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+}
+
 export interface BridgeReviewContentDemandTelemetrySampleProps {
 	readonly activeIntentCount: number;
 	readonly deferredCount: number;
@@ -771,6 +775,32 @@ export function recordBridgeSelectedContentDroppedTelemetrySample(
 				'agentstudio.bridge.slice': 'content_fetch',
 				'agentstudio.bridge.transport': 'content',
 				'agentstudio.bridge.viewer': props.viewer,
+			},
+			numericAttributes: {},
+			booleanAttributes: {},
+		});
+		props.telemetryRecorder.flush();
+	});
+}
+
+export function recordBridgeReviewSelectionCommitTelemetrySample(
+	props: BridgeReviewSelectionCommitTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.web.selection_commit',
+			durationMilliseconds: null,
+			traceContext: null,
+			stringAttributes: {
+				'agentstudio.bridge.phase': 'selection_commit',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'warm',
+				'agentstudio.bridge.result': 'success',
+				'agentstudio.bridge.result_reason': 'none',
+				'agentstudio.bridge.slice': 'review_projection',
+				'agentstudio.bridge.transport': 'local',
+				'agentstudio.bridge.viewer': 'review',
 			},
 			numericAttributes: {},
 			booleanAttributes: {},

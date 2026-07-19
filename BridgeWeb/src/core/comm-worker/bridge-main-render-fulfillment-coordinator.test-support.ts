@@ -129,6 +129,7 @@ export function connectedReadback(item: BridgeMainRenderPublicationItem): Bridge
 		readRenderedItem: (): BridgeMainRenderedItemReadback => ({
 			element: testRenderedElement(true),
 			item,
+			readableContentMatchesItem: true,
 		}),
 	};
 }

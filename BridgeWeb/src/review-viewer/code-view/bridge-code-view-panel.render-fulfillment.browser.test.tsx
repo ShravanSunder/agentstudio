@@ -248,6 +248,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			},
 		});
 		const firstPublication = makeReviewPublication({
+			contentRole: 'head',
 			contentsMarker: 'first-attempt',
 			publicationSequence: 1,
 			version: 37,
@@ -392,7 +393,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 				).toBeLessThanOrEqual(1);
 			}
 			expect(pierreAdditionCounters).toHaveLength(1);
-			expect(pierreDeletionCounters).toHaveLength(1);
+			expect(pierreDeletionCounters).toHaveLength(0);
 			for (const pierreCounter of [...pierreAdditionCounters, ...pierreDeletionCounters]) {
 				const counterBox = pierreCounter.getBoundingClientRect();
 				expect(
@@ -421,7 +422,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			});
 			expect(dispositionKinds(dispositions)).toEqual(['queued']);
 
-			const wrongContextItem = copyItemWithVersion(firstFinalItem, 92);
+			const wrongContextItem = { ...firstFinalItem, version: 92 };
 			await invokeCapturedPostRenderWithinAct({
 				contextItem: wrongContextItem,
 				invocation: firstPostRender,
@@ -465,7 +466,25 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			firstCodeView.getRenderedItems = originalGetRenderedItems;
 
 			// Only the exact final callback plus connected public readback advances fulfillment.
-			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
+			const renderedItemShadowRoot = matchingRenderedItem.element.shadowRoot;
+			if (renderedItemShadowRoot === null) throw new Error('Expected real Pierre shadow root.');
+			const baseLines = renderedItemShadowRoot.querySelectorAll<HTMLElement>(
+				'[data-deletions] [data-line][data-line-index]',
+			);
+			const headLines = renderedItemShadowRoot.querySelectorAll<HTMLElement>(
+				'[data-additions] [data-line][data-line-index]',
+			);
+			if (baseLines.length !== 0 || headLines.length < 2) {
+				throw new Error('Expected added-only Pierre head rows and no base rows.');
+			}
+			const originalHeadText = [...headLines].map((line): string => line.textContent ?? '');
+			await invokeCapturedPostRenderWithinAct({
+				invocation: firstPostRender,
+				mutateRenderedContent: (): void => {
+					for (const headLine of headLines) headLine.textContent = '';
+				},
+				phase: 'update',
+			});
 			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied']);
 			expect(pendingAnimationFrames).toHaveLength(1);
 			expect(dispositionKinds(dispositions)).not.toContain('painted');
@@ -474,6 +493,43 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 				throw new Error('Expected matching post-render readback to schedule paint validation.');
 			}
 			pendingPaintFrame.callback(nowMilliseconds);
+			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied', 'painted']);
+			expect(paintedSourceCorrelations(matchingRenderedItem.element)).toBeNull();
+			await invokeCapturedPostRenderWithinAct({
+				invocation: firstPostRender,
+				mutateRenderedContent: (): void => {
+					for (const headLine of headLines) headLine.textContent = 'unrelated skeletal content';
+				},
+				phase: 'update',
+			});
+			expect(paintedSourceCorrelations(matchingRenderedItem.element)).toBeNull();
+			const nonCanaryHeadLine = headLines.item(headLines.length - 1);
+			if (nonCanaryHeadLine === null) throw new Error('Expected another rendered head row.');
+			await invokeCapturedPostRenderWithinAct({
+				invocation: firstPostRender,
+				mutateRenderedContent: (): void => {
+					nonCanaryHeadLine.textContent = originalHeadText.at(-1) ?? '';
+				},
+				phase: 'update',
+			});
+			expect(paintedSourceCorrelations(matchingRenderedItem.element)).toBeNull();
+			const staleBaseRows = document.createElement('div');
+			staleBaseRows.setAttribute('data-deletions', '');
+			staleBaseRows.innerHTML = '<span data-line="1" data-line-index="0">stale base</span>';
+			renderedItemShadowRoot.append(staleBaseRows);
+			await invokeCapturedPostRenderWithinAct({
+				invocation: firstPostRender,
+				mutateRenderedContent: (): void => {
+					for (const [lineIndex, headLine] of headLines.entries()) {
+						headLine.textContent = originalHeadText[lineIndex] ?? '';
+					}
+				},
+				phase: 'update',
+			});
+			expect(paintedSourceCorrelations(matchingRenderedItem.element)).toBeNull();
+			staleBaseRows.remove();
+			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
+			expect(paintedSourceCorrelations(matchingRenderedItem.element)).not.toBeNull();
 			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied', 'painted']);
 
 			// A real user collapse is local presentation state. A changed same-id publication must
@@ -561,27 +617,16 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 				.soft(dispositionKinds(dispositions))
 				.toEqual(['queued', 'applied', 'painted', 'queued']);
 			await invokeCapturedPostRenderWithinAct({ invocation: secondPostRender, phase: 'update' });
-			expect(dispositionKinds(dispositions)).toEqual([
-				'queued',
-				'applied',
-				'painted',
-				'queued',
-				'applied',
-			]);
+			const secondAppliedKinds = ['queued', 'applied', 'painted', 'queued', 'applied'];
+			expect(dispositionKinds(dispositions)).toEqual(secondAppliedKinds);
 			expect(pendingAnimationFrames).toHaveLength(1);
 			const secondPendingPaintFrame = pendingAnimationFrames.shift();
 			if (secondPendingPaintFrame === undefined) {
 				throw new Error('Expected the second exact Review attempt to schedule paint validation.');
 			}
 			secondPendingPaintFrame.callback(nowMilliseconds);
-			expect(dispositionKinds(dispositions)).toEqual([
-				'queued',
-				'applied',
-				'painted',
-				'queued',
-				'applied',
-				'painted',
-			]);
+			const secondPaintedKinds = [...secondAppliedKinds, 'painted'];
+			expect(dispositionKinds(dispositions)).toEqual(secondPaintedKinds);
 
 			// A fresh worker attempt with an equal final fingerprint binds to the exact connected
 			// painted object and settles without asking Pierre for another content render.
@@ -596,14 +641,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			expect(retryPublicationItem).not.toBe(secondPublicationItem);
 			renderFulfillmentCoordinator.acceptPublication(retryPublication);
 			renderFulfillmentCoordinator.markPublicationQueued(retryPublication);
-			expect(dispositionKinds(dispositions)).toEqual([
-				'queued',
-				'applied',
-				'painted',
-				'queued',
-				'applied',
-				'painted',
-			]);
+			expect(dispositionKinds(dispositions)).toEqual(secondPaintedKinds);
 			await act(async (): Promise<void> => {
 				rendered.rerender(
 					<BridgeCodeViewPanel
@@ -634,12 +672,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			}
 			retryPendingPaintFrame.callback(nowMilliseconds);
 			expect(dispositionKinds(dispositions)).toEqual([
-				'queued',
-				'applied',
-				'painted',
-				'queued',
-				'applied',
-				'painted',
+				...secondPaintedKinds,
 				'queued',
 				'applied',
 				'painted',
@@ -653,6 +686,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 });
 
 function makeReviewPublication(props: {
+	readonly contentRole?: 'base' | 'head';
 	readonly contentsMarker: string;
 	readonly publicationSequence: number;
 	readonly version: number;
@@ -661,6 +695,13 @@ function makeReviewPublication(props: {
 	const baseCacheKey = `base-${props.contentsMarker}`;
 	const headCacheKey = `head-${props.contentsMarker}`;
 	const contentCacheKey = `${baseCacheKey}|${headCacheKey}`;
+	const contentRoles =
+		props.contentRole === undefined ? (['base', 'head'] as const) : [props.contentRole];
+	const baseSource = `\tlet primaryValue = "base-${props.contentsMarker}"\n\tlet secondaryValue = "base-secondary-${props.contentsMarker}"\n`;
+	const headSource = `\tlet primaryValue = "head-${props.contentsMarker}"\n\tlet secondaryValue = "head-secondary-${props.contentsMarker}"\n`;
+	const baseContents = props.contentRole === 'head' ? '' : baseSource;
+	const headContents = props.contentRole === 'base' ? '' : headSource;
+	const lineCount = contentRoles.length * 2;
 	const job = buildBridgeWorkerPierreRenderJob({
 		bridgeDemandRank: { lane: 'selected', priority: props.publicationSequence },
 		budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
@@ -672,21 +713,21 @@ function makeReviewPublication(props: {
 			item: {
 				bridgeMetadata: {
 					cacheKey: contentCacheKey,
-					contentRoles: ['base', 'head'],
+					contentRoles,
 					contentState: 'hydrated',
 					displayPath: 'Sources/App/View.swift',
 					itemId,
-					lineCount: 2,
+					lineCount,
 				},
 				fileDiff: parseDiffFromFile(
 					{
 						cacheKey: baseCacheKey,
-						contents: `let value = "base-${props.contentsMarker}"\n`,
+						contents: baseContents,
 						name: 'Sources/App/View.swift',
 					},
 					{
 						cacheKey: headCacheKey,
-						contents: `let value = "head-${props.contentsMarker}"\n`,
+						contents: headContents,
 						name: 'Sources/App/View.swift',
 					},
 				),
@@ -697,7 +738,17 @@ function makeReviewPublication(props: {
 			kind: 'codeViewDiffItem',
 		},
 		renderKind: 'reviewDiff',
-		window: { endLine: 2, startLine: 1, totalLineCount: 2 },
+		sourceCorrelations: contentRoles.map((role) => ({
+			descriptorId: `descriptor-${props.contentsMarker}-${role}`,
+			itemId,
+			observedSha256: (role === 'base' ? 'b' : 'c').repeat(64),
+			position: 'whole',
+			requestId: `request-${props.contentsMarker}-${role}`,
+			role,
+			sourceGeneration: props.publicationSequence,
+			sourceIdentity: `source-${props.contentsMarker}-${role}`,
+		})),
+		window: { endLine: lineCount, startLine: 1, totalLineCount: lineCount },
 	});
 	return {
 		direction: 'serverWorkerToMain',
@@ -752,22 +803,24 @@ function cloneReviewPublicationForRetry(
 	});
 }
 
-function copyItemWithVersion(item: CodeViewItem, version: number): CodeViewItem {
-	return { ...item, version };
-}
-
 function dispositionKinds(
 	dispositions: readonly BridgeWorkerRenderDispositionReceipt[],
 ): readonly BridgeWorkerRenderDispositionReceipt['disposition'][] {
 	return dispositions.map((receipt) => receipt.disposition);
 }
 
+function paintedSourceCorrelations(element: Element): string | null {
+	return element.getAttribute('data-bridge-painted-source-correlations');
+}
+
 async function invokeCapturedPostRenderWithinAct(props: {
 	readonly contextItem?: CodeViewItem;
 	readonly invocation: CapturedBridgeCodeViewPostRender;
+	readonly mutateRenderedContent?: () => void;
 	readonly phase: PostRenderPhase;
 }): Promise<void> {
 	await act(async (): Promise<void> => {
+		props.mutateRenderedContent?.();
 		props.invocation.invoke({
 			phase: props.phase,
 			...(props.contextItem === undefined ? {} : { contextItem: props.contextItem }),

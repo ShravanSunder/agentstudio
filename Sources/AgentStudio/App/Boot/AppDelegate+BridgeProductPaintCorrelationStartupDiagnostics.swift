@@ -4,6 +4,8 @@ import Foundation
 
 #if DEBUG
     private struct BridgeProductPaintCorrelationSnapshot: Decodable {
+        let activeViewerModeIsReview: Bool
+        let decodedSourceCorrelationCount: Int
         let documentVisibilityState: String
         let fileModeActivated: Bool
         let fileIdentityChainMatched: Bool
@@ -11,10 +13,29 @@ import Foundation
         let filePaintedSourceMatchCount: Int
         let fileSelectedPathMatched: Bool
         let frameLivenessRafAlive: String
+        let paintedElementCount: Int
+        let reviewCanaryCandidateCount: Int
+        let reviewDigestCandidateCount: Int
+        let reviewIdentityCandidateCount: Int
         let reviewIdentityChainMatched: Bool
+        let reviewMetadataItemCount: Int
+        let reviewPaintedDispositionCandidateCount: Int
         let reviewPaintedSourceMatched: Bool
         let reviewPaintedSourceMatchCount: Int
+        let reviewSelectionDroppedCount: Int
+        let reviewSelectionFirstFrameReachedCount: Int
+        let reviewSelectionInitialRequestedCount: Int
+        let reviewSelectionInitialSchedulingAcceptedCount: Int
+        let reviewSelectionSecondFrameReachedCount: Int
+        let reviewSelectionScheduledCount: Int
+        let reviewSelectionSubmittedCount: Int
+        let reviewSelectedItemCandidateCount: Int
+        let reviewSelectedItemPresent: Bool
         let reviewSelectedPathMatched: Bool
+        let reviewSelectedPathPresent: Bool
+        let reviewShellPresent: Bool
+        let reviewSurfaceRoleCandidateCount: Int
+        let reviewWholePositionCandidateCount: Int
     }
 
     private struct BridgeProductPaintCorrelationProof {
@@ -56,6 +77,10 @@ import Foundation
         var attributes: [String: AgentStudioTraceValue] {
             let snapshot = snapshot
             return [
+                "agentstudio.startup_diagnostic.bridge.product_paint.active_mode_review": .bool(
+                    snapshot?.activeViewerModeIsReview == true),
+                "agentstudio.startup_diagnostic.bridge.product_paint.decoded_correlation.count": .int(
+                    snapshot?.decodedSourceCorrelationCount ?? 0),
                 "agentstudio.startup_diagnostic.bridge.product_paint.document_visible": .bool(
                     snapshot?.documentVisibilityState == "visible"),
                 "agentstudio.startup_diagnostic.bridge.product_paint.file_mode_activated": .bool(
@@ -70,6 +95,39 @@ import Foundation
                     snapshot?.fileSelectedPathMatched == true),
                 "agentstudio.startup_diagnostic.bridge.product_paint.frame_live": .bool(
                     snapshot?.frameLivenessRafAlive == "true"),
+                "agentstudio.startup_diagnostic.bridge.product_paint.painted_element.count": .int(
+                    snapshot?.paintedElementCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_candidate.canary.count": .int(
+                    snapshot?.reviewCanaryCandidateCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_candidate.digest.count": .int(
+                    snapshot?.reviewDigestCandidateCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_candidate.identity.count": .int(
+                    snapshot?.reviewIdentityCandidateCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_candidate.painted_disposition.count": .int(
+                    snapshot?.reviewPaintedDispositionCandidateCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_candidate.selected_item.count": .int(
+                    snapshot?.reviewSelectedItemCandidateCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_candidate.surface_role.count": .int(
+                    snapshot?.reviewSurfaceRoleCandidateCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_candidate.whole_position.count": .int(
+                    snapshot?.reviewWholePositionCandidateCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_metadata_item.count": .int(
+                    snapshot?.reviewMetadataItemCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_selection.initial_requested.count": .int(
+                    snapshot?.reviewSelectionInitialRequestedCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_selection.initial_scheduling_accepted.count":
+                    .int(
+                        snapshot?.reviewSelectionInitialSchedulingAcceptedCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_selection.scheduled.count": .int(
+                    snapshot?.reviewSelectionScheduledCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_selection.first_frame_reached.count": .int(
+                    snapshot?.reviewSelectionFirstFrameReachedCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_selection.second_frame_reached.count": .int(
+                    snapshot?.reviewSelectionSecondFrameReachedCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_selection.submitted.count": .int(
+                    snapshot?.reviewSelectionSubmittedCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_selection.dropped.count": .int(
+                    snapshot?.reviewSelectionDroppedCount ?? 0),
                 "agentstudio.startup_diagnostic.bridge.product_paint.review_identity_chain_matched": .bool(
                     snapshot?.reviewIdentityChainMatched == true),
                 "agentstudio.startup_diagnostic.bridge.product_paint.review_source_matched": .bool(
@@ -78,6 +136,12 @@ import Foundation
                     snapshot?.reviewPaintedSourceMatchCount ?? 0),
                 "agentstudio.startup_diagnostic.bridge.product_paint.review_selected_identity_matched": .bool(
                     snapshot?.reviewSelectedPathMatched == true),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_selected_item_present": .bool(
+                    snapshot?.reviewSelectedItemPresent == true),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_selected_path_present": .bool(
+                    snapshot?.reviewSelectedPathPresent == true),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_shell_present": .bool(
+                    snapshot?.reviewShellPresent == true),
                 "agentstudio.startup_diagnostic.bridge.product_paint.reload_replay_succeeded": .bool(
                     reloadReplaySucceeded),
                 "agentstudio.startup_diagnostic.bridge.product_paint.worker_replacement_observed": .bool(
@@ -145,14 +209,6 @@ import Foundation
             }
 
             paneTabViewController()?.execute(.focusPane, target: pane.id, targetType: .pane)
-            guard await waitForBridgeProductPaintHostVisibility(controller: bridgeView.controller) else {
-                recordBridgeProductPaintCorrelationResult(
-                    action: action,
-                    proof: BridgeProductPaintCorrelationProof(snapshot: nil)
-                )
-                return
-            }
-
             let javaScript = Self.bridgeProductPaintCorrelationJavaScript(
                 relativePath: Self.bridgeProductPaintFixtureRelativePath,
                 sha256: oracle.sha256,
@@ -190,28 +246,6 @@ import Foundation
                         && replayWorkerInstanceId != initialWorkerInstanceId
                 )
             )
-        }
-
-        private func waitForBridgeProductPaintHostVisibility(
-            controller: BridgePaneController
-        ) async -> Bool {
-            let start = ContinuousClock.now
-            while start.duration(to: ContinuousClock.now)
-                < AppPolicies.StartupDiagnostic.bridgeFileViewSmokeReadinessTimeout
-            {
-                do {
-                    let result = try await controller.page.callJavaScript(
-                        "return document.visibilityState === 'visible'"
-                    )
-                    if result as? Bool == true {
-                        return true
-                    }
-                } catch {
-                    // The page may still be attaching after pane activation.
-                }
-                try? await Task.sleep(nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
-            }
-            return false
         }
 
         private func waitForBridgeProductPaintCorrelation(
@@ -394,12 +428,107 @@ import Foundation
                     correlation?.observedSha256 === expectedSha256 &&
                     correlation?.disposition === 'painted' &&
                     correlation?.text?.includes(expectedCanary);
+                  const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
+                  const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
                   const reviewSelectedPath =
-                    document.querySelector('[data-testid="review-viewer-shell"]')
-                      ?.getAttribute('data-selected-display-path') ?? '';
+                    reviewShell?.getAttribute('data-selected-display-path') ?? '';
                   const reviewSelectedItemId =
                     document.querySelector('[data-testid="bridge-code-view-panel"]')
                       ?.getAttribute('data-selected-item-id') ?? '';
+                  const reviewSelectionProbe = globalThis.__bridgeReviewSelectionDiagnostic ?? {};
+                  const retainedCount = (name, currentCount) => Math.max(
+                    Number(prior[name] ?? 0),
+                    currentCount
+                  );
+                  const reviewSelectionProbeCount = (name) => {
+                    const value = Number(reviewSelectionProbe[name] ?? 0);
+                    return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+                  };
+                  const paintedElementCount = retainedCount(
+                    'paintedElementCount', paintedElements.length
+                  );
+                  const decodedSourceCorrelationCount = retainedCount(
+                    'decodedSourceCorrelationCount', correlations.length
+                  );
+                  const reviewMetadataItemCount = retainedCount(
+                    'reviewMetadataItemCount',
+                    Number(reviewShell?.getAttribute('data-review-metadata-item-count') ?? 0)
+                  );
+                  const reviewSelectionInitialRequestedCount = retainedCount(
+                    'reviewSelectionInitialRequestedCount',
+                    reviewSelectionProbeCount('initialSelectionRequestedCount')
+                  );
+                  const reviewSelectionInitialSchedulingAcceptedCount = retainedCount(
+                    'reviewSelectionInitialSchedulingAcceptedCount',
+                    reviewSelectionProbeCount('initialSelectionSchedulingAcceptedCount')
+                  );
+                  const reviewSelectionScheduledCount = retainedCount(
+                    'reviewSelectionScheduledCount',
+                    reviewSelectionProbeCount('selectionScheduledCount')
+                  );
+                  const reviewSelectionFirstFrameReachedCount = retainedCount(
+                    'reviewSelectionFirstFrameReachedCount',
+                    reviewSelectionProbeCount('selectionFirstFrameReachedCount')
+                  );
+                  const reviewSelectionSecondFrameReachedCount = retainedCount(
+                    'reviewSelectionSecondFrameReachedCount',
+                    reviewSelectionProbeCount('selectionSecondFrameReachedCount')
+                  );
+                  const reviewSelectionSubmittedCount = retainedCount(
+                    'reviewSelectionSubmittedCount',
+                    reviewSelectionProbeCount('selectionSubmittedCount')
+                  );
+                  const reviewSelectionDroppedCount = retainedCount(
+                    'reviewSelectionDroppedCount',
+                    reviewSelectionProbeCount('selectionDroppedCount')
+                  );
+                  const activeViewerModeIsReview =
+                    prior.activeViewerModeIsReview === true ||
+                    appRoot?.getAttribute('data-bridge-viewer-mode') === 'review';
+                  const reviewShellPresent =
+                    prior.reviewShellPresent === true || reviewShell !== null;
+                  const reviewSelectedItemPresent =
+                    prior.reviewSelectedItemPresent === true || reviewSelectedItemId.length > 0;
+                  const reviewSelectedPathPresent =
+                    prior.reviewSelectedPathPresent === true || reviewSelectedPath.length > 0;
+                  const reviewSurfaceRoleCandidates = correlations.filter((value) =>
+                    value?.surface === 'review' && value?.role === 'head'
+                  );
+                  const reviewSurfaceRoleCandidateCount = retainedCount(
+                    'reviewSurfaceRoleCandidateCount', reviewSurfaceRoleCandidates.length
+                  );
+                  const reviewIdentityCandidateCount = retainedCount(
+                    'reviewIdentityCandidateCount',
+                    reviewSurfaceRoleCandidates.filter(identityChainMatches).length
+                  );
+                  const reviewSelectedItemCandidateCount = retainedCount(
+                    'reviewSelectedItemCandidateCount',
+                    reviewSurfaceRoleCandidates.filter((value) =>
+                      value?.itemId === reviewSelectedItemId
+                    ).length
+                  );
+                  const reviewWholePositionCandidateCount = retainedCount(
+                    'reviewWholePositionCandidateCount',
+                    reviewSurfaceRoleCandidates.filter((value) => value?.position === 'whole').length
+                  );
+                  const reviewDigestCandidateCount = retainedCount(
+                    'reviewDigestCandidateCount',
+                    reviewSurfaceRoleCandidates.filter((value) =>
+                      value?.observedSha256 === expectedSha256
+                    ).length
+                  );
+                  const reviewPaintedDispositionCandidateCount = retainedCount(
+                    'reviewPaintedDispositionCandidateCount',
+                    reviewSurfaceRoleCandidates.filter((value) =>
+                      value?.disposition === 'painted'
+                    ).length
+                  );
+                  const reviewCanaryCandidateCount = retainedCount(
+                    'reviewCanaryCandidateCount',
+                    reviewSurfaceRoleCandidates.filter((value) =>
+                      value?.text?.includes(expectedCanary)
+                    ).length
+                  );
                   const reviewMatches = correlations.filter((value) =>
                     sourceMatches(value, 'review', 'head', reviewSelectedItemId)
                   );
@@ -407,7 +536,7 @@ import Foundation
                     prior.reviewPaintedSourceMatched === true || reviewMatches.length > 0;
                   const reviewIdentityChainMatched =
                     prior.reviewIdentityChainMatched === true ||
-                    reviewMatches.some(identityChainMatches);
+                    reviewIdentityCandidateCount > 0;
                   const reviewPaintedSourceMatchCount = Math.max(
                     Number(prior.reviewPaintedSourceMatchCount ?? 0),
                     reviewMatches.length
@@ -442,6 +571,27 @@ import Foundation
                   const fileSelectedPathMatched =
                     prior.fileSelectedPathMatched === true || fileSelectedPath === relativePath;
                   const next = {
+                    activeViewerModeIsReview,
+                    paintedElementCount,
+                    decodedSourceCorrelationCount,
+                    reviewMetadataItemCount,
+                    reviewSelectionInitialRequestedCount,
+                    reviewSelectionInitialSchedulingAcceptedCount,
+                    reviewSelectionScheduledCount,
+                    reviewSelectionFirstFrameReachedCount,
+                    reviewSelectionSecondFrameReachedCount,
+                    reviewSelectionSubmittedCount,
+                    reviewSelectionDroppedCount,
+                    reviewShellPresent,
+                    reviewSelectedItemPresent,
+                    reviewSelectedPathPresent,
+                    reviewSurfaceRoleCandidateCount,
+                    reviewIdentityCandidateCount,
+                    reviewSelectedItemCandidateCount,
+                    reviewWholePositionCandidateCount,
+                    reviewDigestCandidateCount,
+                    reviewPaintedDispositionCandidateCount,
+                    reviewCanaryCandidateCount,
                     reviewPaintedSourceMatched,
                     reviewIdentityChainMatched,
                     reviewPaintedSourceMatchCount,
@@ -453,6 +603,8 @@ import Foundation
                   };
                   globalThis.__bridgeProductPaintCorrelationProbe = next;
                   return {
+                    activeViewerModeIsReview,
+                    decodedSourceCorrelationCount,
                     documentVisibilityState: document.visibilityState,
                     fileModeActivated:
                       fileButton?.getAttribute('data-bridge-viewer-context-selected') === 'true',
@@ -462,10 +614,29 @@ import Foundation
                     fileSelectedPathMatched,
                     frameLivenessRafAlive:
                       globalThis.__bridgeFrameLivenessProbe?.rafAlive ?? 'missing',
+                    paintedElementCount,
+                    reviewCanaryCandidateCount,
+                    reviewDigestCandidateCount,
+                    reviewIdentityCandidateCount,
                     reviewIdentityChainMatched,
+                    reviewMetadataItemCount,
+                    reviewPaintedDispositionCandidateCount,
                     reviewPaintedSourceMatched,
                     reviewPaintedSourceMatchCount,
-                    reviewSelectedPathMatched
+                    reviewSelectionDroppedCount,
+                    reviewSelectionFirstFrameReachedCount,
+                    reviewSelectionInitialRequestedCount,
+                    reviewSelectionInitialSchedulingAcceptedCount,
+                    reviewSelectionSecondFrameReachedCount,
+                    reviewSelectionScheduledCount,
+                    reviewSelectionSubmittedCount,
+                    reviewSelectedItemCandidateCount,
+                    reviewSelectedItemPresent,
+                    reviewSelectedPathMatched,
+                    reviewSelectedPathPresent,
+                    reviewShellPresent,
+                    reviewSurfaceRoleCandidateCount,
+                    reviewWholePositionCandidateCount
                   };
                 })())
                 """

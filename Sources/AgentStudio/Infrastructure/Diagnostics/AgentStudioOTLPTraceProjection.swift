@@ -907,11 +907,29 @@ private enum BridgeProductPaintProjectionKeys {
 
     static let numericKeys: Set<String> = Set(
         [
+            "decoded_correlation.count",
             "file_source_match.count",
+            "painted_element.count",
+            "review_candidate.canary.count",
+            "review_candidate.digest.count",
+            "review_candidate.identity.count",
+            "review_candidate.painted_disposition.count",
+            "review_candidate.selected_item.count",
+            "review_candidate.surface_role.count",
+            "review_candidate.whole_position.count",
+            "review_metadata_item.count",
+            "review_selection.dropped.count",
+            "review_selection.first_frame_reached.count",
+            "review_selection.initial_requested.count",
+            "review_selection.initial_scheduling_accepted.count",
+            "review_selection.scheduled.count",
+            "review_selection.second_frame_reached.count",
+            "review_selection.submitted.count",
             "review_source_match.count",
         ].map { "\(prefix).\($0)" })
     static let booleanKeys: Set<String> = Set(
         [
+            "active_mode_review",
             "document_visible",
             "file_identity_chain_matched",
             "file_mode_activated",
@@ -920,6 +938,9 @@ private enum BridgeProductPaintProjectionKeys {
             "frame_live",
             "review_identity_chain_matched",
             "review_selected_identity_matched",
+            "review_selected_item_present",
+            "review_selected_path_present",
+            "review_shell_present",
             "review_source_matched",
             "reload_replay_succeeded",
             "worker_replacement_observed",

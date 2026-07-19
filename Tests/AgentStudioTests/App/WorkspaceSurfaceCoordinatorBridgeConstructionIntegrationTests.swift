@@ -49,6 +49,81 @@ struct WorkspaceBridgeConstructionIntegrationTests {
         await harness.finish()
     }
 
+    @Test("create-before-tab Bridge Review reaches its coordinator provider after foreground promotion")
+    func createBeforeTabBridgeReviewReachesProviderAfterForegroundPromotion() async throws {
+        // Arrange
+        let harness = makeBridgePaneActivityTestHarness()
+        let repo = harness.store.addRepo(
+            at: harness.tempDirectory.appending(path: "create-before-tab-review-repo")
+        )
+        let worktree = try #require(
+            harness.store.repo(repo.id)?.worktrees.first(where: { $0.isMainWorktree })
+        )
+        let state = BridgePaneState(
+            panelKind: .diffViewer,
+            source: .workspace(rootPath: worktree.path.path, baseline: .headMinusOne)
+        )
+        let pane = makeBridgePane(
+            title: "Create-before-tab Review",
+            repo: repo,
+            worktree: worktree,
+            state: state,
+            store: harness.store
+        )
+        let comparisonGate = BridgeComparisonGate()
+        let reviewProvider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "create-before-tab-base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "create-before-tab-head", kind: .workingTree),
+                changedFiles: [
+                    makeBridgeEndpointChangedFile(
+                        fileId: "create-before-tab-item",
+                        path: "Sources/CreateBeforeTab.swift",
+                        sizeBytes: 100
+                    )
+                ]
+            ),
+            contentByHandleId: [:],
+            comparisonGate: comparisonGate
+        )
+        harness.viewRegistry.ensureSlot(for: pane.id)
+        harness.coordinator.bridgeReviewSourceProviderOverridesByPaneId[pane.id] = reviewProvider
+        enterForegroundNativeEnvironment(harness)
+
+        // Act — install and schedule the coordinator view before the pane owns a tab.
+        let view = harness.coordinator.createBridgePaneView(for: pane, state: state)
+
+        // Assert — loaded-hidden retains the initial intake without entering the provider.
+        #expect(harness.coordinator.bridgePaneActivity(for: pane.id) == .loadedHidden)
+        #expect(view.controller.activeReviewRefreshTask == nil)
+        #expect(await reviewProvider.recordedComparisonRequestsCount() == 0)
+        #expect(view.controller.paneState.diff.packageMetadata == nil)
+
+        // Act — tab ownership under active visible window facts must promote and retry once.
+        let tab = Tab(paneId: pane.id, name: "Create-before-tab Review")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        await expectBridgePaneActivity(
+            .foreground,
+            for: pane.id,
+            in: harness.coordinator,
+            because: "the newly activated create-before-tab Review tab became visible"
+        )
+        await comparisonGate.waitForStartedComparisonCount(1)
+        await comparisonGate.releaseAll()
+        await waitForActiveReviewRefreshTaskToFinish(view.controller)
+
+        // Assert
+        #expect(await reviewProvider.recordedComparisonRequestsCount() == 1)
+        #expect(view.controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .foreground)
+        #expect(
+            view.controller.paneState.diff.packageMetadata?.orderedItemIds
+                == ["item-create-before-tab-item"]
+        )
+
+        await harness.finish()
+    }
+
     @Test("one worktree freshness advance precedes invalidation fan-out to both panes")
     func freshnessAdvancesOnceBeforePaneFanOut() async throws {
         // Arrange

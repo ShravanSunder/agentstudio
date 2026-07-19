@@ -510,6 +510,40 @@ struct BridgePaneReviewSharedConstructionTests {
         await binding.artifactPin.releaseAndWait()
     }
 
+    @Test("invalidation during shared template construction reacquires under the advanced epoch")
+    func sharedTemplateConstructionInvalidationReacquiresUnderAdvancedEpoch() async throws {
+        // Arrange
+        let filePath = "Sources/App.swift"
+        let constructionReadGate = BridgeGitContentReadGate()
+        let fixture = try BridgeSharedReviewConstructionFixture.make(
+            contentReadGateByLocator: [
+                GitContentLocator(target: .workingTree, path: filePath): constructionReadGate
+            ]
+        )
+        defer { fixture.removeTestRoot() }
+        let acquisition = Task {
+            try await fixture.firstBinder.acquire(
+                fixture.request(packageId: "package-current", generation: 1)
+            )
+        }
+        await constructionReadGate.waitUntilStarted()
+
+        // Act
+        await fixture.advanceWorkingTree(to: "head-current")
+        let advancedEpoch = await fixture.coordinator.invalidate(worktree: fixture.worktreeIdentityKey)
+        await constructionReadGate.release()
+        let binding = try await acquisition.value
+
+        // Assert
+        #expect(advancedEpoch.rawValue == 2)
+        #expect(binding.artifactPin.constructionLease.epoch == advancedEpoch)
+        #expect(await fixture.gitClient.recordedDiffRequests().count == 2)
+        let contentRequests = await fixture.gitClient.recordedContentRequests()
+        #expect(contentRequests.count { $0.target == .workingTree && $0.path == filePath } == 2)
+        #expect(binding.result.package.summary.filesChanged == 1)
+        await binding.artifactPin.releaseAndWait()
+    }
+
     @Test("unchanged same-pane handles retain exact generation locators until artifact cleanup")
     func unchangedHandlesRetainGenerationSpecificLocators() async throws {
         // Arrange

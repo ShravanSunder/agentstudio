@@ -12,6 +12,7 @@ import type {
 	BridgeWorkerServerToMainMessage,
 } from '../../core/comm-worker/bridge-worker-contracts.js';
 import { buildBridgeWorkerPierreRenderJob } from '../../core/comm-worker/bridge-worker-pierre-render-job.js';
+import type { BridgeWorkerRenderSourceCorrelation } from '../../core/comm-worker/bridge-worker-pierre-render-job.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../../core/comm-worker/bridge-worker-rpc-client.js';
 import { createBridgeWorkerRpcLifecycleStore } from '../../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
@@ -44,6 +45,7 @@ export interface BridgeReviewRecoveryWitnessFile {
 	readonly itemId: string;
 	readonly lineCount: number;
 	readonly path: string;
+	readonly sourceCorrelation?: BridgeWorkerRenderSourceCorrelation;
 }
 
 export interface BridgeReviewRecoveryWitnessHarness {
@@ -51,6 +53,8 @@ export interface BridgeReviewRecoveryWitnessHarness {
 	readonly codeText: () => string;
 	readonly files: readonly BridgeReviewRecoveryWitnessFile[];
 	readonly paintedCodeViewItems: () => readonly BridgeReviewRecoveryPaintedItem[];
+	readonly paintedSourceCorrelationElements: () => readonly Element[];
+	readonly paintedSourceCorrelationText: (element: Element) => string;
 	readonly pierreSearchInput: () => HTMLInputElement | null;
 	readonly pierreTreeHost: () => HTMLElement | null;
 	readonly pierreTreePath: (path: string) => HTMLElement | null;
@@ -205,6 +209,12 @@ export function renderBridgeReviewRecoveryWitness(
 		files,
 		paintedCodeViewItems: (): readonly BridgeReviewRecoveryPaintedItem[] =>
 			bridgeReviewRecoveryWitnessPaintedItems(renderResult.container),
+		paintedSourceCorrelationElements: (): readonly Element[] =>
+			queryBridgeReviewRecoveryWitnessOpenShadowRoots(
+				renderResult.container,
+				'[data-bridge-painted-source-correlations]',
+			),
+		paintedSourceCorrelationText: (element): string => textIncludingOpenShadowRoots(element),
 		pierreSearchInput: (): HTMLInputElement | null =>
 			bridgeReviewRecoveryWitnessPierreSearchInput(renderResult.container),
 		pierreTreeHost: (): HTMLElement | null =>
@@ -813,6 +823,9 @@ function completeReviewContentMessages(
 			kind: 'codeViewDiffItem',
 		},
 		renderKind: 'reviewDiff',
+		...(file.sourceCorrelation === undefined
+			? {}
+			: { sourceCorrelations: [file.sourceCorrelation] }),
 		window: { endLine: file.lineCount, startLine: 1, totalLineCount: file.lineCount },
 	});
 	return [
@@ -965,6 +978,9 @@ function textIncludingOpenShadowRoots(root: Element | ShadowRoot): string {
 	while (currentNode !== null) {
 		textFragments.push(currentNode.textContent ?? '');
 		currentNode = textWalker.nextNode();
+	}
+	if (root instanceof Element && root.shadowRoot !== null) {
+		textFragments.push(textIncludingOpenShadowRoots(root.shadowRoot));
 	}
 	for (const descendant of root.querySelectorAll('*')) {
 		if (descendant.shadowRoot !== null) {

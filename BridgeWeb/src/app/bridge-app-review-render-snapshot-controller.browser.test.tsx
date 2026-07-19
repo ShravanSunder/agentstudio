@@ -1,48 +1,32 @@
 import { parseDiffFromFile } from '@pierre/diffs';
-import { act, useMemo, type ReactElement } from 'react';
+import { act } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import './bridge-app.css';
-import {
-	createBridgeMainRenderFulfillmentCoordinator,
-	type BridgeMainRenderFulfillmentCoordinator,
-} from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
-import { createBridgeMainRenderSnapshotStore } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
-import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
-import type {
-	BridgeWorkerFileDisplayPatchEvent,
-	BridgeWorkerReviewDisplayPatchEvent,
-	BridgeWorkerServerToMainMessage,
-} from '../core/comm-worker/bridge-worker-contracts.js';
+import { createBridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
+import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import { buildBridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
-import type { BridgeWorkerRpcCommandInput } from '../core/comm-worker/bridge-worker-rpc-client.js';
-import {
-	createBridgeWorkerRpcLifecycleStore,
-	type BridgeWorkerRpcLifecycleStore,
-} from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
-import {
-	bridgeFileViewerDisplayModelForSnapshot,
-	type BridgeFileViewerDisplaySource,
-} from '../file-viewer/bridge-file-viewer-display-model.js';
-import {
-	BridgeFileViewerSurfaceClientProvider,
-	useBridgeFileViewerRenderSnapshotController,
-} from '../file-viewer/bridge-file-viewer-render-snapshot-controller.js';
-import { useBridgeFileViewerDisplaySourceReporter } from '../file-viewer/use-bridge-file-viewer-display-source-reporter.js';
+import { BridgeFileViewerSurfaceClientProvider } from '../file-viewer/bridge-file-viewer-render-snapshot-controller.js';
 import { createBridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
+	FileDisplaySourceProbe,
+	ReviewDirectDisplayProbe,
+	ReviewIntakeLifecycleProbe,
+	fileDisplayEvent,
 	hierarchicalReviewDisplayEvent,
-	reviewDisplayItem,
-} from './bridge-app-review-render-snapshot-controller.browser.test-support.js';
-import {
-	createBridgeReviewWorkerPierreCourier,
-	useBridgeReviewRenderSnapshotController,
-} from './bridge-app-review-render-snapshot-controller.js';
+	makeFileSurfaceHarness,
+	makeReviewSurfaceHarness,
+	requireDefined,
+	requireHTMLElement,
+	reviewDisplayEvent,
+	reviewIntakeReadyCommands,
+	reviewIntakeReadyRequestIds,
+	settleRenderedReviewFrame,
+} from './bridge-app-review-render-snapshot-controller.browser-harness.test-support.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
-
 describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 	test('publishes real keyed Review facts and a later metadata window without a package adapter', async () => {
 		// Arrange
@@ -233,7 +217,6 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		// Assert
 		expect(reviewIntakeReadyCommands(harness.sentCommands)).toHaveLength(3);
 	});
-
 	test('keeps an inactive recovered Review mount stable across a streamed metadata-window burst', async () => {
 		// Arrange
 		const harness = makeReviewSurfaceHarness();
@@ -248,7 +231,6 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			/>,
 		);
 		await expect.element(rendered.getByTestId('bridge-review-fallback-frame')).toBeInTheDocument();
-
 		// Act
 		await act(async (): Promise<void> => {
 			for (let windowIndex = 0; windowIndex < streamedWindowCount; windowIndex += 1) {
@@ -265,7 +247,6 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			}
 			await Promise.resolve();
 		});
-
 		// Assert
 		await expect.element(rendered.getByTestId('bridge-review-fallback-frame')).toBeInTheDocument();
 		expect(document.querySelector('[data-testid="review-viewer-shell"]')).toBeNull();
@@ -280,9 +261,17 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			itemId: `item-${streamedWindowCount}`,
 			path: `Sources/Streamed-${streamedWindowCount}.swift`,
 		});
-		expect(harness.sentCommands.filter((command) => command.command === 'viewport')).toEqual([]);
+		const viewportCommands = harness.sentCommands.filter(
+			(command) => command.command === 'viewport',
+		);
+		expect(viewportCommands).toHaveLength(1);
+		expect(viewportCommands[0]).toMatchObject({
+			command: 'viewport',
+			phase: 'settled',
+			visibleItemIds: [],
+		});
+		expect(viewportCommands.filter((command) => command.visibleItemIds.length > 0)).toEqual([]);
 	});
-
 	test('reports a semantically stable File display source once across streamed patches', async () => {
 		// Arrange
 		const harness = makeFileSurfaceHarness();
@@ -297,7 +286,6 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			</BridgeFileViewerSurfaceClientProvider>,
 		);
 		await expect.element(rendered.getByTestId('file-display-source-probe')).toBeInTheDocument();
-
 		// Act
 		for (let patchIndex = 0; patchIndex < 32; patchIndex += 1) {
 			// oxlint-disable-next-line no-await-in-loop -- Separate React commits reproduce the passive-effect update boundary.
@@ -311,24 +299,38 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				await Promise.resolve();
 			});
 		}
-
 		// Assert
 		expect(reportedSources).toEqual([{ generation: 1, sourceId: 'source-1' }]);
 	});
-
 	test('mounts terminal Review content from worker display and Pierre messages', async () => {
 		// Arrange
 		const harness = makeReviewSurfaceHarness();
 		const onActiveSourceChange = vi.fn();
 		const telemetryRecorderRef = { current: createBridgeTelemetryRecorder(null) };
+		const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
+			cancelAnimationFrame: (frameHandle): void => cancelAnimationFrame(frameHandle),
+			nowMilliseconds: (): number => performance.now(),
+			requestAnimationFrame: (callback): number => requestAnimationFrame(callback),
+			sendDisposition: (): void => {},
+		});
+		const reviewClient = {
+			...harness.reviewClient,
+			renderFulfillmentCoordinator,
+		};
+		const renderContainer = document.createElement('div');
+		renderContainer.style.height = '100vh';
+		renderContainer.style.width = '100vw';
+		document.body.append(renderContainer);
 		const rendered = render(
 			<BridgeReviewViewerMode
+				codeViewWorkerPoolEnabled={false}
 				isActive={true}
 				onActiveSourceChange={onActiveSourceChange}
-				reviewClient={harness.reviewClient}
+				reviewClient={reviewClient}
 				telemetryRecorderRef={telemetryRecorderRef}
 				viewerHeaderControls={<div />}
 			/>,
+			{ container: renderContainer },
 		);
 
 		// Act
@@ -371,19 +373,28 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		).toBeGreaterThan(0);
 		expect(document.querySelectorAll('[data-testid="review-viewer-shell"]')).toHaveLength(1);
 		expect(document.querySelector('[data-testid="bridge-review-tree-scroll"]')).toBeNull();
-		expect(
-			harness.sentCommands.some(
-				(command) => command.command === 'viewport' && command.visibleItemIds.length > 0,
-			),
-		).toBe(true);
+		await expect
+			.poll(() =>
+				harness.sentCommands.some(
+					(command) => command.command === 'viewport' && command.visibleItemIds.length > 0,
+				),
+			)
+			.toBe(true);
+		await act(async (): Promise<void> => {
+			await settleRenderedReviewFrame();
+		});
+		const viewportCommandCountBeforeDeactivation = harness.sentCommands.filter(
+			(command) => command.command === 'viewport',
+		).length;
 
 		// Act: retain the recovered shell while Review becomes inactive.
 		await act(async (): Promise<void> => {
 			rendered.rerender(
 				<BridgeReviewViewerMode
+					codeViewWorkerPoolEnabled={false}
 					isActive={false}
 					onActiveSourceChange={onActiveSourceChange}
-					reviewClient={harness.reviewClient}
+					reviewClient={reviewClient}
 					telemetryRecorderRef={telemetryRecorderRef}
 					viewerHeaderControls={<div />}
 				/>,
@@ -395,218 +406,18 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const viewportCommands = harness.sentCommands.filter(
 			(command) => command.command === 'viewport',
 		);
-		expect(viewportCommands.at(-1)).toMatchObject({ command: 'viewport', visibleItemIds: [] });
-		expect(
-			viewportCommands.filter(
-				(command) => command.command === 'viewport' && command.visibleItemIds.length === 0,
-			),
-		).toHaveLength(1);
+		const deactivationViewportCommands = viewportCommands.slice(
+			viewportCommandCountBeforeDeactivation,
+		);
+		expect(deactivationViewportCommands).toHaveLength(1);
+		expect(deactivationViewportCommands[0]).toMatchObject({
+			command: 'viewport',
+			phase: 'settled',
+			visibleItemIds: [],
+		});
+		renderFulfillmentCoordinator.dispose();
 	});
 });
-
-function ReviewDirectDisplayProbe(props: {
-	readonly reviewClient: BridgePaneSurfaceClient;
-}): ReactElement {
-	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
-	const controller = useBridgeReviewRenderSnapshotController({
-		pierreCourier,
-		reviewClient: props.reviewClient,
-	});
-	return (
-		<output
-			data-review-item-order-length={controller.catalogSnapshot.itemOrderLength}
-			data-review-later-row-path={controller.displayStore.getReviewTreeRowAtIndex(1)?.path ?? ''}
-			data-review-source-status={controller.reviewSourceSlice?.status ?? 'absent'}
-			data-review-tree-row-order-length={controller.catalogSnapshot.treeRowOrderLength}
-			data-testid="review-direct-display-probe"
-		/>
-	);
-}
-
-function ReviewIntakeLifecycleProbe(props: {
-	readonly reviewClient: BridgePaneSurfaceClient;
-}): ReactElement {
-	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
-	const controller = useBridgeReviewRenderSnapshotController({
-		pierreCourier,
-		reviewClient: props.reviewClient,
-	});
-	return (
-		<button
-			data-testid="review-intake-lifecycle-probe"
-			onClick={(): void => {
-				controller.setReviewCodeViewVisibleItemIds(['item-after-intake']);
-				controller.emitSelectedReviewItemIntent('item-after-intake', 'user');
-			}}
-			type="button"
-		>
-			Exercise later Review intents
-		</button>
-	);
-}
-
-function FileDisplaySourceProbe(props: {
-	readonly onDisplaySourceChange: (source: BridgeFileViewerDisplaySource | null) => void;
-}): ReactElement {
-	const renderSnapshotController = useBridgeFileViewerRenderSnapshotController({ selection: null });
-	const displayModel = useMemo(
-		() => bridgeFileViewerDisplayModelForSnapshot(renderSnapshotController.fileDisplaySnapshot),
-		[renderSnapshotController.fileDisplaySnapshot],
-	);
-	useBridgeFileViewerDisplaySourceReporter({
-		onDisplaySourceChange: props.onDisplaySourceChange,
-		source: displayModel.source,
-	});
-	return <output data-testid="file-display-source-probe" />;
-}
-
-interface ReviewSurfaceHarness {
-	readonly lifecycleStore: BridgeWorkerRpcLifecycleStore;
-	readonly publish: (message: BridgeWorkerServerToMainMessage) => void;
-	readonly reviewClient: BridgePaneSurfaceClient;
-	readonly sentCommands: BridgeWorkerRpcCommandInput[];
-}
-
-interface FileSurfaceHarness {
-	readonly fileViewClient: BridgePaneSurfaceClient;
-	readonly publish: (message: BridgeWorkerServerToMainMessage) => void;
-}
-
-function makeFileSurfaceHarness(): FileSurfaceHarness {
-	const displayStore = createBridgeMainRenderSnapshotStore();
-	const lifecycleStore = createBridgeWorkerRpcLifecycleStore();
-	let messageListener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
-	return {
-		fileViewClient: {
-			lifecycle: lifecycleStore,
-			renderFulfillmentCoordinator: createTestRenderFulfillmentCoordinator(),
-			renderStore: displayStore,
-			send: vi.fn((): string => 'file-request-1'),
-			subscribeMessages: (listener): (() => void) => {
-				messageListener = listener;
-				return (): void => {
-					messageListener = null;
-				};
-			},
-			surface: 'fileView',
-		},
-		publish: (message): void => {
-			if (messageListener === null) throw new Error('Expected the File message listener.');
-			messageListener(message);
-		},
-	};
-}
-
-function makeReviewSurfaceHarness(): ReviewSurfaceHarness {
-	const displayStore = createBridgeMainRenderSnapshotStore();
-	const lifecycleStore = createBridgeWorkerRpcLifecycleStore();
-	const sentCommands: BridgeWorkerRpcCommandInput[] = [];
-	let messageListener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
-	return {
-		lifecycleStore,
-		publish: (message): void => {
-			if (messageListener === null) throw new Error('Expected the Review message listener.');
-			messageListener(message);
-		},
-		reviewClient: {
-			lifecycle: lifecycleStore,
-			renderFulfillmentCoordinator: createTestRenderFulfillmentCoordinator(),
-			renderStore: displayStore,
-			send: vi.fn((command): string => {
-				const requestId = `review-request-${sentCommands.length + 1}`;
-				lifecycleStore.startRequest({
-					command: command.command,
-					requestId,
-					surface: 'review',
-				});
-				sentCommands.push(command);
-				return requestId;
-			}),
-			subscribeMessages: (listener): (() => void) => {
-				messageListener = listener;
-				return (): void => {
-					messageListener = null;
-				};
-			},
-			surface: 'review',
-		},
-		sentCommands,
-	};
-}
-
-function reviewIntakeReadyCommands(
-	commands: readonly BridgeWorkerRpcCommandInput[],
-): readonly Extract<BridgeWorkerRpcCommandInput, { readonly command: 'reviewIntakeReady' }>[] {
-	return commands.filter(
-		(
-			command,
-		): command is Extract<BridgeWorkerRpcCommandInput, { readonly command: 'reviewIntakeReady' }> =>
-			command.command === 'reviewIntakeReady',
-	);
-}
-
-function reviewIntakeReadyRequestIds(lifecycleStore: BridgeWorkerRpcLifecycleStore): string[] {
-	return Object.values(lifecycleStore.getSnapshot().requestsById)
-		.filter((request) => request.command === 'reviewIntakeReady')
-		.map((request) => request.requestId);
-}
-
-function createTestRenderFulfillmentCoordinator(): BridgeMainRenderFulfillmentCoordinator {
-	return createBridgeMainRenderFulfillmentCoordinator({
-		cancelAnimationFrame: (_frameHandle): void => {},
-		nowMilliseconds: (): number => 0,
-		requestAnimationFrame: (_callback): number => {
-			throw new Error('Review Browser fixture must not schedule paint validation.');
-		},
-		sendDisposition: (_receipt): void => {},
-	});
-}
-
-function fileDisplayEvent(props: {
-	readonly projectionRevision: number;
-	readonly sequence: number;
-}): BridgeWorkerFileDisplayPatchEvent {
-	return {
-		direction: 'serverWorkerToMain',
-		epoch: 1,
-		kind: 'fileDisplayPatch',
-		patches: [
-			{
-				operation: 'reset',
-				payload: {
-					sourceGeneration: 1,
-					sourceId: 'source-1',
-				},
-				slice: 'fileTree',
-			},
-			{
-				itemId: 'file-1',
-				operation: 'upsert',
-				payload: {
-					availability: { kind: 'available' },
-					displayPath: 'README.md',
-					endsMidLine: false,
-					endsWithNewline: true,
-					extent: { kind: 'exactLineCount', lineCount: 1 },
-					fileExtension: 'md',
-					language: 'markdown',
-					payloadByteCount: 6,
-					payloadLineCount: 1,
-					rowId: 'row-1',
-					sizeBytes: 6,
-					totalLineCount: 1,
-					truncationKind: 'none',
-				},
-				slice: 'fileItem',
-			},
-		],
-		projectionRevision: props.projectionRevision,
-		sequence: props.sequence,
-		surface: 'fileView',
-		transferDescriptors: [],
-		wireVersion: 1,
-	};
-}
 
 function reviewContentReadyEvents(): readonly BridgeWorkerServerToMainMessage[] {
 	const job = buildBridgeWorkerPierreRenderJob({
@@ -695,93 +506,4 @@ function reviewContentReadyEvents(): readonly BridgeWorkerServerToMainMessage[] 
 			workerDerivationEpoch: 1,
 		},
 	];
-}
-
-function reviewDisplayEvent(props: {
-	readonly itemId: string;
-	readonly path: string;
-	readonly projectionRevision: number;
-	readonly sequence: number;
-	readonly startIndex: number;
-	readonly totalItemCount?: number;
-}): BridgeWorkerReviewDisplayPatchEvent {
-	const totalItemCount = props.totalItemCount ?? 2;
-	return {
-		direction: 'serverWorkerToMain',
-		epoch: 1,
-		kind: 'reviewDisplayPatch',
-		patches: [
-			{
-				operation: 'upsert',
-				payload: {
-					metadataWindowIdentity: `review-window-${props.projectionRevision}`,
-					status: 'ready',
-					summary: {
-						additions: 1,
-						deletions: 0,
-						filesChanged: 2,
-						hiddenFileCount: 0,
-						visibleFileCount: 2,
-					},
-					totalItemCount,
-					totalTreeRowCount: totalItemCount,
-				},
-				slice: 'reviewSource',
-			},
-			{
-				operation: 'batch',
-				payload: {
-					items: [reviewDisplayItem(props.itemId, props.path)],
-					operations: [],
-					reset: props.startIndex === 0,
-					startIndex: props.startIndex,
-				},
-				slice: 'reviewItem',
-			},
-			{
-				operation: 'batch',
-				payload: {
-					reset: props.startIndex === 0,
-					windows: [
-						{
-							rows: [
-								{
-									depth: 1,
-									isDirectory: false,
-									itemId: props.itemId,
-									path: props.path,
-									rowId: `row-${props.itemId}`,
-								},
-							],
-							startIndex: props.startIndex,
-						},
-					],
-				},
-				slice: 'reviewTree',
-			},
-		],
-		projectionRevision: props.projectionRevision,
-		sequence: props.sequence,
-		surface: 'review',
-		transferDescriptors: [],
-		wireVersion: 1,
-	};
-}
-
-function requireHTMLElement(element: Element | null): HTMLElement {
-	if (!(element instanceof HTMLElement)) throw new Error('Expected an HTML element.');
-	return element;
-}
-
-function requireDefined<TValue>(value: TValue | undefined, message: string): TValue {
-	if (value === undefined) throw new Error(message);
-	return value;
-}
-
-async function settleRenderedReviewFrame(): Promise<void> {
-	await Promise.resolve();
-	await new Promise<void>((resolve) => {
-		requestAnimationFrame((): void => resolve());
-	});
-	await Promise.resolve();
 }

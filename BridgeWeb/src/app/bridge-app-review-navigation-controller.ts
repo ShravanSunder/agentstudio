@@ -4,6 +4,7 @@ import type {
 	BridgeWorkerReviewDisplayItem,
 	BridgeWorkerSelectCommand,
 } from '../core/comm-worker/bridge-worker-contracts.js';
+import { recordBridgeReviewSelectionDiagnosticStage } from '../foundation/diagnostics/bridge-review-selection-diagnostic.js';
 import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
 
 export type BridgeReviewNavigationSelectionSource = BridgeWorkerSelectCommand['selectedSource'];
@@ -128,7 +129,9 @@ export function useBridgeReviewNavigationController(
 			}
 			return;
 		}
+		recordBridgeReviewSelectionDiagnosticStage('initial_selection_requested');
 		if (selectInitialReviewItem(firstProjectedItemId, 'programmatic') !== false) {
+			recordBridgeReviewSelectionDiagnosticStage('initial_selection_scheduling_accepted');
 			pendingLocalSelectionItemIdRef.current = firstProjectedItemId;
 		}
 	}, [
