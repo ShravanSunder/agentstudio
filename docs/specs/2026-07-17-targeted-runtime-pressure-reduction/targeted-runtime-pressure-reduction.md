@@ -202,9 +202,12 @@ classifies each signal before choosing its MainActor scheduling path. Exact
 commands and non-replaceable semantic facts retain the existing route.
 Coalescible presentation/activity samples and title/tab-title metadata enter one
 Terminal-owned keyed accumulator that permits at most one scheduled MainActor
-drain per live surface while work is pending. A drained title remains a changed
-semantic fact on the existing runtime/EventBus/IPC route; intermediate replaced
-titles do not. The same narrow per-surface serialization boundary admits
+drain per live surface while work is pending. Presentation/activity work remains
+next-turn local state; title metadata uses a title-only 250 ms maximum
+publication window so callbacks split across adjacent Ghostty ticks still
+contract. A drained title remains a changed semantic fact on the existing
+runtime/EventBus/IPC route; intermediate replaced titles do not. The same narrow
+per-surface serialization boundary admits
 meaning-changing local lifecycle barriers; it does not turn commands or
 non-replaceable facts into queued samples.
 
@@ -358,13 +361,15 @@ method, screen polling, detection manifest, or Ghostty/zmx modification.
 ### Semantic-fact contract
 
 TR-12. Title and tab title are first contracted by terminal-surface lifetime;
-one drain applies only the latest value and emits at most one changed semantic
-fact through the existing sequence/replay/EventBus/IPC route. CWD, progress,
-secure-input, renderer-health, and other state-like semantic facts are emitted
-only when their semantic value changes. Progress remains available to the stable
-IPC `progressChanged` condition; secure-input activation and renderer-unhealthy
-transitions remain available to Inbox; renderer-healthy remains available to
-IPC.
+the first pending title schedules one drain no later than 250 ms after admission.
+That drain applies only the latest value and emits at most one changed semantic
+fact through the existing sequence/replay/EventBus/IPC route. The window is a
+maximum-latency throttle, not a trailing debounce, so continuous title churn
+cannot starve publication. CWD, progress, secure-input, renderer-health, and
+other state-like semantic facts are emitted only when their semantic value
+changes. Progress remains available to the stable IPC `progressChanged`
+condition; secure-input activation and renderer-unhealthy transitions remain
+available to Inbox; renderer-healthy remains available to IPC.
 
 TR-12a. Title contraction preserves the latest callback kind because
 `titleChanged` and `tabTitleChanged` share runtime metadata and IPC matching but
@@ -375,6 +380,7 @@ owner flushes earlier pending title metadata. Surface teardown also flushes or
 retires pending title work before lifetime removal. The first accepted title
 callback still satisfies the existing startup title-ready milestone even when
 the contracted value equals current runtime metadata and produces no mutation.
+An exact barrier may therefore publish a title before the 250 ms deadline.
 
 TR-13. Retained semantic facts preserve the current per-pane sequence,
 `PaneRuntimeEventChannel`, runtime subscription/replay, IPC `afterSequence`, and
@@ -570,7 +576,9 @@ P-2. A large burst proves raw coalescible sample count is greater than MainActor
 drain/task count, final state equals an independent last-value oracle, and
 activity aggregates equal an independent sufficient-statistics oracle. Gated
 drains also prove reentrant/concurrent offers cannot lose replacements, create
-duplicate drains, or cross a local lifecycle barrier.
+duplicate drains, or cross a local lifecycle barrier. A cross-tick title burst
+must additionally prove that the 250 ms maximum-latency window produces
+materially fewer drains than admitted titles without starving continuous churn.
 
 P-3. An interleaved sample stream cannot change the count or order of
 command-finished, bell, desktop-notification, CWD, progress, secure-input,

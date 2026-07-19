@@ -37,7 +37,13 @@ extension Ghostty.ActionRouter {
 
     @MainActor
     static func flushLocalActions(for surfaceID: UUID) async {
+        localActionDrainScheduler.cancel(for: surfaceID)
         await drainLocalActions(for: surfaceID)
+    }
+
+    static func retireLocalActions(for surfaceID: UUID) {
+        localActionDrainScheduler.cancel(for: surfaceID)
+        localActionAccumulator.removeSurface(surfaceID)
     }
 
     @MainActor
@@ -66,6 +72,7 @@ extension Ghostty.ActionRouter {
 
     @MainActor
     static func closeLocalActions(surfaceID: UUID, paneID: UUID) {
+        localActionDrainScheduler.cancel(for: surfaceID)
         let precedingAggregate = localActionAccumulator.detachActivityForSurfaceClose(
             surfaceID,
             defaultActivityContext: terminalActivityProjectionContext(paneID: paneID)
@@ -149,7 +156,7 @@ extension Ghostty.ActionRouter {
             surfaceView.managedSurfaceID == surfaceID,
             let paneUUID = SurfaceManager.shared.paneId(for: surfaceID)
         else {
-            localActionAccumulator.removeSurface(surfaceID)
+            retireLocalActions(for: surfaceID)
             return
         }
 
@@ -171,7 +178,7 @@ extension Ghostty.ActionRouter {
                 ? RuntimeRegistry.shared.runtime(for: paneID) as? TerminalRuntime
                 : nil)
         guard let runtime else {
-            localActionAccumulator.removeSurface(surfaceID)
+            retireLocalActions(for: surfaceID)
             return
         }
 

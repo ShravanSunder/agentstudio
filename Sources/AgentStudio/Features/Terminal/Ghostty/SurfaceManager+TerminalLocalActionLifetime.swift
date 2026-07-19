@@ -6,7 +6,7 @@ extension SurfaceManager {
         if let paneID {
             Ghostty.ActionRouter.closeLocalActions(surfaceID: surfaceID, paneID: paneID)
         } else {
-            Ghostty.ActionRouter.localActionAccumulator.removeSurface(surfaceID)
+            Ghostty.ActionRouter.retireLocalActions(for: surfaceID)
         }
     }
 }

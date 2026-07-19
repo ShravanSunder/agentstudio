@@ -904,7 +904,7 @@ private final class MixedAdmissionDrainScheduleRecorder: @unchecked Sendable {
         lock.withLock { storage }
     }
 
-    func record(_ surfaceID: UUID) {
+    func record(_ surfaceID: UUID, _: TerminalLocalDrainSchedule) {
         lock.withLock {
             storage.append(surfaceID)
         }

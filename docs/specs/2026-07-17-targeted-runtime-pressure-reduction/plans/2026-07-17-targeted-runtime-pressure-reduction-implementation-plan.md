@@ -352,6 +352,13 @@ only four drains in the same interval. This follow-up completes the accepted
 source-contraction boundary; it does not create a new architecture or reopen the
 spec/plan review cycle.
 
+The first candidate runtime trial exposed a second, narrower gap: Ghostty had
+already reduced 1,000 OSC title writes to 20 callbacks split across ticks, while
+the immediate accumulator drain still produced 19 MainActor tasks, tab-bar
+refreshes, and pane layouts. T3a therefore includes one title-only 250 ms
+maximum-latency publication window. This is a bounded correction to the existing
+accumulator scheduler, not a new review cycle or architecture.
+
 Write surface is limited to the existing Terminal classifier/accumulator/router,
 `TerminalRuntime`, the narrow pane-title equality guard, `TerminalActivityAtom`
 no-op suppression, and their permanent tests. Do not change EventBus, Ghostty,
@@ -362,7 +369,9 @@ Implementation contract:
 
 1. Classify copied title and tab-title values as latest semantic metadata.
 2. Retain one latest title value per live surface in the existing accumulator;
-   schedule at most one MainActor drain plus the existing bounded follow-up.
+   schedule at most one title drain no later than 250 ms after the first pending
+   title plus the existing bounded follow-up. The deadline does not slide when
+   more titles arrive, so continuous churn cannot starve publication.
 3. Retain the latest callback kind because both title kinds update shared runtime
    metadata but only `setTitle` updates `SurfaceView`. Fold direct `SurfaceView`
    title application and `TerminalRuntime` delivery into the compact drain rather
@@ -380,6 +389,9 @@ Red/green proof:
 
 - a large title/tab-title burst retains and applies the independent latest-value
   oracle with bounded scheduled/follow-up drains;
+- a cross-tick title burst produces materially fewer drains/tasks than admitted
+  titles, publishes within the 250 ms maximum when no barrier arrives, and does
+  not starve under continuous churn;
 - equal values cause no runtime fact, pane-atom observation, or activity-atom
   observation;
 - one changed contracted value retains current IPC `titleChanged`, replay,
@@ -388,7 +400,8 @@ Red/green proof:
   title work; title precedes a later exact barrier; `setTabTitle` does not begin
   mutating `SurfaceView`; and
 - aggregate metrics prove raw title inputs exceed MainActor tasks, compact
-  applies, runtime posts, tab refreshes, and layouts with zero final debt.
+  applies, runtime posts, tab refreshes, and layouts by a material margin with
+  zero final debt.
 
 Focused gate remains the T3 focused `mise run test` filter followed by
 `mise run build` and `mise run lint`. Commit this bounded follow-up after green

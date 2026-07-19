@@ -5,6 +5,115 @@ import Testing
 
 @Suite("Terminal local action accumulator")
 struct TerminalLocalActionAccumulatorTests {
+    @Test("title-only offers request one title-window drain")
+    func titleOnlyOffersRequestOneTitleWindowDrain() {
+        let scheduler = DrainScheduleRecorder()
+        let accumulator = TerminalLocalActionAccumulator(scheduleDrain: scheduler.record)
+        let surfaceID = UUIDv7.generate()
+
+        #expect(accumulator.offer(.titleChanged("first"), for: surfaceID) == .scheduled)
+        #expect(accumulator.offer(.titleChanged("second"), for: surfaceID) == .coalesced)
+        #expect(accumulator.offer(.tabTitleChanged("third"), for: surfaceID) == .coalesced)
+
+        #expect(scheduler.recordedSchedules == [.init(surfaceID: surfaceID, schedule: .titleWindow)])
+    }
+
+    @Test("presentation activity and search offers request immediate drains")
+    func nonTitleOffersRequestImmediateDrains() {
+        let scheduler = DrainScheduleRecorder()
+        let accumulator = TerminalLocalActionAccumulator(scheduleDrain: scheduler.record)
+        let presentationSurfaceID = UUIDv7.generate()
+        let activitySurfaceID = UUIDv7.generate()
+        let searchSurfaceID = UUIDv7.generate()
+
+        #expect(accumulator.offer(.mouseShape(.text), for: presentationSurfaceID) == .scheduled)
+        #expect(
+            accumulator.offer(
+                .scrollbar(
+                    ScrollbarState(top: 80, bottom: 100, total: 100),
+                    observedAtMilliseconds: 1
+                ),
+                for: activitySurfaceID
+            ) == .scheduled
+        )
+        #expect(accumulator.offer(.searchStarted(query: "needle"), for: searchSurfaceID) == .scheduled)
+
+        #expect(
+            scheduler.recordedSchedules == [
+                .init(surfaceID: presentationSurfaceID, schedule: .immediate),
+                .init(surfaceID: activitySurfaceID, schedule: .immediate),
+                .init(surfaceID: searchSurfaceID, schedule: .immediate),
+            ]
+        )
+    }
+
+    @Test("immediate work upgrades a scheduled title window exactly once")
+    func immediateWorkUpgradesScheduledTitleWindowOnce() {
+        let scheduler = DrainScheduleRecorder()
+        let accumulator = TerminalLocalActionAccumulator(scheduleDrain: scheduler.record)
+        let surfaceID = UUIDv7.generate()
+
+        #expect(accumulator.offer(.titleChanged("title"), for: surfaceID) == .scheduled)
+        #expect(accumulator.offer(.mouseShape(.text), for: surfaceID) == .coalesced)
+        #expect(accumulator.offer(.searchStarted(query: "needle"), for: surfaceID) == .coalesced)
+
+        #expect(
+            scheduler.recordedSchedules == [
+                .init(surfaceID: surfaceID, schedule: .titleWindow),
+                .init(surfaceID: surfaceID, schedule: .immediate),
+            ]
+        )
+    }
+
+    @Test("title work does not reschedule an immediate drain")
+    func titleWorkDoesNotRescheduleImmediateDrain() {
+        let scheduler = DrainScheduleRecorder()
+        let accumulator = TerminalLocalActionAccumulator(scheduleDrain: scheduler.record)
+        let surfaceID = UUIDv7.generate()
+
+        #expect(accumulator.offer(.mouseVisibility(false), for: surfaceID) == .scheduled)
+        #expect(accumulator.offer(.titleChanged("title"), for: surfaceID) == .coalesced)
+        #expect(accumulator.offer(.tabTitleChanged("tab"), for: surfaceID) == .coalesced)
+
+        #expect(scheduler.recordedSchedules == [.init(surfaceID: surfaceID, schedule: .immediate)])
+    }
+
+    @Test("follow-up drain schedule reflects the pending action class")
+    func followUpDrainScheduleReflectsPendingActionClass() throws {
+        let scheduler = DrainScheduleRecorder()
+        let accumulator = TerminalLocalActionAccumulator(scheduleDrain: scheduler.record)
+        let titleOnlySurfaceID = UUIDv7.generate()
+        let mixedSurfaceID = UUIDv7.generate()
+        let nonTitleSurfaceID = UUIDv7.generate()
+
+        accumulator.offer(.titleChanged("initial"), for: titleOnlySurfaceID)
+        _ = try #require(accumulator.beginDrain(for: titleOnlySurfaceID))
+        accumulator.offer(.tabTitleChanged("follow-up"), for: titleOnlySurfaceID)
+        #expect(accumulator.finishDrain(for: titleOnlySurfaceID) == .followUpScheduled)
+
+        accumulator.offer(.titleChanged("initial"), for: mixedSurfaceID)
+        _ = try #require(accumulator.beginDrain(for: mixedSurfaceID))
+        accumulator.offer(.titleChanged("follow-up"), for: mixedSurfaceID)
+        accumulator.offer(.mouseShape(.pointer), for: mixedSurfaceID)
+        #expect(accumulator.finishDrain(for: mixedSurfaceID) == .followUpScheduled)
+
+        accumulator.offer(.mouseShape(.text), for: nonTitleSurfaceID)
+        _ = try #require(accumulator.beginDrain(for: nonTitleSurfaceID))
+        accumulator.offer(.mouseVisibility(false), for: nonTitleSurfaceID)
+        #expect(accumulator.finishDrain(for: nonTitleSurfaceID) == .followUpScheduled)
+
+        #expect(
+            scheduler.recordedSchedules == [
+                .init(surfaceID: titleOnlySurfaceID, schedule: .titleWindow),
+                .init(surfaceID: titleOnlySurfaceID, schedule: .titleWindow),
+                .init(surfaceID: mixedSurfaceID, schedule: .titleWindow),
+                .init(surfaceID: mixedSurfaceID, schedule: .immediate),
+                .init(surfaceID: nonTitleSurfaceID, schedule: .immediate),
+                .init(surfaceID: nonTitleSurfaceID, schedule: .immediate),
+            ]
+        )
+    }
+
     @Test("title callbacks retain independent latest runtime and surface values")
     func titleCallbacksRetainIndependentLatestValues() throws {
         let scheduler = DrainScheduleRecorder()
@@ -254,7 +363,7 @@ struct TerminalLocalActionAccumulatorTests {
 
     @Test("context transition detaches earlier evidence from later samples")
     func contextTransitionSeparatesActivityEpochs() throws {
-        let accumulator = TerminalLocalActionAccumulator { _ in }
+        let accumulator = TerminalLocalActionAccumulator { _, _ in }
         let surfaceID = UUIDv7.generate()
         let before = TerminalActivityProjectionContext(
             isAttended: false,
@@ -293,15 +402,24 @@ struct TerminalLocalActionAccumulatorTests {
 
 private final class DrainScheduleRecorder: @unchecked Sendable {
     private let lock = NSLock()
-    private var storage: [UUID] = []
+    private var storage: [RecordedDrainSchedule] = []
 
-    var scheduledSurfaceIDs: [UUID] {
+    var recordedSchedules: [RecordedDrainSchedule] {
         lock.withLock { storage }
     }
 
-    func record(_ surfaceID: UUID) {
+    var scheduledSurfaceIDs: [UUID] {
+        lock.withLock { storage.map(\.surfaceID) }
+    }
+
+    func record(_ surfaceID: UUID, _ schedule: TerminalLocalDrainSchedule) {
         lock.withLock {
-            storage.append(surfaceID)
+            storage.append(.init(surfaceID: surfaceID, schedule: schedule))
         }
     }
+}
+
+private struct RecordedDrainSchedule: Equatable {
+    let surfaceID: UUID
+    let schedule: TerminalLocalDrainSchedule
 }

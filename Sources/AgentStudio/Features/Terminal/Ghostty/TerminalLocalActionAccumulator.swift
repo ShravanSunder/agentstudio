@@ -156,14 +156,19 @@ enum TerminalLocalAccumulatorDrainCompletion: Sendable, Equatable {
     case followUpScheduled
 }
 
+enum TerminalLocalDrainSchedule: Sendable, Equatable {
+    case immediate
+    case titleWindow
+}
+
 /// Terminal-owned fixed-key contraction point for high-rate local Ghostty signals.
 /// It retains no view, runtime, borrowed pointer, or globally replayable event.
 final class TerminalLocalActionAccumulator: @unchecked Sendable {
     static let maximumRetainedEntriesPerSurface = 9
 
-    private enum DrainPhase {
+    private enum DrainPhase: Equatable {
         case idle
-        case scheduled
+        case scheduled(TerminalLocalDrainSchedule)
         case draining
     }
 
@@ -190,6 +195,18 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
                 || searchLifecycle != nil
                 || titleMetadata != nil
         }
+
+        var drainSchedule: TerminalLocalDrainSchedule? {
+            guard hasWork else { return nil }
+            let hasImmediateWork =
+                presentation.scrollbarState != nil
+                || presentation.mouseShape != nil
+                || presentation.mouseVisibility != nil
+                || presentation.searchUpdate != nil
+                || activity != nil
+                || searchLifecycle != nil
+            return hasImmediateWork ? .immediate : .titleWindow
+        }
     }
 
     private struct SurfaceState {
@@ -200,16 +217,16 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
     }
 
     private let lock = NSLock()
-    private let scheduleDrain: @Sendable (UUID) -> Void
+    private let scheduleDrain: @Sendable (UUID, TerminalLocalDrainSchedule) -> Void
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
 
-    init(scheduleDrain: @escaping @Sendable (UUID) -> Void) {
+    init(scheduleDrain: @escaping @Sendable (UUID, TerminalLocalDrainSchedule) -> Void) {
         self.scheduleDrain = scheduleDrain
     }
 
     @discardableResult
     func offer(_ action: TerminalLocalAccumulatorAction, for surfaceID: UUID) -> TerminalLocalAccumulatorOfferResult {
-        var shouldSchedule = false
+        var requestedSchedule: TerminalLocalDrainSchedule?
         let result = lock.withLock { () -> TerminalLocalAccumulatorOfferResult in
             var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
             if state.pending.firstOfferedAtNanoseconds == nil {
@@ -223,18 +240,26 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
                 }
                 return mutationResult
             }
-            if state.phase == .idle {
-                state.phase = .scheduled
+            let actionSchedule = drainSchedule(for: action)
+            switch state.phase {
+            case .idle:
+                state.phase = .scheduled(actionSchedule)
                 state.pending.metrics.scheduledDrainCount += 1
-                shouldSchedule = true
+                requestedSchedule = actionSchedule
                 statesBySurfaceID[surfaceID] = state
                 return .scheduled
+            case .scheduled(.titleWindow) where actionSchedule == .immediate:
+                state.phase = .scheduled(.immediate)
+                state.pending.metrics.scheduledDrainCount += 1
+                requestedSchedule = .immediate
+            case .scheduled, .draining:
+                break
             }
             statesBySurfaceID[surfaceID] = state
             return mutationResult
         }
-        if shouldSchedule {
-            scheduleDrain(surfaceID)
+        if let requestedSchedule {
+            scheduleDrain(surfaceID, requestedSchedule)
         }
         return result
     }
@@ -244,7 +269,7 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         defaultActivityContext: TerminalActivityProjectionContext? = nil
     ) -> TerminalLocalActionBatch? {
         lock.withLock {
-            guard var state = statesBySurfaceID[surfaceID], state.phase == .scheduled, state.pending.hasWork else {
+            guard var state = statesBySurfaceID[surfaceID], case .scheduled = state.phase, state.pending.hasWork else {
                 return nil
             }
             state.phase = .draining
@@ -312,14 +337,14 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
     }
 
     func finishDrain(for surfaceID: UUID) -> TerminalLocalAccumulatorDrainCompletion {
-        var shouldSchedule = false
+        var requestedSchedule: TerminalLocalDrainSchedule?
         let completion = lock.withLock { () -> TerminalLocalAccumulatorDrainCompletion in
             guard var state = statesBySurfaceID[surfaceID], state.phase == .draining else { return .idle }
-            if state.pending.hasWork {
-                state.phase = .scheduled
+            if let followUpSchedule = state.pending.drainSchedule {
+                state.phase = .scheduled(followUpSchedule)
                 state.pending.metrics.followUpDrainCount += 1
                 statesBySurfaceID[surfaceID] = state
-                shouldSchedule = true
+                requestedSchedule = followUpSchedule
                 return .followUpScheduled
             }
             if state.search.isActive {
@@ -330,8 +355,8 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
             }
             return .idle
         }
-        if shouldSchedule {
-            scheduleDrain(surfaceID)
+        if let requestedSchedule {
+            scheduleDrain(surfaceID, requestedSchedule)
         }
         return completion
     }
@@ -368,6 +393,16 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
                     if state.pending.titleMetadata?.surfaceTitle != nil { result += 1 }
                 }
             }
+        }
+    }
+
+    private func drainSchedule(for action: TerminalLocalAccumulatorAction) -> TerminalLocalDrainSchedule {
+        switch action {
+        case .titleChanged, .tabTitleChanged:
+            return .titleWindow
+        case .scrollbar, .mouseShape, .mouseVisibility, .searchStarted, .searchEnded, .searchMatches,
+            .searchSelection:
+            return .immediate
         }
     }
 
