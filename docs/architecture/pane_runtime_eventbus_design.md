@@ -803,7 +803,9 @@ MainActor path. Local samples enter `TerminalLocalActionAccumulator`, whose
 fixed slots coalesce latest presentation state and whose bounded aggregates
 retain only the sufficient statistics required by `TerminalActivityProjector`.
 The adapter does not publish local-only cases merely because they exist in the
-shared event enum.
+shared event enum. Production consumes the classifier once and returns the
+exhaustive `GhosttyTranslatedActionAdmission` callback result: route the exact
+fact/control, update direct host state, or finish as locally handled.
 
 | Direction | Connection | Pattern | Why |
 |-----------|-----------|---------|-----|

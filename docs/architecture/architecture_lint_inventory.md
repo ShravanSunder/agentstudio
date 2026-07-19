@@ -39,15 +39,17 @@ SwiftLint through `mise run lint` and CI.
 
 The Terminal publication guard is deliberately lexical. In AgentStudio's
 Terminal source, it recognizes switches whose subject is
-`GhosttyActionDisposition.classify(...)`. Each `.latestPresentation`,
+`GhosttyActionDisposition.classify(...)`; the exact classifier call must be the
+direct switch subject rather than a stored result. Each `.latestPresentation`,
 `.activityEvidence`, `.exactLocalLifecycle`, and `.diagnostic` branch must end
 in a top-level `return` and must not directly call
 `routeActionToTerminalRuntimeOnMainActor`. This blocks direct local-branch
-publication and post-switch fallthrough to the shared semantic edge while
-leaving `.exactFactOrControl` eligible for that ordered route. The rule does not
-perform general type resolution or control-flow analysis. It does not enforce
-Inbox classification; `InboxNotificationRouter` independently uses exhaustive
-top-level and nested owned-event switches with typed ignore reasons.
+publication, stored-classifier bypass, and post-switch fallthrough to the shared
+semantic edge while leaving `.exactFactOrControl` eligible for that ordered
+route. The rule does not perform general type resolution or control-flow
+analysis. It does not enforce Inbox classification; `InboxNotificationRouter`
+independently uses exhaustive top-level and nested owned-event switches with
+typed ignore reasons.
 
 ## Former Shell And Custom SwiftLint Coverage
 

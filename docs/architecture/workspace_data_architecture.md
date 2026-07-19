@@ -433,6 +433,12 @@ Effect rules:
 - `FilesystemProjectionIndex.applyPaneUpdate` reports `.applied`, `.stale`, or
   `.inapplicable`, so the coordinator can distinguish a committed projection
   from obsolete or irrelevant work.
+- Full source-sync requests carry an explicit
+  `appliedContextsByWorktreeId` baseline with no implicit empty default.
+  Coordinator mirrors advance immediately after each awaited source write, so
+  a superseding pass compares desired state with registration, activity, and
+  active-worktree effects that actually completed rather than an optimistic
+  committed index snapshot.
 
 `FilesystemActor` remains the authority for observed filesystem facts and root
 registration. `FilesystemProjectionIndex` remains a rebuildable, off-main

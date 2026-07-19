@@ -1744,6 +1744,13 @@ are deliberately Terminal-specific:
 | Exact local lifecycle | Ordered compact local apply | Preserve lifecycle ordering locally without envelope, sequence, replay, or bus work |
 | Diagnostic | Explicit diagnostic/accounting path | Never silently fall through into semantic publication |
 
+`admitTranslatedActionToTerminalRuntime` performs that five-way classification
+exactly once and returns the exhaustive three-case
+`GhosttyTranslatedActionAdmission` callback result:
+`routeExactFactOrControl`, `updateDirectHostState`, or `handledLocally`. This
+second union records which already-classified callback lane production must
+execute; it is not another event taxonomy or publication bus.
+
 One drain performs a compact MainActor apply through `TerminalRuntime`, then
 hands bounded activity input to `TerminalActivityProjector`. The projector actor
 combines private evidence with ordered controls and returns changed semantic
@@ -1766,11 +1773,13 @@ sufficient statistics do not grow with callback count. The focused
 100,000-sample proof verifies this bounded shape. Local-only cases remain in
 `GhosttyEvent` intentionally, so publication exclusion depends on the admission
 path. The narrow `TerminalLocalDispositionPublicationRule` enforces the current
-lexical seam: every local-only disposition branch must end in a top-level
-`return` and must not call `routeActionToTerminalRuntimeOnMainActor` directly.
-This prevents both direct publication and fallthrough to the post-switch
-semantic edge while leaving `.exactFactOrControl` eligible for that edge. The
-rule intentionally does not perform general type resolution or control-flow
+lexical seam: an exact `GhosttyActionDisposition.classify(...)` call must be the
+direct subject of its switch; every local-only disposition branch must end in a
+top-level `return` and must not call
+`routeActionToTerminalRuntimeOnMainActor` directly. This prevents stored-result
+bypasses, direct publication, and fallthrough to the post-switch semantic edge
+while leaving `.exactFactOrControl` eligible for that edge. The rule
+intentionally does not perform general type resolution or control-flow
 analysis.
 
 #### Contract 7a: Coverage Invariants
