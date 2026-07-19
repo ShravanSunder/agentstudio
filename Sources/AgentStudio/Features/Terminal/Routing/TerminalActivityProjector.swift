@@ -246,7 +246,7 @@ actor TerminalActivityProjector {
         aggregate: TerminalScrollbarActivityAggregate,
         latestIsPinnedToBottom: Bool
     ) -> [Bool] {
-        var projectedIsPinnedToBottom = previousIsPinnedToBottom ?? false
+        var projectedIsPinnedToBottom = previousIsPinnedToBottom
         var transitions: [Bool] = []
         func appendChangedState(_ isPinnedToBottom: Bool) {
             guard isPinnedToBottom != projectedIsPinnedToBottom else { return }

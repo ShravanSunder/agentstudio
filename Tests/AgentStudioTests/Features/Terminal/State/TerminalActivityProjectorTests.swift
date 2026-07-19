@@ -259,7 +259,7 @@ struct TerminalActivityProjectorTests {
             context: attendedContext
         )
 
-        #expect(observationStates(in: recorder.outcomes) == [true, false])
+        #expect(observationStates(in: recorder.outcomes) == [false, true, false])
         #expect(latestCompactScrollbarState(in: recorder.outcomes) == states[2])
         await projector.reset()
     }
