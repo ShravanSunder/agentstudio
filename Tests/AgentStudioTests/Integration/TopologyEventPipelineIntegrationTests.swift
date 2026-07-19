@@ -294,6 +294,11 @@ struct TopologyEventPipelineIntegrationTests {
             _ = await harness.refreshWatchedFolders([watchedPath])
 
             let syntheticId = try #require(harness.fseventClient.registeredWorktreeIds.first)
+            let subscriber = await harness.bus.subscribe(
+                policy: .criticalUnbounded,
+                subscriberName: #function
+            )
+            let recorder = RecordingSubscriber(stream: subscriber)
 
             harness.scanResults.setResults([
                 watchedPath: [
@@ -310,15 +315,40 @@ struct TopologyEventPipelineIntegrationTests {
                 )
             )
 
+            _ = await recorder.firstEvent { envelope in
+                guard
+                    case .system(let systemEnvelope) = envelope,
+                    case .topology(
+                        .reposDiscovered(let parentPath, let repositories)
+                    ) = systemEnvelope.event,
+                    parentPath.standardizedFileURL == watchedFolder.standardizedFileURL
+                else { return false }
+
+                return repositories.contains { repository in
+                    guard
+                        repository.repoPath.standardizedFileURL
+                            == clonePath.standardizedFileURL,
+                        case .scanned(let linkedWorktreePaths) = repository.linkedWorktrees
+                    else { return false }
+                    return Set(linkedWorktreePaths.map(\.standardizedFileURL))
+                        == Set([
+                            initialLinked.standardizedFileURL,
+                            addedLinked.standardizedFileURL,
+                        ])
+                }
+            }
+
             await assertEventuallyMain("new linked worktree should appear in canonical store") {
                 let paths = Set(harness.workspaceStore.repos.first?.worktrees.map(\.path) ?? [])
                 return paths == Set([clonePath, initialLinked, addedLinked])
             }
 
+            await harness.workspaceSurfaceCoordinator.waitForFilesystemRootsAndActivitySyncIdle()
             await assertEventuallyAsync("new linked worktree root should be registered") {
                 let snapshot = await harness.filesystemSnapshot()
                 return Set(snapshot.registeredRoots.values) == Set([clonePath, initialLinked, addedLinked])
             }
+            await recorder.shutdown()
         }
     }
 
