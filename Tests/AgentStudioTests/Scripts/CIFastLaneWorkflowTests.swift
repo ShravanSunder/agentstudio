@@ -75,6 +75,24 @@ struct CIFastLaneWorkflowTests {
         #expect(!testHelperScript.contains("swift test list ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build"))
     }
 
+    @Test("real zmx lifecycle proof stays in its dedicated E2E lane")
+    func realZmxLifecycleProofStaysInDedicatedE2ELane() throws {
+        let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
+        let swiftTestTaskScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
+        let defaultTestCase = try shellCase(named: "test", in: swiftTestTaskScript)
+        let coverageTask = try miseTask(named: "test-coverage", in: miseConfig)
+        let generalE2ETask = try miseTask(named: "test-e2e", in: miseConfig)
+        let zmxE2ETask = try miseTask(named: "test-zmx-e2e", in: miseConfig)
+
+        #expect(defaultTestCase.contains("--filter E2ESerializedTests --skip ZmxE2ETests"))
+        #expect(!defaultTestCase.contains("SWIFT_TEST_INCLUDE_ZMX_E2E"))
+        #expect(coverageTask.contains("--filter E2ESerializedTests --skip ZmxE2ETests"))
+        #expect(!coverageTask.contains("SWIFT_TEST_INCLUDE_ZMX_E2E"))
+        #expect(generalE2ETask.contains("--filter E2ESerializedTests --skip ZmxE2ETests"))
+        #expect(zmxE2ETask.contains("--filter ZmxE2ETests"))
+        #expect(!zmxE2ETask.contains("--skip ZmxE2ETests"))
+    }
+
     private func workflowStep(named stepName: String, in workflow: String) throws -> String {
         try namedBlock(
             startingWith: "      - name: \(stepName)",
@@ -96,6 +114,14 @@ struct CIFastLaneWorkflowTests {
             startingWith: "\(functionName)() {",
             endingBefore: "\n}\n",
             in: script
+        )
+    }
+
+    private func miseTask(named taskName: String, in config: String) throws -> String {
+        try namedBlock(
+            startingWith: "[tasks.\(taskName)]",
+            endingBefore: "\n[tasks.",
+            in: config
         )
     }
 

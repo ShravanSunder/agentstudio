@@ -182,7 +182,7 @@ swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.test]
-description = "Run default test suite (excludes E2E + ZmxE2E by default)"
+description = "Run default test suite; real zmx lifecycle proof stays in test-zmx-e2e"
 run = "/bin/bash scripts/run-swift-test-task.sh test"
 
 [tasks.test-fast]
@@ -226,19 +226,9 @@ if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
   run_swift_with_timeout \
     "E2ESerializedTests (coverage)" \
     "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH"
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --skip-build --filter E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 else
   echo "[test-coverage] skipping E2ESerializedTests (SWIFT_TEST_INCLUDE_E2E=${SWIFT_TEST_INCLUDE_E2E:-0})"
-fi
-
-echo "--- Zmx E2E tests (serial, coverage) ---"
-if [ "${SWIFT_TEST_INCLUDE_ZMX_E2E:-0}" = "1" ]; then
-  run_swift_with_timeout \
-    "ZmxE2ETests (coverage)" \
-    "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH"
-else
-  echo "[test-coverage] skipping ZmxE2ETests (SWIFT_TEST_INCLUDE_ZMX_E2E=${SWIFT_TEST_INCLUDE_ZMX_E2E:-0})"
 fi
 
 CODECOV_TMPFILE=$(mktemp)
@@ -258,7 +248,7 @@ fi
 """
 
 [tasks.test-e2e]
-description = "Run E2E serialized tests only (opt-in; zmx E2E currently unstable)"
+description = "Run general E2E serialized tests only; excludes the dedicated zmx lifecycle lane"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -267,7 +257,7 @@ source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
 BUILD_PATH="$SWIFT_BUILD_DIR"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
-AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.test-zmx-e2e]
