@@ -255,7 +255,11 @@ struct WorkspaceUIState: Codable {
 
 ## Enrichment Pipeline
 
-Sequential enrichment via EventBus. Each stage subscribes to the bus and produces enriched events back to the bus. The bus fans out — the coordinator gets intermediate events directly (no latency blocking).
+Sequential enrichment facts still travel through EventBus, but workspace
+filesystem projection has two effect shapes. Boot, explicit rebuild, and an
+accepted topology delta request full reconciliation. Ordinary pane mount,
+removal, CWD, and active-pane changes use affected-key effects and do not
+rebuild the full projection.
 
 ```
 WORKSPACE STATE (canonical repos/worktrees, panes/tabs)
@@ -307,7 +311,10 @@ WorkspaceCacheCoordinator (@MainActor, topology accumulator)
 WorkspaceSurfaceCoordinator (ordered post-topology effects)
   topologyDidChange(delta):
     → orphanPanesForWorktree for delta.removedWorktrees
-    → syncFilesystemRootsAndActivity() (register new / unregister removed)
+    → full filesystem reconciliation for accepted topology delta
+  ordinary pane/CWD/active changes:
+    → typed affected-key effect admission
+    → pane or active-worktree projection only
       │
       ▼
 RepoEnrichmentCacheAtom + RecentWorkspaceTargetAtom (@Observable, passive)
@@ -384,6 +391,55 @@ syncScope_*         — ACTOR registration management
 ```
 
 Method naming convention makes responsibility explicit. If coordinator grows too large, method groups become natural extraction points. Does not run git/network commands or access filesystem directly.
+
+### Filesystem Effect Admission And Projection
+
+Filesystem source authority and workspace projection are separate
+responsibilities. There are two independent lanes:
+
+```text
+FilesystemActor / GitWorkingDirectoryProjector
+  -> globally published WorktreeScopedEvent
+  -> PaneFilesystemProjectionAdmission (consumer-side)
+     -> filesChanged / snapshotChanged -> project affected panes
+     -> every other owned case         -> explicitly ignored here
+  -> FilesystemProjectionIndex
+  -> WorkspaceSurfaceCoordinator sequences any published pane facts
+
+pane mount / removal / CWD / active-pane change
+  -> local affected-key coordinator effect
+  -> FilesystemProjectionIndex
+  -> applied / stale / inapplicable
+  -> changed activity/active-worktree update to FilesystemActor
+  -> no EventBus fact solely for index maintenance
+```
+
+`PaneFilesystemProjectionAdmission` exhaustively switches over the owned
+`WorktreeScopedEvent`, `FilesystemEvent`, and `GitWorkingDirectoryEvent`
+families. Every case explicitly selects projection or `.ignored`; no catch-all
+default silently schedules work. This is pane-projection admission after the
+bounded worktree fact reaches EventBus, not Terminal-style pre-publication
+source admission. The original filesystem/Git facts remain globally available
+to other consumers; only relevant cases derive pane-scoped
+`PaneFilesystemContextEvent` facts.
+
+Effect rules:
+
+- Full reconciliation is reserved for boot, explicit rebuild, and an accepted
+  topology delta.
+- Pane mount, pane removal, and pane CWD changes update only the keyed pane.
+- Active-pane changes project only the active-worktree effect.
+- Unrelated actions schedule no filesystem projection work.
+- `FilesystemProjectionIndex.applyPaneUpdate` reports `.applied`, `.stale`, or
+  `.inapplicable`, so the coordinator can distinguish a committed projection
+  from obsolete or irrelevant work.
+
+`FilesystemActor` remains the authority for observed filesystem facts and root
+registration. `FilesystemProjectionIndex` remains a rebuildable, off-main
+projection of those facts and of current pane/worktree membership; it does not
+become canonical workspace state. Terminal contraction and filesystem
+projection deliberately use separate domain types rather than a generic
+admission framework.
 
 ### Discovery — Repo Scanning
 
@@ -802,9 +858,13 @@ Reader             Sidebar                          Rendering truth via @Observa
 **The handler pattern:**
 - `WorkspaceCacheCoordinator` produces a `WorktreeTopologyDelta` after reconciliation
 - It handles cache cleanup itself (it owns `repoCache`)
-- It calls `topologyEffectHandler.topologyDidChange(delta)` for ordering-sensitive effects
-- `WorkspaceSurfaceCoordinator` conforms to `TopologyEffectHandler`: orphans panes for removed worktrees, syncs filesystem roots
+- It calls `topologyEffectHandler.topologyDidChange(delta)` for ordering-sensitive effects and a full filesystem reconciliation
+- `WorkspaceSurfaceCoordinator` conforms to `TopologyEffectHandler`: it orphans panes for removed worktrees and reconciles filesystem roots after accepted topology changes
 - `WorkspaceSurfaceCoordinator` does NOT subscribe to topology events on the bus — it receives topology changes only via the handler
+
+Ordinary pane mount/removal/CWD and active-pane changes do not re-enter this
+topology accumulator. They use the separate affected-key entry points described
+in [Filesystem Effect Admission And Projection](#filesystem-effect-admission-and-projection).
 
 This replaces the previous pattern where `WorkspaceSurfaceCoordinator` subscribed to topology events on the bus and scheduled a deferred filesystem sync. That worked by accident (deferred `Task` ran after the coordinator's synchronous store mutation) but was fragile — any change to the timing would break ordering.
 

@@ -150,7 +150,11 @@ extension InboxNotificationRouterTests {
         _ = await fixture.bus.post(
             makePaneEnvelope(
                 paneId: visibleSiblingPaneId,
-                event: .terminal(.scrollbarChanged(ScrollbarState(top: 100, bottom: 140, total: 140)))
+                event: .terminalActivity(
+                    .paneObservationChanged(
+                        TerminalPaneObservationState(isPinnedToBottom: true)
+                    )
+                )
             )
         )
         _ = await fixture.bus.post(
@@ -186,7 +190,11 @@ extension InboxNotificationRouterTests {
         _ = await fixture.bus.post(
             makePaneEnvelope(
                 paneId: visibleSiblingPaneId,
-                event: .terminal(.scrollbarChanged(ScrollbarState(top: 40, bottom: 80, total: 140)))
+                event: .terminalActivity(
+                    .paneObservationChanged(
+                        TerminalPaneObservationState(isPinnedToBottom: false)
+                    )
+                )
             )
         )
         _ = await fixture.bus.post(

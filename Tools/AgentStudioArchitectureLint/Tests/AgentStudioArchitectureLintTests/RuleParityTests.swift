@@ -161,6 +161,50 @@ struct RuleParityTests {
                 "Production EventBus subscriber helpers must not hide policy behind zero-argument overloads"))
     }
 
+    @Test("Terminal local disposition publication rule diagnoses every local disposition")
+    func terminalLocalDispositionPublicationRuleDiagnosesEveryLocalDisposition() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent("Bad")
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("AgentStudio")
+            .appendingPathComponent("Features")
+            .appendingPathComponent("Terminal")
+            .appendingPathComponent("Ghostty")
+            .appendingPathComponent("BadTerminalLocalDispositionPublication.swift")
+            .path
+
+        let diagnostics = try lint(files: [fixture])
+            .filter { $0.ruleID == "agentstudio_terminal_local_disposition_publication" }
+
+        #expect(diagnostics.map(\.line) == [8, 11, 14, 17])
+        #expect(
+            Set(diagnostics.map(\.message)) == [
+                "GhosttyActionDisposition local-only cases must contract locally before routeActionToTerminalRuntimeOnMainActor"
+            ])
+    }
+
+    @Test("Terminal local disposition publication rule rejects fallthrough to the semantic edge")
+    func terminalLocalDispositionPublicationRuleRejectsFallthroughToSemanticEdge() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent("Bad")
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("AgentStudio")
+            .appendingPathComponent("Features")
+            .appendingPathComponent("Terminal")
+            .appendingPathComponent("Ghostty")
+            .appendingPathComponent("BadTerminalLocalDispositionFallthrough.swift")
+            .path
+
+        let diagnostics = try lint(files: [fixture])
+            .filter { $0.ruleID == "agentstudio_terminal_local_disposition_publication" }
+
+        #expect(diagnostics.map(\.line) == [9])
+        #expect(
+            diagnostics.map(\.message) == [
+                "GhosttyActionDisposition local-only cases must end in a top-level return before semantic runtime publication"
+            ])
+    }
+
     @Test("tooltip source rule scopes raw help to migrated dense controls")
     func tooltipSourceRuleScopesRawHelpToMigratedDenseControls() {
         let migratedDiagnostics = TooltipSourceRule().validate(

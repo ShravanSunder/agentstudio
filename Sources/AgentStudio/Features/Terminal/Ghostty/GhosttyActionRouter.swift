@@ -18,6 +18,11 @@ extension Ghostty {
         @MainActor private static var runtimeRegistryOverride: RuntimeRegistry = .shared
         @MainActor static var startupTraceRecorder: AgentStudioStartupTraceRecorder?
         static let actionTraceQueueStore = GhosttyActionTraceQueueStore()
+        static let localActionAccumulator = TerminalLocalActionAccumulator { surfaceID in
+            Task { @MainActor in
+                await drainLocalActions(for: surfaceID)
+            }
+        }
         static let explicitlyRoutedTags: Set<GhosttyActionTag> = [
             .newTab,
             .ringBell,
@@ -675,6 +680,42 @@ extension Ghostty {
 
             guard let resolvedSurfaceView = surfaceView(from: surface) else {
                 ghosttyLogger.warning("Dropped action tag \(actionTag): no surface view for callback target")
+                return handledResult
+            }
+
+            let event = GhosttyAdapter.shared.translate(actionTag: actionTag, payload: payload)
+            switch GhosttyActionDisposition.classify(event) {
+            case .exactFactOrControl:
+                break
+            case .latestPresentation(let presentation):
+                offerLocalPresentation(
+                    presentation,
+                    for: resolvedSurfaceView.managedSurfaceID
+                )
+                return handledResult
+            case .activityEvidence(let evidence):
+                offerLocalActivityEvidence(
+                    evidence,
+                    for: resolvedSurfaceView.managedSurfaceID
+                )
+                return handledResult
+            case .exactLocalLifecycle(let lifecycle):
+                offerLocalLifecycle(
+                    lifecycle,
+                    for: resolvedSurfaceView.managedSurfaceID
+                )
+                return handledResult
+            case .diagnostic(let diagnostic):
+                if diagnostic == .directHostState {
+                    Task { @MainActor [weak resolvedSurfaceView] in
+                        guard let resolvedSurfaceView else { return }
+                        updateSurfaceHostCache(
+                            actionTag: actionTag,
+                            payload: payload,
+                            surfaceView: resolvedSurfaceView
+                        )
+                    }
+                }
                 return handledResult
             }
 

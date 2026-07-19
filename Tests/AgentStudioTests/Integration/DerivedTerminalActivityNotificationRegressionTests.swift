@@ -184,6 +184,7 @@ struct DerivedTerminalActivityNotificationRegressionTests {
             bus: bus,
             activityAtom: terminalActivity,
             attendedPane: attendedPane,
+            surfaceIDForPaneID: { $0 },
             isPaneCurrentlyAttended: {
                 PaneObservationResolver.isPaneCurrentlyAttended(
                     paneId: $0,
@@ -272,27 +273,38 @@ struct DerivedTerminalActivityNotificationRegressionTests {
         to fixture: Fixture,
         startingSeq: UInt64 = 1
     ) async {
-        await waitForBusSubscriberCount(fixture.bus, atLeast: 2)
+        guard let firstTotal = totals.first, let latestTotal = totals.last else { return }
+        let startedAtMilliseconds = Int64(startingSeq) * 100
+        var aggregate = TerminalScrollbarActivityAggregate(
+            state: ScrollbarState(top: 0, bottom: 10, total: firstTotal),
+            observedAtMilliseconds: startedAtMilliseconds
+        )
+        for (index, totalRows) in totals.dropFirst().enumerated() {
+            aggregate.merge(
+                state: ScrollbarState(top: 0, bottom: 10, total: totalRows),
+                observedAtMilliseconds: startedAtMilliseconds + Int64((index + 1) * 100)
+            )
+        }
         let initialSleepGeneration = fixture.clock.scheduledSleepGeneration
-        for (index, totalRows) in totals.enumerated() {
-            _ = await fixture.bus.post(
-                .pane(
-                    .test(
-                        event: .terminal(
-                            .scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: totalRows))
-                        ),
-                        paneId: paneId,
-                        paneKind: .terminal,
-                        seq: startingSeq + UInt64(index)
+        await fixture.terminalRouter.consumeTerminalActivityInput(
+            .aggregate(
+                surfaceID: paneId.uuid,
+                paneID: paneId.uuid,
+                input: TerminalActivityAggregateInput(
+                    aggregate: aggregate,
+                    latestState: ScrollbarState(top: 0, bottom: 10, total: latestTotal),
+                    context: TerminalActivityProjectionContext(
+                        isAttended: fixture.attendedPane.attendedPaneId == paneId.uuid,
+                        isAgentClassified: false,
+                        outputBurstThreshold: fixture.terminalActivity.outputBurstThreshold
                     )
                 )
             )
-            await assertEventuallyMain("terminal activity atom should observe latest rows") {
-                fixture.terminalActivity.snapshot(for: paneId.uuid)?.scrollbarState?.total == totalRows
-            }
-            await fixture.clock.waitForPendingSleepGeneration(initialSleepGeneration + index)
+        )
+        await assertEventuallyMain("terminal activity atom should observe latest rows") {
+            fixture.terminalActivity.snapshot(for: paneId.uuid)?.scrollbarState?.total == latestTotal
         }
-        await fixture.clock.waitForPendingSleepGeneration(initialSleepGeneration + totals.count - 1)
+        await fixture.clock.waitForPendingSleepGeneration(initialSleepGeneration)
         fixture.clock.advance(by: AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration)
     }
 }

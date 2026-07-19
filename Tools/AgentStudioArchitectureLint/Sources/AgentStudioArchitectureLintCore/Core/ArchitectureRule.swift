@@ -51,5 +51,6 @@ enum ArchitectureRuleRegistry {
         TestTaskSleepRule(),
         TooltipSourceRule(),
         EventBusSubscriberPolicyRule(),
+        TerminalLocalDispositionPublicationRule(),
     ]
 }

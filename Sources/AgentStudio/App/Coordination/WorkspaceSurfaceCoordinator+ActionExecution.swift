@@ -721,7 +721,6 @@ extension WorkspaceSurfaceCoordinator {
             executeRepair(repairAction)
         }
 
-        syncFilesystemRootsAndActivity()
     }
     // swiftlint:enable cyclomatic_complexity function_body_length
 

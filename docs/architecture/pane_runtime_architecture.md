@@ -27,7 +27,11 @@ This document defines the pane runtime communication architecture: how panes of 
 
 ## Three Data Flow Planes
 
-All data flow in the pane runtime architecture follows one of three planes. Every new feature, event, or interaction pattern should be classified into exactly one.
+Source admission precedes the three data-flow planes. A source-owned exhaustive
+decision first determines whether a copied raw signal becomes an exact control
+or fact, enters fixed-key contraction, or is explicitly diagnostic/ignored.
+Only admitted semantic facts enter a plane; not every translated signal becomes
+a `RuntimeEnvelope`.
 
 | Plane | Direction | Mechanism | Invariant |
 |-------|-----------|-----------|-----------|
@@ -35,7 +39,11 @@ All data flow in the pane runtime architecture follows one of three planes. Ever
 | **Command plane** | User/system → coordinator → runtime | Coordinator dispatches `PaneRuntimeCommand`s directly via `RuntimeRegistry` (`runtime.handleCommand(envelope)`). Command-plane calls to boundary actors (e.g., `forgeActor.refresh(repo:)`) are also direct. | Request-response. Commands never flow through the EventBus. |
 | **UI plane** | Runtime → SwiftUI view | `@Observable` properties on each runtime, views bind directly. `@Observable` mutation happens synchronously on `@MainActor` **before** any bus post. | Synchronous, zero-overhead. UI is never stale relative to coordination consumers. Bus is for coordination, not UI state transport. |
 
-**The multiplexing rule:** When a runtime processes a domain event (e.g., `titleChanged`), it writes `@Observable` state first (UI plane), then posts to the bus (event plane). Both happen, in that order. **Why this ordering is critical:** `@Observable` mutation is synchronous on `@MainActor` — SwiftUI views see the new state immediately on the current frame. The bus post is async (`await bus.post()`), meaning coordination consumers may process the event one or more frames later. If the bus post happened first, a coordination consumer could react to the event (e.g., update a tab bar label) before the runtime's own `@Observable` state reflected the change, creating a visible inconsistency. `@Observable` first guarantees the source-of-truth view is never stale relative to downstream consumers. The test for whether an event needs the bus: "Would any other component in the system care?" If yes → bus. If only the bound view cares → `@Observable` only.
+**The multiplexing rule:** For an admitted semantic event that needs both UI and
+coordination paths, mutate `@Observable` state first and publish the fact
+second. High-rate local samples are contracted before this rule applies; their
+raw events do not enter the bus merely because a view or downstream feature
+might eventually care about the derived state.
 
 **Why not three separate streams:** These three planes are **logical roles**, not three separate data structures. Separate control/state/data streams create an ordering hazard: a late-joining consumer can observe inconsistent state (e.g., seeing a loaded diff without knowing which terminal produced it). The event plane uses a single `AsyncStream` per runtime (posted to one `EventBus`) — not three separate streams. The planes describe what each data path *does*; the implementation shares infrastructure where ordering matters. See [D2](#d2-single-typed-event-stream-not-three-separate-planes) for the full rationale.
 
@@ -131,9 +139,16 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
 
 **User problem:** Agent Studio currently ignores 28+ Ghostty actions (progress, bell, search, scrollbar, command finish, config reload, etc.). Users can't see command duration, progress bars, or respond to terminal notifications (JTBD 6, P6).
 
-**Decision:** Every `ghostty_action_tag_e` maps to a case in a Swift `GhosttyEvent` enum. The adapter's switch is exhaustive. Unhandled events map to `.unhandled(tag)` with explicit logging — never silently dropped.
+**Decision:** Raw Ghostty translation and translated-event disposition are two
+separate closed decisions. `GhosttyActionDisposition` exhaustively assigns every
+owned `GhosttyEvent` case to an explicit route without a catch-all default. The
+current T5 source proof verifies disposition coverage; it does not infer raw-tag
+coverage from that switch.
 
-**Why:** Compile-time guarantee that adding a new Ghostty action forces a handler decision. The enum IS the documentation of "what Ghostty can tell us." Silent drops are how the current 12/40 gap happened.
+**Why:** The FFI translation contract prevents raw actions from disappearing;
+exhaustive disposition prevents a newly translated event from silently taking
+an inappropriate scheduling or publication path. Neither proof substitutes for
+the other.
 
 ### D5: View / Controller / Runtime / Adapter layering
 
@@ -505,7 +520,13 @@ The reference implementation. Fully conforms to `PaneRuntime`. One instance per 
 
 - **Adapter:** `GhosttyAdapter` (shared singleton). Routes C callbacks by `surfaceId` → `TerminalRuntime` instance via `RuntimeRegistry` lookup. C FFI boundary uses `@Sendable` trampolines + `Task { @MainActor in }` for safe actor hop.
 - **Controller:** `SurfaceManager` (shared). Owns Ghostty surface lifecycle (create, attach, detach, destroy, health, undo). Terminal panes don't have a per-pane controller — the surface manager handles resource management for all terminals.
-- **Event production:** `GhosttyAdapter.route()` translates C action tags to `GhosttyEvent` cases, then `TerminalRuntime.handleGhosttyEvent()` wraps in `PaneEventEnvelope` with seq/source/timestamp and yields to the AsyncStream continuation.
+- **Event production:** the router copies borrowed payloads, translates them to
+  `GhosttyEvent`, and applies `GhosttyActionDisposition` before scheduling.
+  Exact facts/controls reach `TerminalRuntime`; local samples enter a fixed-key
+  accumulator and bounded activity aggregation. One compact MainActor apply
+  bypasses envelopes, sequence, replay, and buses; the off-main
+  `TerminalActivityProjector` publishes only changed semantic outcomes through
+  the MainActor activity router.
 - **Command handling:** `TerminalRuntime.handleCommand()` validates lifecycle + capability, then dispatches `.sendInput`, `.resize`, `.search` to the Ghostty surface via `SurfaceManager`.
 - **@Observable state:** `title`, `cwd`, `searchState`, `scrollbarState` — bound directly by SwiftUI views.
 
@@ -696,8 +717,8 @@ Quick reference: which direction each contract's data flows and which actor boun
 | C5a | Attach Readiness | Internal | @MainActor | Readiness gates |
 | C5b | Restart Reconcile | Internal | @MainActor | Launch reconcile |
 | C6 | Filesystem Batching | Outbound | FilesystemActor → EventBus | Boundary actor source |
-| C7 | GhosttyEvent FFI | Inbound→Outbound | C thread → @MainActor → EventBus | Translate, multiplex |
-| C7a | Action Coverage | Policy | @MainActor | Exhaustive handling |
+| C7 | Typed Ghostty admission and contraction | Inbound→selected outbound | C callback → source admission → selected MainActor/actor path | Exhaustive disposition before scheduling; bounded contraction before semantic publication |
+| C7a | Action Coverage | Policy | Source boundary | Exhaustive raw translation and disposition are separate decisions |
 | C8 | Per-Kind Events | Outbound | @MainActor → EventBus | Per-kind event flow |
 | C9 | Execution Backend | Config | @MainActor | Immutable config |
 | C10 | Command Dispatch | Inbound | @MainActor → Runtime | Opposite direction from events |
@@ -1682,96 +1703,91 @@ struct FileChangeset: Sendable {
 }
 ```
 
-### Contract 7: GhosttyEvent FFI Enum
+### Contract 7: Typed Ghostty Source Admission And Contraction
 
-> **Role:** Source. GhosttyAdapter produces `GhosttyEvent` from C API callbacks, routed to `TerminalRuntime` instances by surfaceId. Events enter the coordination stream with `source = .pane(id)`.
+> **Role:** Normative source contract. The Ghostty boundary copies borrowed
+> payloads, translates raw tags, and chooses an owned route before scheduling or
+> publication. `GhosttyEvent` membership alone does not authorize EventBus use.
 
-```swift
-/// Exhaustive mapping of ghostty_action_tag_e → Swift.
-/// Every Ghostty action has exactly one case.
-/// Adapter switch is exhaustive — compiler enforces coverage.
-///
-/// Conforms to PaneKindEvent — self-classifies priority via actionPolicy.
-/// See "Where Priority Lives" section for implementation pattern.
-enum GhosttyEvent: PaneKindEvent {
-    case newTab
-    case closeTab(mode: GhosttyCloseTabMode)
-    case gotoTab(target: GhosttyGotoTabTarget)
-    case moveTab(amount: Int)
-    case newSplit(direction: GhosttySplitDirection)
-    case gotoSplit(direction: GhosttyGotoSplitDirection)
-    case resizeSplit(amount: UInt16, direction: GhosttyResizeSplitDirection)
-    case equalizeSplits
-    case toggleSplitZoom
-    case titleChanged(String)
-    case cwdChanged(String)
-    case commandFinished(exitCode: Int, duration: UInt64)
-    case progressReportUpdated(ProgressState?)
-    case readOnlyChanged(Bool)
-    case secureInputRequested(SecureInputMode)
-    case secureInputChanged(Bool)
-    case rendererHealthChanged(healthy: Bool)
-    case cellSizeChanged(NSSize)
-    case initialSizeChanged(NSSize)
-    case sizeLimitChanged(TerminalSizeConstraints)
-    case promptTitleRequested(scope: TitlePromptScope)
-    case desktopNotificationRequested(title: String, body: String)
-    case openURLRequested(url: String, kind: OpenURLKind)
-    case undoRequested
-    case redoRequested
-    case copyTitleToClipboardRequested
-    case bellRang
-    case scrollbarChanged(ScrollbarState)
-    case deferred(tag: UInt32)
-    case unhandled(tag: UInt32)
-}
+The required flow is:
+
+```text
+raw input
+  -> exhaustive typed source admission
+  -> fixed-key coalescing or bounded sufficient-statistics aggregation
+  -> semantic projection
+  -> low-volume facts
 ```
 
-#### Contract 7a: Ghostty Action Coverage Policy (LUNA-325)
+Definitions:
 
-Every `ghostty_action_tag_e` case has a defined handling policy. The adapter's switch is exhaustive — the compiler enforces that adding a new Ghostty action forces a handler decision. This table covers all cases in the `GhosttyEvent` enum (Contract 7). During LUNA-325 implementation, the adapter's exhaustive switch against `ghostty_action_tag_e` will verify completeness at compile time — any Ghostty version with new actions produces a compile error until handled.
+- **Typed source admission** is the source-owned routing decision made before
+  scheduling or publication.
+- **Exhaustive disposition** means every case in the closed owned vocabulary has
+  an explicit route, with no catch-all default.
+- **Coalescing** means latest-value replacement or equal-value suppression in a
+  fixed set of slots.
+- **Aggregation** retains bounded sufficient statistics needed to determine a
+  semantic outcome; it is not merely a last-value cache.
+- **Semantic projection** privately combines aggregates and ordered controls,
+  emitting only changed, lower-volume facts.
 
-| GhosttyEvent Case | Handler | Routing | Priority | Notes |
-|---|---|---|---|---|
-| **Coordinator-consumed events** | | | | |
-| `titleChanged` | Runtime → Coordinator | Updates `PaneMetadata.title` | critical | Pane title |
-| `cwdChanged` | Runtime → Coordinator | Updates `PaneMetadata.cwd` | critical | Dynamic view recomputation |
-| `commandFinished` | Runtime → Coordinator | Workflow/logging signal | critical | Agent completion signal |
-| `bellRang` | Runtime → Coordinator | Posts `AppEvent.worktreeBellRang` | critical | User attention request |
-| `newTab` | Coordinator | Creates new tab via WorkspaceActionCommand | critical | Keyboard shortcut passthrough |
-| `closeTab` | Coordinator | Closes tab via WorkspaceActionCommand (with undo) | critical | Keyboard shortcut passthrough |
-| `gotoTab` | Coordinator | Tab navigation | critical | |
-| `moveTab` | Coordinator | Tab reorder | critical | |
-| `newSplit` | Coordinator | Creates split via WorkspaceActionCommand | critical | |
-| `gotoSplit` | Coordinator | Focus navigation between splits | critical | |
-| `resizeSplit` | Coordinator | Split resize | critical | |
-| `equalizeSplits` | Coordinator | Reset split ratios | critical | |
-| `toggleSplitZoom` | Coordinator | Zoom/unzoom split | critical | |
-| **Runtime-local observable state (no bus post)** | | | | |
-| `progressReportUpdated(ProgressState?)` | Runtime only | Updates `commandProgress` | critical | Current header states are `remove/set/error/indeterminate/pause` |
-| `rendererHealthChanged` | Runtime only | Updates `rendererHealthy` | critical | Existing Ghostty host default still updates the surface view |
-| `cellSizeChanged` | Runtime only | Updates `cellSize` | critical | Metrics for future layout consumers |
-| `initialSizeChanged` | Runtime only | Applied locally only | critical | Reported during attach/default-size updates |
-| `sizeLimitChanged` | Runtime only | Updates `sizeConstraints` | critical | Raw Ghostty size-limit payload |
-| **Runtime state + bus post** | | | | |
-| `readOnlyChanged` | Runtime → Bus | Updates `isReadOnly` and emits replayable state | critical | Ghostty default still drives the built-in badge/overlay path |
-| `secureInputRequested` / `secureInputChanged` | Runtime → Bus | Resolves secure-input mode to current boolean state | critical | Request is input, replayable boolean is output |
-| `promptTitleRequested` | Runtime → Bus | One-shot request, not replayed | critical | Current implementation preserves Ghostty default prompt UX |
-| `desktopNotificationRequested` | Runtime → Bus | One-shot request, not replayed | critical | Per LUNA-361, consumed by `InboxNotificationRouter` and routed into `InboxNotificationAtom` (sidebar inbox + drawer popover, not OS notification). Ghostty default desktop-notification path is NOT invoked. |
-| **Runtime-accounted, no bus post** | | | | |
-| `openURLRequested` | Runtime only | Explicitly routed, no replay | critical | Ghostty default still opens the URL |
-| `undoRequested` / `redoRequested` | Runtime only | Explicitly routed, no replay | critical | Ghostty default still handles responder-chain undo/redo |
-| `copyTitleToClipboardRequested` | Runtime only | Explicitly routed, no replay | critical | Ghostty default still writes to the pasteboard |
-| **Deferred / explicit fallback** | | | | |
-| `deferred(tag)` | Runtime only | Explicitly accounted, no bus post | critical | Feature-gated or high-frequency tags such as search/key-sequence/render |
-| `unhandled(tag)` | Adapter | Logged at warning level, never silently dropped | critical | Unknown raw tag outside the explicit vocabulary |
+`GhosttyActionDisposition` is the verified exhaustive five-way admission
+decision. Classification happens before MainActor routing. The route categories
+are deliberately Terminal-specific:
 
-#### Coverage Invariants
+| Disposition | Owned path | Publication rule |
+| --- | --- | --- |
+| Exact fact | `TerminalRuntime` exact event handling | May produce a runtime envelope when coordination needs the exact fact |
+| Latest presentation | Fixed-key `TerminalLocalActionAccumulator` slot | Apply the latest compact value locally; do not publish the raw sample |
+| Activity evidence | Fixed-key accumulator plus bounded sufficient statistics | Project off-main and publish only changed semantic activity outcomes |
+| Exact local lifecycle | Ordered compact local apply | Preserve lifecycle ordering locally without envelope, sequence, replay, or bus work |
+| Diagnostic | Explicit diagnostic/accounting path | Never silently fall through into semantic publication |
 
-1. **Exhaustive switch.** The adapter's `handleAction(_ action: ghostty_action_s)` switch is exhaustive over `ghostty_action_tag_e`. Adding a new Ghostty version with new actions produces a compile error until a case is added.
-2. **No silent drops.** Every known action tag is explicitly classified in `Ghostty.ActionRouter` as routed, deferred, or intercepted. Unknown raw tags map to `.unhandled(tag)` and are logged.
-3. **Multiplexing is per-event.** Some routed events update `@Observable` state only, some emit replayable bus state, some emit non-replayable one-shot bus events, and some are runtime-accounted without any bus post.
-4. **Ghostty defaults can remain active.** For routed events where Agent Studio is only observing state (`promptTitle`, `desktopNotification`, `openURL`, search/key-table families, read-only overlays), the router intentionally returns `false` so Ghostty's existing host behavior still applies.
+One drain performs a compact MainActor apply through `TerminalRuntime`, then
+hands bounded activity input to `TerminalActivityProjector`. The projector actor
+combines private evidence with ordered controls and returns changed semantic
+outcomes. `TerminalActivityRouter` is the thin MainActor adapter that publishes
+those outcomes to the runtime channel/EventBus, where Inbox may classify them.
+
+This contract keeps three decisions separate:
+
+1. Raw Ghostty tag translation is a separate FFI-boundary coverage contract.
+2. `GhosttyActionDisposition` is verified exhaustive over the translated owned
+   vocabulary without a `default` branch.
+3. Downstream Inbox semantic classification is independently owned and now
+   exhaustive: the top-level `PaneRuntimeEvent` switch delegates to exhaustive
+   `GhosttyEvent`, `TerminalActivityEvent`, `PaneLifecycleEvent`, `ArtifactEvent`,
+   and `SecurityEvent` switches. Typed `ClassificationIgnoreReason` cases retain
+   the established trace reason tokens without a catch-all route.
+
+The accumulator's memory bound is structural: fixed route keys and bounded
+sufficient statistics do not grow with callback count. The focused
+100,000-sample proof verifies this bounded shape. Local-only cases remain in
+`GhosttyEvent` intentionally, so publication exclusion depends on the admission
+path. The narrow `TerminalLocalDispositionPublicationRule` enforces the current
+lexical seam: every local-only disposition branch must end in a top-level
+`return` and must not call `routeActionToTerminalRuntimeOnMainActor` directly.
+This prevents both direct publication and fallthrough to the post-switch
+semantic edge while leaving `.exactFactOrControl` eligible for that edge. The
+rule intentionally does not perform general type resolution or control-flow
+analysis.
+
+#### Contract 7a: Coverage Invariants
+
+1. Borrowed C payloads are copied before callback return.
+2. Raw translation coverage and translated-event disposition are reviewed as
+   separate closed decisions.
+3. Admission precedes MainActor scheduling and semantic publication.
+4. Every translated action has one explicit disposition; there is no catch-all
+   fallback.
+5. Local samples bypass envelopes, sequence allocation, replay, and buses.
+6. Only changed projected semantic outcomes from contracted local evidence enter
+   the coordination stream.
+7. Exact commands and facts retain their ordered routes; changed-only
+   publication applies to projected outcomes from contracted local evidence.
+8. Terminal, filesystem/Git, and Inbox retain separate classification contracts;
+   this is not a generic admission framework.
 
 ### Contract 8: Per-Kind Event Enums
 

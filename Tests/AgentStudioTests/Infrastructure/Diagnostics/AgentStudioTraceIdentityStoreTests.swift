@@ -6,6 +6,26 @@ import Testing
 @Suite
 struct AgentStudioTraceIdentityStoreTests {
     @Test
+    func equalSnapshotIsSuppressedBeforeReplacingStoredIdentity() async {
+        let snapshot = AgentStudioTraceIdentitySnapshot(
+            worktreeIdentitiesByWorktreeId: [
+                UUID(): AgentStudioTraceWorktreeIdentity(
+                    repoHash: "repo-hash",
+                    worktreeHash: "worktree-hash",
+                    branch: "main"
+                )
+            ]
+        )
+        let store = AgentStudioTraceIdentityStore()
+
+        let firstOutcome = await store.update(snapshot)
+        let equalOutcome = await store.update(snapshot)
+
+        #expect(firstOutcome == .applied)
+        #expect(equalOutcome == .equalSuppressed)
+    }
+
+    @Test
     func worktreeIdAddsSafeRepoWorktreeHashAndBranchResource() async {
         let worktreeId = UUID()
         let repoId = UUID()

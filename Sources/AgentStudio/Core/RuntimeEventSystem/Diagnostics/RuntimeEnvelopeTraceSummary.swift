@@ -218,6 +218,8 @@ extension PaneRuntimeEvent {
 extension TerminalActivityEvent {
     var traceEventName: String {
         switch self {
+        case .paneObservationChanged:
+            return "terminalActivity.paneObservationChanged"
         case .unseenActivitySettled:
             return "terminalActivity.unseenActivitySettled"
         case .agentSettledActivityPromoted:

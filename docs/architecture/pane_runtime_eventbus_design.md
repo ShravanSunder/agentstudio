@@ -7,7 +7,17 @@
 
 ## TL;DR
 
-One `actor EventBus<RuntimeEnvelope>` on cooperative pool. `RuntimeEnvelope` is a 3-tier discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`). Domain boundary actors (FilesystemActor, GitWorkingDirectoryProjector, ForgeActor, ContainerActor) for off-MainActor work — each owns its transport internally. `@MainActor` runtimes for `@Observable` state. `@Observable` for UI binding, bus for coordination — same event, multiplexed. `@concurrent` for heavy one-shot per-pane work. `WorkspaceCacheCoordinator` consumes topology and enrichment events to maintain canonical stores and cache. ForgeActor is event-driven (subscribes to `.branchChanged`/`.originChanged` on bus) with fallback polling. No core actor calls another core actor for event-plane data (command-plane request-response calls are direct). Plugin sources are actors with injected `PluginContext` for mediated bus access (deferred). Swift 6.2 / macOS 26.
+One `actor EventBus<RuntimeEnvelope>` fans out admitted, low-volume facts.
+High-rate Terminal signals classify before scheduling or publication. Terminal
+local samples use fixed-key coalescing and bounded sufficient-statistics
+aggregation, then an off-main semantic projector; only changed outcomes return
+through a thin MainActor adapter to the bus. Filesystem/Git worktree facts are
+already globally published in bounded batches. A separate exhaustive
+pane-projection admission decision selects which of those facts derive
+affected-pane facts, while ordinary pane/CWD/active-key maintenance remains a
+local coordinator/index effect. The normative Terminal source contract is
+[Pane Runtime Architecture — Contract 7](pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction);
+this document owns the concrete actor, MainActor, and coordination mechanics.
 
 ## Why This Exists
 
@@ -21,7 +31,10 @@ Four problems drive this design:
 
 3. **One-way data flow.** Events flow producers → bus → subscribers. Commands flow user/system → coordinator → runtime. These never share the same channel. The bus carries events only.
 
-4. **Consistent pattern.** All producers `await bus.post(envelope)`, all consumers `for await envelope in bus.subscribe()`. Topology events (`.repoDiscovered`) and enrichment events (`.snapshotChanged`, `.branchChanged`) all flow through the same bus. The coordinator's bus subscription is the single intake for all facts.
+4. **Consistent admitted-fact pattern.** Producers post only after their owning
+   source-admission path selects a coordination fact. Consumers still use
+   independent bus subscriptions. Raw Terminal samples and unrelated
+   filesystem effects do not enter the bus.
 
 ## Relationship to Pane Runtime Architecture
 
@@ -29,17 +42,17 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
 
 | Contract | Name | Data Flow Direction | Actor Boundary | Relationship to EventBus |
 |----------|------|---------------------|----------------|--------------------------|
-| C1 | PaneRuntime | Bidirectional | @MainActor | Commands in via coordinator, events out via bus |
-| C2 | PaneKindEvent | Outbound | @MainActor → EventBus | Events self-classify priority, flow to bus |
+| C1 | PaneRuntime | Bidirectional | @MainActor | Commands in via coordinator; admitted facts may flow out via bus |
+| C2 | PaneKindEvent | Outbound | @MainActor → EventBus | Admitted semantic events self-classify priority and flow to bus |
 | C3 | PaneEventEnvelope | Outbound | Any → EventBus → @MainActor | Envelopes are the bus payload |
 | C4 | ActionPolicy | Read-only | @MainActor | Reducer reads policy from envelope after bus delivery |
 | C5 | Lifecycle | Internal | @MainActor | Forward-only transitions, state on @MainActor |
 | C5a | Attach Readiness | Internal | @MainActor | Readiness gates for surface attach |
 | C5b | Restart Reconcile | Internal | @MainActor | Reconcile at launch |
 | C6 | Filesystem Batching | Outbound | FilesystemActor → EventBus | Boundary actor produces, bus delivers |
-| C7 | GhosttyEvent FFI | Inbound→Outbound | C thread → @MainActor → EventBus | Translate on MainActor, multiplex to bus |
-| C7a | Action Coverage | Policy | @MainActor | Coverage policy, no actor boundary change |
-| C8 | Per-Kind Events | Outbound | @MainActor → EventBus | Per-kind events flow through bus |
+| C7 | Typed Ghostty admission and contraction | Inbound→selected outbound | C callback → source admission → selected MainActor/actor path | Normative route selection and bounded contraction before publication |
+| C7a | Action Coverage | Policy | Source boundary | Raw translation and translated-event disposition are independently exhaustive |
+| C8 | Per-Kind Events | Outbound | @MainActor → EventBus | Admitted per-kind facts flow through bus |
 | C9 | Execution Backend | Config | @MainActor | Immutable config, no bus involvement |
 | C10 | Command Dispatch | Inbound | @MainActor → Runtime | Commands go OPPOSITE direction from events |
 | C11 | Registry | Lookup | @MainActor | Map, no direction |
@@ -58,14 +71,15 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
 
     BOUNDARY 1              BOUNDARY 2              BOUNDARY 3            BOUNDARY 4
     Terminal/FFI            Filesystem/Git          Forge                 Container (deferred)
-    (~100ns translate)      (~1-100ms work)         (~100ms-2s I/O)       (~100ms+ I/O)
+    source admission        boundary work           remote I/O            remote I/O
 
     C callback              FSEvents callback       gh CLI / HTTP         HTTP / Docker API
-    → @Sendable trampoline  → FilesystemActor       → ForgeActor          → ContainerActor
-    → MainActor translate   → batch facts + git projector → poll PR / checks    → poll health
-    → runtime.emit()        → bus.post(envelope)    → bus.post(envelope)  → bus.post(envelope)
+    → copy + admission      → FilesystemActor       → ForgeActor          → ContainerActor
+    → exact fact/control    → batch owned paths     → poll PR / checks    → poll health
+      OR fixed-key contract → worktree fact         → admitted facts      → admitted facts
+    → semantic projection  → bus.post(envelope)    → bus.post(envelope)  → bus.post(envelope)
          │                        │                       │                     │
-         │ bus.post(envelope)     │                       │                     │
+         │ changed facts only     │ bus.post(envelope)    │                     │
          ▼                        ▼                       ▼                     ▼
     ┌─────────────────────────────────────────────────────────────┐
     │               actor EventBus<RuntimeEnvelope>               │
@@ -88,7 +102,11 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
     ─────────────────────────────────────────────────────
 ```
 
-**Actor inventory:** 5 named actors (EventBus, FilesystemActor, GitWorkingDirectoryProjector, ForgeActor, ContainerActor) plus `@MainActor`. No core actor calls another core actor for event-plane data — all event-plane communication flows through the EventBus. ForgeActor subscribes to the bus for `.branchChanged`/`.originChanged` events rather than being directly triggered by the coordinator (bus fan-out eliminates duplicate triggers). Command-plane request-response calls (e.g., `forgeActor.refresh(repo:)`) are direct. Ghostty C callback translation does NOT need its own actor — the work is ~100ns (enum match + struct init), far below the actor hop cost threshold. Git CLI write commands (commit, push, stash) are stateless request-response via ProcessExecutor — no actor needed. Shared infrastructure (URLSession, ProcessExecutor) is injected utilities, not actors.
+**Actor inventory:** EventBus, TerminalActivityProjector, FilesystemActor,
+GitWorkingDirectoryProjector, ForgeActor, and ContainerActor plus `@MainActor`.
+Terminal admission remains at the source boundary; only bounded activity input
+crosses to the projector actor. Command-plane request-response calls remain
+direct. Shared infrastructure is injected rather than modeled as an actor.
 
 ## Two Event Systems
 
@@ -103,7 +121,15 @@ The app has two separate event buses. They serve different purposes and carry di
 
 > **Note on `.worktreeBellRang` (post LUNA-361).** The notification inbox feature consumes `GhosttyEvent.bellRang` directly from `PaneRuntimeEventBus` via the notification inbox promoter/router, not from `AppEventBus.worktreeBellRang`. Whether the existing `AppEventBus.worktreeBellRang` post in `WorkspaceSurfaceCoordinator` stays as a peer signal for other consumers or is removed is a follow-up decision; the notification inbox does not depend on it.
 
-> **Derived notification rule.** Inferred terminal activity such as unseen output bursts stays on the existing runtime event plane. Do not add a third derived-activity bus. A terminal activity deriver translates qualifying high-volume runtime facts into typed, lower-volume product facts under the non-Ghostty namespace `PaneRuntimeEvent.terminalActivity(TerminalActivityEvent)`. Derived product facts use the deriver's own `EventSource` and monotonic sequence space so they do not duplicate the causal pane runtime event's `(source, seq)`. Because the event is still carried in `RuntimeEnvelope.pane`, visibility tiering resolves through `PaneEnvelope.paneId`, not through the derived provenance source. Feature-level inbox promotion remains the single owner of promotion, coalescing, and `InboxNotificationAtom` writes. Trace records observe these product facts; tracing must never be the source of product notification behavior.
+> **Derived notification rule.** Inferred terminal activity stays on the existing
+> runtime event plane, but its projector consumes private bounded aggregates,
+> not high-volume runtime facts from that plane. `TerminalActivityProjector`
+> emits changed `PaneRuntimeEvent.terminalActivity(TerminalActivityEvent)`
+> outcomes through the MainActor router. Feature-level Inbox promotion remains
+> the owner of notification writes. Inbox's semantic classification remains a
+> separate domain contract: its top-level `PaneRuntimeEvent` switch and nested
+> owned event-family switches are exhaustive, with typed ignore reasons for
+> non-notification cases.
 
 The feature-level inbox promoter is not Contract 12. C12 remains the runtime-plane `NotificationReducer` contract in [Pane Runtime Architecture](pane_runtime_architecture.md#contract-12-notificationreducer). The LUNA-361 inbox promoter is an additional feature consumer on the bus that translates notification-relevant runtime facts into `InboxNotificationAtom` mutations.
 
@@ -179,41 +205,54 @@ Composition-root rule:
 - do not add a generic command bus or generic command executor layer
 ```
 
-## The Multiplexing Rule
+## Typed Admission Before Multiplexing
 
-The same domain event takes two paths simultaneously:
+Multiplexing applies only after the owning source admits a semantic fact. The
+normative definitions and Terminal route categories live in
+[Pane Runtime Architecture — Contract 7](pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction).
 
-```
-    Terminal Runtime (@MainActor)
-    receives GhosttyEvent.titleChanged("new title")
-                │
-                ├──► @Observable mutation: metadata.title = "new title"
-                │    (SwiftUI views bind directly — zero overhead)
-                │
-                └──► bus.post(PaneEventEnvelope(
-                │        source: .pane(paneId),
-                │        event: .terminal(.titleChanged("new title"))
-                │    ))
-                │    (coordination consumers: tab bar update, notifications, analytics)
-
-    Bridge Runtime (@MainActor)
-    receives RPC event: commandFinished(exitCode: 0)
-                │
-                ├──► @Observable mutation: agentState.lastExitCode = 0
-                │    (SwiftUI views bind directly)
-                │
-                └──► bus.post(PaneEventEnvelope(
-                         source: .pane(paneId),
-                         event: .agent(.commandFinished(exitCode: 0))
-                     ))
-                     (coordinator triggers diff pane creation, reducer posts notification)
+```text
+copied Ghostty signal
+  -> exhaustive typed source admission
+     -> exact fact/control -> MainActor runtime -> runtime channel/EventBus
+     -> local sample -> fixed-key coalescing + bounded aggregation
+                      -> one compact MainActor apply
+                      -> TerminalActivityProjector actor
+                      -> changed semantic outcomes
+                      -> MainActor router -> EventBus
+                      -> Inbox semantic classification
 ```
 
-**The test:** "Would any other component in the system care about this event?"
-- **Yes → bus.** `titleChanged`, `cwdChanged`, `commandFinished`, `bellRang`, `navigationCompleted`, `filesChanged`, `surfaceCreated`, `paneClosed`. These are domain-significant — other components (tab bar, notifications, dynamic views, workflow engine) need to react.
-- **No → `@Observable` only.** `scrollbarState` at 60fps, `searchState` incremental results, `isLoading` for progress spinner. Only the bound SwiftUI view cares.
+For an admitted fact that serves both UI and coordination, the runtime mutates
+its `@Observable` state before posting. Coalesced local presentation values stop
+at compact MainActor application. Activity evidence crosses actor boundaries
+only as bounded projector input. Raw callback volume therefore does not define
+bus volume.
 
-The `@Observable` mutation always happens regardless. The bus post is the multiplexing decision.
+Filesystem uses two different typed decisions; neither reuses the Terminal
+accumulator:
+
+```text
+FSEvents paths
+  -> FilesystemActor owns routing, filtering, dedupe, debounce, and batching
+  -> globally published WorktreeScopedEvent
+  -> PaneFilesystemProjectionAdmission (exhaustive consumer-side decision)
+     -> filesChanged / snapshotChanged -> affected-pane projection
+     -> other owned cases              -> explicitly ignored by this projection
+  -> changed pane context facts -> EventBus
+
+pane mount / removal / CWD / active-pane change
+  -> local affected-key coordinator effect
+  -> FilesystemProjectionIndex + changed activity/active-worktree source update
+  -> no EventBus publication merely to maintain the index
+```
+
+The first lane preserves globally useful filesystem/Git facts while preventing
+unrelated cases from triggering pane fanout. The second lane replaces ordinary
+full-fleet reconstruction with keyed local maintenance. Full reconciliation is
+reserved for boot, explicit rebuild, and accepted topology changes. See
+[Workspace Data Architecture](workspace_data_architecture.md#filesystem-effect-admission-and-projection)
+for the filesystem ownership and currentness contract.
 
 ## Event Classification Inventory
 
@@ -233,15 +272,17 @@ User input and commands. These start on MainActor, target the C API or `@Observa
 
 ### Category 2: @Observable UI State (multiplexed when domain-significant)
 
-High-frequency UI binding state. SwiftUI views bind directly. Multiplexed to bus only when the event is domain-significant (other components need it).
+UI binding state is applied directly. Terminal-local high-rate properties reach
+MainActor only through the fixed-key accumulator drain; they are not raw
+runtime events that are later multiplexed.
 
 | Property | Runtime | Frequency | Bus? | Why |
 |----------|---------|-----------|------|-----|
 | `metadata.title` | All | Low (~1/sec) | Yes | Tab bar, notifications, dynamic views need title |
 | `metadata.facets.cwd` | Terminal | Low | Yes | Worktree context, dynamic view grouping |
 | `lifecycle` | All | Rare | Yes | Lifecycle transitions are domain events (C5) |
-| `searchState` | Terminal | High (60fps) | No | Only the terminal's search UI cares |
-| `scrollbarState` | Terminal | High (60fps) | No | Only the terminal's scrollbar view cares |
+| `searchState` | Terminal | High | No | Contracted local presentation state |
+| `scrollbarState` | Terminal | High | No | Contracted local presentation state |
 | `url` / `title` | Webview | Low | Yes | Tab bar, notifications |
 | `isLoading` | Webview, Bridge | Medium | No | Only the loading spinner cares |
 | `bridgeState` | Bridge | Low | Yes | Coordinator needs ready/handshake state |
@@ -252,11 +293,11 @@ Events from pane runtimes that are informational, tolerate 1+ frame latency, and
 
 | Event | Origin | Latency Budget | Frequency | Bus |
 |-------|--------|----------------|-----------|-----|
-| `titleChanged` | Ghostty C callback → MainActor | 1 frame (16ms) | ~1/sec | Yes |
-| `cwdChanged` | Ghostty C callback → MainActor | 1 frame | Rare | Yes |
-| `commandFinished` | Ghostty C callback → MainActor | 1 frame | Low | Yes — triggers workflow |
-| `bellRang` | Ghostty C callback → MainActor | 1 frame | Rare | Yes — notification |
-| `scrollbarChanged` | Ghostty C callback → MainActor | 0 (immediate) | 60fps | No — `@Observable` only |
+| `titleChanged` | Exact admitted Ghostty fact → MainActor | UI before bus publication | Low | Yes |
+| `cwdChanged` | Exact admitted Ghostty fact → MainActor | UI before bus publication | Rare | Yes |
+| `commandFinished` | Exact admitted Ghostty fact → MainActor | Ordered fact | Low | Yes — triggers workflow |
+| `bellRang` | Exact admitted Ghostty fact → MainActor | Ordered fact | Rare | Yes — notification |
+| `scrollbarChanged` | Local sample → fixed-key accumulator | Next compact drain | High | No — compact local apply only |
 | `navigationCompleted` | WebKit delegate → MainActor | 1 frame | Low | Yes |
 | `pageLoaded` | WebKit delegate → MainActor | 1 frame | Low | Yes |
 | `consoleMessage` | WebKit delegate → MainActor | Lossy ok | Medium | Yes — debugging |
@@ -698,13 +739,17 @@ Every edge in the architecture uses one of four patterns. The choice is mechanic
 
 | Direction | Connection | Pattern | Why |
 |-----------|-----------|---------|-----|
-| **In** | GhosttyAdapter → `runtime.handleGhosttyEvent()` | Direct call | Adapter knows exact target (surfaceId → registry lookup). One producer, one consumer. |
+| **In** | Exact admitted Ghostty fact/control → runtime | Direct call | Admission already selected the exact route and target. |
+| **In** | Accumulator drain → compact local apply | Direct call | Applies coalesced presentation and ordered lifecycle values without envelopes, sequence, replay, or bus work. |
 | **In** | Coordinator → `runtime.handleCommand(envelope)` | Direct call | Request-response. Returns `ActionResult`. |
 | **Out** | `@Observable` mutation | Direct property write | SwiftUI binding, synchronous, zero overhead. |
-| **Out** | `await bus.post(envelope)` | Direct call to bus | Runtime knows the bus. No stream between runtime and bus. |
+| **Out** | Exact admitted fact → runtime channel/EventBus | Direct publication | Only coordination-relevant exact facts use envelopes. |
+| **Out** | Bounded activity input → `TerminalActivityProjector` | Actor call | Private sufficient statistics cross off-main; raw samples do not. |
 | **Out** | `subscribe()` → per-runtime stream | **AsyncStream** | For replay catch-up and per-pane direct subscription. Secondary to bus path. |
 
-Same pattern applies to BridgeRuntime, WebviewRuntime, SwiftPaneRuntime — transport differs but connection patterns are identical.
+BridgeRuntime, WebviewRuntime, and SwiftPaneRuntime retain the direct
+command/UI/bus patterns where applicable; Terminal's accumulator and activity
+projector are source-specific additions.
 
 #### FilesystemActor (app-wide singleton, LUNA-349)
 
@@ -750,12 +795,21 @@ Each plugin is its own actor. It receives a `PluginContext` struct at registrati
 | **In** | `for await envelope in context.events` | **AsyncStream** (pre-filtered from bus) | Sink role — `PluginContext` subscribes to bus, filters to manifest-declared event types. |
 | **Out** | `context.post(event)` → validates → `bus.post(envelope)` | Direct call (mediated by context) | Source role — context validates event type against manifest, checks rate limit, stamps `.system(.plugin(id))` source. |
 
-#### GhosttyAdapter (@MainActor)
+#### Ghostty Adapter And Action Router (source boundary)
+
+The adapter/router boundary copies borrowed payloads and classifies the closed
+`GhosttyEvent` vocabulary with `GhosttyActionDisposition` before selecting a
+MainActor path. Local samples enter `TerminalLocalActionAccumulator`, whose
+fixed slots coalesce latest presentation state and whose bounded aggregates
+retain only the sufficient statistics required by `TerminalActivityProjector`.
+The adapter does not publish local-only cases merely because they exist in the
+shared event enum.
 
 | Direction | Connection | Pattern | Why |
 |-----------|-----------|---------|-----|
-| **In** | C callback → `@Sendable` trampoline → MainActor | Direct hop | Individual function calls, not an iterable sequence. |
-| **Out** | `runtime.handleGhosttyEvent()` | Direct call | Route by surfaceId to known target. |
+| **In** | C callback → copied translated signal | Direct call | Borrowed payload lifetime ends at callback return. |
+| **Out** | Exact fact/control → MainActor runtime | Selected scheduling | Route by surfaceId only after admission. |
+| **Out** | Local sample → accumulator | Fixed-key contraction | Raw callback volume does not allocate envelopes or sequences. |
 
 No AsyncStream — wrapping individual C callbacks in a stream would yield one, consume one — pointless indirection.
 
@@ -895,15 +949,17 @@ ADAPTER → RUNTIME (C7: Ghostty FFI):
 
   C callback (arbitrary thread)
        │
-       │  @Sendable static trampoline
-       │  MainActor.assumeIsolated { }
+       │  copy borrowed payload
+       │  translate raw action
        ▼
-  GhosttyAdapter.translate(action)       ~100ns
+  GhosttyActionDisposition.classify(event)
        │
-       │  RuntimeRegistry[surfaceId]     lookup, not stream
-       │  runtime.handleGhosttyEvent()   direct call
-       ▼
-  TerminalRuntime (@MainActor)
+       ├── exact fact/control ──► TerminalRuntime (@MainActor)
+       │                          └── selected runtime channel/EventBus fact
+       │
+       └── local sample ───────► TerminalLocalActionAccumulator
+                                  ├── compact TerminalRuntime apply
+                                  └── bounded TerminalActivityProjector input
 
 
 COMMAND DISPATCH (C10: coordinator → runtime):
@@ -1115,109 +1171,48 @@ Common traps in this codebase. Each is documented in detail above; this is the s
 | `Task { }` inherits actor | `Task { heavyWork() }` inside `@MainActor` | `await Self.heavyWork(data)` where `heavyWork` is `@concurrent nonisolated static` | Unstructured `Task` inside `@MainActor` runs on MainActor |
 | `Task.detached` strips context | `Task.detached { await doWork() }` | `@concurrent nonisolated static func doWork()` | Detached strips priority + task-locals; `@concurrent` preserves them |
 
-## Hop Analysis
+## Admission And Hop Shape
 
-### Current system: 1 hop
+The important performance property is which work is admitted to each boundary,
+not a fixed nanosecond estimate for an actor hop.
 
-```
-C callback (arbitrary thread)
-    │
-    └──► @Sendable trampoline ──► MainActor.assumeIsolated
-              HOP 1: ~2-6μs
-                    │
-                    ▼
-         GhosttyAdapter.translate()     ~100ns
-         TerminalRuntime.handleEvent()  ~500ns
-         NotificationReducer.submit()   ~200ns
-         WorkspaceSurfaceCoordinator.route()        ~200ns
-                                        ────────
-                                 Total: ~1μs + 1 hop
-```
+```text
+Terminal exact fact/control
+  copied callback payload
+    -> exhaustive source disposition
+    -> selected MainActor runtime path
+    -> runtime channel/EventBus only when coordination needs the exact fact
 
-### EventBus system: 2-3 hops
+Terminal local sample
+  copied callback payload
+    -> exhaustive source disposition
+    -> fixed-key coalescing + bounded aggregation
+    -> one compact MainActor apply
+    -> TerminalActivityProjector actor
+    -> changed semantic outcome
+    -> MainActor router -> EventBus
 
-```
-C callback (arbitrary thread)
-    │
-    └──► @Sendable trampoline ──► MainActor
-              HOP 1: ~2-6μs
-                    │
-                    ▼
-         GhosttyAdapter.translate()     ~100ns
-         TerminalRuntime:
-           @Observable mutation         ~200ns (SwiftUI binding)
-           await bus.post(envelope)
-              HOP 2: ~2-6μs (MainActor → EventBus actor)
-                    │
-                    ▼
-              EventBus.post() fan-out   ~100ns per subscriber
-              HOP 3: ~2-6μs (EventBus → MainActor per consumer)
-                    │
-                    ▼
-         NotificationReducer.submit()   ~200ns
-         WorkspaceSurfaceCoordinator.route()        ~200ns
-                                        ────────
-                                 Total: ~1μs work + 2-3 hops (~4-18μs)
+Filesystem/Git effect
+  closed source event
+    -> exhaustive project-or-ignore admission
+    -> full reconciliation only for topology authority changes
+       OR affected-key projection for ordinary pane/CWD/active changes
+    -> applied / stale / inapplicable result
 ```
 
-### Boundary actor path: 3 hops (justified by work)
+The Terminal path pays MainActor and EventBus hops in proportion to drains and
+changed semantic outcomes rather than raw callback count. Coalescing uses fixed
+latest-value slots; aggregation retains bounded sufficient statistics. These
+are distinct contraction operations and neither is downstream lossy bus
+deduplication.
 
-```
-FSEvents callback (arbitrary thread)
-    │
-    └──► FilesystemActor
-              HOP 1: ~2-6μs
-                    │
-                    ▼
-         Debounce + git status + diff   1-100ms (REAL WORK)
-         @concurrent nonisolated funcs (pool execution)
-                    │
-                    ▼
-         await bus.post(envelope)
-              HOP 2: ~2-6μs (FilesystemActor → EventBus)
-                    │
-                    ▼
-         EventBus.post() fan-out
-              HOP 3: ~2-6μs (EventBus → MainActor)
-                    │
-                    ▼
-         @MainActor consumers           ~1μs
-                                        ────────
-                                 Total: 1-100ms work + 3 hops (~6-18μs)
-```
+The filesystem path preserves `FilesystemActor` as source authority while
+keeping `FilesystemProjectionIndex` rebuildable. Ordinary effects name only the
+affected pane or worktree; unrelated admitted actions schedule nothing.
 
-### Break-even analysis
-
-| Metric | Value | Note |
-|--------|-------|------|
-| Actor hop cost | ~2-6μs | Cooperative pool context switch |
-| Frame budget | 16,000μs (16ms at 60fps) | AppKit event loop frame |
-| Ghostty event work | ~1μs | Enum match + struct init |
-| EventBus overhead per event | ~4-18μs (2-3 hops) | Acceptable: 0.1% of frame |
-| Boundary actor justified when | work > ~20μs | Hop cost amortized by real work |
-| FilesystemActor work | 1,000-100,000μs | Strongly justified (app-wide, keyed by worktree) |
-| ForgeActor work | 100,000-2,000,000μs (100ms-2s) | Strongly justified (app-wide, keyed by repo) |
-| ContainerActor work | 100,000μs+ | Strongly justified (per-terminal, deferred) |
-| PluginContext validation | ~1-10μs (type check + rate limit) | Trivial vs plugin work; struct method, no actor hop |
-| Ghostty translation work | ~0.1μs | NOT justified — stay on MainActor |
-
-## Jank Risk Assessment
-
-| Source | Risk | Why | Mitigation |
-|--------|------|-----|------------|
-| EventBus fan-out per event | Very low | ~100ns per subscriber × 3-5 subscribers = ~500ns | None needed |
-| Actor hop overhead (2-3 hops) | Low | ~4-18μs per event, <0.1% of 16ms frame | Monitor if subscriber count grows beyond ~50 |
-| Burst: 100 events in 1 frame | Low | 100 × 18μs = 1.8ms = 11% of frame | Lossy coalescing (C4 ActionPolicy) already dedupes |
-| Filesystem git status on MainActor | **High (prevented)** | 10-100ms blocks UI | FilesystemActor keeps this off MainActor |
-| Heavy scrollback search on MainActor | **High (prevented)** | 1-50ms blocks UI | `@concurrent` static function |
-| Ghostty terminal rendering | **None** | Ghostty has its own Metal/GPU pipeline, independent of Swift event system | N/A — not in our control or concern |
-| Bus fan-out scaling (50+ plugins) | Future risk | `post()` iterates N continuations on bus actor's serial executor; N > 50 → fan-out > ~1ms | Shard into topic-based buses (see below) |
-
-**Bus scaling escape hatch:** The current single bus is sized for ~3-10 subscribers (~100ns per continuation × 10 = ~1μs per `post()`). If the plugin system scales to 50+ subscribers, `post()` iterates 50+ continuations on the bus actor's serial executor, potentially exceeding ~1ms per event. The escape hatch is **topic-based sharding**: split into `PaneEventBus`, `SystemEventBus`, `PluginEventBus` — each with its own actor. Producers post to the relevant bus; consumers that need multiple topics subscribe to multiple buses and merge client-side via `swift-async-algorithms`. This keeps per-bus fan-out bounded. Profile before sharding — the threshold is `post()` cost > ~1ms sustained.
-
-**Key insight:** Ghostty renders on its own Metal pipeline. Terminal rendering cannot jank from Swift event processing — they are completely independent. Swift jank only happens if `@MainActor` blocks the AppKit event loop for >16ms. The EventBus adds ~4-18μs per event, well within budget.
-
-**MainActor round-trip overhead:** When a `@MainActor` runtime posts to the pool-based bus and a `@MainActor` consumer reads from it, the event takes a round-trip: main → pool (hop to bus actor) → main (hop back to consumer). This is ~4-12μs of pure overhead for events that originate and terminate on MainActor. At current event volume (~1-10 coordination events per user action, ~10-100 events/sec sustained), this is negligible. The threshold where a `@MainActor` bus becomes worth evaluating: if 80%+ of producers AND consumers are `@MainActor`, and event throughput exceeds ~1000 events/sec sustained. Given that boundary actors (FilesystemActor, ForgeActor) post from the cooperative pool (~30-40% of events at scale), the pool-based bus is the correct default. Revisit if profiling shows bus hops consuming >1% of frame budget.
+Quantitative latency and jank claims belong to current marker-scoped performance
+proof. This design intentionally does not freeze assumed actor-hop costs,
+subscriber counts, callback rates, or frame-budget percentages.
 
 ## Adoption Plan
 

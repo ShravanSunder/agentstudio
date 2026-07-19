@@ -53,7 +53,12 @@ struct TerminalSettledActivity: Sendable, Equatable {
     let isPinnedToBottom: Bool
 }
 
+struct TerminalPaneObservationState: Sendable, Equatable {
+    let isPinnedToBottom: Bool
+}
+
 enum TerminalActivityEvent: Sendable, Equatable {
+    case paneObservationChanged(TerminalPaneObservationState)
     case unseenActivitySettled(TerminalSettledActivity)
     case agentSettledActivityPromoted(TerminalSettledActivity)
     case agentSettledActivityRevoked

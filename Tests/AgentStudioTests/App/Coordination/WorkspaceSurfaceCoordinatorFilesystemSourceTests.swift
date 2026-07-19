@@ -344,7 +344,7 @@ private struct FilesystemCoordinatorHarness {
     }
 }
 
-private enum FilesystemSourceOperation: Sendable, Equatable {
+enum FilesystemSourceOperation: Sendable, Equatable {
     case register(worktreeId: UUID)
     case unregister(worktreeId: UUID)
     case activity(worktreeId: UUID, isActiveInApp: Bool)
@@ -397,7 +397,7 @@ private enum FilesystemSourceOperation: Sendable, Equatable {
     }
 }
 
-private enum FilesystemSourceOperationKind: Sendable, Equatable {
+enum FilesystemSourceOperationKind: Sendable, Equatable {
     case register
     case unregister
     case activity
@@ -405,16 +405,17 @@ private enum FilesystemSourceOperationKind: Sendable, Equatable {
     case assertTopology
 }
 
-private struct OrderedFilesystemSourceSnapshot: Sendable {
+struct OrderedFilesystemSourceSnapshot: Sendable {
     let registeredRoots: [UUID: URL]
 }
 
-private actor OrderedRecordingFilesystemSource: WorkspaceFilesystemSourceManaging {
+actor OrderedRecordingFilesystemSource: WorkspaceFilesystemSourceManaging {
     private var registeredRoots: [UUID: URL] = [:]
     private var activityByWorktreeId: [UUID: Bool] = [:]
     private var activePaneWorktreeId: UUID?
     private var operationLog: [FilesystemSourceOperation] = []
     private var operationWaiters: [FilesystemSourceOperationKind: [CheckedContinuation<Void, Never>]] = [:]
+    private var operationCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var topologyWaiters: [(Set<UUID>, CheckedContinuation<Void, Never>)] = []
 
     func start() async {}
@@ -463,6 +464,10 @@ private actor OrderedRecordingFilesystemSource: WorkspaceFilesystemSourceManagin
         operationLog
     }
 
+    func resetOperations() {
+        operationLog.removeAll(keepingCapacity: true)
+    }
+
     func operationKinds() -> [FilesystemSourceOperationKind] {
         operationLog.map { operation in
             switch operation {
@@ -487,6 +492,13 @@ private actor OrderedRecordingFilesystemSource: WorkspaceFilesystemSourceManagin
         }
     }
 
+    func waitForOperationCount(_ count: Int) async {
+        guard operationLog.count < count else { return }
+        await withCheckedContinuation { continuation in
+            operationCountWaiters.append((count, continuation))
+        }
+    }
+
     func waitForAssertTopology(worktreeIds: Set<UUID>) async {
         if operationLog.contains(.assertTopology(worktreeIds: worktreeIds)) { return }
         await withCheckedContinuation { continuation in
@@ -501,6 +513,15 @@ private actor OrderedRecordingFilesystemSource: WorkspaceFilesystemSourceManagin
         for waiter in waiters {
             waiter.resume()
         }
+        var remainingCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+        for (expectedCount, continuation) in operationCountWaiters {
+            if operationLog.count >= expectedCount {
+                continuation.resume()
+            } else {
+                remainingCountWaiters.append((expectedCount, continuation))
+            }
+        }
+        operationCountWaiters = remainingCountWaiters
         guard case .assertTopology(let worktreeIds) = operation else { return }
         var remainingWaiters: [(Set<UUID>, CheckedContinuation<Void, Never>)] = []
         for (expectedWorktreeIds, continuation) in topologyWaiters {
@@ -593,7 +614,7 @@ private actor GateableFilesystemProjectionIndex: WorkspaceFilesystemProjectionIn
         return await base.commitSourceSync(requestGeneration: requestGeneration, topologyGeneration: topologyGeneration)
     }
 
-    func applyPaneUpdate(_ update: FilesystemProjectionPaneUpdate) async {
+    func applyPaneUpdate(_ update: FilesystemProjectionPaneUpdate) async -> FilesystemProjectionPaneUpdateOutcome {
         await base.applyPaneUpdate(update)
     }
 
@@ -614,17 +635,28 @@ private actor GateableFilesystemProjectionIndex: WorkspaceFilesystemProjectionIn
 }
 
 @MainActor
-private final class MockFilesystemCoordinatorSurfaceManager: WorkspaceSurfaceManaging {
+final class MockFilesystemCoordinatorSurfaceManager: WorkspaceSurfaceManaging {
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
+    private let cwdContinuation: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>.Continuation
 
     init() {
-        cwdStream = AsyncStream { continuation in
-            continuation.onTermination = { _ in }
-        }
+        let stream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>.makeStream()
+        cwdStream = stream.stream
+        cwdContinuation = stream.continuation
     }
 
     var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> {
         cwdStream
+    }
+
+    func sendCWDChange(paneId: UUID, cwd: URL?) {
+        cwdContinuation.yield(
+            SurfaceManager.SurfaceCWDChangeEvent(
+                surfaceId: UUIDv7.generate(),
+                paneId: paneId,
+                cwd: cwd
+            )
+        )
     }
 
     func syncFocus(activeSurfaceId _: UUID?) {}

@@ -57,6 +57,11 @@ struct AgentStudioTraceIdentitySnapshot: Equatable, Sendable {
     }
 }
 
+enum AgentStudioTraceIdentityUpdateOutcome: Equatable, Sendable {
+    case applied
+    case equalSuppressed
+}
+
 actor AgentStudioTraceIdentityStore {
     private var snapshot: AgentStudioTraceIdentitySnapshot
 
@@ -64,8 +69,11 @@ actor AgentStudioTraceIdentityStore {
         self.snapshot = snapshot
     }
 
-    func update(_ snapshot: AgentStudioTraceIdentitySnapshot) {
+    @discardableResult
+    func update(_ snapshot: AgentStudioTraceIdentitySnapshot) -> AgentStudioTraceIdentityUpdateOutcome {
+        guard snapshot != self.snapshot else { return .equalSuppressed }
         self.snapshot = snapshot
+        return .applied
     }
 
     func resourceAttributes(

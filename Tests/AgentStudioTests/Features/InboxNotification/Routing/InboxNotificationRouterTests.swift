@@ -331,8 +331,8 @@ struct InboxNotificationRouterTests {
         await fixture.tracker.stop()
     }
 
-    @Test("inbox router records eventbus delivery summaries without scrollbar spam")
-    func inboxRouterRecordsEventBusDeliverySummariesWithoutScrollbarSpam() async throws {
+    @Test("inbox router records eventbus delivery summaries for exact terminal facts")
+    func inboxRouterRecordsEventBusDeliverySummariesForExactTerminalFacts() async throws {
         let traceRuntime = makeTraceRuntime(
             name: "inbox-eventbus-delivery",
             processIdentifier: 263,
@@ -343,13 +343,6 @@ struct InboxNotificationRouterTests {
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(makePaneEnvelope(paneId: paneId, event: .terminal(.bellRang)))
-        _ = await fixture.bus.post(
-            makePaneEnvelope(
-                paneId: paneId,
-                event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100))),
-                seq: 2
-            )
-        )
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         await fixture.router.flushTraceRecords()
@@ -375,28 +368,29 @@ struct InboxNotificationRouterTests {
         #expect(contents.contains("\"agentstudio.eventbus.delivery\":\"consumed\""))
         #expect(contents.contains("\"agentstudio.inbox.reason\":\"bell_disabled\""))
         #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.bellRang\""))
-        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.scrollbarChanged\"") == false)
         await fixture.router.stop()
         await fixture.tracker.stop()
     }
 
-    @Test("activity-only scrollbar ignores do not write inbox trace records")
-    func activityOnlyScrollbarIgnoresDoNotWriteInboxTraceRecords() async throws {
-        let traceRuntime = makeTraceRuntime(name: "inbox-scrollbar-ignore", processIdentifier: 261)
-        let fixture = await makeFixture(traceRuntime: traceRuntime)
+    @Test("pane observation facts do not create inbox rows")
+    func paneObservationFactsDoNotCreateInboxRows() async {
+        let fixture = await makeFixture()
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
             makePaneEnvelope(
                 paneId: paneId,
-                event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100)))
+                event: .terminalActivity(
+                    .paneObservationChanged(
+                        TerminalPaneObservationState(isPinnedToBottom: false)
+                    )
+                )
             )
         )
         await Task.yield()
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
-        #expect(FileManager.default.fileExists(atPath: outputFileURL.path) == false)
+        #expect(fixture.inboxAtom.notifications.isEmpty)
         await fixture.router.stop()
         await fixture.tracker.stop()
     }

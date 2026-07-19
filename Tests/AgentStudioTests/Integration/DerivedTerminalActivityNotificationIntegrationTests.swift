@@ -19,6 +19,7 @@ struct DerivedActivityNotificationIntegrationTests {
         let terminalActivity: TerminalActivityAtom
         let inboxRouter: InboxNotificationRouter
         let terminalRouter: TerminalActivityRouter
+        let terminalRouterBox: TerminalRouterBox
         let clock: TestPushClock
         let paneActivityObservationRecorder: PaneActivityObservationRecorder
         let eventRecorder: RecordingSubscriber<RuntimeEnvelope>
@@ -32,8 +33,28 @@ struct DerivedActivityNotificationIntegrationTests {
         }
     }
 
+    @MainActor
     private final class TerminalRouterBox {
         var router: TerminalActivityRouter?
+        private var latestObservationTask: Task<Void, Never>?
+
+        func observeActivity(for paneId: UUID) {
+            guard let router else { return }
+            latestObservationTask = Task { @MainActor in
+                await router.consumeTerminalActivityInput(
+                    .orderedControl(
+                        surfaceID: paneId,
+                        paneID: paneId,
+                        precedingAggregate: nil,
+                        control: .observed
+                    )
+                )
+            }
+        }
+
+        func waitForLatestObservation() async {
+            await latestObservationTask?.value
+        }
     }
 
     private final class PaneActivityObservationRecorder {
@@ -124,6 +145,7 @@ struct DerivedActivityNotificationIntegrationTests {
         let firstNotification = try #require(fixture.inboxAtom.notifications.first)
         #expect(fixture.inboxAtom.markRead(id: firstNotification.id) == true)
         #expect(fixture.inboxAtom.dismissFromPaneInbox(id: firstNotification.id) == true)
+        await waitForRecordedActivityObservation(paneId: paneId.uuid, in: fixture)
 
         await postScrollbackBurst(paneId: paneId, totals: [200, 220, 240], to: fixture, startingSeq: 10)
 
@@ -151,6 +173,7 @@ struct DerivedActivityNotificationIntegrationTests {
         fixture.inboxAtom.toggleReadState(id: firstNotification.id)
         #expect(fixture.inboxAtom.notifications[0].isRead == true)
         #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
+        await waitForRecordedActivityObservation(paneId: paneId.uuid, in: fixture)
 
         await postScrollbackBurst(paneId: paneId, totals: [200, 220, 240], to: fixture, startingSeq: 10)
 
@@ -235,9 +258,7 @@ struct DerivedActivityNotificationIntegrationTests {
         }
 
         setActiveDrawerPane(firstDrawerPane.id, parentPaneId: parentPaneId.uuid, in: fixture)
-        await assertEventuallyMain("active drawer child switch should mark that child observed") {
-            fixture.paneActivityObservationRecorder.paneIds.contains(firstDrawerPane.id)
-        }
+        await waitForRecordedActivityObservation(paneId: firstDrawerPane.id, in: fixture)
         await assertEventuallyMain("active drawer child switch should clear the observed child row") {
             fixture.inboxAtom.notifications.count == 1
                 && fixture.inboxAtom.notifications[0].isRead == true
@@ -684,13 +705,14 @@ extension DerivedActivityNotificationIntegrationTests {
             drawerView: drawerView,
             onPaneActivityObserved: { paneId in
                 paneActivityObservationRecorder.record(paneId)
-                terminalRouterBox.router?.markUnseenActivityObserved(paneId: paneId)
+                terminalRouterBox.observeActivity(for: paneId)
             }
         )
         let terminalRouter = TerminalActivityRouter(
             bus: bus,
             activityAtom: terminalActivity,
             attendedPane: attendedPane,
+            surfaceIDForPaneID: { $0 },
             isPaneCurrentlyAttended: {
                 PaneObservationResolver.isPaneCurrentlyAttended(
                     paneId: $0,
@@ -718,6 +740,7 @@ extension DerivedActivityNotificationIntegrationTests {
             terminalActivity: terminalActivity,
             inboxRouter: inboxRouter,
             terminalRouter: terminalRouter,
+            terminalRouterBox: terminalRouterBox,
             clock: clock,
             paneActivityObservationRecorder: paneActivityObservationRecorder,
             eventRecorder: eventRecorder
@@ -894,6 +917,13 @@ extension DerivedActivityNotificationIntegrationTests {
         }
     }
 
+    private func waitForRecordedActivityObservation(paneId: UUID, in fixture: Fixture) async {
+        await assertEventuallyMain("activity observation should reach the terminal router") {
+            fixture.paneActivityObservationRecorder.paneIds.contains(paneId)
+        }
+        await fixture.terminalRouterBox.waitForLatestObservation()
+    }
+
     private func postScrollbackBurst(
         paneId: PaneId,
         totals: [Int] = [100, 120, 140],
@@ -902,37 +932,51 @@ extension DerivedActivityNotificationIntegrationTests {
         startingSeq: UInt64 = 1,
         settle: Bool = true
     ) async {
-        await waitForBusSubscriberCount(fixture.bus, atLeast: 3)
-        let clock = fixture.clock
-        let initialSleepGeneration = clock.scheduledSleepGeneration
-        for (index, totalRows) in totals.enumerated() {
-            let bottom = pinnedToBottom ? totalRows : 10
-            let top = pinnedToBottom ? max(0, totalRows - 10) : 0
-            _ = await fixture.bus.post(
-                .pane(
-                    .test(
-                        event: .terminal(.scrollbarChanged(ScrollbarState(top: top, bottom: bottom, total: totalRows))),
-                        paneId: paneId,
-                        paneKind: .terminal,
-                        seq: startingSeq + UInt64(index)
+        guard let firstTotal = totals.first, let latestTotal = totals.last else { return }
+        let firstState = scrollbarState(totalRows: firstTotal, pinnedToBottom: pinnedToBottom)
+        let startedAtMilliseconds = Int64(startingSeq) * 100
+        var aggregate = TerminalScrollbarActivityAggregate(
+            state: firstState,
+            observedAtMilliseconds: startedAtMilliseconds
+        )
+        for (index, totalRows) in totals.dropFirst().enumerated() {
+            aggregate.merge(
+                state: scrollbarState(totalRows: totalRows, pinnedToBottom: pinnedToBottom),
+                observedAtMilliseconds: startedAtMilliseconds + Int64((index + 1) * 100)
+            )
+        }
+        let initialSleepGeneration = fixture.clock.scheduledSleepGeneration
+        await fixture.terminalRouter.consumeTerminalActivityInput(
+            .aggregate(
+                surfaceID: paneId.uuid,
+                paneID: paneId.uuid,
+                input: TerminalActivityAggregateInput(
+                    aggregate: aggregate,
+                    latestState: scrollbarState(totalRows: latestTotal, pinnedToBottom: pinnedToBottom),
+                    context: TerminalActivityProjectionContext(
+                        isAttended: PaneObservationResolver.isPaneCurrentlyAttended(
+                            paneId: paneId.uuid,
+                            attendedPaneId: fixture.attendedPane.attendedPaneId,
+                            pane: { fixture.paneAtom.pane($0) },
+                            drawerView: { drawerView(for: $0, in: fixture) }
+                        ),
+                        isAgentClassified: false,
+                        outputBurstThreshold: fixture.terminalActivity.outputBurstThreshold
                     )
                 )
             )
-            guard settle else { continue }
-            await assertEventuallyMain("terminal activity atom should observe latest rows") {
-                fixture.terminalActivity.snapshot(for: paneId.uuid)?.scrollbarState?.total == totalRows
-            }
-            let expectedPendingGeneration = initialSleepGeneration + index
-            await clock.waitForPendingSleepGeneration(expectedPendingGeneration)
-        }
-        if let latestRows = totals.last {
-            await assertEventuallyMain("terminal activity atom should observe latest rows") {
-                fixture.terminalActivity.snapshot(for: paneId.uuid)?.scrollbarState?.total == latestRows
-            }
+        )
+        await assertEventuallyMain("terminal activity atom should observe latest rows") {
+            fixture.terminalActivity.snapshot(for: paneId.uuid)?.scrollbarState?.total == latestTotal
         }
         guard settle else { return }
-        let latestPendingGeneration = initialSleepGeneration + totals.count - 1
-        await clock.waitForPendingSleepGeneration(latestPendingGeneration)
+        await fixture.clock.waitForPendingSleepGeneration(initialSleepGeneration)
         fixture.clock.advance(by: AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration)
+    }
+
+    private func scrollbarState(totalRows: Int, pinnedToBottom: Bool) -> ScrollbarState {
+        let bottom = pinnedToBottom ? totalRows : 10
+        let top = pinnedToBottom ? max(0, totalRows - 10) : 0
+        return ScrollbarState(top: top, bottom: bottom, total: totalRows)
     }
 }

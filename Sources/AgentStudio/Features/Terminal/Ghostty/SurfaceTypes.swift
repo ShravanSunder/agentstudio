@@ -103,7 +103,7 @@ struct ManagedSurface {
     var health: SurfaceHealth
 
     init(
-        id: UUID = UUID(),
+        id: UUID = UUIDv7.generate(),
         surface: Ghostty.SurfaceView,
         metadata: SurfaceMetadata,
         state: SurfaceState = .hidden

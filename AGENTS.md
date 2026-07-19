@@ -413,6 +413,14 @@ icons when a sidebar/local action already defines the presentation.
 - `Ghostty.AppFocusSynchronizer` owns app-level focus sync via `AppLifecycleAtom.isActive`
 Future terminal event-routing expansion belongs in `Ghostty.ActionRouter` plus adapter/runtime layers, not back in `Ghostty.swift`.
 
+**High-volume source rule:** Use the owning domain's typed source-admission path.
+Preserve exact commands and facts. Contract Terminal-local samples before
+MainActor/EventBus publication, publish only changed projected semantic outcomes
+from that contracted evidence, and use affected-key filesystem effects for ordinary
+pane/CWD changes. See [Pane Runtime Contract 7](docs/architecture/pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction),
+[EventBus Design](docs/architecture/pane_runtime_eventbus_design.md#typed-admission-before-multiplexing),
+and [Workspace Data Architecture](docs/architecture/workspace_data_architecture.md#filesystem-effect-admission-and-projection).
+
 ### Architecture Docs
 
 Each doc owns a specific concern. See [Architecture Overview](docs/architecture/README.md) for the full document index.

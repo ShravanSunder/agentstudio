@@ -509,6 +509,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         )
         let tertiaryTab = Tab(paneId: tertiaryPane.id)
         store.appendTab(tertiaryTab)
+        coordinator.upsertPaneFilesystemProjectionContext(for: tertiaryPane)
         coordinator.execute(WorkspaceActionCommand.selectTab(tabId: tertiaryTab.id))
 
         await waitUntilFilesystemState(

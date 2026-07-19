@@ -6,7 +6,9 @@ extension WorkspaceSurfaceCoordinator {
     /// Mount one nonterminal pane selected by a steady-state user action.
     @discardableResult
     func mountCurrentNonterminalContent(pane: Pane) -> NSView? {
-        mountNonterminalContent(pane: pane)
+        guard let mountedView = mountNonterminalContent(pane: pane) else { return nil }
+        registerPaneFilesystemContextIfNeeded(for: pane)
+        return mountedView
     }
 
     /// Mount one nonterminal pane from the exact accepted composition value.

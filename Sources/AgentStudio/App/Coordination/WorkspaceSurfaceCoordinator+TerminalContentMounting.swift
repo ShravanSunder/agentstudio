@@ -35,48 +35,49 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
             preconditionFailure("nonterminal pane entered the terminal content owner")
         }
         viewRegistry.ensureSlot(for: pane.id)
-        registerPaneFilesystemContextIfNeeded(for: pane)
 
+        let mountedView: NSView?
         if let worktreeID = pane.worktreeId,
             let repoID = pane.repoId,
             let worktree = store.repositoryTopologyAtom.worktree(worktreeID),
             let repo = store.repositoryTopologyAtom.repo(repoID)
         {
-            return createView(
+            mountedView = createView(
                 for: pane,
                 worktree: worktree,
                 repo: repo,
                 initialFrame: initialFrame,
                 treatAsRestoredSessionStart: treatAsRestoredSessionStart
             )
-        }
-
-        if let parentPaneID = pane.parentPaneId,
+        } else if let parentPaneID = pane.parentPaneId,
             let parentPane = store.paneAtom.pane(parentPaneID),
             let worktreeID = parentPane.worktreeId,
             let repoID = parentPane.repoId,
             let worktree = store.repositoryTopologyAtom.worktree(worktreeID),
             let repo = store.repositoryTopologyAtom.repo(repoID)
         {
-            return createView(
+            mountedView = createView(
                 for: pane,
                 worktree: worktree,
                 repo: repo,
                 initialFrame: initialFrame,
                 treatAsRestoredSessionStart: treatAsRestoredSessionStart
             )
+        } else {
+            switch createTopologyIndependentTerminalView(
+                for: pane,
+                initialFrame: initialFrame,
+                treatAsRestoredSessionStart: treatAsRestoredSessionStart
+            ) {
+            case .mounted(let mountedContent):
+                mountedView = mountedContent.view
+            case .failed:
+                mountedView = nil
+            }
         }
-
-        switch createTopologyIndependentTerminalView(
-            for: pane,
-            initialFrame: initialFrame,
-            treatAsRestoredSessionStart: treatAsRestoredSessionStart
-        ) {
-        case .mounted(let mountedContent):
-            return mountedContent.view
-        case .failed:
-            return nil
-        }
+        guard let mountedView else { return nil }
+        registerPaneFilesystemContextIfNeeded(for: pane)
+        return mountedView
     }
 
     /// Mount a terminal from accepted composition without consulting repository

@@ -424,10 +424,18 @@ contract:
    remains shared with the exact semantic route. Cover the rule with good/bad
    fixtures and the architecture-lint rule inventory.
 4. Use `docs-maintain` to update the smallest durable source-of-truth set with
-   progressive disclosure: architecture overview, typed source-admission and
-   contraction flow, domain-specific Terminal/filesystem/notification details,
-   then a concise `AGENTS.md` pointer for future agents. Reconcile existing
-   EventBus documentation rather than creating a parallel event-system design.
+   progressive disclosure. `docs/architecture/README.md` routes readers;
+   [Pane Runtime Architecture — Contract 7](../../../architecture/pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction)
+   owns the normative typed source-admission and contraction contract;
+   [Pane Runtime EventBus Design](../../../architecture/pane_runtime_eventbus_design.md)
+   owns the concrete coordination, actor, and MainActor mechanics;
+   [Workspace Data Architecture](../../../architecture/workspace_data_architecture.md)
+   owns filesystem affected-key mechanics;
+   [Architecture Lint Inventory](../../../architecture/architecture_lint_inventory.md)
+   is the detailed static-enforcement proof map after those normative and
+   mechanics documents; and `AGENTS.md` carries only a concise pointer for
+   future agents. Reconcile final claims after the type and architecture-lint
+   surface freezes. Do not create a duplicate event-system design.
 
 The compile-time contract applies to closed enums and owned semantic families.
 It does not claim exhaustiveness for filesystem paths, user text, external

@@ -42,9 +42,7 @@ extension WorkspaceSurfaceCoordinator {
     func upsertPaneFilesystemProjectionContext(for pane: Pane) {
         paneContextGeneration &+= 1
         let update = paneFilesystemProjectionUpdate(for: pane, generation: paneContextGeneration)
-        Task { [filesystemProjectionIndex] in
-            await filesystemProjectionIndex.applyPaneUpdate(update)
-        }
+        scheduleFilesystemPaneUpdate(update, paneId: pane.id)
     }
 
     func removePaneFilesystemProjectionContext(paneId: UUID) {
@@ -54,8 +52,47 @@ extension WorkspaceSurfaceCoordinator {
             kind: .remove(paneId: paneId)
         )
         nextFilesystemProjectionSequenceByPaneId.removeValue(forKey: paneId)
-        Task { [filesystemProjectionIndex] in
-            await filesystemProjectionIndex.applyPaneUpdate(update)
+        scheduleFilesystemPaneUpdate(update, paneId: paneId)
+    }
+
+    func scheduleActivePaneWorktreeUpdate() {
+        filesystemAffectedKeyRequestCount &+= 1
+        pendingActivePaneWorktreeUpdate = true
+        startFilesystemEffectTaskIfNeeded()
+    }
+
+    func startObservingActivePaneWorktree() {
+        guard !isObservingActivePaneWorktree else { return }
+        isObservingActivePaneWorktree = true
+        lastObservedActivePaneWorktreeId = activePaneWorktree()
+        observeActivePaneWorktreeChange()
+    }
+
+    func stopObservingActivePaneWorktree() {
+        isObservingActivePaneWorktree = false
+        activePaneWorktreeObservationGeneration &+= 1
+    }
+
+    private func observeActivePaneWorktreeChange() {
+        guard isObservingActivePaneWorktree else { return }
+        activePaneWorktreeObservationGeneration &+= 1
+        let observationGeneration = activePaneWorktreeObservationGeneration
+        withObservationTracking {
+            _ = activePaneWorktree()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                    self.isObservingActivePaneWorktree,
+                    self.activePaneWorktreeObservationGeneration == observationGeneration
+                else { return }
+                let nextWorktreeId = self.activePaneWorktree()
+                let didChange = self.lastObservedActivePaneWorktreeId != nextWorktreeId
+                self.lastObservedActivePaneWorktreeId = nextWorktreeId
+                self.observeActivePaneWorktreeChange()
+                if didChange {
+                    self.scheduleActivePaneWorktreeUpdate()
+                }
+            }
         }
     }
 
@@ -129,24 +166,12 @@ extension WorkspaceSurfaceCoordinator {
 
     nonisolated private static func shouldProjectPaneFilesystemEnvelope(_ envelope: RuntimeEnvelope) -> Bool {
         guard case .worktree(let worktreeEnvelope) = envelope else { return false }
-        switch worktreeEnvelope.event {
-        case .filesystem(.filesChanged), .gitWorkingDirectory(.snapshotChanged):
-            return true
-        case .filesystem, .gitWorkingDirectory, .forge, .security:
-            return false
-        }
+        return PaneFilesystemProjectionAdmission.classify(worktreeEnvelope.event).shouldProject
     }
 
     nonisolated private static func projectionPhase(for envelope: RuntimeEnvelope) -> String {
         guard case .worktree(let worktreeEnvelope) = envelope else { return "unknown" }
-        switch worktreeEnvelope.event {
-        case .filesystem(.filesChanged):
-            return "filesystem_projection"
-        case .gitWorkingDirectory(.snapshotChanged):
-            return "git_snapshot_projection"
-        default:
-            return "unknown"
-        }
+        return PaneFilesystemProjectionAdmission.classify(worktreeEnvelope.event).performancePhase
     }
 
     func setupFilesystemSourceSync() {
@@ -155,18 +180,91 @@ extension WorkspaceSurfaceCoordinator {
 
     private func scheduleFilesystemRootAndActivitySync() {
         filesystemSyncRequestGeneration &+= 1
+        filesystemFullReconciliationRequestCount &+= 1
         filesystemSyncRequested = true
+        startFilesystemEffectTaskIfNeeded()
+    }
+
+    private func scheduleFilesystemPaneUpdate(
+        _ update: FilesystemProjectionPaneUpdate,
+        paneId: UUID
+    ) {
+        filesystemAffectedKeyRequestCount &+= 1
+        pendingFilesystemPaneUpdatesByPaneId[paneId] = update
+        startFilesystemEffectTaskIfNeeded()
+    }
+
+    private func startFilesystemEffectTaskIfNeeded() {
         guard filesystemSyncTask == nil else { return }
 
         filesystemSyncTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.filesystemSyncTask = nil }
 
-            while self.filesystemSyncRequested, !Task.isCancelled {
-                self.filesystemSyncRequested = false
-                await self.performFilesystemRootAndActivitySyncPass()
+            while self.hasPendingFilesystemEffects, !Task.isCancelled {
+                if self.filesystemSyncRequested {
+                    self.filesystemSyncRequested = false
+                    await self.performFilesystemRootAndActivitySyncPass()
+                } else {
+                    await self.performAffectedFilesystemEffectsPass()
+                }
+                self.recordFilesystemEffectPerformanceSnapshot()
             }
         }
+    }
+
+    private var hasPendingFilesystemEffects: Bool {
+        filesystemSyncRequested
+            || !pendingFilesystemPaneUpdatesByPaneId.isEmpty
+            || pendingActivePaneWorktreeUpdate
+    }
+
+    private func performAffectedFilesystemEffectsPass() async {
+        let paneUpdates = pendingFilesystemPaneUpdatesByPaneId.values
+            .sorted { $0.requestGeneration < $1.requestGeneration }
+        pendingFilesystemPaneUpdatesByPaneId.removeAll(keepingCapacity: true)
+        let shouldUpdateActivePaneWorktree = pendingActivePaneWorktreeUpdate
+        pendingActivePaneWorktreeUpdate = false
+        var didApplyPaneEffect = false
+
+        for paneUpdate in paneUpdates {
+            let outcome = await filesystemProjectionIndex.applyPaneUpdate(paneUpdate)
+            guard case .applied(let affectedActivity) = outcome else { continue }
+            didApplyPaneEffect = true
+            for activityUpdate in affectedActivity.updates {
+                guard filesystemActivityByWorktreeId[activityUpdate.worktreeId] != activityUpdate.isActiveInApp else {
+                    continue
+                }
+                await filesystemSource.setActivity(
+                    worktreeId: activityUpdate.worktreeId,
+                    isActiveInApp: activityUpdate.isActiveInApp
+                )
+                guard !Task.isCancelled else { return }
+                filesystemActivityByWorktreeId[activityUpdate.worktreeId] = activityUpdate.isActiveInApp
+            }
+        }
+
+        if shouldUpdateActivePaneWorktree {
+            let nextActivePaneWorktreeId = activePaneWorktree()
+            if filesystemLastActivePaneWorktreeId != nextActivePaneWorktreeId {
+                await filesystemSource.setActivePaneWorktree(worktreeId: nextActivePaneWorktreeId)
+                guard !Task.isCancelled else { return }
+                filesystemLastActivePaneWorktreeId = nextActivePaneWorktreeId
+            }
+        }
+
+        if didApplyPaneEffect {
+            traceIdentityRefreshHandler?()
+        }
+    }
+
+    private func recordFilesystemEffectPerformanceSnapshot() {
+        performanceTraceRecorder?.recordFilesystemEffectSnapshot(
+            FilesystemEffectPerformanceSnapshot(
+                fullReconciliationRequestCount: filesystemFullReconciliationRequestCount,
+                affectedKeyRequestCount: filesystemAffectedKeyRequestCount
+            )
+        )
     }
 
     private func performFilesystemRootAndActivitySyncPass() async {
@@ -330,7 +428,7 @@ extension WorkspaceSurfaceCoordinator {
         return true
     }
 
-    private func activePaneWorktree() -> UUID? {
+    func activePaneWorktree() -> UUID? {
         guard let activePaneId = store.tabLayoutAtom.activeTab?.activePaneId else { return nil }
         return store.paneAtom.pane(activePaneId)?.worktreeId
     }
@@ -368,23 +466,18 @@ extension WorkspaceSurfaceCoordinator {
         for pane: Pane,
         generation: UInt64
     ) -> FilesystemProjectionPaneUpdate {
-        guard let repoId = pane.repoId, let worktreeId = pane.worktreeId else {
+        let repoId = pane.repoId ?? pane.metadata.repoId
+        let worktreeId = pane.worktreeId ?? pane.metadata.worktreeId
+        guard let repoId, let worktreeId else {
             return FilesystemProjectionPaneUpdate(
                 requestGeneration: generation,
                 kind: .remove(paneId: pane.id)
             )
         }
-
         let fallbackCwd =
             store.repositoryTopologyAtom.worktree(worktreeId)?.path
             ?? pane.metadata.launchDirectory
             ?? pane.metadata.cwd
-        guard let fallbackCwd else {
-            return FilesystemProjectionPaneUpdate(
-                requestGeneration: generation,
-                kind: .remove(paneId: pane.id)
-            )
-        }
 
         return FilesystemProjectionPaneUpdate(
             requestGeneration: generation,

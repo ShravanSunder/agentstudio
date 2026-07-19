@@ -97,7 +97,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var repositoryTopologyLoadTask: Task<Void, Never>?
     var initialTopologySyncTask: Task<Void, Never>?
     var persistenceObservationBootTask: Task<Void, Never>?
-    var isObservingTraceIdentityInputs = false
+    var traceIdentityRefreshTask: Task<Void, Never>?
+    var traceIdentityRefreshNeedsReplay = false
+    var isTraceIdentityCaptureInProgress = false
+    var traceIdentityFleetCaptureCount: UInt64 = 0
     private var terminationDrainTask: Task<Void, Never>?
     var launchRestoreObservationTask: Task<Void, Never>?
     var windowRestoreBridge: WindowRestoreBridge?

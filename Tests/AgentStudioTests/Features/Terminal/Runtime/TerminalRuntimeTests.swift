@@ -249,8 +249,8 @@ struct TerminalRuntimeTests {
         #expect(!replay.gapDetected)
     }
 
-    @Test("stateful terminal metadata events update observable state and post replayable bus events")
-    func statefulTerminalMetadataEvents_postReplayableBusEvents() async {
+    @Test("local geometry state stays local while semantic state remains replayable")
+    func localGeometryState_staysOutOfRuntimeEvents() async {
         let harness = EventBusHarness<RuntimeEnvelope>()
         let subscriber = await harness.makeSubscriber()
         let runtime = TerminalRuntime(
@@ -283,11 +283,11 @@ struct TerminalRuntimeTests {
             "subscriber should receive replayable state events",
             maxTurns: 5000
         ) {
-            await subscriber.snapshot().count == 4
+            await subscriber.snapshot().count == 2
         }
 
         let streamedEvents = RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot())
-        #expect(streamedEvents.map(\.seq) == [1, 2, 3, 4])
+        #expect(streamedEvents.map(\.seq) == [1, 2])
         #expect(
             streamedEvents.contains(where: { record in
                 guard case .terminal(.progressReportUpdated(let progress)) = record.event else { return false }
@@ -298,19 +298,8 @@ struct TerminalRuntimeTests {
                 guard case .terminal(.rendererHealthChanged(let healthy)) = record.event else { return false }
                 return healthy == false
             }))
-        #expect(
-            streamedEvents.contains(where: { record in
-                guard case .terminal(.cellSizeChanged(let size)) = record.event else { return false }
-                return size == expectedCellSize
-            }))
-        #expect(
-            streamedEvents.contains(where: { record in
-                guard case .terminal(.sizeLimitChanged(let constraints)) = record.event else { return false }
-                return constraints == expectedSizeConstraints
-            }))
-
         let replay = await runtime.eventsSince(seq: 0)
-        #expect(replay.events.count == 4)
+        #expect(replay.events.count == 2)
 
         await subscriber.shutdown()
         await assertBusDrained(harness.bus)
@@ -409,11 +398,11 @@ struct TerminalRuntimeTests {
             "subscriber should receive non-replayable request events",
             maxTurns: 5000
         ) {
-            await subscriber.snapshot().count == 5
+            await subscriber.snapshot().count == 4
         }
 
         let streamedEvents = RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot())
-        #expect(streamedEvents.map(\.seq) == [1, 2, 3, 4, 5])
+        #expect(streamedEvents.map(\.seq) == [1, 2, 3, 4])
         #expect(
             streamedEvents.contains(where: { record in
                 guard case .terminal(.openURLRequested(let url, let kind)) = record.event else { return false }
@@ -434,12 +423,6 @@ struct TerminalRuntimeTests {
                 guard case .terminal(.copyTitleToClipboardRequested) = record.event else { return false }
                 return true
             }))
-        #expect(
-            streamedEvents.contains(where: { record in
-                guard case .terminal(.initialSizeChanged(let size)) = record.event else { return false }
-                return size == initialSize
-            }))
-
         let replay = await runtime.eventsSince(seq: 0)
         #expect(replay.events.isEmpty)
 
@@ -447,8 +430,8 @@ struct TerminalRuntimeTests {
         await assertBusDrained(harness.bus)
     }
 
-    @Test("promoted deferred state events update runtime state and remain replayable")
-    func promotedDeferredStateEvents_postReplayableBusEvents() async {
+    @Test("local presentation state does not enter replay")
+    func localPresentationState_staysOutOfRuntimeEvents() async {
         let harness = EventBusHarness<RuntimeEnvelope>()
         let subscriber = await harness.makeSubscriber()
         let runtime = TerminalRuntime(
@@ -474,21 +457,21 @@ struct TerminalRuntimeTests {
         #expect(runtime.searchState == TerminalSearchState(query: "needle", totalMatches: 4, selectedMatchIndex: 2))
 
         await assertEventuallyAsync(
-            "subscriber should receive promoted deferred replayable events",
+            "subscriber should receive the changed exact title fact",
             maxTurns: 5000
         ) {
-            await subscriber.snapshot().count == 7
+            await subscriber.snapshot().count == 1
         }
 
         let replay = await runtime.eventsSince(seq: 0)
-        #expect(replay.events.count == 7)
+        #expect(replay.events.count == 1)
 
         await subscriber.shutdown()
         await assertBusDrained(harness.bus)
     }
 
-    @Test("searchEnded clears state and remains replayable")
-    func searchEnded_clearsStateAndReplays() async {
+    @Test("searchEnded clears local state without replay")
+    func searchEnded_clearsLocalStateWithoutReplay() async {
         let runtime = TerminalRuntime(
             paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime")
@@ -501,19 +484,11 @@ struct TerminalRuntimeTests {
         #expect(runtime.searchState == nil)
 
         let replay = await runtime.eventsSince(seq: 0)
-        #expect(replay.events.count == 2)
-        guard
-            let lastEvent = replay.events.last,
-            case .pane(let envelope) = lastEvent,
-            case .terminal(.searchEnded) = envelope.event
-        else {
-            Issue.record("Expected searchEnded in replay")
-            return
-        }
+        #expect(replay.events.isEmpty)
     }
 
-    @Test("promoted deferred transient events post to bus without replay")
-    func promotedDeferredTransientEvents_postWithoutReplay() async {
+    @Test("local transient events stay out of bus while config reload remains exact")
+    func localTransientEvents_stayOutOfRuntimeEvents() async {
         let harness = EventBusHarness<RuntimeEnvelope>()
         let subscriber = await harness.makeSubscriber()
         let runtime = TerminalRuntime(
@@ -539,7 +514,7 @@ struct TerminalRuntimeTests {
             "subscriber should receive promoted deferred transient events",
             maxTurns: 5000
         ) {
-            await subscriber.snapshot().count == 6
+            await subscriber.snapshot().count == 1
         }
 
         let replay = await runtime.eventsSince(seq: 0)

@@ -30,6 +30,7 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
     private(set) var searchState: TerminalSearchState?
     private(set) var mouseShape: TerminalMouseShape?
     private(set) var isMouseVisible: Bool = true
+    private var localSearchEpoch: UInt64?
     let capabilities: Set<PaneCapability>
 
     private let eventChannel: PaneRuntimeEventChannel
@@ -50,6 +51,7 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
         self.scrollbarState = nil
         self.searchState = nil
         self.mouseShape = nil
+        self.localSearchEpoch = nil
         self.capabilities = [.input, .resize, .search]
         self.eventChannel = PaneRuntimeEventChannel(
             clock: clock,
@@ -167,6 +169,78 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
         )
     }
 
+    /// Applies coalesced terminal-local presentation state without admitting runtime events.
+    ///
+    /// This path intentionally does not allocate envelopes, advance event sequences, write
+    /// replay, or publish through the pane/global event buses.
+    @discardableResult
+    func applyLocalActionBatch(_ batch: TerminalLocalActionBatch) -> Int {
+        guard lifecycle != .terminated else { return 0 }
+
+        var equalWriteSuppressedCount = 0
+
+        if let scrollbarState = batch.presentation.scrollbarState {
+            if self.scrollbarState == scrollbarState {
+                equalWriteSuppressedCount += 1
+            } else {
+                self.scrollbarState = scrollbarState
+            }
+        }
+
+        if let mouseShape = batch.presentation.mouseShape {
+            if self.mouseShape == mouseShape {
+                equalWriteSuppressedCount += 1
+            } else {
+                self.mouseShape = mouseShape
+            }
+        }
+
+        if let isMouseVisible = batch.presentation.mouseVisibility {
+            if self.isMouseVisible == isMouseVisible {
+                equalWriteSuppressedCount += 1
+            } else {
+                self.isMouseVisible = isMouseVisible
+            }
+        }
+
+        if let lifecycle = batch.searchLifecycle {
+            localSearchEpoch = lifecycle.latestEpoch
+            switch lifecycle.state {
+            case .active(let query, let epoch):
+                localSearchEpoch = epoch
+                searchState = TerminalSearchState(
+                    query: query ?? "",
+                    totalMatches: nil,
+                    selectedMatchIndex: nil
+                )
+            case .inactive:
+                searchState = nil
+            }
+        }
+
+        if let searchUpdate = batch.presentation.searchUpdate,
+            localSearchEpoch == searchUpdate.epoch,
+            searchState != nil
+        {
+            if searchUpdate.hasTotalMatchesUpdate {
+                if searchState?.totalMatches == searchUpdate.totalMatches {
+                    equalWriteSuppressedCount += 1
+                } else {
+                    searchState?.totalMatches = searchUpdate.totalMatches
+                }
+            }
+            if searchUpdate.hasSelectionUpdate {
+                if searchState?.selectedMatchIndex == searchUpdate.selectedMatchIndex {
+                    equalWriteSuppressedCount += 1
+                } else {
+                    searchState?.selectedMatchIndex = searchUpdate.selectedMatchIndex
+                }
+            }
+        }
+
+        return equalWriteSuppressedCount
+    }
+
     private func handleGhosttyStructuralEvent(
         _ event: GhosttyEvent,
         commandId: UUID?,
@@ -178,11 +252,14 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
             return true
         case .titleChanged(let title), .tabTitleChanged(let title):
+            guard metadata.title != title else { return true }
             metadata.updateTitle(title)
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
             return true
         case .cwdChanged(let cwdPath):
-            metadata.updateCWD(URL(fileURLWithPath: cwdPath))
+            let cwd = URL(fileURLWithPath: cwdPath)
+            guard metadata.cwd != cwd else { return true }
+            metadata.updateCWD(cwd)
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
             return true
         case .commandFinished, .bellRang, .unhandled:
@@ -201,18 +278,20 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
         switch event {
         case .scrollbarChanged(let scrollbarState):
             self.scrollbarState = scrollbarState
-            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
             return true
         case .progressReportUpdated(let progressState):
+            guard commandProgress != progressState else { return true }
             commandProgress = progressState
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
             return true
         case .readOnlyChanged(let isReadOnly):
+            guard self.isReadOnly != isReadOnly else { return true }
             self.isReadOnly = isReadOnly
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
             return true
         case .secureInputRequested(let mode):
             let resolvedValue = resolvedSecureInputValue(for: mode)
+            guard isSecureInput != resolvedValue else { return true }
             isSecureInput = resolvedValue
             emit(
                 .secureInputChanged(resolvedValue),
@@ -221,22 +300,21 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
                 persistForReplay: true
             )
             return true
-        case .secureInputChanged:
+        case .secureInputChanged(let isActive):
+            isSecureInput = isActive
             return true
         case .rendererHealthChanged(let healthy):
+            guard rendererHealthy != healthy else { return true }
             rendererHealthy = healthy
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
             return true
         case .cellSizeChanged(let size):
             cellSize = size
-            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
             return true
         case .initialSizeChanged:
-            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
             return true
         case .sizeLimitChanged(let constraints):
             sizeConstraints = constraints
-            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
             return true
         default:
             return false
@@ -251,17 +329,13 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
         switch event {
         case .mouseShapeChanged(let shape):
             mouseShape = shape
-            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
             return true
         case .mouseVisibilityChanged(let isVisible):
             isMouseVisible = isVisible
-            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
             return true
         case .mouseLinkHovered, .keySequenceChanged, .keyTableChanged:
-            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
             return true
         case .colorChanged, .configChanged:
-            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
             return true
         case .configReloadRequested:
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
@@ -279,11 +353,9 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
         switch event {
         case .searchStarted(let query):
             searchState = TerminalSearchState(query: query ?? "", totalMatches: nil, selectedMatchIndex: nil)
-            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
             return true
         case .searchEnded:
             searchState = nil
-            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
             return true
         case .searchMatchesUpdated(let totalMatches):
             if searchState == nil {
@@ -294,7 +366,6 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
             } else {
                 searchState?.totalMatches = totalMatches
             }
-            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
             return true
         case .searchSelectionChanged(let selectedMatchIndex):
             if searchState == nil {
@@ -309,7 +380,6 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
             } else {
                 searchState?.selectedMatchIndex = selectedMatchIndex
             }
-            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
             return true
         default:
             return false

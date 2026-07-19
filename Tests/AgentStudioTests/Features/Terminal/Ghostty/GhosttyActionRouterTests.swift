@@ -324,10 +324,9 @@ struct GhosttyActionRouterTests {
         )
         #expect(
             events.contains {
-                guard case .terminal(.scrollbarChanged(ScrollbarState(top: 900, bottom: 940, total: 1000))) = $0
-                else { return false }
+                guard case .terminal(.scrollbarChanged) = $0 else { return false }
                 return true
-            }
+            } == false
         )
         #expect(
             events.contains {

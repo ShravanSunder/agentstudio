@@ -3,8 +3,76 @@ import Foundation
 protocol WorkspaceFilesystemProjectionIndexing: Sendable {
     func reconcileSourceSync(_ request: FilesystemSourceSyncRequest) async -> FilesystemSourceSyncDiff
     func commitSourceSync(requestGeneration: UInt64, topologyGeneration: UInt64) async -> Bool
-    func applyPaneUpdate(_ update: FilesystemProjectionPaneUpdate) async
+    @discardableResult
+    func applyPaneUpdate(_ update: FilesystemProjectionPaneUpdate) async -> FilesystemProjectionPaneUpdateOutcome
     func projectPaneFilesystem(_ request: PaneFilesystemProjectionRequest) async -> PaneFilesystemProjectionResult
+}
+
+struct FilesystemProjectionAffectedActivity: Sendable, Equatable {
+    let updates: [FilesystemSourceSyncDiff.ActivityUpdate]
+}
+
+enum FilesystemProjectionPaneUpdateOutcome: Sendable, Equatable {
+    case applied(FilesystemProjectionAffectedActivity)
+    case stale
+    case inapplicable
+}
+
+enum PaneFilesystemProjectionAdmission: Sendable {
+    case filesystemChanges(FileChangeset)
+    case gitSnapshot(GitWorkingTreeSnapshot)
+    case ignored
+
+    static func classify(_ event: WorktreeScopedEvent) -> Self {
+        switch event {
+        case .filesystem(let filesystemEvent):
+            return classify(filesystemEvent)
+        case .gitWorkingDirectory(let gitEvent):
+            return classify(gitEvent)
+        case .forge, .security:
+            return .ignored
+        }
+    }
+
+    var shouldProject: Bool {
+        switch self {
+        case .filesystemChanges, .gitSnapshot:
+            return true
+        case .ignored:
+            return false
+        }
+    }
+
+    var performancePhase: String {
+        switch self {
+        case .filesystemChanges:
+            return "filesystem_projection"
+        case .gitSnapshot:
+            return "git_snapshot_projection"
+        case .ignored:
+            return "ignored"
+        }
+    }
+
+    private static func classify(_ event: FilesystemEvent) -> Self {
+        switch event {
+        case .filesChanged(let changeset):
+            return .filesystemChanges(changeset)
+        case .worktreeRegistered, .worktreeUnregistered, .gitSnapshotChanged, .diffAvailable,
+            .branchChanged:
+            return .ignored
+        }
+    }
+
+    private static func classify(_ event: GitWorkingDirectoryEvent) -> Self {
+        switch event {
+        case .snapshotChanged(let snapshot):
+            return .gitSnapshot(snapshot)
+        case .branchChanged, .originChanged, .originUnavailable, .worktreeDiscovered, .worktreeRemoved,
+            .diffAvailable:
+            return .ignored
+        }
+    }
 }
 
 actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
@@ -149,19 +217,45 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
         return true
     }
 
-    func applyPaneUpdate(_ update: FilesystemProjectionPaneUpdate) async {
-        guard update.requestGeneration >= appliedPaneUpdateGeneration else { return }
+    @discardableResult
+    func applyPaneUpdate(_ update: FilesystemProjectionPaneUpdate) async -> FilesystemProjectionPaneUpdateOutcome {
+        guard update.requestGeneration >= appliedPaneUpdateGeneration else { return .stale }
+        let previousActivityByWorktreeId = activityByWorktreeId
+        let affectedWorktreeIds: Set<UUID>
         switch update.kind {
         case .remove(let paneId):
+            guard let existingPane = panesById[paneId] else {
+                completePaneUpdateGeneration(update.requestGeneration)
+                return .inapplicable
+            }
+            affectedWorktreeIds = [existingPane.worktreeId]
             removePane(paneId)
         case .upsert(let entry):
+            guard let indexedPane = indexedPane(from: entry, worktreesById: worktreesById) else {
+                completePaneUpdateGeneration(update.requestGeneration)
+                return .inapplicable
+            }
+            affectedWorktreeIds = Set([panesById[entry.paneId]?.worktreeId, indexedPane.worktreeId].compactMap { $0 })
             removePane(entry.paneId)
-            guard let indexedPane = indexedPane(from: entry, worktreesById: worktreesById) else { return }
             panesById[entry.paneId] = indexedPane
             paneIdsByWorktreeId[indexedPane.worktreeId, default: []].insert(indexedPane.paneId)
             activityByWorktreeId[indexedPane.worktreeId] = true
         }
-        appliedPaneUpdateGeneration = update.requestGeneration
+        completePaneUpdateGeneration(update.requestGeneration)
+        let activityUpdates = affectedWorktreeIds.compactMap { worktreeId -> FilesystemSourceSyncDiff.ActivityUpdate? in
+            let nextActivity = activityByWorktreeId[worktreeId] ?? false
+            guard previousActivityByWorktreeId[worktreeId] != nextActivity else { return nil }
+            return FilesystemSourceSyncDiff.ActivityUpdate(
+                worktreeId: worktreeId,
+                isActiveInApp: nextActivity
+            )
+        }
+        .sorted { sortUUIDs($0.worktreeId, $1.worktreeId) }
+        return .applied(FilesystemProjectionAffectedActivity(updates: activityUpdates))
+    }
+
+    private func completePaneUpdateGeneration(_ generation: UInt64) {
+        appliedPaneUpdateGeneration = max(appliedPaneUpdateGeneration, generation)
         resumePaneUpdateWaiters()
     }
 
@@ -172,12 +266,12 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
         }
 
         let intents: [PaneFilesystemProjectionIntent]
-        switch worktreeEnvelope.event {
-        case .filesystem(.filesChanged(let changeset)):
+        switch PaneFilesystemProjectionAdmission.classify(worktreeEnvelope.event) {
+        case .filesystemChanges(let changeset):
             intents = filesystemIntents(for: changeset, envelope: worktreeEnvelope)
-        case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
+        case .gitSnapshot(let snapshot):
             intents = gitSnapshotIntents(for: snapshot, envelope: worktreeEnvelope)
-        default:
+        case .ignored:
             intents = []
         }
 

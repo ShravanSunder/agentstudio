@@ -280,7 +280,10 @@ extension AppDelegate {
             filesystemSource: pipeline,
             windowLifecycleStore: windowLifecycleStore,
             traceRuntime: traceRuntime,
-            performanceTraceRecorder: performanceTraceRecorder
+            performanceTraceRecorder: performanceTraceRecorder,
+            traceIdentityRefreshHandler: { [weak self] in
+                self?.requestTraceIdentityRefresh()
+            }
         )
         let contentMountCohort = acceptedWorkspacePreparedContentMountCohort
         let terminalAdmissionPort = PreparedTerminalMountAdmissionPort(
@@ -318,7 +321,7 @@ extension AppDelegate {
                 await pipeline.applyScopeChange(change)
             },
             traceIdentityRefreshHandler: { [weak self] in
-                await self?.refreshTraceIdentitySnapshot()
+                self?.requestTraceIdentityRefresh()
             }
         )
         workspaceSurfaceCoordinator.removeRepoHandler = { [weak self] repoId in
@@ -388,8 +391,47 @@ extension AppDelegate {
                 await filesystemPipelineBootTask.value
             }
             self.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
-            await self.refreshTraceIdentitySnapshot()
-            self.observeTraceIdentityInputs()
+            self.requestTraceIdentityRefresh()
+            await self.waitForTraceIdentityRefreshIdle()
+        }
+    }
+
+    func requestTraceIdentityRefresh() {
+        let isCoalesced = traceIdentityRefreshTask != nil
+        performanceTraceRecorder.recordTraceIdentitySnapshot(
+            TraceIdentityPerformanceSnapshot(
+                refreshRequestCount: 1,
+                coalescedRequestCount: isCoalesced ? 1 : 0,
+                fleetCaptureCount: 0,
+                equalSnapshotSuppressedCount: 0
+            )
+        )
+        if isCoalesced {
+            if isTraceIdentityCaptureInProgress {
+                traceIdentityRefreshNeedsReplay = true
+            }
+            return
+        }
+
+        traceIdentityRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                self.isTraceIdentityCaptureInProgress = true
+                await self.refreshTraceIdentitySnapshot()
+                self.isTraceIdentityCaptureInProgress = false
+                guard self.traceIdentityRefreshNeedsReplay else {
+                    self.traceIdentityRefreshTask = nil
+                    return
+                }
+                self.traceIdentityRefreshNeedsReplay = false
+            }
+            self.traceIdentityRefreshTask = nil
+        }
+    }
+
+    func waitForTraceIdentityRefreshIdle() async {
+        while let activeTask = traceIdentityRefreshTask {
+            await activeTask.value
         }
     }
 
@@ -400,24 +442,16 @@ extension AppDelegate {
             panes: panes,
             worktreeEnrichments: repoCache.worktreeEnrichmentSnapshot()
         )
-        await traceRuntime.updateIdentitySnapshot(snapshot)
-    }
-
-    private func observeTraceIdentityInputs() {
-        guard !isObservingTraceIdentityInputs else { return }
-        isObservingTraceIdentityInputs = true
-        withObservationTracking {
-            _ = store.paneAtom.panes
-            _ = store.repositoryTopologyAtom.repos
-            _ = repoCache.worktreeEnrichmentRevision
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.isObservingTraceIdentityInputs = false
-                self.observeTraceIdentityInputs()
-                await self.refreshTraceIdentitySnapshot()
-            }
-        }
+        let updateOutcome = await traceRuntime.updateIdentitySnapshot(snapshot)
+        traceIdentityFleetCaptureCount &+= 1
+        performanceTraceRecorder.recordTraceIdentitySnapshot(
+            TraceIdentityPerformanceSnapshot(
+                refreshRequestCount: 0,
+                coalescedRequestCount: 0,
+                fleetCaptureCount: 1,
+                equalSnapshotSuppressedCount: updateOutcome == .equalSuppressed ? 1 : 0
+            )
+        )
     }
 
     private func bootArmPersistenceObservation() {

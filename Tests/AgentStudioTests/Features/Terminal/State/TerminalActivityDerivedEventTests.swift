@@ -54,6 +54,7 @@ struct TerminalActivityDerivedEventTests {
         let router = TerminalActivityRouter(
             bus: bus,
             activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
             unseenActivityDebounceDuration: .milliseconds(750),
             unseenActivityClock: clock
         )
@@ -62,12 +63,12 @@ struct TerminalActivityDerivedEventTests {
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
         let initialSleepGeneration = clock.scheduledSleepGeneration
-        await postScrollbackBurst(paneId: paneId, totals: [100, 120, 140], to: bus)
+        await postScrollbackBurst(paneId: paneId, totals: [100, 120, 140], through: router)
         await waitForLatestRows(140, paneId: paneId, atom: atom)
         await waitForLatestPendingDebounce(
             clock: clock,
             initialGeneration: initialSleepGeneration,
-            eventCount: 3
+            eventCount: 1
         )
 
         #expect(await derivedActivities(from: subscriber).isEmpty)
@@ -87,6 +88,7 @@ struct TerminalActivityDerivedEventTests {
         let router = TerminalActivityRouter(
             bus: bus,
             activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
             unseenActivityDebounceDuration: .milliseconds(750),
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
@@ -96,24 +98,17 @@ struct TerminalActivityDerivedEventTests {
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
         let initialSleepGeneration = clock.scheduledSleepGeneration
-        for (index, totalRows) in [100, 120, 140].enumerated() {
-            nowMilliseconds.set(2000 + Int64(index * 100))
-            _ = await bus.post(
-                .pane(
-                    .test(
-                        event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: totalRows))),
-                        paneId: paneId,
-                        paneKind: .terminal,
-                        seq: UInt64(index + 1)
-                    )
-                )
-            )
-            await waitForLatestRows(totalRows, paneId: paneId, atom: atom)
-        }
+        await postScrollbackBurst(
+            paneId: paneId,
+            totals: [100, 120, 140],
+            through: router,
+            startedAtMilliseconds: 2000
+        )
+        await waitForLatestRows(140, paneId: paneId, atom: atom)
         await waitForLatestPendingDebounce(
             clock: clock,
             initialGeneration: initialSleepGeneration,
-            eventCount: 3
+            eventCount: 1
         )
         clock.advance(by: .milliseconds(749))
         #expect(await derivedActivities(from: subscriber).isEmpty)
@@ -147,6 +142,7 @@ struct TerminalActivityDerivedEventTests {
         let router = TerminalActivityRouter(
             bus: bus,
             activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
             isPaneCurrentlyAttended: { attendedPaneIds.contains($0) },
             unseenActivityDebounceDuration: .milliseconds(750),
             unseenActivityClock: clock
@@ -155,16 +151,7 @@ struct TerminalActivityDerivedEventTests {
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
         let initialSleepGeneration = clock.scheduledSleepGeneration
-        _ = await bus.post(
-            .pane(
-                .test(
-                    event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100))),
-                    paneId: paneId,
-                    paneKind: .terminal,
-                    seq: 1
-                )
-            )
-        )
+        await postScrollbackBurst(paneId: paneId, totals: [100], through: router)
         await waitForLatestPendingDebounce(
             clock: clock,
             initialGeneration: initialSleepGeneration,
@@ -172,15 +159,11 @@ struct TerminalActivityDerivedEventTests {
         )
 
         attendedPaneIds.insert(paneId.uuid)
-        _ = await bus.post(
-            .pane(
-                .test(
-                    event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 140))),
-                    paneId: paneId,
-                    paneKind: .terminal,
-                    seq: 2
-                )
-            )
+        await postScrollbackBurst(
+            paneId: paneId,
+            totals: [100, 140],
+            through: router,
+            isAttended: true
         )
         await clock.waitForPendingSleepCount(exactly: 0)
 
@@ -202,6 +185,7 @@ struct TerminalActivityDerivedEventTests {
         let router = TerminalActivityRouter(
             bus: bus,
             activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
             unseenActivityDebounceDuration: .milliseconds(750),
             unseenActivityClock: clock
         )
@@ -210,12 +194,12 @@ struct TerminalActivityDerivedEventTests {
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
         let firstInitialSleepGeneration = clock.scheduledSleepGeneration
-        await postScrollbackBurst(paneId: paneId, totals: [100, 120, 140], to: bus)
+        await postScrollbackBurst(paneId: paneId, totals: [100, 120, 140], through: router)
         await waitForLatestRows(140, paneId: paneId, atom: atom)
         await waitForLatestPendingDebounce(
             clock: clock,
             initialGeneration: firstInitialSleepGeneration,
-            eventCount: 3
+            eventCount: 1
         )
         clock.advance(by: .milliseconds(750))
         await assertEventuallyAsync("first window should settle") {
@@ -224,12 +208,12 @@ struct TerminalActivityDerivedEventTests {
 
         router.markUnseenActivityObserved(paneId: paneId.uuid)
         let secondInitialSleepGeneration = clock.scheduledSleepGeneration
-        await postScrollbackBurst(paneId: paneId, totals: [200, 220, 240], to: bus, startingSeq: 10)
+        await postScrollbackBurst(paneId: paneId, totals: [200, 220, 240], through: router)
         await waitForLatestRows(240, paneId: paneId, atom: atom)
         await waitForLatestPendingDebounce(
             clock: clock,
             initialGeneration: secondInitialSleepGeneration,
-            eventCount: 3
+            eventCount: 1
         )
         clock.advance(by: .milliseconds(750))
 
@@ -268,21 +252,36 @@ struct TerminalActivityDerivedEventTests {
     private func postScrollbackBurst(
         paneId: PaneId,
         totals: [Int],
-        to bus: EventBus<RuntimeEnvelope>,
-        startingSeq: UInt64 = 1
+        through router: TerminalActivityRouter,
+        isAttended: Bool = false,
+        startedAtMilliseconds: Int64 = 1000
     ) async {
-        for (index, totalRows) in totals.enumerated() {
-            _ = await bus.post(
-                .pane(
-                    .test(
-                        event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: totalRows))),
-                        paneId: paneId,
-                        paneKind: .terminal,
-                        seq: startingSeq + UInt64(index)
+        guard let firstTotal = totals.first, let latestTotal = totals.last else { return }
+        var aggregate = TerminalScrollbarActivityAggregate(
+            state: ScrollbarState(top: 0, bottom: 10, total: firstTotal),
+            observedAtMilliseconds: startedAtMilliseconds
+        )
+        for (index, totalRows) in totals.dropFirst().enumerated() {
+            aggregate.merge(
+                state: ScrollbarState(top: 0, bottom: 10, total: totalRows),
+                observedAtMilliseconds: startedAtMilliseconds + Int64((index + 1) * 100)
+            )
+        }
+        await router.consumeTerminalActivityInput(
+            .aggregate(
+                surfaceID: paneId.uuid,
+                paneID: paneId.uuid,
+                input: TerminalActivityAggregateInput(
+                    aggregate: aggregate,
+                    latestState: ScrollbarState(top: 0, bottom: 10, total: latestTotal),
+                    context: TerminalActivityProjectionContext(
+                        isAttended: isAttended,
+                        isAgentClassified: false,
+                        outputBurstThreshold: 30
                     )
                 )
             )
-        }
+        )
     }
 
     private func waitForLatestRows(

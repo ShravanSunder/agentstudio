@@ -50,6 +50,7 @@ final class WorkspaceSurfaceCoordinator {
     let windowLifecycleStore: WindowLifecycleAtom
     let traceRuntime: AgentStudioTraceRuntime?
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)?
     #if DEBUG
         var bridgeReviewSourceProviderOverridesByPaneId: [UUID: any BridgeReviewSourceProvider] = [:]
     #endif
@@ -64,6 +65,13 @@ final class WorkspaceSurfaceCoordinator {
     private var batchedRuntimeEventsTask: Task<Void, Never>?
     var filesystemSyncTask: Task<Void, Never>?
     var filesystemSyncRequested = false
+    var pendingFilesystemPaneUpdatesByPaneId: [UUID: FilesystemProjectionPaneUpdate] = [:]
+    var pendingActivePaneWorktreeUpdate = false
+    var filesystemFullReconciliationRequestCount: UInt64 = 0
+    var filesystemAffectedKeyRequestCount: UInt64 = 0
+    var isObservingActivePaneWorktree = false
+    var activePaneWorktreeObservationGeneration: UInt64 = 0
+    var lastObservedActivePaneWorktreeId: UUID?
     var pendingFocusPaneIds: Set<UUID> = []
     var filesystemRegisteredContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
     var filesystemActivityByWorktreeId: [UUID: Bool] = [:]
@@ -126,7 +134,8 @@ final class WorkspaceSurfaceCoordinator {
         filesystemProjectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
         windowLifecycleStore: WindowLifecycleAtom,
         traceRuntime: AgentStudioTraceRuntime? = nil,
-        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)? = nil
     ) {
         let resolvedFilesystemSource =
             filesystemSource
@@ -153,15 +162,19 @@ final class WorkspaceSurfaceCoordinator {
         self.windowLifecycleStore = windowLifecycleStore
         self.traceRuntime = traceRuntime
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.traceIdentityRefreshHandler = traceIdentityRefreshHandler
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         subscribeToCWDChanges()
         setupPrePersistHook()
         setupFilesystemSourceSync()
+        startObservingActivePaneWorktree()
         startPaneEventIngress()
         startRuntimeReducerConsumers()
     }
 
     isolated deinit {
+        isObservingActivePaneWorktree = false
+        activePaneWorktreeObservationGeneration &+= 1
         cwdChangesTask?.cancel()
         paneEventIngressTask?.cancel()
         for task in runtimeEventBridgeTasks.values {
@@ -196,6 +209,9 @@ final class WorkspaceSurfaceCoordinator {
         filesystemSyncTask?.cancel()
         filesystemSyncTask = nil
         filesystemSyncRequested = false
+        pendingFilesystemPaneUpdatesByPaneId.removeAll()
+        pendingActivePaneWorktreeUpdate = false
+        stopObservingActivePaneWorktree()
 
         for task in activeRuntimeBridgeTasks {
             task.cancel()
@@ -259,7 +275,6 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     private func updatePaneCWDAndResolvedContext(paneId: UUID, cwd: URL?) {
-        let previousWorktreeId = store.paneAtom.pane(paneId)?.worktreeId
         let lookupClock = ContinuousClock()
         let lookupStartedAt = lookupClock.now
         let resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: cwd)
@@ -285,9 +300,6 @@ final class WorkspaceSurfaceCoordinator {
                 return
             }
             upsertPaneFilesystemProjectionContext(for: pane)
-            if previousWorktreeId != pane.worktreeId {
-                syncFilesystemRootsAndActivity()
-            }
         case .unchanged:
             return
         case .paneMissing:

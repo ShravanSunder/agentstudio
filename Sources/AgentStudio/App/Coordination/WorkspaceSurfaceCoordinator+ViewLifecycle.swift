@@ -69,7 +69,6 @@ extension WorkspaceSurfaceCoordinator {
             )
 
         case .webview, .codeViewer, .bridgePanel, .unsupported:
-            registerPaneFilesystemContextIfNeeded(for: pane)
             return mountCurrentNonterminalContent(pane: pane)
         }
     }
