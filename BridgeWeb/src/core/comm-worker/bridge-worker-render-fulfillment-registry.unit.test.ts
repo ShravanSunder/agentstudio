@@ -128,6 +128,60 @@ describe('Bridge worker render fulfillment registry', () => {
 		).toMatchObject({ status: 'rejected' });
 	});
 
+	test('requeues an active source-churn attempt without reminting semantic publication identity', () => {
+		// Arrange
+		const registry = createRegistry(reviewContext);
+		const first = registry.beginPublication({
+			job: makeRenderJob('review-item-1'),
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+
+		// Act
+		const requeuedItemIds = registry.requeueActivePublicationsForSourceChurn(1);
+		const replacement = registry.beginPublication({
+			job: makeRenderJob('review-item-1'),
+			publicationSequence: 9,
+			workerDerivationEpoch: 3,
+		});
+
+		// Assert
+		expect(requeuedItemIds).toEqual(['review-item-1']);
+		expect(replacement).toMatchObject({ shouldPublish: true, status: 'published' });
+		expect(replacement.receiptIdentity.publicationId).toBe(first.receiptIdentity.publicationId);
+		expect(replacement.receiptIdentity.attemptId).not.toBe(first.receiptIdentity.attemptId);
+	});
+
+	test('retains already-painted unchanged content across source churn', () => {
+		// Arrange
+		const registry = createRegistry(reviewContext);
+		const first = registry.beginPublication({
+			job: makeRenderJob('review-item-1'),
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+		registry.applyDisposition(disposition(first.receiptIdentity, 'queued', 1));
+		registry.applyDisposition(disposition(first.receiptIdentity, 'applied', 2));
+		registry.applyDisposition(disposition(first.receiptIdentity, 'painted', 3));
+
+		// Act
+		const requeuedItemIds = registry.requeueActivePublicationsForSourceChurn(4);
+		const retained = registry.beginPublication({
+			job: makeRenderJob('review-item-1'),
+			publicationSequence: 9,
+			workerDerivationEpoch: 3,
+		});
+
+		// Assert
+		expect(requeuedItemIds).toEqual([]);
+		expect(retained).toMatchObject({
+			receiptIdentity: first.receiptIdentity,
+			shouldPublish: false,
+			status: 'duplicate',
+		});
+		expect(registry.getItemState('review-item-1')?.stage).toBe('painted');
+	});
+
 	test('replaces same-window publication authority when the surface derivation epoch advances', () => {
 		const registry = createRegistry(reviewContext);
 		const first = registry.beginPublication({

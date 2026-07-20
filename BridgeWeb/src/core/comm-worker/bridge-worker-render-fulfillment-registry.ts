@@ -207,6 +207,28 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		return Object.freeze(releasedItemIds);
 	}
 
+	requeueActivePublicationsForSourceChurn(atMilliseconds: number = this.#now()): readonly string[] {
+		const requeuedItemIds: string[] = [];
+		for (const [itemId, currentState] of this.#fulfillmentByItemId) {
+			if (currentState.activeAttempt === null) continue;
+			const retryState = reduceBridgeWorkerRenderFulfillment(currentState, {
+				...activeBridgeWorkerRenderReceiptIdentity(currentState),
+				disposition: 'superseded',
+				kind: 'render.disposition',
+				reason: 'stale_attempt',
+				receivedAtMilliseconds: atMilliseconds,
+				retryAtMilliseconds: atMilliseconds,
+			});
+			const desiredState = reduceBridgeWorkerRenderFulfillment(retryState, {
+				atMilliseconds,
+				kind: 'retry.ready',
+			});
+			this.#fulfillmentByItemId.set(itemId, desiredState);
+			requeuedItemIds.push(itemId);
+		}
+		return Object.freeze(requeuedItemIds);
+	}
+
 	nextLifecycleWakeAtMilliseconds(): number | null {
 		let nextWakeAtMilliseconds: number | null = null;
 		for (const currentState of this.#fulfillmentByItemId.values()) {
