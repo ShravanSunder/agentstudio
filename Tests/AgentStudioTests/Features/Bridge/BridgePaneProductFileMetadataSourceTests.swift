@@ -855,12 +855,20 @@ struct ProductFileSourceFixture {
     }
 
     func updatedSnapshot(
-        from openSnapshot: BridgeProductSubscriptionSnapshot
+        from openSnapshot: BridgeProductSubscriptionSnapshot,
+        visiblePaths: [String] = []
     ) throws -> BridgeProductSubscriptionSnapshot {
+        var interests = [
+            try BridgeProductFileMetadataInterestStateGroup(
+                lane: .foreground,
+                paths: [demandedPath]
+            )
+        ]
+        if !visiblePaths.isEmpty {
+            interests.append(try .init(lane: .visible, paths: visiblePaths))
+        }
         let targetState = BridgeProductSubscriptionInterestState.fileMetadata(
-            interests: [
-                try .init(lane: .foreground, paths: [demandedPath])
-            ],
+            interests: interests,
             pathScope: []
         )
         let targetSHA256 = try targetState.sha256Hex()
@@ -873,7 +881,9 @@ struct ProductFileSourceFixture {
                 "batchCount": 1,
                 "batchIndex": 0,
                 "delta": [
-                    "add": [["lane": "foreground", "path": demandedPath]],
+                    "add": [
+                        ["lane": "foreground", "path": demandedPath]
+                    ] + visiblePaths.map { ["lane": "visible", "path": $0] },
                     "addPathScope": [],
                     "removePathScope": [],
                     "removePaths": [],
@@ -883,7 +893,7 @@ struct ProductFileSourceFixture {
                 "subscriptionKind": "file.metadata",
                 "targetInterestRevision": 1,
                 "targetInterestSha256": targetSHA256,
-                "totalDeltaItemCount": 1,
+                "totalDeltaItemCount": 1 + visiblePaths.count,
                 "updateId": "file-update-1",
             ]
         )

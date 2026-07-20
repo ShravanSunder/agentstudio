@@ -264,15 +264,15 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		const completions = preparationCompletions.splice(0, preparationCompletions.length);
 		const runResult = pump.runUntilBudget();
 		advanceReviewRenderFulfillmentLifecycle();
+		if (pump.getPendingWorkIds().length > 0) {
+			requestPreparationDrain();
+		}
 		const completionResults = await Promise.allSettled(completions);
 		const rejectedCompletion = completionResults.find(
 			(result): result is PromiseRejectedResult => result.status === 'rejected',
 		);
 		if (rejectedCompletion !== undefined) {
 			throw rejectedCompletion.reason;
-		}
-		if (pump.getPendingWorkIds().length > 0) {
-			requestPreparationDrain();
 		}
 		return runResult;
 	};

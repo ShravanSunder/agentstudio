@@ -9,6 +9,7 @@ import {
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	activateBridgeCommWorkerReviewViewerMode,
 	assertBridgeCommWorkerPreparationDrain,
 	createBridgeWorkerSequenceCounter,
 	createBridgeCommWorkerReviewProductTestSource,
@@ -56,6 +57,7 @@ describe('Bridge comm worker review preparation', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'coalesced-source-rollover');
 
 		reviewProductSource.publishSource(
 			{

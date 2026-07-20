@@ -7,6 +7,7 @@ import {
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	activateBridgeCommWorkerReviewViewerMode,
 	assertBridgeCommWorkerPreparationDrain,
 	createDeferredReviewContentStream,
 	createRecordingBridgeCommWorkerPort,
@@ -110,6 +111,7 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 				},
 			},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'stale-selected-telemetry');
 		await flushBridgeWorkerRuntimeContinuations();
 		reviewMetadataEvents.push(telemetryReviewSnapshotEvent([baseDescriptor, headDescriptor]));
 		await flushBridgeWorkerRuntimeContinuations();

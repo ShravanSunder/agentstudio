@@ -9,6 +9,7 @@ import {
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	activateBridgeCommWorkerReviewViewerMode,
 	assertBridgeCommWorkerPreparationDrain,
 	createBridgeWorkerSequenceCounter,
 	createBridgeCommWorkerReviewProductTestSource,
@@ -69,6 +70,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'selected-preempts-source-reset');
 
 		reviewProductSource.publishSource(
 			{
@@ -148,6 +150,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'newer-source-reset');
 
 		reviewProductSource.publishSource(
 			{
@@ -252,6 +255,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'late-source-reset-chunk');
 
 		dispatch.message(
 			encodeBridgeWorkerSelectCommand({
@@ -342,6 +346,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'source-rollover');
 		reviewProductSource.publishSource(
 			{
 				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
@@ -472,6 +477,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'late-visible-source-row');
 		reviewProductSource.publishSource(
 			{
 				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
@@ -562,8 +568,9 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		expect(pierreJobItemIds).toContain('item-130');
 	});
 
-	test('drains selected review content prep through the worker port after local select slices', async () => {
+	test('reschedules yielded selected review preparation before awaiting its completion', async () => {
 		let clockMs = 0;
+		let advanceClockPerRead = false;
 		let createSequence = createBridgeWorkerSequenceCounter(41);
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
@@ -581,13 +588,18 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			productTransport: reviewProductSource.productTransport,
 			pump: createWorkerContentPreparationPump({
 				maxSliceMs: 8,
-				now: () => clockMs,
+				now: () => {
+					const currentClockMs = clockMs;
+					if (advanceClockPerRead) clockMs += 3;
+					return currentClockMs;
+				},
 			}),
 			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
 				scheduledDrains.push(drain);
 			},
 		});
-		reviewProductSource.publishSource(
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'yielded-selected-preparation');
+		const publicationApplication = reviewProductSource.publishSourceAndWaitForApplication(
 			{
 				contentItems: [makeWorkerReviewContentMetadata()],
 				contentRequestDescriptors: [
@@ -600,8 +612,16 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			6,
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await publicationApplication;
 		await flushBridgeWorkerRuntimeContinuations();
+		for (let drainIndex = 0; drainIndex < scheduledDrains.length; drainIndex += 1) {
+			const sourcePreparationDrain = scheduledDrains[drainIndex];
+			if (sourcePreparationDrain === undefined) break;
+			// oxlint-disable-next-line no-await-in-loop -- Initial source preparation must settle before the selected-demand assertion.
+			await sourcePreparationDrain();
+			// oxlint-disable-next-line no-await-in-loop -- Each drain can expose one deterministic source-reset continuation.
+			await flushBridgeWorkerRuntimeContinuations();
+		}
 		scheduledDrains.length = 0;
 		postedMessages.length = 0;
 		createSequence = createBridgeWorkerSequenceCounter(41);
@@ -623,18 +643,27 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		]);
 		expect(postedMessages[0]?.transferList).toBeUndefined();
 		expect(postedMessages[1]?.transferList).toBeUndefined();
-		clockMs += 1;
-
 		const firstDrainCompletion = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(scheduledDrains).toHaveLength(2);
-		const secondDrainResult = await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		advanceClockPerRead = true;
+		const yieldedDrainCompletion = assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		const continuationScheduledBeforeAwait = scheduledDrains.length === 3;
+		advanceClockPerRead = false;
+		const continuationDrain = assertBridgeCommWorkerPreparationDrain(
+			continuationScheduledBeforeAwait ? scheduledDrains[2] : scheduledDrains[1],
+		);
+		const continuationDrainResult = await continuationDrain();
+		const yieldedDrainResult = await yieldedDrainCompletion;
 		const firstDrainResult = await firstDrainCompletion;
 
+		expect(continuationScheduledBeforeAwait).toBe(true);
 		expect(firstDrainResult.completedIds).toEqual([]);
 		expect(firstDrainResult.yielded).toBe(false);
-		expect(secondDrainResult.completedIds).toEqual(['review-content-ready:item-1:7:42']);
-		expect(secondDrainResult.yielded).toBe(false);
+		expect(yieldedDrainResult.completedIds).toEqual([]);
+		expect(yieldedDrainResult.yielded).toBe(true);
+		expect(continuationDrainResult.completedIds).toEqual(['review-content-ready:item-1:7:42']);
+		expect(continuationDrainResult.yielded).toBe(false);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
@@ -703,6 +732,8 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'empty-runtime-source-update');
+		postedMessages.length = 0;
 
 		reviewProductSource.publishSource(
 			{
@@ -731,10 +762,11 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'reviewRenderPatch',
 			'reviewDisplayPatch',
+			'health',
 			'slicePatch',
 			'health',
 		]);
-		expect(postedMessages[2]?.message).toMatchObject({
+		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'slicePatch',
 			epoch: 2,
 			sequence: 11,
