@@ -68,8 +68,10 @@ public struct AppIPCMethodRegistry: Sendable {
             Self.method("terminal.snapshot", .terminalSnapshotRead, .runtimeCommand),
             Self.method("terminal.wait", .terminalWait, .runtimeCommand, resultSemantics: .accepted),
             Self.method("command.list", .systemRead, .queryReader),
-            Self.method("command.execute", .debugUnsafe, .appCommand),
+            Self.method("command.execute", .appCommandExecute, .appCommand),
             Self.method("ui.commandBar.open", .uiPresent, .uiPresentation),
+            Self.method("sidebar.grouping.get", .workspaceRead, .queryReader),
+            Self.method("sidebar.surface.get", .workspaceRead, .queryReader),
             Self.method("permission.request", .permissionRequest, .permissionBroker, resultSemantics: .accepted),
             Self.method("permission.requestStatus", .permissionRead, .permissionBroker),
             Self.method("permission.grantStatus", .permissionRead, .permissionBroker),
@@ -268,6 +270,10 @@ public struct PermissionScopeCanonicalizer: Sendable {
             .terminalWait
         case .eventsRead, .permissionRequest, .permissionRead, .grantApprove:
             .permissionState
+        case .appCommandExecute:
+            .unspecified
+        case .sidebarStateMutate:
+            .sidebarState
         case .debugUnsafe:
             .unspecified
         }
@@ -299,6 +305,12 @@ public struct AuthorizationService: Sendable {
             throw AuthorizationError(reason: .methodNotFound)
         }
 
+        if Self.authenticatedAutomationMethodAllowlist.contains(methodName), methodName != "command.execute" {
+            guard isAuthenticatedAutomation(principal) else {
+                throw AuthorizationError(reason: .unauthorized)
+            }
+        }
+
         if unsafeDebugAllows(methodName: methodName, definition: definition, for: principal) {
             return
         }
@@ -327,6 +339,27 @@ public struct AuthorizationService: Sendable {
         }
     }
 
+    public func authorize(
+        principal: IPCPrincipal,
+        scope: IPCPermissionScope
+    ) throws {
+        let canonicalScope = try canonicalizer.canonicalize(scope, for: principal)
+
+        if baselineAllows(canonicalScope, for: principal) {
+            return
+        }
+
+        if canonicalScope.privilege == .debugUnsafe {
+            throw AuthorizationError(reason: .unauthorized)
+        }
+
+        if grantLedger.contains(canonicalScope, for: principal.principalId) {
+            return
+        }
+
+        throw AuthorizationError(reason: .unauthorized)
+    }
+
     private func unsafeDebugAllows(
         methodName: String,
         definition: IPCMethodDefinition,
@@ -351,6 +384,16 @@ public struct AuthorizationService: Sendable {
             && !definition.privilegeClasses.contains(.permissionRequest)
             && !definition.privilegeClasses.contains(.permissionRead)
             && !definition.privilegeClasses.contains(.eventsRead)
+    }
+
+    private func isAuthenticatedAutomation(_ principal: IPCPrincipal) -> Bool {
+        guard principal.accessMode == .unsafeDebug else {
+            return false
+        }
+        guard case .automationClient = principal.kind else {
+            return false
+        }
+        return true
     }
 
     private func baselineAllows(_ scope: IPCPermissionScope, for principal: IPCPrincipal) -> Bool {
@@ -398,8 +441,13 @@ public struct AuthorizationService: Sendable {
         "terminal.snapshot",
         "terminal.wait",
         "command.list",
-        "command.execute",
         "ui.commandBar.open",
+    ]
+
+    private static let authenticatedAutomationMethodAllowlist: Set<String> = [
+        "command.execute",
+        "sidebar.grouping.get",
+        "sidebar.surface.get",
     ]
 }
 

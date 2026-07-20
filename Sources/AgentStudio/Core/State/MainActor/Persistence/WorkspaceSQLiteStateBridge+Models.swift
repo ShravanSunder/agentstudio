@@ -38,6 +38,8 @@ extension WorkspaceSQLiteStateBridge {
             name: record.name,
             repoPath: record.repoPath,
             createdAt: record.createdAt,
+            isFavorite: record.isFavorite,
+            note: record.note,
             tags: record.tags
         )
     }
@@ -49,7 +51,7 @@ extension WorkspaceSQLiteStateBridge {
             name: record.name,
             path: record.path,
             isMainWorktree: record.isMainWorktree,
-            tags: record.tags
+            note: record.note
         )
     }
 

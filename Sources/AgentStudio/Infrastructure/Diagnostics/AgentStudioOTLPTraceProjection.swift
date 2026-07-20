@@ -89,6 +89,11 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.git.status_unavailable.reason",
         "agentstudio.performance.management_layer.command",
         "agentstudio.performance.pane_action.name",
+        "agentstudio.performance.sidebar.group_mode",
+        "agentstudio.performance.sidebar.phase",
+        "agentstudio.performance.sidebar.query_state",
+        "agentstudio.performance.sidebar.surface",
+        "agentstudio.performance.sidebar.trigger",
         "agentstudio.performance.sidebar.toggle.intent",
         "agentstudio.performance.terminal.accumulator.drain.class",
         "agentstudio.performance.terminal.geometry.reason",
@@ -218,9 +223,16 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.pane_view_restore.visible_pane.count",
         "agentstudio.performance.sidebar.expanded_group.count",
         "agentstudio.performance.sidebar.group.count",
+        "agentstudio.performance.sidebar.input.count",
         "agentstudio.performance.sidebar.loading_repo.count",
+        "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms",
         "agentstudio.performance.sidebar.query_character.count",
         "agentstudio.performance.sidebar.repo.count",
+        "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms",
+        "agentstudio.performance.sidebar.row_index_elapsed_ms",
+        "agentstudio.performance.sidebar.stale_discard.count",
+        "agentstudio.performance.sidebar.cancellation.count",
+        "agentstudio.performance.sidebar.total_worker_elapsed_ms",
         "agentstudio.performance.sidebar.split_width",
         "agentstudio.performance.sidebar.width",
         "agentstudio.performance.tabbar.pane.count",
@@ -257,6 +269,10 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.startup_diagnostic.fixture.surface_reference.count",
         "agentstudio.startup_diagnostic.fixture.terminal_view.count",
         "agentstudio.startup_diagnostic.fixture.valid_geometry.count",
+        "agentstudio.startup_diagnostic.fixture.inbox_notification.count",
+        "agentstudio.startup_diagnostic.fixture.repo.count",
+        "agentstudio.startup_diagnostic.fixture.sidebar_surface.count",
+        "agentstudio.startup_diagnostic.fixture.worktree.count",
         "agentstudio.terminal.startup.failure.creation_retry.count",
         "agentstudio.tcc.probe.sequence",
         "agentstudio.tcc.tccdb.path_row.count",
@@ -306,6 +322,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.terminal.surface.has_window",
         "agentstudio.performance.topology.has_match",
         "agentstudio.startup_diagnostic.render_proof.succeeded",
+        "agentstudio.startup_diagnostic.projection_proof.succeeded",
         "agentstudio.tcc.bundle.changed",
         "agentstudio.tcc.bundle.executable.reachable",
         "agentstudio.tcc.tccdb.bundle_grant.present",
@@ -448,6 +465,24 @@ enum AgentStudioOTLPTraceProjection {
             BridgeTelemetrySlice(rawValue: value) != nil
         case "agentstudio.bridge.telemetry.drop_reason":
             BridgeTelemetryDropReason(rawValue: value) != nil
+        case "agentstudio.performance.sidebar.surface":
+            ["inbox", "repo"].contains(value)
+        case "agentstudio.performance.sidebar.phase":
+            [
+                "request_build_mainactor", "projection_worker", "mainactor_apply", "row_index", "startup_diagnostic",
+                "surface_switch",
+            ]
+            .contains(value)
+        case "agentstudio.performance.sidebar.query_state":
+            ["empty", "non_empty"].contains(value)
+        case "agentstudio.performance.sidebar.group_mode":
+            ["repo", "pane", "tab", "none", "not_applicable"].contains(value)
+        case "agentstudio.performance.sidebar.trigger":
+            [
+                "grouping_switch", "surface_switch", "search", "sort_order", "visibility_mode", "collapse_toggle",
+                "data_refresh", "startup_diagnostic",
+            ]
+            .contains(value)
         default:
             true
         }

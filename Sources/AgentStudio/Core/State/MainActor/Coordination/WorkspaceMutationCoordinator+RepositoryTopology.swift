@@ -1,5 +1,12 @@
 import Foundation
 
+enum RepositoryTopologyMutationError: Error, Equatable {
+    case invalidRepositoryTag(String)
+    case duplicateRepositoryTag(String)
+    case repoNotFound(UUID)
+    case worktreeNotFound(UUID)
+}
+
 extension WorkspaceMutationCoordinator {
     func performBatchedTopologyMutation(_ mutation: () -> Void) {
         repositoryTopologyAtom.withDeferredWorktreePathIndexRebuild(mutation)
@@ -62,6 +69,57 @@ extension WorkspaceMutationCoordinator {
         )
     }
 
+    func setRepoFavorite(_ repositoryID: UUID, isFavorite: Bool) {
+        guard let repository = repositoryTopologyAtom.repo(repositoryID) else { return }
+        repositoryTopologyAtom.applyValidatedRepositoryMetadata(
+            repositoryID: repositoryID,
+            isFavorite: isFavorite,
+            note: repository.note,
+            tags: repository.tags
+        )
+    }
+
+    func updateRepoNote(_ repositoryID: UUID, note: String?) {
+        guard let repository = repositoryTopologyAtom.repo(repositoryID) else { return }
+        repositoryTopologyAtom.applyValidatedRepositoryMetadata(
+            repositoryID: repositoryID,
+            isFavorite: repository.isFavorite,
+            note: normalizedRepositoryNote(note),
+            tags: repository.tags
+        )
+    }
+
+    func setRepoTags(_ tags: [String], repositoryID: UUID) throws {
+        guard let repository = repositoryTopologyAtom.repo(repositoryID) else {
+            throw RepositoryTopologyMutationError.repoNotFound(repositoryID)
+        }
+        var seenTags = Set<String>()
+        for tag in tags {
+            guard RepositoryTagValidation.isValid(tag) else {
+                throw RepositoryTopologyMutationError.invalidRepositoryTag(tag)
+            }
+            guard seenTags.insert(tag).inserted else {
+                throw RepositoryTopologyMutationError.duplicateRepositoryTag(tag)
+            }
+        }
+        repositoryTopologyAtom.applyValidatedRepositoryMetadata(
+            repositoryID: repositoryID,
+            isFavorite: repository.isFavorite,
+            note: repository.note,
+            tags: tags.sorted()
+        )
+    }
+
+    func updateWorktreeNote(_ worktreeID: UUID, note: String?) throws {
+        guard repositoryTopologyAtom.worktree(worktreeID) != nil else {
+            throw RepositoryTopologyMutationError.worktreeNotFound(worktreeID)
+        }
+        repositoryTopologyAtom.applyValidatedWorktreeNote(
+            worktreeID: worktreeID,
+            note: normalizedRepositoryNote(note)
+        )
+    }
+
     @discardableResult
     func addWatchedPath(_ path: URL) -> WatchedPath? {
         let normalizedPath = path.standardizedFileURL
@@ -77,6 +135,15 @@ extension WorkspaceMutationCoordinator {
             unavailableRepositoryIDs: repositoryTopologyAtom.unavailableRepoIds
         )
         return watchedPath
+    }
+
+    func removeWatchedPath(_ watchedPathID: UUID) {
+        guard repositoryTopologyAtom.watchedPath(watchedPathID) != nil else { return }
+        applyTopology(
+            repositories: repositoryTopologyAtom.repos,
+            watchedPaths: repositoryTopologyAtom.watchedPaths.filter { $0.id != watchedPathID },
+            unavailableRepositoryIDs: repositoryTopologyAtom.unavailableRepoIds
+        )
     }
 
     @discardableResult
@@ -263,7 +330,7 @@ extension WorkspaceMutationCoordinator {
                     name: candidate.name,
                     path: candidate.path,
                     isMainWorktree: candidate.isMainWorktree,
-                    tags: matchedWorktree.tags
+                    note: matchedWorktree.note
                 )
             }
             return candidate.makeUnmatchedWorktree(repositoryID: repositoryID)
@@ -348,6 +415,11 @@ extension WorkspaceMutationCoordinator {
         case .rejected(let rejection):
             preconditionFailure("coordinator produced invalid repository topology: \(rejection)")
         }
+    }
+
+    private func normalizedRepositoryNote(_ note: String?) -> String? {
+        let trimmedNote = note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedNote?.isEmpty == true ? nil : trimmedNote
     }
 }
 

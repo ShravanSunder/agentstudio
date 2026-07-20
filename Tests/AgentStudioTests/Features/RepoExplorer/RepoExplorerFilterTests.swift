@@ -158,28 +158,6 @@ struct RepoExplorerFilterTests {
         #expect(result[0].worktrees.count == 2)
     }
 
-    @Test
-    func test_filter_worktreeTagMatch_returnsOnlyMatchingWorktree() {
-        // Arrange
-        let repoId = UUID()
-        let repos = [
-            makeRepo(
-                id: repoId,
-                name: "platform",
-                worktrees: [
-                    makeWorktree(repoId: repoId, name: "main"),
-                    makeWorktree(repoId: repoId, name: "branch-a", tags: ["review-slice"]),
-                ])
-        ]
-
-        // Act
-        let result = RepoExplorerFilter.filter(repos: presentableRepos(repos), query: "review-slice")
-
-        // Assert
-        #expect(result.count == 1)
-        #expect(result[0].worktrees.map(\.name) == ["branch-a"])
-    }
-
     // MARK: - No Match
 
     @Test

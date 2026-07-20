@@ -26,6 +26,20 @@ struct ArchitectureLintCommandTests {
         #expect(result.output.contains("error: [agentstudio_no_generic_clock_sleep]"))
         #expect(result.output.contains("error: [agentstudio_no_task_sleep_in_tests]"))
         #expect(result.output.contains("error: [agentstudio_eventbus_subscriber_policy_required]"))
+        #expect(result.output.contains("error: [agentstudio_shared_components_are_stateless]"))
+    }
+
+    @Test("shared components reject Core-owned static presentation reads")
+    func sharedComponentsRejectCoreOwnedStaticPresentationReads() throws {
+        let result = runCommand(
+            arguments: [
+                fixturePath("Bad/Sources/AgentStudio/SharedComponents/BadSharedComponentStaticRead.swift")
+            ]
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.output.contains("error: [agentstudio_shared_components_are_stateless]"))
+        #expect(result.output.contains("Core-owned presentation types"))
     }
 
     @Test("print rules exposes stable id and severity inventory")

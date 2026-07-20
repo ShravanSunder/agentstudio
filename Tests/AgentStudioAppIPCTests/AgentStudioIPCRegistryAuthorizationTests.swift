@@ -11,7 +11,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "bridge.", "orchestration."]
 
-        #expect(registry.definitions.count == 31)
+        #expect(registry.definitions.count == 33)
         #expect(registry.definition(named: "pane.snapshot") == nil)
         for definition in registry.definitions {
             #expect(!definition.paramsSchema.name.isEmpty)
@@ -25,12 +25,21 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         #expect(commandList.executionOwner == .queryReader)
 
         let commandExecute = try #require(registry.definition(named: "command.execute"))
-        #expect(commandExecute.privilegeClasses == [.debugUnsafe])
+        #expect(commandExecute.privilegeClasses == [.appCommandExecute])
         #expect(commandExecute.executionOwner == .appCommand)
 
         let commandBarOpen = try #require(registry.definition(named: "ui.commandBar.open"))
         #expect(commandBarOpen.privilegeClasses == [.uiPresent])
         #expect(commandBarOpen.executionOwner == .uiPresentation)
+
+        #expect(registry.definition(named: "sidebar.grouping.set") == nil)
+        #expect(registry.definition(named: "sidebar.surface.set") == nil)
+
+        for methodName in ["sidebar.grouping.get", "sidebar.surface.get"] {
+            let definition = try #require(registry.definition(named: methodName))
+            #expect(definition.privilegeClasses == [.workspaceRead])
+            #expect(definition.executionOwner == .queryReader)
+        }
 
         for methodName in ["pane.split", "pane.close", "drawer.toggle", "drawer.addPane"] {
             let definition = try #require(registry.definition(named: methodName))
@@ -252,8 +261,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         )
     }
 
-    @Test("command discovery is non-debug while command execution remains unsafe-debug only")
-    func commandDiscoveryIsNonDebugWhileCommandExecutionRemainsUnsafeDebugOnly() throws {
+    @Test("command discovery is non-debug while command execution accepts neutral app command grants")
+    func commandDiscoveryIsNonDebugWhileCommandExecutionAcceptsNeutralAppCommandGrants() throws {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let grantLedger = GrantLedger()
         let service = AuthorizationService(
@@ -268,6 +277,13 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             kind: .unsafeDebugClient,
             approvalAuthority: .noApprovalAuthority
         )
+        let automation = IPCPrincipal(
+            principalId: UUID(),
+            runtimeId: UUID(),
+            accessMode: .unsafeDebug,
+            kind: .automationClient,
+            approvalAuthority: .noApprovalAuthority
+        )
         let spawnedPane = makeAuthorizationPrincipal(boundPaneId: "pane-1")
 
         try service.authorize(
@@ -278,24 +294,98 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         )
 
         grantLedger.grant(
-            IPCPermissionScope(privilege: .debugUnsafe, target: .app, dataScope: .unspecified),
+            IPCPermissionScope(privilege: .appCommandExecute, target: .app, dataScope: .unspecified),
             to: spawnedPane.principalId
         )
+        try service.authorize(
+            principal: spawnedPane,
+            methodName: "command.execute",
+            requestedTarget: .app,
+            activePaneId: "pane-1"
+        )
+
         #expect(throws: AuthorizationError.self) {
             try service.authorize(
-                principal: spawnedPane,
+                principal: unsafeDebug,
                 methodName: "command.execute",
                 requestedTarget: .app,
-                activePaneId: "pane-1"
+                activePaneId: nil
             )
         }
 
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: automation,
+                methodName: "command.execute",
+                requestedTarget: .app,
+                activePaneId: nil
+            )
+        }
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .appCommandExecute, target: .app, dataScope: .unspecified),
+            to: automation.principalId
+        )
         try service.authorize(
-            principal: unsafeDebug,
+            principal: automation,
             methodName: "command.execute",
             requestedTarget: .app,
             activePaneId: nil
         )
+    }
+
+    @Test("sidebar semantic methods stay automation-only even with app scoped grants")
+    func sidebarSemanticMethodsStayAutomationOnlyEvenWithAppScopedGrants() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let grantLedger = GrantLedger()
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: grantLedger,
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let spawnedPane = makeAuthorizationPrincipal(boundPaneId: "pane-1")
+        let automation = IPCPrincipal(
+            principalId: UUID(),
+            runtimeId: UUID(),
+            accessMode: .unsafeDebug,
+            kind: .automationClient,
+            approvalAuthority: .noApprovalAuthority
+        )
+
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .workspaceRead, target: .app, dataScope: .unspecified),
+            to: spawnedPane.principalId
+        )
+
+        for methodName in ["sidebar.grouping.get", "sidebar.surface.get"] {
+            #expect(throws: AuthorizationError.self) {
+                try service.authorize(
+                    principal: spawnedPane,
+                    methodName: methodName,
+                    requestedTarget: .app,
+                    activePaneId: "pane-1"
+                )
+            }
+
+            #expect(throws: AuthorizationError.self) {
+                try service.authorize(
+                    principal: automation,
+                    methodName: methodName,
+                    requestedTarget: .app,
+                    activePaneId: nil
+                )
+            }
+            grantLedger.grant(
+                IPCPermissionScope(privilege: .workspaceRead, target: .app, dataScope: .unspecified),
+                to: automation.principalId
+            )
+            try service.authorize(
+                principal: automation,
+                methodName: methodName,
+                requestedTarget: .app,
+                activePaneId: nil
+            )
+            grantLedger.revokeAll(for: automation.principalId)
+        }
     }
 
     @Test("spawned pane baseline does not include ui presentation")

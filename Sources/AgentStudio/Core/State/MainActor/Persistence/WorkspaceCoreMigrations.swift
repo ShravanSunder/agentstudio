@@ -26,6 +26,7 @@ enum WorkspaceCoreMigrations {
         ("008_add_zmx_session_id", addZmxSessionIdStatements),
         ("009_drop_pane_source_binding", dropPaneSourceBindingStatements),
         ("010_repository_topology_tags_and_tab_color", repositoryTopologyTagsAndTabColorStatements),
+        ("011_add_repo_sidebar_metadata", addRepoSidebarMetadataStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {

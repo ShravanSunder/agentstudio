@@ -216,6 +216,7 @@ private struct PaneAgentLiveServerFixture {
                 runtimePort: PaneAgentTestRuntimePort(),
                 commandPort: PaneAgentTestCommandPort(),
                 uiPresentationPort: PaneAgentTestUIPresentationPort(),
+                sidebarPort: PaneAgentTestSidebarPort(),
                 permissionApprovalPort: PaneAgentTestPermissionApprovalPort()
             )
         )
@@ -324,6 +325,16 @@ private struct PaneAgentTestCommandPort: AppIPCCommandPort {
         IPCCommandListResult(commands: [])
     }
 
+    func requiredPermissionScopes(for command: IPCCommandListEntry) throws -> [IPCPermissionScope] {
+        command.requiredPrivileges.map { privilege in
+            IPCPermissionScope(
+                privilege: privilege,
+                target: .app,
+                dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
+            )
+        }
+    }
+
     func executeCommand(_: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
         throw AppIPCCommandError(reason: .unsupportedCommand)
     }
@@ -332,6 +343,16 @@ private struct PaneAgentTestCommandPort: AppIPCCommandPort {
 private struct PaneAgentTestUIPresentationPort: AppIPCUIPresentationPort {
     func openCommandBar(_: IPCCommandBarOpenParams) throws -> IPCCommandBarOpenResult {
         throw AppIPCUIPresentationError(reason: .noActiveWindow)
+    }
+}
+
+private struct PaneAgentTestSidebarPort: AppIPCSidebarPort {
+    func getGrouping(_ params: IPCSidebarGroupingGetParams) throws -> IPCSidebarGroupingResult {
+        IPCSidebarGroupingResult(surface: params.surface, mode: .repo)
+    }
+
+    func getSurface(_: IPCSidebarSurfaceGetParams) throws -> IPCSidebarSurfaceResult {
+        IPCSidebarSurfaceResult(surface: .repo)
     }
 }
 

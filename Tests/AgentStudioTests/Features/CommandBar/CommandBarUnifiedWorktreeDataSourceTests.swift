@@ -76,16 +76,11 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
     }
 
     @Test
-    func test_reposScope_keywordsIncludeRepoAndWorktreeTags() throws {
+    func test_reposScope_keywordsIncludeRepoTags() throws {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/tagged-command-repo"))
         let main = try #require(store.repos.first?.worktrees.first)
-        installTaggedTopology(
-            atom: store.repositoryTopologyAtom,
-            repository: repo,
-            repositoryTags: ["client-alpha"],
-            worktreeTags: ["review-slice"]
-        )
+        try store.mutationCoordinator.setRepoTags(["client-alpha"], repositoryID: repo.id)
 
         let items = CommandBarDataSource.items(
             scope: .repos,
@@ -96,14 +91,12 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
 
         let repoItem = try #require(items.first { $0.id == "repo-\(repo.id.uuidString)" })
         #expect(repoItem.keywords.contains("client-alpha"))
-        #expect(repoItem.keywords.contains("review-slice"))
         guard case .navigateRepo(let level) = repoItem.action else {
             Issue.record("Expected repo item to navigate")
             return
         }
         let worktreeItem = try #require(level.items.first { $0.id == "repo-wt-\(main.id.uuidString)" })
         #expect(worktreeItem.keywords.contains("client-alpha"))
-        #expect(worktreeItem.keywords.contains("review-slice"))
     }
 
     @Test
@@ -469,29 +462,5 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         let item = items.first { $0.id == "repo-\(repo.id.uuidString)" }
 
         #expect(item?.subtitle == "● Tab 1 · 1 pane")
-    }
-}
-
-@MainActor
-private func installTaggedTopology(
-    atom: RepositoryTopologyAtom,
-    repository: Repo,
-    repositoryTags: [String],
-    worktreeTags: [String]
-) {
-    var taggedRepository = repository
-    taggedRepository.tags = repositoryTags
-    for worktreeIndex in taggedRepository.worktrees.indices {
-        taggedRepository.worktrees[worktreeIndex].tags = worktreeTags
-    }
-    switch RepositoryTopologyReplacement.prepare(
-        repositories: [taggedRepository],
-        watchedPaths: atom.watchedPaths,
-        unavailableRepositoryIDs: atom.unavailableRepoIds
-    ) {
-    case .prepared(let replacement):
-        atom.replaceTopology(replacement)
-    case .rejected(let rejection):
-        Issue.record("invalid tagged topology fixture: \(rejection)")
     }
 }

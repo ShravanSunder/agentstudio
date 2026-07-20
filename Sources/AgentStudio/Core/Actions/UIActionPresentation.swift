@@ -105,10 +105,9 @@ enum LocalActionSpec {
     case deleteArrangement
     case addFavorite
     case clearAllHistory
-    case toggleInboxRowStateFilter(showingUnreadOnly: Bool)
-    case toggleInboxAttentionFilter(isAttentionOnly: Bool)
     case groupInboxNotifications
     case deleteInboxNotifications
+    case groupRepoExplorerWorktrees
     case cancel
     case add
     case rename
@@ -229,22 +228,6 @@ enum LocalActionSpec {
         case .clearAllHistory:
             return ActionSpec(
                 label: "Clear All History", helpText: "Clear all saved browser history", icon: .system(.trash))
-        case .toggleInboxRowStateFilter(let showingUnreadOnly):
-            return ActionSpec(
-                label: showingUnreadOnly ? "Show All Inbox Notifications" : "Show Unread Only",
-                helpText: showingUnreadOnly
-                    ? "Showing unread notifications; click to show all inbox notifications"
-                    : "Showing all inbox notifications; click to show unread notifications only",
-                icon: .system(.envelopeBadge)
-            )
-        case .toggleInboxAttentionFilter(let isAttentionOnly):
-            return ActionSpec(
-                label: isAttentionOnly ? "Show All Notifications" : "Show Attention Notifications",
-                helpText: isAttentionOnly
-                    ? "Showing attention notifications; click to show all notifications"
-                    : "Showing all notifications; click to show attention notifications",
-                icon: .system(.dotCircleViewfinder)
-            )
         case .groupInboxNotifications:
             return ActionSpec(
                 label: "Group Inbox Notifications",
@@ -256,6 +239,12 @@ enum LocalActionSpec {
                 label: "Delete Inbox Notifications",
                 helpText: "Open delete actions for inbox notifications",
                 icon: .system(.deleteLeft)
+            )
+        case .groupRepoExplorerWorktrees:
+            return ActionSpec(
+                label: "Group Repo Worktrees",
+                helpText: "Group repo worktrees by repo, pane, or tab",
+                icon: .system(.squareStack3dUp)
             )
         case .cancel:
             return ActionSpec(label: "Cancel", helpText: "Cancel this action", icon: .system(.xmarkCircle))

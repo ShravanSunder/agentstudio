@@ -17,8 +17,8 @@ final class RepositoryTopologyAtom {
     @ObservationIgnored private var watchedPathsByID: [UUID: WatchedPath] = [:]
 
     private struct WorktreePathIndexEntry {
-        let repo: Repo
-        let worktree: Worktree
+        let repoId: UUID
+        let worktreeId: UUID
         let normalizedWorktreePath: String
         let repoWorktreeCount: Int
         let repoPathMatchesWorktree: Bool
@@ -27,7 +27,8 @@ final class RepositoryTopologyAtom {
     }
 
     var allWorktreeIds: Set<UUID> {
-        Set(worktreesByID.keys)
+        _ = repos
+        return Set(worktreesByID.keys)
     }
 
     var repositoryIdsInOrder: [UUID] {
@@ -82,24 +83,29 @@ final class RepositoryTopologyAtom {
     }
 
     func repo(_ id: UUID) -> Repo? {
-        repositoriesByID[id]
+        _ = repos
+        return repositoriesByID[id]
     }
 
     func worktree(_ id: UUID) -> Worktree? {
-        worktreesByID[id]
+        _ = repos
+        return worktreesByID[id]
     }
 
     func watchedPath(_ id: UUID) -> WatchedPath? {
-        watchedPathsByID[id]
+        _ = watchedPaths
+        return watchedPathsByID[id]
     }
 
     func repo(containing worktreeId: UUID) -> Repo? {
+        _ = repos
         guard let worktree = worktreesByID[worktreeId] else { return nil }
         return repositoriesByID[worktree.repoId]
     }
 
     func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
         guard let cwd else { return nil }
+        _ = repos
         _ = worktreePathIndexGeneration
 
         let normalizedCWD = cwd.standardizedFileURL.path
@@ -108,8 +114,47 @@ final class RepositoryTopologyAtom {
                 || normalizedCWD.hasPrefix($0.normalizedWorktreePath + "/")
         })
 
-        guard let match else { return nil }
-        return (match.repo, match.worktree)
+        guard
+            let match,
+            let repository = repositoriesByID[match.repoId],
+            let worktree = worktreesByID[match.worktreeId]
+        else { return nil }
+        return (repository, worktree)
+    }
+
+    func applyValidatedRepositoryMetadata(
+        repositoryID: UUID,
+        isFavorite: Bool,
+        note: String?,
+        tags: [String]
+    ) {
+        guard let repositoryIndex = repos.firstIndex(where: { $0.id == repositoryID }) else { return }
+        var repository = repos[repositoryIndex]
+        guard
+            repository.isFavorite != isFavorite
+                || repository.note != note
+                || repository.tags != tags
+        else { return }
+
+        repository.isFavorite = isFavorite
+        repository.note = note
+        repository.tags = tags
+        repos[repositoryIndex] = repository
+        repositoriesByID[repositoryID] = repository
+    }
+
+    func applyValidatedWorktreeNote(worktreeID: UUID, note: String?) {
+        guard
+            let worktree = worktreesByID[worktreeID],
+            let repositoryIndex = repos.firstIndex(where: { $0.id == worktree.repoId }),
+            let worktreeIndex = repos[repositoryIndex].worktrees.firstIndex(where: { $0.id == worktreeID }),
+            repos[repositoryIndex].worktrees[worktreeIndex].note != note
+        else { return }
+
+        repos[repositoryIndex].worktrees[worktreeIndex].note = note
+        let updatedWorktree = repos[repositoryIndex].worktrees[worktreeIndex]
+        worktreesByID[worktreeID] = updatedWorktree
+        repositoriesByID[worktree.repoId] = repos[repositoryIndex]
     }
 
     func isRepoUnavailable(_ repoId: UUID) -> Bool {
@@ -142,8 +187,8 @@ final class RepositoryTopologyAtom {
 
             return normalizedWorktrees.map { item in
                 WorktreePathIndexEntry(
-                    repo: repo,
-                    worktree: item.worktree,
+                    repoId: repo.id,
+                    worktreeId: item.worktree.id,
                     normalizedWorktreePath: item.normalizedPath,
                     repoWorktreeCount: repo.worktrees.count,
                     repoPathMatchesWorktree: repoPathMatchesAnyWorktree

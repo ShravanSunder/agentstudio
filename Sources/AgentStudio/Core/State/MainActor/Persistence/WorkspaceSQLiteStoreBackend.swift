@@ -335,6 +335,8 @@ enum WorkspaceSQLiteStateBridge {
                 name: repo.name,
                 repoPath: repo.repoPath,
                 createdAt: repo.createdAt,
+                isFavorite: repo.isFavorite,
+                note: repo.note,
                 worktrees: (worktreesByRepoId[repo.id] ?? []).map { worktree in
                     WorkspaceCoreRepository.WorktreeRecord(
                         id: worktree.id,
@@ -342,7 +344,7 @@ enum WorkspaceSQLiteStateBridge {
                         name: worktree.name,
                         path: worktree.path,
                         isMainWorktree: worktree.isMainWorktree,
-                        tags: worktree.tags
+                        note: worktree.note
                     )
                 },
                 tags: repo.tags

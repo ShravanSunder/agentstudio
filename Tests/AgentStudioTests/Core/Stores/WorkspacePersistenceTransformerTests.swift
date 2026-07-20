@@ -6,8 +6,8 @@ import Testing
 @MainActor
 @Suite("Workspace persistence transformer")
 struct WorkspacePersistenceTransformerTests {
-    @Test("topology bridge preserves repository and worktree tags")
-    func topologyBridgePreservesTags() throws {
+    @Test("topology bridge preserves repository and worktree metadata")
+    func topologyBridgePreservesMetadata() throws {
         // Arrange
         let repositoryID = UUIDv7.generate()
         let worktreeID = UUIDv7.generate()
@@ -18,7 +18,9 @@ struct WorkspacePersistenceTransformerTests {
                 CanonicalRepo(
                     id: repositoryID,
                     name: "agent-studio",
-                    repoPath: URL(filePath: "/tmp/agent-studio-tags"),
+                    repoPath: URL(filePath: "/tmp/agent-studio-metadata"),
+                    isFavorite: true,
+                    note: "repository note",
                     tags: ["client"]
                 )
             ],
@@ -27,9 +29,9 @@ struct WorkspacePersistenceTransformerTests {
                     id: worktreeID,
                     repoId: repositoryID,
                     name: "main",
-                    path: URL(filePath: "/tmp/agent-studio-tags"),
+                    path: URL(filePath: "/tmp/agent-studio-metadata"),
                     isMainWorktree: true,
-                    tags: ["wip"]
+                    note: "worktree note"
                 )
             ],
             updatedAt: Date(timeIntervalSince1970: 10)
@@ -42,8 +44,10 @@ struct WorkspacePersistenceTransformerTests {
         )
 
         // Assert
+        #expect(topologyAtom.repo(repositoryID)?.isFavorite == true)
+        #expect(topologyAtom.repo(repositoryID)?.note == "repository note")
         #expect(topologyAtom.repo(repositoryID)?.tags == ["client"])
-        #expect(topologyAtom.worktree(worktreeID)?.tags == ["wip"])
+        #expect(topologyAtom.worktree(worktreeID)?.note == "worktree note")
     }
 
     @Test("SQLite DTO conversion preserves canonical values exactly")

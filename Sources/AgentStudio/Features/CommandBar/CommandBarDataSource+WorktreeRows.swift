@@ -95,7 +95,6 @@ extension CommandBarDataSource {
         keywords.append(contentsOf: repo.tags)
         keywords.append(contentsOf: repo.worktrees.map(\.name))
         keywords.append(contentsOf: repo.worktrees.map { $0.path.lastPathComponent })
-        keywords.append(contentsOf: repo.worktrees.flatMap(\.tags))
         return keywords
     }
 
@@ -268,7 +267,6 @@ extension CommandBarDataSource {
             keywords.append(worktree.path.path)
         }
         keywords.append(contentsOf: repo.tags)
-        keywords.append(contentsOf: worktree.tags)
         return keywords
     }
 

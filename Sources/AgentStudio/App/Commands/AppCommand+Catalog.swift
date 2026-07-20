@@ -546,6 +546,18 @@ extension AppCommand {
                 commandBarGroupName: "Repo",
                 commandBarGroupPriority: CommandBarGroupPriority.repo
             )
+        case .addRepoFavorite:
+            return repoFavoriteDefinition(
+                label: "Add Favorite",
+                icon: .bookmark,
+                helpText: "Add favorite"
+            )
+        case .removeRepoFavorite:
+            return repoFavoriteDefinition(
+                label: "Remove Favorite",
+                icon: .bookmarkFill,
+                helpText: "Remove favorite"
+            )
         case .openWorktree:
             return worktreeDefinition(
                 label: "Open Worktree",
@@ -705,7 +717,12 @@ extension AppCommand {
                 icon: .system(.bell),
                 helpText: "Show or hide the notification inbox in the sidebar",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                commandBarGroupPriority: CommandBarGroupPriority.window,
+                ipcExposure: AppCommandIPCExposure(
+                    executionModes: [.headless, .requiresInteractiveInput],
+                    targetKinds: [],
+                    requiredPrivileges: [.sidebarStateMutate]
+                )
             )
         case .toggleInboxNotificationSort:
             return AppCommandSpec(
@@ -765,8 +782,35 @@ extension AppCommand {
                 icon: .system(.sidebarLeft),
                 helpText: "Show or hide the repo explorer in the sidebar",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                commandBarGroupPriority: CommandBarGroupPriority.window,
+                ipcExposure: AppCommandIPCExposure(
+                    executionModes: [.headless, .requiresInteractiveInput],
+                    targetKinds: [],
+                    requiredPrivileges: [.sidebarStateMutate]
+                )
             )
+        case .setRepoSidebarGroupingRepo:
+            return repoSidebarGroupingDefinition(.repo)
+        case .setRepoSidebarGroupingPane:
+            return repoSidebarGroupingDefinition(.pane)
+        case .setRepoSidebarGroupingTab:
+            return repoSidebarGroupingDefinition(.tab)
+        case .setRepoSidebarVisibilityMode:
+            return repoSidebarVisibilityDefinition()
+        case .setRepoSidebarSortOrder:
+            return repoSidebarSortOrderDefinition()
+        case .setInboxGroupingTab:
+            return inboxGroupingDefinition(.byTab)
+        case .setInboxGroupingRepo:
+            return inboxGroupingDefinition(.byRepo)
+        case .setInboxGroupingPane:
+            return inboxGroupingDefinition(.byPane)
+        case .setInboxGroupingNone:
+            return inboxGroupingDefinition(.none)
+        case .setInboxRowStateFilter:
+            return inboxRowStateFilterDefinition()
+        case .setInboxContentMode:
+            return inboxContentModeDefinition()
         case .newFloatingTerminal:
             return AppCommandSpec(
                 command: self,
@@ -948,51 +992,6 @@ extension AppCommand {
             visibleWhen: [.hasActiveTab, .hasMultiplePanes],
             commandBarGroupName: "Focus",
             commandBarGroupPriority: CommandBarGroupPriority.focus
-        )
-    }
-
-    private func arrangementDefinition(
-        shortcut: AppShortcut? = nil,
-        label: String,
-        icon: CommandIcon,
-        helpText: String
-    ) -> AppCommandSpec {
-        AppCommandSpec(
-            command: self,
-            shortcut: shortcut,
-            label: label,
-            icon: icon,
-            helpText: helpText,
-            appliesTo: [.tab],
-            visibleWhen: [.hasActiveTab, .hasArrangements],
-            commandBarGroupName: "Tab",
-            commandBarGroupPriority: CommandBarGroupPriority.tab
-        )
-    }
-
-    private func worktreeDefinition(label: String, icon: CommandIcon, helpText: String) -> AppCommandSpec {
-        AppCommandSpec(
-            command: self,
-            label: label,
-            icon: icon,
-            helpText: helpText,
-            appliesTo: [.worktree],
-            commandBarGroupName: "Repo",
-            commandBarGroupPriority: CommandBarGroupPriority.repo
-        )
-    }
-
-    private func managementDefinition(shortcut: AppShortcut, label: String, icon: CommandIcon, helpText: String)
-        -> AppCommandSpec
-    {
-        AppCommandSpec(
-            command: self,
-            shortcut: shortcut,
-            label: label,
-            icon: icon,
-            helpText: helpText,
-            requiresManagementLayer: true,
-            isHiddenInCommandBar: true
         )
     }
 

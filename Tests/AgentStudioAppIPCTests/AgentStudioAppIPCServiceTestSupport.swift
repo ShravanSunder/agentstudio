@@ -164,6 +164,35 @@ struct FakeLayoutPort: AppIPCLayoutPort {
     }
 }
 
+final class FakeSidebarPort: AppIPCSidebarPort {
+    let repoGrouping: IPCSidebarGroupingMode
+    let inboxGrouping: IPCSidebarGroupingMode
+    let surface: IPCSidebarSurface
+
+    nonisolated init(
+        repoGrouping: IPCSidebarGroupingMode = .repo,
+        inboxGrouping: IPCSidebarGroupingMode = .tab,
+        surface: IPCSidebarSurface = .repo
+    ) {
+        self.repoGrouping = repoGrouping
+        self.inboxGrouping = inboxGrouping
+        self.surface = surface
+    }
+
+    func getGrouping(_ params: IPCSidebarGroupingGetParams) throws -> IPCSidebarGroupingResult {
+        switch params.surface {
+        case .repo:
+            return IPCSidebarGroupingResult(surface: .repo, mode: repoGrouping)
+        case .inbox:
+            return IPCSidebarGroupingResult(surface: .inbox, mode: inboxGrouping)
+        }
+    }
+
+    func getSurface(_: IPCSidebarSurfaceGetParams) throws -> IPCSidebarSurfaceResult {
+        IPCSidebarSurfaceResult(surface: surface)
+    }
+}
+
 struct FakeRuntimePort: AppIPCRuntimePort {
     let successfulPaneId: UUID?
 
@@ -228,28 +257,83 @@ struct FakeRuntimePort: AppIPCRuntimePort {
     }
 }
 
-struct FakeCommandPort: AppIPCCommandPort {
+final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
     let workspaceWindowId: UUID?
     let activeScope: IPCCommandBarScope?
+    let successfulCommandId: String?
+    let stateUnavailableCommandId: String?
+    let commands: [IPCCommandListEntry]
+    let requiredPermissionTargetByPrivilege: [IPCPrivilegeClass: IPCTargetScope]
+    private let lock = NSLock()
+    nonisolated(unsafe) private var receivedExecuteParamsStorage: [IPCCommandExecuteParams] = []
 
-    nonisolated init(workspaceWindowId: UUID? = nil, activeScope: IPCCommandBarScope? = nil) {
+    nonisolated init(
+        workspaceWindowId: UUID? = nil,
+        activeScope: IPCCommandBarScope? = nil,
+        successfulCommandId: String? = nil,
+        stateUnavailableCommandId: String? = nil,
+        commands: [IPCCommandListEntry] = [],
+        requiredPermissionTargetByPrivilege: [IPCPrivilegeClass: IPCTargetScope] = [:]
+    ) {
         self.workspaceWindowId = workspaceWindowId
         self.activeScope = activeScope
+        self.successfulCommandId = successfulCommandId
+        self.stateUnavailableCommandId = stateUnavailableCommandId
+        self.commands = commands
+        self.requiredPermissionTargetByPrivilege = requiredPermissionTargetByPrivilege
+    }
+
+    nonisolated var receivedExecuteParams: [IPCCommandExecuteParams] {
+        lock.withLock {
+            receivedExecuteParamsStorage
+        }
     }
 
     func listCommands() throws -> IPCCommandListResult {
-        IPCCommandListResult(commands: [])
+        IPCCommandListResult(commands: commands)
+    }
+
+    func requiredPermissionScopes(for command: IPCCommandListEntry) throws -> [IPCPermissionScope] {
+        command.requiredPrivileges.map { privilege in
+            IPCPermissionScope(
+                privilege: privilege,
+                target: requiredPermissionTargetByPrivilege[privilege] ?? .app,
+                dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
+            )
+        }
     }
 
     func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
-        if params.targetHandle != nil {
-            throw AppIPCCommandError(reason: .targetNotFound)
+        lock.withLock {
+            receivedExecuteParamsStorage.append(params)
+        }
+        guard params.argumentsContainOnlyStrings else {
+            throw AppIPCCommandError(reason: .validationRejected)
+        }
+        if let rawTargetHandle = params.targetHandle {
+            let handle = try IPCHandle.parse(rawTargetHandle)
+            guard
+                let command = commands.first(where: { $0.id == params.commandId }),
+                command.targetKinds.contains(handle.kind)
+            else {
+                throw AppIPCCommandError(reason: .targetNotFound)
+            }
         }
         guard params.commandId.rawValue != "futureCommand" else {
             throw AppIPCCommandError(reason: .unsupportedCommand)
         }
         guard workspaceWindowId != nil, activeScope != nil else {
             throw AppIPCCommandError(reason: .noActiveWindow)
+        }
+        if params.commandId.rawValue == stateUnavailableCommandId {
+            throw AppIPCCommandError(reason: .stateUnavailable)
+        }
+        if params.commandId.rawValue == successfulCommandId {
+            return IPCCommandExecuteResult(
+                commandId: params.commandId,
+                applied: true,
+                targetHandle: params.targetHandle
+            )
         }
         throw AppIPCCommandError(reason: .requiresPresentation)
     }
@@ -303,7 +387,9 @@ struct LiveServerFixture {
         runtimePort: any AppIPCRuntimePort = FakeRuntimePort(),
         commandPort: any AppIPCCommandPort = FakeCommandPort(),
         uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
+        sidebarPort: any AppIPCSidebarPort = FakeSidebarPort(),
         debugTokenEscrowEnabled: Bool = false,
+        debugTokenEscrowPermissionScopes: [IPCPermissionScope] = [],
         methodContributions: [AppIPCMethodContribution] = []
     ) throws {
         rootURL = URL(
@@ -325,6 +411,7 @@ struct LiveServerFixture {
             runtimePort: runtimePort,
             commandPort: commandPort,
             uiPresentationPort: uiPresentationPort,
+            sidebarPort: sidebarPort,
             permissionApprovalPort: FakePermissionApprovalPort()
         )
         let service = try AgentStudioAppIPCService(
@@ -332,7 +419,8 @@ struct LiveServerFixture {
                 runtimeId: runtimeId,
                 accessMode: accessMode,
                 methodDefinitions: baseDefinitions,
-                debugTokenEscrowEnabled: debugTokenEscrowEnabled
+                debugTokenEscrowEnabled: debugTokenEscrowEnabled,
+                debugTokenEscrowPermissionScopes: debugTokenEscrowPermissionScopes
             ),
             ports: ports,
             methodContributions: methodContributions

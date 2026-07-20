@@ -26,7 +26,14 @@ extension AppDelegate {
                     runtimeId: runtimeId,
                     accessMode: accessMode,
                     methodDefinitions: ipcComposition.baseDefinitions,
-                    debugTokenEscrowEnabled: Self.appIPCDebugTokenEscrowEnabled()
+                    debugTokenEscrowEnabled: Self.appIPCDebugTokenEscrowEnabled(),
+                    debugTokenEscrowPermissionScopes: [
+                        IPCPermissionScope(
+                            privilege: .sidebarStateMutate,
+                            target: .workspace(store.identityAtom.workspaceId),
+                            dataScope: .sidebarState
+                        )
+                    ]
                 ),
                 ports: AgentStudioAppIPCPorts(
                     queryPort: AgentStudioIPCQueryAdapter(
@@ -49,9 +56,21 @@ extension AppDelegate {
                         commandDispatcher: workspaceSurfaceCoordinator
                     ),
                     commandPort: AgentStudioIPCCommandAdapter(
-                        windowLifecycleReader: windowLifecycleReader
+                        workspaceId: store.identityAtom.workspaceId,
+                        repositoryTargetAuthorizer: WorkspaceRepositoryTargetAuthorizationPort(
+                            repositoryExists: { [repositoryTopology = store.repositoryTopologyAtom] repositoryId in
+                                repositoryTopology.repo(repositoryId) != nil
+                            }
+                        ),
+                        windowLifecycleReader: windowLifecycleReader,
+                        shellCommandHandler: self
                     ),
                     uiPresentationPort: AgentStudioIPCUIPresentationAdapter(presenter: self),
+                    sidebarPort: AgentStudioIPCSidebarAdapter(
+                        repoPrefs: atomStore.repoExplorerSidebarPrefs,
+                        inboxPrefs: atomStore.inboxNotificationPrefs,
+                        sidebarState: atomStore.workspaceSidebarState
+                    ),
                     permissionApprovalPort: AgentStudioIPCHumanApprovalPort()
                 ),
                 methodContributions: ipcComposition.methodContributions

@@ -1,7 +1,12 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
+
+private final class RepositoryTopologyObservationFlag: @unchecked Sendable {
+    var didFire = false
+}
 
 @MainActor
 @Suite("RepositoryTopologyAtom")
@@ -10,6 +15,81 @@ struct RepositoryTopologyAtomTests {
         case path
         case mainWorktree
         case name
+    }
+
+    @Test("path lookup resolves current repository metadata without rebuilding structural index")
+    func pathLookupResolvesCurrentRepositoryMetadata() throws {
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-current-metadata")
+        let repo = coordinator.addRepo(at: repoPath)
+        let generation = atom.worktreePathIndexGeneration
+
+        coordinator.setRepoFavorite(repo.id, isFavorite: true)
+        coordinator.updateRepoNote(repo.id, note: "current note")
+        try coordinator.setRepoTags(["current"], repositoryID: repo.id)
+
+        let match = try #require(atom.repoAndWorktree(containing: repoPath))
+        #expect(match.repo.isFavorite)
+        #expect(match.repo.note == "current note")
+        #expect(match.repo.tags == ["current"])
+        #expect(atom.worktreePathIndexGeneration == generation)
+    }
+
+    @Test("path lookup resolves current worktree metadata without rebuilding structural index")
+    func pathLookupResolvesCurrentWorktreeMetadata() throws {
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-current-worktree-metadata")
+        let repo = coordinator.addRepo(at: repoPath)
+        let worktree = try #require(repo.worktrees.single)
+        let generation = atom.worktreePathIndexGeneration
+
+        try coordinator.updateWorktreeNote(worktree.id, note: "worktree note")
+
+        let match = try #require(atom.repoAndWorktree(containing: repoPath))
+        #expect(match.worktree.note == "worktree note")
+        #expect(atom.worktreePathIndexGeneration == generation)
+    }
+
+    @Test("keyed repository lookup invalidates observation after metadata change")
+    func keyedRepositoryLookupInvalidatesObservationAfterMetadataChange() {
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let repo = coordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agentstudio-topology-observed-metadata"))
+        let invalidation = RepositoryTopologyObservationFlag()
+
+        withObservationTracking {
+            _ = atom.repo(repo.id)?.isFavorite
+        } onChange: {
+            invalidation.didFire = true
+        }
+
+        coordinator.setRepoFavorite(repo.id, isFavorite: true)
+
+        #expect(invalidation.didFire)
+    }
+
+    @Test("missing keyed repository lookup invalidates observation after structural insertion")
+    func missingKeyedRepositoryLookupInvalidatesObservationAfterStructuralInsertion() {
+        let atom = RepositoryTopologyAtom()
+        let repositoryID = UUIDv7.generate()
+        let repository = Repo(
+            id: repositoryID,
+            name: "observed-insertion",
+            repoPath: URL(fileURLWithPath: "/tmp/agentstudio-topology-observed-insertion")
+        )
+        let invalidation = RepositoryTopologyObservationFlag()
+
+        withObservationTracking {
+            _ = atom.repo(repositoryID)
+        } onChange: {
+            invalidation.didFire = true
+        }
+
+        installTopology(atom: atom, repositories: [repository])
+
+        #expect(invalidation.didFire)
     }
 
     @Test("batched topology mutation defers path index rebuild until batch exits")
@@ -58,6 +138,35 @@ struct RepositoryTopologyAtomTests {
         installTopology(atom: atom, repositories: atom.repos)
 
         #expect(atom.worktreePathIndexGeneration == generationBeforeEqualReplacement)
+    }
+
+    @Test("repo tags mutate as topology state")
+    func repoTagsMutateAsTopologyState() throws {
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let repo = coordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agentstudio-topology-tags"))
+
+        try coordinator.setRepoTags(["client", "active"], repositoryID: repo.id)
+
+        #expect(atom.repo(repo.id)?.tags == ["active", "client"])
+    }
+
+    @Test("repo tag validation rejects unsafe and duplicate values")
+    func repoTagValidationRejectsUnsafeAndDuplicateValues() {
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let repo = coordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agentstudio-topology-tag-validation"))
+
+        #expect(throws: RepositoryTopologyMutationError.invalidRepositoryTag(" leading")) {
+            try coordinator.setRepoTags([" leading"], repositoryID: repo.id)
+        }
+        #expect(throws: RepositoryTopologyMutationError.invalidRepositoryTag("spoof\u{2066}tag")) {
+            try coordinator.setRepoTags(["spoof\u{2066}tag"], repositoryID: repo.id)
+        }
+        #expect(throws: RepositoryTopologyMutationError.duplicateRepositoryTag("wip")) {
+            try coordinator.setRepoTags(["wip", "wip"], repositoryID: repo.id)
+        }
+        #expect(atom.repo(repo.id)?.tags.isEmpty == true)
     }
 
     @Test("sealed topology replacement rejects duplicate stable keys before atom assignment")
@@ -141,16 +250,14 @@ struct RepositoryTopologyAtomTests {
         )
     }
 
-    @Test("worktree reconciliation preserves existing tags for matched worktrees")
-    func worktreeReconciliationPreservesExistingTagsForMatchedWorktrees() throws {
+    @Test("worktree reconciliation preserves existing notes for matched worktrees")
+    func worktreeReconciliationPreservesExistingNotesForMatchedWorktrees() throws {
         let atom = RepositoryTopologyAtom()
         let coordinator = makeTopologyMutationCoordinator(atom: atom)
-        let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-preserve-tags")
+        let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-preserve-notes")
         let repo = coordinator.addRepo(at: repoPath)
-        var taggedRepository = repo
-        taggedRepository.worktrees[0].tags = ["keep"]
-        installTopology(atom: atom, repositories: [taggedRepository])
         let mainWorktree = try #require(atom.repo(repo.id)?.worktrees.single)
+        try coordinator.updateWorktreeNote(mainWorktree.id, note: "keep this note")
 
         coordinator.reconcileDiscoveredWorktrees(
             repo.id,
@@ -164,7 +271,7 @@ struct RepositoryTopologyAtomTests {
             ]
         )
 
-        #expect(atom.worktree(mainWorktree.id)?.tags == ["keep"])
+        #expect(atom.worktree(mainWorktree.id)?.note == "keep this note")
     }
 
     @Test("worktree reconciliation consumes an existing identity only once")
@@ -174,9 +281,7 @@ struct RepositoryTopologyAtomTests {
         let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-existing-identity")
         let renamedPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-renamed/existing-identity")
         let repo = coordinator.addRepo(at: repoPath)
-        var taggedRepository = repo
-        taggedRepository.worktrees[0].tags = ["keep"]
-        installTopology(atom: atom, repositories: [taggedRepository])
+        try coordinator.updateWorktreeNote(repo.worktrees[0].id, note: "keep")
         let existingMainWorktree = try #require(atom.repo(repo.id)?.worktrees.single)
 
         coordinator.reconcileDiscoveredWorktrees(
@@ -201,7 +306,7 @@ struct RepositoryTopologyAtomTests {
         #expect(reconciledWorktrees.count == 2)
         #expect(Set(reconciledWorktrees.map(\.id)).count == 2)
         #expect(reconciledWorktrees[0].id == existingMainWorktree.id)
-        #expect(reconciledWorktrees[0].tags == ["keep"])
+        #expect(reconciledWorktrees[0].note == "keep")
         #expect(reconciledWorktrees[1].id != existingMainWorktree.id)
     }
 

@@ -130,6 +130,8 @@ enum WorkspacePersistenceTransformer {
                 name: repo.name,
                 repoPath: repo.repoPath,
                 createdAt: repo.createdAt,
+                isFavorite: repo.isFavorite,
+                note: repo.note,
                 tags: repo.tags
             )
         }
@@ -144,7 +146,7 @@ enum WorkspacePersistenceTransformer {
                     name: worktree.name,
                     path: worktree.path,
                     isMainWorktree: worktree.isMainWorktree,
-                    tags: worktree.tags
+                    note: worktree.note
                 )
             }
         }
@@ -163,7 +165,7 @@ enum WorkspacePersistenceTransformer {
                     name: canonicalWorktree.name,
                     path: canonicalWorktree.path,
                     isMainWorktree: canonicalWorktree.isMainWorktree,
-                    tags: canonicalWorktree.tags
+                    note: canonicalWorktree.note
                 )
             }
             return Repo(
@@ -172,6 +174,8 @@ enum WorkspacePersistenceTransformer {
                 repoPath: canonicalRepo.repoPath,
                 worktrees: worktrees,
                 createdAt: canonicalRepo.createdAt,
+                isFavorite: canonicalRepo.isFavorite,
+                note: canonicalRepo.note,
                 tags: canonicalRepo.tags
             )
         }

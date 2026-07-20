@@ -8,7 +8,7 @@ struct Worktree: Codable, Identifiable, Hashable, Sendable {
     var name: String
     var path: URL
     var isMainWorktree: Bool
-    var tags: [String]
+    var note: String?
 
     /// Deterministic identity derived from filesystem path via SHA-256.
     /// Used for zmx session ID segment. Survives reinstall/data loss, breaks on directory move.
@@ -20,14 +20,14 @@ struct Worktree: Codable, Identifiable, Hashable, Sendable {
         name: String,
         path: URL,
         isMainWorktree: Bool = false,
-        tags: [String] = []
+        note: String? = nil
     ) {
         self.id = id
         self.repoId = repoId
         self.name = name
         self.path = path
         self.isMainWorktree = isMainWorktree
-        self.tags = tags
+        self.note = note
     }
 
     init(from decoder: Decoder) throws {
@@ -37,6 +37,6 @@ struct Worktree: Codable, Identifiable, Hashable, Sendable {
         self.name = try container.decode(String.self, forKey: .name)
         self.path = try container.decode(URL.self, forKey: .path)
         self.isMainWorktree = try container.decode(Bool.self, forKey: .isMainWorktree)
-        self.tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        self.note = try container.decodeIfPresent(String.self, forKey: .note)
     }
 }

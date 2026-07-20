@@ -67,6 +67,7 @@ enum AppCommand: String, CaseIterable {
     case copyCurrentPanePath
     // Repo commands
     case watchFolder, removeRepo
+    case addRepoFavorite, removeRepoFavorite
     case openWorktree
     case openWorktreeInPane
     // Management layer
@@ -88,6 +89,17 @@ enum AppCommand: String, CaseIterable {
     case showPaneInboxNotifications
     case clearPaneInboxNotifications
     case showWorktreeSidebar
+    case setRepoSidebarGroupingRepo
+    case setRepoSidebarGroupingPane
+    case setRepoSidebarGroupingTab
+    case setRepoSidebarVisibilityMode
+    case setRepoSidebarSortOrder
+    case setInboxGroupingTab
+    case setInboxGroupingRepo
+    case setInboxGroupingPane
+    case setInboxGroupingNone
+    case setInboxRowStateFilter
+    case setInboxContentMode
     case newFloatingTerminal
     // Window commands
     case newWindow
@@ -185,6 +197,7 @@ struct AppCommandSpec {
     let commandBarGroupPriority: Int
     let isHiddenInCommandBar: Bool
     let ipcExposure: AppCommandIPCExposure
+    let argumentSchema: [IPCCommandArgumentSchema]
 
     init(
         command: AppCommand,
@@ -199,6 +212,7 @@ struct AppCommandSpec {
         commandBarGroupName: String = "Commands",
         commandBarGroupPriority: Int = 8,
         isHiddenInCommandBar: Bool = false,
+        argumentSchema: [IPCCommandArgumentSchema] = [],
         ipcExposure: AppCommandIPCExposure? = nil
     ) {
         self.command = command
@@ -213,6 +227,7 @@ struct AppCommandSpec {
         self.commandBarGroupName = commandBarGroupName
         self.commandBarGroupPriority = commandBarGroupPriority
         self.isHiddenInCommandBar = isHiddenInCommandBar
+        self.argumentSchema = argumentSchema
         self.ipcExposure =
             ipcExposure
             ?? AppCommandIPCExposure.defaultInteractive(
@@ -228,6 +243,9 @@ struct AppCommandSpec {
         var targetKinds: [IPCHandleKind] = []
         if searchItemTypes.contains(.tab) {
             targetKinds.append(.tab)
+        }
+        if searchItemTypes.contains(.repo) {
+            targetKinds.append(.repo)
         }
         if searchItemTypes.contains(.pane) || searchItemTypes.contains(.floatingTerminal) {
             targetKinds.append(.pane)
@@ -257,6 +275,17 @@ struct AppCommandIPCExposure: Equatable, Sendable {
         )
     }
 
+    static func headless(
+        targetKinds: [IPCHandleKind] = [],
+        requiredPrivileges: [IPCPrivilegeClass]
+    ) -> Self {
+        Self(
+            executionModes: [.headless],
+            targetKinds: targetKinds,
+            requiredPrivileges: requiredPrivileges
+        )
+    }
+
     var commandListEntryIsHeadlessExecutable: Bool {
         executionModes.contains(.headless)
     }
@@ -281,11 +310,18 @@ struct AppCommandIPCExposure: Equatable, Sendable {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit, .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
-            .clearPaneInboxNotifications, .showWorktreeSidebar, .newFloatingTerminal, .newWindow,
+            .clearPaneInboxNotifications, .showWorktreeSidebar,
+            .newFloatingTerminal, .newWindow,
             .closeWindow, .openNewTerminalInTab:
             return [.layoutMutate]
         case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
             return [.terminalInputWrite]
+        case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
+            .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
+            .setInboxRowStateFilter, .setInboxContentMode,
+            .addRepoFavorite, .removeRepoFavorite:
+            return [.sidebarStateMutate]
         case .editPaneNote, .watchFolder, .removeRepo, .openWorktree, .openWorktreeInPane,
             .openWebview, .openBridgeReview:
             return [.layoutMutate]
@@ -328,6 +364,7 @@ protocol ShellCommandHandling: AnyObject {
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
     func execute(_ command: AppCommand) -> Bool
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
+    func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome
 
     /// Show the repo/worktree-scoped command bar for discovered checkout actions.
     func showRepoCommandBar()
@@ -337,6 +374,128 @@ protocol ShellCommandHandling: AnyObject {
 
     /// Restore focus to the active pane after transient sidebar/management UI work.
     func refocusActivePane()
+}
+
+struct AppCommandExecutionRequest: Equatable, Sendable {
+    let command: AppCommand
+    let arguments: AppCommandExecutionArguments?
+    let executionContext: AppCommandExecutionContext
+
+    init(
+        command: AppCommand,
+        arguments: AppCommandExecutionArguments? = nil,
+        executionContext: AppCommandExecutionContext = .interactive
+    ) {
+        self.command = command
+        self.arguments = arguments
+        self.executionContext = executionContext
+    }
+}
+
+enum AppCommandExecutionContext: Equatable, Sendable {
+    case interactive
+    case headlessIPC
+}
+
+enum AppCommandExecutionArguments: Equatable, Sendable {
+    case repoSidebarVisibilityMode(RepoExplorerVisibilityMode)
+    case repoSidebarSortOrder(RepoExplorerSortOrder)
+    case inboxRowStateFilter(InboxNotificationRowStateFilter)
+    case inboxContentMode(InboxNotificationContentMode)
+
+    static func commandOwnedArguments(
+        command: AppCommand,
+        rawArguments: [String: String],
+        argumentsContainOnlyStrings: Bool,
+        argumentSchema: [IPCCommandArgumentSchema]
+    ) throws -> Self? {
+        try validate(
+            rawArguments: rawArguments,
+            argumentsContainOnlyStrings: argumentsContainOnlyStrings,
+            against: argumentSchema
+        )
+        switch command {
+        case .setRepoSidebarVisibilityMode:
+            guard
+                let rawMode = rawArguments["mode"],
+                let mode = RepoExplorerVisibilityMode(rawValue: rawMode)
+            else {
+                throw AppCommandArgumentDecodingError.validationRejected
+            }
+            return .repoSidebarVisibilityMode(mode)
+        case .setRepoSidebarSortOrder:
+            guard
+                let rawOrder = rawArguments["order"],
+                let order = RepoExplorerSortOrder(rawValue: rawOrder)
+            else {
+                throw AppCommandArgumentDecodingError.validationRejected
+            }
+            return .repoSidebarSortOrder(order)
+        case .setInboxRowStateFilter:
+            guard
+                let rawFilter = rawArguments["filter"],
+                let filter = InboxNotificationRowStateFilter(rawValue: rawFilter)
+            else {
+                throw AppCommandArgumentDecodingError.validationRejected
+            }
+            return .inboxRowStateFilter(filter)
+        case .setInboxContentMode:
+            guard
+                let rawMode = rawArguments["mode"],
+                let mode = InboxNotificationContentMode(rawValue: rawMode)
+            else {
+                throw AppCommandArgumentDecodingError.validationRejected
+            }
+            return .inboxContentMode(mode)
+        default:
+            guard rawArguments.isEmpty else {
+                throw AppCommandArgumentDecodingError.validationRejected
+            }
+            return nil
+        }
+    }
+
+    private static func validate(
+        rawArguments: [String: String],
+        argumentsContainOnlyStrings: Bool,
+        against argumentSchema: [IPCCommandArgumentSchema]
+    ) throws {
+        guard argumentsContainOnlyStrings else {
+            throw AppCommandArgumentDecodingError.validationRejected
+        }
+        let schemaByName = Dictionary(uniqueKeysWithValues: argumentSchema.map { ($0.name, $0) })
+        guard Set(rawArguments.keys).isSubset(of: Set(schemaByName.keys)) else {
+            throw AppCommandArgumentDecodingError.validationRejected
+        }
+
+        for argument in argumentSchema where argument.isRequired {
+            guard rawArguments[argument.name] != nil else {
+                throw AppCommandArgumentDecodingError.validationRejected
+            }
+        }
+
+        for (name, value) in rawArguments {
+            guard let schema = schemaByName[name] else {
+                throw AppCommandArgumentDecodingError.validationRejected
+            }
+            switch schema.kind {
+            case .stringEnum(let values):
+                guard values.contains(value) else {
+                    throw AppCommandArgumentDecodingError.validationRejected
+                }
+            }
+        }
+    }
+}
+
+enum AppCommandArgumentDecodingError: Error, Equatable {
+    case validationRejected
+}
+
+enum AppCommandExecutionOutcome: Equatable, Sendable {
+    case applied
+    case stateUnavailable
+    case unsupportedCommand
 }
 
 @MainActor
@@ -350,6 +509,13 @@ extension WorkspaceCommandHandling {
 extension ShellCommandHandling {
     func canExecute(_ command: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
         canExecute(command)
+    }
+
+    func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
+        guard request.arguments == nil else {
+            return .unsupportedCommand
+        }
+        return execute(request.command) ? .applied : .unsupportedCommand
     }
 }
 
@@ -391,6 +557,30 @@ final class AppCommandDispatcher {
             return
         }
         handler.execute(command)
+    }
+
+    @discardableResult
+    func dispatch(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
+        if request.arguments != nil {
+            guard let appCommandRouter else { return .unsupportedCommand }
+            return appCommandRouter.execute(request)
+        }
+
+        guard canDispatch(request.command) else {
+            Self.logger.warning("Command request rejected: \(request.command.rawValue, privacy: .public)")
+            return .unsupportedCommand
+        }
+        if let appCommandRouter {
+            let outcome = appCommandRouter.execute(request)
+            if outcome != .unsupportedCommand {
+                return outcome
+            }
+        }
+        guard let handler else {
+            return .unsupportedCommand
+        }
+        handler.execute(request.command)
+        return .applied
     }
 
     /// Execute a targeted command (operates on a specific element)

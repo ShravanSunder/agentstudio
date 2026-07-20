@@ -12,6 +12,7 @@ final class WorkspaceCommandValidatorTests {
         tabs: [TabSnapshot] = [],
         activeTabId: UUID? = nil,
         isManagementLayerActive: Bool = false,
+        knownRepoIds: Set<UUID> = [],
         drawerParentByPaneId: [UUID: UUID] = [:],
         drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:]
     ) -> ActionStateSnapshot {
@@ -19,9 +20,37 @@ final class WorkspaceCommandValidatorTests {
             tabs: tabs,
             activeTabId: activeTabId,
             isManagementLayerActive: isManagementLayerActive,
+            knownRepoIds: knownRepoIds,
             drawerParentByPaneId: drawerParentByPaneId,
             drawerLayoutByParentPaneId: drawerLayoutByParentPaneId
         )
+    }
+
+    // MARK: - Repo metadata
+
+    @Test
+    func setRepoFavorite_existingRepo_succeeds() {
+        let repoId = UUID()
+        let action = WorkspaceActionCommand.setRepoFavorite(repoId: repoId, isFavorite: true)
+
+        let result = WorkspaceCommandValidator.validate(
+            action,
+            state: makeSnapshot(knownRepoIds: [repoId])
+        )
+
+        #expect((try? result.get().action) == action)
+    }
+
+    @Test
+    func setRepoFavorite_missingRepo_fails() {
+        let repoId = UUID()
+
+        let result = WorkspaceCommandValidator.validate(
+            .setRepoFavorite(repoId: repoId, isFavorite: true),
+            state: makeSnapshot()
+        )
+
+        #expect(result == .failure(.repoNotFound(repoId: repoId)))
     }
 
     private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUIDv7.generate()) -> (TabSnapshot, UUID, UUID)
