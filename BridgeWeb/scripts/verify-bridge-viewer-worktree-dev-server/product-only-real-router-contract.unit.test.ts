@@ -574,6 +574,35 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		expect(settlementSource).toContain('page.waitForFunction');
 		expect(settlementSource).toContain('{ timeout: props.timeoutMilliseconds }');
 	});
+
+	test('persists a scrubbed journey failure checkpoint before browser teardown', async () => {
+		// Arrange
+		const [journeySource, regressionSource, reviewProofSource] = await Promise.all([
+			readFile(new URL('./product-only-real-router-page.ts', import.meta.url), 'utf8'),
+			readFile(new URL('./product-only-real-router-regression.ts', import.meta.url), 'utf8'),
+			readFile(new URL('./product-only-real-router-review-proof.ts', import.meta.url), 'utf8'),
+		]);
+
+		// Act
+		const failureCaptureIndex = journeySource.indexOf(
+			'captureBridgeViewerProductOnlyJourneyFailure',
+		);
+		const pageCloseIndex = journeySource.indexOf('await page.close()');
+
+		// Assert
+		expect(failureCaptureIndex).toBeGreaterThan(0);
+		expect(pageCloseIndex).toBeGreaterThan(failureCaptureIndex);
+		expect(journeySource).toContain('BridgeViewerProductOnlyJourneyFailure');
+		expect(journeySource).toContain('failureTransportSnapshot()');
+		expect(journeySource).not.toContain('paneSessionId: entry.paneSessionId');
+		expect(journeySource).not.toContain('workerInstanceId: entry.workerInstanceId');
+		expect(reviewProofSource).toContain('readFreshReviewFailureSnapshot');
+		expect(reviewProofSource).toContain("'data-review-selected-demand-result-status'");
+		expect(reviewProofSource).toContain("'data-review-visible-demand-loaded-count'");
+		expect(regressionSource).toContain('bridgeViewerProductOnlyJourneyFailureFromError');
+		expect(regressionSource).toContain('readonly journeyFailure:');
+		expect(regressionSource).toContain('journeyFailure,');
+	});
 });
 
 function makePassingProductOnlyProof(

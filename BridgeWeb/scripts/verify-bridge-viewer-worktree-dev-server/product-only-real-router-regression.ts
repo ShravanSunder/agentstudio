@@ -12,9 +12,13 @@ import {
 	bridgeProductStartupFixtureIdentities,
 	collectBridgeViewerProductOnlyContractViolations,
 	type BridgeViewerProductOnlyContractViolation,
+	type BridgeViewerProductOnlyJourneyFailureCheckpoint,
 	type BridgeViewerProductOnlyJourneyProof,
 } from './product-only-real-router-contract.ts';
-import { runBridgeViewerProductOnlyJourney } from './product-only-real-router-page.ts';
+import {
+	bridgeViewerProductOnlyJourneyFailureFromError,
+	runBridgeViewerProductOnlyJourney,
+} from './product-only-real-router-page.ts';
 
 const execFileAsync = promisify(execFile);
 const bridgeWebRootPath = fileURLToPath(new URL('../../', import.meta.url));
@@ -56,6 +60,7 @@ interface BridgeViewerProductOnlyRegressionArtifact {
 	readonly createdAtUnixMilliseconds: number;
 	readonly harnessFailure: string | null;
 	readonly journey: BridgeViewerProductOnlyJourneyProof | null;
+	readonly journeyFailure: BridgeViewerProductOnlyJourneyFailureCheckpoint | null;
 	readonly phase:
 		| 'a0-product-only-green'
 		| 'initial-product-transport-red'
@@ -86,6 +91,7 @@ export async function runSelfHostedBridgeViewerProductOnlyRegression(): Promise<
 	};
 	let harnessFailure: string | null = null;
 	let journey: BridgeViewerProductOnlyJourneyProof | null = null;
+	let journeyFailure: BridgeViewerProductOnlyJourneyFailureCheckpoint | null = null;
 	let serverProof: BridgeViewerViteServerStartProof | null = null;
 	let server: BridgeViewerOwnedViteServer | null = null;
 	try {
@@ -97,6 +103,7 @@ export async function runSelfHostedBridgeViewerProductOnlyRegression(): Promise<
 			expectedReviewItemIds,
 		});
 	} catch (error: unknown) {
+		journeyFailure = bridgeViewerProductOnlyJourneyFailureFromError(error);
 		harnessFailure = boundedErrorMessage(error);
 	} finally {
 		if (server !== null) cleanup = await server.stop();
@@ -109,6 +116,7 @@ export async function runSelfHostedBridgeViewerProductOnlyRegression(): Promise<
 		createdAtUnixMilliseconds,
 		harnessFailure,
 		journey,
+		journeyFailure,
 		phase:
 			harnessFailure === null && journey !== null
 				? bridgeViewerProductOnlyRegressionPhase(violations)
@@ -130,6 +138,7 @@ export async function runSelfHostedBridgeViewerProductOnlyRegression(): Promise<
 				documentGeneration: journey?.documentGeneration ?? null,
 				fixtureSha256: source.fixtureSha256,
 				harnessFailure,
+				journeyFailure,
 				legacyIntakeEventCount: journey?.legacyIntakeTranscript.length ?? null,
 				legacyRouteCount: journey?.legacyRouteTranscript.length ?? null,
 				mainWindowProductRouteTranscript: journey?.mainWindowProductRouteTranscript ?? null,

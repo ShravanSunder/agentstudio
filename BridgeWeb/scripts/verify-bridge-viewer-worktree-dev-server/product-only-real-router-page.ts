@@ -19,6 +19,8 @@ import {
 	type BridgeViewerLegacyRouteTranscriptEntry,
 	type BridgeViewerMainWindowProductRequest,
 	type BridgeViewerObservedWorker,
+	type BridgeViewerProductFailureTransportSnapshot,
+	type BridgeViewerProductOnlyJourneyFailureCheckpoint,
 	type BridgeViewerProductOnlyJourneyProof,
 	type BridgeViewerProductRouteTranscriptEntry,
 	type BridgeViewerReviewProductStateSnapshot,
@@ -26,6 +28,7 @@ import {
 import {
 	proveFreshReviewRoute,
 	proveReviewTreeSelection,
+	readFreshReviewFailureSnapshot,
 	waitForReviewProductTerminalState,
 } from './product-only-real-router-review-proof.ts';
 import { waitForProductBrowserFrameSettlement } from './product-only-real-router-settlement.ts';
@@ -70,6 +73,25 @@ interface MutableLegacyRouteTranscriptEntry {
 	ordinal: number;
 	path: string;
 	sequence: number | null;
+}
+
+export class BridgeViewerProductOnlyJourneyFailure extends Error {
+	readonly checkpoint: BridgeViewerProductOnlyJourneyFailureCheckpoint;
+
+	constructor(props: {
+		readonly cause: unknown;
+		readonly checkpoint: BridgeViewerProductOnlyJourneyFailureCheckpoint;
+	}) {
+		super(props.cause instanceof Error ? props.cause.message : String(props.cause));
+		this.name = 'BridgeViewerProductOnlyJourneyFailure';
+		this.checkpoint = props.checkpoint;
+	}
+}
+
+export function bridgeViewerProductOnlyJourneyFailureFromError(
+	error: unknown,
+): BridgeViewerProductOnlyJourneyFailureCheckpoint | null {
+	return error instanceof BridgeViewerProductOnlyJourneyFailure ? error.checkpoint : null;
 }
 
 export async function runBridgeViewerProductOnlyJourney(props: {
@@ -143,6 +165,11 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 	await installLegacyIntakeObserver(page);
 
 	let journeyProof: Omit<BridgeViewerProductOnlyJourneyProof, 'browserCleanup'> | null = null;
+	let journeyFailure: Omit<
+		BridgeViewerProductOnlyJourneyFailureCheckpoint,
+		'browserCleanup' | 'workers'
+	> | null = null;
+	let journeyFailureCause: unknown = null;
 	try {
 		const pageUrl = new URL('/', props.baseUrl);
 		pageUrl.searchParams.set('fixture', 'worktree');
@@ -260,6 +287,14 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 			),
 			workers: observedWorkers,
 		};
+	} catch (error: unknown) {
+		journeyFailureCause = error;
+		journeyFailure = await captureBridgeViewerProductOnlyJourneyFailure({
+			documentGeneration: mainFrameDocumentGeneration,
+			error,
+			page,
+			routeObserver,
+		});
 	} finally {
 		await ownedJourneyDeadline.dispose();
 		await page.close();
@@ -274,20 +309,67 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 			// The proof reports incomplete closure through its explicit cleanup counters.
 		}
 	}
+	const browserCleanup: BridgeViewerProductOnlyJourneyProof['browserCleanup'] = {
+		browserConnectedAfterClose: browser.isConnected(),
+		closedWorkerCount,
+		observedWorkerCount: observedWorkers.length,
+		pageClosed: page.isClosed(),
+	};
+	if (journeyFailure !== null) {
+		throw new BridgeViewerProductOnlyJourneyFailure({
+			cause: journeyFailureCause,
+			checkpoint: {
+				...journeyFailure,
+				browserCleanup,
+				workers: observedWorkers.map(
+					({ url: _url, ...worker }): Omit<BridgeViewerObservedWorker, 'url'> => ({ ...worker }),
+				),
+			},
+		});
+	}
 	if (journeyProof === null) {
 		throw new Error('Bridge Viewer product-only journey ended without a proof result.');
 	}
 	return {
 		...journeyProof,
-		browserCleanup: {
-			browserConnectedAfterClose: browser.isConnected(),
-			closedWorkerCount,
-			observedWorkerCount: observedWorkers.length,
-			pageClosed: page.isClosed(),
-		},
+		browserCleanup,
 		legacyRouteTranscript: routeObserver.legacyRouteTranscript(),
 		productRouteTranscript: routeObserver.productRouteTranscript(),
 	};
+}
+
+async function captureBridgeViewerProductOnlyJourneyFailure(props: {
+	readonly documentGeneration: number;
+	readonly error: unknown;
+	readonly page: Page;
+	readonly routeObserver: BridgeViewerRealRouterObserver;
+}): Promise<Omit<BridgeViewerProductOnlyJourneyFailureCheckpoint, 'browserCleanup' | 'workers'>> {
+	try {
+		await props.routeObserver.flushResponseParsers();
+	} catch {
+		// The transport snapshot still preserves response status and unfinished ordinals.
+	}
+	let review: BridgeViewerProductOnlyJourneyFailureCheckpoint['review'] = null;
+	let captureStatus: BridgeViewerProductOnlyJourneyFailureCheckpoint['captureStatus'] =
+		'unavailable';
+	try {
+		review = await readFreshReviewFailureSnapshot(props.page);
+		captureStatus = 'captured';
+	} catch {
+		// A closed or not-yet-mounted page is represented explicitly without retrying.
+	}
+	return {
+		captureStatus,
+		documentGeneration: props.documentGeneration,
+		failureCode: bridgeViewerJourneyFailureCode(props.error),
+		review,
+		transport: props.routeObserver.failureTransportSnapshot(),
+	};
+}
+
+function bridgeViewerJourneyFailureCode(error: unknown): string {
+	const message = error instanceof Error ? error.message : String(error);
+	return /^[A-Z][A-Z0-9_]+/u.exec(message)?.[0] ?? 'UNCLASSIFIED_JOURNEY_FAILURE';
 }
 
 async function installMainWindowProductRouteObserver(page: Page): Promise<void> {
@@ -400,6 +482,20 @@ export class BridgeViewerRealRouterObserver {
 
 	productRouteTranscript(): readonly BridgeViewerProductRouteTranscriptEntry[] {
 		return this.#productEntries.map((entry) => ({ ...entry }));
+	}
+
+	failureTransportSnapshot(): BridgeViewerProductFailureTransportSnapshot {
+		return {
+			entries: this.#productEntries.map(
+				({ paneSessionId: _paneSessionId, workerInstanceId: _workerInstanceId, ...entry }) => entry,
+			),
+			unfinishedRequestOrdinals: [...this.#unfinishedProductRequests]
+				.flatMap((request): readonly number[] => {
+					const ordinal = this.#productEntryByRequest.get(request)?.ordinal;
+					return ordinal === undefined ? [] : [ordinal];
+				})
+				.toSorted((left, right): number => left - right),
+		};
 	}
 
 	legacyRouteTranscript(): readonly BridgeViewerLegacyRouteTranscriptEntry[] {

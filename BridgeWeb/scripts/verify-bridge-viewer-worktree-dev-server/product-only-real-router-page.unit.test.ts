@@ -15,6 +15,42 @@ type PageEventName = 'request' | 'requestfailed' | 'requestfinished' | 'response
 type PageEventHandler = (event: unknown) => void;
 
 describe('BridgeViewerRealRouterObserver', () => {
+	test('retains scrubbed content lifecycle and unfinished request ordinals for a failed journey', () => {
+		// Arrange
+		const harness = makeObserverHarness();
+		const observer = new BridgeViewerRealRouterObserver(harness.page, (): number => 1);
+		const completedRequest = makeProductContentRequest('completed-request');
+		const unfinishedRequest = makeProductContentRequest('unfinished-request');
+		harness.emit('request', completedRequest);
+		harness.emit('response', makeSuccessfulResponse(completedRequest));
+		harness.emit('requestfinished', completedRequest);
+		harness.emit('request', unfinishedRequest);
+
+		// Act
+		const snapshot = observer.failureTransportSnapshot();
+
+		// Assert
+		expect(snapshot.entries).toEqual([
+			expect.objectContaining({
+				contentKind: 'review.content',
+				httpStatus: 200,
+				ordinal: 1,
+				path: '/__bridge-product/content',
+				requestKind: 'content.open',
+			}),
+			expect.objectContaining({
+				contentKind: 'review.content',
+				httpStatus: null,
+				ordinal: 2,
+				path: '/__bridge-product/content',
+				requestKind: 'content.open',
+			}),
+		]);
+		expect(snapshot.unfinishedRequestOrdinals).toEqual([2]);
+		expect(JSON.stringify(snapshot)).not.toContain('pane-session-secret');
+		expect(JSON.stringify(snapshot)).not.toContain('worker-instance-secret');
+	});
+
 	test('waits for streaming request completion and one activity-stable browser frame', async () => {
 		// Arrange
 		const harness = makeObserverHarness();
@@ -231,8 +267,11 @@ function makeProductContentRequest(contentRequestId: string): PlaywrightRequest 
 		method: (): string => 'POST',
 		postData: (): string =>
 			JSON.stringify({
+				contentKind: 'review.content',
 				contentRequestId,
 				kind: 'content.open',
+				paneSessionId: 'pane-session-secret',
+				workerInstanceId: 'worker-instance-secret',
 			}),
 		url: (): string => 'http://127.0.0.1:5173/__bridge-product/content',
 	} as unknown as PlaywrightRequest;

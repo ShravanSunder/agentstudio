@@ -59,6 +59,55 @@ export interface BridgeViewerObservedWorker {
 	readonly url: string;
 }
 
+export interface BridgeViewerProductFailureTransportSnapshot {
+	readonly entries: readonly Omit<
+		BridgeViewerProductRouteTranscriptEntry,
+		'paneSessionId' | 'workerInstanceId'
+	>[];
+	readonly unfinishedRequestOrdinals: readonly number[];
+}
+
+export interface BridgeViewerReviewFailureDemandSnapshot {
+	readonly deferredCount: number | null;
+	readonly droppedIntentCount: number | null;
+	readonly executorInFlightAfter: number | null;
+	readonly executorQueuedLoadAfter: number | null;
+	readonly failedCount: number | null;
+	readonly foregroundIntentCount: number | null;
+	readonly interest: string | null;
+	readonly loadedCount: number | null;
+	readonly resultReason: string | null;
+	readonly resultStatus: string | null;
+	readonly staleDropCount: number | null;
+	readonly visibleIntentCount: number | null;
+}
+
+export interface BridgeViewerReviewFailureSnapshot {
+	readonly codeScroll: {
+		readonly clientHeight: number;
+		readonly scrollHeight: number;
+		readonly scrollTop: number;
+	};
+	readonly codeViewManifestItemCount: number;
+	readonly metadataItemCount: number;
+	readonly mountedItemCount: number;
+	readonly selectedDemand: BridgeViewerReviewFailureDemandSnapshot;
+	readonly selectedItemVisible: boolean;
+	readonly visibleContentStateCounts: Readonly<Record<string, number>>;
+	readonly visibleDemand: BridgeViewerReviewFailureDemandSnapshot;
+	readonly visibleItemCount: number;
+}
+
+export interface BridgeViewerProductOnlyJourneyFailureCheckpoint {
+	readonly browserCleanup: BridgeViewerProductOnlyJourneyProof['browserCleanup'];
+	readonly captureStatus: 'captured' | 'unavailable';
+	readonly documentGeneration: number;
+	readonly failureCode: string;
+	readonly review: BridgeViewerReviewFailureSnapshot | null;
+	readonly transport: BridgeViewerProductFailureTransportSnapshot;
+	readonly workers: readonly Omit<BridgeViewerObservedWorker, 'url'>[];
+}
+
 export interface BridgeViewerFailedResponse {
 	readonly method: string;
 	readonly path: string;
