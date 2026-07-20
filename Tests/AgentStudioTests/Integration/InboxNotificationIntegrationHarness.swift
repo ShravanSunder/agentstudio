@@ -13,7 +13,7 @@ enum InboxNotificationIntegrationHarness {
         let tabLayout: WorkspaceTabLayoutAtom
         let windowLifecycle: WindowLifecycleAtom
         let managementLayer: ManagementLayerAtom
-        let attendedPane: AttendedPaneAtom
+        let attendedPane: AttendedPaneDerived
         let tracker: PaneFocusTracker
         let router: InboxNotificationRouter
 
@@ -21,7 +21,6 @@ enum InboxNotificationIntegrationHarness {
         func shutdown() async {
             await router.stop()
             await tracker.stop()
-            attendedPane.stop()
         }
     }
 
@@ -34,7 +33,7 @@ enum InboxNotificationIntegrationHarness {
         let tabLayout = WorkspaceTabLayoutAtom()
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let attendedPane = AttendedPaneAtom(
+        let attendedPane = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
@@ -70,7 +69,13 @@ enum InboxNotificationIntegrationHarness {
     static func addPane(
         _ paneId: PaneId,
         to fixture: Fixture,
-        content: PaneContent = .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+        content: PaneContent = .terminal(
+            TerminalState(
+                provider: .zmx,
+                lifetime: .persistent,
+                zmxSessionID: .generateUUIDv7()
+            )
+        ),
         contentType: PaneContentType = .terminal,
         repoId: UUID? = nil,
         repoName: String? = nil,
@@ -94,7 +99,16 @@ enum InboxNotificationIntegrationHarness {
                 worktrees: [worktree]
             )
             let repos = fixture.topologyAtom.repos.filter { $0.id != repoId } + [repo]
-            fixture.topologyAtom.hydrate(runtimeRepos: repos, watchedPaths: [], unavailableRepoIds: [])
+            guard
+                case .prepared(let replacement) = RepositoryTopologyReplacement.prepare(
+                    repositories: repos,
+                    watchedPaths: [],
+                    unavailableRepositoryIDs: []
+                )
+            else {
+                preconditionFailure("notification integration fixture produced invalid repository topology")
+            }
+            fixture.topologyAtom.replaceTopology(replacement)
         }
 
         let metadata = PaneMetadata(

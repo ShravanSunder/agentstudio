@@ -9,7 +9,7 @@ struct RuntimeRegistryTests {
     @Test("register and lookup by pane id")
     func registerAndLookup() {
         let registry = RuntimeRegistry()
-        let runtime = TestPaneRuntime(paneId: PaneId())
+        let runtime = TestPaneRuntime(paneId: PaneId.generateUUIDv7())
         registry.register(runtime)
         #expect(registry.runtime(for: runtime.paneId) != nil)
     }
@@ -17,7 +17,7 @@ struct RuntimeRegistryTests {
     @Test("unregister removes runtime")
     func unregisterRemoves() {
         let registry = RuntimeRegistry()
-        let runtime = TestPaneRuntime(paneId: PaneId())
+        let runtime = TestPaneRuntime(paneId: PaneId.generateUUIDv7())
         registry.register(runtime)
 
         let removed = registry.unregister(runtime.paneId)
@@ -29,7 +29,7 @@ struct RuntimeRegistryTests {
     @Test("duplicate registration is rejected and existing runtime is preserved")
     func duplicateRegistrationRejected() {
         let registry = RuntimeRegistry()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let first = TestPaneRuntime(paneId: paneId, contentType: .terminal)
         let second = TestPaneRuntime(paneId: paneId, contentType: .browser)
 
@@ -47,7 +47,7 @@ struct RuntimeRegistryTests {
     @Test("findPaneWithWorktree returns paneId when worktree is registered")
     func findPaneWithWorktreeFindsExisting() {
         let registry = RuntimeRegistry()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let worktreeId = UUID()
         let launchDirectory = URL(fileURLWithPath: "/tmp/worktree")
         let runtime = TestPaneRuntime(
@@ -65,7 +65,7 @@ struct RuntimeRegistryTests {
     @Test("findPaneWithWorktree follows live facets after a pane roams")
     func findPaneWithWorktreeUsesLiveFacets() {
         let registry = RuntimeRegistry()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let birthWorktreeId = UUID()
         let liveRepoId = UUID()
         let liveWorktreeId = UUID()
@@ -98,7 +98,7 @@ struct RuntimeRegistryTests {
     @Test("findPaneWithWorktree ignores floating panes")
     func findPaneWithWorktreeIgnoresFloating() {
         let registry = RuntimeRegistry()
-        let runtime = TestPaneRuntime(paneId: PaneId())
+        let runtime = TestPaneRuntime(paneId: PaneId.generateUUIDv7())
         registry.register(runtime)
 
         #expect(registry.findPaneWithWorktree(worktreeId: UUID()) == nil)
@@ -107,9 +107,9 @@ struct RuntimeRegistryTests {
     @Test("runtimes(ofType:) tracks non-terminal runtime kinds")
     func runtimesByNonTerminalKinds() {
         let registry = RuntimeRegistry()
-        let webviewRuntime = TestPaneRuntime(paneId: PaneId(), contentType: .browser)
-        let bridgeRuntime = TestPaneRuntime(paneId: PaneId(), contentType: .diff)
-        let codeViewerRuntime = TestPaneRuntime(paneId: PaneId(), contentType: .codeViewer)
+        let webviewRuntime = TestPaneRuntime(paneId: PaneId.generateUUIDv7(), contentType: .browser)
+        let bridgeRuntime = TestPaneRuntime(paneId: PaneId.generateUUIDv7(), contentType: .diff)
+        let codeViewerRuntime = TestPaneRuntime(paneId: PaneId.generateUUIDv7(), contentType: .codeViewer)
         registry.register(webviewRuntime)
         registry.register(bridgeRuntime)
         registry.register(codeViewerRuntime)

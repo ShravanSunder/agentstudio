@@ -62,6 +62,9 @@ extension AppDelegate {
         await runTerminationDrain("pane inbox presenter trace") { [weak self] in
             await self?.paneInboxNotificationPresenter?.drainTraceRecords()
         }
+        await runTerminationDrain("trace identity refresh") { [weak self] in
+            await self?.waitForTraceIdentityRefreshIdle()
+        }
         await runTerminationDrain("Ghostty action trace") {
             await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
         }

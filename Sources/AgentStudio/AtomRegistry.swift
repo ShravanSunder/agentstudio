@@ -19,6 +19,7 @@ final class AtomRegistry {
     let repoEnrichmentCache: RepoEnrichmentCacheAtom
     let recentWorkspaceTarget: RecentWorkspaceTargetAtom
     let repoCache: RepoCacheAtom
+    let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
     let sidebarExpandedGroup: SidebarExpandedGroupAtom
     let sidebarCache: SidebarCacheState
     let terminalActivity: TerminalActivityAtom
@@ -46,7 +47,7 @@ final class AtomRegistry {
 
     init(
         activeWorkspaceSelection: ActiveWorkspaceSelectionAtom = .init(),
-        workspaceIdentity: WorkspaceIdentityAtom = .init(),
+        workspaceIdentity: WorkspaceIdentityAtom = .init(installationState: .awaitingCanonicalComposition),
         workspaceWindowMemory: WorkspaceWindowMemoryAtom = .init(),
         workspaceRepositoryTopology: RepositoryTopologyAtom = .init(),
         workspacePaneGraph: WorkspacePaneGraphAtom? = nil,
@@ -62,6 +63,7 @@ final class AtomRegistry {
         windowLifecycle: WindowLifecycleAtom = .init(),
         repoEnrichmentCache: RepoEnrichmentCacheAtom = .init(),
         recentWorkspaceTarget: RecentWorkspaceTargetAtom = .init(),
+        repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom = .init(),
         sidebarExpandedGroup: SidebarExpandedGroupAtom = .init(),
         terminalActivity: TerminalActivityAtom = .init(),
         editorPreference: EditorPreferenceAtom = .init(),
@@ -134,6 +136,7 @@ final class AtomRegistry {
             enrichmentCacheAtom: repoEnrichmentCache,
             recentTargetAtom: recentWorkspaceTarget
         )
+        self.repoExplorerSidebarPrefs = repoExplorerSidebarPrefs
         self.sidebarExpandedGroup = sidebarExpandedGroup
         self.sidebarCache = SidebarCacheState(
             expandedGroupAtom: sidebarExpandedGroup
@@ -270,7 +273,7 @@ final class AtomRegistry {
         WorkspacePaneFocusDerived()
     }
 
-    lazy var attendedPane = AttendedPaneAtom(
+    lazy var attendedPane = AttendedPaneDerived(
         tabLayout: workspaceTabLayout,
         windowLifecycle: windowLifecycle,
         managementLayer: managementLayer

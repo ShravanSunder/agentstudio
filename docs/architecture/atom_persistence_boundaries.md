@@ -137,7 +137,7 @@ facts, snapshots, deltas, or intents.
 | `WorkspaceTabArrangementAtom` | `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom` | `WorkspaceTabLayoutDerived` |
 | `RepoCacheAtom` | `RepoEnrichmentCacheAtom`, `RecentWorkspaceTargetAtom` | repo/sidebar read models |
 | `UIStateAtom` source before Step 0 split | `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom` | `WorkspaceSidebarState` |
-| `SidebarCacheState` (`SidebarCacheAtom` source before Step 0 split) | `SidebarExpandedGroupAtom`, `SidebarCheckoutColorAtom` | sidebar shell read model |
+| `SidebarCacheState` (`SidebarCacheAtom` source before Step 0 split) | `SidebarExpandedGroupAtom`; `SidebarCheckoutColorAtom` is cleanup-only legacy state, not a live write owner | sidebar shell read model |
 | `EditorChooserState` (`EditorChooserAtom` source before Step 0 split) | `EditorPreferenceAtom`, `EditorChooserRuntimeAtom` | editor chooser read model |
 | `InboxSidebarState` (`InboxSidebarStateAtom` source before Step 0 split) | `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom` | inbox sidebar read model |
 
@@ -150,7 +150,7 @@ facts, snapshots, deltas, or intents.
 | `Drawer.isExpanded` | `WorkspaceDrawerCursorAtom` | `Drawer` from `WorkspacePaneDerived` | `LegacyDrawerPayload` | `local_drawer_cursor.is_expanded` |
 | `PaneMetadata` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | `LegacyPaneMetadataPayload` | pane launch directory, title, checkout, note, and tag columns |
 | `PaneContextFacets` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | `LegacyPaneContextFacetsPayload` | `facet_repo_id`, `facet_worktree_id`, cwd, tags |
-| `TerminalState.zmxSessionId` | `PaneGraphState.content` | `Pane` from `WorkspacePaneDerived` | legacy rows hydrate via boot cleanup / restore fallback | `pane_content_terminal.zmx_session_id` |
+| `TerminalState.zmxSessionId` | `PaneGraphState.content` | `Pane` from `WorkspacePaneDerived` | strong non-optional opaque value; existing nonempty text restores verbatim; new values use UUIDv7 | existing `pane_content_terminal.zmx_session_id` text column |
 | `PaneContextFacets` display fields | none | `WorkspacePaneDerived` from topology plus `RepoEnrichmentCacheAtom` | decoded only for legacy compatibility; cache import/rebuild supplies live values | `cache_repo_enrichment`, `cache_worktree_enrichment` |
 | `Tab` shell | `WorkspaceTabShellAtom` | `Tab` from `WorkspaceTabLayoutDerived` | `LegacyTabPayload` | `tab_shell` |
 | `Tab.activeArrangementId` | `WorkspaceArrangementCursorAtom` | `Tab` from `WorkspaceTabLayoutDerived` | `LegacyTabPayload` | `local_tab_cursor.active_arrangement_id` |

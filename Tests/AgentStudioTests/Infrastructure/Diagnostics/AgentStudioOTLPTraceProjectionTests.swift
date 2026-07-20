@@ -29,12 +29,6 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "agentstudio.app.startup.outcome": .string("succeeded"),
                 "agentstudio.ghostty.status": .int(0),
                 "agentstudio.trace.tag": .string("app.startup"),
-                "agentstudio.zmx.startup.inventory_outcome": .string("complete"),
-                "agentstudio.zmx.startup.live_session_count": .int(4),
-                "agentstudio.zmx.startup.hydrated_anchor_count": .int(1),
-                "agentstudio.zmx.startup.protected_session_count": .int(3),
-                "agentstudio.zmx.startup.unresolved_candidate_count": .int(0),
-                "agentstudio.zmx.startup.unmatched_live_session_count": .int(1),
             ]
         )
 
@@ -51,12 +45,6 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.resource["agentstudio.session.id"] == nil)
         #expect(projection.attributes["agentstudio.app.startup.phase"] == .string("ghostty_init"))
         #expect(projection.attributes["agentstudio.app.startup.outcome"] == .string("succeeded"))
-        #expect(projection.attributes["agentstudio.zmx.startup.inventory_outcome"] == .string("complete"))
-        #expect(projection.attributes["agentstudio.zmx.startup.live_session_count"] == .int(4))
-        #expect(projection.attributes["agentstudio.zmx.startup.hydrated_anchor_count"] == .int(1))
-        #expect(projection.attributes["agentstudio.zmx.startup.protected_session_count"] == .int(3))
-        #expect(projection.attributes["agentstudio.zmx.startup.unresolved_candidate_count"] == .int(0))
-        #expect(projection.attributes["agentstudio.zmx.startup.unmatched_live_session_count"] == .int(1))
         #expect(projection.attributes["agentstudio.event.time_unix_nano"] == .int(100))
         #expect(projection.attributes["agentstudio.ghostty.status"] == .int(0))
         #expect(projection.traceID == nil)
@@ -176,18 +164,128 @@ struct AgentStudioOTLPTraceProjectionTests {
     }
 
     @Test
-    func startupDiagnosticProjectionKeepsCommandAndRenderProofFields() {
-        let projection = AgentStudioOTLPTraceProjection.project(startupDiagnosticProjectionRecord)
+    func sidebarPerformanceProjectionKeepsControlledTaxonomyAndDropsPayloadText() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 175,
+            severityText: .info,
+            body: "performance.sidebar.projection",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "service.name": "AgentStudio"
+            ],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(2.75),
+                "agentstudio.performance.sidebar.surface": .string("inbox"),
+                "agentstudio.performance.sidebar.phase": .string("mainactor_apply"),
+                "agentstudio.performance.sidebar.query_state": .string("non_empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
+                "agentstudio.performance.sidebar.trigger": .string("grouping_switch"),
+                "agentstudio.performance.sidebar.input.count": .int(10),
+                "agentstudio.performance.sidebar.group.count": .int(3),
+                "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms": .double(0.5),
+                "agentstudio.performance.sidebar.section.count": .int(99),
+                "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(2.75),
+                "agentstudio.performance.sidebar.notification_text": .string("secret user prompt"),
+                "agentstudio.performance.sidebar.query_text": .string("billing secret"),
+                "agentstudio.performance.sidebar.repo.id": .string(UUID().uuidString),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
 
-        #expect(projection.body == "app.startup_diagnostic_action.blocked")
-        assertStartupDiagnosticProjectionKeepsExpectedAttributes(projection)
-        #expect(projection.attributes["agentstudio.startup_diagnostic.pane.id"] == nil)
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = projection.renderedForCanaryAssertions()
+
+        #expect(projection.body == "performance.sidebar.projection")
+        #expect(projection.attributes["agentstudio.performance.sidebar.surface"] == .string("inbox"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.phase"] == .string("mainactor_apply"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.query_state"] == .string("non_empty"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.group_mode"] == .string("not_applicable"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.trigger"] == .string("grouping_switch"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.input.count"] == .int(10))
+        #expect(projection.attributes["agentstudio.performance.sidebar.group.count"] == .int(3))
+        #expect(
+            projection.attributes["agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms"] == .double(0.5))
+        #expect(projection.attributes["agentstudio.performance.sidebar.section.count"] == nil)
+        #expect(projection.attributes["agentstudio.performance.sidebar.mainactor_apply_elapsed_ms"] == .double(2.75))
+        #expect(projection.attributes["agentstudio.performance.sidebar.notification_text"] == nil)
+        #expect(projection.attributes["agentstudio.performance.sidebar.query_text"] == nil)
+        #expect(projection.attributes["agentstudio.performance.sidebar.repo.id"] == nil)
+        #expect(!renderedProjection.contains("secret user prompt"))
+        #expect(!renderedProjection.contains("billing secret"))
+    }
+
+    @Test
+    func sidebarRowIndexProjectionKeepsCanonicalPhaseAndElapsedKey() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 176,
+            severityText: .info,
+            body: "performance.sidebar.row_index",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(1.25),
+                "agentstudio.performance.sidebar.surface": .string("repo"),
+                "agentstudio.performance.sidebar.phase": .string("row_index"),
+                "agentstudio.performance.sidebar.query_state": .string("empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("pane"),
+                "agentstudio.performance.sidebar.trigger": .string("grouping_switch"),
+                "agentstudio.performance.sidebar.row_index_elapsed_ms": .double(1.25),
+                "agentstudio.performance.sidebar.row_index_worker_elapsed_ms": .double(99),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.body == "performance.sidebar.row_index")
+        #expect(projection.attributes["agentstudio.performance.sidebar.phase"] == .string("row_index"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.trigger"] == .string("grouping_switch"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.row_index_elapsed_ms"] == .double(1.25))
+        #expect(projection.attributes["agentstudio.performance.sidebar.row_index_worker_elapsed_ms"] == nil)
+    }
+
+    @Test
+    func sidebarRequestBuildProjectionKeepsCanonicalPhaseAndDataRefreshTrigger() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 177,
+            severityText: .info,
+            body: "performance.sidebar.projection",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(0.75),
+                "agentstudio.performance.sidebar.surface": .string("repo"),
+                "agentstudio.performance.sidebar.phase": .string("request_build_mainactor"),
+                "agentstudio.performance.sidebar.query_state": .string("empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("pane"),
+                "agentstudio.performance.sidebar.trigger": .string("data_refresh"),
+                "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms": .double(0.75),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes["agentstudio.performance.sidebar.phase"] == .string("request_build_mainactor"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.trigger"] == .string("data_refresh"))
+        #expect(
+            projection.attributes["agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms"] == .double(0.75)
+        )
     }
 
     @Test
     func tccDiagnosticProjectionKeepsClassificationsAndDropsRawPaths() {
         let record = AgentStudioTraceRecord(
-            timeUnixNano: 175,
+            timeUnixNano: 179,
             severityText: .warn,
             body: "terminal.tcc.access_probe",
             traceID: nil,
@@ -247,7 +345,7 @@ struct AgentStudioOTLPTraceProjectionTests {
     @Test
     func fullDiskAccessHealthProjectionKeepsOnlySafeClassificationFields() {
         let record = AgentStudioTraceRecord(
-            timeUnixNano: 176,
+            timeUnixNano: 179,
             severityText: .warn,
             body: "app.full_disk_access.health_check.completed",
             traceID: nil,
@@ -282,6 +380,10 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.attributes["agentstudio.tcc.raw.probe_path"] == nil)
         #expect(!renderedProjection.contains("/Users/shravansunder/Library/Messages"))
     }
+}
+
+@Suite
+struct AgentStudioOTLPTraceProjectionSanitizationTests {
 
     @Test
     func persistenceProjectionDropsPathsWorkspaceIDsAndRawErrors() {
@@ -640,171 +742,6 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.attributes["dev.branch.name"] == .string("feature/otel"))
         #expect(projection.attributes["service.version"] == .string("0.0.54-beta.15"))
         #expect(projection.attributes["service.name"] == nil)
-    }
-
-    private func assertStartupDiagnosticProjectionKeepsExpectedAttributes(
-        _ projection: AgentStudioOTLPProjectedLogRecord
-    ) {
-        for (key, value) in startupDiagnosticProjectionExpectedAttributes {
-            #expect(projection.attributes[key] == value, "attribute \(key)")
-        }
-    }
-
-    private var startupDiagnosticProjectionExpectedAttributes: [String: AgentStudioTraceValue] {
-        var attributes = startupDiagnosticProjectionAttributes
-        attributes.removeValue(forKey: "agentstudio.startup_diagnostic.pane.id")
-        return attributes
-    }
-
-    private var startupDiagnosticProjectionRecord: AgentStudioTraceRecord {
-        AgentStudioTraceRecord(
-            timeUnixNano: 150,
-            severityText: .info,
-            body: "app.startup_diagnostic_action.blocked",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: [
-                "agentstudio.trace.name": "debug-observability-marker",
-                "service.name": "AgentStudio",
-            ],
-            scope: .init(name: "agentstudio.app.startup", version: "0.1.0"),
-            attributes: startupDiagnosticProjectionAttributes
-        )
-    }
-
-    private var startupDiagnosticProjectionAttributes: [String: AgentStudioTraceValue] {
-        [
-            "agentstudio.app.startup.outcome": .string("blocked"),
-            "agentstudio.app.startup.phase": .string("startup_diagnostic_action"),
-            "agentstudio.command.name": .string("cross-tab-move-geometry-smoke"),
-            "agentstudio.command.source": .string("startup_diagnostic"),
-            "agentstudio.startup_diagnostic.action": .string("cross-tab-move-geometry-smoke"),
-            "agentstudio.startup_diagnostic.created_pane.count": .int(1),
-            "agentstudio.startup_diagnostic.expected_visible_pane.count": .int(3),
-            "agentstudio.startup_diagnostic.fixture.surface.count": .int(0),
-            "agentstudio.startup_diagnostic.fixture.surface_reference.count": .int(1),
-            "agentstudio.startup_diagnostic.fixture.terminal_view.count": .int(3),
-            "agentstudio.startup_diagnostic.fixture.valid_geometry.count": .int(0),
-            "agentstudio.startup_diagnostic.bridge.code_line.count": .int(4),
-            "agentstudio.startup_diagnostic.bridge.code_line_with_data_line.count": .int(4),
-            "agentstudio.startup_diagnostic.bridge.code_shadow_text.length": .int(88),
-            "agentstudio.startup_diagnostic.bridge.code_text.length": .int(120),
-            "agentstudio.startup_diagnostic.bridge.code_view.instance.first_item.height_px": .int(680),
-            "agentstudio.startup_diagnostic.bridge.code_view.instance.first_item.top_px": .int(0),
-            "agentstudio.startup_diagnostic.bridge.code_view.instance.height_px": .int(720),
-            "agentstudio.startup_diagnostic.bridge.code_view.instance.item.count": .int(2),
-            "agentstudio.startup_diagnostic.bridge.code_view.instance.render_state.first_index": .int(0),
-            "agentstudio.startup_diagnostic.bridge.code_view.instance.render_state.last_index": .int(1),
-            "agentstudio.startup_diagnostic.bridge.code_view.instance.scroll_height_px": .int(1440),
-            "agentstudio.startup_diagnostic.bridge.code_view.instance.window.bottom_px": .int(720),
-            "agentstudio.startup_diagnostic.bridge.code_view.instance.window.top_px": .int(0),
-            "agentstudio.startup_diagnostic.bridge.code_view.rendered_item.count": .int(1),
-            "agentstudio.startup_diagnostic.bridge.code_view.rendered_item.element.child.count": .int(1),
-            "agentstudio.startup_diagnostic.bridge.code_view.rendered_item.element.first_child.tag": .string(
-                "diffs-container"),
-            "agentstudio.startup_diagnostic.bridge.code_view.rendered_item.element.height_px": .int(680),
-            "agentstudio.startup_diagnostic.bridge.code_view.rendered_item.type": .string("diff"),
-            "agentstudio.startup_diagnostic.bridge.code_view.rendered_item.version": .int(3),
-            "agentstudio.startup_diagnostic.bridge.code_view_scroll_owner.child.count": .int(1),
-            "agentstudio.startup_diagnostic.bridge.code_view_scroll_owner.first_child.tag": .string("diffs-container"),
-            "agentstudio.startup_diagnostic.bridge.code_view_scroll_owner.height_px": .int(720),
-            "agentstudio.startup_diagnostic.bridge.code_view_scroll_owner.scroll_height_px": .int(1440),
-            "agentstudio.startup_diagnostic.bridge.code_view_panel.height_px": .int(720),
-            "agentstudio.startup_diagnostic.bridge.code_view_panel.width_px": .int(1280),
-            "agentstudio.startup_diagnostic.bridge.code_view.visible": .bool(false),
-            "agentstudio.startup_diagnostic.bridge.diff_container.count": .int(1),
-            "agentstudio.startup_diagnostic.bridge.diff_container.display": .string("block"),
-            "agentstudio.startup_diagnostic.bridge.diff_container.height_px": .int(680),
-            "agentstudio.startup_diagnostic.bridge.diff_container.offset_height_px": .int(680),
-            "agentstudio.startup_diagnostic.bridge.diff_container.pre.count": .int(1),
-            "agentstudio.startup_diagnostic.bridge.diff_container.pre.height_px": .int(600),
-            "agentstudio.startup_diagnostic.bridge.diff_container.pre_text.length": .int(88),
-            "agentstudio.startup_diagnostic.bridge.diff_container.scroll_height_px": .int(1440),
-            "agentstudio.startup_diagnostic.bridge.diff_container.shadow_child.count": .int(3),
-            "agentstudio.startup_diagnostic.bridge.diff_container.width_px": .int(1260),
-            "agentstudio.startup_diagnostic.bridge.page_issue.count": .int(2),
-            "agentstudio.startup_diagnostic.bridge.review_canvas.branch": .string("code"),
-            "agentstudio.startup_diagnostic.bridge.review_metadata.converged": .bool(true),
-            "agentstudio.startup_diagnostic.bridge.review_shell.visible": .bool(true),
-            "agentstudio.startup_diagnostic.bridge.review_shell.selected_content.state": .string("failed"),
-            "agentstudio.startup_diagnostic.bridge.review_shell.selected_path.visible": .bool(true),
-            "agentstudio.startup_diagnostic.bridge.review_tree_click.rendered_row.count": .int(22),
-            "agentstudio.startup_diagnostic.bridge.review_tree_click.target_row.index": .int(21),
-            "agentstudio.startup_diagnostic.bridge.review_tree_click.target_row.visible": .bool(true),
-            "agentstudio.startup_diagnostic.bridge.review_tree_click.click_attempt.count": .int(1),
-            "agentstudio.startup_diagnostic.bridge.review_tree_click.selected_matches_target": .bool(true),
-            "agentstudio.startup_diagnostic.bridge.modified_click.filter_requested": .bool(true),
-            "agentstudio.startup_diagnostic.bridge.modified_click.click_attempt.count": .int(2),
-            "agentstudio.startup_diagnostic.bridge.modified_click.target_found": .bool(true),
-            "agentstudio.startup_diagnostic.bridge.modified_click.first_rendered_present": .bool(true),
-            "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive": .string("false"),
-            "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket": .string(
-                "not_fired"),
-            "agentstudio.startup_diagnostic.bridge.modified_click.selected_matches_target": .bool(true),
-            "agentstudio.startup_diagnostic.bridge.modified_click.shell_selected_matches_target": .bool(true),
-            "agentstudio.startup_diagnostic.bridge.modified_click.rendered_row.count": .int(2),
-            "agentstudio.startup_diagnostic.bridge.modified_click.set_filter.reason": .string("none"),
-            "agentstudio.startup_diagnostic.bridge.modified_click.set_filter.status": .string("accepted"),
-            "agentstudio.startup_diagnostic.bridge.modified_click.selected_content.cache_keys_present": .bool(true),
-            "agentstudio.startup_diagnostic.bridge.selected_content.state": .string("ready"),
-            "agentstudio.startup_diagnostic.bridge.selected_content.visible": .bool(false),
-            "agentstudio.startup_diagnostic.bridge.selected_content.cache_keys_present": .bool(true),
-            "agentstudio.startup_diagnostic.bridge.selected_content_cache_key.count": .int(2),
-            "agentstudio.startup_diagnostic.bridge.selected_content_character.count": .int(180),
-            "agentstudio.startup_diagnostic.bridge.selected_content_line.count": .int(12),
-            "agentstudio.startup_diagnostic.bridge.selected_content_role.count": .int(2),
-            "agentstudio.startup_diagnostic.bridge.selected_demand.deferred.count": .int(0),
-            "agentstudio.startup_diagnostic.bridge.selected_demand.failed.count": .int(1),
-            "agentstudio.startup_diagnostic.bridge.selected_demand.loaded.count": .int(0),
-            "agentstudio.startup_diagnostic.bridge.selected_demand.load_failure.kind": .string(
-                "integrity_mismatch"),
-            "agentstudio.startup_diagnostic.bridge.selected_demand.result.reason": .string("descriptor_missing"),
-            "agentstudio.startup_diagnostic.bridge.selected_demand.result.status": .string("failed"),
-            "agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count": .int(4),
-            "agentstudio.startup_diagnostic.bridge.selected_materialized.deletion_line.count": .int(2),
-            "agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count": .int(0),
-            "agentstudio.startup_diagnostic.bridge.selected_materialized.item_type": .string("diff"),
-            "agentstudio.startup_diagnostic.bridge.selected_materialized.item_version": .int(3),
-            "agentstudio.startup_diagnostic.bridge.selected_materialized.update_result": .string("updated"),
-            "agentstudio.startup_diagnostic.bridge.worker_pool.active_tasks": .int(0),
-            "agentstudio.startup_diagnostic.bridge.worker_pool.busy_workers": .int(0),
-            "agentstudio.startup_diagnostic.bridge.worker_pool.diff_cache_size": .int(1),
-            "agentstudio.startup_diagnostic.bridge.worker_pool.file_cache_size": .int(1),
-            "agentstudio.startup_diagnostic.bridge.worker_pool.init_probe.failure_reason": .string(
-                "highlighter_loading_failed"),
-            "agentstudio.startup_diagnostic.bridge.worker_pool.init_probe.language_count": .int(7),
-            "agentstudio.startup_diagnostic.bridge.worker_pool.init_probe.stage": .string("highlighter-loaded"),
-            "agentstudio.startup_diagnostic.bridge.worker_pool.init_probe.theme_count": .int(2),
-            "agentstudio.startup_diagnostic.bridge.worker_pool.manager_state": .string("initialized"),
-            "agentstudio.startup_diagnostic.bridge.worker_pool.queued_tasks": .int(0),
-            "agentstudio.startup_diagnostic.bridge.worker_pool.state": .string("ready"),
-            "agentstudio.startup_diagnostic.bridge.worker_pool.total_workers": .int(2),
-            "agentstudio.startup_diagnostic.bridge.worker_pool.workers_failed": .bool(false),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.bootstrap_state": .string("started"),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.initialize_request_id_state": .string("present"),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count": .int(0),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_failure_kind": .string("none"),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_message_type": .string("success"),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_request_type": .string("initialize"),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_success_matches_initialize_request": .string(
-                "yes"),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_success_id_state": .string("present"),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_success_id_prefix": .string("req"),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_success_request_type": .string("diff"),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.success_count": .int(2),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.initialize_success_count": .int(1),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.diff_success_count": .int(1),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.file_success_count": .int(0),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.forwarded_message_count": .int(2),
-            "agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_forward_result": .string("ok"),
-            "agentstudio.startup_diagnostic.bridge.selected_item.visible": .bool(true),
-            "agentstudio.startup_diagnostic.bridge.selected_path.visible": .bool(true),
-            "agentstudio.startup_diagnostic.pane.id": .string("019ECB5A-7A66-7109-B45E-ED52BC59DA78"),
-            "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(false),
-            "agentstudio.startup_diagnostic.skip_reason": .string("missing_bounds"),
-            "agentstudio.trace.tag": .string("app.startup"),
-        ]
     }
 
 }

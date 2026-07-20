@@ -17,15 +17,20 @@ final class WorkspaceTabLayoutAtom {
         self.arrangementAtom = arrangementAtom
     }
 
-    func hydrate(
-        persistedTabs: [Tab],
+    func replaceTabs(
+        _ tabs: [Tab],
         activeTabId: UUID?,
         validPaneIds: Set<UUID>,
         drawerParentPaneIdByDrawerId: [UUID: UUID]? = nil
     ) {
-        shellAtom.hydrate(persistedTabs: persistedTabs, activeTabId: activeTabId)
-        arrangementAtom.hydrate(
-            persistedTabs: persistedTabs,
+        let shells = tabs.map { TabShell(id: $0.id, name: $0.name, colorHex: $0.colorHex) }
+        shellAtom.replaceTabShells(shells)
+        shellAtom.cursorAtom.replaceActiveTab(
+            activeTabId.flatMap { selectedID in shells.contains(where: { $0.id == selectedID }) ? selectedID : nil }
+                ?? shells.first?.id
+        )
+        arrangementAtom.replaceTabs(
+            tabs,
             validPaneIds: validPaneIds,
             drawerParentPaneIdByDrawerId: drawerParentPaneIdByDrawerId
         )

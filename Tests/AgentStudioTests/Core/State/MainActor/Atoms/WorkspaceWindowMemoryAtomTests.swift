@@ -14,12 +14,12 @@ struct WorkspaceWindowMemoryAtomTests {
         #expect(atom.windowFrame == nil)
     }
 
-    @Test("hydrate updates only local window memory fields")
-    func hydrateUpdatesOnlyLocalWindowMemoryFields() {
+    @Test("window memory replacement updates only local geometry fields")
+    func windowMemoryReplacementUpdatesOnlyLocalGeometryFields() {
         let atom = WorkspaceWindowMemoryAtom()
         let frame = CGRect(x: 12, y: 34, width: 900, height: 700)
 
-        atom.hydrate(sidebarWidth: 320, windowFrame: frame)
+        atom.replaceWindowMemory(sidebarWidth: 320, windowFrame: frame)
 
         #expect(atom.sidebarWidth == 320)
         #expect(atom.windowFrame == frame)
@@ -27,7 +27,7 @@ struct WorkspaceWindowMemoryAtomTests {
 
     @Test("sidebar and window frame mutate independently from identity")
     func sidebarAndWindowFrameMutateIndependentlyFromIdentity() {
-        let identity = WorkspaceIdentityAtom()
+        let identity = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
         let initialWorkspaceId = identity.workspaceId
         let memory = WorkspaceWindowMemoryAtom()
         let frame = CGRect(x: 4, y: 5, width: 600, height: 500)
@@ -40,4 +40,5 @@ struct WorkspaceWindowMemoryAtomTests {
         #expect(memory.sidebarWidth == 300)
         #expect(memory.windowFrame == frame)
     }
+
 }

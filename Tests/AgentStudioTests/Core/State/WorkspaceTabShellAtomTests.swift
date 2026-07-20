@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite(.serialized)
+@Suite
 struct WorkspaceTabShellAtomTests {
     @Test
     func appendTabShell_setsActiveTabId() {
@@ -137,20 +137,14 @@ struct WorkspaceTabShellAtomTests {
     }
 
     @Test
-    func hydrate_withStaleActiveTabId_fallsBackToFirstTab() {
-        let pane = UUID()
-        let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: Layout(paneId: pane))
-        let tab = Tab(
-            name: "One",
-            allPaneIds: [pane],
-            arrangements: [arrangement],
-            activeArrangementId: arrangement.id,
-            activePaneId: pane
-        )
+    func replaceTabShells_rebuildsIndex() {
+        let first = TabShell(id: UUIDv7.generate(), name: "One")
+        let second = TabShell(id: UUIDv7.generate(), name: "Two")
         let atom = WorkspaceTabShellAtom()
 
-        atom.hydrate(persistedTabs: [tab], activeTabId: UUID())
+        atom.replaceTabShells([second, first])
 
-        #expect(atom.activeTabId == tab.id)
+        #expect(atom.tabIndex(for: second.id) == 0)
+        #expect(atom.tabIndex(for: first.id) == 1)
     }
 }

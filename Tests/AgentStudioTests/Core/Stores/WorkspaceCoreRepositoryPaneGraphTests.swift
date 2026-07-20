@@ -52,7 +52,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
             panes: [
                 .init(
                     id: parentPaneId,
-                    content: .terminal(provider: .zmx, lifetime: .persistent),
+                    content: .terminal(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7()),
                     metadata: .init(
                         launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/pane-graph-repo"),
                         executionBackend: .docker(image: "swift:latest"),
@@ -117,7 +117,9 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
         let payloadPaneId = UUID(uuidString: "00000000-0000-0000-0000-000000001306")!
         let graph = WorkspaceCoreRepository.PaneGraphRecord(
             panes: [
-                makeFloatingPane(id: terminalPaneId, content: .terminal(provider: .ghostty, lifetime: .temporary)),
+                makeFloatingPane(
+                    id: terminalPaneId,
+                    content: .terminal(provider: .ghostty, lifetime: .temporary, zmxSessionID: .generateUUIDv7())),
                 makeFloatingPane(
                     id: browserPaneId,
                     content: .webview(
@@ -274,7 +276,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
             panes: [
                 .init(
                     id: paneId,
-                    content: .terminal(provider: .zmx, lifetime: .persistent),
+                    content: .terminal(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7()),
                     metadata: .init(
                         launchDirectory: launchDirectory,
                         executionBackend: .local,
@@ -345,7 +347,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
             graph: .init(panes: [
                 .init(
                     id: paneId,
-                    content: .terminal(provider: .zmx, lifetime: .persistent),
+                    content: .terminal(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7()),
                     metadata: .init(
                         launchDirectory: launchDirectory,
                         executionBackend: .local,
@@ -373,7 +375,8 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
 
     private func makeFloatingPane(
         id: UUID,
-        content: WorkspaceCoreRepository.PaneContentRecord = .terminal(provider: .zmx, lifetime: .persistent),
+        content: WorkspaceCoreRepository.PaneContentRecord = .terminal(
+            provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7()),
         title: String = "Pane",
         residency: WorkspaceCoreRepository.PaneResidencyRecord = .active
     ) -> WorkspaceCoreRepository.PaneRecord {

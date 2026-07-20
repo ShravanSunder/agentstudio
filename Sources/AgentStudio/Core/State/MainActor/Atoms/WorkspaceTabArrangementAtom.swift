@@ -159,12 +159,12 @@ final class WorkspaceTabArrangementAtom {
         }
     }
 
-    func hydrate(
-        persistedTabs: [Tab],
+    func replaceTabs(
+        _ tabs: [Tab],
         validPaneIds: Set<UUID>,
         drawerParentPaneIdByDrawerId: [UUID: UUID]? = nil
     ) {
-        let hydratedStates = persistedTabs.map { tab in
+        let replacementStates = tabs.map { tab in
             TabArrangementState(
                 tabId: tab.id,
                 allPaneIds: tab.allPaneIds,
@@ -177,7 +177,7 @@ final class WorkspaceTabArrangementAtom {
             TabArrangementValidation.validating(
                 TabArrangementValidation.pruningInvalidPaneIds(
                     validPaneIds: validPaneIds,
-                    from: hydratedStates,
+                    from: replacementStates,
                     drawerParentPaneIdByDrawerId: drawerParentPaneIdByDrawerId
                 ),
                 drawerParentPaneIdByDrawerId: drawerParentPaneIdByDrawerId
@@ -846,23 +846,24 @@ final class WorkspaceTabArrangementAtom {
             workspaceTabArrangementLogger.warning("mergeTab: sourceId and targetId are the same tab \(sourceId)")
             return
         }
-        guard let sourceTabIndex = arrangementStates.firstIndex(where: { $0.tabId == sourceId }),
-            let targetTabIndex = arrangementStates.firstIndex(where: { $0.tabId == targetId })
+        var replacementStates = arrangementStates
+        guard let sourceTabIndex = replacementStates.firstIndex(where: { $0.tabId == sourceId }),
+            let targetTabIndex = replacementStates.firstIndex(where: { $0.tabId == targetId })
         else {
             workspaceTabArrangementLogger.warning("mergeTab: source \(sourceId) or target \(targetId) tab not found")
             return
         }
 
         let targetArrIndex = activeArrangementIndex(for: targetTabIndex)
-        guard arrangementStates[targetTabIndex].arrangements[targetArrIndex].layout.contains(targetPaneId) else {
+        guard replacementStates[targetTabIndex].arrangements[targetArrIndex].layout.contains(targetPaneId) else {
             workspaceTabArrangementLogger.warning("mergeTab: targetPaneId \(targetPaneId) not in target arrangement")
             return
         }
 
         guard
             let mergedState = TabArrangementMutationRules.merging(
-                source: arrangementStates[sourceTabIndex],
-                into: arrangementStates[targetTabIndex],
+                source: replacementStates[sourceTabIndex],
+                into: replacementStates[targetTabIndex],
                 at: targetPaneId,
                 direction: direction,
                 position: position,
@@ -874,127 +875,9 @@ final class WorkspaceTabArrangementAtom {
             )
             return
         }
-        arrangementStates[targetTabIndex] = mergedState
-
-        arrangementStates.remove(at: sourceTabIndex)
+        replacementStates[targetTabIndex] = mergedState
+        replacementStates.remove(at: sourceTabIndex)
+        replaceArrangementStates(replacementStates)
     }
 
-    private static let resizeRatioStep: Double = 0.05
-    private static let resizeBaseAmount: Double = 10.0
-
-    private func findTabIndex(_ tabId: UUID) -> Int? {
-        arrangementStates.firstIndex { $0.tabId == tabId }
-    }
-
-    private func defaultArrangementIndex(for tabIndex: Int) -> Int {
-        arrangementStates[tabIndex].arrangements.firstIndex(where: \.isDefault) ?? 0
-    }
-
-    private func activeArrangementIndex(for tabIndex: Int) -> Int {
-        arrangementStates[tabIndex].arrangements.firstIndex {
-            $0.id == arrangementStates[tabIndex].activeArrangementId
-        } ?? defaultArrangementIndex(for: tabIndex)
-    }
-
-    private func defaultArrangement(for tabIndex: Int) -> PaneArrangement {
-        arrangementStates[tabIndex].arrangements[defaultArrangementIndex(for: tabIndex)]
-    }
-
-    private func activeArrangement(for tabIndex: Int) -> PaneArrangement {
-        arrangementStates[tabIndex].arrangements[activeArrangementIndex(for: tabIndex)]
-    }
-
-    private static func defaultArrangementIndex(in state: TabArrangementState) -> Int {
-        state.arrangements.firstIndex(where: \.isDefault) ?? 0
-    }
-
-    private static func activeArrangementIndex(in state: TabArrangementState) -> Int {
-        state.arrangements.firstIndex { $0.id == state.activeArrangementId } ?? defaultArrangementIndex(in: state)
-    }
-
-    private static func defaultArrangement(in state: TabArrangementState) -> PaneArrangement {
-        state.arrangements[defaultArrangementIndex(in: state)]
-    }
-
-    private static func activeArrangement(in state: TabArrangementState) -> PaneArrangement {
-        state.arrangements[activeArrangementIndex(in: state)]
-    }
-
-    private static func appendingPane(_ paneId: UUID, to layout: Layout) -> Layout? {
-        guard let lastPaneId = layout.paneIds.last else {
-            return Layout(paneId: paneId)
-        }
-        return layout.inserting(
-            paneId: paneId,
-            at: lastPaneId,
-            direction: .horizontal,
-            position: .after,
-            sizingMode: .proportional
-        )
-    }
-
-    private static func drawerViewSeed(drawerId: UUID?, drawerPaneIds: [UUID]) -> DrawerView? {
-        guard drawerId != nil, !drawerPaneIds.isEmpty else { return nil }
-        return DrawerView(
-            layout: DrawerGridLayout(topRow: Layout.autoTiled(drawerPaneIds)),
-            activeChildId: drawerPaneIds[0],
-            minimizedPaneIds: []
-        )
-    }
-
-    private func replaceArrangementStates(_ states: [TabArrangementState]) {
-        graphAtom.replaceStates(states.map(TabGraphState.init))
-        cursorAtom.replaceStates(states)
-        presentationAtom.replaceStates(states)
-    }
-
-    private func composedArrangementStates() -> [TabArrangementState] {
-        graphAtom.tabStates.map { graphState in
-            let arrangements = graphState.arrangements.map { arrangementGraphState in
-                var arrangement = PaneArrangement(
-                    id: arrangementGraphState.id,
-                    name: arrangementGraphState.name,
-                    isDefault: arrangementGraphState.isDefault,
-                    layout: arrangementGraphState.layout,
-                    minimizedPaneIds: arrangementGraphState.minimizedPaneIds,
-                    showsMinimizedPanes: arrangementGraphState.showsMinimizedPanes,
-                    activePaneId: cursorAtom.activePaneId(forArrangement: arrangementGraphState.id),
-                    drawerViews: Dictionary(
-                        uniqueKeysWithValues: arrangementGraphState.drawerViews.map { drawerId, drawerGraphState in
-                            var drawerView = DrawerView(
-                                layout: drawerGraphState.layout,
-                                activeChildId: cursorAtom.activeChildId(
-                                    forArrangement: arrangementGraphState.id,
-                                    drawerId: drawerId
-                                ),
-                                minimizedPaneIds: drawerGraphState.minimizedPaneIds
-                            )
-                            // DrawerView normalizes nil active children to the first pane.
-                            // Cursor state must win so all-minimized drawers round-trip as nil.
-                            drawerView.activeChildId = cursorAtom.activeChildId(
-                                forArrangement: arrangementGraphState.id,
-                                drawerId: drawerId
-                            )
-                            return (drawerId, drawerView)
-                        }
-                    )
-                )
-                // PaneArrangement also normalizes nil to a fallback pane; preserve the explicit cursor record.
-                arrangement.activePaneId = cursorAtom.activePaneId(forArrangement: arrangementGraphState.id)
-                return arrangement
-            }
-            let activeArrangementId =
-                cursorAtom.activeArrangementId(forTab: graphState.tabId)
-                ?? arrangements.first(where: \.isDefault)?.id
-                ?? arrangements.first?.id
-                ?? UUID()
-            return TabArrangementState(
-                tabId: graphState.tabId,
-                allPaneIds: graphState.allPaneIds,
-                arrangements: arrangements,
-                activeArrangementId: activeArrangementId,
-                zoomedPaneId: presentationAtom.zoomedPaneId(forTab: graphState.tabId)
-            )
-        }
-    }
 }

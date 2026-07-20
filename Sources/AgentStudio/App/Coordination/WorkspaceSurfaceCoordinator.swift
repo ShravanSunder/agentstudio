@@ -49,15 +49,16 @@ final class WorkspaceSurfaceCoordinator {
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator
     let filesystemSource: any WorkspaceFilesystemSourceManaging
     let filesystemProjectionIndex: any WorkspaceFilesystemProjectionIndexing
-    let paneFilesystemProjectionStore: PaneFilesystemProjectionAtom
     let windowLifecycleStore: WindowLifecycleAtom
     let appLifecycleStore: AppLifecycleAtom
     let traceRuntime: AgentStudioTraceRuntime?
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)?
     #if DEBUG
         var bridgeReviewSourceProviderOverridesByPaneId: [UUID: any BridgeReviewSourceProvider] = [:]
     #endif
     var removeRepoHandler: @MainActor (UUID) -> Void = { _ in }
+    var preparedContentVisibilitySignalHandler: @MainActor ([PaneId]) -> Set<PaneId> = { _ in [] }
     lazy var sessionConfig = SessionConfiguration.detect()
     lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
     private var cwdChangesTask: Task<Void, Never>?
@@ -70,6 +71,13 @@ final class WorkspaceSurfaceCoordinator {
     var bridgePaneRetirementsRequiringRestore: Set<UUID> = []
     var filesystemSyncTask: Task<Void, Never>?
     var filesystemSyncRequested = false
+    var pendingFilesystemPaneUpdatesByPaneId: [UUID: FilesystemProjectionPaneUpdate] = [:]
+    var pendingActivePaneWorktreeUpdate = false
+    var filesystemFullReconciliationRequestCount: UInt64 = 0
+    var filesystemAffectedKeyRequestCount: UInt64 = 0
+    var isObservingActivePaneWorktree = false
+    var activePaneWorktreeObservationGeneration: UInt64 = 0
+    var lastObservedActivePaneWorktreeId: UUID?
     var pendingFocusPaneIds: Set<UUID> = []
     var filesystemRegisteredContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
     var filesystemActivityByWorktreeId: [UUID: Bool] = [:]
@@ -80,6 +88,7 @@ final class WorkspaceSurfaceCoordinator {
     var filesystemProjectionRequestGeneration: UInt64 = 0
     var filesystemAppliedTopologyGeneration: UInt64 = 0
     var paneContextGeneration: UInt64 = 0
+    var nextFilesystemProjectionSequenceByPaneId: [UUID: UInt64] = [:]
     var pendingTerminalStartupOperationID: String?
     var terminalStartupOperationIDsByPaneID: [UUID: String] = [:]
     var bridgePaneActivityCoordinatorsByPaneId: [UUID: BridgePaneActivityCoordinator] = [:]
@@ -139,11 +148,11 @@ final class WorkspaceSurfaceCoordinator {
             BridgeWorktreeProductConstructionCoordinator(),
         filesystemSource: (any WorkspaceFilesystemSourceManaging)? = nil,
         filesystemProjectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
-        paneFilesystemProjectionStore: PaneFilesystemProjectionAtom = PaneFilesystemProjectionAtom(),
         windowLifecycleStore: WindowLifecycleAtom,
         appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom(),
         traceRuntime: AgentStudioTraceRuntime? = nil,
-        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)? = nil
     ) {
         let resolvedFilesystemSource =
             filesystemSource
@@ -168,21 +177,24 @@ final class WorkspaceSurfaceCoordinator {
         self.worktreeProductConstructionCoordinator = worktreeProductConstructionCoordinator
         self.filesystemSource = resolvedFilesystemSource
         self.filesystemProjectionIndex = filesystemProjectionIndex ?? FilesystemProjectionIndex()
-        self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
         self.windowLifecycleStore = windowLifecycleStore
         self.appLifecycleStore = appLifecycleStore
         self.traceRuntime = traceRuntime
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.traceIdentityRefreshHandler = traceIdentityRefreshHandler
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         subscribeToCWDChanges()
         setupPrePersistHook()
         setupFilesystemSourceSync()
+        startObservingActivePaneWorktree()
         startPaneEventIngress()
         startRuntimeReducerConsumers()
         startBridgePaneActivityObservation()
     }
 
     isolated deinit {
+        isObservingActivePaneWorktree = false
+        activePaneWorktreeObservationGeneration &+= 1
         cwdChangesTask?.cancel()
         paneEventIngressTask?.cancel()
         for task in runtimeEventBridgeTasks.values {
@@ -194,7 +206,9 @@ final class WorkspaceSurfaceCoordinator {
         filesystemSyncTask?.cancel()
         bridgePaneActivityObservationGeneration &+= 1
         let filesystemSource = filesystemSource
+        let filesystemProjectionIndex = filesystemProjectionIndex
         Task {
+            await filesystemProjectionIndex.shutdown()
             await filesystemSource.shutdown()
         }
     }
@@ -223,11 +237,16 @@ final class WorkspaceSurfaceCoordinator {
         filesystemSyncTask?.cancel()
         filesystemSyncTask = nil
         filesystemSyncRequested = false
+        pendingFilesystemPaneUpdatesByPaneId.removeAll()
+        pendingActivePaneWorktreeUpdate = false
+        stopObservingActivePaneWorktree()
 
         for task in activeRuntimeBridgeTasks {
             task.cancel()
         }
         runtimeEventBridgeTasks.removeAll()
+
+        await filesystemProjectionIndex.shutdown()
 
         if let activeCWDTask {
             await activeCWDTask.value
@@ -290,8 +309,19 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     private func updatePaneCWDAndResolvedContext(paneId: UUID, cwd: URL?) {
-        let previousWorktreeId = store.paneAtom.pane(paneId)?.worktreeId
+        let lookupClock = ContinuousClock()
+        let lookupStartedAt = lookupClock.now
         let resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: cwd)
+        performanceTraceRecorder?.recordDuration(
+            .repoAndWorktreeLookup,
+            duration: lookupStartedAt.duration(to: lookupClock.now),
+            attributes: [
+                "agentstudio.performance.topology.index.count": .int(
+                    store.repositoryTopologyAtom.worktreePathIndexCount
+                ),
+                "agentstudio.performance.topology.has_match": .bool(resolvedContext != nil),
+            ]
+        )
         let updateResult = store.paneAtom.updatePaneCWDAndResolvedContext(
             paneId,
             cwd: cwd,
@@ -304,9 +334,6 @@ final class WorkspaceSurfaceCoordinator {
                 return
             }
             upsertPaneFilesystemProjectionContext(for: pane)
-            if previousWorktreeId != pane.worktreeId {
-                syncFilesystemRootsAndActivity()
-            }
         case .unchanged:
             return
         case .paneMissing:

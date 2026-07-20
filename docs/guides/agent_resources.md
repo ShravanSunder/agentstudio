@@ -119,7 +119,9 @@ The current app layout is hybrid:
 - `App/` owns composition, boot, lifecycle, windows, pane hosting, and cross-feature coordination.
 - `Core/` owns shared models, actions, runtime contracts, main-actor atoms, persistence wrappers, and feature-agnostic pane UI.
 - `Features/` owns vertical capability slices such as `Terminal`, `Bridge`, `Webview`, `CodeViewer`, `CommandBar`, `RepoExplorer`, and `InboxNotification`.
-- `SharedComponents/` owns stateless reusable UI primitives. It imports only `Infrastructure`.
+- `SharedComponents/` owns reusable UI primitives. It imports only `Infrastructure`
+  and receives state through explicit values, bindings, callbacks, or shared/infrastructure
+  observable view models, not atoms or global stores.
 - `Infrastructure/` owns domain-agnostic utilities and external integrations.
 
 Use [Directory Structure & Module Boundaries](../architecture/directory_structure.md) as the placement source of truth.

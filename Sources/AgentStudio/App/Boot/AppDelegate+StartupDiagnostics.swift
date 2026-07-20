@@ -48,6 +48,8 @@ extension AppDelegate {
                     await self.runBridgeProductPaintCorrelationDiagnostic(action: action)
                 case .bridgeProductStreamWebKitFeasibility:
                     await self.runBridgeProductStreamWebKitFeasibilityDiagnostic(action: action)
+                case .sidebarPerformanceProof:
+                    await self.runSidebarPerformanceProofDiagnostic(action: action)
             #endif
             case .addWatchFolder:
                 guard let folderURL = AgentStudioStartupDiagnosticAction.watchFolderURL() else {
@@ -248,7 +250,10 @@ extension AppDelegate {
                 return
             }
 
-            await workspaceSurfaceCoordinator.restoreAllViews(in: terminalContainerBounds)
+            workspaceSurfaceCoordinator.restoreVisiblePaneIfNeeded(
+                pane.id,
+                forceWhenBoundsExist: true
+            )
             await Task.yield()
             mainWindowController?.syncVisibleTerminalGeometry(reason: "ipcTerminalSmoke")
             let renderProof = await waitForIPCTerminalSmokeRenderProof(for: pane.id)
@@ -290,6 +295,139 @@ extension AppDelegate {
             )
         }
 
+        private func runSidebarPerformanceProofDiagnostic(
+            action: AgentStudioStartupDiagnosticAction
+        ) async {
+            let repoCount = store.repositoryTopologyAtom.repos.count
+            let worktreeCount = store.repositoryTopologyAtom.repos.reduce(0) { count, repo in
+                count + repo.worktrees.count
+            }
+            let inboxCount = atom(\.inboxNotification).notifications.count
+            let projectionTrigger = AppPolicies.SidebarProjection.Trigger.startupDiagnostic
+            let inboxProjectionProof = await runInboxSidebarProjectionProof(trigger: projectionTrigger)
+            let diagnosticOutcome = inboxProjectionProof.succeeded ? "succeeded" : "blocked"
+            let attributes = startupDiagnosticTraceAttributes(for: action).merging(
+                [
+                    "agentstudio.startup_diagnostic.fixture.repo.count": .int(repoCount),
+                    "agentstudio.startup_diagnostic.fixture.worktree.count": .int(worktreeCount),
+                    "agentstudio.startup_diagnostic.fixture.inbox_notification.count": .int(inboxCount),
+                    "agentstudio.startup_diagnostic.fixture.sidebar_surface.count": .int(1),
+                    "agentstudio.startup_diagnostic.projection_proof.succeeded": .bool(inboxProjectionProof.succeeded),
+                    "agentstudio.performance.sidebar.surface": .string("inbox"),
+                    "agentstudio.performance.sidebar.phase": .string(projectionTrigger.rawValue),
+                    "agentstudio.performance.sidebar.query_state": .string("empty"),
+                    "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
+                    "agentstudio.performance.sidebar.input.count": .int(repoCount + worktreeCount + inboxCount),
+                ]
+            ) { _, newValue in newValue }
+
+            let inboxProjectionResult = inboxProjectionProof.result
+            let projectionWorkerDuration = inboxProjectionResult.workerDuration
+            if inboxProjectionProof.succeeded {
+                performanceTraceRecorder?.recordDuration(
+                    .sidebarProjection,
+                    duration: projectionWorkerDuration,
+                    attributes: sidebarPerformanceProofAttributes(
+                        phase: "projection_worker",
+                        trigger: projectionTrigger,
+                        inputCount: inboxCount,
+                        sectionCount: inboxProjectionResult.model.sections.count,
+                        extra: [
+                            "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(
+                                AgentStudioPerformanceTraceRecorder.milliseconds(from: projectionWorkerDuration))
+                        ]
+                    )
+                )
+            }
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic_action.command_exercised",
+                phase: "startup_diagnostic_action",
+                outcome: diagnosticOutcome,
+                attributes: attributes
+            )
+            performanceTraceRecorder?.record(
+                .sidebarProjection,
+                attributes: attributes
+            )
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic_action.completed",
+                phase: "startup_diagnostic_action",
+                outcome: diagnosticOutcome,
+                attributes: attributes
+            )
+        }
+
+        private func runInboxSidebarProjectionProof(
+            trigger: AppPolicies.SidebarProjection.Trigger
+        ) async -> (
+            result: InboxNotificationListProjectionResult,
+            succeeded: Bool
+        ) {
+            let repos = store.repositoryTopologyAtom.repos
+            let repoEnrichmentByRepoId = Dictionary(
+                uniqueKeysWithValues: repos.compactMap { repo in
+                    repoCache.repoEnrichment(for: repo.id).map { (repo.id, $0) }
+                }
+            )
+            let repoPresentationByRepoId = InboxNotificationSidebarView.repoPresentationByRepoId(
+                repos: repos,
+                repoEnrichmentByRepoId: repoEnrichmentByRepoId
+            )
+            let key = InboxNotificationListProjectionKey(
+                notifications: atom(\.inboxNotification).notifications,
+                grouping: atom(\.inboxNotificationPrefs).grouping,
+                sort: atom(\.inboxNotificationPrefs).sort,
+                searchText: "",
+                filter: nil,
+                contentMode: InboxNotificationSidebarView.globalSidebarContentMode(
+                    atom(\.inboxNotificationPrefs).globalInboxContentMode
+                ),
+                rowStateFilter: atom(\.inboxNotificationPrefs).globalInboxRowStateFilter,
+                collapsedGroups: atom(\.inboxSidebarState).collapsedGroups,
+                repoPresentationFingerprint: InboxNotificationSidebarView.repoPresentationFingerprint(
+                    repoPresentationByRepoId
+                )
+            )
+            let request = InboxNotificationListProjectionRequest(
+                generation: 1,
+                key: key,
+                trigger: trigger,
+                repoPresentationByRepoId: repoPresentationByRepoId
+            )
+            do {
+                return (try await InboxNotificationListProjectionWorker().project(request), true)
+            } catch {
+                return (
+                    InboxNotificationListProjectionResult(
+                        generation: request.generation,
+                        key: key,
+                        trigger: request.trigger,
+                        model: .empty,
+                        workerDuration: .zero
+                    ),
+                    false
+                )
+            }
+        }
+
+        private func sidebarPerformanceProofAttributes(
+            phase: String,
+            trigger: AppPolicies.SidebarProjection.Trigger,
+            inputCount: Int,
+            sectionCount: Int,
+            extra: [String: AgentStudioTraceValue] = [:]
+        ) -> [String: AgentStudioTraceValue] {
+            [
+                "agentstudio.performance.sidebar.surface": .string("inbox"),
+                "agentstudio.performance.sidebar.phase": .string(phase),
+                "agentstudio.performance.sidebar.trigger": .string(trigger.rawValue),
+                "agentstudio.performance.sidebar.query_state": .string("empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
+                "agentstudio.performance.sidebar.input.count": .int(inputCount),
+                "agentstudio.performance.sidebar.group.count": .int(sectionCount),
+                "agentstudio.performance.sidebar.query_character.count": .int(0),
+            ].merging(extra) { _, newValue in newValue }
+        }
     #endif
 
     private func runCrossTabMoveGeometrySmokeDiagnostic(
@@ -325,7 +463,10 @@ extension AppDelegate {
             """
         )
 
-        await workspaceSurfaceCoordinator.restoreAllViews(in: terminalContainerBounds)
+        mountCrossTabMoveGeometrySmokeFixture(
+            fixture,
+            terminalContainerBounds: terminalContainerBounds
+        )
         mainWindowController?.syncVisibleTerminalGeometry(reason: "crossTabMoveGeometrySmokeBefore")
         await Task.yield()
         workspaceSurfaceCoordinator.execute(
@@ -458,7 +599,7 @@ extension AppDelegate {
         let terminalView = viewRegistry.terminalView(for: paneId)
         let mountedSurfaces = [terminalView?.ghosttySurface].compactMap { $0 }
         let validGeometryCount = mountedSurfaces.filter(Self.surfaceHasValidSmokeGeometry).count
-        let runtime = workspaceSurfaceCoordinator.runtimeForPane(PaneId(uuid: paneId))
+        let runtime = workspaceSurfaceCoordinator.runtimeForPane(PaneId(existingUUID: paneId))
 
         return CrossTabMoveGeometrySmokeRenderProof(
             expectedVisiblePaneCount: 1,
@@ -510,7 +651,6 @@ extension AppDelegate {
             viewRegistry.ensureSlot(for: paneId)
         }
 
-        viewRegistry.beginInitialRestore()
         let sourceTab = Tab(paneId: movedPane.id, name: "Smoke Source")
         let destinationTab = Tab(paneId: targetPane.id, name: "Smoke Destination")
         store.tabLayoutAtom.appendTab(sourceTab)
@@ -543,11 +683,36 @@ extension AppDelegate {
         )
     }
 
+    private func mountCrossTabMoveGeometrySmokeFixture(
+        _ fixture: CrossTabMoveGeometrySmokeFixture,
+        terminalContainerBounds: CGRect
+    ) {
+        let resolvedPaneFramesByTabID = workspaceSurfaceCoordinator.resolveInitialFramesByTabId(
+            in: terminalContainerBounds
+        )
+        for paneID in fixture.paneIds {
+            guard viewRegistry.view(for: paneID) == nil,
+                let pane = store.paneAtom.pane(paneID)
+            else {
+                continue
+            }
+            _ = workspaceSurfaceCoordinator.createViewForContent(
+                pane: pane,
+                initialFrame: workspaceSurfaceCoordinator.initialFrame(
+                    for: pane,
+                    resolvedPaneFramesByTabId: resolvedPaneFramesByTabID
+                ),
+                treatAsRestoredSessionStart: false
+            )
+        }
+    }
+
     private func createCrossTabMoveGeometrySmokePane(title: String) -> Pane {
         store.paneAtom.createPane(
             title: title,
             provider: .zmx,
-            lifetime: .temporary
+            lifetime: .temporary,
+            zmxSessionID: .generateUUIDv7()
         )
     }
 

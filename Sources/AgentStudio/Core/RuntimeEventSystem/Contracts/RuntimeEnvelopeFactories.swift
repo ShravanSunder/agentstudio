@@ -60,7 +60,7 @@ extension WorktreeEnvelope {
 extension PaneEnvelope {
     static func test(
         event: PaneRuntimeEvent,
-        paneId: PaneId = PaneId(),
+        paneId: PaneId = PaneId.generateUUIDv7(),
         paneKind: PaneContentType = .terminal,
         source: EventSource? = nil,
         seq: UInt64 = 1,

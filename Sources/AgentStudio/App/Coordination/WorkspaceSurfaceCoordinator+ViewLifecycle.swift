@@ -9,14 +9,6 @@ extension WorkspaceSurfaceCoordinator {
         case callerManaged
     }
 
-    private struct RestoreAllViewsProgress {
-        var restored = 0
-        var drawerRestored = 0
-        var failedPaneIds: [UUID] = []
-        var failedDrawerPaneIds: [UUID] = []
-        var restoredPaneIds: Set<UUID> = []
-    }
-
     private struct TerminalSurfaceStartupPreparation {
         let strategy: Ghostty.SurfaceStartupStrategy
         let showsRestorePresentationDuringStartup: Bool
@@ -59,20 +51,6 @@ extension WorkspaceSurfaceCoordinator {
         return host
     }
 
-    static func floatingZmxRestoreSessionId(for pane: Pane, launchDirectory: URL) -> String {
-        if let parentPaneId = pane.parentPaneId {
-            return ZmxBackend.drawerSessionId(
-                parentPaneId: parentPaneId,
-                drawerPaneId: pane.id
-            )
-        }
-
-        return ZmxBackend.floatingSessionId(
-            launchDirectory: launchDirectory,
-            paneId: pane.id
-        )
-    }
-
     /// Create a view for any pane content type. Dispatches to the appropriate factory.
     /// Returns the created mounted content view, or nil on failure.
     func createViewForContent(
@@ -80,95 +58,32 @@ extension WorkspaceSurfaceCoordinator {
         initialFrame: NSRect? = nil,
         treatAsRestoredSessionStart: Bool = false
     ) -> NSView? {
-        viewRegistry.ensureSlot(for: pane.id)
-        registerPaneFilesystemContextIfNeeded(for: pane)
         if case .bridgePanel = pane.content,
             bridgePaneRetirementTasksByPaneId[pane.id] != nil
         {
             bridgePaneRetirementsRequiringRestore.insert(pane.id)
             return viewRegistry.view(for: pane.id)?.mountedContent(as: BridgePaneMountView.self)
         }
-
+        let runtimePaneID = PaneId(existingUUID: pane.id)
+        if viewRegistry.isInitialRestorePending,
+            preparedContentVisibilitySignalHandler([runtimePaneID]).contains(runtimePaneID)
+        {
+            RestoreTrace.log("createViewForContent signalledPreparedOwner pane=\(pane.id)")
+            return nil
+        }
         switch pane.content {
         case .terminal:
-            if let worktreeId = pane.worktreeId,
-                let repoId = pane.repoId,
-                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-                let repo = store.repositoryTopologyAtom.repo(repoId)
-            {
-                return createView(
-                    for: pane,
-                    worktree: worktree,
-                    repo: repo,
-                    initialFrame: initialFrame,
-                    treatAsRestoredSessionStart: treatAsRestoredSessionStart
-                )
-
-            } else if let parentPaneId = pane.parentPaneId,
-                let parentPane = store.paneAtom.pane(parentPaneId),
-                let worktreeId = parentPane.worktreeId,
-                let repoId = parentPane.repoId,
-                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-                let repo = store.repositoryTopologyAtom.repo(repoId)
-            {
-                return createView(
-                    for: pane,
-                    worktree: worktree,
-                    repo: repo,
-                    initialFrame: initialFrame,
-                    treatAsRestoredSessionStart: treatAsRestoredSessionStart
-                )
-
-            } else {
-                return createFloatingTerminalView(
-                    for: pane,
-                    initialFrame: initialFrame,
-                    treatAsRestoredSessionStart: treatAsRestoredSessionStart
-                )
-            }
-
-        case .webview(let state):
-            let view = WebviewPaneMountView(paneId: pane.id, state: state)
-            let paneId = pane.id
-            view.controller.onTitleChange = { [weak self] title in
-                self?.store.paneAtom.updatePaneTitle(paneId, title: title)
-            }
-            registerHostedView(mountedView: view, for: pane.id)
-            registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
-            Self.logger.info("Created webview pane \(pane.id)")
-            return view
-
-        case .codeViewer(let state):
-            let initialText: String?
-            if let codeViewerRuntime = registerCodeViewerRuntimeIfNeeded(for: pane) {
-                if codeViewerRuntime.lifecycle == .created {
-                    let transitioned = codeViewerRuntime.transitionToReady()
-                    if !transitioned {
-                        Self.logger.warning(
-                            "Code viewer runtime for pane \(pane.id.uuidString, privacy: .public) failed ready transition"
-                        )
-                    }
-                }
-                initialText = codeViewerRuntime.displayedText.isEmpty ? nil : codeViewerRuntime.displayedText
-            } else {
-                initialText = nil
-            }
-
-            let view = CodeViewerPaneMountView(
-                paneId: pane.id,
-                state: state,
-                initialText: initialText
+            return mountCurrentTerminalContent(
+                pane: pane,
+                initialFrame: initialFrame,
+                treatAsRestoredSessionStart: treatAsRestoredSessionStart
             )
-            registerHostedView(mountedView: view, for: pane.id)
-            Self.logger.info("Created code viewer pane \(pane.id)")
-            return view
 
         case .bridgePanel(let state):
             return createBridgePaneView(for: pane, state: state)
 
-        case .unsupported:
-            Self.logger.warning("Cannot create view for unsupported content type — pane \(pane.id)")
-            return nil
+        case .webview, .codeViewer, .unsupported:
+            return mountCurrentNonterminalContent(pane: pane)
         }
     }
 
@@ -283,11 +198,11 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     @discardableResult
-    private func createFloatingTerminalView(
+    func createTopologyIndependentTerminalView(
         for pane: Pane,
         initialFrame: NSRect? = nil,
         treatAsRestoredSessionStart: Bool = false
-    ) -> TerminalPaneMountView? {
+    ) -> TopologyIndependentTerminalMountResult {
         if pane.provider == .zmx, initialFrame == nil {
             RestoreTrace.log(
                 "createFloatingTerminalView deferred pane=\(pane.id) reason=missingInitialFrame"
@@ -296,7 +211,7 @@ extension WorkspaceSurfaceCoordinator {
                 "Deferring floating zmx pane \(pane.id, privacy: .public) until trusted initialFrame exists"
             )
             registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
-            return nil
+            return .failed(.trustedInitialFrameUnavailable)
         }
         let launchDirectory =
             pane.metadata.cwd ?? pane.metadata.launchDirectory ?? FileManager.default.homeDirectoryForCurrentUser
@@ -308,7 +223,7 @@ extension WorkspaceSurfaceCoordinator {
                 treatAsRestoredSessionStart: treatAsRestoredSessionStart,
                 context: .floating(launchDirectory: launchDirectory)
             )
-        else { return nil }
+        else { return .failed(.startupPreparationFailed) }
 
         RestoreTrace.log(
             "createFloatingView pane=\(pane.id) cwd=\(launchDirectory.path) cmd=\(shellCommand)"
@@ -345,8 +260,15 @@ extension WorkspaceSurfaceCoordinator {
             RestoreTrace.log(
                 "createFloatingSurface success pane=\(pane.id) surface=\(managed.id) initialSurfaceFrame=\(NSStringFromRect(managed.surface.frame))"
             )
-            surfaceManager.attach(managed.id, to: pane.id)
-            traceSurfaceAttached(pane: pane, surfaceID: managed.id)
+            guard
+                let attachedSurface = attachTopologyIndependentSurface(
+                    surfaceID: managed.id,
+                    to: pane,
+                    preparedRuntime: preparedRuntime
+                )
+            else {
+                return .failed(.surfaceAttachmentFailed)
+            }
 
             let view = TerminalPaneMountView(
                 restoredSurfaceId: managed.id,
@@ -358,7 +280,7 @@ extension WorkspaceSurfaceCoordinator {
             view.onRepairRequested = { [weak self] paneId in
                 self?.execute(.repair(.recreateSurface(paneId: paneId)))
             }
-            view.displaySurface(managed.surface)
+            view.displaySurface(attachedSurface)
             if let runtime = preparedRuntime?.runtime {
                 view.bind(runtime: runtime)
             }
@@ -369,7 +291,7 @@ extension WorkspaceSurfaceCoordinator {
             RestoreTrace.log("createFloatingView complete pane=\(pane.id) surface=\(managed.id)")
 
             Self.logger.info("Created floating terminal view for pane \(pane.id)")
-            return view
+            return .mounted(MountedTerminalContent(view: view, surfaceID: managed.id))
 
         case .failure(let error):
             traceSurfaceCreateFailed(
@@ -386,8 +308,29 @@ extension WorkspaceSurfaceCoordinator {
                 "Failed to create floating surface for pane \(pane.id): \(error.localizedDescription)")
             rollbackPreparedTerminalRuntimeIfNeeded(preparedRuntime)
             registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
+            return .failed(.surfaceCreationFailed)
+        }
+    }
+
+    private func attachTopologyIndependentSurface(
+        surfaceID: UUID,
+        to pane: Pane,
+        preparedRuntime: (runtime: TerminalRuntime, wasCreated: Bool)?
+    ) -> Ghostty.SurfaceView? {
+        guard let attachedSurface = surfaceManager.attach(surfaceID, to: pane.id) else {
+            RestoreTrace.log(
+                "createFloatingSurface attachFailure pane=\(pane.id) surface=\(surfaceID)"
+            )
+            Self.logger.error(
+                "Failed to attach floating terminal surface \(surfaceID) to pane \(pane.id)"
+            )
+            rollbackPreparedTerminalRuntimeIfNeeded(preparedRuntime)
+            surfaceManager.destroy(surfaceID)
+            registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
             return nil
         }
+        traceSurfaceAttached(pane: pane, surfaceID: surfaceID)
+        return attachedSurface
     }
 
     private func prepareTerminalSurfaceStartup(
@@ -398,13 +341,13 @@ extension WorkspaceSurfaceCoordinator {
     ) -> TerminalSurfaceStartupPreparation? {
         switch pane.provider {
         case .zmx:
-            let diagnostics = terminalRestoreRuntime.zmxAttachDiagnostics(for: pane, store: store)
+            let diagnostics = terminalRestoreRuntime.zmxAttachDiagnostics(for: pane)
             if let diagnostics {
                 RestoreTrace.log(
                     "\(context.diagnosticsTracePrefix) zmxDiagnostics pane=\(diagnostics.paneId) session=\(diagnostics.sessionId) socketPathLen=\(diagnostics.socketPathLength) socketPathHeadroom=\(diagnostics.socketPathHeadroom) maxSocketPathLen=\(diagnostics.maxSocketPathLength)"
                 )
             }
-            if let attachCommand = terminalRestoreRuntime.zmxAttachCommand(for: pane, store: store) {
+            if let attachCommand = terminalRestoreRuntime.zmxAttachCommand(for: pane) {
                 traceZmxAttachPrepared(pane: pane, diagnostics: diagnostics)
                 // Prevent nested Agent Studio launches from inheriting an outer zmx session.
                 let environmentVariables: [String: String] = [
@@ -412,11 +355,6 @@ extension WorkspaceSurfaceCoordinator {
                     "ZMX_SESSION": "",
                     "ZMX_SESSION_PREFIX": "",
                 ]
-                if case .floating(let launchDirectory) = context {
-                    RestoreTrace.log(
-                        "createFloatingView zmx pane=\(pane.id) session=\(Self.floatingZmxRestoreSessionId(for: pane, launchDirectory: launchDirectory)) cwd=\(launchDirectory.path)"
-                    )
-                }
                 return TerminalSurfaceStartupPreparation(
                     strategy: .surfaceCommand(attachCommand),
                     showsRestorePresentationDuringStartup: treatAsRestoredSessionStart,
@@ -428,6 +366,12 @@ extension WorkspaceSurfaceCoordinator {
             Self.logger.error(
                 "\(context.missingZmxLogMessage) for \(pane.id) (state will not persist)"
             )
+            if treatAsRestoredSessionStart {
+                // Initial restore activates the exact durable session or presents failure.
+                // It must not rewrite composition or silently launch a replacement shell.
+                registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
+                return nil
+            }
             if !pane.metadata.title.localizedCaseInsensitiveContains("ephemeral") {
                 store.paneAtom.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
             }
@@ -501,18 +445,12 @@ extension WorkspaceSurfaceCoordinator {
         refreshBridgePaneActivities()
 
         if shouldUnregisterRuntime {
-            if UUIDv7.isV7(paneId) {
-                let runtimePaneId = PaneId(uuid: paneId)
-                _ = unregisterRuntime(runtimePaneId)
-                if case .schedule = replayEvictionPolicy {
-                    Task { [paneEventBus] in
-                        await paneEventBus.evictReplay(sourceKey: EventSource.pane(runtimePaneId).description)
-                    }
+            let runtimePaneId = PaneId(existingUUID: paneId)
+            _ = unregisterRuntime(runtimePaneId)
+            if case .schedule = replayEvictionPolicy {
+                Task { [paneEventBus] in
+                    await paneEventBus.evictReplay(sourceKey: EventSource.pane(runtimePaneId).description)
                 }
-            } else {
-                Self.logger.warning(
-                    "Skipping runtime unregister for non-v7 pane id \(paneId.uuidString, privacy: .public)"
-                )
             }
             runtime.removeSession(paneId)
         }
@@ -563,13 +501,8 @@ extension WorkspaceSurfaceCoordinator {
         Self.logger.debug("Reattached pane \(paneId.uuidString, privacy: .public) for view switch")
     }
 
-    private func registerCodeViewerRuntimeIfNeeded(for pane: Pane) -> SwiftPaneRuntime? {
-        guard let runtimePaneId = runtimePaneId(for: pane.id) else {
-            Self.logger.warning(
-                "Skipping code viewer runtime registration for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
-            )
-            return nil
-        }
+    func registerCodeViewerRuntimeIfNeeded(for pane: Pane) -> SwiftPaneRuntime? {
+        let runtimePaneId = runtimePaneId(for: pane.id)
         let canonicalMetadata = pane.metadata.canonicalizedIdentity(
             paneId: runtimePaneId,
             contentType: .codeViewer
@@ -592,7 +525,7 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     func registerRuntimeIfNeeded(runtime: any PaneRuntime, for pane: Pane) {
-        guard let runtimePaneId = runtimePaneId(for: pane.id) else { return }
+        let runtimePaneId = runtimePaneId(for: pane.id)
         guard runtime.paneId == runtimePaneId else {
             Self.logger.error(
                 "Runtime pane id mismatch during registration for pane \(pane.id.uuidString, privacy: .public)"
@@ -611,17 +544,11 @@ extension WorkspaceSurfaceCoordinator {
         registerRuntime(runtime)
     }
 
-    private func runtimePaneId(for paneId: UUID) -> PaneId? {
-        guard UUIDv7.isV7(paneId) else {
-            Self.logger.error(
-                "Runtime registration requested for non-v7 pane id \(paneId.uuidString, privacy: .public)"
-            )
-            return nil
-        }
-        return PaneId(uuid: paneId)
+    private func runtimePaneId(for paneId: UUID) -> PaneId {
+        PaneId(existingUUID: paneId)
     }
 
-    private func registerPaneFilesystemContextIfNeeded(for pane: Pane) {
+    func registerPaneFilesystemContextIfNeeded(for pane: Pane) {
         upsertPaneFilesystemProjectionContext(for: pane)
     }
 
@@ -632,13 +559,7 @@ extension WorkspaceSurfaceCoordinator {
         worktree: Worktree,
         repo: Repo
     ) -> TerminalPaneMountView? {
-        guard UUIDv7.isV7(pane.id) else {
-            Self.logger.error(
-                "Unable to restore runtime for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
-            )
-            return nil
-        }
-        let runtimePaneId = PaneId(uuid: pane.id)
+        let runtimePaneId = PaneId(existingUUID: pane.id)
         let runtimeWasAlreadyRegistered = runtimeForPane(runtimePaneId) != nil
         if let undone = surfaceManager.undoClose() {
             if undone.metadata.paneId == pane.id {
@@ -654,6 +575,7 @@ extension WorkspaceSurfaceCoordinator {
                 registerHostedView(mountedView: view, for: pane.id)
                 registerTerminalRuntimeIfNeeded(for: pane)
                 runtime.markRunning(pane.id)
+                registerPaneFilesystemContextIfNeeded(for: pane)
                 Self.logger.info("Restored view from undo for pane \(pane.id)")
                 return view
             } else {
@@ -676,106 +598,6 @@ extension WorkspaceSurfaceCoordinator {
         return restoredView
     }
 
-    /// Recreate views for all restored panes in all tabs, including drawer panes.
-    /// Called once at launch after store.restore() populates persisted state.
-    ///
-    /// Startup is staged so the active tab is restored first, then background tabs
-    /// are hydrated cooperatively with yields to keep first-interaction latency low.
-    func restoreAllViews(in terminalContainerBounds: CGRect? = nil) async {
-        defer {
-            viewRegistry.completeInitialRestore()
-        }
-        if let terminalContainerBounds {
-            RestoreTrace.log(
-                "restoreAllViews inputBounds=\(NSStringFromRect(terminalContainerBounds))"
-            )
-        } else {
-            RestoreTrace.log("restoreAllViews inputBounds=nil")
-        }
-        let orderedPaneIds = TerminalRestoreScheduler.order(
-            Self.orderedUniquePaneIds(store.tabLayoutAtom.tabs.flatMap(\.allPaneIds)).map(PaneId.init(uuid:)),
-            resolver: visibilityTierResolver
-        ).map(\.uuid)
-        RestoreTrace.log(
-            "restoreAllViews begin tabs=\(store.tabLayoutAtom.tabs.count) paneIds=\(orderedPaneIds.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
-        )
-        guard !orderedPaneIds.isEmpty else {
-            Self.logger.info("No panes to restore views for")
-            RestoreTrace.log("restoreAllViews no panes")
-            return
-        }
-
-        // Seed slots for all panes before creating any views.
-        // Panes already exist in the store from store.restore().
-        // SwiftUI body may run before restoreAllViews completes,
-        // so slots must exist before the first createViewForContent call.
-        let allPaneIds = store.tabLayoutAtom.tabs.flatMap(\.activePaneIds)
-        for paneId in allPaneIds {
-            viewRegistry.ensureSlot(for: paneId)
-        }
-        for pane in store.paneAtom.panes.values {
-            if pane.drawer != nil, let drawerView = arrangementView.drawerView(forParent: pane.id) {
-                for drawerPaneId in drawerView.layout.paneIds {
-                    viewRegistry.ensureSlot(for: drawerPaneId)
-                }
-            }
-        }
-
-        let visiblePaneIds = orderedPaneIds.filter {
-            visibilityTierResolver.tier(for: PaneId(uuid: $0)) == .p0Visible
-        }
-        let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
-        var progress = RestoreAllViewsProgress()
-
-        // Stage 1: restore currently visible panes first for fast first paint/interaction.
-        for paneId in visiblePaneIds {
-            restorePaneAndDrawers(
-                paneId,
-                resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
-                progress: &progress
-            )
-        }
-
-        if let activeTab = store.tabLayoutAtom.activeTab,
-            let activePaneId = activeTab.activePaneId,
-            let terminalView = viewRegistry.terminalView(for: activePaneId)
-        {
-            surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
-            RestoreTrace.log(
-                "restoreAllViews syncFocus activeTab=\(activeTab.id) activePane=\(activePaneId) activeSurface=\(terminalView.surfaceId?.uuidString ?? "nil")"
-            )
-        }
-
-        Self.logger.info(
-            "Restored \(progress.restored)/\(orderedPaneIds.count) pane views, \(progress.drawerRestored) drawer pane views"
-        )
-        if !progress.failedPaneIds.isEmpty || !progress.failedDrawerPaneIds.isEmpty {
-            let failedPrimary = progress.failedPaneIds.map(\.uuidString).joined(separator: ", ")
-            let failedDrawer = progress.failedDrawerPaneIds.map(\.uuidString).joined(separator: ", ")
-            Self.logger.error(
-                """
-                restoreAllViews: failed view creation primary=[\(failedPrimary)] drawer=[\(failedDrawer)] \
-                (panes remain in store/layout and may appear as placeholders)
-                """
-            )
-        }
-
-        RestoreTrace.log("restoreAllViews end restored=\(progress.restored) drawerRestored=\(progress.drawerRestored)")
-    }
-
-    private static func orderedUniquePaneIds(_ paneIds: [UUID]) -> [UUID] {
-        var seen: Set<UUID> = []
-        return paneIds.filter { seen.insert($0).inserted }
-    }
-
-    private func shouldRestorePaneDuringInitialRestore(_ pane: Pane) -> Bool {
-        guard pane.residency == .active else {
-            return false
-        }
-        let paneId = PaneId(uuid: pane.id)
-        return visibilityTierResolver.tier(for: paneId) == .p0Visible
-    }
-
     func initialFrame(
         for pane: Pane,
         resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]]
@@ -788,93 +610,6 @@ extension WorkspaceSurfaceCoordinator {
             return nil
         }
         return NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height)
-    }
-
-    private func restorePaneAndDrawers(
-        _ paneId: UUID,
-        resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]],
-        progress: inout RestoreAllViewsProgress
-    ) {
-        guard progress.restoredPaneIds.insert(paneId).inserted else { return }
-        guard let pane = store.paneAtom.pane(paneId) else {
-            Self.logger.warning("Skipping view restore for pane \(paneId) — not in store")
-            RestoreTrace.log("restoreAllViews skip missing pane=\(paneId)")
-            return
-        }
-        guard shouldRestorePaneDuringInitialRestore(pane) else {
-            RestoreTrace.log("restoreAllViews skip hidden pane=\(paneId) reason=policy")
-            restoreDrawerPanes(
-                for: pane,
-                resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
-                progress: &progress
-            )
-            return
-        }
-
-        RestoreTrace.log("restoreAllViews restoring pane=\(paneId) content=\(String(describing: pane.content))")
-        if registeredViewDoesNotNeedRestore(for: paneId)
-            || createViewForContent(
-                pane: pane,
-                initialFrame: initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId),
-                treatAsRestoredSessionStart: true
-            ) != nil
-        {
-            progress.restored += 1
-        } else {
-            progress.failedPaneIds.append(paneId)
-        }
-
-        restoreDrawerPanes(
-            for: pane,
-            resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
-            progress: &progress
-        )
-    }
-
-    private func restoreDrawerPanes(
-        for parentPane: Pane,
-        resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]],
-        progress: inout RestoreAllViewsProgress
-    ) {
-        guard let drawer = parentPane.drawer else { return }
-        for drawerPaneId in drawer.paneIds {
-            guard progress.restoredPaneIds.insert(drawerPaneId).inserted else { continue }
-            guard let drawerPane = store.paneAtom.pane(drawerPaneId) else {
-                Self.logger.warning(
-                    "restoreAllViews: drawer pane \(drawerPaneId) referenced by parent \(parentPane.id) is missing from store"
-                )
-                continue
-            }
-            guard shouldRestorePaneDuringInitialRestore(drawerPane) else {
-                RestoreTrace.log(
-                    "restoreAllViews skip hidden drawer pane=\(drawerPaneId) parent=\(parentPane.id) reason=policy"
-                )
-                continue
-            }
-            RestoreTrace.log("restoreAllViews restoring drawer pane=\(drawerPaneId) parent=\(parentPane.id)")
-            if registeredViewDoesNotNeedRestore(for: drawerPaneId)
-                || createViewForContent(
-                    pane: drawerPane,
-                    initialFrame: initialFrame(
-                        for: drawerPane,
-                        resolvedPaneFramesByTabId: resolvedPaneFramesByTabId
-                    ),
-                    treatAsRestoredSessionStart: true
-                ) != nil
-            {
-                progress.drawerRestored += 1
-            } else {
-                progress.failedDrawerPaneIds.append(drawerPaneId)
-            }
-        }
-    }
-
-    private func registeredViewDoesNotNeedRestore(for paneId: UUID) -> Bool {
-        guard viewRegistry.view(for: paneId) != nil else { return false }
-        if let placeholder = viewRegistry.terminalStatusPlaceholderView(for: paneId) {
-            return !placeholder.shouldRetryCreationWhenBoundsChange
-        }
-        return true
     }
 
     func resolveInitialFramesByTabId(in terminalContainerBounds: CGRect?) -> [UUID: [UUID: CGRect]] {

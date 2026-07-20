@@ -84,7 +84,13 @@ struct WorkspaceMutationCoordinatorTests {
 
         let parentPaneId = UUID()
         let drawerPane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            ),
             metadata: PaneMetadata(title: "Drawer"),
             kind: .drawerChild(parentPaneId: parentPaneId)
         )
@@ -110,7 +116,8 @@ struct WorkspaceMutationCoordinatorTests {
         let drawerPane = try #require(
             paneAtom.addDrawerPane(
                 to: parentPane.id,
-                parentFallbackCWD: nil
+                parentFallbackCWD: nil,
+                zmxSessionID: .generateUUIDv7()
             )
         )
 
@@ -173,6 +180,29 @@ struct WorkspaceMutationCoordinatorTests {
             restoredTab.arrangements.compactMap { $0.drawerViews[drawerId] }
                 == drawerViewsBeforeClose
         )
+    }
+
+    @Test
+    func snapshotForClose_withDrawerChildrenCapturesEachPaneExactlyOnce() throws {
+        let store = WorkspaceStore()
+        let parentPane = makePane(title: "Parent")
+        store.paneAtom.addPane(parentPane)
+        let tab = Tab(paneId: parentPane.id)
+        store.appendTab(tab)
+        let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        let secondDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+
+        let snapshot = try #require(store.mutationCoordinator.snapshotForClose(tabId: tab.id))
+
+        let snapshottedPaneIds = snapshot.panes.map(\.id)
+        #expect(
+            snapshottedPaneIds == [
+                parentPane.id,
+                firstDrawerPane.id,
+                secondDrawerPane.id,
+            ]
+        )
+        #expect(Set(snapshottedPaneIds).count == snapshottedPaneIds.count)
     }
 
     @Test

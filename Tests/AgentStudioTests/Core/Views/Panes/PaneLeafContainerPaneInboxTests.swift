@@ -15,8 +15,7 @@ struct PaneLeafContainerPaneInboxTests {
     func paneLeafConsumesMatchingPendingPaneInboxRequestOnAppear() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-inbox-leaf-test-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+        let store = WorkspaceStore()
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let pane = store.createPane()

@@ -8,7 +8,8 @@ extension AppCommandSpec {
             title: label,
             executionModes: ipcExposure.executionModes,
             targetKinds: ipcExposure.targetKinds,
-            requiredPrivileges: ipcExposure.requiredPrivileges
+            requiredPrivileges: ipcExposure.requiredPrivileges,
+            argumentSchema: argumentSchema
         )
     }
 }

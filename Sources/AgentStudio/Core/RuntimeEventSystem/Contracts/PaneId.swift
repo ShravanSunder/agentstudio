@@ -1,10 +1,10 @@
 import Foundation
 
-/// Primary pane identity. Time-ordered UUID v7 in canonical greenfield schema.
+/// Primary pane identity.
 ///
-/// `PaneId` is the **only** primary identity in the pane system.
-/// All other identifiers (zmx session names, surface IDs, stable keys)
-/// are derived from or associated with a `PaneId`.
+/// `PaneId` is the primary identity for a pane across state, views, and runtime routing.
+/// A terminal's durable `ZmxSessionID` is an independent stored identity; it is not
+/// derived from the pane ID. Surface IDs remain runtime associations.
 ///
 /// See: `session_lifecycle.md`, section "Identity Contract (Canonical)".
 ///
@@ -15,25 +15,24 @@ import Foundation
 /// 16 hex chars) encodes the timestamp for diagnostics and ordering checks.
 ///
 /// Usage guidance:
-/// - Use `PaneId()` when minting a new pane identity in production code.
-/// - Use `PaneId(uuid:)` when wrapping an existing UUID that is already v7.
+/// - Use `PaneId.generateUUIDv7()` when minting a new pane identity.
+/// - Use `PaneId(existingUUID:)` when preserving an already durable identity.
+///   Historical UUID versions remain valid identities and are never rewritten.
 struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
 
-    /// The underlying UUID (v7 in canonical flows).
+    /// The underlying UUID. Newly minted values are v7; existing values may use any UUID version.
     let uuid: UUID
 
     // MARK: - Creation
 
-    /// Mint a new PaneId with UUID v7 (time-ordered).
-    init() {
-        self.uuid = UUIDv7.generate()
+    /// Mint a new time-ordered PaneId using UUID v7.
+    static func generateUUIDv7() -> Self {
+        Self(existingUUID: UUIDv7.generate())
     }
 
-    /// Wrap an existing UUID.
-    /// Callers are expected to pass UUID v7 for canonical pane identity.
-    init(uuid: UUID) {
-        precondition(UUIDv7.isV7(uuid), "PaneId(uuid:) requires UUID v7 in canonical greenfield schema")
-        self.uuid = uuid
+    /// Preserve an already durable UUID exactly, regardless of its historical version.
+    init(existingUUID: UUID) {
+        self.uuid = existingUUID
     }
 
     // MARK: - Derived Identity
@@ -57,7 +56,7 @@ struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringCon
         uuid.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     }
 
-    /// Whether this PaneId was generated with UUID v7 (has timestamp).
+    /// Whether this PaneId uses UUID v7 and therefore carries a timestamp.
     var isV7: Bool {
         UUIDv7.isV7(uuid)
     }
@@ -79,7 +78,7 @@ struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringCon
     }
 
     var debugDescription: String {
-        "PaneId(v7=\(isV7): \(uuid.uuidString))"
+        "PaneId(\(uuid.uuidString))"
     }
 }
 
@@ -87,17 +86,10 @@ struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringCon
 
 extension PaneId: Codable {
 
-    /// Decode from a bare UUID string and enforce canonical UUID v7 identity.
+    /// Decode and preserve an existing bare UUID string exactly.
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
-        let decodedUuid = try container.decode(UUID.self)
-        guard UUIDv7.isV7(decodedUuid) else {
-            throw DecodingError.dataCorruptedError(
-                in: container,
-                debugDescription: "PaneId must decode from UUID v7 in canonical greenfield schema"
-            )
-        }
-        uuid = decodedUuid
+        uuid = try container.decode(UUID.self)
     }
 
     /// Encode as a bare UUID string.

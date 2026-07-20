@@ -5,6 +5,50 @@ import Testing
 
 @Suite(.serialized)
 struct FilesystemActorTests {
+    @Test("older scheduler snapshot cannot overwrite a newer logical-debt publication")
+    func olderSchedulerSnapshotCannotOverwriteNewerLogicalDebtPublication() async throws {
+        let traceRuntime = makeFilesystemLogicalDebtTraceRuntime()
+        let recorder = AgentStudioPerformanceTraceRecorder(
+            traceRuntime: traceRuntime,
+            processMemorySampleWait: { false }
+        )
+        let clock = TestPushClock()
+        let actor = FilesystemActor(
+            bus: EventBus<RuntimeEnvelope>(),
+            fseventStreamClient: ControllableFSEventStreamClient(),
+            sleepClock: clock,
+            debounceWindow: .seconds(1),
+            maxFlushLatency: .seconds(2),
+            performanceTraceRecorder: recorder
+        )
+        let worktreeID = UUIDv7.generate()
+        await actor.register(
+            worktreeId: worktreeID,
+            repoId: worktreeID,
+            rootPath: URL(
+                fileURLWithPath: "/tmp/logical-debt-ordering-\(UUIDv7.generate().uuidString)"
+            )
+        )
+        let snapshotGate = LogicalDebtSnapshotGate()
+        let olderPublication = Task {
+            await actor.recordLogicalDebtSnapshotIfChanged(
+                watchedFolderStateSnapshot: { await snapshotGate.waitForRelease() }
+            )
+        }
+        await snapshotGate.waitUntilEntered()
+
+        await actor.enqueueRawPaths(worktreeId: worktreeID, paths: ["Sources/Fresher.swift"])
+        let newerSnapshot = await actor.lastRecordedLogicalDebtSnapshot
+        #expect(newerSnapshot?.logicalDebtCount == 2)
+
+        await snapshotGate.release()
+        await olderPublication.value
+        #expect(await actor.lastRecordedLogicalDebtSnapshot == newerSnapshot)
+
+        await actor.shutdown()
+        try await recorder.drain()
+    }
+
     @Test("register emits worktreeRegistered fact")
     func registerEmitsWorktreeRegisteredFact() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -281,300 +325,6 @@ struct FilesystemActorTests {
         await actor.shutdown()
     }
 
-    @Test("git internal paths are suppressed from projection payload and annotated for downstream sinks")
-    func gitInternalPathsAreSuppressedFromProjectionPayload() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let actor = makeActor(bus: bus)
-
-        let worktreeId = UUID()
-        let rootPath = URL(fileURLWithPath: "/tmp/git-internal-\(UUID().uuidString)")
-        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
-
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        var iterator = stream.makeAsyncIterator()
-
-        await actor.enqueueRawPaths(
-            worktreeId: worktreeId,
-            paths: [".git/index", ".git/objects/aa/bb", "Sources/App.swift"]
-        )
-
-        let envelope = try #require(await iterator.next())
-        let changeset = try #require(filesChangedChangeset(from: envelope))
-        #expect(changeset.worktreeId == worktreeId)
-        #expect(changeset.paths == ["Sources/App.swift"])
-        #expect(changeset.containsGitInternalChanges)
-        #expect(changeset.suppressedGitInternalPathCount == 2)
-        #expect(changeset.suppressedIgnoredPathCount == 0)
-
-        await actor.shutdown()
-    }
-
-    @Test("gitignore policy suppresses ignored paths while preserving included and unignored paths")
-    func gitignorePolicySuppressesIgnoredPaths() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let actor = makeActor(bus: bus)
-
-        let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "gitignore-filter-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootPath) }
-
-        let gitignoreContents = """
-            *.log
-            build/
-            !build/include.log
-            """
-        try gitignoreContents.write(
-            to: rootPath.appending(path: ".gitignore"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let worktreeId = UUID()
-        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
-
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        var iterator = stream.makeAsyncIterator()
-
-        await actor.enqueueRawPaths(
-            worktreeId: worktreeId,
-            paths: ["app.log", "build/out.txt", "build/include.log", "Sources/App.swift", ".git/index"]
-        )
-
-        let envelope = try #require(await iterator.next())
-        let changeset = try #require(filesChangedChangeset(from: envelope))
-        #expect(Set(changeset.paths) == Set(["build/include.log", "Sources/App.swift"]))
-        #expect(changeset.containsGitInternalChanges)
-        #expect(changeset.suppressedIgnoredPathCount == 2)
-        #expect(changeset.suppressedGitInternalPathCount == 1)
-
-        await actor.shutdown()
-    }
-
-    @Test("filtered-only changes still emit filesChanged to drive git projector refresh")
-    func filteredOnlyChangesStillEmitFilesChangedEvent() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let actor = makeActor(bus: bus)
-
-        let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "filtered-only-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootPath) }
-        try "*.tmp\n".write(
-            to: rootPath.appending(path: ".gitignore"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let worktreeId = UUID()
-        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
-
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        var iterator = stream.makeAsyncIterator()
-
-        await actor.enqueueRawPaths(
-            worktreeId: worktreeId,
-            paths: [".git/index", "cache.tmp"]
-        )
-
-        let envelope = try #require(await iterator.next())
-        let changeset = try #require(filesChangedChangeset(from: envelope))
-        #expect(Set(changeset.paths).isSubset(of: ["."]))
-        #expect(changeset.containsGitInternalChanges)
-        #expect(changeset.suppressedIgnoredPathCount == 1)
-        #expect(changeset.suppressedGitInternalPathCount == 1)
-
-        await actor.shutdown()
-    }
-
-    @Test("ignored-only changes do not emit filesChanged envelope")
-    func ignoredOnlyChangesDoNotEmitFilesChangedEnvelope() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let actor = makeActor(bus: bus)
-
-        let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "ignored-only-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootPath) }
-        try "*.tmp\n".write(
-            to: rootPath.appending(path: ".gitignore"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let worktreeId = UUID()
-        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
-
-        let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let collectionTask = Task {
-            for await envelope in stream {
-                await observed.record(envelope)
-            }
-        }
-        defer { collectionTask.cancel() }
-
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
-        for _ in 0..<300 {
-            await Task.yield()
-        }
-
-        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
-
-        await actor.shutdown()
-    }
-
-    @Test("gitignore modification reloads filter for subsequent batches")
-    func gitignoreModificationReloadsFilterForSubsequentBatches() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let actor = makeActor(bus: bus)
-
-        let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "gitignore-reload-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootPath) }
-        try "*.tmp\n".write(
-            to: rootPath.appending(path: ".gitignore"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let worktreeId = UUID()
-        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
-
-        let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let collectionTask = Task {
-            for await envelope in stream {
-                await observed.record(envelope)
-            }
-        }
-        defer { collectionTask.cancel() }
-
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".git/index", "cache.tmp"])
-        let initialChangeset = await observed.next()
-        #expect(initialChangeset.paths.isEmpty)
-        #expect(initialChangeset.containsGitInternalChanges)
-        #expect(initialChangeset.suppressedIgnoredPathCount == 1)
-
-        try "# no ignore rules\n".write(
-            to: rootPath.appending(path: ".gitignore"),
-            atomically: true,
-            encoding: .utf8
-        )
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".gitignore"])
-
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
-        let nextChangeset = await observed.next()
-        let postReloadChangeset: FileChangeset
-        if nextChangeset.paths.contains("cache.tmp") {
-            postReloadChangeset = nextChangeset
-        } else {
-            #expect(!nextChangeset.paths.contains(".gitignore"))
-            postReloadChangeset = await observed.next()
-        }
-        #expect(postReloadChangeset.paths.contains("cache.tmp"))
-        #expect(!postReloadChangeset.paths.contains(".gitignore"))
-        #expect(postReloadChangeset.suppressedIgnoredPathCount == 0)
-
-        await actor.shutdown()
-    }
-
-    @Test("gitignore-only modification emits refresh-worthy empty changeset")
-    func gitignoreOnlyModificationEmitsRefreshWorthyEmptyChangeset() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let actor = makeActor(bus: bus)
-
-        let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "gitignore-only-refresh-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootPath) }
-        try "*.tmp\n".write(
-            to: rootPath.appending(path: ".gitignore"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let worktreeId = UUID()
-        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
-
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        var iterator = stream.makeAsyncIterator()
-
-        try "# no ignore rules\n".write(
-            to: rootPath.appending(path: ".gitignore"),
-            atomically: true,
-            encoding: .utf8
-        )
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".gitignore"])
-
-        let envelope = try #require(await iterator.next())
-        let changeset = try #require(filesChangedChangeset(from: envelope))
-        #expect(changeset.worktreeId == worktreeId)
-        #expect(changeset.paths.isEmpty)
-        #expect(changeset.containsGitInternalChanges)
-        #expect(changeset.suppressedIgnoredPathCount == 0)
-        #expect(changeset.suppressedGitInternalPathCount == 0)
-
-        await actor.shutdown()
-    }
-
-    @Test("gitignore reload batch does not leak .gitignore into projected paths when coalesced")
-    func gitignoreReloadBatchDoesNotLeakGitignoreIntoProjectedPathsWhenCoalesced() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let actor = makeActor(bus: bus)
-
-        let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "gitignore-coalesced-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootPath) }
-        try "*.tmp\n".write(
-            to: rootPath.appending(path: ".gitignore"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let worktreeId = UUID()
-        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
-
-        let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let collectionTask = Task {
-            for await envelope in stream {
-                await observed.record(envelope)
-            }
-        }
-
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".git/index", "cache.tmp"])
-        let initialChangeset = await observed.next()
-        #expect(initialChangeset.paths.isEmpty)
-        #expect(initialChangeset.containsGitInternalChanges)
-        #expect(initialChangeset.suppressedIgnoredPathCount == 1)
-
-        try "# no ignore rules\n".write(
-            to: rootPath.appending(path: ".gitignore"),
-            atomically: true,
-            encoding: .utf8
-        )
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".gitignore", "cache.tmp"])
-
-        let nextChangeset = await observed.next()
-        let postReloadChangeset: FileChangeset
-        if nextChangeset.paths.contains("cache.tmp") {
-            postReloadChangeset = nextChangeset
-        } else {
-            #expect(!nextChangeset.paths.contains(".gitignore"))
-            postReloadChangeset = await observed.next()
-        }
-        #expect(postReloadChangeset.paths.contains("cache.tmp"))
-        #expect(!postReloadChangeset.paths.contains(".gitignore"))
-        #expect(postReloadChangeset.suppressedIgnoredPathCount == 0)
-
-        await actor.shutdown()
-        collectionTask.cancel()
-        await collectionTask.value
-    }
-
     @Test("debounce coalesces bursts and flushes once after debounce window")
     func debounceCoalescesBursts() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -616,6 +366,52 @@ struct FilesystemActorTests {
         let changeset = await observed.next()
         #expect(changeset.worktreeId == worktreeId)
         #expect(Set(changeset.paths) == Set(["Sources/A.swift", "Sources/B.swift"]))
+
+        await actor.shutdown()
+    }
+
+    @Test("logical debt retains drain custody until the accepted filesystem batch finishes")
+    func logicalDebtRetainsDrainCustodyUntilBatchFinishes() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
+            sleepClock: clock,
+            debounceWindow: .milliseconds(60),
+            maxFlushLatency: .seconds(1)
+        )
+        let observed = ObservedFilesystemChanges()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        let collectionTask = Task {
+            for await envelope in stream {
+                await observed.record(envelope)
+            }
+        }
+        defer { collectionTask.cancel() }
+
+        let worktreeId = UUID()
+        await actor.register(
+            worktreeId: worktreeId,
+            repoId: worktreeId,
+            rootPath: URL(fileURLWithPath: "/tmp/logical-debt-\(UUID().uuidString)")
+        )
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Accepted.swift"])
+        await clock.waitForPendingSleepCount()
+
+        let pendingSnapshot = await actor.logicalDebtSnapshot()
+        #expect(pendingSnapshot.pendingWorktreeCount == 1)
+        #expect(pendingSnapshot.drainTaskCount == 1)
+        #expect(pendingSnapshot.logicalDebtCount == 2)
+
+        clock.advance(by: .milliseconds(60))
+        _ = await observed.next()
+        let reachedZeroDebt = await waitUntilFilesystemLogicalDebt(actor, equals: 0)
+        #expect(reachedZeroDebt)
+        let finalSnapshot = await actor.logicalDebtSnapshot()
+        #expect(finalSnapshot.pendingWorktreeCount == 0)
+        #expect(finalSnapshot.drainTaskCount == 0)
+        #expect(finalSnapshot.logicalDebtCount == 0)
 
         await actor.shutdown()
     }
@@ -849,6 +645,76 @@ struct FilesystemActorTests {
             debounceWindow: .zero,
             maxFlushLatency: .zero
         )
+    }
+
+    private func waitUntilFilesystemLogicalDebt(
+        _ actor: FilesystemActor,
+        equals expectedCount: Int,
+        maxTurns: Int = 10_000
+    ) async -> Bool {
+        for _ in 0..<maxTurns {
+            if await actor.logicalDebtSnapshot().logicalDebtCount == expectedCount {
+                return true
+            }
+            await Task.yield()
+        }
+        return await actor.logicalDebtSnapshot().logicalDebtCount == expectedCount
+    }
+
+    private func makeFilesystemLogicalDebtTraceRuntime() -> AgentStudioTraceRuntime {
+        AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": FileManager.default.temporaryDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "filesystem-logical-debt-ordering-\(UUIDv7.generate().uuidString)",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 924
+        )
+    }
+}
+
+private actor LogicalDebtSnapshotGate {
+    private var didEnter = false
+    private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitForRelease() async -> WatchedFolderScanSchedulerStateSnapshot {
+        didEnter = true
+        let waiters = entryWaiters
+        entryWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+        return .active(
+            WatchedFolderScanSchedulerActiveState(
+                ready: 1,
+                activeQuanta: 0,
+                awaitingValidations: 0,
+                pendingResults: 0,
+                leasedResults: 0,
+                dirtyFollowUps: 0,
+                resultCustodyHighWater: 0
+            )
+        )
+    }
+
+    func waitUntilEntered() async {
+        guard !didEnter else { return }
+        await withCheckedContinuation { continuation in
+            entryWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }
 

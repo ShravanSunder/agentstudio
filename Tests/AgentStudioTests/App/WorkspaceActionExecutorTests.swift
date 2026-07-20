@@ -19,8 +19,7 @@ final class WorkspaceActionExecutorTests {
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "executor-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        store = WorkspaceStore(persistor: persistor)
-        store.restore()
+        store = WorkspaceStore()
         viewRegistry = ViewRegistry()
         runtime = SessionRuntime(store: store)
         coordinator = WorkspaceSurfaceCoordinator(

@@ -5,7 +5,8 @@ final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
     static let elapsedMetricLabel = "agentstudio_performance_event_elapsed_ms"
     static let elapsedMaximumMetricLabel = "agentstudio_performance_event_elapsed_ms_max"
     static let elapsedHistogramBuckets: [Double] = [
-        0, 5, 10, 25, 50, 75, 100, 150, 200, 250, 350, 500, 650, 750, 900, 1000, 1050, 1100,
+        0, 0.25, 0.5, 1, 2, 5, 8, 10, 16, 20, 25, 50, 60, 75, 100, 150, 200, 250, 350, 500, 650, 750,
+        900, 1000, 1050, 1100,
         1250, 1500, 2000, 2500, 5000, 7500, 10_000,
     ]
 
@@ -16,6 +17,8 @@ final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
     private var elapsedMaxGauges: [MetricEventKey: Gauge] = [:]
     private var elapsedMaxValues: [MetricEventKey: Double] = [:]
     private var numericGauges: [MetricGaugeKey: Gauge] = [:]
+    private var numericCounters: [MetricGaugeKey: Counter] = [:]
+    private var distributionRecorders: [MetricGaugeKey: Recorder] = [:]
 
     init(factory: any MetricsFactory) {
         self.factory = factory
@@ -27,13 +30,18 @@ final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
         lock.withLock {
             counter(for: metricEvent).increment()
 
-            if let elapsedMilliseconds = metricEvent.elapsedMilliseconds {
-                recorder(for: metricEvent).record(elapsedMilliseconds)
-                recordElapsedMaximum(elapsedMilliseconds, for: metricEvent)
-            }
-
-            for sample in metricEvent.samples {
-                gauge(for: sample).record(sample.value)
+            for measurement in metricEvent.measurements {
+                switch measurement {
+                case .counter(let sample):
+                    counter(for: sample).increment(by: Self.int64Clamped(sample.value))
+                case .distribution(let sample):
+                    distributionRecorder(for: sample).record(sample.value)
+                    if sample.label == Self.elapsedMetricLabel {
+                        recordElapsedMaximum(sample.value, for: metricEvent)
+                    }
+                case .gauge(let sample):
+                    gauge(for: sample).record(sample.value)
+                }
             }
         }
     }
@@ -104,6 +112,42 @@ final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
         numericGauges[key] = gauge
         return gauge
     }
+
+    private func counter(for sample: AgentStudioOTLPPerformanceMetricSample) -> Counter {
+        let key = MetricGaugeKey(eventName: sample.eventName, label: sample.label, dimensions: sample.dimensions)
+        if let counter = numericCounters[key] {
+            return counter
+        }
+        let counter = Counter(label: sample.label, dimensions: sample.dimensionTuples, factory: factory)
+        numericCounters[key] = counter
+        return counter
+    }
+
+    private func distributionRecorder(for sample: AgentStudioOTLPPerformanceMetricSample) -> Recorder {
+        if sample.label == Self.elapsedMetricLabel {
+            return recorder(
+                for: AgentStudioOTLPPerformanceMetricEvent(
+                    eventName: sample.eventName,
+                    dimensions: sample.dimensions,
+                    elapsedMilliseconds: sample.value,
+                    samples: [],
+                    measurements: []
+                ))
+        }
+        let key = MetricGaugeKey(eventName: sample.eventName, label: sample.label, dimensions: sample.dimensions)
+        if let recorder = distributionRecorders[key] {
+            return recorder
+        }
+        let recorder = Recorder(label: sample.label, dimensions: sample.dimensionTuples, factory: factory)
+        distributionRecorders[key] = recorder
+        return recorder
+    }
+
+    private static func int64Clamped(_ value: Double) -> Int64 {
+        if value >= Double(Int64.max) { return Int64.max }
+        if value <= Double(Int64.min) { return Int64.min }
+        return Int64(value)
+    }
 }
 
 struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
@@ -111,6 +155,7 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
     let dimensions: [AgentStudioOTLPPerformanceMetricDimension]
     let elapsedMilliseconds: Double?
     let samples: [AgentStudioOTLPPerformanceMetricSample]
+    let measurements: [AgentStudioOTLPPerformanceMeasurement]
 
     var dimensionTuples: [(String, String)] {
         dimensions.map(\.tuple)
@@ -121,6 +166,9 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         if record.body.hasPrefix("performance.bridge.") {
             guard Self.hasCompleteBridgeMetricTaxonomy(record) else { return nil }
         }
+        if Self.requiresSidebarMetricTaxonomy(record) {
+            guard Self.hasCompleteSidebarMetricTaxonomy(record) else { return nil }
+        }
 
         let dimensions = Self.dimensions(for: record)
         self.eventName = record.body
@@ -128,7 +176,8 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         self.elapsedMilliseconds = Self.doubleValue(
             record.attributes["agentstudio.performance.elapsed_ms"]
         )
-        self.samples = record.attributes.compactMap { key, value in
+        let samples: [AgentStudioOTLPPerformanceMetricSample] = record.attributes.compactMap { element in
+            let (key, value) = element
             guard key != "agentstudio.performance.elapsed_ms" else { return nil }
             guard let numericValue = Self.doubleValue(value) else { return nil }
             guard let metricLabel = Self.metricLabel(for: key) else { return nil }
@@ -145,6 +194,35 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             }
             return left.label < right.label
         }
+        self.samples = samples
+        var measurements: [AgentStudioOTLPPerformanceMeasurement] = samples.compactMap { sample in
+            Self.measurement(for: sample)
+        }
+        if let elapsedMilliseconds {
+            measurements.append(
+                .distribution(
+                    AgentStudioOTLPPerformanceMetricSample(
+                        eventName: record.body,
+                        label: AgentStudioOTLPPerformanceMetrics.elapsedMetricLabel,
+                        dimensions: dimensions,
+                        value: elapsedMilliseconds
+                    )))
+        }
+        self.measurements = measurements.sorted { $0.sortKey < $1.sortKey }
+    }
+
+    fileprivate init(
+        eventName: String,
+        dimensions: [AgentStudioOTLPPerformanceMetricDimension],
+        elapsedMilliseconds: Double?,
+        samples: [AgentStudioOTLPPerformanceMetricSample],
+        measurements: [AgentStudioOTLPPerformanceMeasurement]
+    ) {
+        self.eventName = eventName
+        self.dimensions = dimensions
+        self.elapsedMilliseconds = elapsedMilliseconds
+        self.samples = samples
+        self.measurements = measurements
     }
 
     private static func dimensions(for record: AgentStudioOTLPProjectedLogRecord)
@@ -171,76 +249,107 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         {
             dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "reason", value: reason))
         }
+        if record.body == "performance.terminal.accumulator_drain",
+            case .string(let drainClass) = record.attributes[
+                "agentstudio.performance.terminal.accumulator.drain.class"
+            ],
+            isSafeDimensionValue(drainClass)
+        {
+            dimensions.append(
+                AgentStudioOTLPPerformanceMetricDimension(name: "drain_class", value: drainClass)
+            )
+        }
         if record.body.hasPrefix("performance.bridge.") {
-            appendBridgeDimension(
-                name: "agent.proof.marker",
-                attributeKey: "agent.proof.marker",
+            appendBridgeDimensions(record: record, dimensions: &dimensions)
+        }
+        if Self.requiresSidebarMetricTaxonomy(record) {
+            appendSafeStringDimension(
+                name: "surface",
+                attributeKey: "agentstudio.performance.sidebar.surface",
                 record: record,
                 dimensions: &dimensions
             )
-            appendBridgeDimension(
+            appendSafeStringDimension(
                 name: "phase",
-                attributeKey: "agentstudio.bridge.phase",
+                attributeKey: "agentstudio.performance.sidebar.phase",
                 record: record,
                 dimensions: &dimensions
             )
-            appendBridgeDimension(
-                name: "plane",
-                attributeKey: "agentstudio.bridge.plane",
+            appendSafeStringDimension(
+                name: "query_state",
+                attributeKey: "agentstudio.performance.sidebar.query_state",
                 record: record,
                 dimensions: &dimensions
             )
-            appendBridgeDimension(
-                name: "priority",
-                attributeKey: "agentstudio.bridge.priority",
+            appendSafeStringDimension(
+                name: "group_mode",
+                attributeKey: "agentstudio.performance.sidebar.group_mode",
                 record: record,
                 dimensions: &dimensions
             )
-            appendBridgeDimension(
-                name: "slice",
-                attributeKey: "agentstudio.bridge.slice",
-                record: record,
-                dimensions: &dimensions
-            )
-            appendBridgeDimension(
-                name: "lane",
-                attributeKey: "agentstudio.bridge.demand.lane",
-                record: record,
-                dimensions: &dimensions
-            )
-            appendBridgeDimension(
-                name: "variant",
-                attributeKey: "agentstudio.bridge.viewer.ttfi_variant",
-                record: record,
-                dimensions: &dimensions
-            )
-            appendBridgeDimension(
-                name: "native_capacity_event",
-                attributeKey: "agentstudio.bridge.native_capacity.event",
-                record: record,
-                dimensions: &dimensions
-            )
-            appendBridgeDimension(
-                name: "operation_class",
-                attributeKey: "agentstudio.bridge.native_capacity.operation_class",
-                record: record,
-                dimensions: &dimensions
-            )
-            appendBridgeDimension(
-                name: "activity_rank",
-                attributeKey: "agentstudio.bridge.native_capacity.activity_rank",
-                record: record,
-                dimensions: &dimensions
-            )
-            appendBridgeDimension(
-                name: "product_kind",
-                attributeKey: "agentstudio.bridge.native_capacity.product_kind",
+            appendSafeStringDimension(
+                name: "trigger",
+                attributeKey: "agentstudio.performance.sidebar.trigger",
                 record: record,
                 dimensions: &dimensions
             )
         }
         return dimensions
     }
+
+    private static func appendBridgeDimensions(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        let bridgeDimensionAttributes = [
+            ("agent.proof.marker", "agent.proof.marker"),
+            ("phase", "agentstudio.bridge.phase"),
+            ("plane", "agentstudio.bridge.plane"),
+            ("priority", "agentstudio.bridge.priority"),
+            ("slice", "agentstudio.bridge.slice"),
+            ("lane", "agentstudio.bridge.demand.lane"),
+            ("variant", "agentstudio.bridge.viewer.ttfi_variant"),
+            ("native_capacity_event", "agentstudio.bridge.native_capacity.event"),
+            ("operation_class", "agentstudio.bridge.native_capacity.operation_class"),
+            ("activity_rank", "agentstudio.bridge.native_capacity.activity_rank"),
+            ("product_kind", "agentstudio.bridge.native_capacity.product_kind"),
+        ]
+        for (name, attributeKey) in bridgeDimensionAttributes {
+            appendBridgeDimension(
+                name: name,
+                attributeKey: attributeKey,
+                record: record,
+                dimensions: &dimensions
+            )
+        }
+    }
+
+    private static func measurement(
+        for sample: AgentStudioOTLPPerformanceMetricSample
+    ) -> AgentStudioOTLPPerformanceMeasurement? {
+        if counterMetricLabels.contains(sample.label) {
+            guard sample.value >= 0 else { return nil }
+            return .counter(sample)
+        }
+        return .gauge(sample)
+    }
+
+    private static let counterMetricLabels: Set<String> = [
+        "agentstudio_performance_filesystem_affected_key_request_count",
+        "agentstudio_performance_filesystem_full_reconciliation_request_count",
+        "agentstudio_performance_terminal_accumulator_equal_suppressed_count",
+        "agentstudio_performance_terminal_accumulator_follow_up_drain_count",
+        "agentstudio_performance_terminal_accumulator_mainactor_task_count",
+        "agentstudio_performance_terminal_accumulator_offered_count",
+        "agentstudio_performance_terminal_accumulator_replaced_count",
+        "agentstudio_performance_terminal_accumulator_scheduled_drain_count",
+        "agentstudio_performance_terminal_activity_aggregate_count",
+        "agentstudio_performance_terminal_equal_write_suppressed_count",
+        "agentstudio_performance_trace_identity_coalesced_request_count",
+        "agentstudio_performance_trace_identity_equal_snapshot_suppressed_count",
+        "agentstudio_performance_trace_identity_fleet_capture_count",
+        "agentstudio_performance_trace_identity_refresh_request_count",
+    ]
 
     private static func doubleValue(_ value: AgentStudioTraceValue?) -> Double? {
         switch value {
@@ -326,12 +435,37 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             && BridgeTelemetrySlice(rawValue: stringAttribute(record, "agentstudio.bridge.slice") ?? "") != nil
     }
 
+    private static func hasCompleteSidebarMetricTaxonomy(_ record: AgentStudioOTLPProjectedLogRecord) -> Bool {
+        SidebarMetricSurface(rawValue: stringAttribute(record, "agentstudio.performance.sidebar.surface") ?? "") != nil
+            && SidebarMetricPhase(rawValue: stringAttribute(record, "agentstudio.performance.sidebar.phase") ?? "")
+                != nil
+            && SidebarMetricQueryState(
+                rawValue: stringAttribute(record, "agentstudio.performance.sidebar.query_state") ?? "") != nil
+            && SidebarMetricGroupMode(
+                rawValue: stringAttribute(record, "agentstudio.performance.sidebar.group_mode") ?? "") != nil
+            && SidebarMetricTrigger(rawValue: stringAttribute(record, "agentstudio.performance.sidebar.trigger") ?? "")
+                != nil
+    }
+
+    private static func requiresSidebarMetricTaxonomy(_ record: AgentStudioOTLPProjectedLogRecord) -> Bool {
+        record.body == "performance.sidebar.projection" || record.body == "performance.sidebar.row_index"
+    }
+
     private static func stringAttribute(_ record: AgentStudioOTLPProjectedLogRecord, _ key: String) -> String? {
         guard case .string(let value) = record.attributes[key] else { return nil }
         return value
     }
 
     private static func appendBridgeDimension(
+        name: String,
+        attributeKey: String,
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        appendSafeStringDimension(name: name, attributeKey: attributeKey, record: record, dimensions: &dimensions)
+    }
+
+    private static func appendSafeStringDimension(
         name: String,
         attributeKey: String,
         record: AgentStudioOTLPProjectedLogRecord,
@@ -350,6 +484,61 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
                 || scalar == "."
         }
     }
+}
+
+enum AgentStudioOTLPPerformanceMeasurement: Equatable, Sendable {
+    case counter(AgentStudioOTLPPerformanceMetricSample)
+    case distribution(AgentStudioOTLPPerformanceMetricSample)
+    case gauge(AgentStudioOTLPPerformanceMetricSample)
+
+    fileprivate var sortKey: String {
+        switch self {
+        case .counter(let sample):
+            "counter:\(sample.label)"
+        case .distribution(let sample):
+            "distribution:\(sample.label)"
+        case .gauge(let sample):
+            "gauge:\(sample.label)"
+        }
+    }
+}
+
+private enum SidebarMetricSurface: String {
+    case inbox
+    case repo
+}
+
+private enum SidebarMetricPhase: String {
+    case requestBuildMainActor = "request_build_mainactor"
+    case projectionWorker = "projection_worker"
+    case mainActorApply = "mainactor_apply"
+    case rowIndex = "row_index"
+    case startupDiagnostic = "startup_diagnostic"
+    case surfaceSwitch = "surface_switch"
+}
+
+private enum SidebarMetricQueryState: String {
+    case empty
+    case nonEmpty = "non_empty"
+}
+
+private enum SidebarMetricGroupMode: String {
+    case repo
+    case pane
+    case tab
+    case noGrouping = "none"
+    case notApplicable = "not_applicable"
+}
+
+private enum SidebarMetricTrigger: String {
+    case groupingSwitch = "grouping_switch"
+    case surfaceSwitch = "surface_switch"
+    case search
+    case sortOrder = "sort_order"
+    case visibilityMode = "visibility_mode"
+    case collapseToggle = "collapse_toggle"
+    case dataRefresh = "data_refresh"
+    case startupDiagnostic = "startup_diagnostic"
 }
 
 struct AgentStudioOTLPPerformanceMetricSample: Equatable, Sendable {

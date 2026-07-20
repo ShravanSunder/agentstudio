@@ -10,10 +10,7 @@ final class MinimizeLayoutIntegrationTests {
     private var store: WorkspaceStore!
 
     init() {
-        store = WorkspaceStore(
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-            ))
+        store = WorkspaceStore()
     }
 
     // MARK: - Helpers

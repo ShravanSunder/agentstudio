@@ -67,8 +67,7 @@ func makePaneTabViewControllerCommandHarness(
     atom(\.managementLayer).deactivate()
 
     let tempDir = makePaneTabCommandHarnessTempDir()
-    let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-    store.restore()
+    let store = WorkspaceStore()
     let viewRegistry = ViewRegistry()
     let runtime = SessionRuntime(store: store)
     let surfaceManager = MockPaneTabCommandSurfaceManager(createSurfaceResult: createSurfaceResult)

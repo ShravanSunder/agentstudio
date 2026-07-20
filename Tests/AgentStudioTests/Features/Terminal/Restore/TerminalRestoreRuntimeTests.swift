@@ -6,299 +6,67 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TerminalRestoreRuntimeTests {
-    @Test
-    func zmxSessionId_usesWorktreeIdentity_forTopLevelPane() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-restore-runtime-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+    private let enabledConfiguration = SessionConfiguration(
+        isEnabled: true,
+        zmxPath: "/tmp/fake-zmx",
+        zmxDir: "/tmp/fake-zmx-dir",
+        healthCheckInterval: 30,
+        maxCheckpointAge: 60
+    )
 
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-        let repo = store.addRepo(at: tempDir)
-        let worktree = try #require(repo.worktrees.first)
-        let pane = store.createPane(
-            launchDirectory: worktree.path,
-            provider: .zmx,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-        )
-        let runtime = TerminalRestoreRuntime(
-            sessionConfiguration: SessionConfiguration(
-                isEnabled: true,
-                zmxPath: "/tmp/fake-zmx",
-                zmxDir: "/tmp/fake-zmx-dir",
-                healthCheckInterval: 30,
-                maxCheckpointAge: 60
+    @Test("restore returns the exact stored opaque identity")
+    func restoreReturnsExactStoredOpaqueIdentity() throws {
+        let storedText = "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-5566778899001122"
+        let storedSessionID = try #require(ZmxSessionID(restoring: storedText))
+        let pane = makeTerminalPane(
+            sessionID: storedSessionID,
+            launchDirectory: URL(filePath: "/tmp/path-must-not-determine-zmx-identity"),
+            facets: PaneContextFacets(
+                repoId: UUIDv7.generate(),
+                worktreeId: UUIDv7.generate(),
+                cwd: URL(filePath: "/tmp/current-cwd-must-not-determine-zmx-identity")
             )
         )
+        let runtime = TerminalRestoreRuntime(sessionConfiguration: enabledConfiguration)
 
-        let sessionId = runtime.zmxSessionId(for: pane, store: store)
+        let restoredSessionID = runtime.zmxSessionID(for: pane)
 
-        #expect(
-            sessionId
-                == ZmxBackend.sessionId(
-                    repoStableKey: repo.stableKey,
-                    worktreeStableKey: worktree.stableKey,
-                    paneId: pane.id
-                )
-        )
+        #expect(restoredSessionID == storedSessionID)
+        #expect(restoredSessionID?.rawValue == storedText)
     }
 
-    @Test
-    func zmxSessionId_usesDrawerIdentity_forDrawerPane() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-restore-runtime-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+    @Test("attach command and diagnostics use the exact stored identity")
+    func attachCommandAndDiagnosticsUseExactStoredIdentity() throws {
+        let storedText = "550E8400-E29B-41D4-A716-446655440000"
+        let storedSessionID = try #require(ZmxSessionID(restoring: storedText))
+        let pane = makeTerminalPane(sessionID: storedSessionID)
+        let runtime = TerminalRestoreRuntime(sessionConfiguration: enabledConfiguration)
 
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-        let repo = store.addRepo(at: tempDir)
-        let worktree = try #require(repo.worktrees.first)
-        let parentPane = store.createPane(
-            launchDirectory: worktree.path,
-            provider: .zmx,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-        )
-        let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))
-        let runtime = TerminalRestoreRuntime(
-            sessionConfiguration: SessionConfiguration(
-                isEnabled: true,
-                zmxPath: "/tmp/fake-zmx",
-                zmxDir: "/tmp/fake-zmx-dir",
-                healthCheckInterval: 30,
-                maxCheckpointAge: 60
-            )
-        )
+        let attachCommand = try #require(runtime.zmxAttachCommand(for: pane))
+        let diagnostics = try #require(runtime.zmxAttachDiagnostics(for: pane))
 
-        let sessionId = runtime.zmxSessionId(for: drawerPane, store: store)
-
-        #expect(
-            sessionId
-                == ZmxBackend.drawerSessionId(
-                    parentPaneId: parentPane.id,
-                    drawerPaneId: drawerPane.id
-                )
-        )
+        #expect(attachCommand.contains(ZmxBackend.shellEscape(storedText)))
+        #expect(diagnostics.sessionId == storedText)
+        #expect(diagnostics.socketPath == "\(enabledConfiguration.zmxDir)/\(storedText)")
     }
 
-    @Test
-    func zmxSessionId_usesFloatingWorkingDirectory_whenCwdExists() {
-        let store = WorkspaceStore()
-        let launchDirectory = FileManager.default.homeDirectoryForCurrentUser.appending(path: "tmp")
-        let pane = store.createPane(
-            launchDirectory: launchDirectory,
-            provider: .zmx
+    @Test("non-zmx terminals do not expose a restorable zmx identity")
+    func nonZmxTerminalDoesNotExposeRestorableZmxIdentity() {
+        let pane = makeTerminalPane(
+            provider: .ghostty,
+            lifetime: .temporary,
+            sessionID: .generateUUIDv7()
         )
-        let runtime = TerminalRestoreRuntime(
-            sessionConfiguration: SessionConfiguration(
-                isEnabled: true,
-                zmxPath: "/tmp/fake-zmx",
-                zmxDir: "/tmp/fake-zmx-dir",
-                healthCheckInterval: 30,
-                maxCheckpointAge: 60
-            )
-        )
+        let runtime = TerminalRestoreRuntime(sessionConfiguration: enabledConfiguration)
 
-        let sessionId = runtime.zmxSessionId(for: pane, store: store)
-
-        #expect(
-            sessionId
-                == ZmxBackend.floatingSessionId(
-                    launchDirectory: launchDirectory,
-                    paneId: pane.id
-                )
-        )
+        #expect(runtime.zmxSessionID(for: pane) == nil)
+        #expect(runtime.zmxAttachCommand(for: pane) == nil)
+        #expect(runtime.zmxAttachDiagnostics(for: pane) == nil)
     }
 
-    @Test
-    func zmxSessionId_fallsBackToHomeDirectory_forFloatingPaneWithoutCwd() {
-        let store = WorkspaceStore()
-        let pane = store.createPane(
-            provider: .zmx
-        )
-        let runtime = TerminalRestoreRuntime(
-            sessionConfiguration: SessionConfiguration(
-                isEnabled: true,
-                zmxPath: "/tmp/fake-zmx",
-                zmxDir: "/tmp/fake-zmx-dir",
-                healthCheckInterval: 30,
-                maxCheckpointAge: 60
-            )
-        )
-
-        let sessionId = runtime.zmxSessionId(for: pane, store: store)
-
-        #expect(
-            sessionId
-                == ZmxBackend.floatingSessionId(
-                    launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
-                    paneId: pane.id
-                )
-        )
-    }
-
-    @Test
-    func zmxSessionId_usesStoredSpawnAnchor_whenPaneRoamsToAnotherWorktree() throws {
-        // zmx-session-anchor plan T3: session identity is a spawn-time anchor.
-        // A pane can roam through live facets, but attach/diagnostics must keep
-        // using the stored id for the shell that already exists.
-        let tempDirA = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-restore-roam-a-\(UUID().uuidString)")
-        let tempDirB = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-restore-roam-b-\(UUID().uuidString)")
-        defer {
-            try? FileManager.default.removeItem(at: tempDirA)
-            try? FileManager.default.removeItem(at: tempDirB)
-        }
-
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDirA))
-        let repoA = store.addRepo(at: tempDirA)
-        let worktreeA = try #require(repoA.worktrees.first)
-        let repoB = store.addRepo(at: tempDirB)
-        let worktreeB = try #require(repoB.worktrees.first)
-        let bornPane = store.createPane(
-            launchDirectory: worktreeA.path,
-            provider: .zmx,
-            facets: PaneContextFacets(repoId: repoA.id, worktreeId: worktreeA.id, cwd: worktreeA.path)
-        )
-
-        // Roam: the live facet rewrite that WorkspaceSurfaceCoordinator performs on cwd change.
-        _ = store.paneAtom.updatePaneCWDAndResolvedContext(
-            bornPane.id,
-            cwd: worktreeB.path,
-            resolvedContext: (repo: repoB, worktree: worktreeB)
-        )
-        let roamedPane = try #require(store.paneAtom.pane(bornPane.id))
-
-        let runtime = TerminalRestoreRuntime(
-            sessionConfiguration: SessionConfiguration(
-                isEnabled: true,
-                zmxPath: "/tmp/fake-zmx",
-                zmxDir: "/tmp/fake-zmx-dir",
-                healthCheckInterval: 30,
-                maxCheckpointAge: 60
-            )
-        )
-
-        let sessionId = runtime.zmxSessionId(for: roamedPane, store: store)
-
-        let expectedSpawnSessionId = ZmxBackend.sessionId(
-            repoStableKey: repoA.stableKey,
-            worktreeStableKey: worktreeA.stableKey,
-            paneId: bornPane.id
-        )
-        let roamedFacetDerivedSessionId = ZmxBackend.sessionId(
-            repoStableKey: repoB.stableKey,
-            worktreeStableKey: worktreeB.stableKey,
-            paneId: bornPane.id
-        )
-
-        #expect(
-            sessionId == expectedSpawnSessionId
-        )
-        #expect(
-            sessionId != roamedFacetDerivedSessionId
-        )
-
-        let attachCommand = try #require(runtime.zmxAttachCommand(for: roamedPane, store: store))
-        let diagnostics = try #require(runtime.zmxAttachDiagnostics(for: roamedPane, store: store))
-
-        #expect(attachCommand.contains(expectedSpawnSessionId))
-        #expect(!attachCommand.contains(roamedFacetDerivedSessionId))
-        #expect(diagnostics.sessionId == expectedSpawnSessionId)
-    }
-
-    @Test
-    func zmxSessionId_ignoresStoredAnchor_whenItDoesNotMatchPane() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-restore-invalid-anchor-\(UUID().uuidString)")
-        defer {
-            try? FileManager.default.removeItem(at: tempDir)
-        }
-
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-        let repo = store.addRepo(at: tempDir)
-        let worktree = try #require(repo.worktrees.first)
-        let pane = store.createPane(
-            launchDirectory: worktree.path,
-            provider: .zmx,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-        )
-        let foreignSessionId = ZmxBackend.sessionId(
-            repoStableKey: repo.stableKey,
-            worktreeStableKey: worktree.stableKey,
-            paneId: UUID(uuidString: "DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD")!
-        )
-        _ = store.paneAtom.setTerminalZmxSessionId(pane.id, sessionId: foreignSessionId)
-        let paneWithInvalidStoredAnchor = try #require(store.paneAtom.pane(pane.id))
-
-        let runtime = TerminalRestoreRuntime(
-            sessionConfiguration: SessionConfiguration(
-                isEnabled: true,
-                zmxPath: "/tmp/fake-zmx",
-                zmxDir: "/tmp/fake-zmx-dir",
-                healthCheckInterval: 30,
-                maxCheckpointAge: 60
-            )
-        )
-
-        let sessionId = runtime.zmxSessionId(for: paneWithInvalidStoredAnchor, store: store)
-
-        let expectedDerivedSessionId = ZmxBackend.sessionId(
-            repoStableKey: repo.stableKey,
-            worktreeStableKey: worktree.stableKey,
-            paneId: pane.id
-        )
-        #expect(sessionId == expectedDerivedSessionId)
-        #expect(sessionId != foreignSessionId)
-    }
-
-    @Test
-    func zmxSessionId_preservesStoredDrawerAnchor_whenDrawerPaneWasDetachedToLayout() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-restore-detached-drawer-\(UUID().uuidString)")
-        defer {
-            try? FileManager.default.removeItem(at: tempDir)
-        }
-
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-        let repo = store.addRepo(at: tempDir)
-        let worktree = try #require(repo.worktrees.first)
-        let parentPane = store.createPane(
-            launchDirectory: worktree.path,
-            provider: .zmx,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-        )
-        let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))
-        let storedDrawerSessionId = try #require(drawerPane.terminalState?.zmxSessionId)
-
-        let detachedPane = try #require(store.paneAtom.detachDrawerPane(drawerPane.id, from: parentPane.id))
-        let runtime = TerminalRestoreRuntime(
-            sessionConfiguration: SessionConfiguration(
-                isEnabled: true,
-                zmxPath: "/tmp/fake-zmx",
-                zmxDir: "/tmp/fake-zmx-dir",
-                healthCheckInterval: 30,
-                maxCheckpointAge: 60
-            )
-        )
-
-        let sessionId = runtime.zmxSessionId(for: detachedPane, store: store)
-
-        #expect(sessionId == storedDrawerSessionId)
-        #expect(
-            sessionId
-                != ZmxBackend.sessionId(
-                    repoStableKey: repo.stableKey,
-                    worktreeStableKey: worktree.stableKey,
-                    paneId: detachedPane.id
-                ))
-    }
-
-    @Test
-    func zmxAttachCommand_isNil_whenSessionRestoreIsDisabled() {
-        let store = WorkspaceStore()
-        let pane = store.createPane(
-            launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
-            provider: .zmx
-        )
+    @Test("disabled session restoration does not build an attach command")
+    func disabledSessionRestorationDoesNotBuildAttachCommand() {
+        let pane = makeTerminalPane(sessionID: .generateUUIDv7())
         let runtime = TerminalRestoreRuntime(
             sessionConfiguration: SessionConfiguration(
                 isEnabled: false,
@@ -309,7 +77,30 @@ struct TerminalRestoreRuntimeTests {
             )
         )
 
-        #expect(runtime.zmxAttachCommand(for: pane, store: store) == nil)
-        #expect(runtime.zmxAttachDiagnostics(for: pane, store: store) == nil)
+        #expect(runtime.zmxAttachCommand(for: pane) == nil)
+        #expect(runtime.zmxAttachDiagnostics(for: pane) == nil)
+    }
+
+    private func makeTerminalPane(
+        provider: SessionProvider = .zmx,
+        lifetime: SessionLifetime = .persistent,
+        sessionID: ZmxSessionID,
+        launchDirectory: URL = URL(filePath: "/tmp"),
+        facets: PaneContextFacets = PaneContextFacets()
+    ) -> Pane {
+        Pane(
+            content: .terminal(
+                TerminalState(
+                    provider: provider,
+                    lifetime: lifetime,
+                    zmxSessionID: sessionID
+                )
+            ),
+            metadata: PaneMetadata(
+                launchDirectory: launchDirectory,
+                title: "Terminal",
+                facets: facets
+            )
+        )
     }
 }

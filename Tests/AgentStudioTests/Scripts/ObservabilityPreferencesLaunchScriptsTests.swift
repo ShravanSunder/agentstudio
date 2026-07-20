@@ -270,7 +270,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
         #expect(verifierScript.contains("preference_load_elapsed_ms"))
         #expect(verifierScript.contains("startup_elapsed_ms"))
         #expect(verifierScript.contains("app.process.start"))
-        #expect(verifierScript.contains("app.zmx_startup_reconciliation.completed"))
+        #expect(verifierScript.contains("app.did_finish_launching.succeeded"))
         #expect(verifierScript.contains("startup_median_ms"))
         #expect(verifierScript.contains("startup_max_vs_baseline_median_ms"))
         #expect(verifierScript.contains("preference_load_median_ms"))
@@ -391,8 +391,8 @@ struct ObservabilityPreferencesLaunchScriptsTests {
                     if [[ "$*" == *"app.preferences.global.loaded"* ]]; then
                       exit 0
                     fi
-                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
-                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                    if [[ "$*" == *"app.did_finish_launching.succeeded"* ]]; then
+                      printf '{"_msg":"app.did_finish_launching.succeeded","agentstudio.app.startup.phase":"did_finish_launching","agentstudio.app.startup.outcome":"succeeded"}\\n'
                       exit 0
                     fi
                     if [[ "$*" == *":*"* ]]; then
@@ -451,8 +451,8 @@ struct ObservabilityPreferencesLaunchScriptsTests {
                     if [[ "$*" == *"app.preferences.global.loaded"* ]]; then
                       exit 0
                     fi
-                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
-                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                    if [[ "$*" == *"app.did_finish_launching.succeeded"* ]]; then
+                      printf '{"_msg":"app.did_finish_launching.succeeded","agentstudio.app.startup.phase":"did_finish_launching","agentstudio.app.startup.outcome":"succeeded"}\\n'
                       exit 0
                     fi
                     if [[ "$*" == *":*"* ]]; then

@@ -22,6 +22,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         Self.expectVictoriaProofContract(source)
         Self.expectJSONLProofGuard(source)
         Self.expectFixtureAndCleanupContract(source)
+        Self.expectStrictSQLiteFixtureAndQuiescenceContract(source)
     }
 
     private static func expectSharedObservabilityContract(_ source: String) {
@@ -479,17 +480,72 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(comparison.contains("not_ready"))
     }
 
-    @Test("workload fixture JSON shape decodes as persisted workspace state")
-    func workloadFixtureJSONShapeDecodesAsPersistedWorkspaceState() throws {
-        let data = Data(workloadFixtureJSON.utf8)
+    @Test("workload fixture materializes and reloads through strict SQLite")
+    func workloadFixtureMaterializesThroughStrictSQLite() async throws {
+        let input = try fixtureMaterializationInput(environment: ProcessInfo.processInfo.environment)
+        defer {
+            if input.removesDataRoot {
+                try? FileManager.default.removeItem(at: input.dataRoot)
+            }
+        }
 
-        let state = try JSONDecoder().decode(WorkspacePersistor.PersistableState.self, from: data)
+        let state = try JSONDecoder().decode(WorkspacePersistor.PersistableState.self, from: input.fixtureData)
+        Self.expectFixtureCounts(state, expected: input.expectedCounts)
+        Self.expectGeneratedDurableIdentitiesAreUUIDv7(state)
+        let saveBundle = WorkspacePersistenceTransformer.sqliteSaveBundle(from: state)
+        guard case .prepared = await WorkspaceCompositionPreparer.prepareOffMain(saveBundle.workspace) else {
+            Issue.record("Generated workload fixture was rejected before strict SQLite materialization")
+            return
+        }
 
-        #expect(state.repos.count == 1)
-        #expect(state.worktrees.count == 1)
-        #expect(state.panes.count == 1)
-        #expect(state.tabs.count == 1)
-        #expect(state.panes[0].worktreeId == state.worktrees[0].id)
+        let dataEnvironment = [AppDataPaths.dataDirectoryEnvironmentKey: input.dataRoot.path]
+        let workspacesDirectory = AppDataPaths.workspacesDirectory(
+            environment: dataEnvironment,
+            isDebugBuild: true
+        )
+        try FileManager.default.createDirectory(at: workspacesDirectory, withIntermediateDirectories: true)
+        let datastore = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: AppDataPaths.coreSQLiteURL(
+                environment: dataEnvironment,
+                isDebugBuild: true
+            ),
+            localDatabaseURL: { workspaceID in
+                AppDataPaths.workspaceLocalSQLiteURL(
+                    workspaceId: workspaceID,
+                    environment: dataEnvironment,
+                    isDebugBuild: true
+                )
+            }
+        ).makeDatastore()
+
+        try await datastore.saveWorkspaceSnapshotBundle(saveBundle)
+        guard case .loaded(let loadedWorkspace) = await datastore.loadWorkspaceSnapshot() else {
+            Issue.record("Strict SQLite workspace reload did not return the materialized fixture")
+            return
+        }
+        guard
+            case .loaded(let loadedTopology) = await datastore.loadRepositoryTopologySnapshot(
+                workspaceId: state.id
+            )
+        else {
+            Issue.record("Strict SQLite topology reload did not return the materialized fixture")
+            return
+        }
+        guard case .prepared = await WorkspaceCompositionPreparer.prepareOffMain(loadedWorkspace) else {
+            Issue.record("Strict SQLite reload produced an invalid workspace composition")
+            return
+        }
+
+        #expect(loadedWorkspace.id == state.id)
+        #expect(loadedWorkspace.activeTabId == state.activeTabId)
+        #expect(Set(loadedTopology.repos.map(\.id)) == Set(state.repos.map(\.id)))
+        #expect(Set(loadedTopology.worktrees.map(\.id)) == Set(state.worktrees.map(\.id)))
+        #expect(Set(loadedWorkspace.panes.map(\.id)) == Set(state.panes.map(\.id)))
+        #expect(Set(loadedWorkspace.tabs.map(\.id)) == Set(state.tabs.map(\.id)))
+        #expect(loadedTopology.repos.count == input.expectedCounts.repos)
+        #expect(loadedTopology.worktrees.count == input.expectedCounts.worktrees)
+        #expect(loadedWorkspace.panes.count == input.expectedCounts.panes)
+        #expect(loadedWorkspace.tabs.count == input.expectedCounts.tabs)
     }
 
     private let scriptPath = "scripts/verify-git-refresh-performance-workload.sh"
@@ -652,101 +708,210 @@ struct GitRefreshPerformanceWorkloadScriptTests {
     }
 }
 
-private let workloadFixtureJSON = """
-    {
-      "schemaVersion": 1,
-      "id": "00000000-0000-0000-0000-000000000101",
-      "name": "Git Refresh Performance Fixture",
-      "repos": [
-        {
-          "id": "00000000-0000-0000-0000-000000000201",
-          "name": "repo-000",
-          "repoPath": "file:///tmp/agentstudio-perf/repo-000",
-          "createdAt": 0
+private struct FixtureCounts {
+    let repos: Int
+    let worktrees: Int
+    let panes: Int
+    let tabs: Int
+}
+
+private struct FixtureMaterializationInput {
+    let dataRoot: URL
+    let fixtureData: Data
+    let expectedCounts: FixtureCounts
+    let removesDataRoot: Bool
+}
+
+extension GitRefreshPerformanceWorkloadScriptTests {
+    fileprivate static let workloadFixtureJSONEnvironmentKey = "AGENTSTUDIO_PERF_FIXTURE_JSON"
+    fileprivate static let workloadFixtureDataRootEnvironmentKey = "AGENTSTUDIO_PERF_FIXTURE_DATA_ROOT"
+    fileprivate static let expectedRepositoryCountEnvironmentKey = "AGENTSTUDIO_PERF_FIXTURE_EXPECTED_REPOS"
+    fileprivate static let expectedWorktreeCountEnvironmentKey = "AGENTSTUDIO_PERF_FIXTURE_EXPECTED_WORKTREES"
+    fileprivate static let expectedPaneCountEnvironmentKey = "AGENTSTUDIO_PERF_FIXTURE_EXPECTED_PANES"
+    fileprivate static let expectedTabCountEnvironmentKey = "AGENTSTUDIO_PERF_FIXTURE_EXPECTED_TABS"
+    fileprivate static let workloadFixtureEnvironmentKeys = [
+        workloadFixtureJSONEnvironmentKey,
+        workloadFixtureDataRootEnvironmentKey,
+        expectedRepositoryCountEnvironmentKey,
+        expectedWorktreeCountEnvironmentKey,
+        expectedPaneCountEnvironmentKey,
+        expectedTabCountEnvironmentKey,
+    ]
+    fileprivate static let commonQuiescenceGaugeNames = [
+        "agentstudio_performance_filesystem_logical_debt_count",
+        "agentstudio_performance_git_logical_debt_count",
+        "agentstudio_performance_runtime_delivery_total_pending_count",
+    ]
+
+    fileprivate static func expectStrictSQLiteFixtureAndQuiescenceContract(_ source: String) {
+        for environmentKey in workloadFixtureEnvironmentKeys {
+            #expect(source.contains(environmentKey))
         }
-      ],
-      "worktrees": [
-        {
-          "id": "00000000-0000-0000-0000-000000000301",
-          "repoId": "00000000-0000-0000-0000-000000000201",
-          "name": "main",
-          "path": "file:///tmp/agentstudio-perf/repo-000",
-          "isMainWorktree": true
+        #expect(source.contains("materialize_workspace_fixture()"))
+        #expect(
+            source.contains(
+                "GitRefreshPerformanceWorkloadScriptTests.workloadFixtureMaterializesThroughStrictSQLite"))
+        #expect(source.contains("\"content\": {\"version\": 3"))
+        #expect(source.contains("\"zmxSessionID\":"))
+        #expect(source.contains("uuid_v7()"))
+        #expect(!source.contains("uuid_any()"))
+
+        #expect(source.contains("COMMON_QUIESCENCE_TIMEOUT_SECONDS=30"))
+        #expect(source.contains("wait_for_common_quiescence()"))
+        #expect(source.contains("WRITERS_FINISHED_AT"))
+        #expect(source.contains("timestamp(%s{%s}) >= %s"))
+        #expect(source.contains("latency_offset=$latency_offset"))
+        #expect(source.contains("1ms 2>/dev/null || true"))
+        for gaugeName in commonQuiescenceGaugeNames {
+            #expect(source.contains(gaugeName))
         }
-      ],
-      "unavailableRepoIds": [],
-      "panes": [
-        {
-          "id": "019eb9e5-2de8-7c5f-83b1-cc9782b2efb6",
-          "content": {"version": 2, "type": "terminal", "state": {"provider": "zmx", "lifetime": "persistent"}},
-          "metadata": {
-            "paneId": "019eb9e5-2de8-7c5f-83b1-cc9782b2efb6",
-            "contentType": {"terminal": {}},
-            "source": {
-              "worktree": {
-                "worktreeId": "00000000-0000-0000-0000-000000000301",
-                "repoId": "00000000-0000-0000-0000-000000000201",
-                "launchDirectory": "file:///tmp/agentstudio-perf/repo-000"
-              }
-            },
-            "executionBackend": {"local": {}},
-            "createdAt": 0,
-            "title": "repo-pane-0",
-            "facets": {
-              "repoId": "00000000-0000-0000-0000-000000000201",
-              "worktreeId": "00000000-0000-0000-0000-000000000301",
-              "cwd": "file:///tmp/agentstudio-perf/repo-000",
-              "tags": []
-            },
-            "checkoutRef": null,
-            "note": null
-          },
-          "residency": {"active": {}},
-          "kind": {
-            "layout": {
-              "drawer": {
-                "drawerId": "00000000-0000-0000-0000-000000000401",
-                "parentPaneId": "019eb9e5-2de8-7c5f-83b1-cc9782b2efb6",
-                "paneIds": [],
-                "isExpanded": false
-              }
-            }
-          }
-        }
-      ],
-      "tabs": [
-        {
-          "id": "00000000-0000-0000-0000-000000000501",
-          "name": "Performance",
-          "panes": ["019eb9e5-2de8-7c5f-83b1-cc9782b2efb6"],
-          "arrangements": [
-            {
-              "id": "00000000-0000-0000-0000-000000000601",
-              "name": "Default",
-              "isDefault": true,
-              "layout": {
-                "panes": [
-                  {
-                    "paneId": "019eb9e5-2de8-7c5f-83b1-cc9782b2efb6",
-                    "ratio": 1.0
-                  }
-                ],
-                "dividerIds": []
-              },
-              "minimizedPaneIds": [],
-              "showsMinimizedPanes": true,
-              "activePaneId": "019eb9e5-2de8-7c5f-83b1-cc9782b2efb6",
-              "drawerViews": []
-            }
-          ],
-          "activeArrangementId": "00000000-0000-0000-0000-000000000601"
-        }
-      ],
-      "activeTabId": "00000000-0000-0000-0000-000000000501",
-      "sidebarWidth": 250,
-      "windowFrame": null,
-      "watchedPaths": [],
-      "createdAt": 0,
-      "updatedAt": 0
+        #expect(source.contains("kill -0 \"$APP_PID\""))
+        #expect(source.contains("/bin/ps"))
+        #expect(source.contains("/usr/bin/footprint"))
+        #expect(source.contains("-p \"$APP_PID\""))
+        #expect(source.contains("capture_final_process_resources()"))
+        #expect(
+            source.contains("footprint_status\" != \"succeeded")
+                && source.contains("exited during final resource capture")
+        )
+
+        expectSourceOrder(
+            source,
+            markers: [
+                "\nprepare_fixture\n",
+                "materialize_workspace_fixture\n",
+                "launch_debug_observability_app\n",
+                "WRITERS_FINISHED_AT=",
+                "wait_for_common_quiescence ",
+                "capture_final_process_resources",
+                "summarize_traces\n",
+            ]
+        )
     }
+
+    fileprivate func fixtureMaterializationInput(
+        environment: [String: String]
+    ) throws -> FixtureMaterializationInput {
+        let providedKeys = Self.workloadFixtureEnvironmentKeys.filter {
+            !(environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        }
+        try #require(
+            providedKeys.isEmpty || providedKeys.count == Self.workloadFixtureEnvironmentKeys.count,
+            "Operational fixture materialization requires all six environment inputs"
+        )
+        guard !providedKeys.isEmpty else {
+            return FixtureMaterializationInput(
+                dataRoot: try temporaryFixtureRoot(),
+                fixtureData: Data(workloadFixtureJSON.utf8),
+                expectedCounts: FixtureCounts(repos: 1, worktrees: 1, panes: 1, tabs: 1),
+                removesDataRoot: true
+            )
+        }
+
+        let fixturePath = try #require(environment[Self.workloadFixtureJSONEnvironmentKey])
+        let explicitDataRoot = try #require(environment[Self.workloadFixtureDataRootEnvironmentKey])
+        try Self.requireExplicitNonProductionDataRoot(explicitDataRoot)
+        return FixtureMaterializationInput(
+            dataRoot: URL(filePath: explicitDataRoot).standardizedFileURL,
+            fixtureData: try Data(contentsOf: URL(filePath: fixturePath).standardizedFileURL),
+            expectedCounts: FixtureCounts(
+                repos: try Self.requiredPositiveCount(
+                    environment[Self.expectedRepositoryCountEnvironmentKey],
+                    key: Self.expectedRepositoryCountEnvironmentKey
+                ),
+                worktrees: try Self.requiredPositiveCount(
+                    environment[Self.expectedWorktreeCountEnvironmentKey],
+                    key: Self.expectedWorktreeCountEnvironmentKey
+                ),
+                panes: try Self.requiredPositiveCount(
+                    environment[Self.expectedPaneCountEnvironmentKey],
+                    key: Self.expectedPaneCountEnvironmentKey
+                ),
+                tabs: try Self.requiredPositiveCount(
+                    environment[Self.expectedTabCountEnvironmentKey],
+                    key: Self.expectedTabCountEnvironmentKey
+                )
+            ),
+            removesDataRoot: false
+        )
+    }
+
+    fileprivate static func expectSourceOrder(_ source: String, markers: [String]) {
+        var searchStart = source.startIndex
+        for marker in markers {
+            guard let range = source.range(of: marker, range: searchStart..<source.endIndex) else {
+                Issue.record("Missing ordered script marker: \(marker.trimmingCharacters(in: .whitespacesAndNewlines))")
+                return
+            }
+            searchStart = range.upperBound
+        }
+    }
+
+    fileprivate static func requiredPositiveCount(_ rawValue: String?, key: String) throws -> Int {
+        let count = try #require(rawValue.flatMap(Int.init), "\(key) must be a positive integer")
+        try #require(count > 0, "\(key) must be a positive integer")
+        return count
+    }
+
+    fileprivate static func requireExplicitNonProductionDataRoot(_ rawPath: String) throws {
+        try #require(rawPath.hasPrefix("/"), "Operational fixture data root must be an explicit absolute path")
+        let root = URL(filePath: rawPath).standardizedFileURL.resolvingSymlinksInPath()
+        let forbiddenRoots = [
+            AppDataPaths.rootDirectory(environment: [:], releaseChannel: .stable, isDebugBuild: false),
+            AppDataPaths.rootDirectory(environment: [:], releaseChannel: .beta, isDebugBuild: false),
+            AppDataPaths.rootDirectory(environment: [:], isDebugBuild: true),
+            URL(filePath: "/"),
+        ].map { $0.standardizedFileURL.resolvingSymlinksInPath() }
+        try #require(!forbiddenRoots.contains(root), "Operational fixture data root must not be a live app data root")
+    }
+
+    fileprivate static func expectFixtureCounts(
+        _ state: WorkspacePersistor.PersistableState,
+        expected: FixtureCounts
+    ) {
+        #expect(state.repos.count == expected.repos)
+        #expect(state.worktrees.count == expected.worktrees)
+        #expect(state.panes.count == expected.panes)
+        #expect(state.tabs.count == expected.tabs)
+        #expect(Set(state.repos.map(\.id)).count == expected.repos)
+        #expect(Set(state.worktrees.map(\.id)).count == expected.worktrees)
+        #expect(Set(state.panes.map(\.id)).count == expected.panes)
+        #expect(Set(state.tabs.map(\.id)).count == expected.tabs)
+    }
+
+    fileprivate static func expectGeneratedDurableIdentitiesAreUUIDv7(
+        _ state: WorkspacePersistor.PersistableState
+    ) {
+        let durableUUIDs =
+            [state.id]
+            + state.repos.map(\.id)
+            + state.worktrees.map(\.id)
+            + state.panes.map(\.id)
+            + state.panes.compactMap { $0.drawer?.drawerId }
+            + state.tabs.map(\.id)
+            + state.tabs.flatMap { $0.arrangements.map(\.id) }
+            + state.tabs.flatMap { $0.arrangements.flatMap(\.layout.dividerIds) }
+        #expect(durableUUIDs.allSatisfy(UUIDv7.isV7))
+        let terminalSessionUUIDs = state.panes.compactMap {
+            $0.terminalState.flatMap { UUID(uuidString: $0.zmxSessionID.rawValue) }
+        }
+        #expect(terminalSessionUUIDs.count == state.panes.count)
+        #expect(terminalSessionUUIDs.allSatisfy(UUIDv7.isV7))
+    }
+}
+
+private let workloadFixtureJSON = """
+    {"schemaVersion":1,"id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb1","name":"Git Refresh Performance Fixture",
+    "repos":[{"id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb2","name":"repo-000","repoPath":"file:///tmp/agentstudio-perf/repo-000","createdAt":0}],
+    "worktrees":[{"id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb3","repoId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb2","name":"main","path":"file:///tmp/agentstudio-perf/repo-000","isMainWorktree":true}],
+    "unavailableRepoIds":[],"panes":[{
+    "id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","content":{"version":3,"type":"terminal","state":{"provider":"zmx","lifetime":"persistent","zmxSessionID":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb5"}},
+    "metadata":{"paneId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","contentType":{"terminal":{}},
+    "source":{"worktree":{"worktreeId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb3","repoId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb2","launchDirectory":"file:///tmp/agentstudio-perf/repo-000"}},
+    "executionBackend":{"local":{}},"createdAt":0,"title":"repo-pane-0","facets":{"repoId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb2","worktreeId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb3","cwd":"file:///tmp/agentstudio-perf/repo-000","tags":[]},"checkoutRef":null,"note":null},
+    "residency":{"active":{}},"kind":{"layout":{"drawer":{"drawerId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb4","parentPaneId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","paneIds":[],"isExpanded":false}}}}],
+    "tabs":[{"id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb7","name":"Performance","panes":["019eb9e5-2de8-7c5f-83b1-cc9782b2efb6"],
+    "arrangements":[{"id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb8","name":"Default","isDefault":true,"layout":{"panes":[{"paneId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","ratio":1.0}],"dividerIds":[]},"minimizedPaneIds":[],"showsMinimizedPanes":true,"activePaneId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","drawerViews":[]}],
+    "activeArrangementId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb8"}],"activeTabId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb7",
+    "sidebarWidth":250,"windowFrame":null,"watchedPaths":[],"createdAt":0,"updatedAt":0}
     """

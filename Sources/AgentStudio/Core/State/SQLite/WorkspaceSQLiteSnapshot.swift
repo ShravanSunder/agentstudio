@@ -19,7 +19,7 @@ struct WorkspaceSQLiteSnapshot: Equatable, Sendable {
     var updatedAt: Date
 
     init(
-        id: UUID = UUID(),
+        id: UUID,
         name: String = "Default Workspace",
         panes: [Pane] = [],
         tabs: [Tab] = [],
@@ -38,5 +38,17 @@ struct WorkspaceSQLiteSnapshot: Equatable, Sendable {
         self.windowFrame = windowFrame
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    func hasSameSQLiteRepresentation(as other: Self) -> Bool {
+        id == other.id
+            && name == other.name
+            && panes == other.panes
+            && tabs == other.tabs
+            && activeTabId == other.activeTabId
+            && sidebarWidth == other.sidebarWidth
+            && windowFrame == other.windowFrame
+            && createdAt.timeIntervalSince1970 == other.createdAt.timeIntervalSince1970
+            && updatedAt.timeIntervalSince1970 == other.updatedAt.timeIntervalSince1970
     }
 }

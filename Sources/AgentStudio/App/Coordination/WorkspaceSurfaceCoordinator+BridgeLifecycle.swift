@@ -41,7 +41,7 @@ extension WorkspaceSurfaceCoordinator {
                 replayEvictionPolicy: shouldUnregisterRuntime ? .callerManaged : .schedule
             )
             if shouldUnregisterRuntime, UUIDv7.isV7(paneId) {
-                let runtimePaneId = PaneId(uuid: paneId)
+                let runtimePaneId = PaneId(existingUUID: paneId)
                 await paneEventBus.evictReplay(sourceKey: EventSource.pane(runtimePaneId).description)
             }
             if shouldUnregisterRuntime {

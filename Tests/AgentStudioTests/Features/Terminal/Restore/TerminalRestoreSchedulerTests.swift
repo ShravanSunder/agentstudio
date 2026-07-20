@@ -8,8 +8,8 @@ import Testing
 struct TerminalRestoreSchedulerTests {
     @Test
     func scheduler_restoresVisiblePanes_beforeEligibleHiddenPanes() {
-        let activePane = PaneId()
-        let hiddenPane = PaneId()
+        let activePane = PaneId.generateUUIDv7()
+        let hiddenPane = PaneId.generateUUIDv7()
         let resolver = TestTerminalRestoreVisibilityResolver(
             mapping: [
                 activePane: .p0Visible,
@@ -28,8 +28,8 @@ struct TerminalRestoreSchedulerTests {
 
     @Test
     func scheduler_restoresVisibleDrawerPanes_asVisibleWork() {
-        let activePane = PaneId()
-        let visibleDrawerPane = PaneId()
+        let activePane = PaneId.generateUUIDv7()
+        let visibleDrawerPane = PaneId.generateUUIDv7()
         let resolver = TestTerminalRestoreVisibilityResolver(
             mapping: [
                 activePane: .p0Visible,
@@ -48,10 +48,10 @@ struct TerminalRestoreSchedulerTests {
 
     @Test
     func scheduler_restores_allExpandedDrawerPanes_asVisibleWork() {
-        let activePane = PaneId()
-        let firstVisibleDrawerPane = PaneId()
-        let secondVisibleDrawerPane = PaneId()
-        let hiddenPane = PaneId()
+        let activePane = PaneId.generateUUIDv7()
+        let firstVisibleDrawerPane = PaneId.generateUUIDv7()
+        let secondVisibleDrawerPane = PaneId.generateUUIDv7()
+        let hiddenPane = PaneId.generateUUIDv7()
         let resolver = TestTerminalRestoreVisibilityResolver(
             mapping: [
                 activePane: .p0Visible,
@@ -86,9 +86,9 @@ struct TerminalRestoreSchedulerTests {
 
     @Test
     func scheduler_promotes_destinationPaneAndDrawers_onTabSwitch() {
-        let destinationPane = PaneId()
-        let destinationDrawerPane = PaneId()
-        let hiddenPane = PaneId()
+        let destinationPane = PaneId.generateUUIDv7()
+        let destinationDrawerPane = PaneId.generateUUIDv7()
+        let hiddenPane = PaneId.generateUUIDv7()
         let resolver = TestTerminalRestoreVisibilityResolver(
             mapping: [
                 destinationPane: .p0Visible,
@@ -108,8 +108,8 @@ struct TerminalRestoreSchedulerTests {
 
     @Test
     func scheduler_preemptsPendingBackgroundWork_whenVisibleWorkArrives() {
-        let hiddenPane = PaneId()
-        let visiblePane = PaneId()
+        let hiddenPane = PaneId.generateUUIDv7()
+        let visiblePane = PaneId.generateUUIDv7()
         let resolver = TestTerminalRestoreVisibilityResolver(
             mapping: [
                 hiddenPane: .p1Hidden,

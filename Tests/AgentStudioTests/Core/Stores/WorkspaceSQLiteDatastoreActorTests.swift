@@ -243,9 +243,9 @@ struct WorkspaceSQLiteDatastoreActorTests {
         await saveGate.releaseFirstSave()
         try await firstSave.value
         try await secondSave.value
-        let loaded = await datastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
+        let loaded = await datastore.loadWorkspaceSnapshot()
 
-        guard case .loaded(let snapshot, _) = loaded else {
+        guard case .loaded(let snapshot) = loaded else {
             Issue.record("Expected loaded snapshot after serialized saves, got \(loaded)")
             return
         }
@@ -305,9 +305,9 @@ struct WorkspaceSQLiteDatastoreActorTests {
             Issue.record("Expected CocoaError, got \(error)")
         }
         try await secondSave.value
-        let loaded = await datastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
+        let loaded = await datastore.loadWorkspaceSnapshot()
 
-        guard case .loaded(let snapshot, _) = loaded else {
+        guard case .loaded(let snapshot) = loaded else {
             Issue.record("Expected loaded snapshot after queued failure recovery, got \(loaded)")
             return
         }
@@ -334,226 +334,10 @@ struct WorkspaceSQLiteDatastoreActorTests {
         try await datastore.saveWorkspaceSnapshotBundle(
             .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Loaded"))
         )
-        _ = await datastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
+        _ = await datastore.loadWorkspaceSnapshot()
 
         #expect(await recorder.events.filter { $0 == .localRepositoryOpened(workspaceId, .save) }.count == 1)
         #expect(await recorder.events.filter { $0 == .localRepositoryOpened(workspaceId, .restore) }.count == 1)
-    }
-
-    @Test("restore repair uses save repository cache")
-    func restoreRepairUsesSaveRepositoryCache() async throws {
-        let workspaceId = UUID()
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.datastore.repair.core")
-        let seedLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.datastore.repair.seed")
-        let staleRestoreLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.datastore.repair.restore")
-        let repairLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.datastore.repair.save")
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        try WorkspaceLocalMigrations.migrate(seedLocalQueue)
-        try WorkspaceLocalMigrations.migrate(staleRestoreLocalQueue)
-        try WorkspaceLocalMigrations.migrate(repairLocalQueue)
-        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
-        let seedBackend = WorkspaceSQLiteStoreBackend(
-            coreRepository: coreRepository,
-            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: seedLocalQueue) }
-        )
-        let updatedAt = Date(timeIntervalSince1970: 3)
-        try seedBackend.save(
-            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Repair", updatedAt: updatedAt))
-        )
-        let recorder = DatastoreProbeRecorder()
-        let datastore = WorkspaceSQLiteDatastore(
-            coreRepository: coreRepository,
-            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: repairLocalQueue) },
-            makeLocalRestoreRepository: {
-                WorkspaceLocalRepository(workspaceId: $0, databaseWriter: staleRestoreLocalQueue)
-            },
-            probe: { event in await recorder.record(event) }
-        )
-
-        _ = await datastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
-
-        #expect(await recorder.events.filter { $0 == .localRepositoryOpened(workspaceId, .restore) }.count == 1)
-        #expect(await recorder.events.filter { $0 == .localRepositoryOpened(workspaceId, .save) }.count == 1)
-        let repairedRepository = WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: repairLocalQueue)
-        #expect(try repairedRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == updatedAt)
-    }
-
-    @Test("workspace load returns first local restore recovery events")
-    func workspaceLoadReturnsFirstLocalRestoreRecoveryEvents() async throws {
-        let workspaceId = UUID()
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.datastore.recovery.core")
-        let seedLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.datastore.recovery.seed")
-        let repairLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.datastore.recovery.repair")
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        try WorkspaceLocalMigrations.migrate(seedLocalQueue)
-        try WorkspaceLocalMigrations.migrate(repairLocalQueue)
-        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
-        let seedBackend = WorkspaceSQLiteStoreBackend(
-            coreRepository: coreRepository,
-            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: seedLocalQueue) }
-        )
-        try seedBackend.save(
-            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Recovered"))
-        )
-        let datastore = WorkspaceSQLiteDatastore(
-            coreRepository: coreRepository,
-            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: repairLocalQueue) },
-            makeLocalRestoreRepository: { workspaceId in
-                throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(workspaceId)
-            }
-        )
-
-        let result = await datastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
-
-        guard case .loaded(let snapshot, let recoveryEvents) = result else {
-            Issue.record("Expected loaded snapshot after local recovery")
-            return
-        }
-        #expect(snapshot.id == workspaceId)
-        #expect(
-            recoveryEvents.contains {
-                $0.store == .workspace
-                    && $0.workspaceId == workspaceId
-                    && $0.recovery == .quarantinedAndReset
-            }
-        )
-    }
-
-    @Test("workspace status APIs use datastore boundary")
-    func workspaceStatusApisUseDatastoreBoundary() async throws {
-        let workspaceId = UUID()
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.datastore.status.core")
-        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.datastore.status.local")
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        try WorkspaceLocalMigrations.migrate(localQueue)
-        let datastore = WorkspaceSQLiteDatastore(
-            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
-            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: localQueue) }
-        )
-
-        #expect(await datastore.inspectWorkspaceRows() == .empty)
-        try await datastore.saveWorkspaceSnapshotBundle(
-            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Status"))
-        )
-        #expect(await datastore.inspectWorkspaceRows() == .hasWorkspaceRows)
-        guard
-            case .completed(true, let recoveryEvents) = await datastore.completedSnapshotStatus(
-                workspaceId: workspaceId
-            )
-        else {
-            Issue.record("Expected completed snapshot status")
-            return
-        }
-        #expect(recoveryEvents.isEmpty)
-        #expect(await datastore.legacyImportStatus(workspaceId: workspaceId) == .missing)
-    }
-
-    @Test("production datastore quarantines corrupt core SQLite before reporting uninitialized")
-    func productionDatastoreQuarantinesCorruptCoreSQLiteBeforeReportingUninitialized() async throws {
-        let rootDirectory = try makeDatastoreActorTemporaryDirectory(prefix: "core-quarantine")
-        let coreSQLiteURL = rootDirectory.appending(path: "core.sqlite")
-        try Data("not a sqlite database".utf8).write(to: coreSQLiteURL)
-        let datastore = WorkspaceSQLiteDatastoreFactory(
-            coreDatabaseURL: coreSQLiteURL,
-            localDatabaseURL: { workspaceId in
-                rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
-            }
-        ).makeDatastore()
-
-        let result = await datastore.loadWorkspaceSnapshot(preferredWorkspaceId: UUID())
-
-        guard case .uninitialized(let recoveryEvents) = result else {
-            Issue.record("Expected uninitialized result after core quarantine, got \(result)")
-            return
-        }
-        #expect(
-            recoveryEvents.contains { event in
-                event.store == .workspace
-                    && event.workspaceId == nil
-                    && event.recovery == .quarantinedAndReset
-                    && event.quarantinedFilename?.contains("core.sqlite.corrupt-") == true
-            },
-            "Recovery events: \(recoveryEvents)"
-        )
-        #expect(FileManager.default.fileExists(atPath: coreSQLiteURL.path))
-    }
-
-    @Test("production datastore quarantines corrupt local SQLite and reports first restore event")
-    func productionDatastoreQuarantinesCorruptLocalSQLiteAndReportsFirstRestoreEvent() async throws {
-        let workspaceId = UUID()
-        let rootDirectory = try makeDatastoreActorTemporaryDirectory(prefix: "local-quarantine")
-        let coreSQLiteURL = rootDirectory.appending(path: "core.sqlite")
-        let localSQLiteURL = rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
-        let factory = WorkspaceSQLiteDatastoreFactory(
-            coreDatabaseURL: coreSQLiteURL,
-            localDatabaseURL: { _ in localSQLiteURL }
-        )
-        do {
-            let seedDatastore = factory.makeDatastore()
-            try await seedDatastore.saveWorkspaceSnapshotBundle(
-                .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Local Quarantine"))
-            )
-        }
-        try Data("not a sqlite database".utf8).write(to: localSQLiteURL)
-        let restoreDatastore = factory.makeDatastore()
-
-        let result = await restoreDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
-
-        guard case .loaded(let snapshot, let recoveryEvents) = result else {
-            Issue.record("Expected loaded snapshot after local quarantine, got \(result)")
-            return
-        }
-        #expect(snapshot.id == workspaceId)
-        #expect(
-            recoveryEvents.contains { event in
-                event.store == .workspace
-                    && event.workspaceId == workspaceId
-                    && event.recovery == .quarantinedAndReset
-                    && event.quarantinedFilename?.contains(".local.sqlite.corrupt-") == true
-            },
-            "Recovery events: \(recoveryEvents)"
-        )
-        #expect(FileManager.default.fileExists(atPath: localSQLiteURL.path))
-    }
-
-    @Test("production datastore emits persistence recovery trace for corrupt local SQLite")
-    func productionDatastoreEmitsPersistenceRecoveryTraceForCorruptLocalSQLite() async throws {
-        let workspaceId = UUID()
-        let rootDirectory = try makeDatastoreActorTemporaryDirectory(prefix: "local-quarantine-trace")
-        let coreSQLiteURL = rootDirectory.appending(path: "core.sqlite")
-        let localSQLiteURL = rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
-        let seedFactory = WorkspaceSQLiteDatastoreFactory(
-            coreDatabaseURL: coreSQLiteURL,
-            localDatabaseURL: { _ in localSQLiteURL }
-        )
-        try await seedFactory.makeDatastore().saveWorkspaceSnapshotBundle(
-            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Local Quarantine Trace"))
-        )
-        try Data("not a sqlite database".utf8).write(to: localSQLiteURL)
-        let traceRuntime = makePersistenceTraceRuntime(tags: "persistence.recovery")
-        let restoreDatastore = WorkspaceSQLiteDatastoreFactory(
-            coreDatabaseURL: coreSQLiteURL,
-            localDatabaseURL: { _ in localSQLiteURL },
-            traceRuntime: traceRuntime
-        ).makeDatastore()
-
-        _ = await restoreDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
-        try await traceRuntime.flush()
-
-        let contents = try persistenceTraceContents(from: traceRuntime)
-        #expect(contents.contains("\"body\":\"persistence.recovery.quarantined\""))
-        #expect(contents.contains("\"agentstudio.trace.tag\":\"persistence.recovery\""))
-        #expect(contents.contains("\"agentstudio.persistence.operation\":\"workspace.load\""))
-        #expect(contents.contains("\"agentstudio.persistence.phase\":\"quarantine_sidecars\""))
-        #expect(contents.contains("\"agentstudio.persistence.recovery.kind\":\"local_quarantine\""))
-        #expect(contents.contains("\"agentstudio.workspace.id\":\"\(workspaceId.uuidString)\""))
-        #expect(!contents.contains("\"agentstudio.trace.tag\":\"persistence.operation\""))
     }
 
     @Test("production datastore quarantines corrupt local SQLite before save")
@@ -575,171 +359,59 @@ struct WorkspaceSQLiteDatastoreActorTests {
         try await saveDatastore.saveWorkspaceSnapshotBundle(
             .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Saved After Quarantine"))
         )
-        let result = await saveDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
+        let result = await saveDatastore.loadWorkspaceSnapshot()
 
-        guard case .loaded(let snapshot, let recoveryEvents) = result else {
+        guard case .loaded(let snapshot) = result else {
             Issue.record("Expected loaded snapshot after local save quarantine, got \(result)")
             return
         }
         #expect(snapshot.name == "Saved After Quarantine")
-        #expect(
-            recoveryEvents.contains { event in
-                event.store == .workspace
-                    && event.workspaceId == workspaceId
-                    && event.recovery == .quarantinedAndReset
-                    && event.quarantinedFilename?.contains(".local.sqlite.corrupt-") == true
-            },
-            "Recovery events: \(recoveryEvents)"
-        )
-    }
-
-    @Test("datastore recovers staged core graph when local save failed")
-    func datastoreRecoversStagedCoreGraphWhenLocalSaveFailed() async throws {
-        let workspaceId = UUID()
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.datastore.staged-recovery.core")
-        let repairLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.datastore.staged-recovery.local")
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        try WorkspaceLocalMigrations.migrate(repairLocalQueue)
-        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
-        let failingDatastore = WorkspaceSQLiteDatastore(
-            coreRepository: coreRepository,
-            makeLocalRepository: { _ in throw CocoaError(.fileNoSuchFile) }
-        )
-
-        do {
-            try await failingDatastore.saveWorkspaceSnapshotBundle(
-                .emptyTopologyFixture(
-                    workspace: .emptyFixture(
-                        id: workspaceId,
-                        name: "Staged For Actor Recovery",
-                        updatedAt: Date(timeIntervalSince1970: 20)
-                    )
-                )
-            )
-            Issue.record("Expected local save failure")
-        } catch is CocoaError {
-        } catch {
-            Issue.record("Expected CocoaError, got \(error)")
-        }
-        let recoveringDatastore = WorkspaceSQLiteDatastore(
-            coreRepository: coreRepository,
-            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: repairLocalQueue) }
-        )
-
-        let result = await recoveringDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
-
-        guard case .loaded(let snapshot, let recoveryEvents) = result else {
-            Issue.record("Expected staged core recovery, got \(result)")
-            return
-        }
-        #expect(snapshot.name == "Staged For Actor Recovery")
-        #expect(
-            recoveryEvents.contains {
-                $0.store == .workspace
-                    && $0.workspaceId == workspaceId
-                    && $0.recovery == .localStateRebuilt
-            }
-        )
-    }
-
-    @Test("datastore prefers active staged workspace over another completed workspace")
-    func datastorePrefersActiveStagedWorkspaceOverAnotherCompletedWorkspace() async throws {
-        let completedWorkspaceId = UUID()
-        let stagedWorkspaceId = UUID()
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.datastore.multi-staged-recovery.core")
-        let completedLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.datastore.multi-staged-recovery.completed-local")
-        let stagedRepairLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.datastore.multi-staged-recovery.staged-local")
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        try WorkspaceLocalMigrations.migrate(completedLocalQueue)
-        try WorkspaceLocalMigrations.migrate(stagedRepairLocalQueue)
-        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
-        let completingDatastore = WorkspaceSQLiteDatastore(
-            coreRepository: coreRepository,
-            makeLocalRepository: { workspaceId in
-                WorkspaceLocalRepository(
-                    workspaceId: workspaceId,
-                    databaseWriter: workspaceId == completedWorkspaceId ? completedLocalQueue : stagedRepairLocalQueue
-                )
-            }
-        )
-        try await completingDatastore.saveWorkspaceSnapshotBundle(
-            .emptyTopologyFixture(
-                workspace: .emptyFixture(
-                    id: completedWorkspaceId,
-                    name: "Completed Workspace",
-                    updatedAt: Date(timeIntervalSince1970: 10)
-                )
-            )
-        )
-        let failingDatastore = WorkspaceSQLiteDatastore(
-            coreRepository: coreRepository,
-            makeLocalRepository: { _ in throw CocoaError(.fileNoSuchFile) }
-        )
-        do {
-            try await failingDatastore.saveWorkspaceSnapshotBundle(
-                .emptyTopologyFixture(
-                    workspace: .emptyFixture(
-                        id: stagedWorkspaceId,
-                        name: "Active Staged Workspace",
-                        updatedAt: Date(timeIntervalSince1970: 20)
-                    )
-                )
-            )
-            Issue.record("Expected local save failure")
-        } catch is CocoaError {
-        } catch {
-            Issue.record("Expected CocoaError, got \(error)")
-        }
-        let recoveringDatastore = WorkspaceSQLiteDatastore(
-            coreRepository: coreRepository,
-            makeLocalRepository: { workspaceId in
-                WorkspaceLocalRepository(
-                    workspaceId: workspaceId,
-                    databaseWriter: workspaceId == completedWorkspaceId ? completedLocalQueue : stagedRepairLocalQueue
-                )
-            }
-        )
-
-        let result = await recoveringDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: stagedWorkspaceId)
-
-        guard case .loaded(let snapshot, let recoveryEvents) = result else {
-            Issue.record("Expected active staged workspace recovery, got \(result)")
-            return
-        }
-        #expect(snapshot.id == stagedWorkspaceId)
-        #expect(snapshot.name == "Active Staged Workspace")
-        #expect(
-            recoveryEvents.contains {
-                $0.store == .workspace
-                    && $0.workspaceId == stagedWorkspaceId
-                    && $0.recovery == .localStateRebuilt
-            }
-        )
+        let quarantineArtifacts = try FileManager.default.contentsOfDirectory(
+            at: rootDirectory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.contains(".local.sqlite.corrupt-") }
+        #expect(quarantineArtifacts.count == 1)
     }
 
     @Test("production datastore legacy lane decisions honor completed companion import status")
     func productionDatastoreLegacyLaneDecisionsHonorCompletedCompanionImportStatus() async throws {
         let workspaceId = UUID()
         let rootDirectory = try makeDatastoreActorTemporaryDirectory(prefix: "legacy-decision")
+        let coreDatabaseURL = rootDirectory.appending(path: "core.sqlite")
+        let coreDatabasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: coreDatabaseURL,
+            label: "AgentStudio.sqlite.datastore.legacy-decision"
+        )
+        try WorkspaceCoreMigrations.migrate(coreDatabasePool)
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabasePool)
+        try coreRepository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: "Imported",
+                createdAt: Date(timeIntervalSince1970: 1),
+                updatedAt: Date(timeIntervalSince1970: 2)
+            )
+        )
+        try await coreDatabasePool.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO legacy_workspace_import_status(
+                        workspace_id,
+                        source_state_path,
+                        local_imported_at,
+                        cache_imported_at
+                    )
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [workspaceId.uuidString, "legacy/workspace.state.json", 3.0, 3.0]
+            )
+        }
         let datastore = WorkspaceSQLiteDatastoreFactory(
-            coreDatabaseURL: rootDirectory.appending(path: "core.sqlite"),
+            coreDatabaseURL: coreDatabaseURL,
             localDatabaseURL: { workspaceId in
                 rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
             }
         ).makeDatastore()
-        try await datastore.saveImportedLegacySnapshot(
-            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Imported")),
-            sourceStatePath: "legacy/workspace.state.json"
-        )
-        try await datastore.markLegacyWorkspaceCompanionImportsCompleted(
-            workspaceId: workspaceId,
-            importedAt: Date(timeIntervalSince1970: 3)
-        )
 
         #expect(
             await datastore.localLegacyImportDecision(workspaceId: workspaceId, lane: .local)

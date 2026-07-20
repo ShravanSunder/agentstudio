@@ -1,16 +1,16 @@
 import Foundation
 import Observation
 
-struct ArrangementDrawerCursorKey: Hashable {
+struct ArrangementDrawerCursorKey: Hashable, Sendable {
     let arrangementId: UUID
     let drawerId: UUID
 }
 
-struct ArrangementPaneCursorState: Equatable, Hashable {
+struct ArrangementPaneCursorState: Equatable, Hashable, Sendable {
     var activePaneId: UUID?
 }
 
-struct ArrangementDrawerCursorState: Equatable, Hashable {
+struct ArrangementDrawerCursorState: Equatable, Hashable, Sendable {
     var activeChildId: UUID?
 }
 
@@ -20,35 +20,20 @@ final class WorkspaceArrangementCursorAtom {
     private(set) var activeArrangementIdsByTabId: [UUID: UUID] = [:]
     private(set) var paneCursorsByArrangementId: [UUID: ArrangementPaneCursorState] = [:]
     private(set) var drawerCursorsByKey: [ArrangementDrawerCursorKey: ArrangementDrawerCursorState] = [:]
-
-    func replaceStates(_ states: [TabArrangementState]) {
-        var activeArrangementIdsByTabId: [UUID: UUID] = [:]
-        var paneCursorsByArrangementId: [UUID: ArrangementPaneCursorState] = [:]
-        var drawerCursorsByKey: [ArrangementDrawerCursorKey: ArrangementDrawerCursorState] = [:]
-
-        for state in states {
-            activeArrangementIdsByTabId[state.tabId] = state.activeArrangementId
-            for arrangement in state.arrangements {
-                paneCursorsByArrangementId[arrangement.id] = ArrangementPaneCursorState(
-                    activePaneId: arrangement.activePaneId
-                )
-                for (drawerId, drawerView) in arrangement.drawerViews {
-                    drawerCursorsByKey[
-                        ArrangementDrawerCursorKey(arrangementId: arrangement.id, drawerId: drawerId)
-                    ] = ArrangementDrawerCursorState(activeChildId: drawerView.activeChildId)
-                }
-            }
+    func replaceCursors(
+        activeArrangementIdsByTabId: [UUID: UUID],
+        paneCursorsByArrangementId: [UUID: ArrangementPaneCursorState],
+        drawerCursorsByKey: [ArrangementDrawerCursorKey: ArrangementDrawerCursorState]
+    ) {
+        if self.activeArrangementIdsByTabId != activeArrangementIdsByTabId {
+            self.activeArrangementIdsByTabId = activeArrangementIdsByTabId
         }
-
-        guard
-            self.activeArrangementIdsByTabId != activeArrangementIdsByTabId
-                || self.paneCursorsByArrangementId != paneCursorsByArrangementId
-                || self.drawerCursorsByKey != drawerCursorsByKey
-        else { return }
-
-        self.activeArrangementIdsByTabId = activeArrangementIdsByTabId
-        self.paneCursorsByArrangementId = paneCursorsByArrangementId
-        self.drawerCursorsByKey = drawerCursorsByKey
+        if self.paneCursorsByArrangementId != paneCursorsByArrangementId {
+            self.paneCursorsByArrangementId = paneCursorsByArrangementId
+        }
+        if self.drawerCursorsByKey != drawerCursorsByKey {
+            self.drawerCursorsByKey = drawerCursorsByKey
+        }
     }
 
     func activeArrangementId(forTab tabId: UUID) -> UUID? {
@@ -62,4 +47,5 @@ final class WorkspaceArrangementCursorAtom {
     func activeChildId(forArrangement arrangementId: UUID, drawerId: UUID) -> UUID? {
         drawerCursorsByKey[ArrangementDrawerCursorKey(arrangementId: arrangementId, drawerId: drawerId)]?.activeChildId
     }
+
 }

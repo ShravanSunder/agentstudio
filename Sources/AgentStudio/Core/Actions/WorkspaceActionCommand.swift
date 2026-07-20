@@ -116,6 +116,7 @@ enum WorkspaceActionCommand: Equatable, Hashable {
     case openWorktreeInPane(worktreeId: UUID)
     case openFloatingTerminal(launchDirectory: URL?, title: String?)
     case removeRepo(repoId: UUID)
+    case setRepoFavorite(repoId: UUID, isFavorite: Bool)
 
     // Minimize / Expand
     case minimizePane(tabId: UUID, paneId: UUID)

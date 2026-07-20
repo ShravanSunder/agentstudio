@@ -1,13 +1,6 @@
 import Foundation
 import Observation
 
-enum RepositoryTopologyAtomError: Error, Equatable {
-    case invalidRepositoryTag(String)
-    case duplicateRepositoryTag(String)
-    case repoNotFound(UUID)
-    case worktreeNotFound(UUID)
-}
-
 @MainActor
 @Observable
 final class RepositoryTopologyAtom {
@@ -20,10 +13,13 @@ final class RepositoryTopologyAtom {
     @ObservationIgnored private var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     @ObservationIgnored private var deferredWorktreePathIndexRebuildDepth = 0
     @ObservationIgnored private var deferredWorktreePathIndexRebuildNeeded = false
+    @ObservationIgnored private var repositoriesByID: [UUID: Repo] = [:]
+    @ObservationIgnored private var worktreesByID: [UUID: Worktree] = [:]
+    @ObservationIgnored private var watchedPathsByID: [UUID: WatchedPath] = [:]
 
     private struct WorktreePathIndexEntry {
-        let repo: Repo
-        let worktree: Worktree
+        let repoId: UUID
+        let worktreeId: UUID
         let normalizedWorktreePath: String
         let repoWorktreeCount: Int
         let repoPathMatchesWorktree: Bool
@@ -32,14 +28,31 @@ final class RepositoryTopologyAtom {
     }
 
     var allWorktreeIds: Set<UUID> {
-        Set(repos.flatMap(\.worktrees).map(\.id))
+        _ = repos
+        return Set(worktreesByID.keys)
+    }
+
+    var repositoryIdsInOrder: [UUID] {
+        repos.map(\.id)
+    }
+
+    var worktreeIdsInOrder: [UUID] {
+        repos.flatMap(\.worktrees).map(\.id)
+    }
+
+    var watchedPathIdsInOrder: [UUID] {
+        watchedPaths.map(\.id)
+    }
+
+    var worktreePathIndexCount: Int {
+        worktreePathIndex.count
     }
 
     func setPerformanceTraceRecorder(_ recorder: AgentStudioPerformanceTraceRecorder?) {
         performanceTraceRecorder = recorder
     }
 
-    func performBatchedTopologyMutation(_ mutation: () -> Void) {
+    func withDeferredWorktreePathIndexRebuild(_ mutation: () -> Void) {
         deferredWorktreePathIndexRebuildDepth += 1
         defer {
             deferredWorktreePathIndexRebuildDepth -= 1
@@ -51,35 +64,55 @@ final class RepositoryTopologyAtom {
         mutation()
     }
 
-    func hydrate(
-        runtimeRepos: [Repo],
-        watchedPaths: [WatchedPath],
-        unavailableRepoIds: Set<UUID>
-    ) {
-        repos = runtimeRepos
-        self.watchedPaths = watchedPaths
-        self.unavailableRepoIds = unavailableRepoIds
-        scheduleWorktreePathIndexRebuild()
+    func replaceTopology(_ replacement: RepositoryTopologyReplacement) {
+        let repositoriesChanged = repos != replacement.repositories
+        let watchedPathsChanged = watchedPaths != replacement.watchedPaths
+        let unavailableRepositoriesChanged = unavailableRepoIds != replacement.unavailableRepositoryIDs
+        guard repositoriesChanged || watchedPathsChanged || unavailableRepositoriesChanged else { return }
+
+        if repositoriesChanged {
+            repos = replacement.repositories
+        }
+        if watchedPathsChanged {
+            watchedPaths = replacement.watchedPaths
+        }
+        if unavailableRepositoriesChanged {
+            unavailableRepoIds = replacement.unavailableRepositoryIDs
+        }
+        if repositoriesChanged || watchedPathsChanged {
+            rebuildEntityIndexes()
+        }
+        if repositoriesChanged {
+            scheduleWorktreePathIndexRebuild()
+        }
     }
 
     func repo(_ id: UUID) -> Repo? {
-        repos.first { $0.id == id }
+        _ = repos
+        return repositoriesByID[id]
     }
 
     func worktree(_ id: UUID) -> Worktree? {
-        repos.flatMap(\.worktrees).first { $0.id == id }
+        _ = repos
+        return worktreesByID[id]
+    }
+
+    func watchedPath(_ id: UUID) -> WatchedPath? {
+        _ = watchedPaths
+        return watchedPathsByID[id]
     }
 
     func repo(containing worktreeId: UUID) -> Repo? {
-        repos.first { repo in
-            repo.worktrees.contains { $0.id == worktreeId }
-        }
+        _ = repos
+        guard let worktree = worktreesByID[worktreeId] else { return nil }
+        return repositoriesByID[worktree.repoId]
     }
 
     func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
         guard let cwd else { return nil }
         let clock = ContinuousClock()
         let start = clock.now
+        _ = repos
         _ = worktreePathIndexGeneration
 
         let normalizedCWD = cwd.standardizedFileURL.path
@@ -95,188 +128,104 @@ final class RepositoryTopologyAtom {
             fact: AgentStudioPerformanceTraceRecorder.TopologyLookupFact(
                 normalizedCWD: normalizedCWD,
                 worktreePathIndexGeneration: worktreePathIndexGeneration,
-                repoId: match?.repo.id,
-                worktreeId: match?.worktree.id
+                repoId: match?.repoId,
+                worktreeId: match?.worktreeId
             )
         )
 
-        guard let match else { return nil }
-        return (match.repo, match.worktree)
-    }
-
-    @discardableResult
-    func addRepo(at path: URL) -> Repo {
-        let normalizedPath = path.standardizedFileURL
-        let incomingStableKey = StableKey.fromPath(normalizedPath)
-        if let existing = repos.first(where: {
-            $0.repoPath.standardizedFileURL == normalizedPath || $0.stableKey == incomingStableKey
-        }) {
-            unavailableRepoIds.remove(existing.id)
-            return existing
-        }
-
-        let repoId = UUID()
-        let mainWorktree = Worktree(
-            repoId: repoId,
-            name: normalizedPath.lastPathComponent,
-            path: normalizedPath,
-            isMainWorktree: true
-        )
-        let repo = Repo(
-            id: repoId,
-            name: normalizedPath.lastPathComponent,
-            repoPath: normalizedPath,
-            worktrees: [mainWorktree]
-        )
-        repos.append(repo)
-        unavailableRepoIds.remove(repo.id)
-        scheduleWorktreePathIndexRebuild()
-        return repo
+        guard
+            let match,
+            let repository = repositoriesByID[match.repoId],
+            let worktree = worktreesByID[match.worktreeId]
+        else { return nil }
+        return (repository, worktree)
     }
 
     @discardableResult
     func ensureMainWorktree(at path: URL) -> Worktree {
         let normalizedPath = path.standardizedFileURL
         let incomingStableKey = StableKey.fromPath(normalizedPath)
-        if let existingIndex = repos.firstIndex(where: {
+        if let repositoryIndex = repos.firstIndex(where: {
             $0.repoPath.standardizedFileURL == normalizedPath || $0.stableKey == incomingStableKey
         }) {
-            unavailableRepoIds.remove(repos[existingIndex].id)
-            if let mainWorktree = repos[existingIndex].worktrees.first(where: \.isMainWorktree) {
-                return mainWorktree
+            unavailableRepoIds.remove(repos[repositoryIndex].id)
+            if let existingWorktree = repos[repositoryIndex].worktrees.first(where: \.isMainWorktree)
+                ?? repos[repositoryIndex].worktrees.first
+            {
+                return existingWorktree
             }
-            if let firstWorktree = repos[existingIndex].worktrees.first {
-                return firstWorktree
-            }
-
             let repairedWorktree = Worktree(
-                repoId: repos[existingIndex].id,
+                repoId: repos[repositoryIndex].id,
                 name: normalizedPath.lastPathComponent,
                 path: normalizedPath,
                 isMainWorktree: true
             )
-            repos[existingIndex].name = normalizedPath.lastPathComponent
-            repos[existingIndex].repoPath = normalizedPath
-            repos[existingIndex].worktrees = [repairedWorktree]
+            repos[repositoryIndex].name = normalizedPath.lastPathComponent
+            repos[repositoryIndex].repoPath = normalizedPath
+            repos[repositoryIndex].worktrees = [repairedWorktree]
+            rebuildEntityIndexes()
             scheduleWorktreePathIndexRebuild()
             return repairedWorktree
         }
 
-        let repo = addRepo(at: normalizedPath)
-        return repo.worktrees[0]
-    }
-
-    func removeRepo(_ repoId: UUID) {
-        guard repos.contains(where: { $0.id == repoId }) else { return }
-        repos.removeAll { $0.id == repoId }
-        unavailableRepoIds.remove(repoId)
+        let repositoryID = UUIDv7.generate()
+        let mainWorktree = Worktree(
+            id: UUIDv7.generate(),
+            repoId: repositoryID,
+            name: normalizedPath.lastPathComponent,
+            path: normalizedPath,
+            isMainWorktree: true
+        )
+        repos.append(
+            Repo(
+                id: repositoryID,
+                name: normalizedPath.lastPathComponent,
+                repoPath: normalizedPath,
+                worktrees: [mainWorktree]
+            )
+        )
+        rebuildEntityIndexes()
         scheduleWorktreePathIndexRebuild()
+        return mainWorktree
     }
 
-    func markRepoUnavailable(_ repoId: UUID) {
-        guard repos.contains(where: { $0.id == repoId }) else { return }
-        unavailableRepoIds.insert(repoId)
+    func applyValidatedRepositoryMetadata(
+        repositoryID: UUID,
+        isFavorite: Bool,
+        note: String?,
+        tags: [String]
+    ) {
+        guard let repositoryIndex = repos.firstIndex(where: { $0.id == repositoryID }) else { return }
+        var repository = repos[repositoryIndex]
+        guard
+            repository.isFavorite != isFavorite
+                || repository.note != note
+                || repository.tags != tags
+        else { return }
+
+        repository.isFavorite = isFavorite
+        repository.note = note
+        repository.tags = tags
+        repos[repositoryIndex] = repository
+        repositoriesByID[repositoryID] = repository
     }
 
-    func markRepoAvailable(_ repoId: UUID) {
-        unavailableRepoIds.remove(repoId)
+    func applyValidatedWorktreeNote(worktreeID: UUID, note: String?) {
+        guard
+            let worktree = worktreesByID[worktreeID],
+            let repositoryIndex = repos.firstIndex(where: { $0.id == worktree.repoId }),
+            let worktreeIndex = repos[repositoryIndex].worktrees.firstIndex(where: { $0.id == worktreeID }),
+            repos[repositoryIndex].worktrees[worktreeIndex].note != note
+        else { return }
+
+        repos[repositoryIndex].worktrees[worktreeIndex].note = note
+        let updatedWorktree = repos[repositoryIndex].worktrees[worktreeIndex]
+        worktreesByID[worktreeID] = updatedWorktree
+        repositoriesByID[worktree.repoId] = repos[repositoryIndex]
     }
 
     func isRepoUnavailable(_ repoId: UUID) -> Bool {
         unavailableRepoIds.contains(repoId)
-    }
-
-    func setRepoTags(_ tags: [String], repoId: UUID) throws {
-        guard let repoIndex = repos.firstIndex(where: { $0.id == repoId }) else {
-            throw RepositoryTopologyAtomError.repoNotFound(repoId)
-        }
-        repos[repoIndex].tags = try Self.canonicalRepositoryTags(tags)
-    }
-
-    func setWorktreeTags(_ tags: [String], worktreeId: UUID) throws {
-        for repoIndex in repos.indices {
-            guard let worktreeIndex = repos[repoIndex].worktrees.firstIndex(where: { $0.id == worktreeId }) else {
-                continue
-            }
-            repos[repoIndex].worktrees[worktreeIndex].tags = try Self.canonicalRepositoryTags(tags)
-            return
-        }
-        throw RepositoryTopologyAtomError.worktreeNotFound(worktreeId)
-    }
-
-    @discardableResult
-    func addWatchedPath(_ path: URL) -> WatchedPath? {
-        let normalizedPath = path.standardizedFileURL
-        let key = StableKey.fromPath(normalizedPath)
-        guard !watchedPaths.contains(where: { $0.stableKey == key }) else {
-            return watchedPaths.first { $0.stableKey == key }
-        }
-        let watchedPath = WatchedPath(path: normalizedPath)
-        watchedPaths.append(watchedPath)
-        return watchedPath
-    }
-
-    func removeWatchedPath(_ id: UUID) {
-        watchedPaths.removeAll { $0.id == id }
-    }
-
-    @discardableResult
-    func reassociateRepo(_ repoId: UUID, to newPath: URL, discoveredWorktrees: [Worktree]) -> Set<UUID> {
-        guard let repoIndex = repos.firstIndex(where: { $0.id == repoId }) else { return [] }
-        repos[repoIndex].name = newPath.lastPathComponent
-        repos[repoIndex].repoPath = newPath
-        unavailableRepoIds.remove(repoId)
-        _ = mergeDiscoveredWorktrees(repoId, worktrees: discoveredWorktrees)
-        scheduleWorktreePathIndexRebuild()
-        return Set(repos[repoIndex].worktrees.map(\.id))
-    }
-
-    func reconcileDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
-        guard mergeDiscoveredWorktrees(repoId, worktrees: worktrees) else { return }
-        scheduleWorktreePathIndexRebuild()
-    }
-
-    @discardableResult
-    private func mergeDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) -> Bool {
-        guard let index = repos.firstIndex(where: { $0.id == repoId }) else { return false }
-        let existing = repos[index].worktrees
-
-        let existingByPath = Dictionary(existing.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
-        let existingMain = existing.first(where: \.isMainWorktree)
-        let existingByName = Dictionary(existing.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
-
-        let merged = worktrees.map { discovered -> Worktree in
-            if let existing = existingByPath[discovered.path] {
-                var updated = existing
-                updated.name = discovered.name
-                return updated
-            }
-            if discovered.isMainWorktree, let existingMain {
-                return Worktree(
-                    id: existingMain.id,
-                    repoId: repoId,
-                    name: discovered.name,
-                    path: discovered.path,
-                    isMainWorktree: discovered.isMainWorktree,
-                    tags: existingMain.tags
-                )
-            }
-            if let matched = existingByName[discovered.name] {
-                return Worktree(
-                    id: matched.id,
-                    repoId: repoId,
-                    name: discovered.name,
-                    path: discovered.path,
-                    isMainWorktree: discovered.isMainWorktree,
-                    tags: matched.tags
-                )
-            }
-            return discovered
-        }
-
-        guard merged != existing else { return false }
-        repos[index].worktrees = merged
-        return true
     }
 
     private func scheduleWorktreePathIndexRebuild() {
@@ -285,6 +234,12 @@ final class RepositoryTopologyAtom {
             return
         }
         rebuildWorktreePathIndexAndBumpGeneration()
+    }
+
+    private func rebuildEntityIndexes() {
+        repositoriesByID = Dictionary(uniqueKeysWithValues: repos.map { ($0.id, $0) })
+        worktreesByID = Dictionary(uniqueKeysWithValues: repos.flatMap(\.worktrees).map { ($0.id, $0) })
+        watchedPathsByID = Dictionary(uniqueKeysWithValues: watchedPaths.map { ($0.id, $0) })
     }
 
     private func rebuildWorktreePathIndexAndBumpGeneration() {
@@ -299,8 +254,8 @@ final class RepositoryTopologyAtom {
 
             return normalizedWorktrees.map { item in
                 WorktreePathIndexEntry(
-                    repo: repo,
-                    worktree: item.worktree,
+                    repoId: repo.id,
+                    worktreeId: item.worktree.id,
                     normalizedWorktreePath: item.normalizedPath,
                     repoWorktreeCount: repo.worktrees.count,
                     repoPathMatchesWorktree: repoPathMatchesAnyWorktree
@@ -332,24 +287,5 @@ final class RepositoryTopologyAtom {
             return !lhs.isMainWorktree && rhs.isMainWorktree
         }
         return lhs.stableTieBreaker < rhs.stableTieBreaker
-    }
-
-    private static func canonicalRepositoryTags(_ tags: [String]) throws -> [String] {
-        var seenTags = Set<String>()
-        var canonicalTags: [String] = []
-        for tag in tags {
-            guard isValidRepositoryTag(tag) else {
-                throw RepositoryTopologyAtomError.invalidRepositoryTag(tag)
-            }
-            guard seenTags.insert(tag).inserted else {
-                throw RepositoryTopologyAtomError.duplicateRepositoryTag(tag)
-            }
-            canonicalTags.append(tag)
-        }
-        return canonicalTags.sorted()
-    }
-
-    private static func isValidRepositoryTag(_ tag: String) -> Bool {
-        RepositoryTagValidation.isValid(tag)
     }
 }

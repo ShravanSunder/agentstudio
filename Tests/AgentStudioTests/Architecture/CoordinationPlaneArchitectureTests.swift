@@ -124,10 +124,7 @@ struct CoordinationPlaneArchitectureTests {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let sourcesRoot = projectRoot.appending(path: "Sources/AgentStudio")
         let allowedFiles: Set<String> = [
-            // RepoExplorerView observes NSView.boundsDidChangeNotification for sidebar-visible worktree
-            // tracking: AppKit scroll-bounds ingress, same class as TerminalSurfaceScrollView.
-            "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift",
-            "Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceScrollView.swift",
+            "Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceScrollView.swift"
         ]
 
         var notificationCenterFiles: Set<String> = []
@@ -198,19 +195,26 @@ struct CoordinationPlaneArchitectureTests {
         #expect(sources.viewRegistrySource.contains("@Observable"))
         #expect(sources.viewRegistrySource.contains("ensureSlot"))
         #expect(sources.viewRegistrySource.contains("removeSlot"))
-        #expect(sources.appDelegateSource.contains("bootWorkspaceServices("))
-        #expect(sources.appDelegateWorkspaceBootSource.contains("seedSlotsForRestoredPanes()"))
-        if let bootCallRange = sources.appDelegateSource.range(of: "bootWorkspaceServices("),
-            let windowCreationRange = sources.appDelegateSource.range(
-                of: "mainWindowController = makeMainWindowController("
+        #expect(sources.appDelegateSource.contains("bootWorkspacePresentationPrerequisites("))
+        #expect(sources.appDelegateSource.contains("bootWorkspacePostPresentationServices("))
+        #expect(sources.appDelegateWorkspaceBootSource.contains("seedSlotsForInstalledPanes()"))
+        if let prerequisiteCallRange = sources.appDelegateSource.range(
+            of: "await self.bootWorkspacePresentationPrerequisites("
+        ),
+            let windowPresentationRange = sources.appDelegateSource.range(
+                of: "self.presentWindowAfterWorkspaceComposition()"
+            ),
+            let postPresentationCallRange = sources.appDelegateSource.range(
+                of: "await self.bootWorkspacePostPresentationServices("
             ),
             let runtimeBusRange = sources.appDelegateWorkspaceBootSource.range(
                 of: "private func bootEstablishRuntimeBus")
         {
             let runtimeBootSource = sources.appDelegateWorkspaceBootSource[runtimeBusRange.lowerBound...]
-            #expect(bootCallRange.lowerBound < windowCreationRange.lowerBound)
-            #expect(runtimeBootSource.contains("seedSlotsForRestoredPanes()"))
-            if let seedCallRange = runtimeBootSource.range(of: "seedSlotsForRestoredPanes()"),
+            #expect(prerequisiteCallRange.lowerBound < windowPresentationRange.lowerBound)
+            #expect(windowPresentationRange.lowerBound < postPresentationCallRange.lowerBound)
+            #expect(runtimeBootSource.contains("seedSlotsForInstalledPanes()"))
+            if let seedCallRange = runtimeBootSource.range(of: "seedSlotsForInstalledPanes()"),
                 let coordinatorRange = runtimeBootSource.range(
                     of: "workspaceSurfaceCoordinator = WorkspaceSurfaceCoordinator(")
             {

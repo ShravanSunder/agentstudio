@@ -730,16 +730,15 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
         }
     }
 
-    @Test("repository topology replace rejects duplicate worktree tags")
-    func repositoryTopologyReplaceRejectsDuplicateWorktreeTags() throws {
+    @Test("repository topology replace rejects duplicate repository tags")
+    func repositoryTopologyReplaceRejectsDuplicateRepositoryTags() throws {
         let repository = try makeWorkspaceCoreRepositoryFixture().repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000130")!
         let repoId = UUID(uuidString: "00000000-0000-0000-0000-000000000237")!
-        let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000330")!
         try repository.upsertWorkspace(
             .init(
                 id: workspaceId,
-                name: "Duplicate Worktree Tags",
+                name: "Duplicate Repository Tags",
                 createdAt: Date(timeIntervalSince1970: 100),
                 updatedAt: Date(timeIntervalSince1970: 100)
             )
@@ -754,18 +753,10 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
                         .init(
                             id: repoId,
                             name: "repo",
-                            repoPath: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-worktree-tag"),
+                            repoPath: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-repo-tag"),
                             createdAt: Date(timeIntervalSince1970: 200),
-                            worktrees: [
-                                .init(
-                                    id: worktreeId,
-                                    repoId: repoId,
-                                    name: "main",
-                                    path: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-worktree-tag"),
-                                    isMainWorktree: true,
-                                    tags: ["wip", "wip"]
-                                )
-                            ]
+                            worktrees: [],
+                            tags: ["wip", "wip"]
                         )
                     ],
                     unavailableRepoIds: []

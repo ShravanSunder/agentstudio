@@ -1,7 +1,32 @@
 import Foundation
 
-extension InboxNotificationRouter {
-    func notificationText(for event: PaneRuntimeEvent) -> NotificationText {
+@MainActor
+enum InboxNotificationPresentation {
+    struct NotificationText: Sendable, Equatable {
+        let title: String
+        let body: String?
+    }
+
+    struct ResolvedPaneContext {
+        let tabId: UUID?
+        let tabDisplayLabel: String?
+        let tabOrdinal: Int?
+        let repoId: UUID?
+        let repoName: String?
+        let worktreeId: UUID?
+        let worktreeName: String?
+        let branchName: String?
+        let paneDisplayLabel: String?
+        let paneOrdinal: Int?
+        let paneRole: InboxNotification.PaneSource.PaneRole
+        let parentPaneId: UUID?
+        let parentPaneDisplayLabel: String?
+        let parentPaneOrdinal: Int?
+        let drawerOrdinal: Int?
+        let runtimeDisplayLabel: String?
+    }
+
+    static func notificationText(for event: PaneRuntimeEvent) -> NotificationText {
         switch event {
         case .terminal(.desktopNotificationRequested(let title, let body)):
             return notificationText(
@@ -43,7 +68,7 @@ extension InboxNotificationRouter {
         }
     }
 
-    func claimSemantic(for event: PaneRuntimeEvent) -> InboxNotificationClaimSemantic {
+    static func claimSemantic(for event: PaneRuntimeEvent) -> InboxNotificationClaimSemantic {
         switch event {
         case .terminal(.desktopNotificationRequested):
             return .desktopNotification
@@ -78,7 +103,67 @@ extension InboxNotificationRouter {
         }
     }
 
-    private func notificationText(
+    static func paneSource(
+        paneId: UUID,
+        resolvedContext: ResolvedPaneContext?
+    ) -> InboxNotification.PaneSource {
+        .init(
+            paneId: paneId,
+            tabId: resolvedContext?.tabId,
+            tabDisplayLabel: resolvedContext?.tabDisplayLabel,
+            tabOrdinal: resolvedContext?.tabOrdinal,
+            repoId: resolvedContext?.repoId,
+            repoName: resolvedContext?.repoName,
+            worktreeId: resolvedContext?.worktreeId,
+            worktreeName: resolvedContext?.worktreeName,
+            branchName: resolvedContext?.branchName,
+            paneDisplayLabel: resolvedContext?.paneDisplayLabel,
+            paneOrdinal: resolvedContext?.paneOrdinal,
+            paneRole: resolvedContext?.paneRole ?? .main,
+            parentPaneId: resolvedContext?.parentPaneId,
+            parentPaneDisplayLabel: resolvedContext?.parentPaneDisplayLabel,
+            parentPaneOrdinal: resolvedContext?.parentPaneOrdinal,
+            drawerOrdinal: resolvedContext?.drawerOrdinal,
+            runtimeDisplayLabel: resolvedContext?.runtimeDisplayLabel
+        )
+    }
+
+    static func resolveContext(
+        for paneId: UUID,
+        paneAtom: WorkspacePaneAtom,
+        tabLayout: WorkspaceTabLayoutAtom
+    ) -> ResolvedPaneContext? {
+        guard let pane = paneAtom.pane(paneId) else { return nil }
+        let owningPaneId = pane.parentPaneId ?? paneId
+        let tab = tabLayout.tabContaining(paneId: owningPaneId)
+        let tabIndex = tab.flatMap { tab in
+            tabLayout.tabs.firstIndex { $0.id == tab.id }
+        }
+        let owningPaneIndex = tab.flatMap { tab in
+            tab.activePaneIds.firstIndex(of: owningPaneId)
+        }
+        let parentPane = pane.parentPaneId.flatMap { paneAtom.pane($0) }
+        return ResolvedPaneContext(
+            tabId: tab?.id,
+            tabDisplayLabel: tab.flatMap(Self.displayLabel(for:)),
+            tabOrdinal: tabIndex.map { $0 + 1 },
+            repoId: pane.repoId,
+            repoName: pane.metadata.repoName,
+            worktreeId: pane.worktreeId,
+            worktreeName: pane.metadata.worktreeName,
+            branchName: pane.metadata.checkoutRef,
+            paneDisplayLabel: Self.displayLabel(for: pane),
+            paneOrdinal: pane.isDrawerChild ? nil : owningPaneIndex.map { $0 + 1 },
+            paneRole: pane.isDrawerChild ? .drawerChild : .main,
+            parentPaneId: pane.parentPaneId,
+            parentPaneDisplayLabel: parentPane.flatMap(Self.displayLabel(for:)),
+            parentPaneOrdinal: pane.isDrawerChild ? owningPaneIndex.map { $0 + 1 } : nil,
+            drawerOrdinal: drawerOrdinal(for: paneId, parentPane: parentPane),
+            runtimeDisplayLabel: Self.runtimeDisplayLabel(for: pane)
+        )
+    }
+
+    private static func notificationText(
         title: String,
         body: String?,
         fallbackTitle: String
@@ -96,29 +181,29 @@ extension InboxNotificationRouter {
         return .init(title: fallbackTitle, body: nil)
     }
 
-    private func secureInputBody(for event: PaneRuntimeEvent) -> String? {
+    private static func secureInputBody(for event: PaneRuntimeEvent) -> String? {
         guard case .terminal(.secureInputChanged(let isActive)) = event else { return nil }
         return isActive ? "terminal is waiting for hidden input" : nil
     }
 
-    private func progressBody(for event: PaneRuntimeEvent) -> String? {
+    private static func progressBody(for event: PaneRuntimeEvent) -> String? {
         guard case .terminal(.progressReportUpdated(let progress)) = event else { return nil }
         guard let progress else { return nil }
         guard let percent = progress.percent else { return "progress error" }
         return "progress \(percent)%"
     }
 
-    private func rendererHealthBody(for event: PaneRuntimeEvent) -> String? {
+    private static func rendererHealthBody(for event: PaneRuntimeEvent) -> String? {
         guard case .terminal(.rendererHealthChanged(let healthy)) = event else { return nil }
         return healthy ? nil : "renderer health transitioned to unhealthy"
     }
 
-    private func approvalBody(for event: PaneRuntimeEvent) -> String? {
+    private static func approvalBody(for event: PaneRuntimeEvent) -> String? {
         guard case .artifact(.approvalRequested(let request)) = event else { return nil }
         return InboxNotificationTextPolicy.approvalSummary(requestSummary: request.summary)
     }
 
-    private func securityBody(for event: PaneRuntimeEvent) -> String? {
+    private static func securityBody(for event: PaneRuntimeEvent) -> String? {
         switch event {
         case .security(.networkEgressBlocked):
             return InboxNotificationTextPolicy.securitySummary(kind: .networkEgressBlocked)
@@ -137,7 +222,7 @@ extension InboxNotificationRouter {
         }
     }
 
-    private func formattedDuration(_ nanoseconds: UInt64) -> String {
+    private static func formattedDuration(_ nanoseconds: UInt64) -> String {
         let seconds = nanoseconds / 1_000_000_000
         let minutes = seconds / 60
         let remainingSeconds = seconds % 60
@@ -145,5 +230,42 @@ extension InboxNotificationRouter {
             return "\(minutes)m \(remainingSeconds)s"
         }
         return "\(remainingSeconds)s"
+    }
+
+    private static func drawerOrdinal(for paneId: UUID, parentPane: Pane?) -> Int? {
+        guard let paneIds = parentPane?.drawer?.paneIds else { return nil }
+        guard let index = paneIds.firstIndex(of: paneId) else { return nil }
+        return index + 1
+    }
+
+    private static func displayLabel(for tab: Tab) -> String? {
+        Tab.normalizedName(tab.name).trimmedNonEmpty
+    }
+
+    private static func displayLabel(for pane: Pane) -> String? {
+        pane.metadata.title.trimmedNonEmpty
+            ?? pane.metadata.worktreeName.trimmedNonEmpty
+            ?? pane.metadata.checkoutRef.trimmedNonEmpty
+            ?? runtimeDisplayLabel(for: pane)
+    }
+
+    private static func runtimeDisplayLabel(for pane: Pane) -> String {
+        switch pane.content {
+        case .terminal:
+            return "Terminal"
+        case .webview:
+            return "Browser"
+        case .bridgePanel(let state):
+            switch state.panelKind {
+            case .diffViewer:
+                return "Diff"
+            case .fileViewer:
+                return "Files"
+            }
+        case .codeViewer:
+            return "Code"
+        case .unsupported(let content):
+            return content.type.isEmpty ? "Pane" : content.type
+        }
     }
 }

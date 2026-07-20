@@ -116,11 +116,15 @@ enum WorkspaceCommandResolver {
             .focusPane6, .focusPane7, .focusPane8, .focusPane9:
             return nil
 
-        case .watchFolder, .removeRepo,
+        case .watchFolder, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
             .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
             .clearPaneInboxNotifications,
             .showWorktreeSidebar,
+            .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
+            .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
+            .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal,
             .newTerminalInTab, .newTab, .undoCloseTab,
             .newWindow, .closeWindow,
@@ -152,11 +156,15 @@ enum WorkspaceCommandResolver {
 
     private static func isNonPaneCommand(_ command: AppCommand) -> Bool {
         switch command {
-        case .watchFolder, .removeRepo,
+        case .watchFolder, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
             .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
             .clearPaneInboxNotifications,
             .showWorktreeSidebar,
+            .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
+            .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
+            .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal,
             .newTerminalInTab, .newTab, .undoCloseTab, .renameTab,
             .newWindow, .closeWindow,

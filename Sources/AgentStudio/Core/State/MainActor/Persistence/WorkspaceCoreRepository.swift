@@ -9,17 +9,6 @@ struct WorkspaceCoreRepository: Sendable {
         let updatedAt: Date
     }
 
-    struct LegacyImportStatusRecord: Equatable, Sendable {
-        let workspaceId: UUID
-        var sourceStatePath: String
-        var coreImportedAt: Date?
-        var settingsImportedAt: Date?
-        var localImportedAt: Date?
-        var cacheImportedAt: Date?
-        var archivedAt: Date?
-        var lastError: String?
-    }
-
     private struct WorkspaceSnapshotReplacement {
         var workspace: WorkspaceRecord
         var topology: RepositoryTopologyRecord
@@ -303,220 +292,28 @@ struct WorkspaceCoreRepository: Sendable {
         }
     }
 
-    func fetchStagedWorkspaceSQLiteSnapshotAt(workspaceId: UUID) throws -> Date? {
-        try databaseWriter.read { database in
-            guard
-                let stagedAt = try Double.fetchOne(
-                    database,
-                    sql: """
-                        SELECT staged_at
-                        FROM workspace_sqlite_snapshot_status
-                        WHERE workspace_id = ?
-                          AND staged_at IS NOT NULL
-                          AND completed_at IS NULL
-                        """,
-                    arguments: [workspaceId.uuidString]
-                )
-            else {
-                return nil
-            }
-            return Date(timeIntervalSince1970: stagedAt)
-        }
-    }
-
-    func fetchRecoverableStagedWorkspaceId(preferredWorkspaceId: UUID) throws -> UUID? {
-        try databaseWriter.read { database in
-            guard try !completedWorkspaceSQLiteSnapshotExists(database) else {
-                return nil
-            }
-            if let activeWorkspaceIdString = try fetchActiveWorkspaceIdStringFromDatabase(database),
-                UUID(uuidString: activeWorkspaceIdString) != nil,
-                try workspaceExists(database, id: activeWorkspaceIdString),
-                try stagedWorkspaceSQLiteSnapshotExists(database, id: activeWorkspaceIdString)
-            {
-                return UUID(uuidString: activeWorkspaceIdString)
-            }
-            if try workspaceExists(database, id: preferredWorkspaceId.uuidString),
-                try stagedWorkspaceSQLiteSnapshotExists(database, id: preferredWorkspaceId.uuidString)
-            {
-                return preferredWorkspaceId
-            }
-            guard let fallbackIdString = try fetchFallbackStagedWorkspaceIdString(database) else {
-                return nil
-            }
-            return UUID(uuidString: fallbackIdString)
-        }
-    }
-
-    func fetchActiveOrPreferredRecoverableStagedWorkspaceId(preferredWorkspaceId: UUID) throws -> UUID? {
-        try databaseWriter.read { database in
-            if let activeWorkspaceIdString = try fetchActiveWorkspaceIdStringFromDatabase(database),
-                let activeWorkspaceId = UUID(uuidString: activeWorkspaceIdString),
-                try workspaceExists(database, id: activeWorkspaceIdString),
-                try stagedWorkspaceSQLiteSnapshotExists(database, id: activeWorkspaceIdString)
-            {
-                return activeWorkspaceId
-            }
-            if try workspaceExists(database, id: preferredWorkspaceId.uuidString),
-                try stagedWorkspaceSQLiteSnapshotExists(database, id: preferredWorkspaceId.uuidString)
-            {
-                return preferredWorkspaceId
-            }
-            return nil
-        }
-    }
-
-    func markLegacyWorkspaceCoreImported(
+    func localLegacyImportDecision(
         workspaceId: UUID,
-        sourceStatePath: String,
-        importedAt: Date
-    ) throws {
-        try databaseWriter.write { database in
-            try requireWorkspaceExists(database, id: workspaceId)
-            try database.execute(
-                sql: """
-                    INSERT INTO legacy_workspace_import_status(
-                        workspace_id, source_state_path, core_imported_at, last_error
-                    )
-                    VALUES (?, ?, ?, NULL)
-                    ON CONFLICT(workspace_id) DO UPDATE SET
-                        source_state_path = excluded.source_state_path,
-                        core_imported_at = excluded.core_imported_at,
-                        last_error = NULL
-                    """,
-                arguments: [
-                    workspaceId.uuidString,
-                    sourceStatePath,
-                    importedAt.timeIntervalSince1970,
-                ]
-            )
-        }
-    }
-
-    func markLegacyWorkspaceImportFailed(
-        workspace: WorkspaceRecord,
-        sourceStatePath: String,
-        error: String
-    ) throws {
-        try databaseWriter.write { database in
-            try database.execute(
-                sql: """
-                    INSERT INTO workspace(id, name, created_at, updated_at)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
-                        name = excluded.name,
-                        updated_at = excluded.updated_at
-                    """,
-                arguments: [
-                    workspace.id.uuidString,
-                    workspace.name,
-                    workspace.createdAt.timeIntervalSince1970,
-                    workspace.updatedAt.timeIntervalSince1970,
-                ]
-            )
-            try database.execute(
-                sql: """
-                    INSERT INTO legacy_workspace_import_status(
-                        workspace_id, source_state_path, last_error
-                    )
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(workspace_id) DO UPDATE SET
-                        source_state_path = excluded.source_state_path,
-                        last_error = excluded.last_error
-                    """,
-                arguments: [
-                    workspace.id.uuidString,
-                    sourceStatePath,
-                    error,
-                ]
-            )
-        }
-    }
-
-    func markLegacyWorkspaceCompanionImportsCompleted(
-        workspaceId: UUID,
-        importedAt: Date
-    ) throws {
-        try databaseWriter.write { database in
-            let statusCount =
-                try Int.fetchOne(
-                    database,
-                    sql: """
-                        SELECT count(*)
-                        FROM legacy_workspace_import_status
-                        WHERE workspace_id = ?
-                        """,
-                    arguments: [workspaceId.uuidString]
-                ) ?? 0
-            guard statusCount > 0 else {
-                throw WorkspaceCoreRepositoryError.legacyImportStatusNotFound(workspaceId)
+        lane: WorkspaceLocalSQLiteLegacyLane
+    ) throws -> WorkspaceLocalSQLiteLegacyImportDecision {
+        try databaseWriter.read { database in
+            let importedAtColumn: String
+            switch lane {
+            case .local:
+                importedAtColumn = "local_imported_at"
+            case .cache:
+                importedAtColumn = "cache_imported_at"
             }
-            try database.execute(
+            let importedAt = try Double.fetchOne(
+                database,
                 sql: """
-                    UPDATE legacy_workspace_import_status
-                    SET settings_imported_at = ?,
-                        local_imported_at = ?,
-                        cache_imported_at = ?,
-                        last_error = NULL
+                    SELECT \(importedAtColumn)
+                    FROM legacy_workspace_import_status
                     WHERE workspace_id = ?
                     """,
-                arguments: [
-                    importedAt.timeIntervalSince1970,
-                    importedAt.timeIntervalSince1970,
-                    importedAt.timeIntervalSince1970,
-                    workspaceId.uuidString,
-                ]
+                arguments: [workspaceId.uuidString]
             )
-        }
-    }
-
-    func markLegacyWorkspaceArchived(workspaceId: UUID, archivedAt: Date) throws {
-        try databaseWriter.write { database in
-            let statusCount =
-                try Int.fetchOne(
-                    database,
-                    sql: """
-                        SELECT count(*)
-                        FROM legacy_workspace_import_status
-                        WHERE workspace_id = ?
-                        """,
-                    arguments: [workspaceId.uuidString]
-                ) ?? 0
-            guard statusCount > 0 else {
-                throw WorkspaceCoreRepositoryError.legacyImportStatusNotFound(workspaceId)
-            }
-            try database.execute(
-                sql: """
-                    UPDATE legacy_workspace_import_status
-                    SET archived_at = ?, last_error = NULL
-                    WHERE workspace_id = ?
-                    """,
-                arguments: [
-                    archivedAt.timeIntervalSince1970,
-                    workspaceId.uuidString,
-                ]
-            )
-        }
-    }
-
-    func fetchLegacyWorkspaceImportStatus(workspaceId: UUID) throws -> LegacyImportStatusRecord? {
-        try databaseWriter.read { database in
-            guard
-                let row = try Row.fetchOne(
-                    database,
-                    sql: """
-                        SELECT workspace_id, source_state_path, core_imported_at,
-                               settings_imported_at, local_imported_at, cache_imported_at,
-                               archived_at, last_error
-                        FROM legacy_workspace_import_status
-                        WHERE workspace_id = ?
-                        """,
-                    arguments: [workspaceId.uuidString]
-                )
-            else {
-                return nil
-            }
-            return try decodeLegacyImportStatusRecord(row)
+            return importedAt == nil ? .allowImport : .blockReplayAllowArchive
         }
     }
 
@@ -526,35 +323,6 @@ struct WorkspaceCoreRepository: Sendable {
                 throw WorkspaceCoreRepositoryError.cannotClearActiveWorkspaceWhileWorkspacesExist
             }
             try updateActiveWorkspaceSelection(database, workspaceId: nil, updatedAt: updatedAt)
-        }
-    }
-
-    @discardableResult
-    func repairActiveWorkspaceSelection(updatedAt: Date) throws -> UUID? {
-        try databaseWriter.write { database in
-            try repairActiveWorkspaceSelectionInDatabase(database, updatedAt: updatedAt)
-        }
-    }
-
-    @discardableResult
-    func repairActiveCompletedWorkspaceSelection(updatedAt: Date) throws -> UUID? {
-        try databaseWriter.write { database in
-            if let currentIdString = try fetchActiveWorkspaceIdStringFromDatabase(database),
-                UUID(uuidString: currentIdString) != nil,
-                try workspaceExists(database, id: currentIdString),
-                try completedWorkspaceSQLiteSnapshotExists(database, id: currentIdString)
-            {
-                return UUID(uuidString: currentIdString)
-            }
-
-            let fallbackIdString = try fetchFallbackCompletedWorkspaceIdString(database)
-            try updateActiveWorkspaceSelection(
-                database,
-                workspaceId: fallbackIdString,
-                updatedAt: updatedAt
-            )
-            guard let fallbackIdString else { return nil }
-            return UUID(uuidString: fallbackIdString)
         }
     }
 
@@ -598,7 +366,6 @@ enum WorkspaceCoreRepositoryError: Error, Equatable {
     case tabShellSetRequiresGraphReplacement(existingTabIds: Set<UUID>, incomingTabIds: Set<UUID>)
     case duplicateTabPaneId(tabId: UUID, paneId: UUID)
     case duplicateArrangementId(UUID)
-    case legacyImportStatusNotFound(UUID)
     case paneBelongsToDifferentWorkspace(paneId: UUID, expectedWorkspaceId: UUID, actualWorkspaceId: UUID)
     case drawerBelongsToDifferentWorkspace(drawerId: UUID, expectedWorkspaceId: UUID, actualWorkspaceId: UUID)
     case tabBelongsToDifferentWorkspace(tabId: UUID, expectedWorkspaceId: UUID, actualWorkspaceId: UUID)
@@ -675,27 +442,6 @@ private func decodeWorkspaceRecord(_ row: Row) throws -> WorkspaceCoreRepository
     )
 }
 
-private func decodeLegacyImportStatusRecord(_ row: Row) throws -> WorkspaceCoreRepository.LegacyImportStatusRecord {
-    let workspaceIdString: String = row["workspace_id"]
-    guard let workspaceId = UUID(uuidString: workspaceIdString) else {
-        throw WorkspaceCoreRepositoryError.malformedWorkspaceId(workspaceIdString)
-    }
-    return .init(
-        workspaceId: workspaceId,
-        sourceStatePath: row["source_state_path"],
-        coreImportedAt: optionalDate(row["core_imported_at"]),
-        settingsImportedAt: optionalDate(row["settings_imported_at"]),
-        localImportedAt: optionalDate(row["local_imported_at"]),
-        cacheImportedAt: optionalDate(row["cache_imported_at"]),
-        archivedAt: optionalDate(row["archived_at"]),
-        lastError: row["last_error"]
-    )
-}
-
-private func optionalDate(_ timestamp: Double?) -> Date? {
-    timestamp.map { Date(timeIntervalSince1970: $0) }
-}
-
 private func fetchActiveWorkspaceIdFromDatabase(_ database: Database) throws -> UUID? {
     guard
         let idString = try fetchActiveWorkspaceIdStringFromDatabase(database)
@@ -709,27 +455,6 @@ private func fetchActiveWorkspaceIdFromDatabase(_ database: Database) throws -> 
         throw WorkspaceCoreRepositoryError.activeWorkspaceSelectionDangling(id)
     }
     return id
-}
-
-private func repairActiveWorkspaceSelectionInDatabase(
-    _ database: Database,
-    updatedAt: Date
-) throws -> UUID? {
-    if let currentIdString = try fetchActiveWorkspaceIdStringFromDatabase(database),
-        UUID(uuidString: currentIdString) != nil,
-        try workspaceExists(database, id: currentIdString)
-    {
-        return UUID(uuidString: currentIdString)
-    }
-
-    let fallbackIdString = try fetchFallbackWorkspaceIdString(database)
-    try updateActiveWorkspaceSelection(
-        database,
-        workspaceId: fallbackIdString,
-        updatedAt: updatedAt
-    )
-    guard let fallbackIdString else { return nil }
-    return UUID(uuidString: fallbackIdString)
 }
 
 private func fetchActiveWorkspaceIdStringFromDatabase(_ database: Database) throws -> String? {
@@ -769,81 +494,6 @@ private func fetchFallbackWorkspaceIdString(
             LIMIT 1
             """
     )
-}
-
-private func fetchFallbackCompletedWorkspaceIdString(_ database: Database) throws -> String? {
-    try String.fetchOne(
-        database,
-        sql: """
-            SELECT workspace.id
-            FROM workspace
-            JOIN workspace_sqlite_snapshot_status
-              ON workspace_sqlite_snapshot_status.workspace_id = workspace.id
-            WHERE workspace_sqlite_snapshot_status.completed_at IS NOT NULL
-            ORDER BY workspace.updated_at DESC, workspace.id ASC
-            LIMIT 1
-            """
-    )
-}
-
-private func fetchFallbackStagedWorkspaceIdString(_ database: Database) throws -> String? {
-    try String.fetchOne(
-        database,
-        sql: """
-            SELECT workspace.id
-            FROM workspace
-            JOIN workspace_sqlite_snapshot_status
-              ON workspace_sqlite_snapshot_status.workspace_id = workspace.id
-            WHERE workspace_sqlite_snapshot_status.staged_at IS NOT NULL
-              AND workspace_sqlite_snapshot_status.completed_at IS NULL
-            ORDER BY workspace.updated_at DESC, workspace.id ASC
-            LIMIT 1
-            """
-    )
-}
-
-private func completedWorkspaceSQLiteSnapshotExists(_ database: Database) throws -> Bool {
-    let count =
-        try Int.fetchOne(
-            database,
-            sql: """
-                SELECT count(*)
-                FROM workspace_sqlite_snapshot_status
-                WHERE completed_at IS NOT NULL
-                """
-        ) ?? 0
-    return count > 0
-}
-
-private func completedWorkspaceSQLiteSnapshotExists(_ database: Database, id: String) throws -> Bool {
-    let count =
-        try Int.fetchOne(
-            database,
-            sql: """
-                SELECT count(*)
-                FROM workspace_sqlite_snapshot_status
-                WHERE workspace_id = ?
-                  AND completed_at IS NOT NULL
-                """,
-            arguments: [id]
-        ) ?? 0
-    return count > 0
-}
-
-private func stagedWorkspaceSQLiteSnapshotExists(_ database: Database, id: String) throws -> Bool {
-    let count =
-        try Int.fetchOne(
-            database,
-            sql: """
-                SELECT count(*)
-                FROM workspace_sqlite_snapshot_status
-                WHERE workspace_id = ?
-                  AND staged_at IS NOT NULL
-                  AND completed_at IS NULL
-                """,
-            arguments: [id]
-        ) ?? 0
-    return count > 0
 }
 
 private func updateActiveWorkspaceSelection(

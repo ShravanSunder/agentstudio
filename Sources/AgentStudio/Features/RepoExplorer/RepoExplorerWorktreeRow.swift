@@ -6,13 +6,27 @@ enum RepoExplorerCheckoutIconKind {
     case gitWorktree
 }
 
+struct RepoExplorerFavoriteControlVisibility: Equatable {
+    let showsInlineButton: Bool
+    let showsContextMenuAction: Bool
+
+    init(isMainWorktree: Bool) {
+        showsInlineButton = isMainWorktree
+        showsContextMenuAction = isMainWorktree
+    }
+}
+
 struct RepoExplorerWorktreeRowContent: View {
     let checkoutTitle: String
     let branchName: String
+    var placementText = ""
     let checkoutIconKind: RepoExplorerCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
     let unreadCount: Int
+    let showsFavoriteControl: Bool
+    var isFavorite = false
+    var onToggleFavorite: () -> Void = {}
     var onUnreadPillTap: () -> Void = {}
 
     private var syncCounts: (ahead: String, behind: String) {
@@ -53,6 +67,18 @@ struct RepoExplorerWorktreeRowContent: View {
         unreadCount > 0
     }
 
+    static func favoriteAccessibilityLabel(isFavorite: Bool) -> String {
+        favoriteActionSpec(isFavorite: isFavorite).label
+    }
+
+    static func favoriteHelpText(isFavorite: Bool) -> String {
+        favoriteActionSpec(isFavorite: isFavorite).helpText
+    }
+
+    static func favoriteActionSpec(isFavorite: Bool) -> AppCommandSpec {
+        (isFavorite ? AppCommand.removeRepoFavorite : AppCommand.addRepoFavorite).definition
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.General.Spacing.tight) {
@@ -70,6 +96,22 @@ struct RepoExplorerWorktreeRowContent: View {
                     .layoutPriority(1)
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                if showsFavoriteControl {
+                    let favoriteActionSpec = Self.favoriteActionSpec(isFavorite: isFavorite)
+                    Button(action: onToggleFavorite) {
+                        favoriteActionSpec.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                            .foregroundStyle(isFavorite ? iconColor : .secondary)
+                            .frame(
+                                width: AppStyles.General.Button.compact,
+                                height: AppStyles.General.Button.compact
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Self.favoriteAccessibilityLabel(isFavorite: isFavorite))
+                    .help(Self.favoriteHelpText(isFavorite: isFavorite))
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -87,6 +129,24 @@ struct RepoExplorerWorktreeRowContent: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if !placementText.isEmpty {
+                HStack(spacing: AppStyles.General.Spacing.tight) {
+                    Image(systemName: "rectangle.split.2x1")
+                        .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
+
+                    Text(placementText)
+                        .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
                 SidebarDiffChip(
@@ -143,11 +203,14 @@ struct RepoExplorerWorktreeRow: View {
     let worktree: Worktree
     let checkoutTitle: String
     let branchName: String
+    var placementText = ""
     let checkoutIconKind: RepoExplorerCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
     let unreadCount: Int
     var bridgeCommandResolution: BridgePaneCommandResolution = .create
+    var isFavorite = false
+    var onToggleFavorite: () -> Void = {}
     var onUnreadPillTap: () -> Void = {}
     let onOpen: () -> Void
     let onOpenNew: () -> Void
@@ -161,14 +224,22 @@ struct RepoExplorerWorktreeRow: View {
     @State private var isHovering = false
 
     var body: some View {
+        let favoriteControlVisibility = RepoExplorerFavoriteControlVisibility(
+            isMainWorktree: worktree.isMainWorktree
+        )
+
         SidebarRowShell(isHovering: isHovering) {
             RepoExplorerWorktreeRowContent(
                 checkoutTitle: checkoutTitle,
                 branchName: branchName,
+                placementText: placementText,
                 checkoutIconKind: checkoutIconKind,
                 iconColor: iconColor,
                 branchStatus: branchStatus,
                 unreadCount: unreadCount,
+                showsFavoriteControl: favoriteControlVisibility.showsInlineButton,
+                isFavorite: isFavorite,
+                onToggleFavorite: onToggleFavorite,
                 onUnreadPillTap: onUnreadPillTap
             )
         }
@@ -229,6 +300,18 @@ struct RepoExplorerWorktreeRow: View {
                 onOpen()
             } label: {
                 menuLabel(actionSpec: LocalActionSpec.goToTerminal.actionSpec)
+            }
+
+            if favoriteControlVisibility.showsContextMenuAction {
+                let favoriteActionSpec = RepoExplorerWorktreeRowContent.favoriteActionSpec(isFavorite: isFavorite)
+                Button {
+                    onToggleFavorite()
+                } label: {
+                    HStack {
+                        favoriteActionSpec.icon.swiftUIImage()
+                        Text(favoriteActionSpec.label)
+                    }
+                }
             }
 
             Menu(LocalActionSpec.openInMenu.actionSpec.label) {

@@ -33,8 +33,7 @@ struct FilesystemGitPipelineIntegrationTests {
         let workspaceDir = FileManager.default.temporaryDirectory
             .appending(path: "pipeline-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: workspaceDir))
-        store.restore()
+        let store = WorkspaceStore()
         let repoCache = RepoCacheAtom()
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -121,9 +120,7 @@ struct FilesystemGitPipelineIntegrationTests {
         let workspaceDir = FileManager.default.temporaryDirectory
             .appending(path: "pipeline-periodic-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: workspaceDir))
-        store.restore()
-
+        let store = WorkspaceStore()
         let repoCache = RepoCacheAtom()
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -204,9 +201,7 @@ struct FilesystemGitPipelineIntegrationTests {
         let workspaceDir = FileManager.default.temporaryDirectory
             .appending(path: "pipeline-focus-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: workspaceDir))
-        store.restore()
-
+        let store = WorkspaceStore()
         let repoCache = RepoCacheAtom()
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -337,8 +332,7 @@ struct FilesystemGitPipelineIntegrationTests {
         let workspaceDir = FileManager.default.temporaryDirectory
             .appending(path: "pipeline-origin-retry-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
-        let workspaceStore = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: workspaceDir))
-        workspaceStore.restore()
+        let workspaceStore = WorkspaceStore()
         let repo = workspaceStore.addRepo(at: rootPath)
         guard let worktreeId = repo.worktrees.first?.id else {
             Issue.record("Expected repo to have main worktree")

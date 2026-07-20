@@ -100,51 +100,7 @@ echo "Formatted all Swift sources"
 
 [tasks.lint]
 description = "Lint Swift sources with swift-format, stock SwiftLint, and AgentStudio architecture lint"
-run = """
-#!/usr/bin/env bash
-set -e
-echo "--- swift-format lint ---"
-swift-format lint --recursive Sources/ Tests/ Tools/AgentStudioArchitectureLint/Sources Tools/AgentStudioArchitectureLint/Tests 2>&1 && echo "swift-format: OK" || { echo "swift-format: FAIL"; exit 1; }
-echo "--- SwiftLint ---"
-swiftlint lint --strict 2>&1 && echo "swiftlint: OK" || { echo "swiftlint: FAIL"; exit 1; }
-echo "--- AgentStudio architecture lint ---"
-architecture_lint_package="Tools/AgentStudioArchitectureLint"
-architecture_lint_binary="$architecture_lint_package/.build/debug/agentstudio-architecture-lint"
-architecture_lint_output="$(mktemp "${TMPDIR:-/tmp}/agentstudio-architecture-lint.XXXXXX")"
-trap 'rm -f "$architecture_lint_output"' EXIT
-if swift run --package-path "$architecture_lint_package" agentstudio-architecture-lint Sources Tests >"$architecture_lint_output" 2>&1; then
-  cat "$architecture_lint_output"
-  echo "agentstudio architecture lint: OK"
-else
-  architecture_lint_status=$?
-  cat "$architecture_lint_output"
-  architecture_lint_fresh_input=""
-  if [[ -x "$architecture_lint_binary" ]]; then
-    architecture_lint_fresh_input="$(
-      find \
-        "$architecture_lint_package/Package.swift" \
-        "$architecture_lint_package/Package.resolved" \
-        "$architecture_lint_package/Sources" \
-        -type f -newer "$architecture_lint_binary" -print -quit
-    )"
-  fi
-  if grep -Fq "Failed to find credentials for 'https://download.swift.org' in keychain: status -50" "$architecture_lint_output" \
-    && [[ -x "$architecture_lint_binary" ]] \
-    && [[ -z "$architecture_lint_fresh_input" ]]; then
-    echo "agentstudio architecture lint: SwiftPM credential lookup unavailable; using fresh prebuilt binary"
-    "$architecture_lint_binary" Sources Tests 2>&1 \
-      && echo "agentstudio architecture lint: OK (fresh prebuilt fallback)" \
-      || { echo "agentstudio architecture lint: FAIL"; exit 1; }
-  else
-    echo "agentstudio architecture lint: FAIL"
-    exit "$architecture_lint_status"
-  fi
-fi
-rm -f "$architecture_lint_output"
-trap - EXIT
-echo "--- release script checks ---"
-/bin/bash scripts/verify-release-scripts.sh
-"""
+run = "/bin/bash scripts/lint-swift.sh"
 
 [tasks.bridge-web-check]
 description = "Run BridgeWeb lint, format check, and TypeScript check"
@@ -289,7 +245,7 @@ swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.test]
-description = "Run default test suite (excludes E2E + ZmxE2E by default)"
+description = "Run default test suite; real zmx lifecycle proof stays in test-zmx-e2e"
 depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test"
 
@@ -339,19 +295,9 @@ if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
   run_swift_with_timeout \
     "E2ESerializedTests (coverage)" \
     "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH"
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --skip-build --filter E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 else
   echo "[test-coverage] skipping E2ESerializedTests (SWIFT_TEST_INCLUDE_E2E=${SWIFT_TEST_INCLUDE_E2E:-0})"
-fi
-
-echo "--- Zmx E2E tests (serial, coverage) ---"
-if [ "${SWIFT_TEST_INCLUDE_ZMX_E2E:-0}" = "1" ]; then
-  run_swift_with_timeout \
-    "ZmxE2ETests (coverage)" \
-    "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH"
-else
-  echo "[test-coverage] skipping ZmxE2ETests (SWIFT_TEST_INCLUDE_ZMX_E2E=${SWIFT_TEST_INCLUDE_ZMX_E2E:-0})"
 fi
 
 CODECOV_TMPFILE=$(mktemp)
@@ -371,7 +317,7 @@ fi
 """
 
 [tasks.test-e2e]
-description = "Run E2E serialized tests only (opt-in; zmx E2E currently unstable)"
+description = "Run general E2E serialized tests only; excludes the dedicated zmx lifecycle lane"
 depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
@@ -381,7 +327,7 @@ source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
 BUILD_PATH="$SWIFT_BUILD_DIR"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
-AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.test-zmx-e2e]
@@ -636,6 +582,10 @@ AGENTSTUDIO_REQUIRE_LAUNCHSERVICES=1 /bin/bash scripts/verify-debug-observabilit
 [tasks.verify-git-refresh-performance-workload]
 description = "Run disposable AgentStudio git-refresh performance workload proof"
 run = "/bin/bash scripts/verify-git-refresh-performance-workload.sh"
+
+[tasks.verify-sidebar-performance-workload]
+description = "Run AgentStudio sidebar semantic and performance workload proof"
+run = "/bin/bash scripts/verify-sidebar-performance-workload.sh --sidebar-proof"
 
 [tasks."observability:up"]
 description = "Start the shared local Victoria + OTel collector stack"

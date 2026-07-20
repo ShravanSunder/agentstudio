@@ -25,7 +25,7 @@ struct NotificationReducerTests {
     func lossyCoalesces() async {
         let reducer = NotificationReducer()
         var iterator = reducer.batchedEvents.makeAsyncIterator()
-        let source = EventSource.pane(PaneId())
+        let source = EventSource.pane(PaneId.generateUUIDv7())
 
         let first = makePaneEnvelope(
             seq: 1,
@@ -47,8 +47,8 @@ struct NotificationReducerTests {
 
     @Test("critical events are ordered by visibility tier before emission")
     func criticalTierOrdering() async {
-        let highTierPaneId = PaneId()
-        let lowTierPaneId = PaneId()
+        let highTierPaneId = PaneId.generateUUIDv7()
+        let lowTierPaneId = PaneId.generateUUIDv7()
         let resolver = TestVisibilityTierResolver(
             mapping: [
                 highTierPaneId: .p0Visible,
@@ -70,8 +70,8 @@ struct NotificationReducerTests {
 
     @Test("lossy batch ordering prioritizes visibility tier")
     func lossyTierOrdering() async {
-        let highTierPaneId = PaneId()
-        let lowTierPaneId = PaneId()
+        let highTierPaneId = PaneId.generateUUIDv7()
+        let lowTierPaneId = PaneId.generateUUIDv7()
         let resolver = TestVisibilityTierResolver(
             mapping: [
                 highTierPaneId: .p0Visible,
@@ -104,7 +104,7 @@ struct NotificationReducerTests {
 
     @Test("system-source events are treated as p0 and emitted ahead of background pane events")
     func systemEventsPrioritizedAsP0() async {
-        let lowTierPaneId = PaneId()
+        let lowTierPaneId = PaneId.generateUUIDv7()
         let worktreeId = UUID()
         let repoId = UUID()
         let resolver = TestVisibilityTierResolver(
@@ -144,8 +144,8 @@ struct NotificationReducerTests {
 
     @Test("pane envelope with system provenance still tiers by pane identity")
     func paneEnvelopeWithSystemProvenanceStillTiersByPaneIdentity() async {
-        let visiblePaneId = PaneId()
-        let hiddenPaneId = PaneId()
+        let visiblePaneId = PaneId.generateUUIDv7()
+        let hiddenPaneId = PaneId.generateUUIDv7()
         let resolver = TestVisibilityTierResolver(
             mapping: [
                 visiblePaneId: .p0Visible,
@@ -219,7 +219,7 @@ struct NotificationReducerTests {
 
     private func makePaneEnvelope(
         seq: UInt64,
-        source: EventSource = .pane(PaneId()),
+        source: EventSource = .pane(PaneId.generateUUIDv7()),
         paneId explicitPaneId: PaneId? = nil,
         paneKind: PaneContentType = .terminal,
         event: PaneRuntimeEvent
@@ -233,7 +233,7 @@ struct NotificationReducerTests {
             case .pane(let paneId):
                 resolvedPaneId = paneId
             case .worktree, .system:
-                resolvedPaneId = PaneId()
+                resolvedPaneId = PaneId.generateUUIDv7()
             }
         }
 

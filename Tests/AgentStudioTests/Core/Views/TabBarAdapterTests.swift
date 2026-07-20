@@ -31,8 +31,7 @@ final class TabBarAdapterTests {
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "adapter-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        store = WorkspaceStore(persistor: persistor)
-        store.restore()
+        store = WorkspaceStore()
         repoCache = RepoCacheAtom()
         atom(\.inboxNotification).clearAll()
         adapter = TabBarAdapter(

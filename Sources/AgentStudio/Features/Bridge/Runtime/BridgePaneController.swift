@@ -571,7 +571,7 @@ final class BridgePaneController {
         for state: BridgePaneState,
         overriding metadata: PaneMetadata?
     ) -> BridgeRuntime {
-        let runtimePaneId = PaneId(uuid: paneId)
+        let runtimePaneId = PaneId(existingUUID: paneId)
         let defaultMetadata = makeDefaultRuntimeMetadata(paneId: runtimePaneId, state: state)
         let resolvedMetadata = (metadata ?? defaultMetadata).canonicalizedIdentity(
             paneId: runtimePaneId,

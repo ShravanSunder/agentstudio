@@ -174,8 +174,10 @@ final class SurfaceManager {
             }
 
             // Create surface view using Ghostty.App (not ghostty_app_t)
+            let managedSurfaceID = UUIDv7.generate()
             let surfaceView = Ghostty.SurfaceView(
                 app: Ghostty.shared,
+                managedSurfaceID: managedSurfaceID,
                 config: mutableConfig,
                 performanceTraceRecorder: performanceTraceRecorder
             )
@@ -191,6 +193,7 @@ final class SurfaceManager {
 
             // Success - create managed surface
             let managed = ManagedSurface(
+                id: managedSurfaceID,
                 surface: surfaceView,
                 metadata: metadata,
                 state: .hidden
@@ -311,6 +314,10 @@ final class SurfaceManager {
             logger.info("Surface hidden: \(surfaceId)")
 
         case .close:
+            detachTerminalLocalActions(
+                surfaceID: surfaceId,
+                paneID: previousPaneAttachmentId
+            )
             let expiresAt = Date().addingTimeInterval(undoTTL)
             managed.state = .pendingUndo(expiresAt: expiresAt)
 
@@ -342,6 +349,10 @@ final class SurfaceManager {
         guard var managed = activeSurfaces[surfaceId] ?? hiddenSurfaces.removeValue(forKey: surfaceId) else {
             logger.warning("Surface not found for move: \(surfaceId)")
             return
+        }
+
+        if case .active(let previousPaneID) = managed.state, previousPaneID != targetPaneId {
+            detachTerminalLocalActions(surfaceID: surfaceId, paneID: previousPaneID)
         }
 
         managed.state = .active(paneId: targetPaneId)
@@ -446,6 +457,7 @@ final class SurfaceManager {
 
     /// Permanently destroy a surface
     func destroy(_ surfaceId: UUID) {
+        detachTerminalLocalActions(surfaceID: surfaceId, paneID: paneId(for: surfaceId))
         // Remove from all collections
         if let managed = activeSurfaces.removeValue(forKey: surfaceId) {
             lifecycleDelegate?.surfaceWillDestroy(managed)
@@ -883,6 +895,7 @@ extension SurfaceManager {
 
         let entry = undoStack.remove(at: idx)
         logger.info("Undo entry expired, destroying surface: \(surfaceId)")
+        detachTerminalLocalActions(surfaceID: surfaceId, paneID: nil)
 
         // Destroy the surface
         lifecycleDelegate?.surfaceWillDestroy(entry.surface)

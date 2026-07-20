@@ -7,24 +7,25 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceTabCursorAtomTests {
     @Test
-    func hydrate_selectsProvidedTabWhenAvailable() {
+    func replacement_selectsProvidedTab() {
         let firstTabId = UUID()
         let secondTabId = UUID()
         let atom = WorkspaceTabCursorAtom()
 
-        atom.hydrate(activeTabId: secondTabId, availableTabIds: [firstTabId, secondTabId])
+        atom.replaceActiveTab(secondTabId)
 
         #expect(atom.activeTabId == secondTabId)
     }
 
     @Test
-    func hydrate_fallsBackToFirstTabWhenProvidedTabIsStale() {
+    func replacement_canClearActiveTab() {
         let firstTabId = UUID()
         let atom = WorkspaceTabCursorAtom()
 
-        atom.hydrate(activeTabId: UUID(), availableTabIds: [firstTabId])
+        atom.replaceActiveTab(firstTabId)
+        atom.replaceActiveTab(nil)
 
-        #expect(atom.activeTabId == firstTabId)
+        #expect(atom.activeTabId == nil)
     }
 
     @Test
@@ -62,4 +63,5 @@ struct WorkspaceTabCursorAtomTests {
 
         #expect(atom.activeTabId == activeTabId)
     }
+
 }

@@ -57,17 +57,17 @@ extension CommandBarDataSource {
         )
 
         for grouping in InboxNotificationGrouping.allCases {
+            let groupingSpec = inboxGroupingCommand(for: grouping).definition
             items.append(
                 CommandBarItem(
                     id: "inbox.grouping.\(grouping.rawValue)",
-                    title: "Change grouping: \(inboxGroupingLabel(grouping))",
-                    icon: .system(.line3Horizontal),
+                    title: groupingSpec.label,
+                    icon: groupingSpec.icon,
                     group: Group.inboxCommands,
                     groupPriority: Priority.commands,
                     keywords: ["inbox", "notification", "group", grouping.rawValue],
-                    action: inboxCommandAction {
-                        actions.setGrouping(grouping)
-                    }
+                    action: .dispatch(groupingSpec.command),
+                    command: groupingSpec.command
                 )
             )
         }
@@ -119,16 +119,16 @@ extension CommandBarDataSource {
         }
     }
 
-    private static func inboxGroupingLabel(_ grouping: InboxNotificationGrouping) -> String {
+    private static func inboxGroupingCommand(for grouping: InboxNotificationGrouping) -> AppCommand {
         switch grouping {
         case .none:
-            return "None"
+            return .setInboxGroupingNone
         case .byRepo:
-            return "Repository"
+            return .setInboxGroupingRepo
         case .byPane:
-            return "Pane"
+            return .setInboxGroupingPane
         case .byTab:
-            return "Tab"
+            return .setInboxGroupingTab
         }
     }
 }

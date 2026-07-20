@@ -31,8 +31,9 @@ struct Pane: Codable, Identifiable, Hashable, Sendable {
         kind: PaneKind? = nil
     ) {
         let normalizedMetadata = metadata.canonicalizedIdentity(
-            paneId: PaneId(uuid: id),
-            contentType: Self.contentType(for: content)
+            paneId: PaneId(existingUUID: id),
+            contentType: Self.contentType(for: content),
+            fillNilLaunchDirectoryFacet: false
         )
 
         self.id = id
@@ -44,17 +45,10 @@ struct Pane: Codable, Identifiable, Hashable, Sendable {
 
     // MARK: - Codable
 
-    /// Canonical greenfield decode: only the current `kind: PaneKind` schema is accepted.
+    /// Decode the current `kind: PaneKind` schema while preserving durable identities.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let decodedId = try container.decode(UUID.self, forKey: .id)
-        guard UUIDv7.isV7(decodedId) else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .id,
-                in: container,
-                debugDescription: "Pane.id must be UUID v7 in canonical greenfield schema"
-            )
-        }
         self.id = decodedId
         self.content = try container.decode(PaneContent.self, forKey: .content)
         let decodedMetadata = try container.decode(PaneMetadata.self, forKey: .metadata)
@@ -70,7 +64,7 @@ struct Pane: Codable, Identifiable, Hashable, Sendable {
             )
         }
         self.metadata = decodedMetadata.canonicalizedIdentity(
-            paneId: PaneId(uuid: id),
+            paneId: PaneId(existingUUID: id),
             contentType: Self.contentType(for: content),
             fillNilLaunchDirectoryFacet: false
         )

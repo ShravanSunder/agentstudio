@@ -199,20 +199,19 @@ struct CommandBarWorktreeRowBuilderTests {
     }
 
     @Test
-    func test_unifiedWorktreeItem_keywordsIncludeRepoAndWorktreeTags() {
+    func test_unifiedWorktreeItem_keywordsIncludeRepoTags() {
         let repoId = UUID()
         let worktree = Worktree(
             repoId: repoId,
             name: "branch-a",
-            path: URL(filePath: "/tmp/tagged-row/branch-a"),
-            tags: ["hotfix"]
+            path: URL(filePath: "/tmp/tagged-row/branch-a")
         )
         let repo = Repo(
             id: repoId,
             name: "tagged-row",
             repoPath: URL(filePath: "/tmp/tagged-row"),
             worktrees: [worktree],
-            tags: ["customer-one"]
+            tags: ["customer-one", "hotfix"]
         )
         let presence = WorktreePresence(
             worktreeId: worktree.id,

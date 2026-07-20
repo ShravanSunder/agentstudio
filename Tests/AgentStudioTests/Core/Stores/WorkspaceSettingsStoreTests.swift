@@ -18,12 +18,15 @@ struct WorkspaceSettingsStoreTests {
     func flushAndRestoreRoundTripsSettings() throws {
         let workspaceId = UUID()
         let editorPreference = EditorPreferenceAtom()
+        let repoExplorerPrefs = RepoExplorerSidebarPrefsAtom()
         let inboxPrefs = InboxNotificationPrefsAtom()
         let store = makeStore(
             editorPreference: editorPreference,
+            repoExplorerPrefs: repoExplorerPrefs,
             inboxPrefs: inboxPrefs
         )
         editorPreference.setBookmarkedEditor("cursor")
+        repoExplorerPrefs.setGroupingMode(.tab)
         inboxPrefs.setGrouping(.byRepo)
         inboxPrefs.setSort(.oldestFirst)
         inboxPrefs.setBellEnabled(true)
@@ -31,17 +34,24 @@ struct WorkspaceSettingsStoreTests {
         inboxPrefs.setGlobalInboxRowStateFilter(.all)
         inboxPrefs.setPaneInboxContentMode(.all)
         inboxPrefs.setPaneInboxRowStateFilter(.unreadOnly)
+        repoExplorerPrefs.setSortOrder(.descending)
+        repoExplorerPrefs.setRepoVisibilityMode(.favoritesOnly)
 
         try store.flush(for: workspaceId)
 
         let restoredEditorPreference = EditorPreferenceAtom()
+        let restoredRepoExplorerPrefs = RepoExplorerSidebarPrefsAtom()
         let restoredInboxPrefs = InboxNotificationPrefsAtom()
         makeStore(
             editorPreference: restoredEditorPreference,
+            repoExplorerPrefs: restoredRepoExplorerPrefs,
             inboxPrefs: restoredInboxPrefs
         ).restore(for: workspaceId)
 
         #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
+        #expect(restoredRepoExplorerPrefs.groupingMode == .tab)
+        #expect(restoredRepoExplorerPrefs.sortOrder == .descending)
+        #expect(restoredRepoExplorerPrefs.repoVisibilityMode == .favoritesOnly)
         #expect(restoredInboxPrefs.grouping == .byRepo)
         #expect(restoredInboxPrefs.sort == .oldestFirst)
         #expect(restoredInboxPrefs.bellEnabled)
@@ -55,12 +65,17 @@ struct WorkspaceSettingsStoreTests {
     func restoreMissingSettingsFileAppliesDefaults() {
         let workspaceId = UUID()
         let editorPreference = EditorPreferenceAtom()
+        let repoExplorerPrefs = RepoExplorerSidebarPrefsAtom()
         let inboxPrefs = InboxNotificationPrefsAtom()
         let store = makeStore(
             editorPreference: editorPreference,
+            repoExplorerPrefs: repoExplorerPrefs,
             inboxPrefs: inboxPrefs
         )
         editorPreference.setBookmarkedEditor("cursor")
+        repoExplorerPrefs.setGroupingMode(.pane)
+        repoExplorerPrefs.setSortOrder(.descending)
+        repoExplorerPrefs.setRepoVisibilityMode(.favoritesOnly)
         inboxPrefs.setGrouping(.byRepo)
         inboxPrefs.setSort(.oldestFirst)
         inboxPrefs.setBellEnabled(true)
@@ -68,6 +83,9 @@ struct WorkspaceSettingsStoreTests {
         store.restore(for: workspaceId)
 
         #expect(editorPreference.bookmarkedEditorId == nil)
+        #expect(repoExplorerPrefs.groupingMode == .repo)
+        #expect(repoExplorerPrefs.sortOrder == .ascending)
+        #expect(repoExplorerPrefs.repoVisibilityMode == .all)
         #expect(inboxPrefs.grouping == .byTab)
         #expect(inboxPrefs.sort == .newestFirst)
         #expect(!inboxPrefs.bellEnabled)
@@ -81,6 +99,7 @@ struct WorkspaceSettingsStoreTests {
     func restoreMissingSettingsFileImportsLegacySettingsSlices() throws {
         let workspaceId = UUID()
         let editorPreference = EditorPreferenceAtom()
+        let repoExplorerPrefs = RepoExplorerSidebarPrefsAtom()
         let inboxPrefs = InboxNotificationPrefsAtom()
         let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
         try legacyPersistor.saveUI(
@@ -89,6 +108,21 @@ struct WorkspaceSettingsStoreTests {
                 editorChooserState: .init(bookmarkedEditorId: "cursor")
             )
         )
+        let legacySidebarCacheURL = tempDir.appending(
+            path: "\(workspaceId.uuidString).workspace.sidebar-cache.json"
+        )
+        try Data(
+            """
+            {
+              "schemaVersion": 1,
+              "workspaceId": "\(workspaceId.uuidString)",
+              "expandedGroups": [],
+              "groupingMode": "pane",
+              "sortOrder": "descending",
+              "repoVisibilityMode": "favoritesOnly"
+            }
+            """.utf8
+        ).write(to: legacySidebarCacheURL, options: .atomic)
         let legacyInboxURL = legacyPersistor.notificationInboxFileURL(for: workspaceId)
         let legacyInboxJSON = """
             {
@@ -107,12 +141,16 @@ struct WorkspaceSettingsStoreTests {
         try Data(legacyInboxJSON.utf8).write(to: legacyInboxURL, options: .atomic)
         let store = makeStore(
             editorPreference: editorPreference,
+            repoExplorerPrefs: repoExplorerPrefs,
             inboxPrefs: inboxPrefs
         )
 
         store.restore(for: workspaceId)
 
         #expect(editorPreference.bookmarkedEditorId == "cursor")
+        #expect(repoExplorerPrefs.groupingMode == .pane)
+        #expect(repoExplorerPrefs.sortOrder == .descending)
+        #expect(repoExplorerPrefs.repoVisibilityMode == .favoritesOnly)
         #expect(inboxPrefs.grouping == .byRepo)
         #expect(inboxPrefs.sort == .oldestFirst)
         #expect(inboxPrefs.bellEnabled)
@@ -313,6 +351,32 @@ struct WorkspaceSettingsStoreTests {
     }
 
     @Test
+    func restoreRepoExplorerSettingsMissingVisibilityModeDefaultsToAll() throws {
+        let workspaceId = UUID()
+        let settingsURL = settingsFileURL(for: workspaceId)
+        try Data(
+            """
+            {
+              "schemaVersion": 1,
+              "workspaceId": "\(workspaceId.uuidString)",
+              "repoExplorer": {
+                "groupingMode": "pane",
+                "sortOrder": "descending"
+              }
+            }
+            """.utf8
+        ).write(to: settingsURL, options: .atomic)
+        let repoExplorerPrefs = RepoExplorerSidebarPrefsAtom()
+        repoExplorerPrefs.setRepoVisibilityMode(.favoritesOnly)
+
+        makeStore(repoExplorerPrefs: repoExplorerPrefs).restore(for: workspaceId)
+
+        #expect(repoExplorerPrefs.groupingMode == .pane)
+        #expect(repoExplorerPrefs.sortOrder == .descending)
+        #expect(repoExplorerPrefs.repoVisibilityMode == .all)
+    }
+
+    @Test
     func editorChooserRuntimeStateIsNotWrittenToSettings() throws {
         let workspaceId = UUID()
         let editorPreference = EditorPreferenceAtom()
@@ -440,10 +504,12 @@ struct WorkspaceSettingsStoreTests {
     func observedSettingsMutationsAutosaveAllSettingsSlices() async throws {
         let workspaceId = UUID()
         let editorPreference = EditorPreferenceAtom()
+        let repoExplorerPrefs = RepoExplorerSidebarPrefsAtom()
         let inboxPrefs = InboxNotificationPrefsAtom()
         let clock = TestPushClock()
         let store = makeStore(
             editorPreference: editorPreference,
+            repoExplorerPrefs: repoExplorerPrefs,
             inboxPrefs: inboxPrefs,
             persistDebounceDuration: .milliseconds(10),
             clock: clock
@@ -452,6 +518,9 @@ struct WorkspaceSettingsStoreTests {
         store.restore(for: workspaceId)
         store.startObserving()
         editorPreference.setBookmarkedEditor("cursor")
+        repoExplorerPrefs.setGroupingMode(.pane)
+        repoExplorerPrefs.setSortOrder(.descending)
+        repoExplorerPrefs.setRepoVisibilityMode(.favoritesOnly)
         inboxPrefs.setGrouping(.byRepo)
         inboxPrefs.setSort(.oldestFirst)
         inboxPrefs.setBellEnabled(true)
@@ -464,9 +533,13 @@ struct WorkspaceSettingsStoreTests {
             return
         }
         let editorChooser = settings["editorChooser"] as? [String: Any]
+        let repoExplorer = settings["repoExplorer"] as? [String: Any]
         let sidebar = settings["sidebar"] as? [String: Any]
         let notifications = settings["notifications"] as? [String: Any]
         #expect(editorChooser?["bookmarkedEditorId"] as? String == "cursor")
+        #expect(repoExplorer?["groupingMode"] as? String == "pane")
+        #expect(repoExplorer?["sortOrder"] as? String == "descending")
+        #expect(repoExplorer?["repoVisibilityMode"] as? String == "favoritesOnly")
         #expect(sidebar?["checkoutColors"] == nil)
         #expect(notifications?["grouping"] as? String == "byRepo")
         #expect(notifications?["sort"] as? String == "oldestFirst")
@@ -518,6 +591,7 @@ struct WorkspaceSettingsStoreTests {
 
     private func makeStore(
         editorPreference: EditorPreferenceAtom = EditorPreferenceAtom(),
+        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom = RepoExplorerSidebarPrefsAtom(),
         inboxPrefs: InboxNotificationPrefsAtom = InboxNotificationPrefsAtom(),
         workspacesDir: URL? = nil,
         legacyPersistor: WorkspacePersistor? = nil,
@@ -528,6 +602,7 @@ struct WorkspaceSettingsStoreTests {
     ) -> WorkspaceSettingsStore {
         WorkspaceSettingsStore(
             editorPreferenceAtom: editorPreference,
+            repoExplorerSidebarPrefsAtom: repoExplorerPrefs,
             inboxNotificationPrefsAtom: inboxPrefs,
             workspacesDir: workspacesDir ?? tempDir,
             legacyPersistor: legacyPersistor,

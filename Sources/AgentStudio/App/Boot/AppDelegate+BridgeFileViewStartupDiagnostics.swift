@@ -155,7 +155,7 @@ import Foundation
                     path: "\(folderURL.lastPathComponent)-bridge-target-control"
                 )
                 .standardizedFileURL
-            _ = store.repositoryTopologyAtom.addRepo(at: controlRepoURL)
+            _ = store.mutationCoordinator.addRepo(at: controlRepoURL)
             let registeredWorktreeCount = store.repositoryTopologyAtom.repos.flatMap(\.worktrees).count
             guard registeredWorktreeCount > 1 else {
                 recordBridgeFileViewObservabilitySmokeSkipped(

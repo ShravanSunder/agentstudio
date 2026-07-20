@@ -132,13 +132,20 @@ side channel instead of the same binding/state model as the button.
 Programmatic control uses the same command metadata, but it does not treat
 command-bar presentation as command execution. `command.list` projects
 `AppCommandSpec` IPC metadata for discovery, including execution mode, target
-handle kinds, and required privileges. `command.execute` is still reserved for
-headless semantic commands and exposes command-bar presentation explicitly as
+handle kinds, typed argument schema, and required privileges. `command.execute`
+is still reserved for commands explicitly marked headless-executable; it
+validates the command's typed argument schema from `AppCommandSpec` before
+dispatching to the app/shell owner. Command-bar presentation remains explicit as
 `ui.commandBar.open`; see
 [AgentStudio IPC Architecture](agentstudio_ipc_architecture.md#command-and-ui-presentation-boundary).
 If a command row only opens a chooser or requires interactive input, add a
 semantic IPC method with explicit parameters before exposing it through
 `command.execute`.
+
+Argument-bearing execution requests go directly to the app/shell execution
+owner instead of consulting the parameterless `canExecute(_:)` result. IPC
+derives whether every argument value is a string while decoding the wire
+payload; in-process callers cannot override that validation fact.
 
 ## Navigation And Terminal Shortcut Map
 
@@ -180,6 +187,28 @@ do not invent modifier variants unless there is a separate, explicit action.
 Path actions use `LocalActionSpec.copyPath` and
 `LocalActionSpec.revealInFinder` for labels and icons. The execution helper is
 shared so sidebar context menus and command-bar rows do not drift.
+
+Repo sidebar grouping commands (`repo`, `pane`, `tab`) and inbox grouping
+commands (`tab`, `repo`, `pane`, `none`) are app/sidebar shell commands. They
+belong in the `>` command surface when exposed as command rows; they are not
+repo-object rows in `#`. Programmatic tests execute headless sidebar
+`AppCommandSpec` definitions through authenticated generic `command.execute`;
+command-bar presentation is not proof. Repo sidebar visibility and sort-order
+controls are deterministic headless app commands for IPC proof:
+`setRepoSidebarVisibilityMode` accepts `mode = all|favoritesOnly`, and
+`setRepoSidebarSortOrder` accepts `order = ascending|descending`.
+
+Repo favorite buttons and context-menu actions select the state-specific
+`addRepoFavorite` or `removeRepoFavorite` `AppCommandSpec`. Both commands require
+an explicit typed Repo target, execute through the same targeted dispatcher as
+interactive command surfaces, resolve to `WorkspaceActionCommand.setRepoFavorite`,
+and are exposed automatically through authenticated generic `command.execute`.
+Internal restore, reconciliation, and fact-consumption paths may still call the
+owning atom's typed mutation methods directly; user-facing controls may not.
+Inbox grouping, sort, row-state filter, content-mode, and clear controls follow
+the same rule. Filter and content-mode buttons dispatch typed arguments through
+`setInboxRowStateFilter` and `setInboxContentMode`; their command handlers own
+the preference-atom writes.
 
 ## Multiple bindings per command — `alternateTriggers`
 

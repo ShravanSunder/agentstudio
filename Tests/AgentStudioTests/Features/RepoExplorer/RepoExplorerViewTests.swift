@@ -41,7 +41,7 @@ struct RepoExplorerViewTests {
         #expect(entries.count == 2)
         guard
             case .resolvedGroupHeader(let headerGroup) = entries[0],
-            case .resolvedWorktreeRow(let childGroupId, let childRepoId, let childWorktreeId) = entries[1]
+            case .resolvedWorktreeRow(let childGroupId, let childRepoId, let childWorktreeId, _) = entries[1]
         else {
             Issue.record("Expected flat resolved header followed by child row")
             return
@@ -146,43 +146,6 @@ struct RepoExplorerViewTests {
         )
         let worktree = repo.worktrees[0]
         #expect(RepoExplorerView.checkoutIconKind(for: worktree, in: repo) == .mainCheckout)
-    }
-
-    @Test("source group icon uses same checkout color contract as worktree rows")
-    func sourceGroupIconUsesCheckoutColorContract() {
-        let repoId = UUID()
-        let repo = RepoPresentationItem(
-            id: repoId,
-            name: "agent-studio",
-            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
-            stableKey: "agent-studio",
-            worktrees: [
-                Worktree(
-                    repoId: repoId,
-                    name: "notification-inbox-redesign",
-                    path: URL(fileURLWithPath: "/tmp/agent-studio.notification-inbox-redesign")
-                )
-            ]
-        )
-        let group = RepoPresentationGroup(
-            id: "remote:ShravanSunder/agent-studio",
-            repoTitle: "agent-studio",
-            organizationName: "ShravanSunder",
-            repos: [repo]
-        )
-
-        let icon = RepoExplorerView.sourceGroupIcon(for: group)
-
-        let expectedColorHex = RepoPresentationColoring.checkoutColorHex(
-            for: repo,
-            in: group
-        )
-
-        if case .coloredRepo(let colorHex) = icon {
-            #expect(colorHex == expectedColorHex)
-        } else {
-            Issue.record("Expected RepoExplorer group header to use colored repo source icon")
-        }
     }
 
     @Test("checkout icon kind uses git-worktree for a secondary worktree")
@@ -487,139 +450,6 @@ struct RepoExplorerViewTests {
         #expect(status.linesDeleted == 0)
     }
 
-    @Test("branchStatus maps sync and line diff values from snapshot summary")
-    func branchStatusMapsSnapshotSyncAndLineDiff() {
-        let worktreeId = UUID()
-        let repoId = UUID()
-        let enrichment = WorktreeEnrichment(
-            worktreeId: worktreeId,
-            repoId: repoId,
-            branch: "main",
-            snapshot: GitWorkingTreeSnapshot(
-                worktreeId: worktreeId,
-                rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)"),
-                summary: GitWorkingTreeSummary(
-                    changed: 2,
-                    staged: 1,
-                    untracked: 0,
-                    linesAdded: 12,
-                    linesDeleted: 3,
-                    aheadCount: 1,
-                    behindCount: 0,
-                    hasUpstream: true
-                ),
-                branch: "main"
-            )
-        )
-
-        let status = RepoExplorerView.branchStatus(
-            enrichment: enrichment,
-            pullRequestCount: 1
-        )
-
-        #expect(status.isDirty)
-        #expect(status.linesAdded == 12)
-        #expect(status.linesDeleted == 3)
-        #expect(status.syncState == .ahead(1))
-        #expect(status.prCount == 1)
-    }
-
-    @Test("branchStatus keeps unknown local state when snapshot missing")
-    func branchStatusFallsBackToUnknownWithoutLocalSnapshot() {
-        let status = RepoExplorerView.branchStatus(
-            enrichment: nil,
-            pullRequestCount: 7
-        )
-
-        #expect(status.isDirty == GitBranchStatus.unknown.isDirty)
-        #expect(status.syncState == GitBranchStatus.unknown.syncState)
-        #expect(status.prCount == 7)
-    }
-
-    @Test("mergeBranchStatuses merges local snapshots with independent PR counts")
-    func mergeBranchStatusesMergesSources() {
-        let localOnlyWorktreeId = UUID()
-        let prOnlyWorktreeId = UUID()
-        let repoId = UUID()
-
-        let merged = RepoExplorerView.mergeBranchStatuses(
-            worktreeEnrichmentsByWorktreeId: [
-                localOnlyWorktreeId: WorktreeEnrichment(
-                    worktreeId: localOnlyWorktreeId,
-                    repoId: repoId,
-                    branch: "",
-                    snapshot: GitWorkingTreeSnapshot(
-                        worktreeId: localOnlyWorktreeId,
-                        rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)"),
-                        summary: GitWorkingTreeSummary(changed: 0, staged: 1, untracked: 0),
-                        branch: nil
-                    )
-                )
-            ],
-            pullRequestCountsByWorktreeId: [prOnlyWorktreeId: 2]
-        )
-
-        #expect(merged[localOnlyWorktreeId]?.isDirty == true)
-        #expect(merged[localOnlyWorktreeId]?.prCount == nil)
-        #expect(merged[prOnlyWorktreeId]?.prCount == 2)
-        #expect(merged[prOnlyWorktreeId]?.syncState == .unknown)
-    }
-
-    @Test("sidebar branch status derives from worktree enrichment snapshots")
-    func sidebarBranchStatusDerivesFromWorktreeEnrichmentSnapshots() {
-        let worktreeId = UUID()
-        let repoId = UUID()
-        let enrichment = WorktreeEnrichment(
-            worktreeId: worktreeId,
-            repoId: repoId,
-            branch: "feature/sidebar-pipeline",
-            snapshot: GitWorkingTreeSnapshot(
-                worktreeId: worktreeId,
-                rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)"),
-                summary: GitWorkingTreeSummary(changed: 2, staged: 1, untracked: 0),
-                branch: "feature/sidebar-pipeline"
-            )
-        )
-
-        let merged = RepoExplorerView.mergeBranchStatuses(
-            worktreeEnrichmentsByWorktreeId: [worktreeId: enrichment],
-            pullRequestCountsByWorktreeId: [worktreeId: 5]
-        )
-
-        #expect(merged[worktreeId]?.isDirty == true)
-        #expect(merged[worktreeId]?.prCount == 5)
-        #expect(merged[worktreeId]?.syncState == .unknown)
-    }
-
-    @Test("worktree facts tolerate duplicate projected worktree ids")
-    func worktreeFactsTolerateDuplicateProjectedWorktreeIds() {
-        let repoId = UUID()
-        let worktreeId = UUID()
-        let worktree = Worktree(
-            id: worktreeId,
-            repoId: repoId,
-            name: "main",
-            path: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)")
-        )
-        let repo = RepoPresentationItem(
-            id: repoId,
-            name: "repo",
-            repoPath: worktree.path,
-            stableKey: "repo",
-            worktrees: [worktree, worktree]
-        )
-        let repoCache = RepoCacheAtom()
-        repoCache.setPullRequestCount(3, for: worktreeId)
-
-        let factsByWorktreeId = RepoExplorerView.worktreeFactsByWorktreeId(
-            sidebarRepos: [repo],
-            repoCache: repoCache
-        )
-
-        #expect(factsByWorktreeId.count == 1)
-        #expect(factsByWorktreeId[worktreeId]?.pullRequestCount == 3)
-    }
-
     @Test("primary grouping uses shared metadata group key")
     func primaryGroupingUsesSharedMetadataGroupKey() {
         let groupKey = "remote:askluna/agent-studio"
@@ -703,6 +533,105 @@ struct RepoExplorerViewTests {
         #expect(loadingFingerprint != resolvedFingerprint)
         #expect(loadingProjection.loadingRepos.map(\.id) == [repo.id])
         #expect(resolvedProjection.resolvedGroups.first?.repos.map(\.id) == [repo.id])
+    }
+
+    @Test("projection fingerprint includes rendered worktree identity")
+    func projectionFingerprintIncludesRenderedWorktreeIdentity() {
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let originalRepo = RepoPresentationItem(
+            id: repoId,
+            name: "agent-studio",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+            stableKey: "agent-studio",
+            worktrees: [
+                Worktree(
+                    id: worktreeId,
+                    repoId: repoId,
+                    name: "before",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio.before")
+                )
+            ]
+        )
+        let changedRepo = RepoPresentationItem(
+            id: repoId,
+            name: originalRepo.name,
+            repoPath: originalRepo.repoPath,
+            stableKey: originalRepo.stableKey,
+            worktrees: [
+                Worktree(
+                    id: worktreeId,
+                    repoId: repoId,
+                    name: "after",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio.after")
+                )
+            ]
+        )
+        let enrichment: [UUID: RepoEnrichment] = [
+            repoId: .resolvedLocal(
+                repoId: repoId,
+                identity: RemoteIdentityNormalizer.localIdentity(repoName: "agent-studio"),
+                updatedAt: Date()
+            )
+        ]
+
+        let original = RepoExplorerView.projectSidebar(
+            repos: [originalRepo], repoEnrichmentByRepoId: enrichment, query: "")
+        let changed = RepoExplorerView.projectSidebar(
+            repos: [changedRepo], repoEnrichmentByRepoId: enrichment, query: "")
+
+        #expect(
+            RepoExplorerView.projectionFingerprint(for: original)
+                != RepoExplorerView.projectionFingerprint(for: changed))
+    }
+
+    @Test("projection fingerprint includes visible empty state")
+    func projectionFingerprintIncludesVisibleEmptyState() {
+        let content = RepoExplorerSidebarProjection(
+            resolvedGroups: [], loadingRepos: [], emptyState: .content)
+        let favoritesEmpty = RepoExplorerSidebarProjection(
+            resolvedGroups: [], loadingRepos: [], emptyState: .favoritesOnlyEmpty)
+
+        #expect(
+            RepoExplorerView.projectionFingerprint(for: content)
+                != RepoExplorerView.projectionFingerprint(for: favoritesEmpty))
+    }
+
+    @Test("projection fingerprint includes deterministic projected row placement")
+    func projectionFingerprintIncludesProjectedRowPlacement() {
+        let repoId = UUID()
+        let worktree = Worktree(repoId: repoId, name: "main", path: URL(fileURLWithPath: "/tmp/main"))
+        let repo = RepoPresentationItem(
+            id: repoId, name: "repo", repoPath: worktree.path, stableKey: "repo", worktrees: [worktree])
+        let first = RepoExplorerProjectedWorktreeRow(
+            groupId: "group", repo: repo, worktree: worktree, rowId: "row", checkoutColorHex: "#000000",
+            placementContext: RepoExplorerPlacementContext(
+                paneId: UUID(), tabId: UUID(), tabIndex: 0, paneIndexInTab: 0, isActiveInTab: true))
+        let second = RepoExplorerProjectedWorktreeRow(
+            groupId: "group", repo: repo, worktree: worktree, rowId: "row", checkoutColorHex: "#000000",
+            placementContext: RepoExplorerPlacementContext(
+                paneId: first.placementContext!.paneId, tabId: first.placementContext!.tabId,
+                tabIndex: 1, paneIndexInTab: 0, isActiveInTab: true))
+        let firstProjection = RepoExplorerSidebarProjection(
+            resolvedGroups: [], worktreeRowsByGroupId: ["group": [first]], loadingRepos: [], emptyState: .content)
+        let secondProjection = RepoExplorerSidebarProjection(
+            resolvedGroups: [], worktreeRowsByGroupId: ["group": [second]], loadingRepos: [], emptyState: .content)
+
+        #expect(
+            RepoExplorerView.projectionFingerprint(for: firstProjection)
+                != RepoExplorerView.projectionFingerprint(for: secondProjection))
+    }
+
+    @Test("first surviving projection reports initial completion exactly once")
+    func firstSurvivingProjectionReportsInitialCompletionExactlyOnce() {
+        #expect(
+            RepoExplorerView.shouldReportInitialProjection(
+                hasReportedInitialProjection: false
+            ))
+        #expect(
+            !RepoExplorerView.shouldReportInitialProjection(
+                hasReportedInitialProjection: true
+            ))
     }
 
     @Test("repo metadata builder uses resolved local identity when available")

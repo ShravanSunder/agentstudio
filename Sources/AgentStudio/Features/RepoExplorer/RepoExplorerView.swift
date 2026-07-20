@@ -6,6 +6,11 @@ enum RepoExplorerFocus: Hashable {
     case filter
 }
 
+private enum RepoSidebarToolbarTooltipTarget: Hashable {
+    case sort
+    case grouping
+}
+
 final class RepoExplorerFocusableView: NSView {
     var onFocusChange: @MainActor (Bool) -> Void = { _ in }
 
@@ -67,138 +72,6 @@ enum RepoExplorerFocusPublisher {
     }
 }
 
-private struct RepoExplorerVisibleRowsBridge: NSViewRepresentable {
-    let entries: [RepoExplorerListEntry]
-    let onVisibleWorktreeIdsChange: @MainActor @Sendable (Set<UUID>) -> Void
-
-    func makeNSView(context: Context) -> RepoExplorerVisibleRowsObserverView {
-        let view = RepoExplorerVisibleRowsObserverView()
-        view.entries = entries
-        view.onVisibleWorktreeIdsChange = onVisibleWorktreeIdsChange
-        return view
-    }
-
-    func updateNSView(_ nsView: RepoExplorerVisibleRowsObserverView, context: Context) {
-        nsView.entries = entries
-        nsView.onVisibleWorktreeIdsChange = onVisibleWorktreeIdsChange
-        nsView.scheduleVisibleRowsReport()
-    }
-
-    static func dismantleNSView(_ nsView: RepoExplorerVisibleRowsObserverView, coordinator: ()) {
-        nsView.stopObservingTable()
-    }
-}
-
-@MainActor
-private final class RepoExplorerVisibleRowsObserverView: NSView {
-    var entries: [RepoExplorerListEntry] = []
-    var onVisibleWorktreeIdsChange: @MainActor @Sendable (Set<UUID>) -> Void = { _ in }
-
-    private weak var observedTableView: NSTableView?
-    private var boundsObserver: NSObjectProtocol?
-    private var reportTask: Task<Void, Never>?
-    private var lastReportedWorktreeIds: Set<UUID> = []
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        scheduleTableResolution()
-    }
-
-    func scheduleVisibleRowsReport() {
-        guard reportTask == nil else { return }
-        reportTask = Task { @MainActor [weak self] in
-            await Task.yield()
-            guard let self else { return }
-            self.reportTask = nil
-            self.reportVisibleWorktrees()
-        }
-    }
-
-    func stopObservingTable() {
-        if let boundsObserver {
-            NotificationCenter.default.removeObserver(boundsObserver)
-            self.boundsObserver = nil
-        }
-        reportTask?.cancel()
-        reportTask = nil
-        observedTableView = nil
-    }
-
-    private func scheduleTableResolution() {
-        Task { @MainActor [weak self] in
-            await Task.yield()
-            self?.resolveTableViewIfNeeded()
-            self?.scheduleVisibleRowsReport()
-        }
-    }
-
-    private func resolveTableViewIfNeeded() {
-        guard window != nil else { return }
-        let tableView = nearestTableView()
-        guard observedTableView !== tableView else { return }
-        stopObservingTable()
-        observedTableView = tableView
-        guard let clipView = tableView?.enclosingScrollView?.contentView else { return }
-        clipView.postsBoundsChangedNotifications = true
-        boundsObserver = NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification,
-            object: clipView,
-            queue: nil
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.scheduleVisibleRowsReport()
-            }
-        }
-    }
-
-    private func nearestTableView() -> NSTableView? {
-        var candidate: NSView? = self
-        while let current = candidate {
-            if let tableView = current as? NSTableView {
-                return tableView
-            }
-            candidate = current.superview
-        }
-        return window?.contentView?.firstDescendant(ofType: NSTableView.self)
-    }
-
-    private func reportVisibleWorktrees() {
-        resolveTableViewIfNeeded()
-        guard let tableView = observedTableView else { return }
-        let visibleRows = tableView.rows(in: tableView.visibleRect)
-        let visibleWorktreeIds = visibleWorktreeIds(in: visibleRows)
-        guard visibleWorktreeIds != lastReportedWorktreeIds else { return }
-        lastReportedWorktreeIds = visibleWorktreeIds
-        onVisibleWorktreeIdsChange(visibleWorktreeIds)
-    }
-
-    private func visibleWorktreeIds(in rowRange: NSRange) -> Set<UUID> {
-        guard rowRange.location != NSNotFound else { return [] }
-        let lowerBound = max(0, rowRange.location)
-        let upperBound = min(entries.count, rowRange.location + rowRange.length)
-        guard lowerBound < upperBound else { return [] }
-
-        return entries[lowerBound..<upperBound].reduce(into: Set<UUID>()) { result, entry in
-            guard case .resolvedWorktreeRow(_, _, let worktreeId) = entry else { return }
-            result.insert(worktreeId)
-        }
-    }
-}
-
-extension NSView {
-    fileprivate func firstDescendant<T>(ofType type: T.Type) -> T? {
-        if let match = self as? T {
-            return match
-        }
-        for subview in subviews {
-            if let match = subview.firstDescendant(ofType: type) {
-                return match
-            }
-        }
-        return nil
-    }
-}
-
 /// Sidebar content grouped by repository identity (worktree family / remote).
 @MainActor
 struct RepoExplorerView: View {
@@ -206,13 +79,39 @@ struct RepoExplorerView: View {
 
     let store: WorkspaceStore
     let onRefocusActivePane: () -> Void
-    let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     let onShowNotificationsForWorktree: (Worktree) -> Void
     let unreadCount: (Worktree) -> Int
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let initialProjectionTrigger: AppPolicies.SidebarProjection.Trigger
+    let initialProjectionSequence: Int
+    let onInitialProjectionApplied: @MainActor (Int) -> Void
     static let focusTargetIdentifier = NSUserInterfaceItemIdentifier("repoExplorerFocusTarget")
     static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
+    static let surfaceBackground = SidebarSurfaceBackground.shellChrome
     static let groupHeaderChromePolicy = SidebarRepoGroupHeader<EmptyView>.chromePolicy
+    static let headerLayoutPolicy = SidebarHeaderLayout<EmptyView, EmptyView, EmptyView, EmptyView>.policy
+    static let tooltipCoordinateSpaceName = "repoSidebarHeaderTooltips"
+
+    init(
+        store: WorkspaceStore,
+        onRefocusActivePane: @escaping () -> Void,
+        onShowNotificationsForWorktree: @escaping (Worktree) -> Void,
+        unreadCount: @escaping (Worktree) -> Int,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        initialProjectionTrigger: String = AppPolicies.SidebarProjection.Trigger.startupDiagnostic.rawValue,
+        initialProjectionSequence: Int = 0,
+        onInitialProjectionApplied: @escaping @MainActor (Int) -> Void = { _ in }
+    ) {
+        self.store = store
+        self.onRefocusActivePane = onRefocusActivePane
+        self.onShowNotificationsForWorktree = onShowNotificationsForWorktree
+        self.unreadCount = unreadCount
+        self.performanceTraceRecorder = performanceTraceRecorder
+        self.initialProjectionTrigger =
+            AppPolicies.SidebarProjection.Trigger(rawValue: initialProjectionTrigger) ?? .startupDiagnostic
+        self.initialProjectionSequence = initialProjectionSequence
+        self.onInitialProjectionApplied = onInitialProjectionApplied
+    }
 
     private var repoCache: RepoCacheAtom {
         atom(\.repoCache)
@@ -226,15 +125,24 @@ struct RepoExplorerView: View {
         atom(\.sidebarCache)
     }
 
-    private var sidebarVisibleWorktreesRuntime: SidebarVisibleWorktreesRuntimeAtom {
-        atom(\.sidebarVisibleWorktreesRuntime)
+    private var repoExplorerPrefs: RepoExplorerSidebarPrefsAtom {
+        atom(\.repoExplorerSidebarPrefs)
     }
 
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
+    @State private var groupingMenuOpen = false
+    @State private var hasReportedInitialProjection = false
+    @State private var hoveredTooltipTarget: RepoSidebarToolbarTooltipTarget?
+    @State private var tooltipFrames: [RepoSidebarToolbarTooltipTarget: CGRect] = [:]
     @FocusState private var focusedField: RepoExplorerFocus?
 
     @State private var debounceTask: Task<Void, Never>?
+    @State private var projectionWorker = RepoExplorerProjectionWorker()
+    @State private var projectionTask: Task<Void, Never>?
+    @State private var projectionGeneration = 0
+    @State private var cachedProjectionResult = RepoExplorerProjectionResult.empty
+    @State private var cachedProjectionRequest: RepoExplorerProjectionRequest?
 
     private static let filterDebounceMilliseconds = 25
 
@@ -246,7 +154,17 @@ struct RepoExplorerView: View {
         RepoExplorerSnapshot(
             repos: sidebarRepos,
             repoEnrichmentByRepoId: sidebarRepoEnrichmentByRepoId,
-            query: debouncedQuery
+            groupingMode: repoExplorerPrefs.groupingMode,
+            sortOrder: repoExplorerPrefs.sortOrder,
+            visibilityMode: repoExplorerPrefs.repoVisibilityMode,
+            query: debouncedQuery,
+            paneLocationsByWorktreeId: atom(\.workspaceLookup).paneLocationsByWorktreeId(
+                workspacePane: store.paneAtom,
+                workspaceTab: WorkspaceTabLayoutDerived(
+                    shellAtom: store.tabShellAtom,
+                    arrangementAtom: store.tabArrangementAtom
+                )
+            )
         )
     }
 
@@ -258,57 +176,32 @@ struct RepoExplorerView: View {
         )
     }
 
-    private var sidebarProjection: SidebarProjection {
-        let snapshot = sidebarSnapshot
-        return performanceTraceRecorder?.measure(
-            .sidebarProjection,
-            attributes: [
-                "agentstudio.performance.sidebar.repo.count": .int(snapshot.repos.count),
-                "agentstudio.performance.sidebar.query_character.count": .int(snapshot.query.count),
-            ]
-        ) {
-            RepoExplorerProjection.project(snapshot)
-        } ?? RepoExplorerProjection.project(snapshot)
-    }
-
-    private var sidebarRowIndex: RepoExplorerRowIndex {
-        let projection = sidebarProjection
-        let expandedGroupIds = Set(sidebarCache.expandedGroups.map(\.rawValue))
-        return performanceTraceRecorder?.measure(
-            .sidebarRowIndex,
-            attributes: [
-                "agentstudio.performance.sidebar.group.count": .int(projection.resolvedGroups.count),
-                "agentstudio.performance.sidebar.loading_repo.count": .int(projection.loadingRepos.count),
-                "agentstudio.performance.sidebar.expanded_group.count": .int(expandedGroupIds.count),
-                "agentstudio.performance.sidebar.is_filtering": .bool(isFiltering),
-            ]
-        ) {
-            RepoExplorerRowIndex(
-                projection: projection,
-                expandedGroupIds: expandedGroupIds,
-                isFiltering: isFiltering
-            )
-        }
-            ?? RepoExplorerRowIndex(
-                projection: projection,
-                expandedGroupIds: expandedGroupIds,
-                isFiltering: isFiltering
-            )
-    }
-
     private var isFiltering: Bool {
         !debouncedQuery.isEmpty
     }
 
-    private var worktreeStatusById: [UUID: GitBranchStatus] {
-        let factsByWorktreeId = Self.worktreeFactsByWorktreeId(
-            sidebarRepos: sidebarRepos,
-            repoCache: repoCache
+    private var currentProjection: SidebarProjection {
+        cachedProjectionResult.projection
+    }
+
+    private var currentRowIndex: RepoExplorerRowIndex {
+        cachedProjectionResult.rowIndex
+    }
+
+    private var projectionRequest: RepoExplorerProjectionRequest {
+        RepoExplorerProjectionRequest(
+            generation: projectionGeneration + 1,
+            snapshot: sidebarSnapshot,
+            expandedGroupIds: Set(sidebarCache.expandedGroups.map(\.rawValue)),
+            isFiltering: isFiltering,
+            trigger: initialProjectionTrigger,
+            worktreeFactsByWorktreeId: sidebarWorktreeFactsByWorktreeId
         )
-        return Self.mergeBranchStatuses(
-            worktreeEnrichmentsByWorktreeId: factsByWorktreeId.compactMapValues { $0.enrichment },
-            pullRequestCountsByWorktreeId: factsByWorktreeId.compactMapValues { $0.pullRequestCount }
-        )
+    }
+
+    private var sidebarWorktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts] {
+        let sidebarWorktreeIds = Set(sidebarRepos.flatMap(\.worktrees).map(\.id))
+        return repoCache.worktreeFactsSnapshot().filter { sidebarWorktreeIds.contains($0.key) }
     }
 
     var body: some View {
@@ -321,8 +214,8 @@ struct RepoExplorerView: View {
 
             filterBar
 
-            if sidebarProjection.showsNoResults {
-                noResultsView
+            if currentProjection.emptyState != .content {
+                RepoExplorerEmptyStateView(emptyState: currentProjection.emptyState)
             } else {
                 groupList
             }
@@ -331,10 +224,12 @@ struct RepoExplorerView: View {
         .task {
             filterText = uiState.filterText
             debouncedQuery = uiState.filterText
+            refreshProjection(force: true)
         }
         .onDisappear {
             debounceTask?.cancel()
-            updateSidebarVisibleWorktrees([])
+            projectionTask?.cancel()
+            projectionTask = nil
             RepoExplorerFocusPublisher.publish(
                 focusedField: nil,
                 into: uiState
@@ -387,46 +282,169 @@ struct RepoExplorerView: View {
                 into: uiState
             )
         }
+        .onChange(of: projectionRequestKey) { _, _ in
+            refreshProjection()
+        }
     }
 
     private var filterBar: some View {
-        SidebarSearchField(
-            placeholder: "Filter...",
-            text: $filterText,
-            focusedField: $focusedField,
-            focusValue: .filter,
-            clearHelp: LocalActionSpec.clearFilter.actionSpec.helpText,
-            onExit: hideFilter,
-            onDownArrow: {
-                focusedField = nil
-                return .handled
+        SidebarHeaderLayout {
+            SidebarSearchField(
+                placeholder: "Filter...",
+                text: $filterText,
+                focusedField: $focusedField,
+                focusValue: .filter,
+                clearHelp: LocalActionSpec.clearFilter.actionSpec.helpText,
+                onExit: hideFilter,
+                onDownArrow: {
+                    focusedField = nil
+                    return .handled
+                }
+            )
+        } toolbarRow: {
+            repoToolbarRow
+        } statusRow: {
+            EmptyView()
+        }
+        .coordinateSpace(name: Self.tooltipCoordinateSpaceName)
+        .onPreferenceChange(HoverTooltipAnchorPreferenceKey<RepoSidebarToolbarTooltipTarget>.self) {
+            tooltipFrames = $0
+        }
+        .overlay(alignment: .topLeading) {
+            GeometryReader { geometryProxy in
+                FloatingHoverTooltipPresenter(
+                    activeTarget: activeTooltipTarget,
+                    anchorFrames: tooltipFrames,
+                    availableWidth: geometryProxy.size.width,
+                    verticalAnchor: .aboveAnchor,
+                    verticalOffset: HoverTooltipPlacement.aboveAnchorVerticalOffset,
+                    tooltipValue: tooltipValue(for:)
+                )
+                .allowsHitTesting(false)
             }
-        )
-        .padding(.horizontal, AppStyles.Shell.Sidebar.SearchField.outerHorizontalPadding)
-        .padding(.vertical, AppStyles.Shell.Sidebar.SearchField.outerVerticalPadding)
+        }
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
-    private var noResultsView: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: AppStyles.General.Typography.text2xl))
-                .foregroundStyle(.secondary)
-                .opacity(0.5)
+    private var repoToolbarRow: some View {
+        let sortAction = AppCommand.setRepoSidebarSortOrder.definition
+        let groupingAction = LocalActionSpec.groupRepoExplorerWorktrees.actionSpec
+        let isFavoritesOnly = repoExplorerPrefs.repoVisibilityMode == .favoritesOnly
+        return HStack(spacing: AppStyles.General.Spacing.standard) {
+            Spacer(minLength: 0)
 
-            Text("No results")
-                .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
-                .foregroundStyle(.secondary)
+            RepoExplorerVisibilityButton(isFavoritesOnly: isFavoritesOnly) {
+                AppCommandDispatcher.shared.dispatch(
+                    AppCommandExecutionRequest(
+                        command: .setRepoSidebarVisibilityMode,
+                        arguments: .repoSidebarVisibilityMode(isFavoritesOnly ? .all : .favoritesOnly)
+                    )
+                )
+            }
+
+            SidebarToolbarSortButton(
+                sortValue: repoExplorerPrefs.sortOrder,
+                isReversed: repoExplorerPrefs.sortOrder == .descending,
+                label: sortAction.label,
+                accessibilityIdentifier: "repoSidebarSortButton",
+                tooltipValue: sortAction.controlTooltipRenderValue(
+                    textOverride: "Sort \(repoExplorerPrefs.sortOrder.title.lowercased())"
+                ),
+                icon: {
+                    sortAction.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                },
+                tooltipTarget: RepoSidebarToolbarTooltipTarget.sort,
+                tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                frameAccessibilityIdentifier: "repoSidebarSortButtonFrame",
+                onHover: { updateTooltipTarget(.sort, isHovered: $0) },
+                onToggle: {
+                    AppCommandDispatcher.shared.dispatch(
+                        AppCommandExecutionRequest(
+                            command: .setRepoSidebarSortOrder,
+                            arguments: .repoSidebarSortOrder(repoExplorerPrefs.sortOrder.toggled)
+                        )
+                    )
+                }
+            )
+
+            SidebarToolbarDivider()
+
+            SidebarToolbarGroupingButton(
+                label: groupingAction.label,
+                selectionLabel: repoExplorerPrefs.groupingMode.title,
+                accessibilityIdentifier: "repoSidebarGroupingButton",
+                tooltipValue: groupingAction.controlTooltipRenderValue(
+                    provenance: .localAction(rawValue: "groupRepoExplorerWorktrees"),
+                    textOverride: "Group"
+                ),
+                isOpen: groupingMenuOpen,
+                tooltipTarget: RepoSidebarToolbarTooltipTarget.grouping,
+                tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                frameAccessibilityIdentifier: "repoSidebarGroupingButtonFrame",
+                onHover: { updateTooltipTarget(.grouping, isHovered: $0) },
+                action: {
+                    groupingMenuOpen.toggle()
+                }
+            )
+            .popover(isPresented: $groupingMenuOpen) {
+                SidebarGroupingPopover(
+                    items: RepoExplorerGroupingMode.allCases,
+                    selectedItem: repoExplorerPrefs.groupingMode,
+                    icon: { groupingMode in
+                        groupingMode.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                    },
+                    label: \.title,
+                    onSelect: { candidate in
+                        AppCommandDispatcher.shared.dispatch(groupingCommand(for: candidate))
+                        groupingMenuOpen = false
+                    },
+                    onDismiss: { groupingMenuOpen = false }
+                )
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .transition(.opacity.animation(.easeOut(duration: 0.12)))
-        .onAppear {
-            updateSidebarVisibleWorktrees([])
+        .background(
+            AccessibilityLabelBridge(
+                identifier: "repoSidebarToolbarRow",
+                label: "Repo toolbar row"
+            )
+        )
+    }
+
+    private func groupingCommand(for mode: RepoExplorerGroupingMode) -> AppCommand {
+        switch mode {
+        case .repo: .setRepoSidebarGroupingRepo
+        case .pane: .setRepoSidebarGroupingPane
+        case .tab: .setRepoSidebarGroupingTab
+        }
+    }
+
+    private var activeTooltipTarget: RepoSidebarToolbarTooltipTarget? {
+        groupingMenuOpen ? nil : hoveredTooltipTarget
+    }
+
+    private func updateTooltipTarget(_ target: RepoSidebarToolbarTooltipTarget, isHovered: Bool) {
+        withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
+            hoveredTooltipTarget = isHovered ? target : nil
+        }
+    }
+
+    private func tooltipValue(for target: RepoSidebarToolbarTooltipTarget) -> ControlTooltipRenderValue? {
+        switch target {
+        case .sort:
+            let sortAction = AppCommand.setRepoSidebarSortOrder.definition
+            return sortAction.controlTooltipRenderValue(
+                textOverride: "Sort \(repoExplorerPrefs.sortOrder.title.lowercased())"
+            )
+        case .grouping:
+            return LocalActionSpec.groupRepoExplorerWorktrees.actionSpec.controlTooltipRenderValue(
+                provenance: .localAction(rawValue: "groupRepoExplorerWorktrees"),
+                textOverride: "Group"
+            )
         }
     }
 
     private var groupList: some View {
-        let rowIndex = sidebarRowIndex
+        let rowIndex = currentRowIndex
         return List {
             ForEach(rowIndex.entries) { entry in
                 switch entry {
@@ -460,11 +478,12 @@ struct RepoExplorerView: View {
                         }
                     }
 
-                case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId):
+                case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId, let rowId):
                     if let resolvedWorktreeContext = rowIndex.resolve(
                         groupId: groupId,
                         repoId: repoId,
-                        worktreeId: worktreeId
+                        worktreeId: worktreeId,
+                        rowId: rowId
                     ) {
                         RepoExplorerWorktreeRow(
                             worktree: resolvedWorktreeContext.worktree,
@@ -472,21 +491,30 @@ struct RepoExplorerView: View {
                                 for: resolvedWorktreeContext.worktree,
                                 in: resolvedWorktreeContext.repo
                             ),
-                            branchName: branchName(for: resolvedWorktreeContext.worktree),
+                            branchName: cachedProjectionResult.branchNameByWorktreeId[
+                                resolvedWorktreeContext.worktree.id
+                            ] ?? "detached HEAD",
+                            placementText: resolvedWorktreeContext.placementContext?.displayText ?? "",
                             checkoutIconKind: checkoutIconKind(
                                 for: resolvedWorktreeContext.worktree,
                                 in: resolvedWorktreeContext.repo
                             ),
-                            iconColor: colorForCheckout(
-                                repo: resolvedWorktreeContext.repo,
-                                in: resolvedWorktreeContext.group
-                            ),
-                            branchStatus: worktreeStatusById[resolvedWorktreeContext.worktree.id] ?? .unknown,
+                            iconColor: colorForCheckout(hex: resolvedWorktreeContext.checkoutColorHex),
+                            branchStatus: cachedProjectionResult.branchStatusByWorktreeId[
+                                resolvedWorktreeContext.worktree.id
+                            ] ?? .unknown,
                             unreadCount: unreadCount(resolvedWorktreeContext.worktree),
                             bridgeCommandResolution: AppCommandDispatcher.shared
                                 .bridgePaneCommandTarget(
                                     worktreeId: resolvedWorktreeContext.worktree.id
                                 )?.resolution ?? .create,
+                            isFavorite: currentRepoFavoriteState(
+                                repoId: resolvedWorktreeContext.repo.id,
+                                projectedFallback: resolvedWorktreeContext.repo.isFavorite
+                            ),
+                            onToggleFavorite: {
+                                toggleFavorite(repoId: resolvedWorktreeContext.repo.id)
+                            },
                             onUnreadPillTap: {
                                 onShowNotificationsForWorktree(resolvedWorktreeContext.worktree)
                             },
@@ -549,6 +577,17 @@ struct RepoExplorerView: View {
                             )
                         )
                     }
+
+                case .topologyFault(let fault):
+                    RepoExplorerTopologyFaultRow(fault: fault)
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: AppStyles.General.Spacing.standard,
+                                leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset,
+                                bottom: AppStyles.General.Spacing.standard,
+                                trailing: AppStyles.General.Spacing.standard
+                            )
+                        )
                 }
             }
 
@@ -575,29 +614,22 @@ struct RepoExplorerView: View {
             }
         }
         .sidebarSurfaceListStyle(Self.surfaceListPolicy)
-        .background(
-            RepoExplorerVisibleRowsBridge(
-                entries: rowIndex.entries,
-                onVisibleWorktreeIdsChange: updateSidebarVisibleWorktrees
-            )
+        .scrollContentBackground(.hidden)
+        .background(Self.surfaceBackground.color)
+        .transition(
+            .opacity.animation(.easeInOut(duration: AppStyles.General.Animation.standard))
         )
-        .transition(.opacity.animation(.easeOut(duration: 0.12)))
     }
 
-    private func updateSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) {
-        sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds(worktreeIds)
-        onSidebarVisibleWorktreesChanged()
-    }
-
-    private func colorForCheckout(repo: RepoPresentationItem, in group: RepoPresentationGroup) -> Color {
-        let colorHex = RepoPresentationColoring.checkoutColorHex(
-            for: repo, in: group
-        )
-        return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
+    private func colorForCheckout(hex colorHex: String) -> Color {
+        Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
     }
 
     private func iconForGroup(_ group: RepoPresentationGroup) -> AppEntityIcon {
-        Self.sourceGroupIcon(for: group)
+        Self.groupIcon(
+            for: group,
+            projectionGroupingMode: cachedProjectionResult.snapshot.groupingMode
+        )
     }
 
     private func isGroupExpanded(_ groupId: String) -> Bool {
@@ -609,6 +641,19 @@ struct RepoExplorerView: View {
 
         let key = SidebarGroupKey(groupId)
         sidebarCache.setGroupExpanded(key, isExpanded: !sidebarCache.expandedGroups.contains(key))
+    }
+
+    private func toggleFavorite(repoId: UUID) {
+        guard let repo = store.repositoryTopologyAtom.repo(repoId) else { return }
+        AppCommandDispatcher.shared.dispatch(
+            repo.isFavorite ? .removeRepoFavorite : .addRepoFavorite,
+            target: repoId,
+            targetType: .repo
+        )
+    }
+
+    private func currentRepoFavoriteState(repoId: UUID, projectedFallback: Bool) -> Bool {
+        store.repositoryTopologyAtom.repo(repoId)?.isFavorite ?? projectedFallback
     }
 
     private func checkoutTitle(for worktree: Worktree, in repo: RepoPresentationItem) -> String {
@@ -641,13 +686,6 @@ struct RepoExplorerView: View {
         Self.checkoutIconKind(for: worktree, in: repo)
     }
 
-    private func branchName(for worktree: Worktree) -> String {
-        atom(\.paneDisplay).resolvedBranchName(
-            worktree: worktree,
-            enrichment: repoCache.worktreeEnrichment(for: worktree.id)
-        )
-    }
-
     private func hideFilter() {
         filterText = ""
         debouncedQuery = ""
@@ -661,6 +699,257 @@ struct RepoExplorerView: View {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path.path)
     }
 
+    private struct ProjectionRequestKey: Equatable {
+        let snapshot: RepoExplorerSnapshot
+        let expandedGroupIds: Set<String>
+        let isFiltering: Bool
+        let worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts]
+    }
+
+    private var projectionRequestKey: ProjectionRequestKey {
+        let request = projectionRequest
+        return ProjectionRequestKey(
+            snapshot: request.snapshot,
+            expandedGroupIds: request.expandedGroupIds,
+            isFiltering: request.isFiltering,
+            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
+        )
+    }
+
+    private func refreshProjection(
+        force: Bool = false,
+        trigger: AppPolicies.SidebarProjection.Trigger? = nil
+    ) {
+        let clock = ContinuousClock()
+        let requestBuildStart = clock.now
+        let request = projectionRequest
+        let requestKey = ProjectionRequestKey(
+            snapshot: request.snapshot,
+            expandedGroupIds: request.expandedGroupIds,
+            isFiltering: request.isFiltering,
+            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
+        )
+        if !force,
+            let cachedProjectionRequest,
+            ProjectionRequestKey(
+                snapshot: cachedProjectionRequest.snapshot,
+                expandedGroupIds: cachedProjectionRequest.expandedGroupIds,
+                isFiltering: cachedProjectionRequest.isFiltering,
+                worktreeFactsByWorktreeId: cachedProjectionRequest.worktreeFactsByWorktreeId
+            ) == requestKey
+        {
+            return
+        }
+
+        if projectionTask != nil, let cancelledRequest = cachedProjectionRequest {
+            performanceTraceRecorder?.record(
+                .sidebarProjection,
+                attributes: sidebarProjectionTraceAttributes(
+                    for: cancelledRequest,
+                    phase: "projection_worker",
+                    extra: ["agentstudio.performance.sidebar.cancellation.count": .int(1)]
+                )
+            )
+        }
+
+        projectionGeneration += 1
+        let projectionTrigger =
+            trigger
+            ?? Self.sidebarProjectionTrigger(
+                previous: cachedProjectionRequest,
+                next: request,
+                initialProjectionTrigger: initialProjectionTrigger
+            )
+        let generatedRequest = RepoExplorerProjectionRequest(
+            generation: projectionGeneration,
+            snapshot: request.snapshot,
+            expandedGroupIds: request.expandedGroupIds,
+            isFiltering: request.isFiltering,
+            trigger: projectionTrigger,
+            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
+        )
+        let requestBuildDuration = requestBuildStart.duration(to: clock.now)
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: requestBuildDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: generatedRequest,
+                phase: "request_build_mainactor",
+                extra: [
+                    "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: requestBuildDuration))
+                ]
+            )
+        )
+        cachedProjectionRequest = generatedRequest
+        projectionTask?.cancel()
+        let worker = projectionWorker
+        projectionTask = Task { @MainActor in
+            guard !Task.isCancelled else { return }
+            do {
+                let result = try await worker.project(generatedRequest)
+                guard !Task.isCancelled else { return }
+                applyProjectionResult(result)
+            } catch is CancellationError {
+                clearProjectionTaskIfCurrent(generation: generatedRequest.generation)
+            } catch {
+                failProjectionIfCurrent(generation: generatedRequest.generation)
+            }
+        }
+    }
+
+    private func clearProjectionTaskIfCurrent(generation: Int) {
+        guard generation == projectionGeneration else { return }
+        projectionTask = nil
+    }
+
+    private func failProjectionIfCurrent(generation: Int) {
+        guard generation == projectionGeneration else { return }
+        cachedProjectionRequest = nil
+        projectionTask = nil
+    }
+
+    private func applyProjectionResult(_ result: RepoExplorerProjectionResult) {
+        guard
+            result.generation == projectionGeneration,
+            result.snapshot == cachedProjectionRequest?.snapshot,
+            result.expandedGroupIds == cachedProjectionRequest?.expandedGroupIds,
+            result.isFiltering == cachedProjectionRequest?.isFiltering
+        else {
+            performanceTraceRecorder?.record(
+                .sidebarProjection,
+                attributes: sidebarProjectionTraceAttributes(
+                    for: RepoExplorerProjectionRequest(
+                        generation: result.generation,
+                        snapshot: result.snapshot,
+                        expandedGroupIds: result.expandedGroupIds,
+                        isFiltering: result.isFiltering,
+                        trigger: result.trigger
+                    ),
+                    phase: "mainactor_apply",
+                    extra: ["agentstudio.performance.sidebar.stale_discard.count": .int(1)]
+                )
+            )
+            return
+        }
+
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: result.projectionDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: RepoExplorerProjectionRequest(
+                    generation: result.generation,
+                    snapshot: result.snapshot,
+                    expandedGroupIds: result.expandedGroupIds,
+                    isFiltering: result.isFiltering,
+                    trigger: result.trigger
+                ),
+                phase: "projection_worker",
+                extra: [
+                    "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: result.workerDuration)),
+                    "agentstudio.performance.sidebar.group.count": .int(result.projection.resolvedGroups.count),
+                    "agentstudio.performance.sidebar.loading_repo.count": .int(result.projection.loadingRepos.count),
+                ]
+            )
+        )
+        performanceTraceRecorder?.recordDuration(
+            .sidebarRowIndex,
+            duration: result.rowIndexDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: RepoExplorerProjectionRequest(
+                    generation: result.generation,
+                    snapshot: result.snapshot,
+                    expandedGroupIds: result.expandedGroupIds,
+                    isFiltering: result.isFiltering,
+                    trigger: result.trigger
+                ),
+                phase: "row_index",
+                extra: [
+                    "agentstudio.performance.sidebar.row_index_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: result.rowIndexDuration))
+                ]
+            )
+        )
+
+        let clock = ContinuousClock()
+        let applyStart = clock.now
+        cachedProjectionResult = result
+        projectionTask = nil
+        let applyDuration = applyStart.duration(to: clock.now)
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: applyDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: RepoExplorerProjectionRequest(
+                    generation: result.generation,
+                    snapshot: result.snapshot,
+                    expandedGroupIds: result.expandedGroupIds,
+                    isFiltering: result.isFiltering,
+                    trigger: result.trigger
+                ),
+                phase: "mainactor_apply",
+                extra: [
+                    "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration)),
+                    "agentstudio.performance.sidebar.group.count": .int(result.projection.resolvedGroups.count),
+                    "agentstudio.performance.sidebar.loading_repo.count": .int(result.projection.loadingRepos.count),
+                ]
+            )
+        )
+        if Self.shouldReportInitialProjection(
+            hasReportedInitialProjection: hasReportedInitialProjection
+        ) {
+            hasReportedInitialProjection = true
+            onInitialProjectionApplied(initialProjectionSequence)
+        }
+    }
+
+    private func sidebarProjectionTraceAttributes(
+        for request: RepoExplorerProjectionRequest,
+        phase: String,
+        extra: [String: AgentStudioTraceValue] = [:]
+    ) -> [String: AgentStudioTraceValue] {
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.sidebar.surface": .string("repo"),
+            "agentstudio.performance.sidebar.phase": .string(phase),
+            "agentstudio.performance.sidebar.trigger": .string(request.trigger.rawValue),
+            "agentstudio.performance.sidebar.query_state": .string(
+                request.snapshot.query.isEmpty ? "empty" : "non_empty"),
+            "agentstudio.performance.sidebar.group_mode": .string(request.snapshot.groupingMode.rawValue),
+            "agentstudio.performance.sidebar.sort_order": .string(request.snapshot.sortOrder.rawValue),
+            "agentstudio.performance.sidebar.repo.count": .int(request.snapshot.repos.count),
+            "agentstudio.performance.sidebar.query_character.count": .int(request.snapshot.query.count),
+            "agentstudio.performance.sidebar.expanded_group.count": .int(request.expandedGroupIds.count),
+            "agentstudio.performance.sidebar.is_filtering": .bool(request.isFiltering),
+        ]
+        attributes.merge(extra) { _, newValue in newValue }
+        return attributes
+    }
+
+}
+
+private struct RepoExplorerTopologyFaultRow: View {
+    let fault: RepoExplorerTopologyFault
+
+    var body: some View {
+        HStack(alignment: .top, spacing: AppStyles.General.Spacing.standard) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.yellow)
+
+            VStack(alignment: .leading, spacing: AppStyles.General.Spacing.tight) {
+                Text("Repository data unavailable")
+                    .font(.system(size: AppStyles.General.Typography.textBase, weight: .semibold))
+                Text(
+                    "Detected \(fault.duplicateIdentityCount) duplicate worktree identity claim(s). Refresh repositories to recover."
+                )
+                .font(.system(size: AppStyles.General.Typography.textSm))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .allowsHitTesting(false)
+    }
 }
 
 private struct RepoExplorerLoadingSectionHeaderRow: View {
@@ -707,136 +996,5 @@ private struct RepoExplorerLoadingRepoRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .opacity(0.55)
-    }
-}
-
-extension RepoExplorerView {
-    static func checkoutColorHex(
-        for repo: RepoPresentationItem,
-        in group: RepoPresentationGroup
-    ) -> String {
-        RepoPresentationColoring.checkoutColorHex(
-            for: repo,
-            in: group
-        )
-    }
-
-    static func sourceGroupIcon(
-        for group: RepoPresentationGroup
-    ) -> AppEntityIcon {
-        guard
-            let colorHex = RepoPresentationColoring.sourceGroupColorHex(
-                for: group
-            )
-        else {
-            return .repo
-        }
-        return .coloredRepo(
-            colorHex: colorHex
-        )
-    }
-
-    static func buildRepoMetadata(
-        repos: [RepoPresentationItem],
-        repoEnrichmentByRepoId: [UUID: RepoEnrichment]
-    ) -> [UUID: RepoIdentityMetadata] {
-        RepoPresentationColoring.buildRepoMetadata(
-            repos: repos,
-            repoEnrichmentByRepoId: repoEnrichmentByRepoId
-        )
-    }
-
-    static func buildListEntries(
-        groups: [RepoPresentationGroup],
-        expandedGroupIds: Set<String>,
-        isFiltering: Bool
-    ) -> [RepoExplorerListEntry] {
-        RepoExplorerRowIndex.buildListEntries(
-            groups: groups,
-            expandedGroupIds: expandedGroupIds,
-            isFiltering: isFiltering
-        )
-    }
-
-    static func projectionFingerprint(for projection: SidebarProjection) -> String {
-        let resolvedGroupsFingerprint = projection.resolvedGroups.map { group in
-            let repoIds = group.repos.map(\.id.uuidString).joined(separator: ",")
-            return "\(group.id):\(repoIds)"
-        }
-        .joined(separator: "|")
-
-        let loadingFingerprint = projection.loadingRepos
-            .map { "\($0.id.uuidString):\($0.name)" }
-            .joined(separator: "|")
-
-        return """
-            resolved[\(resolvedGroupsFingerprint)]\
-            /loading[\(loadingFingerprint)]\
-            /noResults[\(projection.showsNoResults)]
-            """
-    }
-
-    static func projectSidebar(
-        repos: [RepoPresentationItem],
-        repoEnrichmentByRepoId: [UUID: RepoEnrichment],
-        query: String
-    ) -> SidebarProjection {
-        RepoExplorerProjection.project(
-            RepoExplorerSnapshot(
-                repos: repos,
-                repoEnrichmentByRepoId: repoEnrichmentByRepoId,
-                query: query
-            )
-        )
-    }
-
-    static func resolvedRepos(
-        _ repos: [RepoPresentationItem],
-        enrichmentByRepoId: [UUID: RepoEnrichment]
-    ) -> [RepoPresentationItem] {
-        RepoExplorerProjection.resolvedRepos(repos, enrichmentByRepoId: enrichmentByRepoId)
-    }
-
-    static func loadingRepos(
-        _ repos: [RepoPresentationItem],
-        enrichmentByRepoId: [UUID: RepoEnrichment]
-    ) -> [RepoPresentationItem] {
-        RepoExplorerProjection.loadingRepos(repos, enrichmentByRepoId: enrichmentByRepoId)
-    }
-
-    static func primaryRepoForGroup(_ group: RepoPresentationGroup) -> RepoPresentationItem? {
-        RepoPresentationColoring.primaryRepoForSourceGroup(group)
-    }
-
-    static func mergeBranchStatuses(
-        worktreeEnrichmentsByWorktreeId: [UUID: WorktreeEnrichment],
-        pullRequestCountsByWorktreeId: [UUID: Int]
-    ) -> [UUID: GitBranchStatus] {
-        GitBranchStatus.merge(
-            worktreeEnrichmentsByWorktreeId: worktreeEnrichmentsByWorktreeId,
-            pullRequestCountsByWorktreeId: pullRequestCountsByWorktreeId
-        )
-    }
-
-    static func branchStatus(
-        enrichment: WorktreeEnrichment?,
-        pullRequestCount: Int?
-    ) -> GitBranchStatus {
-        GitBranchStatus.status(enrichment: enrichment, pullRequestCount: pullRequestCount)
-    }
-
-    static func sortedWorktrees(for repo: RepoPresentationItem) -> [Worktree] {
-        RepoExplorerRowIndex.sortedWorktrees(for: repo)
-    }
-
-    static func worktreeFactsByWorktreeId(
-        sidebarRepos: [RepoPresentationItem],
-        repoCache: RepoCacheAtom
-    ) -> [UUID: RepoWorktreeCacheFacts] {
-        var factsByWorktreeId: [UUID: RepoWorktreeCacheFacts] = [:]
-        for worktree in sidebarRepos.flatMap(\.worktrees) where factsByWorktreeId[worktree.id] == nil {
-            factsByWorktreeId[worktree.id] = repoCache.worktreeFacts(for: worktree.id)
-        }
-        return factsByWorktreeId
     }
 }

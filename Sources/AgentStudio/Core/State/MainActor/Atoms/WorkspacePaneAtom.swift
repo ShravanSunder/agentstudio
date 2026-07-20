@@ -34,30 +34,6 @@ final class WorkspacePaneAtom {
         derived.panes
     }
 
-    /// Legacy JSON persistence projection. This composes the graph owner with
-    /// the drawer cursor so current workspace.state.json saves retain drawer
-    /// expansion, while excluding topology/cache display facets.
-    var legacyPersistablePanes: [UUID: Pane] {
-        liveSQLitePanes
-    }
-
-    /// Live SQLite projection of the pane graph plus local drawer cursor facts.
-    /// This keeps derived topology/cache display facets out of core rows while
-    /// preserving the current atom-owned pane graph.
-    var liveSQLitePanes: [UUID: Pane] {
-        Dictionary(
-            uniqueKeysWithValues: graphAtom.paneStates.map { paneId, state in
-                let drawerId = state.drawer?.drawerId
-                return (
-                    paneId,
-                    state.pane(
-                        isDrawerExpanded: drawerId.map { drawerCursorAtom.isExpanded(drawerId: $0) } ?? false
-                    )
-                )
-            }
-        )
-    }
-
     private var derived: WorkspacePaneDerived {
         WorkspacePaneDerived(
             graphAtom: graphAtom,
@@ -65,11 +41,6 @@ final class WorkspacePaneAtom {
             repositoryTopologyAtom: repositoryTopologyAtom,
             repoEnrichmentCacheAtom: repoEnrichmentCacheAtom
         )
-    }
-
-    func hydrate(persistedPanes: [Pane], validWorktreeIds: Set<UUID>) {
-        graphAtom.hydrate(persistedPanes: persistedPanes, validWorktreeIds: validWorktreeIds)
-        drawerCursorAtom.hydrate(persistedPanes: persistedPanes, validDrawerIds: graphAtom.drawerIds)
     }
 
     func pane(_ id: UUID) -> Pane? {
@@ -111,6 +82,7 @@ final class WorkspacePaneAtom {
         title: String = "Terminal",
         provider: SessionProvider = .zmx,
         lifetime: SessionLifetime = .persistent,
+        zmxSessionID: ZmxSessionID,
         residency: SessionResidency = .active,
         facets: PaneContextFacets = .empty
     ) -> Pane {
@@ -119,18 +91,10 @@ final class WorkspacePaneAtom {
             title: title,
             provider: provider,
             lifetime: lifetime,
+            zmxSessionID: zmxSessionID,
             residency: residency,
             facets: facets
         )
-        if provider == .zmx,
-            let sessionId = zmxSessionId(
-                launchDirectory: launchDirectory,
-                facets: facets,
-                paneId: state.id
-            )
-        {
-            graphAtom.setTerminalZmxSessionId(state.id, sessionId: sessionId)
-        }
         return pane(state.id)!
     }
 
@@ -138,28 +102,10 @@ final class WorkspacePaneAtom {
     func createPane(
         content: PaneContent,
         metadata: PaneMetadata,
-        residency: SessionResidency = .active,
-        anchorZmxSessionIfNeeded: Bool = true
+        residency: SessionResidency = .active
     ) -> Pane {
         let state = graphAtom.createPane(content: content, metadata: metadata, residency: residency)
-        if anchorZmxSessionIfNeeded,
-            case .terminal(let terminalState) = content,
-            terminalState.provider == .zmx,
-            terminalState.zmxSessionId == nil,
-            let sessionId = zmxSessionId(
-                launchDirectory: metadata.launchDirectory,
-                facets: metadata.facets,
-                paneId: state.id
-            )
-        {
-            graphAtom.setTerminalZmxSessionId(state.id, sessionId: sessionId)
-        }
         return pane(state.id)!
-    }
-
-    @discardableResult
-    func setTerminalZmxSessionId(_ paneId: UUID, sessionId: String) -> Bool {
-        graphAtom.setTerminalZmxSessionId(paneId, sessionId: sessionId)
     }
 
     @discardableResult
@@ -230,14 +176,24 @@ final class WorkspacePaneAtom {
     }
 
     @discardableResult
-    func addDrawerPane(to parentPaneId: UUID, parentFallbackCWD: URL?) -> Pane? {
+    func addDrawerPane(
+        to parentPaneId: UUID,
+        parentFallbackCWD: URL?,
+        zmxSessionID: ZmxSessionID
+    ) -> Pane? {
         guard let metadata = inheritedDrawerMetadata(from: parentPaneId, parentFallbackCWD: parentFallbackCWD) else {
             workspacePaneLogger.warning("addDrawerPane: parent pane \(parentPaneId) not found")
             return nil
         }
         return addDrawerPane(
             to: parentPaneId,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: zmxSessionID
+                )
+            ),
             metadata: metadata
         )
     }
@@ -251,7 +207,6 @@ final class WorkspacePaneAtom {
         guard let drawerPane = graphAtom.addDrawerPane(to: parentPaneId, content: content, metadata: metadata) else {
             return nil
         }
-        anchorDrawerZmxSessionIfNeeded(parentPaneId: parentPaneId, drawerPaneId: drawerPane.id)
         if let drawerId = graphAtom.paneState(parentPaneId)?.drawer?.drawerId {
             drawerCursorAtom.expandDrawer(drawerId: drawerId)
         }
@@ -264,7 +219,8 @@ final class WorkspacePaneAtom {
         at targetDrawerPaneId: UUID,
         direction _: SplitNewDirection,
         sizingMode _: DropSizingMode,
-        parentFallbackCWD: URL?
+        parentFallbackCWD: URL?,
+        zmxSessionID: ZmxSessionID
     ) -> Pane? {
         guard let metadata = inheritedDrawerMetadata(from: parentPaneId, parentFallbackCWD: parentFallbackCWD) else {
             workspacePaneLogger.warning("insertDrawerPane: parent pane \(parentPaneId) not found")
@@ -275,7 +231,13 @@ final class WorkspacePaneAtom {
             at: targetDrawerPaneId,
             direction: .right,
             sizingMode: .halveTarget,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: zmxSessionID
+                )
+            ),
             metadata: metadata
         )
     }
@@ -297,7 +259,6 @@ final class WorkspacePaneAtom {
                 metadata: metadata
             )
         else { return nil }
-        anchorDrawerZmxSessionIfNeeded(parentPaneId: parentPaneId, drawerPaneId: drawerPane.id)
         if let drawerId = graphAtom.paneState(parentPaneId)?.drawer?.drawerId {
             drawerCursorAtom.expandDrawer(drawerId: drawerId)
         }
@@ -381,33 +342,4 @@ final class WorkspacePaneAtom {
         )
     }
 
-    private func zmxSessionId(
-        launchDirectory: URL?,
-        facets: PaneContextFacets,
-        paneId: UUID
-    ) -> String? {
-        if let worktreeId = facets.worktreeId {
-            guard let repositoryTopologyAtom,
-                let worktree = repositoryTopologyAtom.worktree(worktreeId),
-                let repo = facets.repoId.flatMap({ repositoryTopologyAtom.repo($0) })
-                    ?? repositoryTopologyAtom.repo(containing: worktreeId)
-            else {
-                return nil
-            }
-            return ZmxBackend.sessionId(
-                repoStableKey: repo.stableKey,
-                worktreeStableKey: worktree.stableKey,
-                paneId: paneId
-            )
-        }
-        return ZmxBackend.floatingSessionId(
-            launchDirectory: launchDirectory ?? FileManager.default.homeDirectoryForCurrentUser,
-            paneId: paneId
-        )
-    }
-
-    private func anchorDrawerZmxSessionIfNeeded(parentPaneId: UUID, drawerPaneId: UUID) {
-        let sessionId = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
-        graphAtom.setTerminalZmxSessionId(drawerPaneId, sessionId: sessionId)
-    }
 }

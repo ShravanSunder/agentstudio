@@ -12,7 +12,7 @@ final class WorkspaceCacheCoordinatorTests {
             path: "workspace-cache-coordinator-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
-        return WorkspaceStore(persistor: persistor)
+        return WorkspaceStore()
     }
 
     private func makeCoordinator(
@@ -98,6 +98,56 @@ final class WorkspaceCacheCoordinatorTests {
         coordinator.handleTopology(envelope)
 
         #expect(workspaceStore.repos.count == 1)
+    }
+
+    @Test("rejected discovered topology preserves live state and emits no effects")
+    func rejectedDiscoveredTopologyPreservesLiveStateAndEmitsNoEffects() throws {
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let firstRepoPath = URL(fileURLWithPath: "/tmp/luna-reconcile-rejection-first")
+        let secondRepoPath = URL(fileURLWithPath: "/tmp/luna-reconcile-rejection-second")
+        let firstRepo = workspaceStore.addRepo(at: firstRepoPath)
+        _ = workspaceStore.addRepo(at: secondRepoPath)
+        let firstWorktree = try #require(workspaceStore.repositoryTopologyAtom.repo(firstRepo.id)?.worktrees.single)
+        let pane = workspaceStore.createPane(
+            launchDirectory: firstRepoPath,
+            facets: .init(repoId: firstRepo.id, worktreeId: firstWorktree.id, cwd: firstRepoPath)
+        )
+        workspaceStore.appendTab(Tab(paneId: pane.id))
+        workspaceStore.markRepoUnavailable(firstRepo.id)
+        _ = workspaceStore.orphanPanesForRepo(firstRepo.id)
+        repoCache.setRepoEnrichment(.awaitingOrigin(repoId: firstRepo.id))
+        let effectRecorder = RejectedReconciliationTopologyEffectRecorder()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: EventBus<RuntimeEnvelope>(),
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            welcomeAtom: WelcomeAtom(),
+            topologyEffectHandler: effectRecorder,
+            scopeSyncHandler: { _ in }
+        )
+        let topologyBeforeRejection = workspaceStore.repositoryTopologyAtom.repos
+        let unavailableRepoIdsBeforeRejection = workspaceStore.repositoryTopologyAtom.unavailableRepoIds
+        let generationBeforeRejection = workspaceStore.repositoryTopologyAtom.worktreePathIndexGeneration
+
+        coordinator.handleTopology(
+            SystemEnvelope.test(
+                event: .topology(
+                    .repoDiscovered(
+                        repoPath: firstRepoPath,
+                        parentPath: firstRepoPath.deletingLastPathComponent(),
+                        linkedWorktrees: .scanned([secondRepoPath])
+                    )
+                )
+            )
+        )
+
+        #expect(workspaceStore.repositoryTopologyAtom.repos == topologyBeforeRejection)
+        #expect(workspaceStore.repositoryTopologyAtom.unavailableRepoIds == unavailableRepoIdsBeforeRejection)
+        #expect(workspaceStore.repositoryTopologyAtom.worktreePathIndexGeneration == generationBeforeRejection)
+        #expect(effectRecorder.deltas.isEmpty)
+        #expect(repoCache.repoEnrichment(for: firstRepo.id) == .awaitingOrigin(repoId: firstRepo.id))
+        #expect(workspaceStore.pane(pane.id)?.residency.isOrphaned == true)
     }
 
     @Test
@@ -716,6 +766,15 @@ final class WorkspaceCacheCoordinatorTests {
             await Task.yield()
         }
         return condition()
+    }
+}
+
+@MainActor
+private final class RejectedReconciliationTopologyEffectRecorder: TopologyEffectHandler {
+    private(set) var deltas: [WorktreeTopologyDelta] = []
+
+    func topologyDidChange(_ delta: WorktreeTopologyDelta) {
+        deltas.append(delta)
     }
 }
 

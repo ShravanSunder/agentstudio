@@ -182,7 +182,7 @@ startup_elapsed_for_marker() {
   local query_start="${3:?missing query start}"
   local process_start_time startup_complete_time
   process_start_time="$(event_time_for_marker "$marker" "$proof_token" "$query_start" "app.process.start")"
-  startup_complete_time="$(event_time_for_marker "$marker" "$proof_token" "$query_start" "app.zmx_startup_reconciliation.completed")"
+  startup_complete_time="$(event_time_for_marker "$marker" "$proof_token" "$query_start" "app.did_finish_launching.succeeded")"
   /usr/bin/python3 - "$process_start_time" "$startup_complete_time" <<'PY'
 from datetime import datetime
 import re
@@ -220,7 +220,7 @@ wait_for_debug_observability() {
       printf '%s\n' "$output"
       return 0
     fi
-    if ! grep -Eq 'no AgentStudio debug records found|no startup zmx reconciliation record found|no global preferences loaded record found' <<<"$output"; then
+    if ! grep -Eq 'no AgentStudio debug records found|no completed app launch record found|no global preferences loaded record found' <<<"$output"; then
       printf '%s\n' "$output" >&2
       return 1
     fi
@@ -266,7 +266,7 @@ wait_for_startup_elapsed() {
       printf '%s\n' "$output"
       return 0
     fi
-    if ! grep -Eq 'no app.process.start record found|no app.zmx_startup_reconciliation.completed record found' <<<"$output"; then
+    if ! grep -Eq 'no app.process.start record found|no app.did_finish_launching.succeeded record found' <<<"$output"; then
       printf '%s\n' "$output" >&2
       return 1
     fi

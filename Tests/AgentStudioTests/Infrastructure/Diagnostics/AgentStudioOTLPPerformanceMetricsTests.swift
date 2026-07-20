@@ -236,198 +236,228 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
-    func bridgePerformanceRecordProjectsOnlySafeBridgeMetrics() throws {
+    func processMallocRecordProjectsPairedMemoryGauges() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 124,
+            timeUnixNano: 457,
             severityText: .info,
-            body: "performance.bridge.webkit.push_envelope",
-            traceID: "11111111111111111111111111111111",
-            spanID: "2222222222222222",
-            parentSpanID: "3333333333333333",
+            body: "performance.process.malloc_zone",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
             resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.bridge.performance.webkit", version: "0.1.0"),
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
             attributes: [
-                "agentstudio.bridge.content.byte_size_bucket": .int(100_000),
-                "agentstudio.bridge.content.line_count_bucket": .int(500),
-                "agentstudio.bridge.item_id": .string("private-item-id"),
-                "agentstudio.bridge.phase": .string("transport"),
-                "agentstudio.bridge.plane": .string("data"),
-                "agentstudio.bridge.priority": .string("cold"),
-                "agentstudio.bridge.slice": .string("review_metadata"),
-                "agentstudio.performance.elapsed_ms": .double(8.5),
-                "agentstudio.trace.tag": .string("bridge.performance.webkit"),
+                "agentstudio.performance.process.malloc.blocks_in_use": .int(7),
+                "agentstudio.performance.process.malloc.size_in_use_bytes": .int(11),
+                "agentstudio.performance.process.malloc.maximum_size_in_use_bytes": .int(13),
+                "agentstudio.performance.process.malloc.size_allocated_bytes": .int(17),
             ]
         )
 
         let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
-        let expectedDimensions = [
-            AgentStudioOTLPPerformanceMetricDimension(
-                name: "event",
-                value: "performance.bridge.webkit.push_envelope"
-            ),
-            AgentStudioOTLPPerformanceMetricDimension(name: "phase", value: "transport"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "plane", value: "data"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "priority", value: "cold"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "slice", value: "review_metadata"),
-        ]
 
-        #expect(metricEvent.eventName == "performance.bridge.webkit.push_envelope")
-        #expect(metricEvent.elapsedMilliseconds == 8.5)
-        #expect(metricEvent.dimensions == expectedDimensions)
+        #expect(metricEvent.eventName == "performance.process.malloc_zone")
         #expect(
-            metricEvent.samples == [
-                AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.bridge.webkit.push_envelope",
-                    label: "agentstudio_bridge_content_byte_size_bucket",
-                    dimensions: expectedDimensions,
-                    value: 100_000
-                ),
-                AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.bridge.webkit.push_envelope",
-                    label: "agentstudio_bridge_content_line_count_bucket",
-                    dimensions: expectedDimensions,
-                    value: 500
-                ),
+            metricEvent.samples.map(\.label) == [
+                "agentstudio_performance_process_malloc_blocks_in_use",
+                "agentstudio_performance_process_malloc_maximum_size_in_use_bytes",
+                "agentstudio_performance_process_malloc_size_allocated_bytes",
+                "agentstudio_performance_process_malloc_size_in_use_bytes",
             ])
-    }
-
-    @Test
-    func bridgeDemandQueueWaitProjectsLaneDimensionAndSchedulerGauges() throws {
-        let record = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 125,
-            severityText: .info,
-            body: "performance.bridge.swift.metadata_scheduler_queue_wait",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.bridge.performance.swift", version: "0.1.0"),
-            attributes: [
-                "agent.proof.marker": .string("bridge-headless-manifest-proof"),
-                "agentstudio.bridge.demand.lane": .string("foreground"),
-                "agentstudio.bridge.demand.queue_depth": .double(7),
-                "agentstudio.bridge.demand.scheduler_queue_wait_ms": .double(12.5),
-                "agentstudio.bridge.phase": .string("demand_queue_wait"),
-                "agentstudio.bridge.plane": .string("data"),
-                "agentstudio.bridge.priority": .string("hot"),
-                "agentstudio.bridge.slice": .string("tree_prepare_input"),
-                "agentstudio.performance.elapsed_ms": .double(12.5),
-                "agentstudio.trace.tag": .string("bridge.performance.swift"),
-            ]
-        )
-
-        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
-        let expectedDimensions = [
-            AgentStudioOTLPPerformanceMetricDimension(
-                name: "event",
-                value: "performance.bridge.swift.metadata_scheduler_queue_wait"
-            ),
-            AgentStudioOTLPPerformanceMetricDimension(
-                name: "agent.proof.marker",
-                value: "bridge-headless-manifest-proof"
-            ),
-            AgentStudioOTLPPerformanceMetricDimension(name: "phase", value: "demand_queue_wait"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "plane", value: "data"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "priority", value: "hot"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "slice", value: "tree_prepare_input"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "lane", value: "foreground"),
-        ]
-
-        #expect(metricEvent.dimensions == expectedDimensions)
-        #expect(metricEvent.elapsedMilliseconds == 12.5)
         #expect(
-            metricEvent.samples == [
-                AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.bridge.swift.metadata_scheduler_queue_wait",
-                    label: "agentstudio_bridge_demand_queue_depth",
-                    dimensions: expectedDimensions,
-                    value: 7
-                ),
-                AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.bridge.swift.metadata_scheduler_queue_wait",
-                    label: "agentstudio_bridge_demand_scheduler_queue_wait_ms",
-                    dimensions: expectedDimensions,
-                    value: 12.5
-                ),
-            ])
+            metricEvent.measurements.allSatisfy { measurement in
+                if case .gauge = measurement { return true }
+                return false
+            })
     }
 
     @Test
-    func bridgeTimeToFirstInteractionProjectsVariantDimension() throws {
-        let record = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 126,
-            severityText: .info,
-            body: "performance.bridge.viewer.time_to_first_interaction",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.bridge.performance.web", version: "0.1.0"),
+    func runtimePressureAggregateDeltasAreCountersWhileRetainedValuesStayGauges() throws {
+        let factory = RecordingMetricsFactory()
+        let metrics = AgentStudioOTLPPerformanceMetrics(factory: factory)
+        let dimensions = [
+            ("drain_class", "immediate"),
+            ("event", "performance.terminal.accumulator_drain"),
+        ]
+        let firstRecord = Self.projectedPerformanceRecord(
+            body: "performance.terminal.accumulator_drain",
             attributes: [
-                "agentstudio.bridge.phase": .string("time_to_first_interaction"),
-                "agentstudio.bridge.plane": .string("data"),
-                "agentstudio.bridge.priority": .string("hot"),
-                "agentstudio.bridge.slice": .string("content_fetch"),
-                "agentstudio.bridge.viewer": .string("file"),
-                "agentstudio.bridge.viewer.ttfi_variant": .string("cold"),
-                "agentstudio.performance.elapsed_ms": .double(1429),
-                "agentstudio.trace.tag": .string("bridge.performance.web"),
+                "agentstudio.performance.elapsed_ms": .double(3),
+                "agentstudio.performance.terminal.accumulator.drain.class": .string("immediate"),
+                "agentstudio.performance.terminal.accumulator.offered.count": .int(10),
+                "agentstudio.performance.terminal.accumulator.replaced.count": .int(8),
+                "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(4),
+                "agentstudio.performance.terminal.accumulator.retained_size_bytes": .int(256),
+            ]
+        )
+        let secondRecord = Self.projectedPerformanceRecord(
+            body: "performance.terminal.accumulator_drain",
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(1),
+                "agentstudio.performance.terminal.accumulator.drain.class": .string("immediate"),
+                "agentstudio.performance.terminal.accumulator.offered.count": .int(5),
+                "agentstudio.performance.terminal.accumulator.replaced.count": .int(3),
+                "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(2),
+                "agentstudio.performance.terminal.accumulator.retained_size_bytes": .int(128),
             ]
         )
 
-        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
-        let expectedDimensions = [
-            AgentStudioOTLPPerformanceMetricDimension(
-                name: "event",
-                value: "performance.bridge.viewer.time_to_first_interaction"
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: firstRecord))
+        metrics.record(firstRecord)
+        metrics.record(secondRecord)
+
+        #expect(
+            metricEvent.dimensions.contains(
+                AgentStudioOTLPPerformanceMetricDimension(name: "drain_class", value: "immediate")
+            )
+        )
+        #expect(
+            metricEvent.measurements.contains { measurement in
+                if case .counter(let sample) = measurement {
+                    return sample.label == "agentstudio_performance_terminal_accumulator_offered_count"
+                }
+                return false
+            })
+        #expect(
+            metricEvent.measurements.contains { measurement in
+                if case .gauge(let sample) = measurement {
+                    return sample.label == "agentstudio_performance_terminal_accumulator_retained_entry_count"
+                }
+                return false
+            })
+        #expect(
+            factory.counter(
+                label: "agentstudio_performance_terminal_accumulator_offered_count",
+                dimensions: dimensions
+            )?.totalValue == 15)
+        #expect(
+            factory.counter(
+                label: "agentstudio_performance_terminal_accumulator_replaced_count",
+                dimensions: dimensions
+            )?.totalValue == 11)
+        #expect(
+            factory.recorder(
+                label: "agentstudio_performance_terminal_accumulator_retained_entry_count",
+                dimensions: dimensions
+            )?.values == [4, 2])
+        #expect(
+            factory.recorder(
+                label: "agentstudio_performance_terminal_accumulator_retained_size_bytes",
+                dimensions: dimensions
+            )?.values == [256, 128])
+        #expect(
+            factory.recorder(
+                label: AgentStudioOTLPPerformanceMetrics.elapsedMetricLabel,
+                dimensions: dimensions
+            )?.values == [3, 1])
+    }
+
+    @Test
+    func commonQuiescenceRecordsProjectExactAggregateGaugeSeries() throws {
+        let records = [
+            Self.projectedPerformanceRecord(
+                body: "performance.filesystem.logical_debt",
+                attributes: [
+                    "agentstudio.performance.filesystem.pending_worktree.count": .int(9),
+                    "agentstudio.performance.filesystem.drain_task.count": .int(8),
+                    "agentstudio.performance.filesystem.watched_folder.ready.count": .int(7),
+                    "agentstudio.performance.filesystem.watched_folder.active.count": .int(6),
+                    "agentstudio.performance.filesystem.watched_folder.dirty_follow_up.count": .int(2),
+                    "agentstudio.performance.filesystem.logical_debt.count": .int(1),
+                ]
             ),
-            AgentStudioOTLPPerformanceMetricDimension(name: "phase", value: "time_to_first_interaction"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "plane", value: "data"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "priority", value: "hot"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "slice", value: "content_fetch"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "variant", value: "cold"),
+            Self.projectedPerformanceRecord(
+                body: "performance.git.logical_debt",
+                attributes: [
+                    "agentstudio.performance.git.logical_pending.count": .int(4),
+                    "agentstudio.performance.git.retry_pending.count": .int(3),
+                    "agentstudio.performance.git.logical_running.count": .int(2),
+                    "agentstudio.performance.git.logical_debt.count": .int(1),
+                ]
+            ),
+            Self.projectedPerformanceRecord(
+                body: "performance.runtime_delivery.snapshot",
+                attributes: [
+                    "agentstudio.performance.runtime_delivery.runtime_channel_outbound_pending.count": .int(8),
+                    "agentstudio.performance.runtime_delivery.eventbus_active_delivery_debt.count": .int(7),
+                    "agentstudio.performance.runtime_delivery.total_pending.count": .int(6),
+                    "agentstudio.performance.runtime_delivery.runtime_channel_outbound_dropped.count": .int(5),
+                    "agentstudio.performance.runtime_delivery.runtime_channel_retired_undelivered.count": .int(4),
+                    "agentstudio.performance.runtime_delivery.eventbus_live_dropped.count": .int(3),
+                    "agentstudio.performance.runtime_delivery.eventbus_replay_dropped.count": .int(2),
+                    "agentstudio.performance.runtime_delivery.eventbus_retired_undelivered.count": .int(1),
+                    "agentstudio.performance.runtime_delivery.eventbus_active_subscriber.count": .int(4),
+                ]
+            ),
         ]
 
-        #expect(metricEvent.dimensions == expectedDimensions)
-        #expect(metricEvent.elapsedMilliseconds == 1429)
+        let metricEvents = try records.map { record in
+            try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+        }
+
+        #expect(
+            metricEvents[0].samples.map(\.label) == [
+                "agentstudio_performance_filesystem_drain_task_count",
+                "agentstudio_performance_filesystem_logical_debt_count",
+                "agentstudio_performance_filesystem_pending_worktree_count",
+                "agentstudio_performance_filesystem_watched_folder_active_count",
+                "agentstudio_performance_filesystem_watched_folder_dirty_follow_up_count",
+                "agentstudio_performance_filesystem_watched_folder_ready_count",
+            ])
+        #expect(
+            metricEvents[1].samples.map(\.label) == [
+                "agentstudio_performance_git_logical_debt_count",
+                "agentstudio_performance_git_logical_pending_count",
+                "agentstudio_performance_git_logical_running_count",
+                "agentstudio_performance_git_retry_pending_count",
+            ])
+        #expect(
+            metricEvents[2].samples.map(\.label) == [
+                "agentstudio_performance_runtime_delivery_eventbus_active_delivery_debt_count",
+                "agentstudio_performance_runtime_delivery_eventbus_active_subscriber_count",
+                "agentstudio_performance_runtime_delivery_eventbus_live_dropped_count",
+                "agentstudio_performance_runtime_delivery_eventbus_replay_dropped_count",
+                "agentstudio_performance_runtime_delivery_eventbus_retired_undelivered_count",
+                "agentstudio_performance_runtime_delivery_runtime_channel_outbound_dropped_count",
+                "agentstudio_performance_runtime_delivery_runtime_channel_outbound_pending_count",
+                "agentstudio_performance_runtime_delivery_runtime_channel_retired_undelivered_count",
+                "agentstudio_performance_runtime_delivery_total_pending_count",
+            ])
+        #expect(
+            metricEvents.flatMap(\.measurements).allSatisfy { measurement in
+                if case .gauge = measurement { return true }
+                return false
+            })
     }
 
     @Test
-    func bridgePerformanceRecordRequiresCompleteFiniteTaxonomy() {
-        let missingPhase = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 124,
-            severityText: .info,
-            body: "performance.bridge.webkit.push_envelope",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.bridge.performance.webkit", version: "0.1.0"),
-            attributes: [
-                "agentstudio.bridge.plane": .string("data"),
-                "agentstudio.bridge.priority": .string("cold"),
-                "agentstudio.bridge.slice": .string("review_metadata"),
-            ]
-        )
-        let invalidSlice = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 125,
-            severityText: .info,
-            body: "performance.bridge.webkit.push_envelope",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.bridge.performance.webkit", version: "0.1.0"),
-            attributes: [
-                "agentstudio.bridge.phase": .string("transport"),
-                "agentstudio.bridge.plane": .string("data"),
-                "agentstudio.bridge.priority": .string("cold"),
-                "agentstudio.bridge.slice": .string("not_a_slice"),
-            ]
-        )
+    func commonQuiescenceGaugeRecordsNonzeroThenZero() throws {
+        let factory = RecordingMetricsFactory()
+        let metrics = AgentStudioOTLPPerformanceMetrics(factory: factory)
+        let dimensions = [("event", "performance.runtime_delivery.snapshot")]
 
-        #expect(AgentStudioOTLPPerformanceMetricEvent(record: missingPhase) == nil)
-        #expect(AgentStudioOTLPPerformanceMetricEvent(record: invalidSlice) == nil)
+        metrics.record(
+            Self.projectedPerformanceRecord(
+                body: "performance.runtime_delivery.snapshot",
+                attributes: [
+                    "agentstudio.performance.runtime_delivery.total_pending.count": .int(6)
+                ]
+            ))
+        metrics.record(
+            Self.projectedPerformanceRecord(
+                body: "performance.runtime_delivery.snapshot",
+                attributes: [
+                    "agentstudio.performance.runtime_delivery.total_pending.count": .int(0)
+                ]
+            ))
+
+        let gauge = try #require(
+            factory.recorder(
+                label: "agentstudio_performance_runtime_delivery_total_pending_count",
+                dimensions: dimensions
+            )
+        )
+        #expect(gauge.values == [6, 0])
     }
 
     @Test
@@ -513,6 +543,24 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             ]
         )
     }
+
+    private static func projectedPerformanceRecord(
+        body: String,
+        attributes: [String: AgentStudioTraceValue]
+    ) -> AgentStudioOTLPProjectedLogRecord {
+        AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 458,
+            severityText: .info,
+            body: body,
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: attributes
+        )
+    }
+
 }
 
 private final class RecordingMetricsFactory: MetricsFactory, @unchecked Sendable {

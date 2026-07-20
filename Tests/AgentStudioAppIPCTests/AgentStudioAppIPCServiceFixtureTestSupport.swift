@@ -32,7 +32,9 @@ struct LiveServerFixture {
         bridgePort: (any AppIPCBridgePort)? = nil,
         commandPort: any AppIPCCommandPort = FakeCommandPort(),
         uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
+        sidebarPort: any AppIPCSidebarPort = FakeSidebarPort(),
         debugTokenEscrowEnabled: Bool = false,
+        debugTokenEscrowPermissionScopes: [IPCPermissionScope] = [],
         methodContributions: [AppIPCMethodContribution] = []
     ) throws {
         rootURL = URL(
@@ -45,8 +47,11 @@ struct LiveServerFixture {
         #endif
         paths = AgentStudioIPCPathResolver().paths(rootDirectory: rootURL)
         let methodRegistry = try AppIPCMethodRegistry.phaseOne()
+        let contributedMethodNames = Set(methodContributions.map(\.definition.name))
+        let baseDefinitions = methodRegistry.definitions
+            .filter { !contributedMethodNames.contains($0.name) }
         let mergedMethodRegistry = try AppIPCMethodRegistry(
-            baseDefinitions: methodRegistry.definitions,
+            baseDefinitions: baseDefinitions,
             contributions: methodContributions
         )
         let ports = AgentStudioAppIPCPorts(
@@ -66,14 +71,16 @@ struct LiveServerFixture {
             bridgePort: bridgePort ?? FakeBridgePort(paneId: panes.first?.id ?? boundPaneId),
             commandPort: commandPort,
             uiPresentationPort: uiPresentationPort,
+            sidebarPort: sidebarPort,
             permissionApprovalPort: FakePermissionApprovalPort()
         )
         let service = try AgentStudioAppIPCService(
             configuration: AgentStudioAppIPCConfiguration(
                 runtimeId: runtimeId,
                 accessMode: accessMode,
-                methodDefinitions: methodRegistry.definitions,
-                debugTokenEscrowEnabled: debugTokenEscrowEnabled
+                methodDefinitions: baseDefinitions,
+                debugTokenEscrowEnabled: debugTokenEscrowEnabled,
+                debugTokenEscrowPermissionScopes: debugTokenEscrowPermissionScopes
             ),
             ports: ports,
             methodContributions: methodContributions

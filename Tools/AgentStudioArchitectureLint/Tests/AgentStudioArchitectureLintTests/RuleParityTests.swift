@@ -22,6 +22,38 @@ struct RuleParityTests {
         #expect(diagnostics.isEmpty)
     }
 
+    @Test("shared components reject Core-owned command icon references")
+    func sharedComponentsRejectCoreOwnedCommandIconReferences() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent("Bad")
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("AgentStudio")
+            .appendingPathComponent("SharedComponents")
+            .appendingPathComponent("BadSharedComponentStaticRead.swift")
+            .path
+
+        let diagnostics = try lint(files: [fixture])
+            .filter { diagnostic in
+                diagnostic.ruleID == "agentstudio_shared_components_are_stateless"
+                    && diagnostic.message.contains("Core-owned presentation types")
+            }
+
+        #expect(diagnostics.contains { $0.line == 2 })
+    }
+
+    @Test("shared components reject atom scope environment reads")
+    func sharedComponentsRejectAtomScopeEnvironmentReads() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent("Bad/Sources/AgentStudio/SharedComponents/BadSharedComponent.swift")
+            .path
+
+        let diagnostics = try lint(files: [fixture]).filter {
+            $0.ruleID == "agentstudio_shared_components_are_stateless"
+        }
+
+        #expect(diagnostics.contains { $0.line == 8 })
+    }
+
     @Test("forbidden architecture marker has dedicated fixture coverage")
     func forbiddenArchitectureMarkerHasDedicatedFixtureCoverage() throws {
         let markerFixture = fixtureRoot()
@@ -159,6 +191,72 @@ struct RuleParityTests {
         #expect(
             diagnostics.map(\.message).contains(
                 "Production EventBus subscriber helpers must not hide policy behind zero-argument overloads"))
+    }
+
+    @Test("Terminal local disposition publication rule diagnoses every local disposition")
+    func terminalLocalDispositionPublicationRuleDiagnosesEveryLocalDisposition() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent("Bad")
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("AgentStudio")
+            .appendingPathComponent("Features")
+            .appendingPathComponent("Terminal")
+            .appendingPathComponent("Ghostty")
+            .appendingPathComponent("BadTerminalLocalDispositionPublication.swift")
+            .path
+
+        let diagnostics = try lint(files: [fixture])
+            .filter { $0.ruleID == "agentstudio_terminal_local_disposition_publication" }
+
+        #expect(diagnostics.map(\.line) == [8, 11, 14, 17, 20])
+        #expect(
+            Set(diagnostics.map(\.message)) == [
+                "GhosttyActionDisposition local-only cases must contract locally before routeActionToTerminalRuntimeOnMainActor"
+            ])
+    }
+
+    @Test("Terminal local disposition publication rule rejects fallthrough to the semantic edge")
+    func terminalLocalDispositionPublicationRuleRejectsFallthroughToSemanticEdge() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent("Bad")
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("AgentStudio")
+            .appendingPathComponent("Features")
+            .appendingPathComponent("Terminal")
+            .appendingPathComponent("Ghostty")
+            .appendingPathComponent("BadTerminalLocalDispositionFallthrough.swift")
+            .path
+
+        let diagnostics = try lint(files: [fixture])
+            .filter { $0.ruleID == "agentstudio_terminal_local_disposition_publication" }
+
+        #expect(diagnostics.map(\.line) == [9])
+        #expect(
+            diagnostics.map(\.message) == [
+                "GhosttyActionDisposition local-only cases must end in a top-level return before semantic runtime publication"
+            ])
+    }
+
+    @Test("Terminal local disposition publication rule rejects stored classifier results")
+    func terminalLocalDispositionPublicationRuleRejectsStoredClassifierResults() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent("Bad")
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("AgentStudio")
+            .appendingPathComponent("Features")
+            .appendingPathComponent("Terminal")
+            .appendingPathComponent("Ghostty")
+            .appendingPathComponent("BadTerminalStoredDispositionClassification.swift")
+            .path
+
+        let diagnostics = try lint(files: [fixture])
+            .filter { $0.ruleID == "agentstudio_terminal_local_disposition_publication" }
+
+        #expect(diagnostics.map(\.line) == [3])
+        #expect(
+            diagnostics.map(\.message) == [
+                "GhosttyActionDisposition.classify results must be consumed directly by a switch"
+            ])
     }
 
     @Test("tooltip source rule scopes raw help to migrated dense controls")
@@ -357,22 +455,30 @@ struct RuleParityTests {
     }
 
     private func lintFixtureCorpus(_ corpus: String) throws -> [ArchitectureDiagnostic] {
+        let corpusRoot = fixtureRoot().appendingPathComponent(corpus)
         let files = try SourceFileDiscovery(fileManager: .default)
-            .swiftFiles(under: [fixtureRoot().appendingPathComponent(corpus).path])
-        return try lint(files: files)
+            .swiftFiles(under: [corpusRoot.path])
+        return try lint(files: files, workspaceRootPath: corpusRoot.path)
     }
 
-    private func lint(files: [String]) throws -> [ArchitectureDiagnostic] {
-        var diagnostics: [ArchitectureDiagnostic] = []
-        for file in files {
+    private func lint(
+        files: [String],
+        workspaceRootPath: String = FileManager.default.currentDirectoryPath
+    ) throws -> [ArchitectureDiagnostic] {
+        let contexts = try files.map { file in
             let source = try String(contentsOfFile: file, encoding: .utf8)
-            let context = ArchitectureLintContext(
+            return ArchitectureLintContext(
                 path: file,
                 source: source,
-                sourceFile: Parser.parse(source: source)
+                sourceFile: Parser.parse(source: source),
+                workspaceRootPath: workspaceRootPath
             )
-            for rule in ArchitectureRuleRegistry.rules {
-                diagnostics.append(contentsOf: rule.validate(context: context))
+        }
+        var diagnostics: [ArchitectureDiagnostic] = []
+        for rule in ArchitectureRuleRegistry.rules {
+            let preparedRule = rule.prepared(for: contexts)
+            for context in contexts {
+                diagnostics.append(contentsOf: preparedRule.validate(context: context))
             }
         }
         return diagnostics.sorted()

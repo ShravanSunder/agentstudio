@@ -12,10 +12,11 @@ struct SidebarSurfaceChromeTests {
 
         #expect(policy == .repoMatched)
         #expect(policy.minimumWidth == AppStyles.Shell.Sidebar.minimumWidth)
-        #expect(policy.background == .windowBackgroundColor)
-        #expect(policy.shadowOpacity == AppStyles.Shell.Sidebar.shadowOpacity)
-        #expect(policy.shadowRadius == AppStyles.Shell.Sidebar.shadowRadius)
-        #expect(policy.shadowOffsetX == AppStyles.Shell.Sidebar.shadowOffsetX)
-        #expect(policy.shadowOffsetY == AppStyles.Shell.Sidebar.shadowOffsetY)
+        #expect(policy.background == .shellChrome)
+        #expect(policy.background.nsColor == AppStyles.Shell.TabBar.titlebarBackground)
+        #expect(policy.shadowOpacity == 0)
+        #expect(policy.shadowRadius == 0)
+        #expect(policy.shadowOffsetX == 0)
+        #expect(policy.shadowOffsetY == 0)
     }
 }

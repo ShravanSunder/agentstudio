@@ -19,6 +19,32 @@ final class LayoutFlatStripTests {
     }
 
     @Test
+    func generatedDividerIdentitiesAreUUIDv7() throws {
+        // Arrange
+        let paneA = UUIDv7.generate()
+        let paneB = UUIDv7.generate()
+        let paneC = UUIDv7.generate()
+
+        // Act
+        let autoTiled = Layout.autoTiled([paneA, paneB])
+        let inserted = try #require(
+            Layout(paneId: paneA).inserting(
+                paneId: paneC,
+                at: paneA,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+        )
+
+        // Assert
+        #expect(autoTiled.dividerIds.count == 1)
+        #expect(autoTiled.dividerIds.allSatisfy(UUIDv7.isV7))
+        #expect(inserted.dividerIds.count == 1)
+        #expect(inserted.dividerIds.allSatisfy(UUIDv7.isV7))
+    }
+
+    @Test
     func inserting_afterTarget_splitsTargetRatioAndInsertsAdjacentPane() throws {
         let paneA = UUID()
         let paneB = UUID()

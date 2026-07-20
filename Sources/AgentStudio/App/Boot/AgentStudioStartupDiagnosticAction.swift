@@ -20,6 +20,7 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
             case bridgeReviewToFileViewObservabilitySmoke = "bridge-review-to-file-view-observability-smoke"
             case bridgeProductPaintCorrelation = "bridge-product-paint-correlation"
             case bridgeProductStreamWebKitFeasibility = "bridge-product-stream-webkit-feasibility"
+            case sidebarPerformanceProof = "sidebar-performance-proof"
         #endif
         case addWatchFolder = "add-watch-folder"
     }
@@ -66,6 +67,8 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
                 "bridgeProductPaintCorrelation"
             case .bridgeProductStreamWebKitFeasibility:
                 "bridgeProductStreamWebKitFeasibility"
+            case .sidebarPerformanceProof:
+                "sidebarPerformanceProof"
         #endif
         case .addWatchFolder:
             "addWatchFolder"

@@ -13,7 +13,13 @@ struct DerivedSelectorObservationTests {
     func paneDisplayDerived_tracksUnderlyingAtomReads() async throws {
         withTestAtomRegistry { atoms in
             let pane = Pane(
-                content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+                content: .terminal(
+                    TerminalState(
+                        provider: .zmx,
+                        lifetime: .persistent,
+                        zmxSessionID: .generateUUIDv7()
+                    )
+                ),
                 metadata: PaneMetadata(
                     title: "Initial"
                 )

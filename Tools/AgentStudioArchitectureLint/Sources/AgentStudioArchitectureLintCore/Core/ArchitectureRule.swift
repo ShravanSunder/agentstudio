@@ -5,10 +5,15 @@ protocol ArchitectureRule: Sendable {
     var severity: ArchitectureSeverity { get }
     var message: String { get }
 
+    func prepared(for contexts: [ArchitectureLintContext]) -> any ArchitectureRule
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic]
 }
 
 extension ArchitectureRule {
+    func prepared(for contexts: [ArchitectureLintContext]) -> any ArchitectureRule {
+        self
+    }
+
     func diagnostic(
         context: ArchitectureLintContext,
         position: AbsolutePosition,
@@ -46,5 +51,6 @@ enum ArchitectureRuleRegistry {
         TestTaskSleepRule(),
         TooltipSourceRule(),
         EventBusSubscriberPolicyRule(),
+        TerminalLocalDispositionPublicationRule(),
     ]
 }

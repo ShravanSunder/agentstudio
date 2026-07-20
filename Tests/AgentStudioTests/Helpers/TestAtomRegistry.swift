@@ -4,9 +4,16 @@
 private var hasInstalledSharedTestAtomScope = false
 
 @MainActor
+func makeInstalledTestAtomRegistry() -> AtomRegistry {
+    AtomRegistry(
+        workspaceIdentity: WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
+    )
+}
+
+@MainActor
 func installTestAtomRegistryIfNeeded() {
     guard !hasInstalledSharedTestAtomScope else { return }
-    AtomScope.setUp(AtomRegistry())
+    AtomScope.setUp(makeInstalledTestAtomRegistry())
     hasInstalledSharedTestAtomScope = true
 }
 
@@ -15,7 +22,7 @@ func withTestAtomRegistry<T>(
     _ body: (AtomRegistry) throws -> T
 ) rethrows -> T {
     installTestAtomRegistryIfNeeded()
-    let atoms = AtomRegistry()
+    let atoms = makeInstalledTestAtomRegistry()
     return try AtomScope.$override.withValue(atoms) {
         try body(atoms)
     }
@@ -26,7 +33,7 @@ func withAsyncTestAtomRegistry<T>(
     _ body: (AtomRegistry) async throws -> T
 ) async rethrows -> T {
     installTestAtomRegistryIfNeeded()
-    let atoms = AtomRegistry()
+    let atoms = makeInstalledTestAtomRegistry()
     return try await AtomScope.$override.withValue(atoms) {
         try await body(atoms)
     }

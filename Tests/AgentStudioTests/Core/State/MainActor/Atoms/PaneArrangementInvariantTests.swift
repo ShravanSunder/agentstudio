@@ -9,9 +9,7 @@ final class PaneArrangementInvariantTests {
     private var store: WorkspaceStore!
 
     init() {
-        store = WorkspaceStore(
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
+        store = WorkspaceStore()
     }
 
     @Test

@@ -48,10 +48,7 @@ extension WorkspaceSurfaceCoordinator {
     func upsertPaneFilesystemProjectionContext(for pane: Pane) {
         paneContextGeneration &+= 1
         let update = paneFilesystemProjectionUpdate(for: pane, generation: paneContextGeneration)
-        paneFilesystemProjectionStore.applyPaneContextUpdate(update)
-        Task { [filesystemProjectionIndex] in
-            await filesystemProjectionIndex.applyPaneUpdate(update)
-        }
+        scheduleFilesystemPaneUpdate(update, paneId: pane.id)
     }
 
     func removePaneFilesystemProjectionContext(paneId: UUID) {
@@ -60,9 +57,48 @@ extension WorkspaceSurfaceCoordinator {
             requestGeneration: paneContextGeneration,
             kind: .remove(paneId: paneId)
         )
-        paneFilesystemProjectionStore.applyPaneContextUpdate(update)
-        Task { [filesystemProjectionIndex] in
-            await filesystemProjectionIndex.applyPaneUpdate(update)
+        nextFilesystemProjectionSequenceByPaneId.removeValue(forKey: paneId)
+        scheduleFilesystemPaneUpdate(update, paneId: paneId)
+    }
+
+    func scheduleActivePaneWorktreeUpdate() {
+        filesystemAffectedKeyRequestCount &+= 1
+        pendingActivePaneWorktreeUpdate = true
+        startFilesystemEffectTaskIfNeeded()
+    }
+
+    func startObservingActivePaneWorktree() {
+        guard !isObservingActivePaneWorktree else { return }
+        isObservingActivePaneWorktree = true
+        lastObservedActivePaneWorktreeId = activePaneWorktree()
+        observeActivePaneWorktreeChange()
+    }
+
+    func stopObservingActivePaneWorktree() {
+        isObservingActivePaneWorktree = false
+        activePaneWorktreeObservationGeneration &+= 1
+    }
+
+    private func observeActivePaneWorktreeChange() {
+        guard isObservingActivePaneWorktree else { return }
+        activePaneWorktreeObservationGeneration &+= 1
+        let observationGeneration = activePaneWorktreeObservationGeneration
+        withObservationTracking {
+            _ = activePaneWorktree()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                    self.isObservingActivePaneWorktree,
+                    self.activePaneWorktreeObservationGeneration == observationGeneration
+                else { return }
+                let nextWorktreeId = self.activePaneWorktree()
+                let didChange = self.lastObservedActivePaneWorktreeId != nextWorktreeId
+                self.lastObservedActivePaneWorktreeId = nextWorktreeId
+                self.observeActivePaneWorktreeChange()
+                if didChange {
+                    self.scheduleActivePaneWorktreeUpdate()
+                }
+            }
         }
     }
 
@@ -101,9 +137,7 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         let applyStart = clock.now
-        let derivedEnvelopes = projectionResult.intents.compactMap { intent in
-            paneFilesystemProjectionStore.applyProjectionIntent(intent)
-        }
+        let derivedEnvelopes = projectionResult.intents.map(makeFilesystemProjectionEnvelope)
         let applyDuration = applyStart.duration(to: clock.now)
 
         performanceTraceRecorder?.recordDuration(
@@ -132,34 +166,19 @@ extension WorkspaceSurfaceCoordinator {
             else {
                 return true
             }
-            await Self.publishDerivedFilesystemEnvelopes(
-                derivedEnvelopes,
-                to: paneEventBus
-            )
+            await publishCurrentDerivedFilesystemEnvelopes(derivedEnvelopes)
         }
         return true
     }
 
     nonisolated private static func shouldProjectPaneFilesystemEnvelope(_ envelope: RuntimeEnvelope) -> Bool {
         guard case .worktree(let worktreeEnvelope) = envelope else { return false }
-        switch worktreeEnvelope.event {
-        case .filesystem(.filesChanged), .gitWorkingDirectory(.snapshotChanged):
-            return true
-        case .filesystem, .gitWorkingDirectory, .forge, .security:
-            return false
-        }
+        return PaneFilesystemProjectionAdmission.classify(worktreeEnvelope.event).shouldProject
     }
 
     nonisolated private static func projectionPhase(for envelope: RuntimeEnvelope) -> String {
         guard case .worktree(let worktreeEnvelope) = envelope else { return "unknown" }
-        switch worktreeEnvelope.event {
-        case .filesystem(.filesChanged):
-            return "filesystem_projection"
-        case .gitWorkingDirectory(.snapshotChanged):
-            return "git_snapshot_projection"
-        default:
-            return "unknown"
-        }
+        return PaneFilesystemProjectionAdmission.classify(worktreeEnvelope.event).performancePhase
     }
 
     private func publishProductFileEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) async {
@@ -242,18 +261,91 @@ extension WorkspaceSurfaceCoordinator {
 
     private func scheduleFilesystemRootAndActivitySync() {
         filesystemSyncRequestGeneration &+= 1
+        filesystemFullReconciliationRequestCount &+= 1
         filesystemSyncRequested = true
+        startFilesystemEffectTaskIfNeeded()
+    }
+
+    private func scheduleFilesystemPaneUpdate(
+        _ update: FilesystemProjectionPaneUpdate,
+        paneId: UUID
+    ) {
+        filesystemAffectedKeyRequestCount &+= 1
+        pendingFilesystemPaneUpdatesByPaneId[paneId] = update
+        startFilesystemEffectTaskIfNeeded()
+    }
+
+    private func startFilesystemEffectTaskIfNeeded() {
         guard filesystemSyncTask == nil else { return }
 
         filesystemSyncTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.filesystemSyncTask = nil }
 
-            while self.filesystemSyncRequested, !Task.isCancelled {
-                self.filesystemSyncRequested = false
-                await self.performFilesystemRootAndActivitySyncPass()
+            while self.hasPendingFilesystemEffects, !Task.isCancelled {
+                if self.filesystemSyncRequested {
+                    self.filesystemSyncRequested = false
+                    await self.performFilesystemRootAndActivitySyncPass()
+                } else {
+                    await self.performAffectedFilesystemEffectsPass()
+                }
+                self.recordFilesystemEffectPerformanceSnapshot()
             }
         }
+    }
+
+    private var hasPendingFilesystemEffects: Bool {
+        filesystemSyncRequested
+            || !pendingFilesystemPaneUpdatesByPaneId.isEmpty
+            || pendingActivePaneWorktreeUpdate
+    }
+
+    private func performAffectedFilesystemEffectsPass() async {
+        let paneUpdates = pendingFilesystemPaneUpdatesByPaneId.values
+            .sorted { $0.requestGeneration < $1.requestGeneration }
+        pendingFilesystemPaneUpdatesByPaneId.removeAll(keepingCapacity: true)
+        let shouldUpdateActivePaneWorktree = pendingActivePaneWorktreeUpdate
+        pendingActivePaneWorktreeUpdate = false
+        var didApplyPaneEffect = false
+
+        for paneUpdate in paneUpdates {
+            let outcome = await filesystemProjectionIndex.applyPaneUpdate(paneUpdate)
+            guard case .applied(let affectedActivity) = outcome else { continue }
+            didApplyPaneEffect = true
+            for activityUpdate in affectedActivity.updates {
+                guard filesystemActivityByWorktreeId[activityUpdate.worktreeId] != activityUpdate.isActiveInApp else {
+                    continue
+                }
+                await filesystemSource.setActivity(
+                    worktreeId: activityUpdate.worktreeId,
+                    isActiveInApp: activityUpdate.isActiveInApp
+                )
+                guard !Task.isCancelled else { return }
+                filesystemActivityByWorktreeId[activityUpdate.worktreeId] = activityUpdate.isActiveInApp
+            }
+        }
+
+        if shouldUpdateActivePaneWorktree {
+            let nextActivePaneWorktreeId = activePaneWorktree()
+            if filesystemLastActivePaneWorktreeId != nextActivePaneWorktreeId {
+                await filesystemSource.setActivePaneWorktree(worktreeId: nextActivePaneWorktreeId)
+                guard !Task.isCancelled else { return }
+                filesystemLastActivePaneWorktreeId = nextActivePaneWorktreeId
+            }
+        }
+
+        if didApplyPaneEffect {
+            traceIdentityRefreshHandler?()
+        }
+    }
+
+    private func recordFilesystemEffectPerformanceSnapshot() {
+        performanceTraceRecorder?.recordFilesystemEffectSnapshot(
+            FilesystemEffectPerformanceSnapshot(
+                fullReconciliationRequestCount: filesystemFullReconciliationRequestCount,
+                affectedKeyRequestCount: filesystemAffectedKeyRequestCount
+            )
+        )
     }
 
     private func performFilesystemRootAndActivitySyncPass() async {
@@ -274,6 +366,7 @@ extension WorkspaceSurfaceCoordinator {
                 paneContextGeneration: paneContextGeneration,
                 topologyEntries: topologyEntries,
                 paneEntries: paneEntries,
+                appliedContextsByWorktreeId: filesystemRegisteredContextsByWorktreeId,
                 appliedActivityByWorktreeId: filesystemActivityByWorktreeId,
                 activePaneWorktreeId: activePaneWorktreeId,
                 appliedActivePaneWorktreeId: filesystemLastActivePaneWorktreeId,
@@ -309,10 +402,9 @@ extension WorkspaceSurfaceCoordinator {
         filesystemLastActivePaneWorktreeId = syncDiff.activePaneWorktreeId
         filesystemLastSidebarVisibleWorktreeIds = syncDiff.sidebarVisibleWorktreeIds
         filesystemAppliedTopologyGeneration = writeMetrics.topologyGeneration
-        paneFilesystemProjectionStore.prune(
-            validPaneIds: syncDiff.validPaneIds,
-            validWorktreeIds: syncDiff.validWorktreeIds
-        )
+        nextFilesystemProjectionSequenceByPaneId = nextFilesystemProjectionSequenceByPaneId.filter { paneId, _ in
+            syncDiff.validPaneIds.contains(paneId)
+        }
         let applyDuration = applyStart.duration(to: clock.now)
         performanceTraceRecorder?.recordDuration(
             .coordinatorWrite,
@@ -359,6 +451,7 @@ extension WorkspaceSurfaceCoordinator {
         for worktreeId in syncDiff.unregisterWorktreeIds {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             await filesystemSource.unregister(worktreeId: worktreeId)
+            recordAppliedFilesystemSourceUnregister(worktreeId: worktreeId)
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             unregisteredCount += 1
         }
@@ -367,11 +460,16 @@ extension WorkspaceSurfaceCoordinator {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             if filesystemRegisteredContextsByWorktreeId[registration.worktreeId] != nil {
                 await filesystemSource.unregister(worktreeId: registration.worktreeId)
+                recordAppliedFilesystemSourceUnregister(worktreeId: registration.worktreeId)
                 guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
                 unregisteredCount += 1
             }
             await filesystemSource.register(
                 worktreeId: registration.worktreeId,
+                repoId: registration.repoId,
+                rootPath: registration.rootPath
+            )
+            filesystemRegisteredContextsByWorktreeId[registration.worktreeId] = WorktreeFilesystemContext(
                 repoId: registration.repoId,
                 rootPath: registration.rootPath
             )
@@ -385,6 +483,7 @@ extension WorkspaceSurfaceCoordinator {
                 worktreeId: activityUpdate.worktreeId,
                 isActiveInApp: activityUpdate.isActiveInApp
             )
+            filesystemActivityByWorktreeId[activityUpdate.worktreeId] = activityUpdate.isActiveInApp
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             activityWriteCount += 1
         }
@@ -392,6 +491,7 @@ extension WorkspaceSurfaceCoordinator {
         if syncDiff.shouldUpdateActivePaneWorktree {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             await filesystemSource.setActivePaneWorktree(worktreeId: syncDiff.activePaneWorktreeId)
+            filesystemLastActivePaneWorktreeId = syncDiff.activePaneWorktreeId
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             activePaneWriteCount = 1
         }
@@ -412,6 +512,7 @@ extension WorkspaceSurfaceCoordinator {
                 contextsByWorktreeId: syncDiff.contextsByWorktreeId
             )
         )
+        recordAppliedFilesystemTopologyAssertion(syncDiff.contextsByWorktreeId)
         guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
 
         return FilesystemSourceSyncWriteMetrics(
@@ -425,6 +526,29 @@ extension WorkspaceSurfaceCoordinator {
         )
     }
 
+    private func recordAppliedFilesystemSourceUnregister(worktreeId: UUID) {
+        filesystemRegisteredContextsByWorktreeId.removeValue(forKey: worktreeId)
+        filesystemActivityByWorktreeId.removeValue(forKey: worktreeId)
+        if filesystemLastActivePaneWorktreeId == worktreeId {
+            filesystemLastActivePaneWorktreeId = nil
+        }
+    }
+
+    private func recordAppliedFilesystemTopologyAssertion(
+        _ contextsByWorktreeId: [UUID: WorktreeFilesystemContext]
+    ) {
+        let desiredWorktreeIds = Set(contextsByWorktreeId.keys)
+        filesystemRegisteredContextsByWorktreeId = contextsByWorktreeId
+        filesystemActivityByWorktreeId = filesystemActivityByWorktreeId.filter { worktreeId, _ in
+            desiredWorktreeIds.contains(worktreeId)
+        }
+        if let filesystemLastActivePaneWorktreeId,
+            !desiredWorktreeIds.contains(filesystemLastActivePaneWorktreeId)
+        {
+            self.filesystemLastActivePaneWorktreeId = nil
+        }
+    }
+
     private func continueFilesystemSourceWrites(for requestGeneration: UInt64) -> Bool {
         guard !Task.isCancelled else { return false }
         guard requestGeneration == filesystemSyncRequestGeneration else {
@@ -434,7 +558,7 @@ extension WorkspaceSurfaceCoordinator {
         return true
     }
 
-    private func activePaneWorktree() -> UUID? {
+    func activePaneWorktree() -> UUID? {
         guard let activePaneId = store.tabLayoutAtom.activeTab?.activePaneId else { return nil }
         return store.paneAtom.pane(activePaneId)?.worktreeId
     }
@@ -472,23 +596,18 @@ extension WorkspaceSurfaceCoordinator {
         for pane: Pane,
         generation: UInt64
     ) -> FilesystemProjectionPaneUpdate {
-        guard let repoId = pane.repoId, let worktreeId = pane.worktreeId else {
+        let repoId = pane.repoId ?? pane.metadata.repoId
+        let worktreeId = pane.worktreeId ?? pane.metadata.worktreeId
+        guard let repoId, let worktreeId else {
             return FilesystemProjectionPaneUpdate(
                 requestGeneration: generation,
                 kind: .remove(paneId: pane.id)
             )
         }
-
         let fallbackCwd =
             store.repositoryTopologyAtom.worktree(worktreeId)?.path
             ?? pane.metadata.launchDirectory
             ?? pane.metadata.cwd
-        guard let fallbackCwd else {
-            return FilesystemProjectionPaneUpdate(
-                requestGeneration: generation,
-                kind: .remove(paneId: pane.id)
-            )
-        }
 
         return FilesystemProjectionPaneUpdate(
             requestGeneration: generation,
@@ -504,12 +623,10 @@ extension WorkspaceSurfaceCoordinator {
         )
     }
 
-    @concurrent nonisolated private static func publishDerivedFilesystemEnvelopes(
-        _ envelopes: [RuntimeEnvelope],
-        to paneEventBus: EventBus<RuntimeEnvelope>
-    ) async {
+    func publishCurrentDerivedFilesystemEnvelopes(_ envelopes: [RuntimeEnvelope]) async {
         let logger = Logger(subsystem: "com.agentstudio", category: "WorkspaceSurfaceCoordinator")
         for envelope in envelopes {
+            guard isCurrentDerivedFilesystemEnvelope(envelope) else { continue }
             let result = await paneEventBus.post(envelope)
             if result.droppedCount > 0 {
                 logger.warning(
@@ -517,5 +634,105 @@ extension WorkspaceSurfaceCoordinator {
                 )
             }
         }
+    }
+
+    private func isCurrentDerivedFilesystemEnvelope(_ envelope: RuntimeEnvelope) -> Bool {
+        guard
+            case .pane(let paneEnvelope) = envelope,
+            case .paneFilesystemContext(let event) = paneEnvelope.event
+        else {
+            return false
+        }
+        let projectedContext: PaneFilesystemContext
+        switch event {
+        case .cwdSubtreeChanged(let context, _, _), .gitWorkingTreeInCwd(let context, _, _, _):
+            projectedContext = context
+        }
+        guard paneEnvelope.paneId == projectedContext.paneId else { return false }
+        return currentPaneFilesystemContext(paneId: projectedContext.paneId.uuid) == projectedContext
+    }
+
+    private func currentPaneFilesystemContext(paneId: UUID) -> PaneFilesystemContext? {
+        guard store.paneAtom.graphAtom.paneState(paneId) != nil else { return nil }
+        guard
+            let pane = store.paneAtom.pane(paneId),
+            let repoId = pane.repoId ?? pane.metadata.repoId,
+            let worktreeId = pane.worktreeId ?? pane.metadata.worktreeId
+        else {
+            return nil
+        }
+        let cwd =
+            pane.metadata.cwd
+            ?? store.repositoryTopologyAtom.worktree(worktreeId)?.path
+            ?? pane.metadata.launchDirectory
+        guard let cwd else { return nil }
+        return PaneFilesystemContext(
+            paneId: PaneId(existingUUID: paneId),
+            repoId: repoId,
+            cwd: cwd.standardizedFileURL,
+            worktreeId: worktreeId
+        )
+    }
+
+    private func makeFilesystemProjectionEnvelope(_ intent: PaneFilesystemProjectionIntent) -> RuntimeEnvelope {
+        switch intent {
+        case .cwdSubtreeChanged(let projection):
+            return makeFilesystemProjectionEnvelope(
+                paneId: projection.paneId,
+                paneKind: projection.paneKind,
+                timestamp: projection.timestamp,
+                correlationId: projection.correlationId,
+                commandId: projection.commandId,
+                event: .paneFilesystemContext(
+                    .cwdSubtreeChanged(
+                        context: projection.context,
+                        paths: Set(projection.paths),
+                        batchSeq: projection.batchSequence
+                    )
+                )
+            )
+        case .gitWorkingTreeInCwd(let projection):
+            return makeFilesystemProjectionEnvelope(
+                paneId: projection.paneId,
+                paneKind: projection.paneKind,
+                timestamp: projection.timestamp,
+                correlationId: projection.correlationId,
+                commandId: projection.commandId,
+                event: .paneFilesystemContext(
+                    .gitWorkingTreeInCwd(
+                        context: projection.context,
+                        staged: projection.summary.staged,
+                        unstaged: projection.summary.changed,
+                        untracked: projection.summary.untracked
+                    )
+                )
+            )
+        }
+    }
+
+    private func makeFilesystemProjectionEnvelope(
+        paneId: UUID,
+        paneKind: PaneContentType,
+        timestamp: ContinuousClock.Instant,
+        correlationId: UUID?,
+        commandId: UUID?,
+        event: PaneRuntimeEvent
+    ) -> RuntimeEnvelope {
+        let nextSequence = nextFilesystemProjectionSequenceByPaneId[paneId, default: 0] + 1
+        nextFilesystemProjectionSequenceByPaneId[paneId] = nextSequence
+
+        let typedPaneId = PaneId(existingUUID: paneId)
+        return .pane(
+            PaneEnvelope(
+                source: .pane(typedPaneId),
+                seq: nextSequence,
+                timestamp: timestamp,
+                correlationId: correlationId,
+                commandId: commandId,
+                paneId: typedPaneId,
+                paneKind: paneKind,
+                event: event
+            )
+        )
     }
 }

@@ -19,7 +19,7 @@ struct PaneTabViewControllerCommandTests {
 
         let watchedFolder = harness.tempDir.appending(path: "watched-root")
         try? FileManager.default.createDirectory(at: watchedFolder, withIntermediateDirectories: true)
-        _ = harness.store.repositoryTopologyAtom.addWatchedPath(watchedFolder)
+        _ = harness.store.mutationCoordinator.addWatchedPath(watchedFolder)
         harness.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 600))
         let initialPaneIds = Set(harness.store.panes.keys)
 
@@ -327,8 +327,8 @@ struct PaneTabViewControllerCommandTests {
         harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
         atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id)
 
-        let parentRuntime = RecordingCommandPaneRuntime(paneId: PaneId(uuid: parentPane.id))
-        let drawerRuntime = RecordingCommandPaneRuntime(paneId: PaneId(uuid: drawerPane.id))
+        let parentRuntime = RecordingCommandPaneRuntime(paneId: PaneId(existingUUID: parentPane.id))
+        let drawerRuntime = RecordingCommandPaneRuntime(paneId: PaneId(existingUUID: drawerPane.id))
         harness.runtimeRegistry.register(parentRuntime)
         harness.runtimeRegistry.register(drawerRuntime)
 
@@ -337,7 +337,7 @@ struct PaneTabViewControllerCommandTests {
         await waitForRecordedCommands(on: drawerRuntime, count: 1)
         #expect(parentRuntime.receivedCommands.isEmpty)
         let command = try #require(drawerRuntime.receivedCommands.first)
-        #expect(command.targetPaneId == PaneId(uuid: drawerPane.id))
+        #expect(command.targetPaneId == PaneId(existingUUID: drawerPane.id))
         guard case .terminal(.scrollToBottom) = command.command else {
             Issue.record("Expected focused drawer pane to receive scrollToBottom")
             return

@@ -2,6 +2,22 @@ import CoreGraphics
 import Foundation
 
 enum AppPolicies {
+    enum SidebarProjection {
+        static let cancellationItemStride: Int = 256
+        static let cancellationGroupStride: Int = 64
+
+        enum Trigger: String, Equatable, Sendable {
+            case groupingSwitch = "grouping_switch"
+            case surfaceSwitch = "surface_switch"
+            case search
+            case sortOrder = "sort_order"
+            case visibilityMode = "visibility_mode"
+            case collapseToggle = "collapse_toggle"
+            case dataRefresh = "data_refresh"
+            case startupDiagnostic = "startup_diagnostic"
+        }
+    }
+
     enum Diagnostics {
         static let traceEventQueueBufferLimit: Int = 4096
         /// Native hot-path performance facts must shed before reaching
@@ -86,6 +102,14 @@ enum AppPolicies {
 
     enum WorkspacePersistence {
         static let debouncedAutosaveFailureDampingThreshold: Int = 3
+    }
+
+    enum TerminalActivation {
+        static let maximumConcurrentAdmissions: Int = 4
+    }
+
+    enum NonterminalContentMount {
+        static let maximumMountsPerMainActorTurn: Int = 4
     }
 
     enum GitRefresh {
@@ -240,6 +264,11 @@ enum AppPolicies {
                 return hash
             }
         }
+    }
+
+    enum WatchedFolderScanning {
+        static let maximumConcurrentTraversalQuanta: Int = 2
+        static let fallbackCadence: Duration = .seconds(300)
     }
 
     enum ZmxStartup {

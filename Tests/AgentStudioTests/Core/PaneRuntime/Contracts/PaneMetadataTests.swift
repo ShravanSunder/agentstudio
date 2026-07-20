@@ -32,8 +32,8 @@ struct PaneMetadataTests {
         #expect(metadata.note == nil)
     }
 
-    @Test("pane metadata note round-trips through persistence encoding")
-    func paneMetadataNoteRoundTripsThroughPersistenceEncoding() throws {
+    @Test("pane metadata construction and persistence preserve caller-supplied note exactly")
+    func paneMetadataNoteRoundTripsExactlyThroughPersistenceEncoding() throws {
         let original = PaneMetadata(
             title: "Terminal",
             note: "  Keep an eye on deploy logs  "
@@ -43,6 +43,6 @@ struct PaneMetadataTests {
         let decoded = try JSONDecoder().decode(PaneMetadata.self, from: data)
 
         #expect(decoded == original)
-        #expect(decoded.note == "Keep an eye on deploy logs")
+        #expect(decoded.note == "  Keep an eye on deploy logs  ")
     }
 }

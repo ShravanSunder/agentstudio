@@ -16,9 +16,14 @@ struct FilesystemRootOwnership: Sendable {
     private let sourceRootByWorktreeId: [UUID: Root]
 
     init(rootsByWorktree: [UUID: URL]) {
-        let resolvedRoots = rootsByWorktree.map { worktreeId, rootPath in
-            let canonicalPath = Self.canonicalRootPath(for: rootPath)
-            return Root(
+        self.init(
+            canonicalRootsByWorktree: rootsByWorktree.mapValues(Self.canonicalRootPath)
+        )
+    }
+
+    init(canonicalRootsByWorktree: [UUID: String]) {
+        let resolvedRoots = canonicalRootsByWorktree.map { worktreeId, canonicalPath in
+            Root(
                 worktreeId: worktreeId,
                 canonicalPath: canonicalPath,
                 comparisonPath: Self.normalizedComparisonKey(canonicalPath)

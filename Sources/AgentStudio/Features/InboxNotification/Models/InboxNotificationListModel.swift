@@ -1,16 +1,16 @@
 import Foundation
 
-enum InboxNotificationListNavigationDirection {
+enum InboxNotificationListNavigationDirection: Sendable {
     case next
     case previous
 }
 
-enum InboxNotificationListEndpoint {
+enum InboxNotificationListEndpoint: Sendable {
     case first
     case last
 }
 
-struct InboxNotificationListSection: Identifiable, Equatable {
+struct InboxNotificationListSection: Identifiable, Equatable, Sendable {
     let id: String
     let header: InboxNotificationListSectionHeader?
     let notifications: [InboxNotification]
@@ -37,8 +37,8 @@ extension Array where Element == InboxNotificationListSection {
     }
 }
 
-struct InboxNotificationListSectionHeader: Equatable {
-    enum SourceKind: Equatable {
+struct InboxNotificationListSectionHeader: Equatable, Sendable {
+    enum SourceKind: Equatable, Sendable {
         case repo(organizationName: String?)
         case pane
         case tab
@@ -46,7 +46,7 @@ struct InboxNotificationListSectionHeader: Equatable {
         case otherSources
     }
 
-    enum Style: Equatable {
+    enum Style: Equatable, Sendable {
         case sourceGroup
     }
 
@@ -64,7 +64,7 @@ struct InboxNotificationListSectionHeader: Equatable {
     }
 }
 
-struct InboxNotificationRepoGroupPresentation: Equatable {
+struct InboxNotificationRepoGroupPresentation: Equatable, Sendable {
     let groupId: String?
     let title: String
     let organizationName: String?
@@ -83,7 +83,7 @@ struct InboxNotificationRepoGroupPresentation: Equatable {
     }
 }
 
-private enum InboxNotificationSectionKey: Hashable {
+private enum InboxNotificationSectionKey: Hashable, Sendable {
     case ungrouped
     case repoGroup(id: String)
     case repo(id: UUID)
@@ -118,7 +118,7 @@ private enum InboxNotificationSectionKey: Hashable {
     }
 }
 
-private struct InboxNotificationListItem {
+private struct InboxNotificationListItem: Sendable {
     let notification: InboxNotification
     let sourceDisplay: InboxNotificationSourceDisplay
     let normalizedSearchText: String
@@ -131,8 +131,14 @@ private struct InboxNotificationListItem {
     }
 }
 
-struct InboxNotificationListModel: Equatable {
+struct InboxNotificationListModel: Equatable, Sendable {
+    static let empty = Self(sections: [])
+
     let sections: [InboxNotificationListSection]
+
+    init(sections: [InboxNotificationListSection]) {
+        self.sections = sections
+    }
 
     init(
         notifications: [InboxNotification],
@@ -165,6 +171,56 @@ struct InboxNotificationListModel: Equatable {
             collapsedGroups: collapsedGroups,
             repoPresentation: repoPresentation
         )
+    }
+
+    init(
+        notifications: [InboxNotification],
+        grouping: InboxNotificationGrouping,
+        sort: InboxNotificationSort,
+        searchText: String,
+        contentMode: InboxNotificationContentMode,
+        rowStateFilter: InboxNotificationRowStateFilter,
+        filter: InboxFilter?,
+        collapsedGroups: Set<InboxNotificationGroupKey>,
+        repoPresentation: (UUID?) -> InboxNotificationRepoGroupPresentation?,
+        cancellationCheck: () throws -> Void
+    ) throws {
+        try cancellationCheck()
+        let sortedNotifications = try Self.sortNotifications(
+            notifications,
+            sort: sort,
+            cancellationCheck: cancellationCheck
+        )
+        try cancellationCheck()
+        let filteredNotifications = try Self.filterNotifications(
+            sortedNotifications,
+            contentMode: contentMode,
+            rowStateFilter: rowStateFilter,
+            filter: filter,
+            cancellationCheck: cancellationCheck
+        )
+        try cancellationCheck()
+        let sourceItems = try filteredNotifications.enumerated().map { index, notification in
+            if index.isMultiple(of: AppPolicies.SidebarProjection.cancellationItemStride) {
+                try cancellationCheck()
+            }
+            return InboxNotificationListItem(notification: notification)
+        }
+        try cancellationCheck()
+        let textFilteredItems = try Self.filterItems(
+            sourceItems,
+            searchText: searchText,
+            cancellationCheck: cancellationCheck
+        )
+        try cancellationCheck()
+        self.sections = try Self.buildSections(
+            items: textFilteredItems,
+            grouping: grouping,
+            collapsedGroups: collapsedGroups,
+            repoPresentation: repoPresentation,
+            cancellationCheck: cancellationCheck
+        )
+        try cancellationCheck()
     }
 
     func groupBoundaryTarget(
@@ -220,6 +276,67 @@ struct InboxNotificationListModel: Equatable {
         }
     }
 
+    private static func sortNotifications(
+        _ notifications: [InboxNotification],
+        sort: InboxNotificationSort,
+        cancellationCheck: () throws -> Void
+    ) throws -> [InboxNotification] {
+        let orderedBefore: (InboxNotification, InboxNotification) -> Bool =
+            sort == .newestFirst
+            ? { $0.timestamp > $1.timestamp }
+            : { $0.timestamp < $1.timestamp }
+        return try cancellableMergeSort(
+            notifications,
+            orderedBefore: orderedBefore,
+            cancellationCheck: cancellationCheck
+        )
+    }
+
+    private static func cancellableMergeSort(
+        _ notifications: [InboxNotification],
+        orderedBefore: (InboxNotification, InboxNotification) -> Bool,
+        cancellationCheck: () throws -> Void
+    ) throws -> [InboxNotification] {
+        guard notifications.count > 1 else { return notifications }
+        var source = notifications
+        var destination = notifications
+        var width = 1
+        var comparisonCount = 0
+
+        while width < notifications.count {
+            var lowerBound = 0
+            while lowerBound < notifications.count {
+                let middle = min(lowerBound + width, notifications.count)
+                let upperBound = min(lowerBound + (width * 2), notifications.count)
+                var leftIndex = lowerBound
+                var rightIndex = middle
+                var destinationIndex = lowerBound
+
+                while leftIndex < middle || rightIndex < upperBound {
+                    comparisonCount += 1
+                    if comparisonCount.isMultiple(of: AppPolicies.SidebarProjection.cancellationItemStride) {
+                        try cancellationCheck()
+                    }
+                    if rightIndex >= upperBound
+                        || (leftIndex < middle && orderedBefore(source[leftIndex], source[rightIndex]))
+                    {
+                        destination[destinationIndex] = source[leftIndex]
+                        leftIndex += 1
+                    } else {
+                        destination[destinationIndex] = source[rightIndex]
+                        rightIndex += 1
+                    }
+                    destinationIndex += 1
+                }
+                lowerBound += width * 2
+            }
+            swap(&source, &destination)
+            width *= 2
+            try cancellationCheck()
+        }
+        return source
+    }
+
     private static func filterNotifications(
         _ notifications: [InboxNotification],
         contentMode: InboxNotificationContentMode,
@@ -234,6 +351,29 @@ struct InboxNotificationListModel: Equatable {
         }
     }
 
+    private static func filterNotifications(
+        _ notifications: [InboxNotification],
+        contentMode: InboxNotificationContentMode,
+        rowStateFilter: InboxNotificationRowStateFilter,
+        filter: InboxFilter?,
+        cancellationCheck: () throws -> Void
+    ) throws -> [InboxNotification] {
+        var filteredNotifications: [InboxNotification] = []
+        filteredNotifications.reserveCapacity(notifications.count)
+        for (index, notification) in notifications.enumerated() {
+            if index.isMultiple(of: AppPolicies.SidebarProjection.cancellationItemStride) {
+                try cancellationCheck()
+            }
+            guard contentMode.includes(notification) else { continue }
+            guard rowStateFilter.includes(notification) else { continue }
+            guard filter?.matches(worktreeId: notification.worktreeId, repoId: notification.repoId) ?? true else {
+                continue
+            }
+            filteredNotifications.append(notification)
+        }
+        return filteredNotifications
+    }
+
     private static func filterItems(
         _ items: [InboxNotificationListItem],
         searchText: String
@@ -244,6 +384,27 @@ struct InboxNotificationListModel: Equatable {
         return items.filter { item in
             item.normalizedSearchText.contains(trimmedQuery)
         }
+    }
+
+    private static func filterItems(
+        _ items: [InboxNotificationListItem],
+        searchText: String,
+        cancellationCheck: () throws -> Void
+    ) throws -> [InboxNotificationListItem] {
+        let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmedQuery.isEmpty else { return items }
+
+        var filteredItems: [InboxNotificationListItem] = []
+        filteredItems.reserveCapacity(items.count)
+        for (index, item) in items.enumerated() {
+            if index.isMultiple(of: AppPolicies.SidebarProjection.cancellationItemStride) {
+                try cancellationCheck()
+            }
+            if item.normalizedSearchText.contains(trimmedQuery) {
+                filteredItems.append(item)
+            }
+        }
+        return filteredItems
     }
 
     private static func buildSections(
@@ -348,6 +509,136 @@ struct InboxNotificationListModel: Equatable {
                 },
                 collapsedGroups: collapsedGroups
             )
+        }
+    }
+
+    private static func buildSections(
+        items: [InboxNotificationListItem],
+        grouping: InboxNotificationGrouping,
+        collapsedGroups: Set<InboxNotificationGroupKey>,
+        repoPresentation: (UUID?) -> InboxNotificationRepoGroupPresentation?,
+        cancellationCheck: () throws -> Void
+    ) throws -> [InboxNotificationListSection] {
+        try cancellationCheck()
+        switch grouping {
+        case .none:
+            var notifications: [InboxNotification] = []
+            notifications.reserveCapacity(items.count)
+            for (index, item) in items.enumerated() {
+                if index.isMultiple(of: AppPolicies.SidebarProjection.cancellationItemStride) {
+                    try cancellationCheck()
+                }
+                notifications.append(item.notification)
+            }
+            let groupId = InboxNotificationSectionKey.ungrouped.id
+            return [
+                InboxNotificationListSection(
+                    id: groupId,
+                    header: nil,
+                    notifications: notifications,
+                    isCollapsed: collapsedGroups.contains(InboxNotificationGroupKey(groupId))
+                )
+            ]
+        case .byRepo:
+            return try buildGroupedSections(
+                items: items,
+                key: { item in
+                    let notification = item.notification
+                    if let repoId = notification.repoId {
+                        if let groupId = repoPresentation(repoId)?.groupId { return .repoGroup(id: groupId) }
+                        return .repo(id: repoId)
+                    }
+                    if let repoName = notification.repoName { return .repoName(repoName) }
+                    return .noRepo
+                },
+                header: { groupKey, groupedItems in
+                    let presentation = repoPresentation(groupedItems.first?.notification.repoId)
+                    switch groupKey {
+                    case .repoName(let name):
+                        return .sourceGroup(
+                            title: name, secondaryTitle: nil, sourceKind: .repo(organizationName: nil),
+                            accentColorHex: presentation?.accentColorHex)
+                    case .noRepo:
+                        return .sourceGroup(
+                            title: "Other sources", secondaryTitle: nil, sourceKind: .otherSources)
+                    default:
+                        return .sourceGroup(
+                            title: presentation?.title
+                                ?? bestGroupLabel(for: groupedItems, grouping: .byRepo, placeholder: "Other sources"),
+                            secondaryTitle: presentation?.organizationName,
+                            sourceKind: .repo(organizationName: presentation?.organizationName),
+                            accentColorHex: presentation?.accentColorHex)
+                    }
+                },
+                collapsedGroups: collapsedGroups,
+                cancellationCheck: cancellationCheck
+            )
+        case .byPane:
+            return try buildGroupedSections(
+                items: items,
+                key: { paneGroupingKey(for: $0.notification) },
+                header: { _, groupedItems in
+                    let text = bestGroupHeaderText(
+                        for: groupedItems, grouping: .byPane, placeholder: "Other panes")
+                    return .sourceGroup(
+                        title: text.primary, secondaryTitle: text.secondary, sourceKind: .pane)
+                },
+                collapsedGroups: collapsedGroups,
+                cancellationCheck: cancellationCheck
+            )
+        case .byTab:
+            return try buildGroupedSections(
+                items: items,
+                key: { item in
+                    guard let tabId = item.notification.tabId else { return .noTab }
+                    return .tab(id: tabId)
+                },
+                header: { _, groupedItems in
+                    let text = bestGroupHeaderText(
+                        for: groupedItems, grouping: .byTab, placeholder: "Untitled Tab")
+                    return .sourceGroup(
+                        title: text.primary, secondaryTitle: text.secondary, sourceKind: .tab)
+                },
+                collapsedGroups: collapsedGroups,
+                cancellationCheck: cancellationCheck
+            )
+        }
+    }
+
+    private static func buildGroupedSections(
+        items: [InboxNotificationListItem],
+        key: (InboxNotificationListItem) -> InboxNotificationSectionKey,
+        header: (InboxNotificationSectionKey, [InboxNotificationListItem]) -> InboxNotificationListSectionHeader,
+        collapsedGroups: Set<InboxNotificationGroupKey>,
+        cancellationCheck: () throws -> Void
+    ) throws -> [InboxNotificationListSection] {
+        var buckets: [InboxNotificationSectionKey: [InboxNotificationListItem]] = [:]
+        for (index, item) in items.enumerated() {
+            if index.isMultiple(of: AppPolicies.SidebarProjection.cancellationItemStride) {
+                try cancellationCheck()
+            }
+            buckets[key(item), default: []].append(item)
+        }
+
+        var sections: [InboxNotificationListSection] = []
+        sections.reserveCapacity(buckets.count)
+        for (index, bucket) in buckets.enumerated() {
+            if index.isMultiple(of: AppPolicies.SidebarProjection.cancellationGroupStride) {
+                try cancellationCheck()
+            }
+            let groupId = bucket.key.id
+            sections.append(
+                InboxNotificationListSection(
+                    id: groupId,
+                    header: header(bucket.key, bucket.value),
+                    notifications: bucket.value.map(\.notification),
+                    isCollapsed: collapsedGroups.contains(InboxNotificationGroupKey(groupId))
+                ))
+        }
+        try cancellationCheck()
+        return sections.sorted { left, right in
+            let ordering = (left.label ?? "").localizedCaseInsensitiveCompare(right.label ?? "")
+            return ordering == .orderedSame ? left.id < right.id : ordering == .orderedAscending
         }
     }
 

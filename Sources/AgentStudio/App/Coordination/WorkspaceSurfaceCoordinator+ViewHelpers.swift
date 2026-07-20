@@ -91,7 +91,8 @@ extension WorkspaceSurfaceCoordinator {
                 at: targetDrawerPaneId,
                 direction: direction,
                 sizingMode: sizingMode,
-                parentFallbackCWD: fallbackCWD
+                parentFallbackCWD: fallbackCWD,
+                zmxSessionID: .generateUUIDv7()
             )
         else {
             Self.logger.warning(
@@ -120,6 +121,13 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     func ensureTerminalPaneView(_ pane: Pane) {
+        let runtimePaneID = PaneId(existingUUID: pane.id)
+        if viewRegistry.isInitialRestorePending,
+            preparedContentVisibilitySignalHandler([runtimePaneID]).contains(runtimePaneID)
+        {
+            RestoreTrace.log("ensureTerminalPaneView signalledPreparedOwner pane=\(pane.id)")
+            return
+        }
         registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
         if createViewForContentUsingCurrentGeometry(pane: pane) == nil {
             RestoreTrace.log("ensureTerminalPaneView deferred pane=\(pane.id)")
@@ -148,8 +156,16 @@ extension WorkspaceSurfaceCoordinator {
             return
         }
 
-        let runtimePaneId = PaneId(uuid: paneId)
-        guard visibilityTierResolver.tier(for: runtimePaneId) == .p0Visible else { return }
+        let runtimePaneId = PaneId(existingUUID: paneId)
+        guard forceWhenBoundsExist || visibilityTierResolver.tier(for: runtimePaneId) == .p0Visible else {
+            return
+        }
+        if viewRegistry.isInitialRestorePending,
+            preparedContentVisibilitySignalHandler([runtimePaneId]).contains(runtimePaneId)
+        {
+            RestoreTrace.log("restoreVisiblePaneIfNeeded signalledPreparedOwner pane=\(paneId)")
+            return
+        }
         guard let pane = store.paneAtom.pane(paneId) else { return }
         guard store.tabLayoutAtom.tabContaining(paneId: pane.parentPaneId ?? pane.id)?.id == activeTab.id else {
             return
@@ -157,7 +173,7 @@ extension WorkspaceSurfaceCoordinator {
 
         let hadPlaceholder = viewRegistry.terminalStatusPlaceholderView(for: paneId) != nil
         if let placeholder = viewRegistry.terminalStatusPlaceholderView(for: paneId) {
-            guard placeholder.shouldRetryCreationWhenBoundsChange else { return }
+            guard forceWhenBoundsExist || placeholder.shouldRetryCreationWhenBoundsChange else { return }
         } else if viewRegistry.view(for: paneId) != nil {
             return
         }

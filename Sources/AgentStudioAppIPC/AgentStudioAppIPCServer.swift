@@ -48,7 +48,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private let listener: UnixSocketListener
     private let methodRegistry: AppIPCMethodRegistry
     private let authenticator: AgentStudioIPCAuthenticator
-    private let authorizationService: AuthorizationService
+    let authorizationService: AuthorizationService
     let permissionBroker: PermissionBroker
     private let peerCredentialProvider: any PeerCredentialProviding
     private let peerCredentialGate: AgentStudioIPCPeerCredentialGate
@@ -550,8 +550,13 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
 
     private func installDebugTokenEscrowIfNeeded() throws {
         AgentStudioIPCFilesystem.removeDebugToken(paths: paths)
-        debugEscrowLock.withLock {
+        let stalePrincipalId = debugEscrowLock.withLock {
+            let stalePrincipalId = debugEscrowPrincipalId
             debugEscrowPrincipalId = nil
+            return stalePrincipalId
+        }
+        if let stalePrincipalId {
+            grantLedger.revokeAll(for: stalePrincipalId)
         }
 
         guard allowsDebugTokenEscrow else {
@@ -565,8 +570,16 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             kind: .automationClient,
             approvalAuthority: .noApprovalAuthority
         )
+        for scope in service.configuration.debugTokenEscrowPermissionScopes {
+            grantLedger.grant(scope, to: principal.principalId)
+        }
         let token = try principalRegistry.issueSubjectToken(for: principal)
-        try AgentStudioIPCFilesystem.writeDebugToken(token, paths: paths)
+        do {
+            try AgentStudioIPCFilesystem.writeDebugToken(token, paths: paths)
+        } catch {
+            principalRegistry.revokeSubjectToken(token)
+            throw error
+        }
         debugEscrowLock.withLock {
             debugEscrowPrincipalId = principal.principalId
         }
@@ -893,6 +906,8 @@ extension AgentStudioAppIPCRequestError {
             self = Self(code: -32_007, message: "parameters required")
         case .validationRejected:
             self = Self(code: -32_007, message: "validation rejected")
+        case .stateUnavailable:
+            self = Self(code: -32_005, message: "state unavailable")
         }
     }
 

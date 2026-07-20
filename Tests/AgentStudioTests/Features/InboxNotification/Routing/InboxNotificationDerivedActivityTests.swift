@@ -8,7 +8,7 @@ extension InboxNotificationRouterTests {
     @Test("terminal unseen activity settled fact routes as auto-clearable notification")
     func terminalUnseenActivitySettledRoutesAsAutoClearableNotification() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -33,13 +33,12 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("terminal agent settled activity routes as yellow attention notification")
     func terminalAgentSettledActivityRoutesAsYellowAttentionNotification() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -64,13 +63,12 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.attentionLane(forPaneIds: [paneId.uuid]) == .settledAgent)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("terminal agent settled revocation demotes yellow attention to blue activity")
     func terminalAgentSettledRevocationDemotesYellowAttentionToBlueActivity() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -104,13 +102,12 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.globalUnreadCount == 1)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("focused pane activity appends no unread PaneInbox notification")
     func focusedPaneActivityAppendsNoUnreadPaneInboxNotification() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
         await waitForAttendedPane(
@@ -138,14 +135,13 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 0)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("visible sibling scrolled to bottom appends derived activity as read history")
     func visibleSiblingScrolledToBottomAppendsDerivedActivityAsReadHistory() async {
         let fixture = await makeFixture()
-        let focusedPaneId = PaneId()
-        let visibleSiblingPaneId = PaneId()
+        let focusedPaneId = PaneId.generateUUIDv7()
+        let visibleSiblingPaneId = PaneId.generateUUIDv7()
         let tabId = addTerminalPane(focusedPaneId, to: fixture)
         addVisiblePaneToActiveTab(visibleSiblingPaneId, to: fixture)
         fixture.tabLayout.setActivePane(focusedPaneId.uuid, inTab: tabId)
@@ -154,7 +150,11 @@ extension InboxNotificationRouterTests {
         _ = await fixture.bus.post(
             makePaneEnvelope(
                 paneId: visibleSiblingPaneId,
-                event: .terminal(.scrollbarChanged(ScrollbarState(top: 100, bottom: 140, total: 140)))
+                event: .terminalActivity(
+                    .paneObservationChanged(
+                        TerminalPaneObservationState(isPinnedToBottom: true)
+                    )
+                )
             )
         )
         _ = await fixture.bus.post(
@@ -175,14 +175,13 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.globalUnreadCount == 0)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("visible sibling scrolled up keeps derived activity unread")
     func visibleSiblingScrolledUpKeepsDerivedActivityUnread() async {
         let fixture = await makeFixture()
-        let focusedPaneId = PaneId()
-        let visibleSiblingPaneId = PaneId()
+        let focusedPaneId = PaneId.generateUUIDv7()
+        let visibleSiblingPaneId = PaneId.generateUUIDv7()
         let tabId = addTerminalPane(focusedPaneId, to: fixture)
         addVisiblePaneToActiveTab(visibleSiblingPaneId, to: fixture)
         fixture.tabLayout.setActivePane(focusedPaneId.uuid, inTab: tabId)
@@ -191,7 +190,11 @@ extension InboxNotificationRouterTests {
         _ = await fixture.bus.post(
             makePaneEnvelope(
                 paneId: visibleSiblingPaneId,
-                event: .terminal(.scrollbarChanged(ScrollbarState(top: 40, bottom: 80, total: 140)))
+                event: .terminalActivity(
+                    .paneObservationChanged(
+                        TerminalPaneObservationState(isPinnedToBottom: false)
+                    )
+                )
             )
         )
         _ = await fixture.bus.post(
@@ -212,13 +215,12 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.globalUnreadCount == 1)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("repeated unseen activity coalesces into one unread notification")
     func repeatedUnseenActivityCoalescesIntoOneUnreadNotification() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -248,13 +250,12 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.globalUnreadCount == 1)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("read dismissed unseen activity row does not absorb a new settled fact")
     func readDismissedUnseenActivityRowDoesNotAbsorbNewSettledFact() async throws {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -292,7 +293,6 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.globalUnreadCount == 1)
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     private func addVisiblePaneToActiveTab(
@@ -301,7 +301,9 @@ extension InboxNotificationRouterTests {
     ) {
         let pane = Pane(
             id: paneId.uuid,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(
                 paneId: paneId,
                 contentType: .terminal,

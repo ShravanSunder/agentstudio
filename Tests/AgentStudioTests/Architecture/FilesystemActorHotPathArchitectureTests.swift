@@ -52,8 +52,14 @@ struct FilesystemActorHotPathArchitectureTests {
         #expect(sdkGitProviderSource.contains("@concurrent\n    nonisolated private static func computeStatus"))
         assertNoProductionGitShellSignature(in: sdkGitProviderSource)
         assertNoProductionGitShellSignature(in: repoScannerSource)
-        #expect(repoScannerSource.contains("client.validateWorktree("))
-        #expect(repoScannerSource.contains("client.repositoryIdentity(for:"))
+        #expect(
+            repoScannerSource.contains(
+                "func discoveryOutcome(for url: URL) async -> GitRepositoryDiscoveryOutcome"
+            )
+        )
+        #expect(repoScannerSource.contains("case .validationRequired(let request):"))
+        #expect(repoScannerSource.contains("await discoveryProvider.discoveryOutcome("))
+        #expect(repoScannerSource.contains("session.consumeValidationCompletion("))
         #expect(filesystemGitPipelineSource.contains("AgentStudioGitWorkingTreeStatusProvider()"))
         try assertNoUnexpectedProductionGitShellSignatures(projectRoot: projectRoot)
     }
@@ -70,6 +76,30 @@ struct FilesystemActorHotPathArchitectureTests {
 
         #expect(projectorSource.contains("coalescingWindow: Duration,"))
         #expect(!projectorSource.contains("coalescingWindow: Duration = .zero"))
+    }
+
+    @Test("filesystem ingress reuses registered canonical roots")
+    func filesystemIngressReusesRegisteredCanonicalRoots() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let filesystemActorSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemActor.swift"
+            ),
+            encoding: .utf8
+        )
+        let ingressBody = try #require(
+            filesystemActorSource.slice(
+                from: "private func ingestRawPaths(worktreeId: UUID, paths: [String]) async",
+                to: "func startIngressTaskIfNeeded()"
+            )
+        )
+
+        #expect(
+            ingressBody.contains(
+                "canonicalRootsByWorktree: roots.mapValues(\\.canonicalRootPath)"
+            )
+        )
+        #expect(!ingressBody.contains("rootsByWorktree: roots.mapValues(\\.rootPath)"))
     }
 
     @Test("git snapshot projection skips workspace topology root lookup")
@@ -90,7 +120,8 @@ struct FilesystemActorHotPathArchitectureTests {
         )
 
         #expect(projectionBody.contains("await filesystemProjectionIndex.projectPaneFilesystem"))
-        #expect(projectionBody.contains("paneFilesystemProjectionStore.applyProjectionIntent"))
+        #expect(projectionBody.contains("projectionResult.intents.map(makeFilesystemProjectionEnvelope)"))
+        #expect(!projectionBody.contains("paneFilesystemProjectionStore"))
         #expect(!projectionBody.contains("workspaceWorktreeContexts"))
         #expect(!projectionBody.contains("filesystemRegisteredContextsByWorktreeId"))
     }

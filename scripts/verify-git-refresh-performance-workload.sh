@@ -127,6 +127,7 @@ DRIVE_COMMAND_BAR="${AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR:-1}"
 SAMPLE_DURING_WORKLOAD="${AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD:-0}"
 ALLOW_JSONL_PROOF="${AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF:-0}"
 ALLOW_TEST_RESPONSES="${AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES:-0}"
+COMMON_QUIESCENCE_TIMEOUT_SECONDS=30
 
 absolute_path() {
   local path="$1"
@@ -191,6 +192,7 @@ APP_PID=""
 APP_BINARY=""
 APP_LAUNCH_BUNDLE=""
 QUERY_START=""
+WRITERS_FINISHED_AT=""
 WRITER_PIDS=()
 
 log_command() {
@@ -365,10 +367,6 @@ uuid_v7() {
     "${random_hex:6:12}"
 }
 
-uuid_any() {
-  uuidgen | tr '[:upper:]' '[:lower:]'
-}
-
 json_url() {
   printf 'file://%s' "$1"
 }
@@ -406,7 +404,7 @@ create_linked_worktree() {
 
 write_workspace_json() {
   local workspace_id="$1"
-  local workspace_file="$APP_DATA_DIR/workspaces/$workspace_id.workspace.state.json"
+  local workspace_file="$ARTIFACT/workspace-fixture.json"
   local timestamp=0
 
   {
@@ -451,7 +449,8 @@ write_workspace_json() {
       local title="repo-pane-$pane_index"
       printf '    {\n'
       printf '      "id": "%s",\n' "$pane_id"
-      printf '      "content": {"version": 2, "type": "terminal", "state": {"provider": "zmx", "lifetime": "persistent"}},\n'
+      printf '      "content": {"version": 3, "type": "terminal", "state": {"provider": "zmx", "lifetime": "persistent", "zmxSessionID": "%s"}},\n' \
+        "${ZMX_SESSION_IDS[$pane_index]}"
       printf '      "metadata": {\n'
       printf '        "paneId": "%s",\n' "$pane_id"
       printf '        "contentType": {"terminal": {}},\n'
@@ -534,6 +533,7 @@ prepare_fixture() {
   WORKTREE_NAMES=()
   WORKTREE_IS_MAIN=()
   PANE_IDS=()
+  ZMX_SESSION_IDS=()
   DRAWER_IDS=()
   DIVIDER_IDS=()
 
@@ -542,14 +542,14 @@ prepare_fixture() {
   local repo_index
   for repo_index in $(seq 0 $((REPO_COUNT - 1))); do
     local repo_id repo_dir
-    repo_id="$(uuid_any)"
+    repo_id="$(uuid_v7)"
     repo_dir="$FIXTURE_ROOT/repos/repo-$(printf '%03d' "$repo_index")"
     init_repo "$repo_dir"
 
     REPO_IDS[$repo_index]="$repo_id"
     REPO_PATHS[$repo_index]="$repo_dir"
 
-    WORKTREE_IDS[$worktree_index]="$(uuid_any)"
+    WORKTREE_IDS[$worktree_index]="$(uuid_v7)"
     WORKTREE_REPO_IDS[$worktree_index]="$repo_id"
     WORKTREE_PATHS[$worktree_index]="$repo_dir"
     WORKTREE_NAMES[$worktree_index]="main"
@@ -561,7 +561,7 @@ prepare_fixture() {
       branch_name="perf-$repo_index"
       linked_dir="$FIXTURE_ROOT/linked/repo-$(printf '%03d' "$repo_index")-$branch_name"
       create_linked_worktree "$repo_dir" "$linked_dir" "$branch_name"
-      WORKTREE_IDS[$worktree_index]="$(uuid_any)"
+      WORKTREE_IDS[$worktree_index]="$(uuid_v7)"
       WORKTREE_REPO_IDS[$worktree_index]="$repo_id"
       WORKTREE_PATHS[$worktree_index]="$linked_dir"
       WORKTREE_NAMES[$worktree_index]="$branch_name"
@@ -574,18 +574,36 @@ prepare_fixture() {
   local pane_index
   for pane_index in $(seq 0 $((ACTIVE_PANE_COUNT - 1))); do
     PANE_IDS[$pane_index]="$(uuid_v7)"
-    DRAWER_IDS[$pane_index]="$(uuid_any)"
+    ZMX_SESSION_IDS[$pane_index]="$(uuid_v7)"
+    DRAWER_IDS[$pane_index]="$(uuid_v7)"
   done
   if [ "$ACTIVE_PANE_COUNT" -gt 1 ]; then
     local divider_index
     for divider_index in $(seq 0 $((ACTIVE_PANE_COUNT - 2))); do
-      DIVIDER_IDS[$divider_index]="$(uuid_any)"
+      DIVIDER_IDS[$divider_index]="$(uuid_v7)"
     done
   fi
-  TAB_ID="$(uuid_any)"
-  ARRANGEMENT_ID="$(uuid_any)"
-  WORKSPACE_ID="$(uuid_any)"
+  TAB_ID="$(uuid_v7)"
+  ARRANGEMENT_ID="$(uuid_v7)"
+  WORKSPACE_ID="$(uuid_v7)"
   WORKSPACE_FILE="$(write_workspace_json "$WORKSPACE_ID")"
+}
+
+materialize_workspace_fixture() {
+  local materialization_log="$ARTIFACT/fixture-materialization.log"
+  local materializer_filter="GitRefreshPerformanceWorkloadScriptTests.workloadFixtureMaterializesThroughStrictSQLite"
+  local materializer_env=(
+    "AGENTSTUDIO_PERF_FIXTURE_JSON=$WORKSPACE_FILE"
+    "AGENTSTUDIO_PERF_FIXTURE_DATA_ROOT=$APP_DATA_DIR"
+    "AGENTSTUDIO_PERF_FIXTURE_EXPECTED_REPOS=$REPO_COUNT"
+    "AGENTSTUDIO_PERF_FIXTURE_EXPECTED_WORKTREES=$WORKTREE_COUNT"
+    "AGENTSTUDIO_PERF_FIXTURE_EXPECTED_PANES=$ACTIVE_PANE_COUNT"
+    "AGENTSTUDIO_PERF_FIXTURE_EXPECTED_TABS=1"
+  )
+
+  log_command env "${materializer_env[@]}" mise run test -- --filter "$materializer_filter"
+  env "${materializer_env[@]}" mise run test -- --filter "$materializer_filter" \
+    >"$materialization_log" 2>&1
 }
 
 launch_debug_observability_app() {
@@ -662,18 +680,23 @@ query_victoria_logs() {
 
 query_victoria_metrics() {
   local promql="$1"
+  local latency_offset="${2:-}"
   if test_responses_enabled && [ -n "${AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE+x}" ]; then
     printf '%s\n' "$AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE"
     return 0
   fi
-  curl \
-    --fail \
-    --silent \
-    --show-error \
-    --max-time 5 \
-    --get \
-    --data-urlencode "query=$promql" \
-    "$METRICS_QUERY_URL"
+  local args=(
+    --fail
+    --silent
+    --show-error
+    --max-time 5
+    --get
+    --data-urlencode "query=$promql"
+  )
+  if [ -n "$latency_offset" ]; then
+    args+=(--data-urlencode "latency_offset=$latency_offset")
+  fi
+  curl "${args[@]}" "$METRICS_QUERY_URL"
 }
 
 logsql_escape_exact_value() {
@@ -903,6 +926,162 @@ if total.is_integer():
 else:
     print(total)
 ' <<<"$response"
+}
+
+fresh_common_debt_metric_query() {
+  local metric_name="$1"
+  local event_name="$2"
+  local minimum_timestamp="$3"
+  local selector
+  selector="$(victoria_metric_event_label_selector "$event_name")"
+
+  printf '%s{%s} and (timestamp(%s{%s}) >= %s)' \
+    "$metric_name" \
+    "$selector" \
+    "$metric_name" \
+    "$selector" \
+    "$minimum_timestamp"
+}
+
+common_debt_metric_query() {
+  local minimum_timestamp="$1"
+  printf '(%s) or (%s) or (%s)' \
+    "$(fresh_common_debt_metric_query \
+      agentstudio_performance_filesystem_logical_debt_count \
+      performance.filesystem.logical_debt \
+      "$minimum_timestamp")" \
+    "$(fresh_common_debt_metric_query \
+      agentstudio_performance_git_logical_debt_count \
+      performance.git.logical_debt \
+      "$minimum_timestamp")" \
+    "$(fresh_common_debt_metric_query \
+      agentstudio_performance_runtime_delivery_total_pending_count \
+      performance.runtime_delivery.snapshot \
+      "$minimum_timestamp")"
+}
+
+common_debt_snapshot() {
+  local writers_finished_at="$1"
+  local response
+  response="$(query_victoria_metrics \
+    "$(common_debt_metric_query "$writers_finished_at")" \
+    1ms 2>/dev/null || true)"
+  [ -n "$response" ] || {
+    echo "ready=false reason=missing_response"
+    return 0
+  }
+  /usr/bin/python3 -c '
+import json
+import math
+import sys
+
+expected = {
+    "agentstudio_performance_filesystem_logical_debt_count": (
+        "filesystem", "performance.filesystem.logical_debt"
+    ),
+    "agentstudio_performance_git_logical_debt_count": (
+        "git", "performance.git.logical_debt"
+    ),
+    "agentstudio_performance_runtime_delivery_total_pending_count": (
+        "runtime", "performance.runtime_delivery.snapshot"
+    ),
+}
+observed = {metric_name: [] for metric_name in expected}
+try:
+    payload = json.load(sys.stdin)
+    for item in payload["data"]["result"]:
+        metric = item.get("metric", {})
+        metric_name = metric.get("__name__")
+        if metric_name not in expected or metric.get("event") != expected[metric_name][1]:
+            continue
+        value = float(item["value"][1])
+        if math.isfinite(value):
+            observed[metric_name].append(value)
+except Exception:
+    pass
+
+ready = True
+parts = []
+for metric_name, (short_name, _) in expected.items():
+    samples = observed[metric_name]
+    if not samples:
+        ready = False
+        parts.append(f"{short_name}=missing")
+        continue
+    total = sum(samples)
+    ready = ready and total == 0
+    parts.append(f"{short_name}={total:g}")
+
+print(f"ready={str(ready).lower()} " + " ".join(parts))
+' <<<"$response"
+}
+
+wait_for_common_quiescence() {
+  local writers_finished_at="$1"
+  local quiescence_log="$ARTIFACT/common-quiescence.log"
+  local deadline=$((SECONDS + COMMON_QUIESCENCE_TIMEOUT_SECONDS))
+  local snapshot="ready=false reason=not_sampled"
+
+  : >"$quiescence_log"
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if ! kill -0 "$APP_PID" >/dev/null 2>&1; then
+      echo "app pid $APP_PID exited before common quiescence" | tee -a "$quiescence_log" >&2
+      return 1
+    fi
+
+    snapshot="$(common_debt_snapshot "$writers_finished_at")"
+    printf 'observed_at=%s %s writers_finished_at=%s\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      "$snapshot" \
+      "$writers_finished_at" >>"$quiescence_log"
+
+    if [[ "$snapshot" == ready=true* ]]; then
+      echo "common_quiescence=succeeded" >>"$quiescence_log"
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "common_quiescence=timed_out timeout_seconds=$COMMON_QUIESCENCE_TIMEOUT_SECONDS" \
+    | tee -a "$quiescence_log" >&2
+  return 1
+}
+
+capture_final_process_resources() {
+  local captured_at
+  captured_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  {
+    echo "captured_at=$captured_at"
+    echo "app_pid=$APP_PID"
+    /bin/ps -p "$APP_PID" -o pid=,time=,rss=,etime=,command=
+  } >"$ARTIFACT/post-quiescence-process.txt" || {
+    echo "failed to capture post-quiescence process state for PID $APP_PID" >&2
+    return 1
+  }
+
+  local footprint_status
+  if [ ! -x /usr/bin/footprint ]; then
+    footprint_status="unavailable"
+    echo "footprint is unavailable" >"$ARTIFACT/post-quiescence-footprint.txt"
+  elif /usr/bin/footprint -p "$APP_PID" >"$ARTIFACT/post-quiescence-footprint.txt" 2>&1; then
+    footprint_status="succeeded"
+  else
+    footprint_status="failed"
+  fi
+  {
+    echo "captured_at=$captured_at"
+    echo "app_pid=$APP_PID"
+    echo "footprint_status=$footprint_status"
+  } >"$ARTIFACT/post-quiescence-resources.env"
+
+  if [ "$footprint_status" != "succeeded" ]; then
+    echo "failed to capture post-quiescence footprint for PID $APP_PID: $footprint_status" >&2
+    return 1
+  fi
+  if ! kill -0 "$APP_PID" >/dev/null 2>&1; then
+    echo "app pid $APP_PID exited during final resource capture" >&2
+    return 1
+  fi
 }
 
 victoria_metric_command_bar_filter_query() {
@@ -1175,6 +1354,7 @@ if [ "$prepare_only" = true ]; then
   exit 0
 fi
 
+materialize_workspace_fixture
 launch_debug_observability_app
 
 if ! wait_for_trace_event performance.coordinator.write 45; then
@@ -1199,6 +1379,8 @@ fi
 for writer_pid in "${WRITER_PIDS[@]}"; do
   wait "$writer_pid" >/dev/null 2>&1 || true
 done
+WRITERS_FINISHED_AT="$(/usr/bin/python3 -c 'import time; print(time.time())')"
+echo "writers_finished_at=$WRITERS_FINISHED_AT" >"$ARTIFACT/writers-finished.env"
 
 if ! wait_for_trace_event performance.git.status 30; then
   echo "did not observe performance.git.status after busy workload" >&2
@@ -1209,6 +1391,17 @@ require_status_latency_metrics
 
 if [ "$DRIVE_COMMAND_BAR" = "1" ] && ! wait_for_command_bar_repo_filter_event 10; then
   echo "did not observe non-empty performance.commandbar.filter after startup command-bar repo filter smoke" >&2
+  summarize_traces
+  exit 1
+fi
+
+if ! wait_for_common_quiescence "$WRITERS_FINISHED_AT"; then
+  echo "common runtime debt did not reach fresh zero within $COMMON_QUIESCENCE_TIMEOUT_SECONDS seconds" >&2
+  summarize_traces
+  exit 1
+fi
+
+if ! capture_final_process_resources; then
   summarize_traces
   exit 1
 fi

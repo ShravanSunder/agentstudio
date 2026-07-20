@@ -4,6 +4,25 @@ import Testing
 
 @Suite("IPC programmatic-control contracts")
 struct IPCContractsTests {
+    @Test("command argument string validation is decoder-derived")
+    func commandArgumentStringValidationIsDecoderDerived() throws {
+        let constructed = IPCCommandExecuteParams(
+            commandId: .init(rawValue: "setRepoSidebarVisibilityMode"),
+            targetHandle: nil,
+            arguments: ["mode": "favoritesOnly"]
+        )
+        let decoded = try JSONDecoder().decode(
+            IPCCommandExecuteParams.self,
+            from: Data(
+                #"{"commandId":"setRepoSidebarVisibilityMode","arguments":{"mode":1}}"#.utf8
+            )
+        )
+
+        #expect(constructed.argumentsContainOnlyStrings)
+        #expect(decoded.arguments.isEmpty)
+        #expect(!decoded.argumentsContainOnlyStrings)
+    }
+
     @Test("models pane-bound principals with delegated approval authority")
     func modelsPaneBoundPrincipalsWithDelegatedApprovalAuthority() throws {
         let runtimeId = UUID()
@@ -56,6 +75,10 @@ struct IPCContractsTests {
         let uuid = UUID()
 
         #expect(try IPCHandle.parse("pane:1") == IPCHandle(kind: .pane, reference: .friendlyOrdinal(1)))
+        #expect(
+            try IPCHandle.parse("repo:\(uuid.uuidString)")
+                == IPCHandle(kind: .repo, reference: .canonicalUUID(uuid))
+        )
         #expect(
             try IPCHandle.parse("workspace:\(uuid.uuidString)")
                 == IPCHandle(kind: .workspace, reference: .canonicalUUID(uuid))

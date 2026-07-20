@@ -74,6 +74,8 @@ state_reason=""
 state_pid=""
 state_debug_code=""
 state_launch_method=""
+state_activation_mode=""
+state_ipc_auth_mode=""
 state_app=""
 state_executable=""
 state_startup_diagnostic_action=""
@@ -113,6 +115,12 @@ PY
         ;;
       AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD)
         state_launch_method="$decoded_value"
+        ;;
+      AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE)
+        state_activation_mode="$decoded_value"
+        ;;
+      AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE)
+        state_ipc_auth_mode="$decoded_value"
         ;;
       AGENTSTUDIO_OBSERVABILITY_APP)
         state_app="$decoded_value"
@@ -344,7 +352,7 @@ if [ -n "$state_proof_token" ]; then
   proof_token_query="$(logsql_exact_filter "agent.proof.launch" "$state_proof_token")"
   query="$query $proof_token_query"
 fi
-startup_event_query="$(logsql_exact_filter "_msg" "app.zmx_startup_reconciliation.completed")"
+startup_event_query="$(logsql_exact_filter "_msg" "app.did_finish_launching.succeeded")"
 preferences_loaded_event_query="$(logsql_exact_filter "_msg" "app.preferences.global.loaded")"
 
 query_logs() {
@@ -507,36 +515,25 @@ fi
 
 startup_response="$(
   query_logs \
-    "$query $startup_event_query | fields _msg,agentstudio.zmx.startup.inventory_outcome,agentstudio.zmx.startup.live_session_count,agentstudio.zmx.startup.hydrated_anchor_count,agentstudio.zmx.startup.protected_session_count,agentstudio.zmx.startup.unresolved_candidate_count,agentstudio.zmx.startup.unmatched_live_session_count | limit 5"
+    "$query $startup_event_query | fields _msg,agentstudio.app.startup.phase,agentstudio.app.startup.outcome | limit 5"
 )"
 if [ -z "$startup_response" ]; then
-  echo "no startup zmx reconciliation record found in VictoriaLogs for marker $MARKER" >&2
+  echo "no completed app launch record found in VictoriaLogs for marker $MARKER" >&2
   exit 1
 fi
 
 required_startup_fields=(
-  agentstudio.zmx.startup.inventory_outcome
-  agentstudio.zmx.startup.live_session_count
-  agentstudio.zmx.startup.hydrated_anchor_count
-  agentstudio.zmx.startup.protected_session_count
-  agentstudio.zmx.startup.unresolved_candidate_count
-  agentstudio.zmx.startup.unmatched_live_session_count
+  agentstudio.app.startup.phase
+  agentstudio.app.startup.outcome
 )
 
 for field in "${required_startup_fields[@]}"; do
   if ! grep -q "\"$field\":" <<<"$startup_response"; then
-    echo "startup zmx reconciliation record missing field: $field" >&2
+    echo "completed app launch record missing field: $field" >&2
     echo "$startup_response" >&2
     exit 1
   fi
 done
-
-if [ "${AGENTSTUDIO_OBSERVABILITY_ALLOW_UNAVAILABLE_ZMX_STARTUP:-0}" != "1" ] &&
-  grep -q '"agentstudio.zmx.startup.inventory_outcome":"unavailable"' <<<"$startup_response"; then
-  echo "startup zmx reconciliation inventory was unavailable" >&2
-  echo "$startup_response" >&2
-  exit 1
-fi
 
 if [ "$state_preferences_mode" = "honor_preferences" ]; then
   preferences_response="$(
@@ -561,13 +558,24 @@ if [ "$state_preferences_mode" = "honor_preferences" ]; then
 fi
 
 startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-$state_startup_diagnostic_action}"
+if [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
+  if [ "$state_activation_mode" != "background" ]; then
+    echo "sidebar-performance-proof requires background LaunchServices activation mode: ${state_activation_mode:-<missing>}" >&2
+    exit 1
+  fi
+  if [ "$state_ipc_auth_mode" != "authenticated" ]; then
+    echo "sidebar-performance-proof requires authenticated IPC auth mode: ${state_ipc_auth_mode:-<missing>}" >&2
+    exit 1
+  fi
+fi
 if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
   [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ] ||
   [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ] ||
   [ "$startup_diagnostic_action" = "bridge-file-view-observability-smoke" ] ||
   [ "$startup_diagnostic_action" = "bridge-file-view-command-route-observability-smoke" ] ||
   [ "$startup_diagnostic_action" = "bridge-file-view-targeted-route-observability-smoke" ] ||
-  [ "$startup_diagnostic_action" = "bridge-review-to-file-view-observability-smoke" ]; then
+  [ "$startup_diagnostic_action" = "bridge-review-to-file-view-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
   startup_diagnostic_action_filter="$(
     logsql_exact_filter agentstudio.startup_diagnostic.action "$startup_diagnostic_action"
   )"
@@ -603,6 +611,9 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
     file_view_stress_fields="agentstudio.startup_diagnostic.bridge.file_view.mode_switch.count,agentstudio.startup_diagnostic.bridge.file_view.mode_switch.final_file_selected,agentstudio.startup_diagnostic.bridge.file_view.tree_scroll_stress.count,agentstudio.startup_diagnostic.bridge.file_view.tree_scroll_stress.reached_bottom"
     file_view_worker_fields="agentstudio.startup_diagnostic.bridge.worker_pool.state,agentstudio.startup_diagnostic.bridge.worker_pool.manager_state,agentstudio.startup_diagnostic.bridge.worker_pool.workers_failed,agentstudio.startup_diagnostic.bridge.worker_diagnostic.file_success_count,agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count,agentstudio.startup_diagnostic.bridge.page_issue.count,agentstudio.startup_diagnostic.bridge.page_issue.last_kind,agentstudio.startup_diagnostic.bridge.page_issue.last_class,agentstudio.startup_diagnostic.bridge.page_issue.disallowed.count,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket"
     diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,$file_view_diagnostic_fields,$file_view_click_fields,$file_view_stress_fields,$file_view_worker_fields,agentstudio.startup_diagnostic.render_proof.succeeded"
+  fi
+  if [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
+    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.fixture.repo.count,agentstudio.startup_diagnostic.fixture.worktree.count,agentstudio.startup_diagnostic.fixture.inbox_notification.count,agentstudio.startup_diagnostic.fixture.sidebar_surface.count,agentstudio.startup_diagnostic.projection_proof.succeeded"
   fi
   diagnostic_command_response="$(
     wait_for_log_query \
@@ -643,13 +654,15 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
     echo "$diagnostic_completed_response" >&2
     exit 1
   fi
-  if ! json_truthy_field \
-    "agentstudio.startup_diagnostic.render_proof.succeeded" \
-    "$diagnostic_completed_response"; then
+  diagnostic_proof_field="agentstudio.startup_diagnostic.render_proof.succeeded"
+  if [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
+    diagnostic_proof_field="agentstudio.startup_diagnostic.projection_proof.succeeded"
+  fi
+  if ! json_truthy_field "$diagnostic_proof_field" "$diagnostic_completed_response"; then
     if [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ]; then
       echo "startup diagnostic completed without successful IPC terminal render proof for action $startup_diagnostic_action" >&2
     else
-      echo "startup diagnostic completed without successful render proof for action $startup_diagnostic_action" >&2
+      echo "startup diagnostic completed without successful proof for action $startup_diagnostic_action" >&2
     fi
     echo "$diagnostic_completed_response" >&2
     exit 1
@@ -807,4 +820,5 @@ for field in "${sensitive_fields[@]}"; do
 done
 
 echo "debug observability ok:"
+echo "launch_method=$state_launch_method activation_mode=${state_activation_mode:-unknown} ipc_auth_mode=${state_ipc_auth_mode:-unknown}"
 sed -n '1,5p' <<<"$startup_response"

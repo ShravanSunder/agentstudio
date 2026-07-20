@@ -147,6 +147,8 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(actionDebugGuardIndex < actionIPCSmokeCaseIndex)
         #expect(actionIPCSmokeCaseIndex < actionDebugEndIndex)
         #expect(startupDiagnosticsSource.contains("AgentStudioStartupDiagnosticAction.fromEnvironment()"))
+        #expect(startupDiagnosticsSource.contains("\"agentstudio.performance.sidebar.surface\": .string(\"inbox\")"))
+        #expect(startupDiagnosticsSource.contains(".string(projectionTrigger.rawValue)"))
         #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.newTab)"))
         #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)"))
         #expect(startupDiagnosticsSource.contains("commandBarController.state.rawInput = \"# repo\""))
@@ -169,22 +171,8 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(dispatchSmokeCaseIndex < dispatchDebugEndIndex)
         #expect(dispatchDebugGuardIndex < dispatchIPCSmokeCaseIndex)
         #expect(dispatchIPCSmokeCaseIndex < dispatchDebugEndIndex)
-        #expect(startupDiagnosticsSource.contains("WindowRestoreBridge(windowLifecycleStore: windowLifecycleStore)"))
-        #expect(startupDiagnosticsSource.contains("isReadyForLaunchRestore"))
-        let diagnosticActivateIndex = try #require(
-            startupDiagnosticsSource.range(of: "NSApp.activate(ignoringOtherApps: true)")?.lowerBound)
-        let diagnosticKeyWindowIndex = try #require(
-            startupDiagnosticsSource.range(of: "mainWindowController?.window?.makeKeyAndOrderFront(nil)")?.lowerBound)
-        let diagnosticActivationWaitIndex = try #require(
-            startupDiagnosticsSource.range(of: "await waitForStartupDiagnosticAppActivation()")?.lowerBound)
-        let diagnosticOpenTerminalIndex = try #require(
-            startupDiagnosticsSource.range(of: "workspaceSurfaceCoordinator.openFloatingTerminal(")?.lowerBound)
-        #expect(diagnosticActivateIndex < diagnosticKeyWindowIndex)
-        #expect(diagnosticKeyWindowIndex < diagnosticActivationWaitIndex)
-        #expect(diagnosticActivationWaitIndex < diagnosticOpenTerminalIndex)
-        #expect(startupDiagnosticsSource.contains("AppPolicies.StartupDiagnostic.appActivationTimeout"))
-        #expect(startupDiagnosticsSource.contains("workspaceSurfaceCoordinator.openFloatingTerminal("))
-        #expect(startupDiagnosticsSource.contains("provider: .zmx"))
+        try assertStartupDiagnosticActivationPrecedesOpeningTerminal(
+            startupDiagnosticsSource: startupDiagnosticsSource)
         try assertBridgeReviewSmokeDiagnosticSuppressesLaunchRestore(
             appDelegateSource: appDelegateSource,
             startupDiagnosticsSource: startupDiagnosticsSource,
@@ -209,6 +197,27 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(!startupDiagnosticsSource.contains("for _ in 0..<80"))
         #expect(diagnosticActionSource.contains("AGENTSTUDIO_STARTUP_WATCH_FOLDER"))
         #expect(!appDelegateSource.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))
+    }
+
+    private func assertStartupDiagnosticActivationPrecedesOpeningTerminal(
+        startupDiagnosticsSource: String
+    ) throws {
+        #expect(startupDiagnosticsSource.contains("WindowRestoreBridge(windowLifecycleStore: windowLifecycleStore)"))
+        #expect(startupDiagnosticsSource.contains("isReadyForLaunchRestore"))
+        let diagnosticActivateIndex = try #require(
+            startupDiagnosticsSource.range(of: "NSApp.activate(ignoringOtherApps: true)")?.lowerBound)
+        let diagnosticKeyWindowIndex = try #require(
+            startupDiagnosticsSource.range(of: "mainWindowController?.window?.makeKeyAndOrderFront(nil)")?.lowerBound)
+        let diagnosticActivationWaitIndex = try #require(
+            startupDiagnosticsSource.range(of: "await waitForStartupDiagnosticAppActivation()")?.lowerBound)
+        let diagnosticOpenTerminalIndex = try #require(
+            startupDiagnosticsSource.range(of: "workspaceSurfaceCoordinator.openFloatingTerminal(")?.lowerBound)
+        #expect(diagnosticActivateIndex < diagnosticKeyWindowIndex)
+        #expect(diagnosticKeyWindowIndex < diagnosticActivationWaitIndex)
+        #expect(diagnosticActivationWaitIndex < diagnosticOpenTerminalIndex)
+        #expect(startupDiagnosticsSource.contains("AppPolicies.StartupDiagnostic.appActivationTimeout"))
+        #expect(startupDiagnosticsSource.contains("workspaceSurfaceCoordinator.openFloatingTerminal("))
+        #expect(startupDiagnosticsSource.contains("provider: .zmx"))
     }
 
     private func assertBridgeReviewSmokeDiagnosticSuppressesLaunchRestore(

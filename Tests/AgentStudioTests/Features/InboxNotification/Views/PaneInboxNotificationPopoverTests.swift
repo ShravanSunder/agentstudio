@@ -524,9 +524,11 @@ struct PaneInboxNotificationPopoverTests {
     private func makePaneLookup(parentPaneId: UUID, drawerPaneId: UUID) -> [UUID: Pane] {
         let parentPane = Pane(
             id: parentPaneId,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(
-                paneId: PaneId(uuid: parentPaneId),
+                paneId: PaneId(existingUUID: parentPaneId),
                 contentType: .terminal,
                 title: "Parent"
             ),
@@ -534,9 +536,11 @@ struct PaneInboxNotificationPopoverTests {
         )
         let drawerPane = Pane(
             id: drawerPaneId,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(
-                paneId: PaneId(uuid: drawerPaneId),
+                paneId: PaneId(existingUUID: drawerPaneId),
                 contentType: .terminal,
                 title: "Drawer"
             ),

@@ -4,16 +4,87 @@ import Foundation
 
 @MainActor
 extension WorkspaceStore {
+    /// Test-target-only convenience seam for constructing a workspace store
+    /// around explicitly supplied atom owners.
+    convenience init(
+        identityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate()),
+        windowMemoryAtom: WorkspaceWindowMemoryAtom = WorkspaceWindowMemoryAtom(),
+        repositoryTopologyAtom: RepositoryTopologyAtom = RepositoryTopologyAtom(),
+        paneGraphAtom: WorkspacePaneGraphAtom = WorkspacePaneGraphAtom(),
+        drawerCursorAtom: WorkspaceDrawerCursorAtom = WorkspaceDrawerCursorAtom(),
+        paneAtom: WorkspacePaneAtom? = nil,
+        tabShellAtom: WorkspaceTabShellAtom = WorkspaceTabShellAtom(),
+        tabArrangementAtom: WorkspaceTabArrangementAtom = WorkspaceTabArrangementAtom(),
+        tabLayoutAtom: WorkspaceTabLayoutAtom? = nil,
+        mutationCoordinator: WorkspaceMutationCoordinator? = nil,
+        sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
+        sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator? = nil,
+        persistDebounceDuration: Duration = .milliseconds(500),
+        clock: (any Clock<Duration> & Sendable)? = nil,
+        recoveryReporter: PersistenceRecoveryReporter? = nil,
+        startsObserving: Bool = true
+    ) {
+        let resolvedTabShellAtom = tabLayoutAtom?.shellAtom ?? tabShellAtom
+        let resolvedTabArrangementAtom = tabLayoutAtom?.arrangementAtom ?? tabArrangementAtom
+        let resolvedTabLayoutAtom =
+            tabLayoutAtom
+            ?? WorkspaceTabLayoutAtom(
+                shellAtom: resolvedTabShellAtom,
+                arrangementAtom: resolvedTabArrangementAtom
+            )
+        let resolvedPaneAtom =
+            paneAtom
+            ?? WorkspacePaneAtom(
+                graphAtom: paneGraphAtom,
+                drawerCursorAtom: drawerCursorAtom,
+                repositoryTopologyAtom: repositoryTopologyAtom
+            )
+        let resolvedMutationCoordinator =
+            mutationCoordinator
+            ?? WorkspaceMutationCoordinator(
+                repositoryTopologyAtom: repositoryTopologyAtom,
+                workspacePaneAtom: resolvedPaneAtom,
+                workspaceTabShellAtom: resolvedTabShellAtom,
+                workspaceTabArrangementAtom: resolvedTabArrangementAtom
+            )
+        let testSQLiteRoot = FileManager.default.temporaryDirectory.appending(
+            path: "workspace-store-test-\(UUIDv7.generate().uuidString)"
+        )
+        let resolvedSQLiteDatastore =
+            sqliteDatastore
+            ?? WorkspaceSQLiteDatastoreFactory(
+                coreDatabaseURL: testSQLiteRoot.appending(path: "core.sqlite"),
+                localDatabaseURL: { workspaceId in
+                    testSQLiteRoot.appending(path: "\(workspaceId.uuidString).local.sqlite")
+                }
+            ).makeDatastore()
+        self.init(
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
+            repositoryTopologyAtom: repositoryTopologyAtom,
+            paneAtom: resolvedPaneAtom,
+            tabLayoutAtom: resolvedTabLayoutAtom,
+            mutationCoordinator: resolvedMutationCoordinator,
+            sqliteDatastore: resolvedSQLiteDatastore,
+            sqliteSaveCoordinator: sqliteSaveCoordinator,
+            persistDebounceDuration: persistDebounceDuration,
+            clock: clock,
+            recoveryReporter: recoveryReporter
+        )
+        if startsObserving {
+            startObserving()
+        }
+    }
+
     convenience init(
         catalogAtom: RepositoryTopologyAtom,
         graphAtom: WorkspacePaneAtom,
         interactionAtom: WorkspaceTabLayoutAtom,
-        persistor: WorkspacePersistor = WorkspacePersistor(),
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> & Sendable = ContinuousClock()
     ) {
         self.init(
-            identityAtom: WorkspaceIdentityAtom(),
+            identityAtom: WorkspaceIdentityAtom(workspaceId: UUIDv7.generate()),
             windowMemoryAtom: WorkspaceWindowMemoryAtom(),
             repositoryTopologyAtom: catalogAtom,
             paneAtom: graphAtom,
@@ -26,7 +97,6 @@ extension WorkspaceStore {
                 workspaceTabShellAtom: interactionAtom.shellAtom,
                 workspaceTabArrangementAtom: interactionAtom.arrangementAtom
             ),
-            persistor: persistor,
             persistDebounceDuration: persistDebounceDuration,
             clock: clock
         )
@@ -77,6 +147,7 @@ extension WorkspaceStore {
         title: String = "Terminal",
         provider: SessionProvider = .zmx,
         lifetime: SessionLifetime = .persistent,
+        zmxSessionID: ZmxSessionID = .generateUUIDv7(),
         residency: SessionResidency = .active,
         facets: PaneContextFacets = .empty
     ) -> Pane {
@@ -85,6 +156,7 @@ extension WorkspaceStore {
             title: title,
             provider: provider,
             lifetime: lifetime,
+            zmxSessionID: zmxSessionID,
             residency: residency,
             facets: facets
         )
@@ -179,9 +251,21 @@ extension WorkspaceStore {
         tabLayoutAtom.renameArrangement(arrangementId, name: name, inTab: tabId)
     }
     @discardableResult
-    func addDrawerPane(to parentPaneId: UUID) -> Pane? {
-        let fallbackCWD = paneAtom.pane(parentPaneId)?.worktreeId.flatMap(repositoryTopologyAtom.worktree)?.path
-        guard let drawerPane = paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: fallbackCWD) else {
+    func addDrawerPane(
+        to parentPaneId: UUID,
+        parentFallbackCWD: URL? = nil,
+        zmxSessionID: ZmxSessionID = .generateUUIDv7()
+    ) -> Pane? {
+        let fallbackCWD =
+            parentFallbackCWD
+            ?? paneAtom.pane(parentPaneId)?.worktreeId.flatMap(repositoryTopologyAtom.worktree)?.path
+        guard
+            let drawerPane = paneAtom.addDrawerPane(
+                to: parentPaneId,
+                parentFallbackCWD: fallbackCWD,
+                zmxSessionID: zmxSessionID
+            )
+        else {
             return nil
         }
         if let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
@@ -218,7 +302,8 @@ extension WorkspaceStore {
                 at: targetDrawerPaneId,
                 direction: splitDirection,
                 sizingMode: sizingMode,
-                parentFallbackCWD: fallbackCWD
+                parentFallbackCWD: fallbackCWD,
+                zmxSessionID: .generateUUIDv7()
             )
         else { return nil }
         if let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
@@ -339,13 +424,11 @@ extension WorkspaceStore {
         )
     }
     @discardableResult
-    func addRepo(at path: URL) -> Repo { repositoryTopologyAtom.addRepo(at: path) }
-    func removeRepo(_ repoId: UUID) { repositoryTopologyAtom.removeRepo(repoId) }
-    func markRepoUnavailable(_ repoId: UUID) { repositoryTopologyAtom.markRepoUnavailable(repoId) }
-    func markRepoAvailable(_ repoId: UUID) { repositoryTopologyAtom.markRepoAvailable(repoId) }
+    func addRepo(at path: URL) -> Repo { mutationCoordinator.addRepo(at: path) }
+    func removeRepo(_ repoId: UUID) { mutationCoordinator.removeRepo(repoId) }
+    func markRepoUnavailable(_ repoId: UUID) { mutationCoordinator.markRepoUnavailable(repoId) }
     @discardableResult
-    func addWatchedPath(_ path: URL) -> WatchedPath? { repositoryTopologyAtom.addWatchedPath(path) }
-    func removeWatchedPath(_ id: UUID) { repositoryTopologyAtom.removeWatchedPath(id) }
+    func addWatchedPath(_ path: URL) -> WatchedPath? { mutationCoordinator.addWatchedPath(path) }
     @discardableResult
     func orphanPanesForRepo(_ repoId: UUID) -> [UUID] {
         guard let repo = repositoryTopologyAtom.repo(repoId) else { return [] }
@@ -359,11 +442,15 @@ extension WorkspaceStore {
         paneAtom.orphanPanesForWorktree(worktreeId, path: path)
     }
     @discardableResult
-    func reassociateRepo(_ repoId: UUID, to newPath: URL, discoveredWorktrees: [Worktree]) -> Bool {
+    func reassociateRepo(
+        _ repoId: UUID,
+        to newPath: URL,
+        discoveredWorktrees: [Worktree]
+    ) -> RepositoryReassociationResult {
         mutationCoordinator.reassociateRepo(repoId, to: newPath, discoveredWorktrees: discoveredWorktrees)
     }
     func reconcileDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
-        repositoryTopologyAtom.reconcileDiscoveredWorktrees(repoId, worktrees: worktrees)
+        mutationCoordinator.reconcileDiscoveredWorktrees(repoId, worktrees: worktrees)
     }
     func setSidebarWidth(_ sidebarWidth: CGFloat) { windowMemoryAtom.setSidebarWidth(sidebarWidth) }
     func setWindowFrame(_ windowFrame: CGRect?) { windowMemoryAtom.setWindowFrame(windowFrame) }

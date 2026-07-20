@@ -8,18 +8,6 @@ private let inboxNotificationSidebarLogger = Logger(
     category: "InboxNotificationSidebarView"
 )
 
-private struct InboxNotificationListModelKey: Equatable {
-    let notifications: [InboxNotification]
-    let grouping: InboxNotificationGrouping
-    let sort: InboxNotificationSort
-    let searchText: String
-    let filter: InboxFilter?
-    let contentMode: InboxNotificationContentMode
-    let rowStateFilter: InboxNotificationRowStateFilter
-    let collapsedGroups: Set<InboxNotificationGroupKey>
-    let repoPresentationFingerprint: String
-}
-
 @MainActor
 struct InboxNotificationSidebarView: View {
     static let focusTargetIdentifier = NSUserInterfaceItemIdentifier(
@@ -35,11 +23,20 @@ struct InboxNotificationSidebarView: View {
     let workspaceRepositoryTopologyAtom: RepositoryTopologyAtom
     let repoCache: RepoCacheAtom
     let dispatcher: AppCommandDispatcher
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let initialProjectionTrigger: AppPolicies.SidebarProjection.Trigger
+    let initialProjectionSequence: Int
+    let onInitialProjectionApplied: @MainActor (Int) -> Void
     let onRefocusActivePane: @MainActor @Sendable () -> Void
 
     @State private var searchText = ""
     @State private var cachedListModel: InboxNotificationListModel
-    @State private var cachedListModelKey: InboxNotificationListModelKey
+    @State private var cachedListModelKey: InboxNotificationListProjectionKey
+    @State private var projectionWorker = InboxNotificationListProjectionWorker()
+    @State private var projectionTask: Task<Void, Never>?
+    @State private var inFlightProjectionRequest: InboxNotificationListProjectionRequest?
+    @State private var projectionGeneration = 0
+    @State private var hasReportedInitialProjection = false
     @State private var groupingMenuOpen = false
     @State private var flashingRowIds: Set<UUID> = []
     @State private var activeFilter: InboxFilter?
@@ -58,6 +55,10 @@ struct InboxNotificationSidebarView: View {
         workspaceRepositoryTopologyAtom: RepositoryTopologyAtom,
         repoCache: RepoCacheAtom,
         dispatcher: AppCommandDispatcher,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        initialProjectionTrigger: String = AppPolicies.SidebarProjection.Trigger.startupDiagnostic.rawValue,
+        initialProjectionSequence: Int = 0,
+        onInitialProjectionApplied: @escaping @MainActor (Int) -> Void = { _ in },
         onRefocusActivePane: @escaping @MainActor @Sendable () -> Void
     ) {
         self.inboxAtom = inboxAtom
@@ -69,6 +70,11 @@ struct InboxNotificationSidebarView: View {
         self.workspaceRepositoryTopologyAtom = workspaceRepositoryTopologyAtom
         self.repoCache = repoCache
         self.dispatcher = dispatcher
+        self.performanceTraceRecorder = performanceTraceRecorder
+        self.initialProjectionTrigger =
+            AppPolicies.SidebarProjection.Trigger(rawValue: initialProjectionTrigger) ?? .startupDiagnostic
+        self.initialProjectionSequence = initialProjectionSequence
+        self.onInitialProjectionApplied = onInitialProjectionApplied
         self.onRefocusActivePane = onRefocusActivePane
         let initialRepoEnrichmentByRepoId = Self.repoEnrichmentByRepoId(
             repos: workspaceRepositoryTopologyAtom.repos,
@@ -78,7 +84,7 @@ struct InboxNotificationSidebarView: View {
             repos: workspaceRepositoryTopologyAtom.repos,
             repoEnrichmentByRepoId: initialRepoEnrichmentByRepoId
         )
-        let initialKey = InboxNotificationListModelKey(
+        let initialKey = InboxNotificationListProjectionKey(
             notifications: inboxAtom.notifications,
             grouping: prefsAtom.grouping,
             sort: prefsAtom.sort,
@@ -92,22 +98,7 @@ struct InboxNotificationSidebarView: View {
             )
         )
         self._cachedListModelKey = State(initialValue: initialKey)
-        self._cachedListModel = State(
-            initialValue: InboxNotificationListModel(
-                notifications: inboxAtom.notifications,
-                grouping: prefsAtom.grouping,
-                sort: prefsAtom.sort,
-                searchText: "",
-                contentMode: Self.globalSidebarContentMode(prefsAtom.globalInboxContentMode),
-                rowStateFilter: prefsAtom.globalInboxRowStateFilter,
-                filter: nil,
-                collapsedGroups: inboxSidebarState.collapsedGroups,
-                repoPresentation: { repoId in
-                    guard let repoId else { return nil }
-                    return initialRepoPresentationByRepoId[repoId]
-                }
-            )
-        )
+        self._cachedListModel = State(initialValue: .empty)
     }
 
     var body: some View {
@@ -132,7 +123,7 @@ struct InboxNotificationSidebarView: View {
                 onClearFilter: clearFilter,
                 onClearReadHistory: clearReadInboxNotifications,
                 onClearAllHistory: clearAllInboxNotifications,
-                onSelectGrouping: { prefsAtom.setGrouping($0) },
+                onSelectGrouping: selectGrouping,
                 onToggleGroupCollapse: toggleGroupCollapse,
                 onMoveGroupBoundary: moveFocusToGroupBoundary,
                 onMoveEnd: moveFocusToEnd,
@@ -162,6 +153,11 @@ struct InboxNotificationSidebarView: View {
         }
         .task {
             applyPendingFilterDraft()
+            refreshListModel(force: true)
+        }
+        .onDisappear {
+            projectionTask?.cancel()
+            projectionTask = nil
         }
     }
 
@@ -221,9 +217,11 @@ struct InboxNotificationSidebarView: View {
         }
     }
 
-    private func refreshListModel() {
+    private func refreshListModel(force: Bool = false) {
+        let clock = ContinuousClock()
+        let requestBuildStart = clock.now
         let resolvedRepoPresentationByRepoId = repoPresentationByRepoId
-        let key = InboxNotificationListModelKey(
+        let key = InboxNotificationListProjectionKey(
             notifications: inboxAtom.notifications,
             grouping: prefsAtom.grouping,
             sort: prefsAtom.sort,
@@ -234,22 +232,196 @@ struct InboxNotificationSidebarView: View {
             collapsedGroups: inboxSidebarState.collapsedGroups,
             repoPresentationFingerprint: Self.repoPresentationFingerprint(resolvedRepoPresentationByRepoId)
         )
-        guard key != cachedListModelKey else { return }
-        cachedListModelKey = key
-        cachedListModel = InboxNotificationListModel(
-            notifications: key.notifications,
-            grouping: key.grouping,
-            sort: key.sort,
-            searchText: key.searchText,
-            contentMode: key.contentMode,
-            rowStateFilter: key.rowStateFilter,
-            filter: key.filter,
-            collapsedGroups: key.collapsedGroups,
-            repoPresentation: { repoId in
-                guard let repoId else { return nil }
-                return resolvedRepoPresentationByRepoId[repoId]
-            }
+        if !force, inFlightProjectionRequest?.key == key {
+            return
+        }
+        if !force, key == cachedListModelKey {
+            cancelInFlightProjectionIfNeeded()
+            return
+        }
+        if let cancelledRequest = inFlightProjectionRequest {
+            performanceTraceRecorder?.record(
+                .sidebarProjection,
+                attributes: sidebarProjectionTraceAttributes(
+                    for: cancelledRequest.key,
+                    trigger: cancelledRequest.trigger,
+                    phase: "projection_worker",
+                    extra: ["agentstudio.performance.sidebar.cancellation.count": .int(1)]
+                )
+            )
+        }
+        projectionGeneration += 1
+        let generation = projectionGeneration
+        let projectionTrigger = sidebarProjectionTrigger(previous: cachedListModelKey, next: key)
+        projectionTask?.cancel()
+        let request = InboxNotificationListProjectionRequest(
+            generation: generation,
+            key: key,
+            trigger: projectionTrigger,
+            repoPresentationByRepoId: resolvedRepoPresentationByRepoId
         )
+        inFlightProjectionRequest = request
+        let requestBuildDuration = requestBuildStart.duration(to: clock.now)
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: requestBuildDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: key,
+                trigger: projectionTrigger,
+                phase: "request_build_mainactor",
+                extra: [
+                    "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: requestBuildDuration)),
+                    "agentstudio.performance.sidebar.group.count": .int(0),
+                ]
+            )
+        )
+        let worker = projectionWorker
+        projectionTask = Task { @MainActor in
+            guard !Task.isCancelled else { return }
+            do {
+                let result = try await worker.project(request)
+                guard !Task.isCancelled else { return }
+                applyProjectionResult(result)
+            } catch is CancellationError {
+                clearProjectionTaskIfCurrent(generation: generation)
+            } catch {
+                inboxNotificationSidebarLogger.error(
+                    "Inbox list projection failed for generation \(generation, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+                clearProjectionTaskIfCurrent(generation: generation)
+            }
+        }
+    }
+
+    private func cancelInFlightProjectionIfNeeded() {
+        guard let cancelledRequest = inFlightProjectionRequest else { return }
+        performanceTraceRecorder?.record(
+            .sidebarProjection,
+            attributes: sidebarProjectionTraceAttributes(
+                for: cancelledRequest.key,
+                trigger: cancelledRequest.trigger,
+                phase: "projection_worker",
+                extra: ["agentstudio.performance.sidebar.cancellation.count": .int(1)]
+            )
+        )
+        projectionGeneration += 1
+        projectionTask?.cancel()
+        inFlightProjectionRequest = nil
+        projectionTask = nil
+    }
+
+    private func clearProjectionTaskIfCurrent(generation: Int) {
+        guard generation == projectionGeneration else { return }
+        inFlightProjectionRequest = nil
+        projectionTask = nil
+    }
+
+    private func applyProjectionResult(_ result: InboxNotificationListProjectionResult) {
+        guard
+            result.generation == projectionGeneration,
+            result.key == inFlightProjectionRequest?.key
+        else {
+            performanceTraceRecorder?.record(
+                .sidebarProjection,
+                attributes: sidebarProjectionTraceAttributes(
+                    for: result.key,
+                    trigger: result.trigger,
+                    phase: "mainactor_apply",
+                    extra: ["agentstudio.performance.sidebar.stale_discard.count": .int(1)]
+                )
+            )
+            return
+        }
+
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: result.workerDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: result.key,
+                trigger: result.trigger,
+                phase: "projection_worker",
+                extra: [
+                    "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: result.workerDuration)),
+                    "agentstudio.performance.sidebar.group.count": .int(result.model.sections.count),
+                ]
+            )
+        )
+
+        let clock = ContinuousClock()
+        let applyStart = clock.now
+        cachedListModel = result.model
+        cachedListModelKey = result.key
+        inFlightProjectionRequest = nil
+        projectionTask = nil
+        let applyDuration = applyStart.duration(to: clock.now)
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: applyDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: result.key,
+                trigger: result.trigger,
+                phase: "mainactor_apply",
+                extra: [
+                    "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration)),
+                    "agentstudio.performance.sidebar.group.count": .int(result.model.sections.count),
+                ]
+            )
+        )
+        if Self.shouldReportInitialProjection(hasReportedInitialProjection: hasReportedInitialProjection) {
+            hasReportedInitialProjection = true
+            onInitialProjectionApplied(initialProjectionSequence)
+        }
+    }
+
+    private func sidebarProjectionTraceAttributes(
+        for key: InboxNotificationListProjectionKey,
+        trigger: AppPolicies.SidebarProjection.Trigger = .startupDiagnostic,
+        phase: String,
+        extra: [String: AgentStudioTraceValue] = [:]
+    ) -> [String: AgentStudioTraceValue] {
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.sidebar.surface": .string("inbox"),
+            "agentstudio.performance.sidebar.phase": .string(phase),
+            "agentstudio.performance.sidebar.trigger": .string(trigger.rawValue),
+            "agentstudio.performance.sidebar.query_state": .string(key.searchText.isEmpty ? "empty" : "non_empty"),
+            "agentstudio.performance.sidebar.group_mode": .string(key.grouping.performanceMetricValue),
+            "agentstudio.performance.sidebar.input.count": .int(key.notifications.count),
+            "agentstudio.performance.sidebar.query_character.count": .int(key.searchText.count),
+        ]
+        attributes.merge(extra) { _, newValue in newValue }
+        return attributes
+    }
+
+    private func sidebarProjectionTrigger(
+        previous: InboxNotificationListProjectionKey?,
+        next: InboxNotificationListProjectionKey
+    ) -> AppPolicies.SidebarProjection.Trigger {
+        guard let previous else {
+            return Self.initialProjectionTrigger(configuredTrigger: initialProjectionTrigger)
+        }
+        if previous.grouping != next.grouping {
+            return .groupingSwitch
+        }
+        if previous.searchText != next.searchText {
+            return .search
+        }
+        if previous.collapsedGroups != next.collapsedGroups {
+            return .collapseToggle
+        }
+        return .dataRefresh
+    }
+
+    static func shouldReportInitialProjection(hasReportedInitialProjection: Bool) -> Bool {
+        !hasReportedInitialProjection
+    }
+
+    static func initialProjectionTrigger(
+        configuredTrigger: AppPolicies.SidebarProjection.Trigger
+    ) -> AppPolicies.SidebarProjection.Trigger {
+        configuredTrigger
     }
 
     static func repoPresentationByRepoId(
@@ -347,14 +519,39 @@ struct InboxNotificationSidebarView: View {
         dispatcher.dispatch(.toggleInboxNotificationSort)
     }
 
+    private func selectGrouping(_ grouping: InboxNotificationGrouping) {
+        let command: AppCommand =
+            switch grouping {
+            case .byTab: .setInboxGroupingTab
+            case .byRepo: .setInboxGroupingRepo
+            case .byPane: .setInboxGroupingPane
+            case .none: .setInboxGroupingNone
+            }
+        dispatcher.dispatch(command)
+    }
+
     private func toggleRowStateFilter() {
+        let nextRowStateFilter: InboxNotificationRowStateFilter =
+            effectiveRowStateFilter == .unreadOnly ? .all : .unreadOnly
         displayOverride = nil
-        prefsAtom.setGlobalInboxRowStateFilter(effectiveRowStateFilter == .unreadOnly ? .all : .unreadOnly)
+        dispatcher.dispatch(
+            AppCommandExecutionRequest(
+                command: .setInboxRowStateFilter,
+                arguments: .inboxRowStateFilter(nextRowStateFilter)
+            )
+        )
     }
 
     private func cycleContentMode() {
+        let nextContentMode: InboxNotificationContentMode =
+            effectiveContentMode == .rollUpAlerts ? .all : .rollUpAlerts
         displayOverride = nil
-        prefsAtom.setGlobalInboxContentMode(effectiveContentMode == .rollUpAlerts ? .all : .rollUpAlerts)
+        dispatcher.dispatch(
+            AppCommandExecutionRequest(
+                command: .setInboxContentMode,
+                arguments: .inboxContentMode(nextContentMode)
+            )
+        )
     }
 
     func clearReadInboxNotifications() {

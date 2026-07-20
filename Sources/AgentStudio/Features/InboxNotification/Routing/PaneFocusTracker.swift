@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import os.log
 
 private let paneFocusTrackerLogger = Logger(
@@ -6,53 +7,30 @@ private let paneFocusTrackerLogger = Logger(
     category: "PaneFocusTracker"
 )
 
-/// Narrows attended-pane transitions down to non-nil focus-gained pane ids.
-///
-/// `AttendedPaneAtom` owns the composite "what pane is currently attended?" model.
-/// The router only needs gained pane ids for auto-dismiss behavior, so this bridge
-/// keeps that feature concern local without re-deriving attention semantics.
+/// Observes the attended-pane derived read and publishes non-nil focus gains.
 @MainActor
 final class PaneFocusTracker {
     let focusGainedStream: AsyncStream<UUID>
 
     private let continuation: AsyncStream<UUID>.Continuation
-    private let attendedPane: AttendedPaneAtom
+    private let attendedPane: AttendedPaneDerived
     private let traceQueue: AgentStudioTraceEventQueue?
-    private var streamTask: Task<Void, Never>?
+    private var lastAttendedPaneId: UUID?
     private var isStopped = false
 
-    init(attendedPane: AttendedPaneAtom, traceRuntime: AgentStudioTraceRuntime? = nil) {
+    init(attendedPane: AttendedPaneDerived, traceRuntime: AgentStudioTraceRuntime? = nil) {
         self.attendedPane = attendedPane
         self.traceQueue = traceRuntime.map(AgentStudioTraceEventQueue.init(traceRuntime:))
-        // `AttendedPaneAtom.transitions` is the single-consumer coordinator feed.
-        // If another feature needs the same stream, add fan-out at the atom boundary.
+        self.lastAttendedPaneId = attendedPane.attendedPaneId
         let (stream, continuation) = AsyncStream.makeStream(of: UUID.self)
         self.focusGainedStream = stream
         self.continuation = continuation
-
-        streamTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            for await paneId in self.attendedPane.transitions {
-                guard !Task.isCancelled, !self.isStopped else { return }
-                self.traceAttendedPaneTransition(paneId)
-                guard let paneId else { continue }
-                self.continuation.yield(paneId)
-            }
-            guard !Task.isCancelled, !self.isStopped else { return }
-            paneFocusTrackerLogger.warning(
-                "Attended-pane transition stream ended while pane focus tracker was active"
-            )
-            self.isStopped = true
-            self.streamTask = nil
-            self.continuation.finish()
-        }
+        observeAttendedPane()
     }
 
     func stop() async {
         if !isStopped {
             isStopped = true
-            streamTask?.cancel()
-            streamTask = nil
             continuation.finish()
         }
         do {
@@ -64,15 +42,36 @@ final class PaneFocusTracker {
     }
 
     deinit {
-        streamTask?.cancel()
         continuation.finish()
         traceQueue?.cancel()
+    }
+
+    private func observeAttendedPane() {
+        guard !isStopped else { return }
+        withObservationTracking {
+            _ = attendedPane.attendedPaneId
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isStopped else { return }
+                self.publishTransitionIfNeeded()
+                self.observeAttendedPane()
+            }
+        }
+    }
+
+    private func publishTransitionIfNeeded() {
+        let updatedAttendedPaneId = attendedPane.attendedPaneId
+        guard updatedAttendedPaneId != lastAttendedPaneId else { return }
+        lastAttendedPaneId = updatedAttendedPaneId
+        traceAttendedPaneTransition(updatedAttendedPaneId)
+        guard let updatedAttendedPaneId else { return }
+        continuation.yield(updatedAttendedPaneId)
     }
 
     private func traceAttendedPaneTransition(_ paneId: UUID?) {
         var attributes: [String: AgentStudioTraceValue] = [
             "agentstudio.app.focus.attended": .bool(paneId != nil),
-            "agentstudio.app.focus.source": .string("AttendedPaneAtom"),
+            "agentstudio.app.focus.source": .string("AttendedPaneDerived"),
         ]
         if let paneId {
             attributes["agentstudio.pane.id"] = .string(paneId.uuidString)

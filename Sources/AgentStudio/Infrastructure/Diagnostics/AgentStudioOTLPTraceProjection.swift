@@ -138,7 +138,13 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.git.status_unavailable.reason",
         "agentstudio.performance.management_layer.command",
         "agentstudio.performance.pane_action.name",
+        "agentstudio.performance.sidebar.group_mode",
+        "agentstudio.performance.sidebar.phase",
+        "agentstudio.performance.sidebar.query_state",
+        "agentstudio.performance.sidebar.surface",
+        "agentstudio.performance.sidebar.trigger",
         "agentstudio.performance.sidebar.toggle.intent",
+        "agentstudio.performance.terminal.accumulator.drain.class",
         "agentstudio.performance.terminal.geometry.reason",
         "agentstudio.performance.terminal.surface.source",
         "agentstudio.persistence.backend",
@@ -219,7 +225,6 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.tcc.subject",
         "agentstudio.trace.tag",
         "agentstudio.workspace.boot.step",
-        "agentstudio.zmx.startup.inventory_outcome",
         "dev.runtime.flavor",
         "dev.branch.name",
         "terminal.activity.close_reason",
@@ -382,6 +387,14 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.coordinator.unregistered.count",
         "agentstudio.performance.coordinator.worktree.count",
         "agentstudio.performance.elapsed_ms",
+        "agentstudio.performance.filesystem.drain_task.count",
+        "agentstudio.performance.filesystem.affected_key_request.count",
+        "agentstudio.performance.filesystem.full_reconciliation_request.count",
+        "agentstudio.performance.filesystem.logical_debt.count",
+        "agentstudio.performance.filesystem.pending_worktree.count",
+        "agentstudio.performance.filesystem.watched_folder.active.count",
+        "agentstudio.performance.filesystem.watched_folder.dirty_follow_up.count",
+        "agentstudio.performance.filesystem.watched_folder.ready.count",
         "agentstudio.performance.git.admitted.count",
         "agentstudio.performance.git.available_slot.count",
         "agentstudio.performance.git.backoff_attempt.count",
@@ -391,8 +404,12 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.git.event_posted.count",
         "agentstudio.performance.git.input_path.count",
         "agentstudio.performance.git.pathspec.count",
+        "agentstudio.performance.git.logical_debt.count",
+        "agentstudio.performance.git.logical_pending.count",
+        "agentstudio.performance.git.logical_running.count",
         "agentstudio.performance.git.pending.count",
         "agentstudio.performance.git.registered.count",
+        "agentstudio.performance.git.retry_pending.count",
         "agentstudio.performance.git.running.count",
         "agentstudio.performance.git.snapshot_dedup.count",
         "agentstudio.performance.git.status.duration_ms",
@@ -400,6 +417,19 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.git.suppressed_git_internal_path.count",
         "agentstudio.performance.git.suppressed_ignored_path.count",
         "agentstudio.performance.git.tick.count",
+        "agentstudio.performance.process.malloc.blocks_in_use",
+        "agentstudio.performance.process.malloc.maximum_size_in_use_bytes",
+        "agentstudio.performance.process.malloc.size_allocated_bytes",
+        "agentstudio.performance.process.malloc.size_in_use_bytes",
+        "agentstudio.performance.runtime_delivery.eventbus_active_delivery_debt.count",
+        "agentstudio.performance.runtime_delivery.eventbus_active_subscriber.count",
+        "agentstudio.performance.runtime_delivery.eventbus_live_dropped.count",
+        "agentstudio.performance.runtime_delivery.eventbus_replay_dropped.count",
+        "agentstudio.performance.runtime_delivery.eventbus_retired_undelivered.count",
+        "agentstudio.performance.runtime_delivery.runtime_channel_outbound_dropped.count",
+        "agentstudio.performance.runtime_delivery.runtime_channel_outbound_pending.count",
+        "agentstudio.performance.runtime_delivery.runtime_channel_retired_undelivered.count",
+        "agentstudio.performance.runtime_delivery.total_pending.count",
         "agentstudio.ghostty.surface.environment_variable_count",
         "agentstudio.ghostty.surface.initial_frame_height",
         "agentstudio.ghostty.surface.initial_frame_width",
@@ -415,14 +445,32 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.pane_view_restore.visible_pane.count",
         "agentstudio.performance.sidebar.expanded_group.count",
         "agentstudio.performance.sidebar.group.count",
+        "agentstudio.performance.sidebar.input.count",
         "agentstudio.performance.sidebar.loading_repo.count",
+        "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms",
         "agentstudio.performance.sidebar.query_character.count",
         "agentstudio.performance.sidebar.repo.count",
+        "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms",
+        "agentstudio.performance.sidebar.row_index_elapsed_ms",
+        "agentstudio.performance.sidebar.stale_discard.count",
+        "agentstudio.performance.sidebar.cancellation.count",
+        "agentstudio.performance.sidebar.total_worker_elapsed_ms",
         "agentstudio.performance.sidebar.split_width",
         "agentstudio.performance.sidebar.width",
         "agentstudio.performance.tabbar.pane.count",
         "agentstudio.performance.tabbar.source_tab.count",
         "agentstudio.performance.tabbar.tab.count",
+        "agentstudio.performance.terminal.accumulator.equal_suppressed.count",
+        "agentstudio.performance.terminal.accumulator.follow_up_drain.count",
+        "agentstudio.performance.terminal.accumulator.mainactor_task.count",
+        "agentstudio.performance.terminal.accumulator.offered.count",
+        "agentstudio.performance.terminal.accumulator.replaced.count",
+        "agentstudio.performance.terminal.accumulator.retained_entry.count",
+        "agentstudio.performance.terminal.accumulator.retained_size_bytes",
+        "agentstudio.performance.terminal.accumulator.scheduled_drain.count",
+        "agentstudio.performance.terminal.activity_aggregate.count",
+        "agentstudio.performance.terminal.activity_projection.round_trip_ms",
+        "agentstudio.performance.terminal.equal_write_suppressed.count",
         "agentstudio.performance.terminal.geometry.visible_terminal.count",
         "agentstudio.performance.terminal.surface.cell_height_px",
         "agentstudio.performance.terminal.surface.cell_width_px",
@@ -433,6 +481,10 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.terminal.surface.requested_width_px",
         "agentstudio.performance.terminal.surface.row.count",
         "agentstudio.performance.topology.index.count",
+        "agentstudio.performance.trace_identity.coalesced_request.count",
+        "agentstudio.performance.trace_identity.equal_snapshot_suppressed.count",
+        "agentstudio.performance.trace_identity.fleet_capture.count",
+        "agentstudio.performance.trace_identity.refresh_request.count",
         "agentstudio.startup_diagnostic.created_pane.count",
         "agentstudio.startup_diagnostic.expected_visible_pane.count",
         "agentstudio.startup_diagnostic.bridge.code_line.count",
@@ -569,15 +621,14 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.startup_diagnostic.fixture.surface_reference.count",
         "agentstudio.startup_diagnostic.fixture.terminal_view.count",
         "agentstudio.startup_diagnostic.fixture.valid_geometry.count",
+        "agentstudio.startup_diagnostic.fixture.inbox_notification.count",
+        "agentstudio.startup_diagnostic.fixture.repo.count",
+        "agentstudio.startup_diagnostic.fixture.sidebar_surface.count",
+        "agentstudio.startup_diagnostic.fixture.worktree.count",
         "agentstudio.terminal.startup.failure.creation_retry.count",
         "agentstudio.tcc.probe.sequence",
         "agentstudio.tcc.tccdb.path_row.count",
         "agentstudio.workspace.snapshot.pane_count",
-        "agentstudio.zmx.startup.hydrated_anchor_count",
-        "agentstudio.zmx.startup.live_session_count",
-        "agentstudio.zmx.startup.protected_session_count",
-        "agentstudio.zmx.startup.unmatched_live_session_count",
-        "agentstudio.zmx.startup.unresolved_candidate_count",
         "agentstudio.zmx.socket_path_headroom",
         "terminal.activity.baseline_rows",
         "terminal.activity.debounce_ms",
@@ -629,6 +680,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.sidebar.is_filtering",
         "agentstudio.performance.sidebar.was_empty",
         "agentstudio.performance.sidebar.was_collapsed",
+        "agentstudio.performance.terminal.activity_projection.submitted",
         "agentstudio.performance.terminal.surface.dedup_likely",
         "agentstudio.performance.terminal.surface.hidden",
         "agentstudio.performance.terminal.surface.has_superview",
@@ -680,6 +732,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.startup_diagnostic.bridge.selected_path.visible",
         "agentstudio.startup_diagnostic.bridge.worker_pool.workers_failed",
         "agentstudio.startup_diagnostic.render_proof.succeeded",
+        "agentstudio.startup_diagnostic.projection_proof.succeeded",
         "agentstudio.tcc.bundle.changed",
         "agentstudio.tcc.bundle.executable.reachable",
         "agentstudio.tcc.tccdb.bundle_grant.present",
@@ -821,7 +874,28 @@ extension AgentStudioOTLPTraceProjection {
         if let allowedValues = BridgeTelemetryEventValidator.allowedStringValuesByAttributeKey[key] {
             return allowedValues.contains(value)
         }
-        return true
+        switch key {
+        case "agentstudio.performance.sidebar.surface":
+            return ["inbox", "repo"].contains(value)
+        case "agentstudio.performance.sidebar.phase":
+            return [
+                "request_build_mainactor", "projection_worker", "mainactor_apply", "row_index", "startup_diagnostic",
+                "surface_switch",
+            ]
+            .contains(value)
+        case "agentstudio.performance.sidebar.query_state":
+            return ["empty", "non_empty"].contains(value)
+        case "agentstudio.performance.sidebar.group_mode":
+            return ["repo", "pane", "tab", "none", "not_applicable"].contains(value)
+        case "agentstudio.performance.sidebar.trigger":
+            return [
+                "grouping_switch", "surface_switch", "search", "sort_order", "visibility_mode", "collapse_toggle",
+                "data_refresh", "startup_diagnostic",
+            ]
+            .contains(value)
+        default:
+            return true
+        }
     }
 
     private static func isSafeResourceValue(_ value: String) -> Bool {
@@ -862,107 +936,4 @@ extension AgentStudioOTLPTraceProjection {
         }
         return value
     }
-}
-
-private enum BridgeProductStreamProjectionKeys {
-    private static let prefix = "agentstudio.startup_diagnostic.bridge.product_stream_webkit"
-
-    static let stringKeys: Set<String> = ["\(prefix).failure.reason"]
-    static let numericKeys: Set<String> = Set(
-        [
-            "total_body_read.count",
-            "total_body_read_byte.count",
-            "total_decode_call.count",
-            "total_provider_call.count",
-            "unauthorized_body_read.count",
-            "valid_body_byte.count",
-            "first_frame_byte.count",
-            "frame_receipt.count",
-            "cancellation_event.count",
-            "active_producer.count",
-            "active_producer_task.count",
-            "queued_frame.count",
-            "maximum_queued_frame.count",
-            "producer_overflow.count",
-            "post_terminal_frame.count",
-        ].map { "\(prefix).\($0)" })
-    static let booleanKeys: Set<String> = Set(
-        [
-            "carrier.succeeded",
-            "authentication_before_body.succeeded",
-            "body_cap_before_decode.succeeded",
-            "strict_route_decode.succeeded",
-            "missing_content_length.accepted",
-            "exact_request_body_bytes.succeeded",
-            "valid_stream_ended",
-            "worker_start_post.observed",
-            "worker_observed_exact_frames",
-            "worker_observed_incremental_frames",
-            "framed_stream.succeeded",
-            "worker_observed_cancellation",
-            "abort_causal_cancellation.succeeded",
-        ].map { "\(prefix).\($0)" })
-}
-
-private enum BridgeProductPaintProjectionKeys {
-    private static let prefix = "agentstudio.startup_diagnostic.bridge.product_paint"
-
-    static let stringKeys: Set<String> = Set(
-        [
-            "comm_session.state",
-            "file_mode.latest_dispatch_disposition",
-            "file_selection.latest_dispatch_disposition",
-            "file_selection.latest_lifecycle_state",
-            "page_ready.state",
-            "review_selection.latest_dispatch_disposition",
-            "review_selection.latest_lifecycle_state",
-        ].map { "\(prefix).\($0)" })
-    static let numericKeys: Set<String> = Set(
-        [
-            "comm_session.native_bootstrap_install.count",
-            "comm_session.queued_command.count",
-            "comm_session.replacement_request.count",
-            "decoded_correlation.count",
-            "file_mode.send_attempt.count",
-            "file_mode.send_synchronous_failure.count",
-            "file_source_match.count",
-            "painted_element.count",
-            "review_candidate.canary.count",
-            "review_candidate.digest.count",
-            "review_candidate.identity.count",
-            "review_candidate.painted_disposition.count",
-            "review_candidate.selected_item.count",
-            "review_candidate.surface_role.count",
-            "review_candidate.whole_position.count",
-            "review_metadata_item.count",
-            "review_selection.dropped.count",
-            "review_selection.first_frame_reached.count",
-            "review_selection.initial_requested.count",
-            "review_selection.initial_scheduling_accepted.count",
-            "review_selection.scheduled.count",
-            "review_selection.second_frame_reached.count",
-            "review_selection.submitted.count",
-            "review_source_match.count",
-            "runtime.native_bootstrap_install.accepted.count",
-            "runtime.native_bootstrap_install.attempt.count",
-            "runtime.native_bootstrap_install.rejected.count",
-        ].map { "\(prefix).\($0)" })
-    static let booleanKeys: Set<String> = Set(
-        [
-            "active_mode_review",
-            "document_visible",
-            "file_identity_chain_matched",
-            "file_mode_activated",
-            "file_selected_identity_matched",
-            "file_source_matched",
-            "frame_live",
-            "review_identity_chain_matched",
-            "review_selected_identity_matched",
-            "review_selected_item_present",
-            "review_selected_path_present",
-            "review_shell_present",
-            "review_source_matched",
-            "reload_replay_succeeded",
-            "worker_replacement_observed",
-        ].map { "\(prefix).\($0)" })
 }

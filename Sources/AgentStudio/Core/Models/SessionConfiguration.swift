@@ -76,11 +76,6 @@ struct SessionConfiguration: Sendable {
         self.maxCheckpointAge = maxCheckpointAge
     }
 
-    /// Hidden/background panes restore only when a live zmx session already exists.
-    func shouldRestoreHiddenPane(hasExistingSession: Bool) -> Bool {
-        hasExistingSession
-    }
-
     // MARK: - Terminfo Discovery
 
     /// Resolve GHOSTTY_RESOURCES_DIR for GhosttyKit.

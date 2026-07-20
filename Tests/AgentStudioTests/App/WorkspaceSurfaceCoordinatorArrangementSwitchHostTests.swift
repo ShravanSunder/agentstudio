@@ -62,8 +62,7 @@ struct WorkspaceSurfaceArrangementSwitchHostTests {
     private func makeHarness() -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-arrangement-switch-host-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let windowLifecycleStore = WindowLifecycleAtom()
         let coordinator = WorkspaceSurfaceCoordinator(

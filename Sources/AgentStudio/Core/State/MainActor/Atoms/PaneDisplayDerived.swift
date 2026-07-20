@@ -180,7 +180,7 @@ struct PaneDisplayDerived {
             )
         }
 
-        return nil
+        return RepoPresentationGrouping.automaticPaletteHexes.first
     }
 
     func collapsedBarLabelParts(for paneId: UUID) -> [CollapsedBarLabelPart] {

@@ -162,8 +162,18 @@ private func decodeTerminalContent(
     guard let lifetime = SessionLifetime(rawValue: lifetimeString) else {
         throw WorkspaceCoreRepositoryError.malformedPaneContent("unknown terminal lifetime \(lifetimeString)")
     }
-    let zmxSessionId: String? = row["zmx_session_id"]
-    return .terminal(provider: provider, lifetime: lifetime, zmxSessionId: zmxSessionId)
+    let storedZmxSessionID: String? = row["zmx_session_id"]
+    guard let storedZmxSessionID else {
+        throw WorkspaceCoreRepositoryError.malformedPaneContent(
+            "terminal content missing zmx session identity for \(paneId)"
+        )
+    }
+    guard let zmxSessionID = ZmxSessionID(restoring: storedZmxSessionID) else {
+        throw WorkspaceCoreRepositoryError.malformedPaneContent(
+            "terminal content has empty zmx session identity for \(paneId)"
+        )
+    }
+    return .terminal(provider: provider, lifetime: lifetime, zmxSessionID: zmxSessionID)
 }
 
 private func decodeWebviewContent(

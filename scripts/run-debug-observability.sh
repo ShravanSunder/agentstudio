@@ -291,6 +291,8 @@ write_launch_failed_state() {
     write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "${launch_zmx_dir:-${debug_zmx_dir:-}}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION "${startup_diagnostic_action:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_WATCH_FOLDER "${startup_watch_folder:-}"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE "${launch_activation_mode:-unknown}"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE "${ipc_auth_mode:-authenticated}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_REPEAT_COUNT "${tcc_probe_repeat_count:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_INTERVAL_SECONDS "${tcc_probe_interval_seconds:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_LOG "${launch_log:-}"
@@ -320,6 +322,8 @@ write_running_state() {
     write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$launch_zmx_dir"
     write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION "$startup_diagnostic_action"
     write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_WATCH_FOLDER "$startup_watch_folder"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE "$launch_activation_mode"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE "$ipc_auth_mode"
     write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_REPEAT_COUNT "$tcc_probe_repeat_count"
     write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_INTERVAL_SECONDS "$tcc_probe_interval_seconds"
     write_state_value AGENTSTUDIO_OBSERVABILITY_LOG "$launch_log"
@@ -394,6 +398,7 @@ start_debug_direct_fallback() {
   if launch_direct_binary "$app_binary_path"; then
     pid="$direct_launch_pid"
     launch_method=direct_executable
+    launch_activation_mode=unknown
     launched_with_direct=true
     return 0
   fi
@@ -712,6 +717,11 @@ trace_backend=otlp
 trace_name="${AGENTSTUDIO_TRACE_NAME:-debug-observability-$debug_code-$(date +%s)-$$}"
 trace_proof_token="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 startup_watch_folder="${AGENTSTUDIO_STARTUP_WATCH_FOLDER:-}"
+ipc_auth_mode=authenticated
+if [ -n "${AGENTSTUDIO_IPC_UNSAFE_NO_AUTH:-}" ]; then
+  ipc_auth_mode=unsafe_no_auth
+fi
+launch_activation_mode=unknown
 tcc_probe_repeat_count="${AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT:-}"
 tcc_probe_interval_seconds="${AGENTSTUDIO_TCC_UPGRADE_PROBE_INTERVAL_SECONDS:-}"
 if ! trace_name_is_safe_path_component "$trace_name"; then
@@ -871,7 +881,8 @@ launch_method=launchservices
 launched_with_direct=false
 direct_launch_pid=""
 if [ "$detach" = true ]; then
-  if ! open_app "$app_path" "$launch_log" "" "${open_env_args[@]}"; then
+  launch_activation_mode=background
+  if ! open_app "$app_path" "$launch_log" "-g" "${open_env_args[@]}"; then
     if ! start_debug_direct_fallback launchservices_open_failed; then
       write_launch_failed_state launchservices_open_failed
       echo "LaunchServices open failed for debug app; GUI observability proof was not started." >&2
@@ -888,6 +899,7 @@ if [ "$detach" = true ]; then
     exit 1
   fi
 else
+  launch_activation_mode=foreground_wait
   open_app "$app_path" "$launch_log" "-W" "${open_env_args[@]}" &
   open_pid=$!
   if ! pid="$(wait_for_app_pid "$app_binary_path")"; then

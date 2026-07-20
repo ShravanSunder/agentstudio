@@ -6,7 +6,6 @@ private let inboxNotificationRouterLogger = Logger(
     subsystem: "com.agentstudio",
     category: "InboxNotificationRouter"
 )
-
 @MainActor
 final class InboxNotificationRouter {
     private struct ObservedPaneClearOutcome: Sendable, Equatable {
@@ -14,20 +13,38 @@ final class InboxNotificationRouter {
         let keepCount: Int
         let reason: String?
     }
-
     private struct ObservedActivityNotification: Sendable, Hashable {
         let id: UUID
         let paneId: UUID
     }
-
-    struct NotificationText: Sendable, Equatable {
-        let title: String
-        let body: String?
+    private enum ClassificationIgnoreReason: String, Sendable {
+        case activityOnlyPaneObservation = "activity_only_pane_observation"
+        case agentSettledRevocation = "agent_settled_revocation"
+        case bellDisabled = "bell_disabled"
+        case belowDurationThreshold = "below_duration_threshold"
+        case implausibleDuration = "implausible_duration"
+        case progressErrorNoNewEdge = "progress_error_no_new_edge"
+        case secureInputNoNewEdge = "secure_input_no_new_edge"
+        case rendererHealthNoUnhealthyEdge = "renderer_health_no_unhealthy_edge"
+        case paneClosedPrunedEdgeState = "pane_closed_pruned_edge_state"
+        case sandboxHealthNoUnhealthyEdge = "sandbox_health_no_unhealthy_edge"
+        case activityOnlyScrollbar = "activity_only_scrollbar"
+        case terminalNonNotificationEvent = "terminal_non_notification_event"
+        case paneLifecycleEvent = "pane_lifecycle_event"
+        case browserEvent = "browser_event"
+        case diffEvent = "diff_event"
+        case editorEvent = "editor_event"
+        case pluginEvent = "plugin_event"
+        case paneFilesystemContextEvent = "pane_filesystem_context_event"
+        case filesystemEvent = "filesystem_event"
+        case artifactEvent = "artifact_event"
+        case securityLifecycleEvent = "security_lifecycle_event"
+        case runtimeErrorEvent = "runtime_error_event"
     }
 
     private enum ClassificationDecision: Sendable {
         case notify(InboxNotificationKind)
-        case ignore(reason: String)
+        case ignore(reason: ClassificationIgnoreReason)
 
         var action: String {
             switch self {
@@ -52,7 +69,7 @@ final class InboxNotificationRouter {
             case .notify:
                 return "matched"
             case .ignore(let reason):
-                return reason
+                return reason.rawValue
             }
         }
     }
@@ -62,7 +79,7 @@ final class InboxNotificationRouter {
     private let prefsAtom: InboxNotificationPrefsAtom
     private let paneAtom: WorkspacePaneAtom
     private let tabLayout: WorkspaceTabLayoutAtom
-    private let attendedPane: AttendedPaneAtom
+    private let attendedPane: AttendedPaneDerived
     private let focusTracker: PaneFocusTracker
     private let terminalActivity: TerminalActivityAtom?
     private let autoClearPolicy: PaneInboxAutoClearPolicy
@@ -97,7 +114,7 @@ final class InboxNotificationRouter {
         prefsAtom: InboxNotificationPrefsAtom,
         paneAtom: WorkspacePaneAtom,
         tabLayout: WorkspaceTabLayoutAtom,
-        attendedPane: AttendedPaneAtom,
+        attendedPane: AttendedPaneDerived,
         focusTracker: PaneFocusTracker,
         terminalActivity: TerminalActivityAtom? = nil,
         autoClearPolicy: PaneInboxAutoClearPolicy = .init(),
@@ -302,13 +319,12 @@ final class InboxNotificationRouter {
 
     private func handle(_ envelope: RuntimeEnvelope) {
         guard case .pane(let paneEnvelope) = envelope else { return }
-        if case .terminal(.scrollbarChanged(let scrollbarState)) = paneEnvelope.event {
+        if case .terminalActivity(.paneObservationChanged(let observation)) = paneEnvelope.event {
             let wasPinnedToBottom = pinnedToBottomByPaneId[paneEnvelope.paneId.uuid] == true
-            pinnedToBottomByPaneId[paneEnvelope.paneId.uuid] = scrollbarState.isPinnedToBottom
-            if scrollbarState.isPinnedToBottom && !wasPinnedToBottom {
+            pinnedToBottomByPaneId[paneEnvelope.paneId.uuid] = observation.isPinnedToBottom
+            if observation.isPinnedToBottom && !wasPinnedToBottom {
                 clearObservedPaneInboxRowsIfNeeded(
                     paneId: paneEnvelope.paneId.uuid,
-                    scrollbarState: scrollbarState,
                     traceKeepOnly: false
                 )
             }
@@ -320,7 +336,11 @@ final class InboxNotificationRouter {
         if handleAgentSettledRevocationIfNeeded(paneEnvelope, paneId: paneId) { return }
         guard let kind = decision.kind else { return }
 
-        let resolvedContext = resolveContext(for: paneId)
+        let resolvedContext = InboxNotificationPresentation.resolveContext(
+            for: paneId,
+            paneAtom: paneAtom,
+            tabLayout: tabLayout
+        )
         if resolvedContext == nil {
             inboxNotificationRouterLogger.warning(
                 "Inbox notification context unresolved for pane \(paneId.uuidString, privacy: .public)"
@@ -335,7 +355,10 @@ final class InboxNotificationRouter {
             )
             return
         }
-        let paneSource = paneSource(paneId: paneId, resolvedContext: resolvedContext)
+        let paneSource = InboxNotificationPresentation.paneSource(
+            paneId: paneId,
+            resolvedContext: resolvedContext
+        )
         let globalUnreadBefore = inboxAtom.globalUnreadCount
         if handleTerminalActivityPromotionIfNeeded(
             paneEnvelope,
@@ -346,13 +369,13 @@ final class InboxNotificationRouter {
         ) {
             return
         }
-        let notificationText = notificationText(for: paneEnvelope.event)
+        let notificationText = InboxNotificationPresentation.notificationText(for: paneEnvelope.event)
         let promotionOutcome = promoter.promoteExplicit(
             .init(
                 kind: kind,
                 title: notificationText.title,
                 body: notificationText.body,
-                semantic: claimSemantic(for: paneEnvelope.event),
+                semantic: InboxNotificationPresentation.claimSemantic(for: paneEnvelope.event),
                 paneId: paneId,
                 sessionId: nil,
                 context: paneSource
@@ -388,6 +411,8 @@ final class InboxNotificationRouter {
         guard case .terminalActivity(let terminalActivityEvent) = envelope.event else { return false }
         let promotionOutcome: InboxPromotionOutcome
         switch terminalActivityEvent {
+        case .paneObservationChanged:
+            return true
         case .unseenActivitySettled(let activity):
             promotionOutcome = promoter.promoteSettledActivity(activity, paneId: paneId, context: paneSource)
         case .agentSettledActivityPromoted(let activity):
@@ -423,56 +448,114 @@ final class InboxNotificationRouter {
 
     private func classify(_ envelope: PaneEnvelope) -> ClassificationDecision {
         switch envelope.event {
-        case .terminalActivity(.unseenActivitySettled):
-            return .notify(.unseenActivity)
-        case .terminalActivity(.agentSettledActivityPromoted):
-            return .notify(.agentSettledActivity)
-        case .terminalActivity(.agentSettledActivityRevoked):
-            return .ignore(reason: "agent_settled_revocation")
-        case .terminal(.desktopNotificationRequested):
-            return .notify(.agentDesktopNotification)
+        case .lifecycle(let event):
+            return classifyLifecycle(event, paneId: envelope.paneId.uuid)
+        case .terminal(let event):
+            return classifyTerminal(event, paneId: envelope.paneId.uuid)
+        case .terminalActivity(let event):
+            return classifyTerminalActivity(event)
+        case .browser:
+            return .ignore(reason: .browserEvent)
+        case .diff:
+            return .ignore(reason: .diffEvent)
+        case .editor:
+            return .ignore(reason: .editorEvent)
         case .agentNotificationRequested:
             return .notify(.agentRpc)
-        case .terminal(.bellRang):
-            return prefsAtom.bellEnabled ? .notify(.bellRang) : .ignore(reason: "bell_disabled")
-        case .terminal(.commandFinished(_, let duration)):
+        case .plugin:
+            return .ignore(reason: .pluginEvent)
+        case .paneFilesystemContext:
+            return .ignore(reason: .paneFilesystemContextEvent)
+        case .filesystem:
+            return .ignore(reason: .filesystemEvent)
+        case .artifact(let event):
+            return classifyArtifact(event)
+        case .security(let event):
+            return classifySecurity(event, paneId: envelope.paneId.uuid)
+        case .error:
+            return .ignore(reason: .runtimeErrorEvent)
+        }
+    }
+
+    private func classifyTerminal(_ event: GhosttyEvent, paneId: UUID) -> ClassificationDecision {
+        switch event {
+        case .desktopNotificationRequested:
+            return .notify(.agentDesktopNotification)
+        case .bellRang:
+            return prefsAtom.bellEnabled ? .notify(.bellRang) : .ignore(reason: .bellDisabled)
+        case .commandFinished(_, let duration):
             guard duration >= AppPolicies.InboxNotification.commandFinishedMinDurationNanoseconds else {
-                return .ignore(reason: "below_duration_threshold")
+                return .ignore(reason: .belowDurationThreshold)
             }
             guard duration <= AppPolicies.InboxNotification.commandFinishedMaxTrustedDurationNanoseconds else {
-                return .ignore(reason: "implausible_duration")
+                return .ignore(reason: .implausibleDuration)
             }
             return .notify(.commandFinished)
-        case .terminal(.progressReportUpdated(let progress)):
-            return classifyProgressReport(progress, paneId: envelope.paneId.uuid)
-        case .terminal(.secureInputChanged(let isActive)):
-            return classifySecureInput(isActive, paneId: envelope.paneId.uuid)
-        case .terminal(.rendererHealthChanged(let healthy)):
-            return classifyRendererHealth(healthy, paneId: envelope.paneId.uuid)
-        case .lifecycle(.paneClosed):
-            pruneEdgeState(for: envelope.paneId.uuid)
-            return .ignore(reason: "pane_closed_pruned_edge_state")
-        case .artifact(.approvalRequested):
+        case .progressReportUpdated(let progress):
+            return classifyProgressReport(progress, paneId: paneId)
+        case .secureInputChanged(let isActive):
+            return classifySecureInput(isActive, paneId: paneId)
+        case .rendererHealthChanged(let healthy):
+            return classifyRendererHealth(healthy, paneId: paneId)
+        case .scrollbarChanged:
+            return .ignore(reason: .activityOnlyScrollbar)
+        case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit,
+            .equalizeSplits, .toggleSplitZoom, .titleChanged, .tabTitleChanged, .cwdChanged,
+            .readOnlyChanged, .secureInputRequested, .cellSizeChanged, .initialSizeChanged,
+            .sizeLimitChanged, .mouseShapeChanged, .mouseVisibilityChanged, .mouseLinkHovered,
+            .keySequenceChanged, .keyTableChanged, .colorChanged, .configReloadRequested,
+            .configChanged, .searchStarted, .searchEnded, .searchMatchesUpdated,
+            .searchSelectionChanged, .promptTitleRequested, .openURLRequested, .undoRequested,
+            .redoRequested, .copyTitleToClipboardRequested, .deferred, .unhandled:
+            return .ignore(reason: .terminalNonNotificationEvent)
+        }
+    }
+
+    private func classifyTerminalActivity(_ event: TerminalActivityEvent) -> ClassificationDecision {
+        switch event {
+        case .paneObservationChanged:
+            return .ignore(reason: .activityOnlyPaneObservation)
+        case .unseenActivitySettled:
+            return .notify(.unseenActivity)
+        case .agentSettledActivityPromoted:
+            return .notify(.agentSettledActivity)
+        case .agentSettledActivityRevoked:
+            return .ignore(reason: .agentSettledRevocation)
+        }
+    }
+
+    private func classifyLifecycle(_ event: PaneLifecycleEvent, paneId: UUID) -> ClassificationDecision {
+        switch event {
+        case .paneClosed:
+            pruneEdgeState(for: paneId)
+            return .ignore(reason: .paneClosedPrunedEdgeState)
+        case .surfaceCreated, .sizeObserved, .sizeStabilized, .attachStarted, .attachSucceeded,
+            .attachFailed, .activePaneChanged, .drawerExpanded, .drawerCollapsed, .tabSwitched:
+            return .ignore(reason: .paneLifecycleEvent)
+        }
+    }
+
+    private func classifyArtifact(_ event: ArtifactEvent) -> ClassificationDecision {
+        switch event {
+        case .approvalRequested:
             return .notify(.approvalRequested)
-        case .security(.networkEgressBlocked),
-            .security(.filesystemAccessDenied),
-            .security(.secretAccessed),
-            .security(.processSpawnBlocked):
+        case .diffProduced, .approvalDecided:
+            return .ignore(reason: .artifactEvent)
+        }
+    }
+
+    private func classifySecurity(_ event: SecurityEvent, paneId: UUID) -> ClassificationDecision {
+        switch event {
+        case .networkEgressBlocked, .filesystemAccessDenied, .secretAccessed, .processSpawnBlocked:
             return .notify(.securityEvent)
-        case .security(.sandboxHealthChanged(let healthy)):
-            let paneId = envelope.paneId.uuid
+        case .sandboxHealthChanged(let healthy):
             let wasHealthy = sandboxHealthWasHealthyByPaneId[paneId, default: true]
             // Health is edge-triggered per pane so one unhealthy runtime does not mute another.
             let shouldNotify = wasHealthy && !healthy
             sandboxHealthWasHealthyByPaneId[paneId] = healthy
-            return shouldNotify ? .notify(.securityEvent) : .ignore(reason: "sandbox_health_no_unhealthy_edge")
-        case .terminal(.scrollbarChanged):
-            return .ignore(reason: "activity_only_scrollbar")
-        default:
-            inboxNotificationRouterLogger.warning(
-                "Ignoring unclassified inbox event: \(String(describing: envelope.event), privacy: .public)"
-            )
-            return .ignore(reason: "unclassified")
+            return shouldNotify ? .notify(.securityEvent) : .ignore(reason: .sandboxHealthNoUnhealthyEdge)
+        case .sandboxStarted, .sandboxStopped:
+            return .ignore(reason: .securityLifecycleEvent)
         }
     }
 
@@ -480,13 +563,13 @@ final class InboxNotificationRouter {
         let isError = progress?.kind == .error
         let wasError = progressErrorWasActiveByPaneId[paneId, default: false]
         progressErrorWasActiveByPaneId[paneId] = isError
-        return isError && !wasError ? .notify(.terminalProgressError) : .ignore(reason: "progress_error_no_new_edge")
+        return isError && !wasError ? .notify(.terminalProgressError) : .ignore(reason: .progressErrorNoNewEdge)
     }
 
     private func classifySecureInput(_ isActive: Bool, paneId: UUID) -> ClassificationDecision {
         let wasActive = secureInputWasActiveByPaneId[paneId, default: false]
         secureInputWasActiveByPaneId[paneId] = isActive
-        guard isActive && !wasActive else { return .ignore(reason: "secure_input_no_new_edge") }
+        guard isActive && !wasActive else { return .ignore(reason: .secureInputNoNewEdge) }
         return .notify(.terminalSecureInputRequested)
     }
 
@@ -494,7 +577,7 @@ final class InboxNotificationRouter {
         let wasHealthy = rendererWasHealthyByPaneId[paneId, default: true]
         let shouldNotify = wasHealthy && !healthy
         rendererWasHealthyByPaneId[paneId] = healthy
-        return shouldNotify ? .notify(.terminalRendererUnhealthy) : .ignore(reason: "renderer_health_no_unhealthy_edge")
+        return shouldNotify ? .notify(.terminalRendererUnhealthy) : .ignore(reason: .rendererHealthNoUnhealthyEdge)
     }
 
     private func pruneEdgeState(for paneId: UUID) {
@@ -739,118 +822,4 @@ final class InboxNotificationRouter {
         }
     }
 
-}
-
-extension InboxNotificationRouter {
-    private func paneSource(
-        paneId: UUID,
-        resolvedContext: ResolvedPaneContext?
-    ) -> InboxNotification.PaneSource {
-        .init(
-            paneId: paneId,
-            tabId: resolvedContext?.tabId,
-            tabDisplayLabel: resolvedContext?.tabDisplayLabel,
-            tabOrdinal: resolvedContext?.tabOrdinal,
-            repoId: resolvedContext?.repoId,
-            repoName: resolvedContext?.repoName,
-            worktreeId: resolvedContext?.worktreeId,
-            worktreeName: resolvedContext?.worktreeName,
-            branchName: resolvedContext?.branchName,
-            paneDisplayLabel: resolvedContext?.paneDisplayLabel,
-            paneOrdinal: resolvedContext?.paneOrdinal,
-            paneRole: resolvedContext?.paneRole ?? .main,
-            parentPaneId: resolvedContext?.parentPaneId,
-            parentPaneDisplayLabel: resolvedContext?.parentPaneDisplayLabel,
-            parentPaneOrdinal: resolvedContext?.parentPaneOrdinal,
-            drawerOrdinal: resolvedContext?.drawerOrdinal,
-            runtimeDisplayLabel: resolvedContext?.runtimeDisplayLabel
-        )
-    }
-
-    private func resolveContext(for paneId: UUID) -> ResolvedPaneContext? {
-        guard let pane = paneAtom.pane(paneId) else { return nil }
-        let owningPaneId = pane.parentPaneId ?? paneId
-        let tab = tabLayout.tabContaining(paneId: owningPaneId)
-        let tabIndex = tab.flatMap { tab in
-            tabLayout.tabs.firstIndex { $0.id == tab.id }
-        }
-        let owningPaneIndex = tab.flatMap { tab in
-            tab.activePaneIds.firstIndex(of: owningPaneId)
-        }
-        let parentPane = pane.parentPaneId.flatMap { paneAtom.pane($0) }
-        return ResolvedPaneContext(
-            tabId: tab?.id,
-            tabDisplayLabel: tab.flatMap(Self.displayLabel(for:)),
-            tabOrdinal: tabIndex.map { $0 + 1 },
-            repoId: pane.repoId,
-            repoName: pane.metadata.repoName,
-            worktreeId: pane.worktreeId,
-            worktreeName: pane.metadata.worktreeName,
-            branchName: pane.metadata.checkoutRef,
-            paneDisplayLabel: Self.displayLabel(for: pane),
-            paneOrdinal: pane.isDrawerChild ? nil : owningPaneIndex.map { $0 + 1 },
-            paneRole: pane.isDrawerChild ? .drawerChild : .main,
-            parentPaneId: pane.parentPaneId,
-            parentPaneDisplayLabel: parentPane.flatMap(Self.displayLabel(for:)),
-            parentPaneOrdinal: pane.isDrawerChild ? owningPaneIndex.map { $0 + 1 } : nil,
-            drawerOrdinal: drawerOrdinal(for: paneId, parentPane: parentPane),
-            runtimeDisplayLabel: Self.runtimeDisplayLabel(for: pane)
-        )
-    }
-
-    private func drawerOrdinal(for paneId: UUID, parentPane: Pane?) -> Int? {
-        guard let paneIds = parentPane?.drawer?.paneIds else { return nil }
-        guard let index = paneIds.firstIndex(of: paneId) else { return nil }
-        return index + 1
-    }
-
-    private static func displayLabel(for tab: Tab) -> String? {
-        Tab.normalizedName(tab.name).trimmedNonEmpty
-    }
-
-    private static func displayLabel(for pane: Pane) -> String? {
-        pane.metadata.title.trimmedNonEmpty
-            ?? pane.metadata.worktreeName.trimmedNonEmpty
-            ?? pane.metadata.checkoutRef.trimmedNonEmpty
-            ?? runtimeDisplayLabel(for: pane)
-    }
-
-    private static func runtimeDisplayLabel(for pane: Pane) -> String {
-        switch pane.content {
-        case .terminal:
-            return "Terminal"
-        case .webview:
-            return "Browser"
-        case .bridgePanel(let state):
-            switch state.panelKind {
-            case .diffViewer:
-                return "Diff"
-            case .fileViewer:
-                return "Files"
-            }
-        case .codeViewer:
-            return "Code"
-        case .unsupported(let content):
-            return content.type.isEmpty ? "Pane" : content.type
-        }
-    }
-}
-
-private struct ResolvedPaneContext {
-    let tabId: UUID?
-    let tabDisplayLabel: String?
-    let tabOrdinal: Int?
-    let repoId: UUID?
-    let repoName: String?
-    let worktreeId: UUID?
-    let worktreeName: String?
-    let branchName: String?
-    let paneDisplayLabel: String?
-    let paneOrdinal: Int?
-    let paneRole: InboxNotification.PaneSource.PaneRole
-    let parentPaneId: UUID?
-    let parentPaneDisplayLabel: String?
-    let parentPaneOrdinal: Int?
-    let drawerOrdinal: Int?
-    let runtimeDisplayLabel: String?
 }

@@ -446,7 +446,8 @@ struct AgentStudioIPCClientCoreTests {
             return
         }
         #expect(params["commandId"] == .string("showCommandBarPanes"))
-        #expect(params["targetHandle"] == nil)
+        #expect(params["targetHandle"] == .null)
+        #expect(params["arguments"] == .object([:]))
     }
 
     @Test("round trips one request against a local Unix socket test server")

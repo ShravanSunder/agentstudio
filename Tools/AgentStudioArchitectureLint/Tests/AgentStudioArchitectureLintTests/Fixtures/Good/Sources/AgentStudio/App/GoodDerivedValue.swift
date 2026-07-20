@@ -7,8 +7,6 @@ func goodDerivedValue(revision: AtomRevision) {
     _ = DerivedValue<Int>(
         inputRevisions: { [revision.value] },
         isContentEqual: ==,
-        compute: {
-            probe.atom
-        }
+        compute: { probe.atom }
     )
 }

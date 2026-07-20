@@ -12,17 +12,18 @@ enum WorkspaceBootStep: String, CaseIterable, Sendable {
     case triggerInitialTopologySync
     case armPersistenceObservation
     case readyForReactiveSidebar
+    case checkWorktrunkDependency
 
     var purpose: String {
         switch self {
         case .loadCanonicalStore:
-            return "Restore the durable workspace graph before any derived or runtime work reads it."
+            return "Strictly install durable composition before constructing its runtime hosts."
         case .loadCacheStore:
-            return "Load rebuildable repo and sidebar cache without arming autosave during restore."
+            return "Hydrate rebuildable repo and sidebar cache after shell presentation."
         case .loadUIStore:
-            return "Load UI and inbox state before views bind to atom-backed presentation state."
+            return "Hydrate independent settings and inbox history without gating shell readiness."
         case .establishRuntimeBus:
-            return "Create runtime, pane coordination, command routing, and event consumers."
+            return "Create the minimum runtime hosts required to present accepted composition."
         case .startFilesystemActor:
             return "Start filesystem discovery after the canonical workspace model exists."
         case .startGitProjector:
@@ -32,21 +33,28 @@ enum WorkspaceBootStep: String, CaseIterable, Sendable {
         case .startCacheCoordinator:
             return "Begin consuming runtime facts into canonical stores and rebuildable cache."
         case .triggerInitialTopologySync:
-            return "Replay persisted topology into the runtime pipeline before reactive UI is declared ready."
+            return "Start the nonblocking repository/topology lane after shell presentation."
         case .armPersistenceObservation:
-            return "Arm debounced autosave after restore/replay boot mutations have settled."
+            return "Arm persistence observers after their independent stores finish hydration."
         case .readyForReactiveSidebar:
-            return "Mark the workspace graph ready for reactive sidebar and window presentation."
+            return "Mark post-presentation secondary-state hydration as scheduled."
+        case .checkWorktrunkDependency:
+            return "Offer repository-tool installation only after the workspace shell is visible."
         }
     }
 }
 
 enum WorkspaceBootSequence {
-    static let orderedSteps: [WorkspaceBootStep] = [
+    /// The minimum work allowed to delay workspace shell presentation.
+    static let presentationPrerequisiteSteps: [WorkspaceBootStep] = [
         .loadCanonicalStore,
+        .establishRuntimeBus,
+    ]
+
+    /// Independent work started only after the composition-backed shell is visible.
+    static let postPresentationSteps: [WorkspaceBootStep] = [
         .loadCacheStore,
         .loadUIStore,
-        .establishRuntimeBus,
         .startFilesystemActor,
         .startGitProjector,
         .startForgeActor,
@@ -54,18 +62,30 @@ enum WorkspaceBootSequence {
         .triggerInitialTopologySync,
         .armPersistenceObservation,
         .readyForReactiveSidebar,
+        .checkWorktrunkDependency,
     ]
 
     @MainActor
-    static func run(_ perform: (WorkspaceBootStep) -> Void) {
-        for step in orderedSteps {
+    static func runPresentationPrerequisites(_ perform: (WorkspaceBootStep) -> Void) {
+        for step in presentationPrerequisiteSteps {
             perform(step)
         }
     }
 
     @MainActor
-    static func runAsync(_ perform: (WorkspaceBootStep) async -> Void) async {
-        for step in orderedSteps {
+    static func runPresentationPrerequisitesAsync(
+        _ perform: (WorkspaceBootStep) async -> Void
+    ) async {
+        for step in presentationPrerequisiteSteps {
+            await perform(step)
+        }
+    }
+
+    @MainActor
+    static func runPostPresentationAsync(
+        _ perform: (WorkspaceBootStep) async -> Void
+    ) async {
+        for step in postPresentationSteps {
             await perform(step)
         }
     }

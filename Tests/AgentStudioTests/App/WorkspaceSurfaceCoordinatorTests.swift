@@ -23,8 +23,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
-        store.restore()
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let coordinator = WorkspaceSurfaceCoordinator(
@@ -61,7 +60,6 @@ struct WorkspaceSurfaceCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionAtom(),
             windowLifecycleStore: WindowLifecycleAtom()
         )
     }
@@ -240,58 +238,13 @@ struct WorkspaceSurfaceCoordinatorTests {
         #expect(snapshot.pane.id == paneB.id)
     }
 
-    @Test("view lifecycle registers and unregisters pane filesystem context for worktree-backed panes")
-    func viewLifecycle_registersAndUnregistersPaneFilesystemContext() {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-pane-filesystem-lifecycle-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
-        store.restore()
-        let paneFilesystemProjectionStore = PaneFilesystemProjectionAtom()
-        let coordinator = WorkspaceSurfaceCoordinator(
-            store: store,
-            viewRegistry: ViewRegistry(),
-            runtime: SessionRuntime(store: store),
-            surfaceManager: MockWorkspaceSurfaceCoordinatorSurfaceManager(),
-            runtimeRegistry: RuntimeRegistry(),
-            paneEventBus: EventBus<RuntimeEnvelope>(),
-            filesystemSource: RecordingFilesystemSourceHarness(),
-            paneFilesystemProjectionStore: paneFilesystemProjectionStore,
-            windowLifecycleStore: WindowLifecycleAtom()
-        )
-
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let repoPath = tempDir.appending(path: "repo")
-        let repo = store.addRepo(at: repoPath)
-        let worktree = repo.worktrees[0]
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-
-        let pane = store.createPane(
-            content: .webview(WebviewState(url: URL(string: "https://example.com")!, showNavigation: true)),
-            metadata: PaneMetadata(
-                launchDirectory: repoPath,
-                title: "Browser",
-                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: repoPath),
-            )
-        )
-
-        _ = coordinator.createViewForContent(pane: pane)
-        #expect(paneFilesystemProjectionStore.context(for: pane.id)?.repoId == repo.id)
-        #expect(paneFilesystemProjectionStore.context(for: pane.id)?.worktreeId == worktree.id)
-
-        coordinator.teardownView(for: pane.id)
-        #expect(paneFilesystemProjectionStore.context(for: pane.id) == nil)
-    }
-
     @Test("filesystem projection ignores non-projectable worktree events before deriving topology maps")
     func filesystemProjectionIgnoresNonProjectableWorktreeEvents() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-filesystem-ignore-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+        let store = WorkspaceStore()
         let coordinator = makeFilesystemSyncCoordinator(
             store: store,
             filesystemSource: RecordingFilesystemSourceHarness(),
@@ -367,7 +320,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let runtimePaneId = PaneId()
+        let runtimePaneId = PaneId.generateUUIDv7()
         let metadata = PaneMetadata(
             paneId: runtimePaneId,
             contentType: .browser,
@@ -466,9 +419,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
-        store.restore()
-
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-roots-\(UUID().uuidString)"))
         guard let primaryWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
             Issue.record("Expected addRepo to create a main worktree")
@@ -558,6 +509,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         )
         let tertiaryTab = Tab(paneId: tertiaryPane.id)
         store.appendTab(tertiaryTab)
+        coordinator.upsertPaneFilesystemProjectionContext(for: tertiaryPane)
         coordinator.execute(WorkspaceActionCommand.selectTab(tabId: tertiaryTab.id))
 
         await waitUntilFilesystemState(
@@ -576,9 +528,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
-        store.restore()
-
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-unavailable-\(UUID().uuidString)"))
         store.markRepoUnavailable(repo.id)
 
@@ -592,7 +542,6 @@ struct WorkspaceSurfaceCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionAtom(),
             windowLifecycleStore: WindowLifecycleAtom()
         )
 
@@ -615,9 +564,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
-        store.restore()
-
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-converge-\(UUID().uuidString)"))
         guard let mainWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
             Issue.record("Expected addRepo to create a main worktree")
@@ -655,7 +602,6 @@ struct WorkspaceSurfaceCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionAtom(),
             windowLifecycleStore: WindowLifecycleAtom()
         )
         _ = coordinator
@@ -699,9 +645,7 @@ struct WorkspaceSurfaceCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
-        store.restore()
-
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-empty-delta-\(UUID().uuidString)"))
         guard let mainWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
             Issue.record("Expected addRepo to create main worktree")

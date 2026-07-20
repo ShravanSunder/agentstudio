@@ -115,7 +115,7 @@ struct TerminalPaneMountViewSearchTests {
         mountView.installSurfaceScrollViewForTesting(scrollView)
 
         let runtime = TerminalRuntime(
-            paneId: PaneId(),
+            paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Terminal")
         )
         #expect(runtime.transitionToReady())

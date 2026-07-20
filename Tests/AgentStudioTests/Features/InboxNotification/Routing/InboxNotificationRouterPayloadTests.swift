@@ -13,7 +13,7 @@ struct InboxNotificationRouterPayloadTests {
         let tabLayout: WorkspaceTabLayoutAtom
         let router: InboxNotificationRouter
         let tracker: PaneFocusTracker
-        let attendedPane: AttendedPaneAtom
+        let attendedPane: AttendedPaneDerived
     }
 
     func makeFixture() async -> Fixture {
@@ -23,7 +23,7 @@ struct InboxNotificationRouterPayloadTests {
         let tabLayout = WorkspaceTabLayoutAtom()
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let attendedPane = AttendedPaneAtom(
+        let attendedPane = AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
@@ -53,7 +53,7 @@ struct InboxNotificationRouterPayloadTests {
     @Test("command finished duration uses Ghostty nanoseconds")
     func commandFinishedDurationUsesGhosttyNanoseconds() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -74,7 +74,7 @@ struct InboxNotificationRouterPayloadTests {
     @Test("command finished title branches on exit code")
     func commandFinishedTitleBranchesOnExitCode() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -95,7 +95,7 @@ struct InboxNotificationRouterPayloadTests {
     @Test("command finished duration renders minute boundary")
     func commandFinishedDurationRendersMinuteBoundary() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -115,7 +115,7 @@ struct InboxNotificationRouterPayloadTests {
     @Test("command finished ignores implausible duration payloads")
     func commandFinishedIgnoresImplausibleDurationPayloads() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -142,7 +142,7 @@ struct InboxNotificationRouterPayloadTests {
     @Test("blank desktop notification title promotes body preview")
     func blankDesktopNotificationTitlePromotesBodyPreview() async {
         let fixture = await makeFixture()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(
@@ -176,7 +176,9 @@ struct InboxNotificationRouterPayloadTests {
         )
         let pane = Pane(
             id: paneId.uuid,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: metadata
         )
         fixture.paneAtom.addPane(pane)
@@ -208,6 +210,5 @@ struct InboxNotificationRouterPayloadTests {
     private func stop(_ fixture: Fixture) async {
         await fixture.router.stop()
         await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 }

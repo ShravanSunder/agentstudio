@@ -6,6 +6,19 @@ import Testing
 @MainActor
 @Suite("TerminalActivityRouter", .serialized)
 struct TerminalActivityRouterTests {
+    private final class SurfaceLifetimeBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var isLive = true
+
+        func retire() {
+            lock.withLock { isLive = false }
+        }
+
+        func containsSurface() -> Bool {
+            lock.withLock { isLive }
+        }
+    }
+
     private final class MillisecondBox: @unchecked Sendable {
         private let lock = NSLock()
         private var value: Int64
@@ -136,7 +149,7 @@ struct TerminalActivityRouterTests {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 1)
@@ -175,7 +188,7 @@ struct TerminalActivityRouterTests {
             timeUnixNano: { 404 }
         )
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let correlationId = UUID()
 
         await router.start()
@@ -207,8 +220,8 @@ struct TerminalActivityRouterTests {
         #expect(contents.contains("\"agentstudio.session.id\":\"terminal-session\""))
     }
 
-    @Test("records eventbus delivery summaries without scrollbar spam")
-    func recordsEventBusDeliverySummariesWithoutScrollbarSpam() async throws {
+    @Test("records eventbus delivery summaries for exact terminal facts")
+    func recordsEventBusDeliverySummariesForExactTerminalFacts() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let traceDirectory = temporaryTraceDirectoryURL()
@@ -225,31 +238,24 @@ struct TerminalActivityRouterTests {
             timeUnixNano: { 909 }
         )
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 1)
         _ = await bus.post(
             .pane(
                 .test(
-                    event: .terminal(.bellRang),
+                    event: .terminal(.openURLRequested(url: "https://example.com/eventbus", kind: .text)),
                     paneId: paneId,
                     paneKind: .terminal,
                     seq: 1
                 )
             )
         )
-        _ = await bus.post(
-            .pane(
-                .test(
-                    event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100))),
-                    paneId: paneId,
-                    paneKind: .terminal,
-                    seq: 2
-                )
-            )
-        )
 
+        await assertEventuallyMain("terminal activity router should consume before trace drain") {
+            atom.snapshot(for: paneId.uuid)?.recentURLRequests.count == 1
+        }
         await router.stop()
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
@@ -261,14 +267,13 @@ struct TerminalActivityRouterTests {
         #expect(deliveryAttributes["agentstudio.eventbus.consumer"] == .string("TerminalActivityRouter"))
         #expect(deliveryAttributes["agentstudio.eventbus.name"] == .string("paneRuntime"))
         #expect(deliveryAttributes["agentstudio.eventbus.delivery"] == .string("consumed"))
-        #expect(deliveryAttributes["agentstudio.runtime.event"] == .string("terminal.bellRang"))
+        #expect(deliveryAttributes["agentstudio.runtime.event"] == .string("terminal.openURLRequested"))
         #expect(deliveryAttributes["agentstudio.envelope.seq"] == .int(1))
         #expect(contents.contains("\"agentstudio.eventbus.consumer\":\"TerminalActivityRouter\""))
         #expect(contents.contains("\"agentstudio.eventbus.name\":\"paneRuntime\""))
         #expect(contents.contains("\"agentstudio.eventbus.delivery\":\"consumed\""))
-        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.bellRang\""))
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.openURLRequested\""))
         #expect(contents.contains("\"agentstudio.envelope.seq\":1"))
-        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.scrollbarChanged\"") == false)
     }
 
     @Test("stop drains buffered terminal activity trace records")
@@ -288,7 +293,7 @@ struct TerminalActivityRouterTests {
             timeUnixNano: { 505 }
         )
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         _ = await bus.post(
@@ -333,7 +338,7 @@ struct TerminalActivityRouterTests {
             timeUnixNano: { 606 }
         )
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         for sequence in 1...5 {
@@ -360,339 +365,234 @@ struct TerminalActivityRouterTests {
         #expect(sequences == [1, 2, 3, 4, 5])
     }
 
-    @Test("scrollbar activity is debounced into unseen activity window records")
-    func scrollbarActivityIsDebouncedIntoUnseenActivityWindowRecords() async throws {
+    @Test("typed activity aggregate is debounced into one derived settled fact")
+    func typedActivityAggregateIsDebouncedIntoOneDerivedSettledFact() async {
         let bus = EventBus<RuntimeEnvelope>()
-        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let traceDirectory = temporaryTraceDirectoryURL()
-        let clock = TestPushClock()
-        let nowMilliseconds = MillisecondBox(1000)
-        let traceRuntime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
-                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
-                "AGENTSTUDIO_TRACE_NAME": "terminal-activity-unseen",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
-            ]),
-            processIdentifier: 249,
-            sessionID: "terminal-session",
-            timeUnixNano: { 707 }
-        )
-        let router = TerminalActivityRouter(
-            bus: bus,
-            activityAtom: atom,
-            traceRuntime: traceRuntime,
-            unseenActivityDebounceDuration: .milliseconds(750),
-            unseenActivityClock: clock,
-            nowMilliseconds: { nowMilliseconds.get() }
-        )
-        let paneId = PaneId()
-
-        await router.start()
-        for (index, totalRows) in [100, 120, 140].enumerated() {
-            nowMilliseconds.set(1000 + Int64(index * 100))
-            _ = await bus.post(
-                .pane(
-                    .test(
-                        event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: totalRows))),
-                        paneId: paneId,
-                        paneKind: .terminal,
-                        seq: UInt64(index + 1)
-                    )
-                )
-            )
-        }
-
-        await clock.waitForPendingSleepGeneration(2)
-        clock.advance(by: .milliseconds(750))
-        await router.stop()
-
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
-        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
-        #expect(contents.contains("\"body\":\"terminal.activity.unseenWindowStarted\""))
-        #expect(contents.contains("\"body\":\"terminal.activity.unseenWindowExtended\""))
-        #expect(contents.contains("\"body\":\"terminal.activity.outputBurst\""))
-        #expect(contents.contains("\"body\":\"terminal.activity.unseenWindowClosed\""))
-        #expect(contents.contains("\"terminal.activity.rows_added\":40"))
-        #expect(contents.contains("\"terminal.activity.threshold_rows\":30"))
-        #expect(contents.contains("\"terminal.activity.event_count\":3"))
-        #expect(contents.contains("\"agentstudio.pane.attended\":false"))
-        #expect(contents.contains("\"body\":\"terminal.activity.observed\"") == false)
-    }
-
-    @Test("attended pane scrollbar activity does not emit unseen activity trace records")
-    func attendedPaneScrollbarActivityDoesNotEmitUnseenActivityTraceRecords() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let traceDirectory = temporaryTraceDirectoryURL()
-        let paneId = PaneId()
-        let attendedPane = makeAttendedPaneAtom(activePaneId: paneId.uuid)
-        let traceRuntime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
-                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
-                "AGENTSTUDIO_TRACE_NAME": "terminal-activity-attended",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
-            ]),
-            processIdentifier: 250,
-            sessionID: "terminal-session",
-            timeUnixNano: { 808 }
-        )
-        let router = TerminalActivityRouter(
-            bus: bus,
-            activityAtom: atom,
-            attendedPane: attendedPane,
-            traceRuntime: traceRuntime
-        )
-
-        await router.start()
-        _ = await bus.post(
-            .pane(
-                .test(
-                    event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 140))),
-                    paneId: paneId,
-                    paneKind: .terminal
-                )
-            )
-        )
-
-        await assertEventuallyMain("attended pane scrollbar activity should still update activity state") {
-            atom.snapshot(for: paneId.uuid)?.outputBurst != nil
-        }
-
-        await router.stop()
-
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
-        #expect(FileManager.default.fileExists(atPath: outputFileURL.path) == false)
-        attendedPane.stop()
-    }
-
-    @Test("stop closes unseen activity window with router stop reason")
-    func stopClosesUnseenActivityWindowWithRouterStopReason() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let traceDirectory = temporaryTraceDirectoryURL()
-        let traceRuntime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
-                "AGENTSTUDIO_TRACE_NAME": "terminal-activity-stop-close",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
-            ]),
-            processIdentifier: 252,
-            sessionID: "terminal-session",
-            timeUnixNano: { 1001 }
-        )
-        let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
-        let paneId = PaneId()
-        let correlationId = UUID()
-
-        await router.start()
-        _ = await bus.post(
-            .pane(
-                .test(
-                    event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100))),
-                    paneId: paneId,
-                    paneKind: .terminal,
-                    correlationId: correlationId
-                )
-            )
-        )
-
-        await assertEventuallyMain("terminal activity router should open an unseen activity window") {
-            atom.snapshot(for: paneId.uuid)?.outputBurst != nil
-        }
-
-        await router.stop()
-
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
-        let records = try traceRecords(in: outputFileURL)
-        let closeRecord = try #require(
-            records.first { $0.body == "terminal.activity.unseenWindowClosed" }
-        )
-        #expect(closeRecord.traceID == correlationId.uuidString)
-        #expect(closeRecord.attributes["terminal.activity.close_reason"] == .string("router.stop"))
-    }
-
-    @Test("non-cancellation debounce failure settles unseen activity instead of stranding it")
-    func nonCancellationDebounceFailureSettlesUnseenActivityInsteadOfStrandingIt() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let traceDirectory = temporaryTraceDirectoryURL()
-        let clock = SecondSleepFailsClock()
-        let nowMilliseconds = MillisecondBox(2000)
-        let traceRuntime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
-                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
-                "AGENTSTUDIO_TRACE_NAME": "terminal-activity-debounce-failure",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
-            ]),
-            processIdentifier: 255,
-            sessionID: "terminal-session",
-            timeUnixNano: { 1004 }
-        )
-        let router = TerminalActivityRouter(
-            bus: bus,
-            activityAtom: atom,
-            traceRuntime: traceRuntime,
-            unseenActivityDebounceDuration: .milliseconds(750),
-            unseenActivityClock: clock,
-            nowMilliseconds: { nowMilliseconds.get() }
-        )
-        let paneId = PaneId()
-
-        await router.start()
-        _ = await bus.post(
-            .pane(
-                .test(
-                    event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100))),
-                    paneId: paneId,
-                    paneKind: .terminal
-                )
-            )
-        )
-        await assertEventuallyMain("first debounce sleep should be scheduled") {
-            clock.startedSleepCount == 1
-        }
-
-        nowMilliseconds.set(2300)
-        _ = await bus.post(
-            .pane(
-                .test(
-                    event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 140))),
-                    paneId: paneId,
-                    paneKind: .terminal
-                )
-            )
-        )
-        await assertEventuallyMain("second debounce sleep should be attempted") {
-            clock.startedSleepCount == 2
-        }
-
-        await router.stop()
-
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
-        let closeRecords = try traceRecords(in: outputFileURL)
-            .filter { $0.body == "terminal.activity.unseenWindowClosed" }
-        let closeRecord = try #require(closeRecords.first)
-        #expect(closeRecords.count == 1)
-        #expect(closeRecord.attributes["terminal.activity.close_reason"] == .string("quiet"))
-        #expect(closeRecord.attributes["terminal.activity.rows_added"] == .int(40))
-    }
-
-    @Test("pane close prunes unseen activity window immediately")
-    func paneClosePrunesUnseenActivityWindowImmediately() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let clock = TestPushClock()
-        let traceSink = TerminalActivityTraceRecordingSink()
-        let traceDirectory = temporaryTraceDirectoryURL()
-        let traceRuntime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
-                "AGENTSTUDIO_TRACE_NAME": "terminal-activity-pane-close",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
-            ]),
-            processIdentifier: 253,
-            sessionID: "terminal-session",
-            sinkFactory: AgentStudioTraceSinkFactory(
-                makeJSONLSink: { _ in traceSink },
-                makeOTLPSink: { _ in traceSink }
-            ),
-            timeUnixNano: { 1002 }
-        )
         let router = TerminalActivityRouter(
             bus: bus,
             activityAtom: atom,
-            traceRuntime: traceRuntime,
+            surfaceIDForPaneID: { $0 },
             unseenActivityDebounceDuration: .milliseconds(750),
             unseenActivityClock: clock
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
-        await waitForBusSubscriberCount(bus, atLeast: 1)
-        _ = await bus.post(
-            .pane(
-                .test(
-                    event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100))),
-                    paneId: paneId,
-                    paneKind: .terminal
-                )
-            )
+        await ingestActivity(
+            paneId: paneId,
+            totals: [100, 120, 140],
+            context: .init(isAttended: false, isAgentClassified: false, outputBurstThreshold: 30),
+            through: router
         )
         await clock.waitForPendingSleepCount(atLeast: 1)
-        _ = await bus.post(
-            .pane(
-                .test(
-                    event: .lifecycle(.paneClosed),
-                    paneId: paneId,
-                    paneKind: .terminal
-                )
-            )
-        )
+        clock.advance(by: .milliseconds(750))
 
-        await assertEventuallyMain("terminal activity router should cancel debounce on pane close") {
-            clock.pendingSleepCount == 0
+        _ = await subscriber.firstEvent { envelope in
+            RuntimeEnvelopeHarness.paneEvents(from: [envelope]).contains {
+                if case .terminalActivity(.unseenActivitySettled) = $0.event { return true }
+                return false
+            }
         }
+        let settledEventCount = RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot()).count {
+            if case .terminalActivity(.unseenActivitySettled) = $0.event { return true }
+            return false
+        }
+        #expect(settledEventCount == 1)
         await router.stop()
-
-        let closeRecords = await traceSink.records()
-            .filter { $0.body == "terminal.activity.unseenWindowClosed" }
-        #expect(closeRecords.count == 1)
-        #expect(closeRecords.first?.attributes["terminal.activity.close_reason"] == .string("pane.closed"))
+        await subscriber.shutdown()
     }
 
-    @Test("decreasing scrollbar totals do not emit negative rows added")
-    func decreasingScrollbarTotalsDoNotEmitNegativeRowsAdded() async throws {
+    @Test("attended typed activity updates compact state without unseen settlement")
+    func attendedTypedActivityUpdatesCompactStateWithoutUnseenSettlement() async {
         let bus = EventBus<RuntimeEnvelope>()
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let traceDirectory = temporaryTraceDirectoryURL()
-        let traceRuntime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
-                "AGENTSTUDIO_TRACE_NAME": "terminal-activity-decreasing-scrollbar",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
-            ]),
-            processIdentifier: 254,
-            sessionID: "terminal-session",
-            timeUnixNano: { 1003 }
+        let clock = TestPushClock()
+        let router = TerminalActivityRouter(
+            bus: bus,
+            activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
+            unseenActivityDebounceDuration: .milliseconds(750),
+            unseenActivityClock: clock
         )
-        let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
-        for totalRows in [100, 80] {
-            _ = await bus.post(
-                .pane(
-                    .test(
-                        event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: totalRows))),
-                        paneId: paneId,
-                        paneKind: .terminal
-                    )
-                )
-            )
-        }
-        await assertEventuallyMain("terminal activity router should consume decreasing scrollbar totals") {
-            atom.snapshot(for: paneId.uuid)?.scrollbarState?.total == 80
-        }
+        await ingestActivity(
+            paneId: paneId,
+            totals: [100, 140],
+            context: .init(isAttended: true, isAgentClassified: false, outputBurstThreshold: 30),
+            through: router
+        )
+        #expect(atom.snapshot(for: paneId.uuid)?.scrollbarState?.total == 140)
+        #expect(clock.pendingSleepCount == 0)
+        #expect(
+            RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot()).contains {
+                if case .terminalActivity(.unseenActivitySettled) = $0.event { return true }
+                return false
+            } == false)
 
         await router.stop()
+        await subscriber.shutdown()
+    }
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
-        let records = try traceRecords(in: outputFileURL)
-        for record in records {
-            #expect(record.attributes["terminal.activity.rows_added"] != .int(-20))
+    @Test("stop cancels projector quiet timers without publishing stale activity")
+    func stopCancelsProjectorQuietTimersWithoutPublishingStaleActivity() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
+        let clock = TestPushClock()
+        let router = TerminalActivityRouter(
+            bus: bus,
+            activityAtom: TerminalActivityAtom(outputBurstThreshold: 30),
+            surfaceIDForPaneID: { $0 },
+            unseenActivityDebounceDuration: .milliseconds(750),
+            unseenActivityClock: clock
+        )
+        let paneId = PaneId.generateUUIDv7()
+
+        await router.start()
+        await ingestActivity(
+            paneId: paneId,
+            totals: [100, 140],
+            context: .init(isAttended: false, isAgentClassified: false, outputBurstThreshold: 30),
+            through: router
+        )
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        await router.stop()
+        await clock.waitForPendingSleepCount(exactly: 0)
+        clock.advance(by: .milliseconds(750))
+        #expect(
+            RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot()).contains {
+                if case .terminalActivity(.unseenActivitySettled) = $0.event { return true }
+                return false
+            } == false)
+        await subscriber.shutdown()
+    }
+
+    @Test("later typed aggregate replaces the earlier quiet timer")
+    func laterTypedAggregateReplacesEarlierQuietTimer() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
+        let clock = TestPushClock()
+        let router = TerminalActivityRouter(
+            bus: bus,
+            activityAtom: TerminalActivityAtom(outputBurstThreshold: 30),
+            surfaceIDForPaneID: { $0 },
+            unseenActivityDebounceDuration: .milliseconds(750),
+            unseenActivityClock: clock
+        )
+        let paneId = PaneId.generateUUIDv7()
+
+        await router.start()
+        let firstGeneration = clock.scheduledSleepGeneration
+        await ingestActivity(
+            paneId: paneId,
+            totals: [100],
+            context: .init(isAttended: false, isAgentClassified: false, outputBurstThreshold: 30),
+            through: router
+        )
+        await clock.waitForPendingSleepGeneration(firstGeneration)
+        await ingestActivity(
+            paneId: paneId,
+            totals: [100, 140],
+            context: .init(isAttended: false, isAgentClassified: false, outputBurstThreshold: 30),
+            through: router,
+            startedAtMilliseconds: 1300
+        )
+        await clock.waitForPendingSleepGeneration(firstGeneration + 1)
+        clock.advance(by: .milliseconds(750))
+        _ = await subscriber.firstEvent { envelope in
+            RuntimeEnvelopeHarness.paneEvents(from: [envelope]).contains {
+                if case .terminalActivity(.unseenActivitySettled) = $0.event { return true }
+                return false
+            }
         }
-        let closeRecord = try #require(records.first { $0.body == "terminal.activity.unseenWindowClosed" })
-        #expect(closeRecord.attributes["terminal.activity.rows_added"] == .int(0))
+        let settledEventCount = RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot()).count {
+            if case .terminalActivity(.unseenActivitySettled) = $0.event { return true }
+            return false
+        }
+        #expect(settledEventCount == 1)
+        await router.stop()
+        await subscriber.shutdown()
+    }
+
+    @Test("ordered surface close clears compact state and pending quiet work")
+    func orderedSurfaceCloseClearsCompactStateAndPendingQuietWork() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let clock = TestPushClock()
+        let surfaceLifetime = SurfaceLifetimeBox()
+        let router = TerminalActivityRouter(
+            bus: bus,
+            activityAtom: atom,
+            surfaceIDForPaneID: { surfaceLifetime.containsSurface() ? $0 : nil },
+            unseenActivityDebounceDuration: .milliseconds(750),
+            unseenActivityClock: clock
+        )
+        let paneId = PaneId.generateUUIDv7()
+
+        await router.start()
+        await ingestActivity(
+            paneId: paneId,
+            totals: [100, 140],
+            context: .init(isAttended: false, isAgentClassified: false, outputBurstThreshold: 30),
+            through: router
+        )
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        surfaceLifetime.retire()
+        await router.consumeTerminalActivityInput(
+            .orderedControl(
+                surfaceID: paneId.uuid,
+                paneID: paneId.uuid,
+                precedingAggregate: nil,
+                control: .surfaceClosed
+            )
+        )
+        await clock.waitForPendingSleepCount(exactly: 0)
+        #expect(atom.snapshot(for: paneId.uuid) == nil)
+        await router.stop()
+    }
+
+    @Test("decreasing typed totals clamp growth to zero")
+    func decreasingTypedTotalsClampGrowthToZero() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let clock = TestPushClock()
+        let router = TerminalActivityRouter(
+            bus: bus,
+            activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
+            unseenActivityDebounceDuration: .milliseconds(750),
+            unseenActivityClock: clock
+        )
+        let paneId = PaneId.generateUUIDv7()
+
+        await router.start()
+        await ingestActivity(
+            paneId: paneId,
+            totals: [100, 80],
+            context: .init(isAttended: false, isAgentClassified: false, outputBurstThreshold: 30),
+            through: router
+        )
+        #expect(atom.snapshot(for: paneId.uuid)?.outputBurst == .quiet(lastTotal: 80))
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        clock.advance(by: .milliseconds(750))
+        #expect(
+            RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot()).contains {
+                if case .terminalActivity(.unseenActivitySettled) = $0.event { return true }
+                return false
+            } == false)
+        await router.stop()
+        await subscriber.shutdown()
     }
 
     @Test("start is idempotent and does not double-consume events")
@@ -700,7 +600,7 @@ struct TerminalActivityRouterTests {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom()
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await router.start()
@@ -726,7 +626,7 @@ struct TerminalActivityRouterTests {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom()
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await router.stop()
@@ -749,7 +649,7 @@ struct TerminalActivityRouterTests {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom()
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         _ = await bus.post(
@@ -773,7 +673,38 @@ struct TerminalActivityRouterTests {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 
-    private func makeAttendedPaneAtom(activePaneId: UUID) -> AttendedPaneAtom {
+    private func ingestActivity(
+        paneId: PaneId,
+        totals: [Int],
+        context: TerminalActivityProjectionContext,
+        through router: TerminalActivityRouter,
+        startedAtMilliseconds: Int64 = 1000
+    ) async {
+        guard let firstTotal = totals.first, let latestTotal = totals.last else { return }
+        var aggregate = TerminalScrollbarActivityAggregate(
+            state: ScrollbarState(top: 0, bottom: 10, total: firstTotal),
+            observedAtMilliseconds: startedAtMilliseconds
+        )
+        for (index, totalRows) in totals.dropFirst().enumerated() {
+            aggregate.merge(
+                state: ScrollbarState(top: 0, bottom: 10, total: totalRows),
+                observedAtMilliseconds: startedAtMilliseconds + Int64((index + 1) * 100)
+            )
+        }
+        await router.consumeTerminalActivityInput(
+            .aggregate(
+                surfaceID: paneId.uuid,
+                paneID: paneId.uuid,
+                input: TerminalActivityAggregateInput(
+                    aggregate: aggregate,
+                    latestState: ScrollbarState(top: 0, bottom: 10, total: latestTotal),
+                    context: context
+                )
+            )
+        )
+    }
+
+    private func makeAttendedPaneDerived(activePaneId: UUID) -> AttendedPaneDerived {
         let tabLayout = WorkspaceTabLayoutAtom()
         let arrangement = PaneArrangement(
             name: "Default",
@@ -793,7 +724,7 @@ struct TerminalActivityRouterTests {
         windowLifecycle.recordWindowBecameKey(windowId)
         tabLayout.appendTab(tab)
         tabLayout.setActiveTab(tab.id)
-        return AttendedPaneAtom(
+        return AttendedPaneDerived(
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
             managementLayer: ManagementLayerAtom()

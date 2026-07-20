@@ -38,19 +38,20 @@ struct TerminalActivityAgentSettledHeuristicTests {
         let router = TerminalActivityRouter(
             bus: bus,
             activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
             unseenActivityDebounceDuration: .milliseconds(750),
             agentSettledQuietDuration: .seconds(180),
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
         let initialSleepGeneration = clock.scheduledSleepGeneration
-        await postScrollbar(total: 100, seq: 1, paneKind: .terminal, paneId: paneId, to: bus)
+        await postScrollbar(total: 100, seq: 1, paneKind: .terminal, paneId: paneId, through: router)
         nowMilliseconds.set(1100)
-        await postScrollbar(total: 700, seq: 2, paneKind: .terminal, paneId: paneId, to: bus)
+        await postScrollbar(total: 700, seq: 2, paneKind: .terminal, paneId: paneId, through: router)
         await waitForLatestPendingDebounce(
             clock: clock,
             initialGeneration: initialSleepGeneration,
@@ -85,20 +86,21 @@ struct TerminalActivityAgentSettledHeuristicTests {
         let router = TerminalActivityRouter(
             bus: bus,
             activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
             unseenActivityDebounceDuration: .milliseconds(750),
             agentSettledQuietDuration: .seconds(180),
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
-        await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, through: router)
         await clock.waitForPendingSleepCount(atLeast: 2)
         nowMilliseconds.set(62_000)
         let secondEventSleepGeneration = clock.scheduledSleepGeneration
-        await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, through: router)
         await waitForReplacementSleepPair(clock: clock, scheduledAfter: secondEventSleepGeneration)
         clock.advance(by: .milliseconds(750))
         #expect(
@@ -116,7 +118,7 @@ struct TerminalActivityAgentSettledHeuristicTests {
         }
 
         nowMilliseconds.set(182_000)
-        await postScrollbar(total: 720, seq: 3, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 720, seq: 3, paneKind: .agent, paneId: paneId, through: router)
         await assertEventuallyAsync("later agent output should revoke yellow") {
             await Self.terminalActivityEvents(from: subscriber).contains {
                 if case .agentSettledActivityRevoked = $0 { return true }
@@ -139,20 +141,21 @@ struct TerminalActivityAgentSettledHeuristicTests {
         let router = TerminalActivityRouter(
             bus: bus,
             activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
             unseenActivityDebounceDuration: .milliseconds(750),
             agentSettledQuietDuration: .seconds(180),
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
-        await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, through: router)
         await clock.waitForPendingSleepCount(atLeast: 2)
         nowMilliseconds.set(62_000)
         let secondEventSleepGeneration = clock.scheduledSleepGeneration
-        await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, through: router)
         await waitForReplacementSleepPair(clock: clock, scheduledAfter: secondEventSleepGeneration)
         clock.advance(by: .milliseconds(750))
         #expect(
@@ -205,20 +208,21 @@ struct TerminalActivityAgentSettledHeuristicTests {
         let router = TerminalActivityRouter(
             bus: bus,
             activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
             unseenActivityDebounceDuration: .milliseconds(750),
             agentSettledQuietDuration: .seconds(180),
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
-        await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, through: router)
         await clock.waitForPendingSleepCount(atLeast: 2)
         nowMilliseconds.set(62_000)
         let secondEventSleepGeneration = clock.scheduledSleepGeneration
-        await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, through: router)
         await waitForReplacementSleepPair(clock: clock, scheduledAfter: secondEventSleepGeneration)
         clock.advance(by: .milliseconds(750))
         #expect(
@@ -236,7 +240,7 @@ struct TerminalActivityAgentSettledHeuristicTests {
         }
 
         nowMilliseconds.set(242_000)
-        await postScrollbar(total: 700, seq: 3, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 700, seq: 3, paneKind: .agent, paneId: paneId, through: router, growth: 0)
         await assertEventuallyAsync("later output proxy should revoke yellow") {
             await Self.terminalActivityEvents(from: subscriber).contains {
                 if case .agentSettledActivityRevoked = $0 { return true }
@@ -259,20 +263,21 @@ struct TerminalActivityAgentSettledHeuristicTests {
         let router = TerminalActivityRouter(
             bus: bus,
             activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
             unseenActivityDebounceDuration: .milliseconds(750),
             agentSettledQuietDuration: .seconds(180),
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
-        await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, through: router)
         await clock.waitForPendingSleepCount(atLeast: 2)
         nowMilliseconds.set(62_000)
         let secondEventSleepGeneration = clock.scheduledSleepGeneration
-        await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, through: router)
         await waitForReplacementSleepPair(clock: clock, scheduledAfter: secondEventSleepGeneration)
         clock.advance(by: .milliseconds(750))
         clock.advance(by: .seconds(180))
@@ -281,7 +286,7 @@ struct TerminalActivityAgentSettledHeuristicTests {
         }
 
         nowMilliseconds.set(242_000)
-        await postScrollbar(total: 700, seq: 3, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 700, seq: 3, paneKind: .agent, paneId: paneId, through: router, growth: 0)
         await assertEventuallyAsync("later output proxy should revoke yellow") {
             await Self.terminalActivityEvents(from: subscriber).contains {
                 if case .agentSettledActivityRevoked = $0 { return true }
@@ -290,18 +295,21 @@ struct TerminalActivityAgentSettledHeuristicTests {
         }
 
         nowMilliseconds.set(304_000)
-        await postScrollbar(total: 1300, seq: 4, paneKind: .agent, paneId: paneId, to: bus)
+        let suppressedCycleSleepGeneration = clock.scheduledSleepGeneration
+        await postScrollbar(total: 1300, seq: 4, paneKind: .agent, paneId: paneId, through: router)
+        await clock.waitForPendingSleepCount(atLeast: 1, fromGeneration: suppressedCycleSleepGeneration)
         clock.advance(by: .seconds(180))
         #expect(await Self.agentSettledPromotionCount(from: subscriber) == 1)
 
-        router.markUnseenActivityObserved(paneId: paneId.uuid)
+        await observeUnseenActivity(paneId: paneId, through: router)
+        await clock.waitForPendingSleepCount(exactly: 0)
         nowMilliseconds.set(366_000)
         let observedCycleStartGeneration = clock.scheduledSleepGeneration
-        await postScrollbar(total: 1300, seq: 5, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 1300, seq: 5, paneKind: .agent, paneId: paneId, through: router)
         await waitForReplacementSleepPair(clock: clock, scheduledAfter: observedCycleStartGeneration)
         nowMilliseconds.set(428_000)
         let observedCycleSecondEventGeneration = clock.scheduledSleepGeneration
-        await postScrollbar(total: 1900, seq: 6, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 1900, seq: 6, paneKind: .agent, paneId: paneId, through: router)
         await waitForReplacementSleepPair(clock: clock, scheduledAfter: observedCycleSecondEventGeneration)
         clock.advance(by: .seconds(180))
         await assertEventuallyAsync("observed pane should allow future yellow settled attention") {
@@ -323,23 +331,24 @@ struct TerminalActivityAgentSettledHeuristicTests {
         let router = TerminalActivityRouter(
             bus: bus,
             activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
             unseenActivityDebounceDuration: .milliseconds(750),
             agentSettledQuietDuration: .seconds(180),
             unseenActivityClock: clock,
             nowMilliseconds: { nowMilliseconds.get() }
         )
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         await router.start()
         await waitForBusSubscriberCount(bus, atLeast: 2)
-        await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, through: router)
         await clock.waitForPendingSleepCount(atLeast: 2)
         nowMilliseconds.set(62_000)
         let secondEventSleepGeneration = clock.scheduledSleepGeneration
-        await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, to: bus)
+        await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, through: router)
         await waitForReplacementSleepPair(clock: clock, scheduledAfter: secondEventSleepGeneration)
 
-        router.markUnseenActivityObserved(paneId: paneId.uuid)
+        await observeUnseenActivity(paneId: paneId, through: router)
         await clock.waitForPendingSleepCount(exactly: 0)
 
         clock.advance(by: .seconds(180))
@@ -359,16 +368,47 @@ struct TerminalActivityAgentSettledHeuristicTests {
         seq: UInt64,
         paneKind: PaneContentType,
         paneId: PaneId,
-        to bus: EventBus<RuntimeEnvelope>
+        through router: TerminalActivityRouter,
+        growth: Int? = nil
     ) async {
-        _ = await bus.post(
-            .pane(
-                .test(
-                    event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: total))),
-                    paneId: paneId,
-                    paneKind: paneKind,
-                    seq: seq
+        let observedAtMilliseconds = Int64(seq - 1) * 61_000 + 1000
+        let positiveGrowth = growth ?? total
+        let firstTotal = max(0, total - positiveGrowth)
+        var aggregate = TerminalScrollbarActivityAggregate(
+            state: ScrollbarState(top: max(0, firstTotal - 10), bottom: firstTotal, total: firstTotal),
+            observedAtMilliseconds: observedAtMilliseconds
+        )
+        aggregate.merge(
+            state: ScrollbarState(top: max(0, total - 10), bottom: total, total: total),
+            observedAtMilliseconds: observedAtMilliseconds + 100
+        )
+        await router.consumeTerminalActivityInput(
+            .aggregate(
+                surfaceID: paneId.uuid,
+                paneID: paneId.uuid,
+                input: TerminalActivityAggregateInput(
+                    aggregate: aggregate,
+                    latestState: ScrollbarState(top: max(0, total - 10), bottom: total, total: total),
+                    context: TerminalActivityProjectionContext(
+                        isAttended: false,
+                        isAgentClassified: paneKind == .agent,
+                        outputBurstThreshold: 30
+                    )
                 )
+            )
+        )
+    }
+
+    private func observeUnseenActivity(
+        paneId: PaneId,
+        through router: TerminalActivityRouter
+    ) async {
+        await router.consumeTerminalActivityInput(
+            .orderedControl(
+                surfaceID: paneId.uuid,
+                paneID: paneId.uuid,
+                precedingAggregate: nil,
+                control: .observed
             )
         )
     }

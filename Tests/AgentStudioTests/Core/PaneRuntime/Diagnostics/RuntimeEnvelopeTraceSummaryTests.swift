@@ -7,7 +7,7 @@ import Testing
 struct RuntimeEnvelopeTraceSummaryTests {
     @Test("pane summaries carry stable eventbus attributes")
     func paneSummariesCarryStableEventbusAttributes() throws {
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let eventId = UUID()
         let correlationId = UUID()
         let causationId = UUID()
@@ -63,7 +63,7 @@ struct RuntimeEnvelopeTraceSummaryTests {
                 .paneFilesystemContext(
                     .gitWorkingTreeInCwd(
                         context: .init(
-                            paneId: PaneId(),
+                            paneId: PaneId.generateUUIDv7(),
                             repoId: UUID(),
                             cwd: URL(fileURLWithPath: "/tmp"),
                             worktreeId: WorktreeId()

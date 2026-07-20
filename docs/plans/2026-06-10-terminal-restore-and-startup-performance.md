@@ -1,8 +1,13 @@
 # Terminal Restore & Startup Performance: Measure First, Then Cut the Verified Costs
 
+> **OBSOLETE — DO NOT EXECUTE.** Its zmx discovery/deferral model is superseded
+> by the strict opaque identity and mutation-free restore DAG in
+> [Session Lifecycle Architecture](../architecture/session_lifecycle.md). The
+> remainder is retained only as a non-normative historical improvement record.
+
 Planned at: a80ebb05
 Repo: /Users/shravansunder/Documents/dev/project-dev/agent-studio.improve-v1
-Status: proposed
+Historical status: superseded
 
 ## Problem
 

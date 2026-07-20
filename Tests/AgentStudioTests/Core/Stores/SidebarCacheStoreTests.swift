@@ -367,32 +367,6 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func flushFailure_reportsSaveFailedRecovery() async {
-        let workspaceId = UUID()
-        let blockedDirectoryURL = FileManager.default.temporaryDirectory
-            .appending(path: "sidebar-cache-blocked-\(UUID().uuidString)")
-        try? Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
-        let atom = SidebarCacheState()
-        var reportedRecovery: PersistenceRecoveryEvent?
-        let store = SidebarCacheStore(
-            atom: atom,
-            persistor: WorkspacePersistor(workspacesDir: blockedDirectoryURL),
-            recoveryReporter: { reportedRecovery = $0 }
-        )
-
-        do {
-            try await store.flushAsync(for: workspaceId)
-            Issue.record("Expected sidebar cache flush to fail")
-        } catch {
-            // Expected path.
-        }
-
-        #expect(reportedRecovery?.store == .sidebarCache)
-        #expect(reportedRecovery?.workspaceId == workspaceId)
-        #expect(reportedRecovery?.recovery == .saveFailed)
-    }
-
-    @Test
     func restoreLegacyCheckoutColorsIgnoresRemovedManualColorState() async throws {
         let workspaceId = UUID()
         let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")

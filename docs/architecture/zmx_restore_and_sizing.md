@@ -1,5 +1,14 @@
 # Zmx Restore and Sizing
 
+> **PARTIALLY SUPERSEDED.** Session-name derivation, anchor validation,
+> restore-time inventory, hydration/adoption, and startup reconciliation in this
+> document are obsolete and must not be implemented. The canonical identity and
+> restore contract is [Session Lifecycle Architecture](session_lifecycle.md):
+> new identities use UUIDv7, existing nonempty stored identities restore
+> verbatim through the strong opaque `ZmxSessionID`, and restore performs no
+> identity discovery, fallback, repair, or write. The terminal sizing/resize and
+> OSC 133 material remains a technical reference.
+
 ## Goal
 
 Keep session restore reliable while ensuring restored panes get correct terminal geometry (`cols`/`rows`) without requiring manual input.

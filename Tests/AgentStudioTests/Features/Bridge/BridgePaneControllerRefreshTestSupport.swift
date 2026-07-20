@@ -94,7 +94,7 @@ func postRefreshEvent(
     await fixture.controller.handlePaneFilesystemContextEvent(
         .cwdSubtreeChanged(
             context: PaneFilesystemContext(
-                paneId: PaneId(uuid: fixture.controller.paneId),
+                paneId: PaneId(existingUUID: fixture.controller.paneId),
                 repoId: fixture.headEndpoint.repoId,
                 cwd: URL(fileURLWithPath: "/tmp/worktree"),
                 worktreeId: fixture.headEndpoint.worktreeId

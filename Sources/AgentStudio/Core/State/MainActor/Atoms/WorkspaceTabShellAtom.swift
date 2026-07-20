@@ -14,7 +14,7 @@ enum WorkspaceTabShellAtomError: Error, Equatable {
 final class WorkspaceTabShellAtom {
     let cursorAtom: WorkspaceTabCursorAtom
     private(set) var tabShells: [TabShell] = []
-
+    private var tabIndexByID: [UUID: Int] = [:]
     init(cursorAtom: WorkspaceTabCursorAtom = WorkspaceTabCursorAtom()) {
         self.cursorAtom = cursorAtom
     }
@@ -23,32 +23,52 @@ final class WorkspaceTabShellAtom {
         cursorAtom.activeTabId
     }
 
-    func hydrate(persistedTabs: [Tab], activeTabId: UUID?) {
-        tabShells = persistedTabs.map { TabShell(id: $0.id, name: $0.name, colorHex: $0.colorHex) }
-        cursorAtom.hydrate(activeTabId: activeTabId, availableTabIds: tabShells.map(\.id))
+    var tabCount: Int {
+        tabShells.count
+    }
+
+    func containsTab(_ id: UUID) -> Bool {
+        tabIndexByID[id] != nil
+    }
+
+    func replaceTabShells(_ shells: [TabShell]) {
+        let replacementIndex = Self.makeUniqueIndex(shells)
+        guard tabShells != shells else { return }
+        tabShells = shells
+        tabIndexByID = replacementIndex
     }
 
     func tabShell(_ id: UUID) -> TabShell? {
-        tabShells.first { $0.id == id }
+        tabIndexByID[id].map { tabShells[$0] }
+    }
+
+    func tabIndex(for tabID: UUID) -> Int? {
+        tabIndexByID[tabID]
     }
 
     func appendTabShell(_ shell: TabShell) {
+        guard tabIndexByID[shell.id] == nil else { return }
         tabShells.append(shell)
+        tabIndexByID[shell.id] = tabShells.count - 1
         cursorAtom.selectTab(shell.id, availableTabIds: tabShells.map(\.id))
     }
 
     func removeTabShell(_ tabId: UUID) {
-        tabShells.removeAll { $0.id == tabId }
+        guard let removedIndex = tabIndexByID.removeValue(forKey: tabId) else { return }
+        tabShells.remove(at: removedIndex)
+        reindexTabs(in: removedIndex..<tabShells.count)
         cursorAtom.removeTab(tabId, remainingTabIds: tabShells.map(\.id))
     }
 
     func insertTabShell(_ shell: TabShell, at index: Int) {
+        guard tabIndexByID[shell.id] == nil else { return }
         let clampedIndex = min(index, tabShells.count)
         tabShells.insert(shell, at: clampedIndex)
+        reindexTabs(in: clampedIndex..<tabShells.count)
     }
 
     func moveTab(fromId: UUID, toIndex: Int) {
-        guard let fromIndex = tabShells.firstIndex(where: { $0.id == fromId }) else {
+        guard let fromIndex = tabIndexByID[fromId] else {
             workspaceTabShellLogger.warning("moveTab: tab \(fromId) not found")
             return
         }
@@ -56,10 +76,11 @@ final class WorkspaceTabShellAtom {
         let adjustedIndex = toIndex > fromIndex ? toIndex - 1 : toIndex
         let clampedIndex = max(0, min(adjustedIndex, tabShells.count))
         tabShells.insert(shell, at: clampedIndex)
+        reindexTabs(in: min(fromIndex, clampedIndex)..<tabShells.count)
     }
 
     func moveTabByDelta(tabId: UUID, delta: Int) {
-        guard let fromIndex = tabShells.firstIndex(where: { $0.id == tabId }) else {
+        guard let fromIndex = tabIndexByID[tabId] else {
             workspaceTabShellLogger.warning("moveTabByDelta: tab \(tabId) not found")
             return
         }
@@ -78,6 +99,7 @@ final class WorkspaceTabShellAtom {
 
         let shell = tabShells.remove(at: fromIndex)
         tabShells.insert(shell, at: finalIndex)
+        reindexTabs(in: min(fromIndex, finalIndex)..<tabShells.count)
     }
 
     func setActiveTab(_ tabId: UUID?) {
@@ -85,7 +107,7 @@ final class WorkspaceTabShellAtom {
     }
 
     func renameTab(_ tabId: UUID, name: String) {
-        guard let tabIndex = tabShells.firstIndex(where: { $0.id == tabId }) else {
+        guard let tabIndex = tabIndexByID[tabId] else {
             workspaceTabShellLogger.warning("renameTab: tab \(tabId) not found")
             return
         }
@@ -98,12 +120,28 @@ final class WorkspaceTabShellAtom {
     }
 
     func setTabColorHex(_ colorHex: String?, tabId: UUID) throws {
-        guard let tabIndex = tabShells.firstIndex(where: { $0.id == tabId }) else {
+        guard let tabIndex = tabIndexByID[tabId] else {
             throw WorkspaceTabShellAtomError.tabNotFound(tabId)
         }
         let canonicalColorHex = try colorHex.map(Self.validatedTabColorHex(_:))
         guard tabShells[tabIndex].colorHex != canonicalColorHex else { return }
         tabShells[tabIndex].setColorHex(canonicalColorHex)
+    }
+
+    private func reindexTabs(in range: Range<Int>) {
+        for index in range { tabIndexByID[tabShells[index].id] = index }
+    }
+
+    private static func makeUniqueIndex(_ shells: [TabShell]) -> [UUID: Int] {
+        var indexByID: [UUID: Int] = [:]
+        indexByID.reserveCapacity(shells.count)
+        for (index, shell) in shells.enumerated() {
+            precondition(
+                indexByID.updateValue(index, forKey: shell.id) == nil,
+                "tab shell identity must be unique"
+            )
+        }
+        return indexByID
     }
 
     private static func validatedTabColorHex(_ colorHex: String) throws -> String {

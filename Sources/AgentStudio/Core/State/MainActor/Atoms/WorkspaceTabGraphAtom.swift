@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-struct DrawerViewGraphState: Equatable, Hashable {
+struct DrawerViewGraphState: Equatable, Hashable, Sendable {
     var layout: DrawerGridLayout
     var minimizedPaneIds: Set<UUID>
 
@@ -15,7 +15,7 @@ struct DrawerViewGraphState: Equatable, Hashable {
     }
 }
 
-struct PaneArrangementGraphState: Equatable, Hashable, Identifiable {
+struct PaneArrangementGraphState: Equatable, Hashable, Identifiable, Sendable {
     let id: UUID
     var name: String
     var isDefault: Bool
@@ -55,7 +55,7 @@ struct PaneArrangementGraphState: Equatable, Hashable, Identifiable {
     }
 }
 
-struct TabGraphState: Equatable, Hashable {
+struct TabGraphState: Equatable, Hashable, Sendable {
     let tabId: UUID
     var allPaneIds: [UUID]
     var arrangements: [PaneArrangementGraphState]
@@ -79,13 +79,77 @@ struct TabGraphState: Equatable, Hashable {
 @Observable
 final class WorkspaceTabGraphAtom {
     private(set) var tabStates: [TabGraphState] = []
+    private var tabIndexByID: [UUID: Int] = [:]
+    private var tabIDByPaneID: [UUID: UUID] = [:]
+    private var tabIDByArrangementID: [UUID: UUID] = [:]
+
+    var tabCount: Int {
+        tabStates.count
+    }
+
+    func containsTab(_ id: UUID) -> Bool {
+        tabIndexByID[id] != nil
+    }
 
     func replaceStates(_ states: [TabGraphState]) {
+        replaceTabStates(states)
+    }
+
+    func replaceTabStates(_ states: [TabGraphState]) {
+        let indexes = Self.makeIndexes(states)
         guard tabStates != states else { return }
         tabStates = states
+        tabIndexByID = indexes.tabIndexByID
+        tabIDByPaneID = indexes.tabIDByPaneID
+        tabIDByArrangementID = indexes.tabIDByArrangementID
     }
 
     func tabState(_ tabId: UUID) -> TabGraphState? {
-        tabStates.first { $0.tabId == tabId }
+        tabIndexByID[tabId].map { tabStates[$0] }
+    }
+
+    func tabIndex(for tabID: UUID) -> Int? {
+        tabIndexByID[tabID]
+    }
+
+    func tabID(containingPane paneID: UUID) -> UUID? {
+        tabIDByPaneID[paneID]
+    }
+
+    func tabID(containingArrangement arrangementID: UUID) -> UUID? {
+        tabIDByArrangementID[arrangementID]
+    }
+
+    private static func makeIndexes(
+        _ states: [TabGraphState]
+    ) -> (
+        tabIndexByID: [UUID: Int],
+        tabIDByPaneID: [UUID: UUID],
+        tabIDByArrangementID: [UUID: UUID]
+    ) {
+        var tabIndexByID: [UUID: Int] = [:]
+        var tabIDByPaneID: [UUID: UUID] = [:]
+        var tabIDByArrangementID: [UUID: UUID] = [:]
+        for (index, state) in states.enumerated() {
+            precondition(
+                tabIndexByID.updateValue(index, forKey: state.tabId) == nil,
+                "tab graph identity must be unique"
+            )
+            for paneID in state.allPaneIds {
+                if let firstTabID = tabIDByPaneID.updateValue(state.tabId, forKey: paneID),
+                    firstTabID != state.tabId
+                {
+                    preconditionFailure(
+                        "pane \(paneID) cannot belong to tab \(firstTabID) and tab \(state.tabId)"
+                    )
+                }
+            }
+            for arrangement in state.arrangements {
+                guard tabIDByArrangementID.updateValue(state.tabId, forKey: arrangement.id) == nil else {
+                    preconditionFailure("arrangement \(arrangement.id) must have one tab owner")
+                }
+            }
+        }
+        return (tabIndexByID, tabIDByPaneID, tabIDByArrangementID)
     }
 }

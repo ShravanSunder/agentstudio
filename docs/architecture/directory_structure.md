@@ -80,10 +80,10 @@ Sources/AgentStudio/
 │   │
 │   └── Webview/                      # Plain browser pane controller/runtime/views
 │
-├── SharedComponents/                 # Stateless, cross-app UI primitives (design system).
+├── SharedComponents/                 # Cross-app UI primitives (design system).
 │   │                                 #   Imports ONLY from Infrastructure.
-│   │                                 #   Never subscribes to atoms; state flows via bindings
-│   │                                 #   and value parameters.
+│   │                                 #   Never subscribes to atoms; state flows via values,
+│   │                                 #   bindings, callbacks, or explicit observable view models.
 │   └── EditorChooser/                # Editor chooser menu content + row item model
 │
 ├── Infrastructure/                   # Utilities used by anyone, domain-agnostic
@@ -253,6 +253,12 @@ There are two kinds of state. They live in different places:
 
 - **Feature state** — domain data owned by one feature. Examples: notification log, inbox view prefs, repo-explorer expanded groups. Lives in feature atoms inside the feature slice. Never leaks into Core.
 
+Feature ownership does not require one persistence file per atom. Until those
+stores split, `WorkspaceSettingsStore` co-persists editor, repo-explorer, and
+inbox preferences in the workspace settings payload. It imports recognized
+repo-explorer preferences from the legacy sidebar-cache sidecar once, then the
+workspace settings payload is canonical.
+
 If you are tempted to add a feature-specific property to the sidebar composition atoms, that property belongs in a feature atom instead. If you are tempted to add a feature type to `Core/Models/`, test it: does *multiple features* and *cross-cutting composition* consume it? If only one feature uses it, it belongs in that feature.
 
 Current exception to watch: `PaneContent.bridgePanel(BridgePaneState)` stores bridge-pane payload in `Core/Models/PaneContent.swift`. This exists because the persisted pane union is currently defined in Core while pane content variants are decoded from workspace state. Treat it as a transitional persistence boundary, not a precedent for adding more feature-owned types to Core. New bridge domain state still belongs in `Features/Bridge/State/...`; any future cleanup should move toward a Core-owned content descriptor or feature registration seam instead of widening Core's knowledge of Bridge internals.
@@ -265,23 +271,31 @@ Core views (e.g., `DrawerOverlay`, `DrawerIconBar`) that need to display feature
 
 ### SharedComponents — the design-system layer
 
-`Sources/AgentStudio/SharedComponents/` is a single top-level directory holding stateless UI primitives used across the app. Buttons, pills, typography tokens, icon wrappers, small custom controls, layout primitives — the design system.
+`Sources/AgentStudio/SharedComponents/` is a single top-level directory holding shared UI primitives used across the app. Buttons, pills, typography tokens, icon wrappers, small custom controls, layout primitives — the design system.
 
 #### Rules
 
-**Stateless.** Shared components do not subscribe to atoms. They do not hold observable state. They accept input via `@Binding`, value parameters, and closures for actions. They render from those inputs and emit intentions via the closures.
+**No global state access.** Shared components do not subscribe to atoms, read global stores, or resolve feature state on their own. They accept input via `@Binding`, value parameters, closures for actions, and explicitly passed observable view models. They render from those inputs and emit intentions via callbacks or binding changes.
 
-Lint rule `agentstudio_shared_components_are_stateless` enforces the hard part
-of this contract by rejecting `@Atom`, `@State`, `@StateObject`,
-`@ObservedObject`, and `@EnvironmentObject` in `SharedComponents/`.
+Observable view models are allowed when they are part of the component's explicit initializer contract and model reusable UI interaction state. They must not be atom wrappers, global-state facades, or feature-owned domain models smuggled into `SharedComponents/`.
+
+Lint rule `agentstudio_shared_components_are_stateless` enforces the mechanical
+part of this contract: no direct atom reads, no atom/registry/scope/test-registry
+helpers, no atom/store typed dependencies, no `@StateObject` or
+`@EnvironmentObject`, and no store-like `@Environment` reads. It intentionally
+allows `@Binding`, `@State` for ephemeral view state, `@ObservedObject`, and
+Swift `@Observable` when those are explicit component contracts. Review still
+owns the semantic part that SwiftSyntax cannot prove alone: observable contracts
+must be shared/infrastructure UI interaction models, not feature-owned domain
+state or global-store facades.
 
 **Imports only from Infrastructure.** `SharedComponents/` can import `Infrastructure/`, SwiftUI, AppKit, Foundation, and stdlib. It must not import `Core/`, `Features/`, or `App/`.
 
 **Imported by anyone.** Any layer (`Core/`, `Features/`, `App/`) can import from `SharedComponents/` freely.
 
-**Extract on second use.** When two surfaces need the same visual control or row primitive, extract the shared rendering into `SharedComponents/` and pass feature-specific data/actions as values and closures. Do not keep parallel hand-rolled controls that drift in spacing, typography, or focus treatment.
+**Extract on second use.** When two surfaces need the same visual control or row primitive, extract the shared rendering into `SharedComponents/` and pass feature-specific data/actions as values, bindings, callbacks, or explicit observable view models. Do not keep parallel hand-rolled controls that drift in spacing, typography, or focus treatment.
 
-**Share interaction semantics, not only pixels.** If two surfaces have the same behavior contract — selected row, arrow navigation, Return activation, Escape close, same-shortcut dismiss, numbered row activation, focus capture — extract that behavior into `SharedComponents/` and pass feature-specific row content/actions as closures. A feature may keep its own row rendering; it may not duplicate the keyboard/focus state machine without a documented reason.
+**Share interaction semantics, not only pixels.** If two surfaces have the same behavior contract — selected row, arrow navigation, Return activation, Escape close, same-shortcut dismiss, numbered row activation, focus capture — extract that behavior into `SharedComponents/` and pass feature-specific row content/actions as callbacks or render values. A feature may keep its own row rendering; it may not duplicate the keyboard/focus state machine without a documented reason.
 
 **Style and policy source.** Shared components may consume `AppStyles` presentation tokens through `Infrastructure/`, but they should not own policy decisions. Behavioral limits, routing decisions, caps, and validation thresholds belong in `AppPolicies` and are applied by the feature/composition owner before values reach the component.
 
@@ -305,7 +319,7 @@ Do not move `SelectAllTextField` out of Webview until a second feature needs tha
 
 #### What does NOT belong here
 
-- Views that read from atoms → these are feature or composition views
+- Views that read from atoms or global stores → these are feature or composition views
 - Views that import from a specific feature → these are feature or composition views
 - Anything tied to a single feature's domain (those are feature `Components/`)
 
@@ -365,7 +379,7 @@ What does this file need to import (from within the project)?
 | Multiple Features | `App/` (composition root) |
 | One Feature only | That `Features/X/` directory |
 | Only Core + Infrastructure + SharedComponents | `Core/` |
-| Only Infrastructure (and it's a stateless UI primitive) | `SharedComponents/` |
+| Only Infrastructure (and it is shared UI with no atom/global-store access) | `SharedComponents/` |
 | Nothing internal | `Infrastructure/` |
 
 ### 2. The Deletion Test
@@ -409,8 +423,9 @@ Q2: Does it import from ONE Feature?
     YES → that Feature/
     NO  → continue
 
-Q3: Is it a stateless UI primitive that could be used anywhere?
-    (no atom subscriptions, state via @Binding / parameters only,
+Q3: Is it shared UI that could be used anywhere?
+    (no atom/global-store access; state enters via values,
+     @Binding, callbacks, or explicit observable view models;
      imports only Infrastructure)
     YES → SharedComponents/
     NO  → continue

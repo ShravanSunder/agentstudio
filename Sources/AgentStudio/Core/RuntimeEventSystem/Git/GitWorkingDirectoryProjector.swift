@@ -1,6 +1,10 @@
 import Foundation
 import os
 
+extension GitProjectorPerformanceRecording {
+    var isEnabled: Bool { true }
+}
+
 /// Event-driven projector that derives local git state from filesystem facts.
 ///
 /// Input:
@@ -72,7 +76,20 @@ actor GitWorkingDirectoryProjector {
     private var quiescentWorktreeIds: Set<UUID> = []
     private var periodicRefreshTick: UInt64 = 0
     var nextEnvelopeSequence: UInt64 = 0
+    var lastRecordedLogicalDebtSnapshot: GitLogicalDebtSnapshot?
     var isShuttingDown = false
+
+    var queuedLogicalDebtCount: Int {
+        pendingByWorktreeId.count
+    }
+
+    var retryPendingLogicalDebtCount: Int {
+        nilStatusRetryTasks.count
+    }
+
+    var runningLogicalDebtCount: Int {
+        worktreeTasks.count
+    }
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -322,6 +339,7 @@ actor GitWorkingDirectoryProjector {
             guard let self else { return }
             await self.drainWorktree(worktreeId: worktreeId, taskGeneration: taskGeneration)
         }
+        recordLogicalDebtSnapshotIfChanged()
     }
 
     private func shouldApplyTopologyAssertion(_ assertion: FilesystemTopologyAssertion) -> Bool {
@@ -429,6 +447,7 @@ actor GitWorkingDirectoryProjector {
             task.cancel()
         }
         worktreeTaskGenerationByWorktreeId.removeValue(forKey: worktreeId)
+        recordLogicalDebtSnapshotIfChanged()
     }
 
     private func addSuppressedWorktree(_ worktreeId: UUID) {
@@ -497,6 +516,7 @@ actor GitWorkingDirectoryProjector {
             guard var nextChangeset = pendingByWorktreeId.removeValue(forKey: worktreeId) else {
                 return
             }
+            recordLogicalDebtSnapshotIfChanged()
             let shouldCoalesce = immediateRefreshWorktreeIds.remove(worktreeId) == nil && coalescingWindow > .zero
             if shouldCoalesce {
                 coalescingWorktreeIds.insert(worktreeId)
@@ -515,6 +535,7 @@ actor GitWorkingDirectoryProjector {
                 coalescingWorktreeIds.remove(worktreeId)
                 guard !Task.isCancelled else { return }
                 if let newer = pendingByWorktreeId.removeValue(forKey: worktreeId) {
+                    recordLogicalDebtSnapshotIfChanged()
                     nextChangeset = newer
                     _ = immediateRefreshWorktreeIds.remove(worktreeId)
                 }
@@ -721,6 +742,7 @@ actor GitWorkingDirectoryProjector {
             guard !Task.isCancelled else { return }
             await self?.enqueueNilStatusRetry(changeset)
         }
+        recordLogicalDebtSnapshotIfChanged()
     }
 
     private func enqueueNilStatusRetry(_ changeset: FileChangeset) {
@@ -732,6 +754,7 @@ actor GitWorkingDirectoryProjector {
             pendingByWorktreeId[changeset.worktreeId] = changeset
             admitPendingWorktrees()
         }
+        recordLogicalDebtSnapshotIfChanged()
     }
 
     func isCurrent(_ changeset: FileChangeset) -> Bool {

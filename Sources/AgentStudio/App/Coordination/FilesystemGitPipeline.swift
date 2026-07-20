@@ -9,7 +9,7 @@ struct WatchedFolderRefreshSummary: Sendable, Equatable {
 }
 
 protocol WatchedFolderCommandHandling: AnyObject, Sendable {
-    func refreshWatchedFolders(_ paths: [URL]) async -> WatchedFolderRefreshSummary
+    func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary
 }
 
 /// Composition root for app-wide filesystem facts + derived local git facts.
@@ -40,7 +40,8 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             bus: bus,
             fseventStreamClient: fseventStreamClient,
             debounceWindow: filesystemDebounceWindow,
-            maxFlushLatency: filesystemMaxFlushLatency
+            maxFlushLatency: filesystemMaxFlushLatency,
+            performanceTraceRecorder: performanceTraceRecorder
         )
         self.gitWorkingDirectoryProjector = GitWorkingDirectoryProjector(
             bus: bus,
@@ -118,10 +119,8 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         await filesystemActor.enqueueRawPaths(worktreeId: worktreeId, paths: paths)
     }
 
-    func refreshWatchedFolders(_ paths: [URL]) async -> WatchedFolderRefreshSummary {
-        let summary = await filesystemActor.refreshWatchedFolders(paths)
-        await gitWorkingDirectoryProjector.refreshRegisteredWorktreesImmediately()
-        return summary
+    func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary {
+        await filesystemActor.refreshWatchedFolders(watchedPaths)
     }
 
     func applyScopeChange(_ change: ScopeChange) async {
@@ -132,8 +131,8 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             await forgeActor.unregister(repo: repoId)
         case .refreshForgeRepo(let repoId, let correlationId):
             await forgeActor.refresh(repo: repoId, correlationId: correlationId)
-        case .updateWatchedFolders(let paths):
-            _ = await filesystemActor.refreshWatchedFolders(paths)
+        case .updateWatchedFolders(let watchedPaths):
+            _ = await filesystemActor.refreshWatchedFolders(watchedPaths)
         }
     }
 }

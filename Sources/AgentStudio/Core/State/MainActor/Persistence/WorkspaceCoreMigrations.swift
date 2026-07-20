@@ -26,6 +26,7 @@ enum WorkspaceCoreMigrations {
         ("008_add_zmx_session_id", addZmxSessionIdStatements),
         ("009_drop_pane_source_binding", dropPaneSourceBindingStatements),
         ("010_repository_topology_tags_and_tab_color", repositoryTopologyTagsAndTabColorStatements),
+        ("011_add_repo_sidebar_metadata", addRepoSidebarMetadataStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {
@@ -34,9 +35,13 @@ enum WorkspaceCoreMigrations {
         }
     }
 
-    /// Spawn-time zmx session anchor: stored at session creation and read back
-    /// verbatim for attach/restore/orphan cleanup. Nullable — rows written
-    /// before this migration backfill lazily on first restore touch.
+    /// Adds opaque durable terminal identity storage.
+    ///
+    /// Current writers always persist an identity before pane insertion and
+    /// current readers reject NULL or blank values. Existing nonblank text is
+    /// preserved verbatim; startup never backfills or rewrites this column.
+    /// The column remains nullable only because this historical migration
+    /// cannot change already-deployed table constraints in place.
     private static let addZmxSessionIdStatements = [
         """
         ALTER TABLE pane_content_terminal ADD COLUMN zmx_session_id TEXT

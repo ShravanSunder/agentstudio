@@ -66,6 +66,7 @@ extension WorkspaceSurfaceCoordinator {
             title: worktree.name,
             provider: .zmx,
             lifetime: .persistent,
+            zmxSessionID: .generateUUIDv7(),
             residency: .active,
             facets: PaneContextFacets(
                 repoId: repo.id,
@@ -248,6 +249,7 @@ extension WorkspaceSurfaceCoordinator {
             launchDirectory: launchDirectory,
             title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : "Terminal",
             provider: .zmx,
+            zmxSessionID: .generateUUIDv7(),
             facets: PaneContextFacets(cwd: launchDirectory)
         )
         prepareTerminalPaneSlot(pane)
@@ -327,6 +329,9 @@ extension WorkspaceSurfaceCoordinator {
 
         case .removeRepo(let repoId):
             removeRepoHandler(repoId)
+
+        case .setRepoFavorite(let repoId, let isFavorite):
+            store.mutationCoordinator.setRepoFavorite(repoId, isFavorite: isFavorite)
 
         case .selectTab(let tabId):
             store.tabLayoutAtom.setActiveTab(tabId)
@@ -574,7 +579,11 @@ extension WorkspaceSurfaceCoordinator {
             let fallbackCWD = store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(
                 store.repositoryTopologyAtom.worktree)?
                 .path
-            if let drawerPane = store.paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: fallbackCWD) {
+            if let drawerPane = store.paneAtom.addDrawerPane(
+                to: parentPaneId,
+                parentFallbackCWD: fallbackCWD,
+                zmxSessionID: .generateUUIDv7()
+            ) {
                 prepareTerminalPaneSlot(drawerPane)
                 registerTerminalPlaceholderIfNeeded(for: drawerPane, mode: .preparing)
                 guard let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId else {
@@ -633,9 +642,11 @@ extension WorkspaceSurfaceCoordinator {
             store.paneAtom.toggleDrawer(for: paneId)
             if let drawer = store.paneAtom.pane(paneId)?.drawer,
                 drawer.isExpanded,
-                let activeDrawerPaneId = arrangementView.drawerView(forParent: paneId)?.activeChildId
+                let activeDrawerPaneId =
+                    arrangementView.drawerView(forParent: paneId)?.activeChildId
+                    ?? drawer.paneIds.first
             {
-                restoreViewsForActiveTabIfNeeded()
+                reattachForViewSwitch(paneId: activeDrawerPaneId)
                 focusVisiblePaneHost(activeDrawerPaneId)
             } else {
                 focusVisiblePaneHost(paneId)
@@ -645,7 +656,7 @@ extension WorkspaceSurfaceCoordinator {
             else { break }
             store.tabArrangementAtom.setActiveDrawerPane(
                 drawerPaneId, drawerId: drawerContext.drawerId, inTab: drawerContext.tabId)
-            restoreViewsForActiveTabIfNeeded()
+            reattachForViewSwitch(paneId: drawerPaneId)
             focusVisiblePaneHost(drawerPaneId)
         case .resizeDrawerPane(let parentPaneId, let splitId, let ratio):
             guard let drawerContext = drawerCommandContext(parentPaneId: parentPaneId, command: "resizeDrawerPane")
@@ -682,10 +693,7 @@ extension WorkspaceSurfaceCoordinator {
             else { break }
             store.tabArrangementAtom.expandDrawerPane(
                 drawerPaneId, drawerId: drawerContext.drawerId, tabId: drawerContext.tabId)
-            restoreVisiblePaneIfNeeded(drawerPaneId, forceWhenBoundsExist: true)
-            if viewRegistry.terminalView(for: drawerPaneId) != nil {
-                reattachForViewSwitch(paneId: drawerPaneId)
-            }
+            reattachForViewSwitch(paneId: drawerPaneId)
 
         case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction, let sizingMode):
             executeInsertDrawerPane(
@@ -716,7 +724,6 @@ extension WorkspaceSurfaceCoordinator {
             executeRepair(repairAction)
         }
 
-        syncFilesystemRootsAndActivity()
     }
     // swiftlint:enable cyclomatic_complexity function_body_length
 
@@ -742,6 +749,7 @@ extension WorkspaceSurfaceCoordinator {
             title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : worktree.name,
             provider: .zmx,
             lifetime: .persistent,
+            zmxSessionID: .generateUUIDv7(),
             residency: .active,
             facets: paneFacets
         )

@@ -40,4 +40,29 @@ struct WorkspaceSQLiteSnapshotRoleTests {
         #expect(!snapshotSource.contains("unavailableRepoIds"))
         #expect(!snapshotSource.contains("watchedPaths"))
     }
+
+    @Test("SQLite representation equality compares persisted timestamp values")
+    func sqliteRepresentationEqualityComparesPersistedTimestampValues() {
+        // Arrange
+        let workspaceId = UUIDv7.generate()
+        let originalDate = Date(timeIntervalSinceReferenceDate: 0.1)
+        let sqliteRoundTrippedDate = Date(timeIntervalSince1970: originalDate.timeIntervalSince1970)
+        let original = WorkspaceSQLiteSnapshot(
+            id: workspaceId,
+            createdAt: originalDate,
+            updatedAt: originalDate
+        )
+        let roundTripped = WorkspaceSQLiteSnapshot(
+            id: workspaceId,
+            createdAt: sqliteRoundTrippedDate,
+            updatedAt: sqliteRoundTrippedDate
+        )
+        var changedName = roundTripped
+        changedName.name = "Different"
+
+        // Act / Assert
+        #expect(original != roundTripped)
+        #expect(original.hasSameSQLiteRepresentation(as: roundTripped))
+        #expect(!original.hasSameSQLiteRepresentation(as: changedName))
+    }
 }

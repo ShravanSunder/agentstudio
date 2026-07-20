@@ -16,11 +16,6 @@ final class WorkspacePanePresentationAtom {
         self.zoomedPaneIdsByTabId = zoomedPaneIdsByTabId
     }
 
-    func setZoomedPaneId(_ paneId: UUID?, forTab tabId: UUID) {
-        guard zoomedPaneIdsByTabId[tabId] != paneId else { return }
-        zoomedPaneIdsByTabId[tabId] = paneId
-    }
-
     func zoomedPaneId(forTab tabId: UUID) -> UUID? {
         zoomedPaneIdsByTabId[tabId]
     }

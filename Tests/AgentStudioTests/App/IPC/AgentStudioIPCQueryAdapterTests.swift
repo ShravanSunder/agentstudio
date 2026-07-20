@@ -116,7 +116,7 @@ struct AgentStudioIPCQueryAdapterTests {
                 TerminalState(
                     provider: .zmx,
                     lifetime: .persistent,
-                    zmxSessionId: "secret-zmx-session"
+                    zmxSessionID: try #require(ZmxSessionID(restoring: "secret-zmx-session"))
                 )
             ),
             metadata: PaneMetadata(launchDirectory: secretCWD, title: "Secret Terminal")
@@ -208,7 +208,7 @@ extension WorkspaceWindowLifecycleSnapshot {
 private func makeWorkspaceStore() -> WorkspaceStore {
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-ipc-query-adapter-\(UUID().uuidString)")
-    return WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+    return WorkspaceStore()
 }
 
 private func encodedJSONString<T: Encodable>(_ value: T) throws -> String {

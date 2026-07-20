@@ -53,13 +53,18 @@ struct CIFastLaneWorkflowTests {
         #expect(nonSerializedRunner.contains("--skip E2ESerializedTests"))
         #expect(nonSerializedRunner.contains("--skip ZmxE2ETests"))
         #expect(fastRunner.contains("--parallel --num-workers \"$SWIFT_TEST_WORKERS\""))
+        #expect(testHelperScript.contains("app_ipc_live_socket_suite_filters()"))
+        #expect(testHelperScript.contains("AgentStudioAppIPCServiceTests"))
+        #expect(testHelperScript.contains("AgentStudioAppIPCSidebarServiceTests"))
+        #expect(testHelperScript.contains("AgentStudioAppIPCCommandExecuteContractTests"))
         #expect(
             fastRunner.contains(
                 "--skip \"Benchmark|AgentStudioAppIPCServiceTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)\""
             )
         )
-        #expect(fastRunner.contains("serial App IPC service live socket suite"))
-        #expect(fastRunner.contains("--filter AgentStudioAppIPCServiceTests"))
+        #expect(fastRunner.contains("serial App IPC service live socket suites"))
+        #expect(fastRunner.contains("while IFS= read -r app_ipc_live_socket_suite_filter"))
+        #expect(fastRunner.contains("--filter \"$app_ipc_live_socket_suite_filter\""))
         #expect(largeRunner.contains("--parallel --num-workers \"$SWIFT_TEST_WORKERS\""))
         #expect(largeRunner.contains("--filter \"$(large_non_webkit_filter_pattern)\""))
         #expect(largeRunner.contains("serial large process suites"))
@@ -77,6 +82,34 @@ struct CIFastLaneWorkflowTests {
         #expect(!testHelperScript.contains("standalone_swift_test_filters"))
         #expect(!testHelperScript.contains("isolated_swift_test_class_filters"))
         #expect(!testHelperScript.contains("swift test list ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build"))
+    }
+
+    @Test("real zmx lifecycle proof stays in its dedicated E2E lane")
+    func realZmxLifecycleProofStaysInDedicatedE2ELane() throws {
+        let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
+        let swiftTestTaskScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
+        let defaultTestCase = try shellCase(named: "test", in: swiftTestTaskScript)
+        let forwardedArgumentsBlock = try namedBlock(
+            startingWith: "if [ \"$#\" -gt 0 ]; then",
+            endingBefore: "\nfi\n",
+            in: swiftTestTaskScript
+        )
+        let coverageTask = try miseTask(named: "test-coverage", in: miseConfig)
+        let generalE2ETask = try miseTask(named: "test-e2e", in: miseConfig)
+        let zmxE2ETask = try miseTask(named: "test-zmx-e2e", in: miseConfig)
+
+        #expect(
+            forwardedArgumentsBlock.contains(
+                "swift test --skip-build \"$@\" --skip ZmxE2ETests --build-path \"$BUILD_PATH\""
+            )
+        )
+        #expect(defaultTestCase.contains("--filter E2ESerializedTests --skip ZmxE2ETests"))
+        #expect(!defaultTestCase.contains("SWIFT_TEST_INCLUDE_ZMX_E2E"))
+        #expect(coverageTask.contains("--filter E2ESerializedTests --skip ZmxE2ETests"))
+        #expect(!coverageTask.contains("SWIFT_TEST_INCLUDE_ZMX_E2E"))
+        #expect(generalE2ETask.contains("--filter E2ESerializedTests --skip ZmxE2ETests"))
+        #expect(zmxE2ETask.contains("--filter ZmxE2ETests"))
+        #expect(!zmxE2ETask.contains("--skip ZmxE2ETests"))
     }
 
     private func workflowStep(named stepName: String, in workflow: String) throws -> String {
@@ -100,6 +133,14 @@ struct CIFastLaneWorkflowTests {
             startingWith: "\(functionName)() {",
             endingBefore: "\n}\n",
             in: script
+        )
+    }
+
+    private func miseTask(named taskName: String, in config: String) throws -> String {
+        try namedBlock(
+            startingWith: "[tasks.\(taskName)]",
+            endingBefore: "\n[tasks.",
+            in: config
         )
     }
 

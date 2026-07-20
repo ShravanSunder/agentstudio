@@ -30,6 +30,7 @@ struct FilesystemSourceSyncRequest: Sendable, Equatable {
     let paneContextGeneration: UInt64
     let topologyEntries: [FilesystemProjectionTopologyEntry]
     let paneEntries: [FilesystemProjectionPaneEntry]
+    let appliedContextsByWorktreeId: [UUID: WorktreeFilesystemContext]
     let appliedActivityByWorktreeId: [UUID: Bool]
     let activePaneWorktreeId: UUID?
     let appliedActivePaneWorktreeId: UUID?
@@ -41,6 +42,7 @@ struct FilesystemSourceSyncRequest: Sendable, Equatable {
         paneContextGeneration: UInt64,
         topologyEntries: [FilesystemProjectionTopologyEntry],
         paneEntries: [FilesystemProjectionPaneEntry],
+        appliedContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:],
         appliedActivityByWorktreeId: [UUID: Bool],
         activePaneWorktreeId: UUID?,
         appliedActivePaneWorktreeId: UUID?,
@@ -51,6 +53,7 @@ struct FilesystemSourceSyncRequest: Sendable, Equatable {
         self.paneContextGeneration = paneContextGeneration
         self.topologyEntries = topologyEntries
         self.paneEntries = paneEntries
+        self.appliedContextsByWorktreeId = appliedContextsByWorktreeId
         self.appliedActivityByWorktreeId = appliedActivityByWorktreeId
         self.activePaneWorktreeId = activePaneWorktreeId
         self.appliedActivePaneWorktreeId = appliedActivePaneWorktreeId
