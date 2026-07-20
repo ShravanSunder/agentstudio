@@ -229,6 +229,10 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		return this.#fulfillmentByItemId.get(itemId) ?? null;
 	}
 
+	resetPublications(): void {
+		this.#fulfillmentByItemId.clear();
+	}
+
 	#releaseRetryIfReady(
 		state: BridgeWorkerRenderFulfillmentState,
 		atMilliseconds: number,
@@ -251,11 +255,17 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 
 export function bridgeWorkerRenderWindowKeyForJob(job: BridgeWorkerPierreRenderJob): string {
 	const windowKey = JSON.stringify([
-		'bridge-render-window-v1',
+		'bridge-render-window-v2',
 		job.itemId,
 		job.renderKind,
 		job.contentCacheKey,
 		job.contentHash,
+		job.sourceCorrelations.map((correlation) => [
+			correlation.descriptorId,
+			correlation.role,
+			correlation.sourceGeneration,
+			correlation.sourceIdentity,
+		]),
 		job.window.startLine,
 		job.window.endLine,
 		job.window.totalLineCount,
