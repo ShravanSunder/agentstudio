@@ -373,6 +373,7 @@ extension AppDelegate {
 
     private func bootTriggerInitialTopologySync() {
         shouldStartRepositoryTopologyAfterWindowPresentation = true
+        startDeferredRepositoryTopologyLaneIfRequested()
     }
 
     func startDeferredRepositoryTopologyLaneIfRequested() {
