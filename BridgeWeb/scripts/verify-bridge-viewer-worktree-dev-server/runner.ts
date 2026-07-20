@@ -74,11 +74,7 @@ import {
 	worktreeFilePierreCacheKey,
 } from './page-shell.ts';
 import { verifyWorktreeReviewFileTargetRoute, verifyWorktreeReviewRoute } from './review-routes.ts';
-import { setWorktreeDevPollingEnabled } from './review-selection.ts';
-import {
-	fetchWorktreeReviewPerformanceClickTargets,
-	installFileContentRouteGate,
-} from './route-probes.ts';
+import { installFileContentRouteGate } from './route-probes.ts';
 import { resetWorktreeFileTreeForPerformanceSamples } from './scroll-performance.ts';
 import {
 	readWorktreeFileOpenLoadTelemetry,
@@ -173,7 +169,6 @@ export async function verifyWorktreeDevServerPerformanceOnly(): Promise<Worktree
 		startupLoadTiming,
 	});
 	const reviewInteractionPerformanceProof = await collectReviewInteractionPerformanceProof({
-		clickTargets: await fetchWorktreeReviewPerformanceClickTargets(),
 		page,
 	});
 	return {
@@ -303,7 +298,6 @@ export async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerifi
 			targetDescriptor.path,
 		);
 		const contentRouteGate = makeDeferred<void>();
-		await setWorktreeDevPollingEnabled({ enabled: false, page });
 		const contentRouteProbe = await installFileContentRouteGate({ gate: contentRouteGate, page });
 		let scrollExtentAfterSelection;
 		let workerFileSuccessCountBeforeTargetSelection;
@@ -359,7 +353,6 @@ export async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerifi
 			});
 		} finally {
 			await contentRouteProbe.dispose();
-			await setWorktreeDevPollingEnabled({ enabled: true, page });
 		}
 		const scrollExtentAfterReady = await readWorktreeFileScrollExtentSnapshot(page);
 		await waitForPierreFileTreeAnchorSettled(page, targetDescriptor.path);
@@ -480,7 +473,6 @@ export async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerifi
 			startupLoadTiming,
 		});
 		const reviewInteractionPerformanceProof = await collectReviewInteractionPerformanceProof({
-			clickTargets: await fetchWorktreeReviewPerformanceClickTargets(),
 			page,
 		});
 		return {

@@ -79,7 +79,7 @@ export async function waitForWorktreeFileViewerSurfaceReady(page: Page): Promise
 			const visibleCount = Number(visibleCountText);
 			const totalCount = Number(totalCountText);
 			return (
-				shell?.getAttribute('data-worktree-source-state') === 'live' &&
+				shell?.getAttribute('data-file-display-status') === 'ready' &&
 				Number.isInteger(visibleCount) &&
 				Number.isInteger(totalCount) &&
 				totalCount > 0 &&

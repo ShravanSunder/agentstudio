@@ -230,12 +230,13 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		);
 	});
 
-	test('pauses FileView dev polling during controlled interaction performance sampling', async () => {
+	test('does not depend on removed legacy FileView dev polling controls', async () => {
 		const verifierSource = await readWorktreeDevServerVerifierSource();
 
-		expect(verifierSource).toMatch(
-			/async function collectWorktreeInteractionPerformanceProof[\s\S]+await setWorktreeDevPollingEnabled\(\{ enabled: false, page: props\.page \}\);[\s\S]+finally[\s\S]+await setWorktreeDevPollingEnabled\(\{ enabled: true, page: props\.page \}\);/u,
-		);
+		expect(verifierSource).not.toContain('setWorktreeDevPollingEnabled');
+		expect(verifierSource).not.toContain('bridge-worktree-dev-pause-polling');
+		expect(verifierSource).not.toContain('bridge-worktree-dev-resume-polling');
+		expect(verifierSource).not.toContain('bridgeWorktreeDevPollingState');
 	});
 
 	test('requires Review click and tree-scroll performance proof in the official artifact', async () => {
@@ -286,7 +287,10 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(verifierSource).toContain('window.bridgeWorktreeVerifierReviewClickSample');
 		expect(verifierSource).toContain('collectReviewTreeScrollPerformanceSamples');
 		expect(verifierSource).toContain('collectReviewCodeViewScrollPerformanceSamples');
-		expect(verifierSource).toContain('fetchWorktreeReviewPerformanceClickTargets');
+		expect(verifierSource).not.toMatch(
+			/collectReviewInteractionPerformanceProof\(\{[\s\S]*?fetchWorktreeReviewPerformanceClickTargets/u,
+		);
+		expect(verifierSource).toContain('reviewTreeReachablePathScrollTopMap');
 		expect(verifierSource).toContain('data-review-visible-demand-interest');
 		expect(verifierSource).toContain('ReviewPerformanceClickTarget');
 		expect(verifierSource).toContain('normal Worktree/Review performance click targets');
@@ -512,12 +516,16 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 
 	test('waits for FileViewer surface readiness after reload before stale-refresh proof', async () => {
 		const verifierSource = await readWorktreeDevServerVerifierSource();
+		const readinessFunctionSource = verifierSource.match(
+			/export async function waitForWorktreeFileViewerSurfaceReady[\s\S]+?(?=export async function readBridgePierreWorkerFileSuccessCount)/u,
+		)?.[0];
 
-		expect(verifierSource).toContain('waitForWorktreeFileViewerSurfaceReady');
-		expect(verifierSource).toContain("data-worktree-source-state') === 'live'");
-		expect(verifierSource).toContain('totalCount > 0');
-		expect(verifierSource).toContain('visibleCount > 0');
-		expect(verifierSource).toContain('[data-testid="worktree-file-filter-count"]');
+		expect(readinessFunctionSource).toBeDefined();
+		expect(readinessFunctionSource).toContain("data-file-display-status') === 'ready'");
+		expect(readinessFunctionSource).not.toContain("data-worktree-source-state') === 'live'");
+		expect(readinessFunctionSource).toContain('totalCount > 0');
+		expect(readinessFunctionSource).toContain('visibleCount > 0');
+		expect(readinessFunctionSource).toContain('[data-testid="worktree-file-filter-count"]');
 	});
 
 	test('publishes visible CodeView collapse-control primitive proof in Review route artifacts', async () => {

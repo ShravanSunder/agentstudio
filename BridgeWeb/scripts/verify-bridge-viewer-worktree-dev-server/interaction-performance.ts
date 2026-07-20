@@ -32,10 +32,7 @@ import {
 	waitForWorktreeSelectedPathMilliseconds,
 	worktreeFirstVisibleContentWindowDiagnosticMessage,
 } from './performance-click-waits.ts';
-import {
-	reviewClickFailureDiagnosticMessage,
-	setWorktreeDevPollingEnabled,
-} from './review-selection.ts';
+import { reviewClickFailureDiagnosticMessage } from './review-selection.ts';
 import {
 	collectInPageReviewTreeClickPerformanceSample,
 	revealReviewTreeFilePath,
@@ -53,9 +50,11 @@ import {
 	evenlySampledDescriptors,
 	evenlySampledReviewClickTargets,
 	normalWorktreeFilePerformanceDescriptors,
+	normalWorktreeReviewPerformanceClickTargets,
 	resetReviewTreeForPerformanceSamples,
 	waitForPerformanceFileTreeAnchorSettled,
 	worktreeFileDescriptorExpectedBytes,
+	worktreeFilePathEligibleForPerformanceClick,
 	worktreeFileTreeReachablePathSet,
 } from './scroll-performance.ts';
 import { readWorktreeFileOpenLoadTelemetry } from './telemetry.ts';
@@ -73,65 +72,69 @@ export async function collectWorktreeInteractionPerformanceProof(props: {
 	readonly page: Page;
 	readonly startupLoadTiming: WorktreeStartupLoadTimingProof;
 }): Promise<WorktreeInteractionPerformanceProof> {
-	await setWorktreeDevPollingEnabled({ enabled: false, page: props.page });
-	try {
-		const clickSamples = await collectWorktreeFileClickPerformanceSamples(props);
-		const scrollSamples = await collectWorktreeTreeScrollPerformanceSamples(props.page);
-		return {
-			blankTreeWindowCount: scrollSamples.blankTreeWindowCount,
-			browserOrNativeRuntime: 'vite',
-			clickPhaseDurations: summarizeClickPhaseDurations(clickSamples),
-			clickToFirstVisibleContentWindow: summarizeInteractionSamples(
-				clickSamples.durationMilliseconds,
+	const clickSamples = await collectWorktreeFileClickPerformanceSamples(props);
+	const scrollSamples = await collectWorktreeTreeScrollPerformanceSamples(props.page);
+	return {
+		blankTreeWindowCount: scrollSamples.blankTreeWindowCount,
+		browserOrNativeRuntime: 'vite',
+		clickPhaseDurations: summarizeClickPhaseDurations(clickSamples),
+		clickToFirstVisibleContentWindow: summarizeInteractionSamples(
+			clickSamples.durationMilliseconds,
+		),
+		commitSha: await readCurrentCommitSha(),
+		demandQueueWait: {
+			foreground: summarizeInteractionSamples(clickSamples.foregroundQueueWaitMilliseconds),
+			visible: summarizeInteractionSamples(scrollSamples.visibleQueueWaitMilliseconds),
+		},
+		foregroundContentLoadTiming: {
+			executorInFlight: summarizeInteractionSamples(
+				clickSamples.foregroundExecutorInFlightMilliseconds,
 			),
-			commitSha: await readCurrentCommitSha(),
-			demandQueueWait: {
-				foreground: summarizeInteractionSamples(clickSamples.foregroundQueueWaitMilliseconds),
-				visible: summarizeInteractionSamples(scrollSamples.visibleQueueWaitMilliseconds),
-			},
-			foregroundContentLoadTiming: {
-				executorInFlight: summarizeInteractionSamples(
-					clickSamples.foregroundExecutorInFlightMilliseconds,
-				),
-				executorPendingWait: summarizeInteractionSamples(
-					clickSamples.foregroundExecutorPendingWaitMilliseconds,
-				),
-				resourceBodyRegistryCommit: summarizeInteractionSamples(
-					clickSamples.foregroundResourceBodyRegistryCommitMilliseconds,
-				),
-				resourceFetchResponseWait: summarizeInteractionSamples(
-					clickSamples.foregroundResourceFetchResponseWaitMilliseconds,
-				),
-				resourceFirstChunkWait: summarizeInteractionSamples(
-					clickSamples.foregroundResourceFirstChunkWaitMilliseconds,
-				),
-				resourceStreamRead: summarizeInteractionSamples(
-					clickSamples.foregroundResourceStreamReadMilliseconds,
-				),
-			},
-			fileClickFailureDetails: clickSamples.failureDetails,
-			fileClickSlowSampleDetails: clickSamples.slowSampleDetails,
-			fileClickSampleCount: clickSamples.durationMilliseconds.length,
-			runMarker: `bridgeviewer-worktree-vite-${proofRunCreatedAtUnixMilliseconds}`,
-			scrollToVisibleRows: summarizeInteractionSamples(scrollSamples.durationMilliseconds),
-			startupLoadTiming: props.startupLoadTiming,
-			treeScrollSettleFrameCount: summarizeInteractionSamples(scrollSamples.settleFrameCounts),
-			treeScrollSampleCount: scrollSamples.durationMilliseconds.length,
-			workerMode: workerModeFromDevServerUrl(worktreeDevServerUrl),
-			wrongVisibleRowCount: scrollSamples.wrongVisibleRowCount,
-		};
-	} finally {
-		await setWorktreeDevPollingEnabled({ enabled: true, page: props.page });
-	}
+			executorPendingWait: summarizeInteractionSamples(
+				clickSamples.foregroundExecutorPendingWaitMilliseconds,
+			),
+			resourceBodyRegistryCommit: summarizeInteractionSamples(
+				clickSamples.foregroundResourceBodyRegistryCommitMilliseconds,
+			),
+			resourceFetchResponseWait: summarizeInteractionSamples(
+				clickSamples.foregroundResourceFetchResponseWaitMilliseconds,
+			),
+			resourceFirstChunkWait: summarizeInteractionSamples(
+				clickSamples.foregroundResourceFirstChunkWaitMilliseconds,
+			),
+			resourceStreamRead: summarizeInteractionSamples(
+				clickSamples.foregroundResourceStreamReadMilliseconds,
+			),
+		},
+		fileClickFailureDetails: clickSamples.failureDetails,
+		fileClickSlowSampleDetails: clickSamples.slowSampleDetails,
+		fileClickSampleCount: clickSamples.durationMilliseconds.length,
+		runMarker: `bridgeviewer-worktree-vite-${proofRunCreatedAtUnixMilliseconds}`,
+		scrollToVisibleRows: summarizeInteractionSamples(scrollSamples.durationMilliseconds),
+		startupLoadTiming: props.startupLoadTiming,
+		treeScrollSettleFrameCount: summarizeInteractionSamples(scrollSamples.settleFrameCounts),
+		treeScrollSampleCount: scrollSamples.durationMilliseconds.length,
+		workerMode: workerModeFromDevServerUrl(worktreeDevServerUrl),
+		wrongVisibleRowCount: scrollSamples.wrongVisibleRowCount,
+	};
 }
 
 export async function collectReviewInteractionPerformanceProof(props: {
-	readonly clickTargets: readonly ReviewPerformanceClickTarget[];
 	readonly page: Page;
 }): Promise<ReviewInteractionPerformanceProof> {
 	const reviewStartupLoadTiming = await collectReviewStartupLoadTimingProof(props.page);
 	await waitForReviewVisibleDemandTelemetry(props.page);
-	const clickSamples = await collectReviewTreeClickPerformanceSamples(props);
+	await resetReviewTreeForPerformanceSamples(props.page);
+	const reachablePathScrollTopByPath = await reviewTreeReachablePathScrollTopMap(props.page);
+	const clickTargets = normalWorktreeReviewPerformanceClickTargets(
+		[...reachablePathScrollTopByPath.keys()]
+			.filter(worktreeFilePathEligibleForPerformanceClick)
+			.map((displayPath): ReviewPerformanceClickTarget => ({ displayPath, lineCount: null })),
+	);
+	const clickSamples = await collectReviewTreeClickPerformanceSamples({
+		clickTargets,
+		page: props.page,
+	});
 	const reviewDevContentResponseTiming = await collectReviewDevContentResponseTimingProof(
 		props.page,
 	);
