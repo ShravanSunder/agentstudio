@@ -98,7 +98,12 @@ struct TestPushClock: Clock {
             operation: {
                 try await withUnsafeThrowingContinuation { (continuation: UnsafeContinuation<Void, Error>) in
                     var resumedWaiters: [UnsafeContinuation<Void, Never>] = []
+                    var shouldThrowCancellation = false
                     let shouldResume = state.withCriticalRegion { st in
+                        if Task.isCancelled {
+                            shouldThrowCancellation = true
+                            return true
+                        }
                         if deadline.nanoseconds <= st.now {
                             return true
                         }
@@ -116,7 +121,11 @@ struct TestPushClock: Clock {
                         waiter.resume()
                     }
                     if shouldResume {
-                        continuation.resume()
+                        if shouldThrowCancellation {
+                            continuation.resume(throwing: CancellationError())
+                        } else {
+                            continuation.resume()
+                        }
                     }
                 }
             },

@@ -210,6 +210,24 @@ final class PaneContentWiringTests {
     }
 
     @Test
+    func test_syncPaneWebviewState_equalStateDoesNotMarkWorkspaceDirty() async throws {
+        let state = WebviewState(url: URL(string: "https://example.com")!)
+        let pane = store.createPane(
+            content: .webview(state),
+            metadata: PaneMetadata(title: "Web")
+        )
+        store.appendTab(Tab(paneId: pane.id))
+        let flushOutcome = await store.flushAsync()
+        try #require(flushOutcome == .persisted)
+        #expect(!store.isDirty)
+
+        store.syncPaneWebviewState(pane.id, state: state)
+        await Task.yield()
+
+        #expect(!store.isDirty)
+    }
+
+    @Test
 
     func test_updatePaneWebviewState_missingPane_doesNotCrash() {
         // Act — should log warning but not crash

@@ -434,10 +434,11 @@ final class WorkspacePaneGraphAtom {
     }
 
     func syncPaneWebviewState(_ paneId: UUID, state: WebviewState) {
-        guard paneStates[paneId] != nil else {
+        guard let paneState = paneStates[paneId] else {
             workspacePaneLogger.warning("syncPaneWebviewState: pane \(paneId) not found")
             return
         }
+        guard paneState.content != .webview(state) else { return }
         paneStates[paneId]?.content = .webview(state)
     }
 
