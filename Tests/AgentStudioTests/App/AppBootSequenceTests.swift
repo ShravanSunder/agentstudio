@@ -273,6 +273,27 @@ struct AppBootSequenceTests {
         #expect(workspaceBootSource.components(separatedBy: "await repositoryTopologyLoadTask.value").count == 2)
     }
 
+    @Test("initial topology trigger starts the persistence observation barrier")
+    func initialTopologyTriggerStartsPersistenceObservationBarrier() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let workspaceBootSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
+            encoding: .utf8
+        )
+        let triggerStart = try #require(
+            workspaceBootSource.range(of: "private func bootTriggerInitialTopologySync()")
+        )
+        let deferredLaneStart = try #require(
+            workspaceBootSource.range(
+                of: "func startDeferredRepositoryTopologyLaneIfRequested()",
+                range: triggerStart.upperBound..<workspaceBootSource.endIndex
+            )
+        )
+        let triggerBody = workspaceBootSource[triggerStart.lowerBound..<deferredLaneStart.lowerBound]
+
+        #expect(triggerBody.contains("startDeferredRepositoryTopologyLaneIfRequested()"))
+    }
+
     @Test("termination flushes settings before shutdown completes")
     func terminationFlushesSettingsBeforeShutdownCompletes() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
