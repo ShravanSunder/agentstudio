@@ -33,6 +33,7 @@ import {
 	makeContentRequestDescriptor,
 	makeRenderSemantics,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
+import { makeReviewPublication } from './bridge-main-render-fulfillment-coordinator.test-support.js';
 import type { BridgeWorkerReviewContentMetadata } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker command handler', () => {
@@ -600,6 +601,85 @@ describe('Bridge comm worker command handler', () => {
 		expect([...reviewStore.getState().rowById.keys()]).toEqual(['item-a']);
 		expect(reviewStore.actions.takePendingSlicePatchEvent({ epoch: 8, sequence: 42 })).toBeNull();
 		expect(scheduledResetCount).toBe(0);
+	});
+
+	test('Review metadata reset retires render fulfillment only after transaction commit', () => {
+		// Arrange
+		const itemId = 'item-generation-refresh';
+		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
+		let reviewStore: ScheduledSelectedReviewPreparation['store'] | null = null;
+		let resetScheduledAfterFulfillmentRetirement = false;
+		const contentItems = [makeWorkerReviewContentMetadata(itemId)];
+		const contentRequestDescriptors = [
+			makeContentRequestDescriptor({ itemId, role: 'head', text: 'unchanged content' }),
+		];
+		const renderSemantics = [makeRenderSemantics({ itemId })];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems,
+			rows: [{ id: itemId, parentId: null, index: 0 }],
+			scheduleReviewMetadataReset: (): void => {
+				resetScheduledAfterFulfillmentRetirement =
+					reviewStore?.renderFulfillmentRegistry.getItemState(itemId) === null;
+			},
+			scheduleSelectedReviewContentReadyPreparation:
+				pushScheduledSelectedReviewPreparation(scheduledPreparations),
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 7,
+				requestId: 'request-select-before-generation-refresh',
+				selectedItemId: itemId,
+				selectedSource: 'user',
+				surface: 'review',
+			}),
+		);
+		reviewStore = scheduledPreparations[0]?.store ?? null;
+		if (reviewStore === null) throw new Error('expected selected Review store');
+		const renderJob = makeReviewPublication({ itemId, publicationSequence: 1 }).job;
+		const firstPublication = reviewStore.renderFulfillmentRegistry.beginPublication({
+			job: renderJob,
+			publicationSequence: 1,
+			workerDerivationEpoch: 1,
+		});
+		expect(firstPublication.shouldPublish).toBe(true);
+		const resetApplication = reviewMetadataApplication({
+			contentItems,
+			contentRequestDescriptors,
+			renderSemantics,
+			reset: true,
+			rows: [{ id: itemId, parentId: null, index: 0 }],
+			sourceEpoch: 8,
+		});
+
+		// Act: rollback must retain the current fulfillment authority.
+		const rolledBackTransaction = handler.prepareReviewMetadataApplication(resetApplication);
+		rolledBackTransaction.rollback();
+		const publicationAfterRollback = reviewStore.renderFulfillmentRegistry.beginPublication({
+			job: renderJob,
+			publicationSequence: 2,
+			workerDerivationEpoch: 1,
+		});
+		const committedTransaction = handler.prepareReviewMetadataApplication(resetApplication);
+		committedTransaction.commit();
+		committedTransaction.runPostCommitEffects();
+		const publicationAfterCommit = reviewStore.renderFulfillmentRegistry.beginPublication({
+			job: renderJob,
+			publicationSequence: 3,
+			workerDerivationEpoch: 1,
+		});
+
+		// Assert
+		expect(publicationAfterRollback).toMatchObject({
+			receiptIdentity: firstPublication.receiptIdentity,
+			shouldPublish: false,
+			status: 'duplicate',
+		});
+		expect(resetScheduledAfterFulfillmentRetirement).toBe(true);
+		expect(publicationAfterCommit).toMatchObject({ shouldPublish: true, status: 'published' });
+		expect(publicationAfterCommit.receiptIdentity.publicationId).not.toBe(
+			firstPublication.receiptIdentity.publicationId,
+		);
 	});
 
 	test('remaining unsupported commands return degraded health instead of silent success', () => {

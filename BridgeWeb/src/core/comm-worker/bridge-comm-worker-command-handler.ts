@@ -143,6 +143,9 @@ export function createBridgeCommWorkerCommandHandler(
 		const previousRuntimeSource = reviewRuntimeSource;
 		const storeRollbackSnapshot = reviewStore.captureRollbackSnapshot();
 		const postCommitEffects: Array<() => void> = [];
+		if (application.reset) {
+			postCommitEffects.push((): void => reviewStore.renderFulfillmentRegistry.resetPublications());
+		}
 		let state: 'committed' | 'pending' | 'rolledBack' = 'pending';
 		let postCommitEffectsRan = false;
 		const rollback = (): void => {
@@ -537,6 +540,9 @@ function applyBridgeCommWorkerFileViewRuntimeMutation(props: {
 	readonly updateFileViewRuntimeSource: (source: BridgeCommWorkerFileViewRuntimeSource) => void;
 	readonly updateFileMetadataDemand?: (demand: BridgeCommWorkerFileMetadataDemand) => void;
 }): readonly BridgeWorkerServerToMainMessage[] {
+	if (props.mutation.kind === 'reset') {
+		props.store.renderFulfillmentRegistry.resetPublications();
+	}
 	const { nextSource, selectedContentRequestChanged } =
 		applyFileViewRuntimeMutationTrackingSelectedRequest({
 			mutation: props.mutation,
