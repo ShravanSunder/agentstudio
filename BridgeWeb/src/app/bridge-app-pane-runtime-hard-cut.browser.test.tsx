@@ -228,9 +228,8 @@ describe('BridgeApp pane runtime hard cut', () => {
 		expect(paneRuntimeObservation.disposeCount).toBe(0);
 	});
 
-	test('forwards one initial Review activation after bridge readiness', async () => {
+	test('forwards one initial Review activation while page readiness is unresolved', async () => {
 		// Arrange
-		const handshake = installBridgeReadyHandshake();
 		await actWait(async (): Promise<void> => {
 			render(
 				<BridgeAppProtocolRouter
@@ -241,17 +240,8 @@ describe('BridgeApp pane runtime hard cut', () => {
 			);
 			await Promise.resolve();
 		});
-
-		// Act
-		expect(
-			await pollWithinActUntilEqual(
-				() => readBridgeReviewSelectionDiagnostic()?.pageReadyState ?? null,
-				'ready',
-			),
-		).toBe('ready');
-		await actWait(() => Promise.resolve());
-
 		// Assert
+		expect(readBridgeReviewSelectionDiagnostic()?.pageReadyState).not.toBe('ready');
 		const activeViewerModeUpdates = paneRuntimeObservation.paneCommands.filter(
 			(command): boolean => command.command === 'activeViewerModeUpdate',
 		);
@@ -272,7 +262,6 @@ describe('BridgeApp pane runtime hard cut', () => {
 			},
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 		});
-		handshake.dispose();
 	});
 
 	test('forwards one local File activation before the selected File row', async () => {
