@@ -143,9 +143,6 @@ export function createBridgeCommWorkerCommandHandler(
 		const previousRuntimeSource = reviewRuntimeSource;
 		const storeRollbackSnapshot = reviewStore.captureRollbackSnapshot();
 		const postCommitEffects: Array<() => void> = [];
-		if (application.reset) {
-			postCommitEffects.push((): void => reviewStore.renderFulfillmentRegistry.resetPublications());
-		}
 		let state: 'committed' | 'pending' | 'rolledBack' = 'pending';
 		let postCommitEffectsRan = false;
 		const rollback = (): void => {

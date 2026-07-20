@@ -56,7 +56,7 @@ describe('Bridge worker render fulfillment registry', () => {
 			publicationSequence: 8,
 			submissionId: 'submission-1',
 			surface: 'review',
-			windowKey: expect.stringContaining('bridge-render-window-v2'),
+			windowKey: expect.stringContaining('bridge-render-window-v1'),
 			workerDerivationEpoch: 3,
 			workerInstanceId: 'worker-instance-1',
 		});
@@ -100,27 +100,6 @@ describe('Bridge worker render fulfillment registry', () => {
 		expect(accepted.status).toBe('accepted');
 		expect(repeated.status).toBe('duplicate');
 		expect(repeated.state).toBe(accepted.state);
-	});
-
-	test('replaces unchanged Review content when source generation advances', () => {
-		// Arrange
-		const registry = createRegistry(reviewContext);
-		const first = registry.beginPublication({
-			job: makeRenderJob('review-item-1', 7),
-			publicationSequence: 8,
-			workerDerivationEpoch: 3,
-		});
-
-		// Act
-		const replacement = registry.beginPublication({
-			job: makeRenderJob('review-item-1', 8),
-			publicationSequence: 9,
-			workerDerivationEpoch: 3,
-		});
-
-		// Assert
-		expect(replacement).toMatchObject({ shouldPublish: true, status: 'published' });
-		expect(replacement.receiptIdentity.publicationId).not.toBe(first.receiptIdentity.publicationId);
 	});
 
 	test('retires publication residency before the same semantic window is republished', () => {
@@ -332,7 +311,7 @@ function createIdentifierSequence(): {
 	};
 }
 
-function makeRenderJob(itemId: string, sourceGeneration?: number): BridgeWorkerPierreRenderJob {
+function makeRenderJob(itemId: string): BridgeWorkerPierreRenderJob {
 	return buildBridgeWorkerPierreRenderJob({
 		bridgeDemandRank: { lane: 'visible', priority: 1 },
 		budget: { className: 'visible', maxBytes: 1024, maxWindowLines: 4 },
@@ -357,22 +336,6 @@ function makeRenderJob(itemId: string, sourceGeneration?: number): BridgeWorkerP
 			},
 		},
 		renderKind: 'fileText',
-		...(sourceGeneration === undefined
-			? {}
-			: {
-					sourceCorrelations: [
-						{
-							descriptorId: `descriptor-${itemId}`,
-							itemId,
-							observedSha256: 'a'.repeat(64),
-							position: 'file',
-							requestId: `request-${itemId}`,
-							role: 'file' as const,
-							sourceGeneration,
-							sourceIdentity: `source-${itemId}`,
-						},
-					],
-				}),
 		window: { endLine: 1, startLine: 1, totalLineCount: 1 },
 	});
 }
