@@ -155,7 +155,96 @@ describe('Bridge worker review content fetch', () => {
 		expect(hiddenResult.status).toBe('rejected');
 		expect(foregroundResult.status).toBe('fulfilled');
 	});
+
+	test('does not share in-flight Review resources across review generations', async () => {
+		// Arrange
+		const generationADescriptor = makeContentRequestDescriptor({
+			generation: 4,
+			role: 'head',
+			text: 'unchanged content',
+		});
+		const generationBDescriptor: BridgeWorkerReviewContentRequestDescriptor = {
+			...generationADescriptor,
+			reviewGeneration: generationADescriptor.reviewGeneration + 1,
+		};
+		const generationAStream = createDeferredReviewContentErrorStream(
+			generationADescriptor,
+			'Review generation authority retired.',
+		);
+		const openedReviewGenerations: number[] = [];
+		const fetchReviewContentResource = createSharedBridgeWorkerReviewContentResourceFetch({
+			openContent: (openedDescriptor) => {
+				openedReviewGenerations.push(openedDescriptor.reviewGeneration);
+				return openedDescriptor.reviewGeneration === generationADescriptor.reviewGeneration
+					? generationAStream.stream
+					: makeImmediateReviewContentStream(openedDescriptor, 'unchanged content');
+			},
+		});
+		const generationAFetch = fetchReviewContentResource(generationADescriptor);
+		const generationBFetch = fetchReviewContentResource(generationBDescriptor);
+
+		// Act
+		generationAStream.resolve();
+		const [generationAResult, generationBResult] = await Promise.allSettled([
+			generationAFetch,
+			generationBFetch,
+		]);
+
+		// Assert
+		expect(openedReviewGenerations).toEqual([
+			generationADescriptor.reviewGeneration,
+			generationBDescriptor.reviewGeneration,
+		]);
+		expect(generationAResult.status).toBe('rejected');
+		expect(generationBResult).toMatchObject({
+			status: 'fulfilled',
+			value: {
+				descriptorId: generationBDescriptor.descriptorId,
+				sourceGeneration: generationBDescriptor.reviewGeneration,
+			},
+		});
+	});
 });
+
+interface DeferredReviewContentErrorStream {
+	readonly stream: BridgeProductContentStream<'review.content'>;
+	readonly resolve: () => void;
+}
+
+function createDeferredReviewContentErrorStream(
+	descriptor: BridgeWorkerReviewContentRequestDescriptor,
+	safeMessage: string,
+): DeferredReviewContentErrorStream {
+	let resolveTerminal: (() => void) | null = null;
+	const terminal: BridgeProductContentStream<'review.content'>['terminal'] = new Promise(
+		(resolve) => {
+			resolveTerminal = (): void => {
+				resolve({
+					code: 'invalid_request',
+					contentKind: 'review.content',
+					descriptorId: descriptor.descriptorId,
+					kind: 'error',
+					retryable: false,
+					safeMessage,
+				});
+			};
+		},
+	);
+	return {
+		stream: {
+			contentKind: 'review.content',
+			contentRequestId: `content-request-${descriptor.descriptorId}`,
+			frames: emptyContentFrames(),
+			terminal,
+		},
+		resolve: (): void => {
+			if (resolveTerminal === null) {
+				throw new Error('Deferred Review content error resolver was not initialized.');
+			}
+			resolveTerminal();
+		},
+	};
+}
 
 function makeAbortRejectedReviewContentStream(
 	abortSignal: AbortSignal,

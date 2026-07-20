@@ -142,6 +142,7 @@ function sharedBridgeWorkerReviewContentResourceKey(
 ): string {
 	return [
 		descriptor.packageId,
+		descriptor.reviewGeneration,
 		descriptor.sourceIdentity,
 		descriptor.descriptorId,
 		descriptor.handleId,
