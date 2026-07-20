@@ -2,8 +2,6 @@ import { useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
-import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
-
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
@@ -399,7 +397,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(visibleCodeText()).not.toContain('export const initialScrollLine001 = true;');
 	});
 
-	test('does not repeat a failed replacement content open without explicit user intent', async () => {
+	test('reissues a persistently failing replacement content open exactly once', async () => {
 		const initialContent = makeFileContent('export const failedRefreshInitial = true;\n');
 		const initialDescriptor = await makeFileDescriptorForContent({
 			content: initialContent,
@@ -450,19 +448,20 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await actUpdate((): void => {
 			publishRequiredMetadataEvents(makeSourceReplacementMetadataEvents(replacementDescriptor));
 		});
-		await waitForOpenFileState('failed');
 		await waitForOpenedContentCount({
-			expectedCount: 2,
+			expectedCount: 3,
 			openedDescriptorIds: openedDescriptorIds,
 		});
+		await waitForOpenFileState('failed');
 		await actFrame();
 		await actFrame();
+		await waitForBridgeFileViewerWorkerMessageDrain();
 
 		expect(openFileState()).toBe('failed');
 		expect(visibleCodeText()).not.toContain('failedRefreshReplacement');
 		expect(
 			openedDescriptorIds.filter((url) => url.includes('failed-refresh-content-2')),
-		).toHaveLength(1);
+		).toHaveLength(2);
 	});
 
 	test('keeps selected File loading through unscoped worker health and accepts content completion', async () => {
@@ -517,7 +516,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(openFileState()).toBe('ready');
 	});
 
-	test('retries a failed same-file navigation target after worker source replacement failure', async () => {
+	test('reissues a failed same-file source replacement exactly once', async () => {
 		const initialContent = makeFileContent('export const failedNavigationRetryInitial = true;\n');
 		const replacementContent = makeFileContent(
 			'export const failedNavigationRetryReplacement = true;\n',
@@ -542,49 +541,34 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		const openedDescriptorIds: string[] = [];
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
-		let retryNavigation: (() => void) | null = null;
 		let replacementFetchAttemptCount = 0;
 
-		function ControlledFileViewer(): ReactElement {
-			const [navigationCommand, setNavigationCommand] = useState<BridgeViewerNavigationCommand>(
-				fileNavigationCommandForPath('src/failed-navigation-retry-target.ts'),
-			);
-			retryNavigation = (): void => {
-				setNavigationCommand({
-					...fileNavigationCommandForPath('src/failed-navigation-retry-target.ts'),
-					commandId: 'test:file:src/failed-navigation-retry-target.ts:retry',
-					commandKind: 'activateTarget',
-				});
-			};
-			return (
-				<BridgeFileViewerApp
-					codeViewWorkerPoolEnabled={false}
-					initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}
-					navigationCommand={navigationCommand}
-					fileProductSession={{
-						readContent: async (props) => {
-							openedDescriptorIds.push(props.descriptor.descriptorId);
-							if (props.descriptor.descriptorId.includes('failed-navigation-retry-content-2')) {
-								replacementFetchAttemptCount += 1;
-								if (replacementFetchAttemptCount === 1) {
-									throw new Error('failed navigation retry canary');
-								}
-								return replacementContent;
+		render(
+			<BridgeFileViewerApp
+				codeViewWorkerPoolEnabled={false}
+				initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}
+				navigationCommand={fileNavigationCommandForPath('src/failed-navigation-retry-target.ts')}
+				fileProductSession={{
+					readContent: async (props) => {
+						openedDescriptorIds.push(props.descriptor.descriptorId);
+						if (props.descriptor.descriptorId.includes('failed-navigation-retry-content-2')) {
+							replacementFetchAttemptCount += 1;
+							if (replacementFetchAttemptCount === 1) {
+								throw new Error('failed navigation retry canary');
 							}
-							return initialContent;
-						},
-						onMetadataSubscription: (handler): (() => void) => {
-							publishMetadataEvents = handler;
-							return (): void => {
-								publishMetadataEvents = null;
-							};
-						},
-					}}
-				/>
-			);
-		}
-
-		render(<ControlledFileViewer />);
+							return replacementContent;
+						}
+						return initialContent;
+					},
+					onMetadataSubscription: (handler): (() => void) => {
+						publishMetadataEvents = handler;
+						return (): void => {
+							publishMetadataEvents = null;
+						};
+					},
+				}}
+			/>,
+		);
 
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('failedNavigationRetryInitial');
@@ -593,28 +577,21 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				makeSourceReplacementMetadataEvents(replacementDescriptor),
 			);
 		});
-		await waitForOpenFileState('failed');
-		await waitForOpenedContentCount({
-			expectedCount: 2,
-			openedDescriptorIds: openedDescriptorIds,
-		});
-		await waitForOpenFileState('failed');
-		await actUpdate((): void => {
-			const requiredRetryNavigation = retryNavigation;
-			if (requiredRetryNavigation === null) {
-				throw new Error('Expected retry navigation setter.');
-			}
-			requiredRetryNavigation();
-		});
-
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('failedNavigationRetryReplacement');
+		await waitForOpenedContentCount({
+			expectedCount: 3,
+			openedDescriptorIds: openedDescriptorIds,
+		});
+		await actFrame();
+		await actFrame();
+		await waitForBridgeFileViewerWorkerMessageDrain();
 		expect(
 			openedDescriptorIds.filter((url) => url.includes('failed-navigation-retry-content-2')),
 		).toHaveLength(2);
 	});
 
-	test('retries a failed same-file navigation target on a fresh command', async () => {
+	test('reissues a failed initial navigation target exactly once', async () => {
 		const recoveredContent = makeFileContent('export const failedOpenRetryRecovered = true;\n');
 		const targetDescriptor = await makeFileDescriptorForContent({
 			content: recoveredContent,
@@ -623,52 +600,35 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			path: 'src/failed-open-retry-target.ts',
 		});
 		const openedDescriptorIds: string[] = [];
-		let retryNavigation: (() => void) | null = null;
 		let fetchAttemptCount = 0;
 
-		function ControlledFileViewer(): ReactElement {
-			const [navigationCommand, setNavigationCommand] = useState<BridgeViewerNavigationCommand>(
-				fileNavigationCommandForPath('src/failed-open-retry-target.ts'),
-			);
-			retryNavigation = (): void => {
-				setNavigationCommand({
-					...fileNavigationCommandForPath('src/failed-open-retry-target.ts'),
-					commandId: 'test:file:src/failed-open-retry-target.ts:retry',
-					commandKind: 'activateTarget',
-				});
-			};
-			return (
-				<BridgeFileViewerApp
-					codeViewWorkerPoolEnabled={false}
-					initialMetadataEvents={makeFileMetadataEvents(targetDescriptor)}
-					navigationCommand={navigationCommand}
-					fileProductSession={{
-						readContent: async (props) => {
-							openedDescriptorIds.push(props.descriptor.descriptorId);
-							fetchAttemptCount += 1;
-							if (fetchAttemptCount === 1) {
-								throw new Error('failed open retry canary');
-							}
-							return recoveredContent;
-						},
-					}}
-				/>
-			);
-		}
-
-		render(<ControlledFileViewer />);
-
-		await waitForOpenFileState('failed');
-		await actUpdate((): void => {
-			const requiredRetryNavigation = retryNavigation;
-			if (requiredRetryNavigation === null) {
-				throw new Error('Expected retry navigation setter.');
-			}
-			requiredRetryNavigation();
-		});
+		render(
+			<BridgeFileViewerApp
+				codeViewWorkerPoolEnabled={false}
+				initialMetadataEvents={makeFileMetadataEvents(targetDescriptor)}
+				navigationCommand={fileNavigationCommandForPath('src/failed-open-retry-target.ts')}
+				fileProductSession={{
+					readContent: async (props) => {
+						openedDescriptorIds.push(props.descriptor.descriptorId);
+						fetchAttemptCount += 1;
+						if (fetchAttemptCount === 1) {
+							throw new Error('failed open retry canary');
+						}
+						return recoveredContent;
+					},
+				}}
+			/>,
+		);
 
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('failedOpenRetryRecovered');
+		await waitForOpenedContentCount({
+			expectedCount: 2,
+			openedDescriptorIds: openedDescriptorIds,
+		});
+		await actFrame();
+		await actFrame();
+		await waitForBridgeFileViewerWorkerMessageDrain();
 		expect(openedDescriptorIds).toEqual(['failed-open-retry-content', 'failed-open-retry-content']);
 	});
 

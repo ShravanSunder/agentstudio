@@ -1,6 +1,7 @@
 import { act } from 'react';
 
 import type { BridgeCommWorkerPort } from '../core/comm-worker/bridge-comm-worker-entry.js';
+import { encodeBridgeWorkerActiveViewerModeUpdateCommand } from '../core/comm-worker/bridge-comm-worker-protocol.js';
 import { registerBridgeCommWorkerRuntimePortProtocol } from '../core/comm-worker/bridge-comm-worker-runtime-protocol.js';
 import type {
 	BridgePaneCommWorkerDispatcher,
@@ -223,6 +224,19 @@ export function createBridgeFileViewerBrowserTestPaneSessionFactory(props: {
 			});
 			channel.port1.start();
 			channel.port2.start();
+			channel.port1.postMessage(
+				encodeBridgeWorkerActiveViewerModeUpdateCommand({
+					epoch: 1,
+					requestId: 'browser-file-worker-active-viewer-mode',
+					update: {
+						activeSource: null,
+						mode: 'file',
+						nativeSelectionRequestId: null,
+						sequence: 1,
+						sessionId: 'browser-file-worker-session',
+					},
+				}),
+			);
 			props.productSessionRef.current?.onWorkerMessagesPublisher?.((messages): void => {
 				dispatcherProps.publishWorkerMessages(messages);
 			});

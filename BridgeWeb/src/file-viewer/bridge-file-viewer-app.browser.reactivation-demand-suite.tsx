@@ -132,8 +132,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(openFileBodyPreview()).toContain('loadedWhileInactive');
 	});
 
-	test('does not repeat an aborted initial content open without fresh user intent', async () => {
-		const initialDescriptor = makeFileDescriptor({
+	test('reissues an aborted still-selected content open exactly once', async () => {
+		const retriedContent = makeFileContent('export const autoOpenRetried = true;\n');
+		const initialDescriptor = await makeFileDescriptorForContent({
+			content: retriedContent,
 			contentHandle: 'auto-open-aborted-content',
 			fileId: 'file-auto-open-aborted',
 			path: 'src/auto-open-aborted.ts',
@@ -145,37 +147,23 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			firstFetchController.reject = reject;
 		});
 		const openedDescriptorIds: string[] = [];
-		let activateFiles: (() => void) | null = null;
-		let deactivateFiles: (() => void) | null = null;
 
-		function ControlledFileViewer(): ReactElement {
-			const [isActive, setIsActive] = useState(true);
-			activateFiles = (): void => {
-				setIsActive(true);
-			};
-			deactivateFiles = (): void => {
-				setIsActive(false);
-			};
-			return (
-				<BridgeFileViewerApp
-					autoOpenInitialFile
-					codeViewWorkerPoolEnabled={false}
-					initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}
-					isActive={isActive}
-					fileProductSession={{
-						readContent: (props) => {
-							openedDescriptorIds.push(props.descriptor.descriptorId);
-							if (openedDescriptorIds.length === 1) {
-								return firstFetchPromise;
-							}
-							return Promise.resolve(makeFileContent('export const autoOpenRetried = true;\n'));
-						},
-					}}
-				/>
-			);
-		}
-
-		render(<ControlledFileViewer />);
+		render(
+			<BridgeFileViewerApp
+				autoOpenInitialFile
+				codeViewWorkerPoolEnabled={false}
+				initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}
+				fileProductSession={{
+					readContent: (props) => {
+						openedDescriptorIds.push(props.descriptor.descriptorId);
+						if (openedDescriptorIds.length === 1) {
+							return firstFetchPromise;
+						}
+						return Promise.resolve(retriedContent);
+					},
+				}}
+			/>,
+		);
 		await actFrame();
 		await waitForBridgeFileViewerWorkerMessageDrain();
 
@@ -184,8 +172,6 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			expectedCount: 1,
 			openedDescriptorIds: openedDescriptorIds,
 		});
-		await actUpdate(requireDeactivateFiles(deactivateFiles));
-		await waitForFileViewerActiveState('false');
 		const rejectFirstFetch = firstFetchController.reject;
 		if (rejectFirstFetch === null) {
 			throw new Error('Expected first fetch reject callback to be registered.');
@@ -193,22 +179,18 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await actUpdate((): void => {
 			rejectFirstFetch(new DOMException('Context switch aborted', 'AbortError'));
 		});
+		await waitForOpenedContentCount({
+			expectedCount: 2,
+			openedDescriptorIds: openedDescriptorIds,
+		});
+		await waitForOpenFileState('ready');
 		await actFrame();
 		await actFrame();
 		await waitForBridgeFileViewerWorkerMessageDrain();
-		expect(openFileState()).toBe('failed');
-
-		await actUpdate(requireActivateFiles(activateFiles));
-		await waitForFileViewerActiveState('true');
-		await waitForBridgeViewerTreeItemButton('src/auto-open-aborted.ts');
-
-		await actFrame();
-		await actFrame();
-		await waitForBridgeFileViewerWorkerMessageDrain();
-		expect(openedDescriptorIds).toHaveLength(1);
-		expect(openFileState()).toBe('failed');
+		expect(openedDescriptorIds).toHaveLength(2);
+		expect(openFileState()).toBe('ready');
 		expect(openFilePath()).toBe('src/auto-open-aborted.ts');
-		expect(openFileBodyPreview()).toBeNull();
+		expect(openFileBodyPreview()).toContain('autoOpenRetried');
 	});
 
 	test('preserves the streamed surface when Files becomes active again', async () => {
