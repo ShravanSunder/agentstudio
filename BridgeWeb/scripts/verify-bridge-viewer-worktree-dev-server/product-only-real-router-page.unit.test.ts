@@ -15,6 +15,22 @@ type PageEventName = 'request' | 'requestfailed' | 'requestfinished' | 'response
 type PageEventHandler = (event: unknown) => void;
 
 describe('BridgeViewerRealRouterObserver', () => {
+	test('records the scrub-safe product call method in failure transport evidence', () => {
+		// Arrange
+		const harness = makeObserverHarness();
+		const observer = new BridgeViewerRealRouterObserver(harness.page, (): number => 1);
+		const request = makeProductCallRequest('review.activeViewerMode.update');
+		harness.emit('request', request);
+
+		// Act / Assert
+		expect(observer.failureTransportSnapshot().entries).toEqual([
+			expect.objectContaining({
+				callMethod: 'review.activeViewerMode.update',
+				requestKind: 'product.call',
+			}),
+		]);
+	});
+
 	test('retains scrubbed content lifecycle and unfinished request ordinals for a failed journey', () => {
 		// Arrange
 		const harness = makeObserverHarness();
@@ -260,6 +276,20 @@ function makeObserverHarness(): {
 			resolveAnimationFrame();
 		},
 	};
+}
+
+function makeProductCallRequest(method: string): PlaywrightRequest {
+	return {
+		method: (): string => 'POST',
+		postData: (): string =>
+			JSON.stringify({
+				call: { method, request: null },
+				kind: 'product.call',
+				paneSessionId: 'pane-session-secret',
+				workerInstanceId: 'worker-instance-secret',
+			}),
+		url: (): string => 'http://127.0.0.1:5173/__bridge-product/command',
+	} as unknown as PlaywrightRequest;
 }
 
 function makeProductContentRequest(contentRequestId: string): PlaywrightRequest {

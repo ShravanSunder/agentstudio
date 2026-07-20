@@ -18,6 +18,7 @@ export const bridgeViewerProductOnlySelectors = {
 } as const;
 
 export interface BridgeViewerProductRouteTranscriptEntry {
+	readonly callMethod?: string | null;
 	readonly contentKind: string | null;
 	readonly documentGeneration: number;
 	readonly httpStatus: number | null;
@@ -748,6 +749,7 @@ export function summarizeBridgeProductRequestBody(
 	value: unknown,
 ): Pick<
 	BridgeViewerProductRouteTranscriptEntry,
+	| 'callMethod'
 	| 'contentKind'
 	| 'paneSessionId'
 	| 'requestKind'
@@ -757,8 +759,10 @@ export function summarizeBridgeProductRequestBody(
 	| 'workerInstanceId'
 > {
 	const body = unknownRecord(value);
+	const call = unknownRecord(body?.['call']);
 	const subscription = unknownRecord(body?.['subscription']);
 	return {
+		callMethod: stringValue(call?.['method']),
 		contentKind: stringValue(body?.['contentKind']),
 		paneSessionId: stringValue(body?.['paneSessionId']),
 		requestKind: stringValue(body?.['kind']),
