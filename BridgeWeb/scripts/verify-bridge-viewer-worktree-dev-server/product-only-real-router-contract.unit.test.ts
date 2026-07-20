@@ -774,6 +774,7 @@ function makeProductEntry(
 		paneSessionId: 'pane-session-1',
 		path,
 		requestKind,
+		requestSettled: httpStatus !== null,
 		requestSequence: ordinal,
 		responseCode: null,
 		responseKind: null,

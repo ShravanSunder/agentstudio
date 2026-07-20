@@ -7,7 +7,17 @@ export class BridgeViewerProductOnlyJourneyFailure extends Error {
 		readonly cause: unknown;
 		readonly checkpoint: BridgeViewerProductOnlyJourneyFailureCheckpoint;
 	}) {
-		super(props.cause instanceof Error ? props.cause.message : String(props.cause));
+		const causeMessage = props.cause instanceof Error ? props.cause.message : String(props.cause);
+		const unresolvedEntries = props.checkpoint.transport.entries
+			.filter((entry) => !entry.requestSettled)
+			.slice(-5)
+			.map(
+				(entry) =>
+					`${entry.ordinal}:g${entry.documentGeneration}:${entry.path}:${entry.requestKind ?? 'unknown'}:${entry.streamKind ?? entry.contentKind ?? 'unknown'}`,
+			);
+		super(
+			`${causeMessage} [failureCode=${props.checkpoint.failureCode} unfinished=${props.checkpoint.transport.unfinishedRequestOrdinals.join(',') || 'none'} unresolved=${unresolvedEntries.join(',') || 'none'}]`,
+		);
 		this.name = 'BridgeViewerProductOnlyJourneyFailure';
 		this.checkpoint = props.checkpoint;
 	}

@@ -135,6 +135,34 @@ describe('BridgeViewerRealRouterObserver', () => {
 			expect.objectContaining({ documentGeneration: 1, httpStatus: null }),
 		]);
 	});
+
+	test('treats a failed non-stream request without an HTTP response as terminal', async () => {
+		// Arrange
+		const harness = makeObserverHarness();
+		const observer = new BridgeViewerRealRouterObserver(harness.page, (): number => 1);
+		const cancelledContentRequest = makeProductContentRequest('cancelled-request');
+		harness.emit('request', cancelledContentRequest);
+		harness.emit('requestfailed', cancelledContentRequest);
+
+		// Act
+		const barrier = observer.waitForAllProductResponses();
+		await flushMicrotasks();
+		expect(harness.pendingAnimationFrameCount()).toBe(1);
+		harness.resolveNextAnimationFrame();
+		await barrier;
+
+		// Assert
+		expect(observer.failureTransportSnapshot()).toEqual({
+			entries: [
+				expect.objectContaining({
+					httpStatus: null,
+					requestKind: 'content.open',
+					requestSettled: true,
+				}),
+			],
+			unfinishedRequestOrdinals: [],
+		});
+	});
 });
 
 describe('mountedHeaderOrderViolationForExpectedOrder', () => {

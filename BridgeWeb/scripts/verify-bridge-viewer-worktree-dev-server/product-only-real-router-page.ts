@@ -58,6 +58,7 @@ interface MutableProductRouteTranscriptEntry {
 	paneSessionId: string | null;
 	path: string;
 	requestKind: string | null;
+	requestSettled: boolean;
 	requestSequence: number | null;
 	responseCode: string | null;
 	responseKind: string | null;
@@ -332,18 +333,14 @@ async function captureBridgeViewerProductOnlyJourneyFailure(props: {
 }): Promise<Omit<BridgeViewerProductOnlyJourneyFailureCheckpoint, 'browserCleanup' | 'workers'>> {
 	try {
 		await props.routeObserver.flushResponseParsers();
-	} catch {
-		// The transport snapshot still preserves response status and unfinished ordinals.
-	}
+	} catch {}
 	let review: BridgeViewerProductOnlyJourneyFailureCheckpoint['review'] = null;
 	let captureStatus: BridgeViewerProductOnlyJourneyFailureCheckpoint['captureStatus'] =
 		'unavailable';
 	try {
 		review = await readFreshReviewFailureSnapshot(props.page);
 		captureStatus = 'captured';
-	} catch {
-		// A closed or not-yet-mounted page is represented explicitly without retrying.
-	}
+	} catch {}
 	return {
 		captureStatus,
 		documentGeneration: props.documentGeneration,
@@ -522,6 +519,7 @@ export class BridgeViewerRealRouterObserver {
 				path: requestUrl.pathname,
 				responseCode: null,
 				responseKind: null,
+				requestSettled: false,
 			};
 			this.#productEntries.push(entry);
 			this.#productEntryByRequest.set(request, entry);
@@ -565,6 +563,8 @@ export class BridgeViewerRealRouterObserver {
 	}
 
 	#observeRequestSettled(request: PlaywrightRequest): void {
+		const entry = this.#productEntryByRequest.get(request);
+		if (entry !== undefined) entry.requestSettled = true;
 		if (!this.#unfinishedProductRequests.delete(request)) return;
 		this.#productActivityRevision += 1;
 		this.#resolveProductResponseClosureWaitersIfQuiescent();
@@ -613,7 +613,9 @@ export class BridgeViewerRealRouterObserver {
 			) &&
 			!this.#productEntries.some(
 				(entry): boolean =>
-					entry.documentGeneration === activeDocumentGeneration && entry.httpStatus === null,
+					entry.documentGeneration === activeDocumentGeneration &&
+					entry.path === '/__bridge-product/stream' &&
+					entry.httpStatus === null,
 			)
 		);
 	}

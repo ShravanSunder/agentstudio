@@ -27,6 +27,7 @@ export interface BridgeViewerProductRouteTranscriptEntry {
 	readonly paneSessionId: string | null;
 	readonly path: string;
 	readonly requestKind: string | null;
+	readonly requestSettled: boolean;
 	readonly requestSequence: number | null;
 	readonly responseCode: string | null;
 	readonly responseKind: string | null;
@@ -827,7 +828,7 @@ function requireProductContentRequest(props: {
 			expected: `at least one successful ${props.contentKind} product request`,
 		});
 	}
-	const unclosedEntries = entries.filter((entry): boolean => entry.httpStatus === null);
+	const unclosedEntries = entries.filter((entry): boolean => !entry.requestSettled);
 	if (unclosedEntries.length > 0) {
 		props.violations.push({
 			actual: unclosedEntries.map((entry) => ({
