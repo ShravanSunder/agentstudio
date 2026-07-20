@@ -292,9 +292,7 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 				productCompositionSettleTimeoutMilliseconds,
 				'observed worker closure',
 			);
-		} catch {
-			// The proof reports incomplete closure through its explicit cleanup counters.
-		}
+		} catch {}
 	}
 	const browserCleanup: BridgeViewerProductOnlyJourneyProof['browserCleanup'] = {
 		browserConnectedAfterClose: browser.isConnected(),
