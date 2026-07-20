@@ -845,7 +845,7 @@ function unexpectedEOFReviewContentStream(
 		contentRequestId: `unexpected-eof-${descriptorId}`,
 		frames: emptyReviewContentFrames(),
 		terminal: Promise.resolve({
-			code: 'unexpected_eof',
+			code: 'internal',
 			contentKind: 'review.content',
 			descriptorId,
 			kind: 'error',
