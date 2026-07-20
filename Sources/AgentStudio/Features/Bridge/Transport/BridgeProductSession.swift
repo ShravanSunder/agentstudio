@@ -742,6 +742,9 @@ actor BridgeProductSession {
             }
             return lease
         }
+        for staleLease in staleLeases {
+            abandonProducerFrameDelivery(for: staleLease)
+        }
         _ = producerRegistry.requestStop(staleLeases)
     }
 

@@ -117,6 +117,18 @@ struct BridgeProductSessionProducerOwnershipTests {
                 productAdmission: harness.productAdmission.context
             )?.sequence == 0
         )
+        let staleContentPull = Task {
+            await harness.session.pullProducerFrame(
+                for: oldContentLease,
+                productAdmission: harness.productAdmission.context
+            )
+        }
+        var waitingSnapshot = await harness.session.producerSnapshot()
+        for _ in 0..<2000 where waitingSnapshot.pendingFrameWaiterCount != 1 {
+            await Task.yield()
+            waitingSnapshot = await harness.session.producerSnapshot()
+        }
+        #expect(waitingSnapshot.pendingFrameWaiterCount == 1)
 
         // Act
         let currentContentOperation = ProducerOperationGate()
@@ -133,6 +145,7 @@ struct BridgeProductSessionProducerOwnershipTests {
         let currentContentLease = try #require(currentContentRegistration.lease)
         _ = await currentContentOperation.waitUntilStarted()
         await oldContentOperation.waitUntilCancelled()
+        let staleContentPullResult = await staleContentPull.value
 
         let staleOperation = ProducerInvocationProbe()
         let staleContentRequest = try fileContentRequest(
@@ -145,12 +158,6 @@ struct BridgeProductSessionProducerOwnershipTests {
         ) { _ in
             await staleOperation.recordInvocation()
         }
-        let cleanupTerminal = try await harness.session.enqueueTerminalProducerFrame(
-            for: oldContentLease,
-            productAdmission: harness.productAdmission.context,
-            build: { sequence in try contentResetProducerFrame(contentSequence: sequence) }
-        )
-
         // Assert
         #expect(!(await metadataOperation.wasCancelled))
         #expect(!(await currentContentOperation.wasCancelled))
@@ -158,15 +165,7 @@ struct BridgeProductSessionProducerOwnershipTests {
             staleRegistration == .rejected(.staleSurfaceEpoch(currentFloor: 3))
         )
         #expect(!(await staleOperation.wasInvoked))
-        #expect(cleanupTerminal.enqueuedFrame?.sequence == 1)
-        #expect(cleanupTerminal.enqueuedFrame?.terminal == true)
-        #expect(
-            await consumeNextBridgeProductProducerFrame(
-                for: oldContentLease,
-                from: harness.session,
-                productAdmission: harness.productAdmission.context
-            )?.sequence == 1
-        )
+        #expect(staleContentPullResult == .cancelled)
 
         let scopedSnapshot = await harness.session.producerSnapshot()
         #expect(scopedSnapshot.activeProducerCount == 3)

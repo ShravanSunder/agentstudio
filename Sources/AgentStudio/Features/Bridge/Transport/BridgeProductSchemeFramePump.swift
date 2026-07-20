@@ -400,7 +400,7 @@ extension BridgeProductSession {
         waiter.continuation.resume(returning: .cancelled)
     }
 
-    private func abandonProducerFrameDelivery(
+    func abandonProducerFrameDelivery(
         for lease: BridgeProductProducerLease
     ) {
         resolveProducerObservationPacingCancellation(for: lease)
