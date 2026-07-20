@@ -313,14 +313,19 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         guard
             let invalidationHandlerId = foregroundWorkAdmission.registerInvalidationHandler({
                 Task { [weak self] in
-                    await self?.retireActivityInvalidatedProducer(
+                    guard let self else { return }
+                    let retirement = await self.beginActivityInvalidatedProducerRetirement(
                         lease: lease,
                         session: session
                     )
+                    _ = await retirement.wait()
                 }
             })
         else {
-            await retireActivityInvalidatedProducer(lease: lease, session: session)
+            _ = await beginActivityInvalidatedProducerRetirement(
+                lease: lease,
+                session: session
+            )
             return
         }
         defer {
@@ -330,33 +335,42 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             for: request,
             productAdmission: productAdmission
         )
-        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
-        do {
-            try await contentDemandAdmission.withAdmission(for: interest) {
-                try await self.runAdmittedContentProducer(
-                    request: request,
-                    lease: lease,
-                    productAdmission: productAdmission,
-                    foregroundWorkAdmission: foregroundWorkAdmission,
-                    session: session
-                )
-            }
-        } catch {
+        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
+            _ = await beginActivityInvalidatedProducerRetirement(
+                lease: lease,
+                session: session
+            )
             return
+        }
+        _ = try? await contentDemandAdmission.withAdmission(for: interest) {
+            try await self.runAdmittedContentProducer(
+                request: request,
+                lease: lease,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                session: session
+            )
+        }
+        // Join only retirement start: it abandons delivery before this producer may
+        // finish, while the retirement task remains free to wait for that finish.
+        if foregroundWorkAdmission.withValidAdmission({ true }) == nil {
+            _ = await beginActivityInvalidatedProducerRetirement(
+                lease: lease,
+                session: session
+            )
         }
     }
 
-    private func retireActivityInvalidatedProducer(
+    private func beginActivityInvalidatedProducerRetirement(
         lease: BridgeProductProducerLease,
         session: BridgeProductSession
-    ) async {
-        let retirement = await session.beginProducerRetirement(
+    ) async -> BridgeProductProducerRetirementBarrier {
+        await session.beginProducerRetirement(
             lease,
             acknowledgeLifecycle: acknowledgeLifecycle,
             stopRequest: nil,
             abandonOutstandingDelivery: true
         )
-        _ = await retirement.wait()
     }
 
     private func runAdmittedContentProducer(

@@ -178,11 +178,13 @@ struct BridgePaneProductContentActivityAdmissionTests {
             content: sourceBytes,
             identifier: "activity-hide-at-eof"
         )
+        let endOfSourceGate = BridgeContentLoadGate()
         let context = try await makeActivityContentContext(
             request: request,
             initialActivity: .foreground,
             fileBytes: sourceBytes,
-            invalidateActivityOnFileReaderClose: true
+            invalidateActivityOnFileReaderClose: true,
+            fileEndOfSourceGate: endOfSourceGate
         )
         let decoder = try BridgeProductContentFrameDecoder()
         let accepted = try await requiredActivityContentFrame(context)
@@ -207,13 +209,27 @@ struct BridgePaneProductContentActivityAdmissionTests {
                 productAdmission: context.harness.productAdmission.context
             )
         )
+        await endOfSourceGate.waitForStartedLoadCount(1)
+        let terminalPull = Task {
+            await context.harness.session.pullProducerFrame(
+                for: context.lease,
+                productAdmission: context.harness.productAdmission.context
+            )
+        }
+        let waitingSnapshot = await waitForActivityContentState(context) { snapshot in
+            snapshot.pendingFrameWaiterCount == 1
+        }
+        #expect(waitingSnapshot.pendingFrameWaiterCount == 1)
         // Act: the reader invalidates activity from its first close, after EOF and before
         // the producer can validate activity for terminal admission.
+        await endOfSourceGate.releaseAll()
+        let terminalPullResult = await terminalPull.value
         let hiddenSnapshot = await waitForActivityContentState(context) { snapshot in
             snapshot.activeProducerTaskCount == 0
         }
 
         // Assert
+        #expect(terminalPullResult == .cancelled)
         #expect(hiddenSnapshot.activeProducerTaskCount == 0)
         #expect(hiddenSnapshot.queuedFrameCount == 0)
         #expect(await context.fileReaderHarness.readCount == 2)
@@ -360,7 +376,8 @@ private func makeActivityContentContext(
     initialActivity: BridgePaneActivity,
     fileBytes: Data,
     suspendReviewBody: Bool = false,
-    invalidateActivityOnFileReaderClose: Bool = false
+    invalidateActivityOnFileReaderClose: Bool = false,
+    fileEndOfSourceGate: BridgeContentLoadGate? = nil
 ) async throws -> ActivityContentContext {
     let activityCoordinator = BridgePaneRefreshAdmissionCoordinator(
         initialActivity: initialActivity
@@ -369,6 +386,7 @@ private func makeActivityContentContext(
     let fileReaderHarness = ActivityFileReaderHarness(
         activityCoordinator: activityCoordinator,
         invalidateActivityOnClose: invalidateActivityOnFileReaderClose,
+        endOfSourceGate: fileEndOfSourceGate,
         sourceData: fileBytes,
     )
     let reviewContentSource = ActivityReviewContentSource(
@@ -477,6 +495,7 @@ private actor ActivityFileMetadataSource: BridgePaneProductFileMetadataProducing
 
 private actor ActivityFileReaderHarness {
     private let activityCoordinator: BridgePaneRefreshAdmissionCoordinator
+    private let endOfSourceGate: BridgeContentLoadGate?
     private let invalidateActivityOnClose: Bool
     private let sourceData: Data
     private(set) var closeCount = 0
@@ -486,9 +505,11 @@ private actor ActivityFileReaderHarness {
     init(
         activityCoordinator: BridgePaneRefreshAdmissionCoordinator,
         invalidateActivityOnClose: Bool,
+        endOfSourceGate: BridgeContentLoadGate?,
         sourceData: Data
     ) {
         self.activityCoordinator = activityCoordinator
+        self.endOfSourceGate = endOfSourceGate
         self.invalidateActivityOnClose = invalidateActivityOnClose
         self.sourceData = sourceData
     }
@@ -502,6 +523,10 @@ private actor ActivityFileReaderHarness {
 
     func recordRead() {
         readCount += 1
+    }
+
+    func waitAtEOFIfNeeded() async {
+        await endOfSourceGate?.waitUntilReleased()
     }
 
     func recordClose() async {
@@ -524,7 +549,10 @@ private actor ActivityFileReader: BridgePaneProductFileContentReading {
 
     func nextChunk(maximumByteCount: Int) async -> Data? {
         await harness.recordRead()
-        guard offset < sourceData.count else { return nil }
+        guard offset < sourceData.count else {
+            await harness.waitAtEOFIfNeeded()
+            return nil
+        }
         let endOffset = min(offset + maximumByteCount, sourceData.count)
         defer { offset = endOffset }
         return sourceData.subdata(in: offset..<endOffset)
