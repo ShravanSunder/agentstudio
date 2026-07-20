@@ -247,6 +247,7 @@ fi
 AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$observability_state_file" \
   AGENTSTUDIO_REQUIRE_LAUNCHSERVICES=1 \
   /bin/bash "$PROJECT_ROOT/scripts/verify-debug-observability.sh"
+/usr/bin/open -a "$state_app"
 AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$observability_state_file" \
   /bin/bash "$PROJECT_ROOT/scripts/verify-bridge-product-paint-correlation.sh"
 
@@ -353,6 +354,19 @@ def canonical(value):
 
 
 session = Session(socket_path)
+
+
+def focus_foreground_pane(handle, label):
+    session.request("pane.focus", {"handle": handle})
+    return wait_for(
+        label,
+        lambda: session.request("bridge.diff.renderState", {"handle": handle}),
+        lambda value: value.get("diagnostics", {}).get("evaluateSucceeded") is True
+        and value.get("diagnostics", {}).get("nativeActivity") == "foreground"
+        and value.get("summary", {}).get("documentVisibilityState") == "visible",
+    )
+
+
 try:
     login = session.request("auth.login", {"token": token})
     if login.get("authenticated") is not True or os.path.exists(token_path):
@@ -420,7 +434,7 @@ try:
     review_handle = review_open.get("handle")
     if not isinstance(review_handle, str) or review_handle == file_handle:
         fail("Bridge packaged journey did not create two independent panes")
-    session.request("pane.focus", {"handle": review_handle})
+    focus_foreground_pane(review_handle, "Review pane foreground")
 
     source_hash_by_path = {}
     corpus_paths = []
@@ -545,7 +559,7 @@ try:
         if selected_package.get("selectedItemId") != item_id:
             fail(f"Review {position} native selection diverged from DOM selection")
 
-    session.request("pane.focus", {"handle": file_handle})
+    focus_foreground_pane(file_handle, "File pane foreground")
 
     def reveal_final_file():
         return session.request(
@@ -581,11 +595,12 @@ try:
         and value.get("summary", {}).get("frameLivenessRafAlive") == "true"
         and value.get("summary", {}).get("worktreeRenderedFilePath") == sentinel_paths[-1]
         and value.get("summary", {}).get("worktreeOpenFilePath") == sentinel_paths[-1]
+        and value.get("summary", {}).get("worktreeOpenFileState") == "ready"
         and (value.get("summary", {}).get("worktreeCodeTextLength") or 0) > 0,
     )
 
-    session.request("pane.focus", {"handle": review_handle})
-    session.request("pane.focus", {"handle": file_handle})
+    focus_foreground_pane(review_handle, "Review pane telemetry foreground")
+    focus_foreground_pane(file_handle, "File pane telemetry foreground")
     for handle in (review_handle, file_handle):
         snapshot = session.request("bridge.telemetry.snapshot", {"handle": handle})
         if snapshot.get("kind") != "report":

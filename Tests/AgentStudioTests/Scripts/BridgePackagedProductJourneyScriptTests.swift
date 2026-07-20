@@ -146,6 +146,23 @@ struct BridgePackagedProductJourneyScriptTests {
         }
     }
 
+    @Test("verifier reactivates the candidate and waits for native foreground after pane focus")
+    func verifierWaitsForNativeForegroundBeforePaneContentCommands() throws {
+        let source = try String(
+            contentsOfFile: "scripts/verify-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+
+        #expect(source.contains(#"/usr/bin/open -a "$state_app""#))
+        #expect(source.contains("def focus_foreground_pane(handle, label):"))
+        #expect(source.contains(#"value.get("diagnostics", {}).get("nativeActivity") == "foreground""#))
+        #expect(
+            source.contains(#"focus_foreground_pane(review_handle, "Review pane foreground")"#)
+        )
+        #expect(source.contains(#"focus_foreground_pane(file_handle, "File pane foreground")"#))
+        #expect(source.contains(#"value.get("summary", {}).get("worktreeOpenFileState") == "ready""#))
+    }
+
     @Test("verifier rejects non-exact fixture counts before IPC authentication")
     func verifierRejectsNonExactFixtureCountsBeforeIPCAuthentication() throws {
         let fixture = try LauncherScriptFixture()
