@@ -36,7 +36,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			openReviewContentFromDescriptorMap,
 		);
 
-		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch.port, {
+		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
@@ -162,7 +162,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			contentDigest: headDescriptor.contentDigest,
 		};
 
-		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch.port, {
+		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
@@ -248,7 +248,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		const deferredStreamsByDescriptorId = new Map<string, DeferredReviewContentStream>();
 
-		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch.port, {
+		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
@@ -390,7 +390,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 
-		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch.port, {
+		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
@@ -481,7 +481,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 
-		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch.port, {
+		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
@@ -576,7 +576,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		const deferredStreamsByDescriptorId = new Map<string, DeferredReviewContentStream>();
 		const fetchCallsByItemId = new Map<string, number>();
 
-		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch.port, {
+		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: [
@@ -733,7 +733,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		const deferredStreamsByDescriptorId = new Map<string, DeferredReviewContentStream>();
 
-		await registerBridgeRuntimeWithInitialReviewSource(dispatch.port, {
+		await registerBridgeRuntimeWithInitialReviewSource(dispatch, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
@@ -838,7 +838,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		const itemIds = Array.from({ length: 9 }, (_, index): string => `visible-item-${index + 1}`);
-		await registerBridgeRuntimeWithInitialReviewSource(dispatch.port, {
+		await registerBridgeRuntimeWithInitialReviewSource(dispatch, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: itemIds.map((itemId) => makeWorkerReviewContentMetadata({ itemId })),

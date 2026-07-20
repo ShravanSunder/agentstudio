@@ -248,7 +248,7 @@ async function createHoverRuntimeFixture(props: {
 	const trackedContentOpen = createTrackedBridgeWorkerReviewContentOpen(
 		props.openReviewContent ?? openReviewContentFromDescriptorMap,
 	);
-	await registerBridgeRuntimeWithInitialReviewSource(dispatch.port, {
+	await registerBridgeRuntimeWithInitialReviewSource(dispatch, {
 		bridgeDemandRank: { lane: 'selected', priority: 0 },
 		budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 		contentItems: props.itemIds.map((itemId) => makeWorkerReviewContentMetadata({ itemId })),

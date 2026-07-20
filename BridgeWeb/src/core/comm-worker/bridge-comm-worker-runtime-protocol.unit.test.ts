@@ -12,6 +12,7 @@ import {
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	activateBridgeCommWorkerReviewViewerMode,
 	assertBridgeCommWorkerPreparationDrain,
 	createBridgeWorkerSequenceCounter,
 	createBridgeCommWorkerReviewProductTestSource,
@@ -540,6 +541,7 @@ describe('Bridge comm worker runtime protocol', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'visible-viewport');
 		reviewProductSource.publishSource(
 			{
 				contentItems: [makeWorkerReviewContentMetadata()],
@@ -644,6 +646,9 @@ describe('Bridge comm worker runtime protocol', () => {
 			},
 		});
 		await flushBridgeWorkerRuntimeContinuations();
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'visible-before-source');
+		await flushBridgeWorkerRuntimeContinuations();
+		postedMessages.length = 0;
 
 		dispatch.message(
 			encodeBridgeWorkerViewportCommand({
@@ -760,6 +765,7 @@ describe('Bridge comm worker runtime protocol', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'ready-visible');
 		reviewProductSource.publishSource(
 			{
 				contentItems: [

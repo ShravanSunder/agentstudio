@@ -6,6 +6,7 @@ import {
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	activateBridgeCommWorkerReviewViewerMode,
 	assertBridgeCommWorkerPreparationDrain,
 	createBridgeWorkerSequenceCounter,
 	createBridgeCommWorkerReviewProductTestSource,
@@ -53,6 +54,7 @@ describe('Bridge comm worker runtime Review demand rerun', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'visible-before-update');
 		reviewProductSource.publishSource(
 			{
 				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],

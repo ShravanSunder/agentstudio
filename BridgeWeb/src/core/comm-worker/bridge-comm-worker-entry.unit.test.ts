@@ -15,6 +15,7 @@ import {
 	makeFetchedReviewContentResource,
 } from './bridge-comm-worker-entry.test-support.js';
 import {
+	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerSelectCommand,
 } from './bridge-comm-worker-protocol.js';
@@ -423,10 +424,24 @@ describe('Bridge comm worker entry', () => {
 			// Act
 			harness.productPort.postMessage(makeBootstrapRequest('review-content-bootstrap'));
 			await harness.productPort.waitForCount(1);
+			harness.productPort.postMessage(
+				encodeBridgeWorkerActiveViewerModeUpdateCommand({
+					epoch: 1,
+					requestId: 'review-content-active-viewer-mode',
+					update: {
+						activeSource: null,
+						mode: 'review',
+						nativeSelectionRequestId: null,
+						sequence: 1,
+						sessionId: 'review-content-session',
+					},
+				}),
+			);
+			await harness.productPort.waitForCount(2);
 			await flushBridgeWorkerRuntimeContinuations();
 			reviewProductSource.publishSource(makeReviewContentRuntimeSource(), 6);
 			await flushBridgeWorkerRuntimeContinuations();
-			await harness.productPort.waitForCount(2);
+			await harness.productPort.waitForCount(3);
 			harness.productPort.postMessage(
 				encodeBridgeWorkerSelectCommand({
 					requestId: 'review-content-select',
@@ -436,7 +451,7 @@ describe('Bridge comm worker entry', () => {
 					selectedSource: 'user',
 				}),
 			);
-			await harness.productPort.waitForCount(5);
+			await harness.productPort.waitForCount(6);
 
 			// Assert
 			expect(openedContentKinds).toEqual(['review.content', 'review.content']);

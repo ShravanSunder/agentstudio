@@ -10,6 +10,7 @@ import {
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	activateBridgeCommWorkerReviewViewerMode,
 	assertBridgeCommWorkerPreparationDrain,
 	createBridgeWorkerSequenceCounter,
 	createBridgeCommWorkerReviewProductTestSource,
@@ -46,7 +47,7 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 			text: 'let nextValue = 2;\n',
 		});
 
-		await registerBridgeRuntimeWithInitialReviewSource(dispatch.port, {
+		await registerBridgeRuntimeWithInitialReviewSource(dispatch, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
@@ -152,7 +153,7 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 			window: { kind: 'byteRange', maximumBytes: 4, startByte: 0 },
 		} satisfies BridgeWorkerReviewContentRequestDescriptor;
 
-		await registerBridgeRuntimeWithInitialReviewSource(dispatch.port, {
+		await registerBridgeRuntimeWithInitialReviewSource(dispatch, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
@@ -250,7 +251,7 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 			window: { ...firstHeadDescriptor.window, maximumBytes: 64 },
 		};
 
-		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch.port, {
+		const reviewProductSource = await registerBridgeRuntimeWithInitialReviewSource(dispatch, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
 			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
@@ -340,7 +341,10 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 type InitialReviewSource = BridgeCommWorkerReviewRuntimeSource;
 
 async function registerBridgeRuntimeWithInitialReviewSource(
-	port: Parameters<typeof registerBridgeCommWorkerRuntimePortProtocol>[0],
+	dispatch: {
+		readonly message: (data: unknown) => void;
+		readonly port: Parameters<typeof registerBridgeCommWorkerRuntimePortProtocol>[0];
+	},
 	props: Parameters<typeof registerBridgeCommWorkerRuntimePortProtocol>[1] & InitialReviewSource,
 ): Promise<BridgeCommWorkerReviewProductTestSource> {
 	const {
@@ -357,7 +361,7 @@ async function registerBridgeRuntimeWithInitialReviewSource(
 	const initializationDrains: BridgeCommWorkerPreparationDrain[] = [];
 	let isInitializingSource = true;
 	const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
-	registerBridgeCommWorkerRuntimePortProtocol(port, {
+	registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 		...runtimeProps,
 		productTransport: reviewProductSource.productTransport,
 		schedulePreparationDrain: (drain): void => {
@@ -368,6 +372,7 @@ async function registerBridgeRuntimeWithInitialReviewSource(
 			schedulePreparationDrain(drain);
 		},
 	});
+	activateBridgeCommWorkerReviewViewerMode(dispatch, 'initial-review-sharing-source');
 	reviewProductSource.publishSource(
 		{
 			contentItems,

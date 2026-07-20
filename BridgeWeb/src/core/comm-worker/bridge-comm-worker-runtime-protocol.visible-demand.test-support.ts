@@ -4,6 +4,7 @@ import {
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	activateBridgeCommWorkerReviewViewerMode,
 	assertBridgeCommWorkerPreparationDrain,
 	createBridgeCommWorkerReviewProductTestSource,
 	flushBridgeWorkerRuntimeContinuations,
@@ -144,7 +145,10 @@ export async function drainBridgeWorkerVisibleDemandRuntimeUntilQuiescent(props:
 type InitialReviewSource = BridgeCommWorkerReviewRuntimeSource;
 
 export async function registerBridgeRuntimeWithInitialReviewSource(
-	port: Parameters<typeof registerBridgeCommWorkerRuntimePortProtocol>[0],
+	dispatch: {
+		readonly message: (data: unknown) => void;
+		readonly port: Parameters<typeof registerBridgeCommWorkerRuntimePortProtocol>[0];
+	},
 	props: Parameters<typeof registerBridgeCommWorkerRuntimePortProtocol>[1] & InitialReviewSource,
 ): Promise<BridgeCommWorkerReviewProductTestSource> {
 	const {
@@ -161,7 +165,7 @@ export async function registerBridgeRuntimeWithInitialReviewSource(
 	const initializationDrains: BridgeCommWorkerPreparationDrain[] = [];
 	let isInitializingSource = true;
 	const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
-	registerBridgeCommWorkerRuntimePortProtocol(port, {
+	registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 		...runtimeProps,
 		productTransport: reviewProductSource.productTransport,
 		schedulePreparationDrain: (drain): void => {
@@ -172,6 +176,7 @@ export async function registerBridgeRuntimeWithInitialReviewSource(
 			schedulePreparationDrain(drain);
 		},
 	});
+	activateBridgeCommWorkerReviewViewerMode(dispatch, 'initial-visible-demand-source');
 	reviewProductSource.publishSource(
 		{
 			contentItems,

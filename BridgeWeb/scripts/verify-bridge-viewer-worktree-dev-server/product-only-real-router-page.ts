@@ -26,6 +26,10 @@ import {
 	type BridgeViewerReviewProductStateSnapshot,
 } from './product-only-real-router-contract.ts';
 import {
+	bridgeViewerJourneyFailureCode,
+	BridgeViewerProductOnlyJourneyFailure,
+} from './product-only-real-router-failure.ts';
+import {
 	proveFreshReviewRoute,
 	proveReviewTreeSelection,
 	readFreshReviewFailureSnapshot,
@@ -37,6 +41,7 @@ export {
 	mountedHeaderOrderViolationForExpectedOrder,
 	nextFreshReviewTraversalScrollTop,
 } from './product-only-real-router-review-proof.ts';
+export { bridgeViewerProductOnlyJourneyFailureFromError } from './product-only-real-router-failure.ts';
 
 const productJourneyTimeoutMilliseconds = 120_000;
 const productCompositionSettleTimeoutMilliseconds = 10_000;
@@ -73,25 +78,6 @@ interface MutableLegacyRouteTranscriptEntry {
 	ordinal: number;
 	path: string;
 	sequence: number | null;
-}
-
-export class BridgeViewerProductOnlyJourneyFailure extends Error {
-	readonly checkpoint: BridgeViewerProductOnlyJourneyFailureCheckpoint;
-
-	constructor(props: {
-		readonly cause: unknown;
-		readonly checkpoint: BridgeViewerProductOnlyJourneyFailureCheckpoint;
-	}) {
-		super(props.cause instanceof Error ? props.cause.message : String(props.cause));
-		this.name = 'BridgeViewerProductOnlyJourneyFailure';
-		this.checkpoint = props.checkpoint;
-	}
-}
-
-export function bridgeViewerProductOnlyJourneyFailureFromError(
-	error: unknown,
-): BridgeViewerProductOnlyJourneyFailureCheckpoint | null {
-	return error instanceof BridgeViewerProductOnlyJourneyFailure ? error.checkpoint : null;
 }
 
 export async function runBridgeViewerProductOnlyJourney(props: {
@@ -365,11 +351,6 @@ async function captureBridgeViewerProductOnlyJourneyFailure(props: {
 		review,
 		transport: props.routeObserver.failureTransportSnapshot(),
 	};
-}
-
-function bridgeViewerJourneyFailureCode(error: unknown): string {
-	const message = error instanceof Error ? error.message : String(error);
-	return /^[A-Z][A-Z0-9_]+/u.exec(message)?.[0] ?? 'UNCLASSIFIED_JOURNEY_FAILURE';
 }
 
 async function installMainWindowProductRouteObserver(page: Page): Promise<void> {
