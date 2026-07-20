@@ -1,3 +1,8 @@
+import {
+	recordBridgePaneCommWorkerSessionDiagnosticSnapshot,
+	recordBridgePaneRuntimeDiagnosticSnapshot,
+	type BridgePaneRuntimeDiagnosticSnapshot,
+} from '../../foundation/diagnostics/bridge-review-selection-diagnostic.js';
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
 import { encodeBridgeWorkerRenderDispositionCommand } from './bridge-comm-worker-protocol.js';
 import type { BridgeMainFileDisplayPatchApplierProps } from './bridge-main-file-display-patch-applier.js';
@@ -83,6 +88,7 @@ export interface BridgePaneRuntime {
 
 export interface CreateBridgePaneRuntimeProps {
 	readonly lifecycleStoreFactory?: () => BridgeWorkerRpcLifecycleStore;
+	readonly recordDiagnosticSnapshot?: (snapshot: BridgePaneRuntimeDiagnosticSnapshot) => void;
 	readonly renderStoreFactory?: (
 		fileDisplayApplierProps?: BridgeMainFileDisplayPatchApplierProps,
 	) => BridgeMainRenderSnapshotStore;
@@ -97,15 +103,34 @@ export function createBridgePaneRuntime(
 	const renderStoreFactory = props.renderStoreFactory ?? createBridgeMainRenderSnapshotStore;
 	const session =
 		props.sessionFactory?.() ?? createDefaultBridgePaneSessionPort(props.sessionProps);
+	const recordDiagnosticSnapshot =
+		props.recordDiagnosticSnapshot ?? recordBridgePaneRuntimeDiagnosticSnapshot;
 	const rpcClients = new Map<BridgePaneSurface | 'pane', BridgeWorkerRpcClient>();
 	const surfaceClients = new Map<BridgePaneSurface, BridgePaneSurfaceClient>();
 	const renderFulfillmentCoordinators = new Set<BridgeMainRenderFulfillmentCoordinator>();
 	const renderStores = new Set<BridgeMainRenderSnapshotStore>();
 	let isDisposed = false;
 	let nativeBootstrapInstalled = false;
+	let nativeBootstrapReplacementRequested = false;
+	let nativeBootstrapInstallAcceptedCount = 0;
+	let nativeBootstrapInstallAttemptCount = 0;
+	let nativeBootstrapInstallRejectedCount = 0;
 	let nextRequestSequence = 0;
 	let fileRpcClient: BridgeWorkerRpcClient | null = null;
 	let latestFileDisplayEpoch = 0;
+
+	const publishDiagnosticSnapshot = (): void => {
+		try {
+			recordDiagnosticSnapshot({
+				nativeBootstrapInstallAcceptedCount,
+				nativeBootstrapInstallAttemptCount,
+				nativeBootstrapInstallRejectedCount,
+			});
+		} catch {
+			// Diagnostics are observational and cannot own the pane runtime lifecycle.
+		}
+	};
+	publishDiagnosticSnapshot();
 
 	const dispatcher = session.createDispatcher({
 		publishWorkerMessages: (messages): void => {
@@ -205,12 +230,22 @@ export function createBridgePaneRuntime(
 			session.dispose();
 		},
 		installNativeBootstrap: (bootstrap): void => {
-			if (isDisposed) throw new Error('Bridge pane runtime is disposed.');
-			if (nativeBootstrapInstalled) {
-				throw new Error('Bridge pane runtime native capability claim was already installed.');
+			nativeBootstrapInstallAttemptCount += 1;
+			try {
+				if (isDisposed) throw new Error('Bridge pane runtime is disposed.');
+				if (nativeBootstrapInstalled && !nativeBootstrapReplacementRequested) {
+					throw new Error('Bridge pane runtime native capability claim was already installed.');
+				}
+				session.installNativeBootstrap(bootstrap);
+				nativeBootstrapInstalled = true;
+				nativeBootstrapReplacementRequested = false;
+				nativeBootstrapInstallAcceptedCount += 1;
+			} catch (error: unknown) {
+				nativeBootstrapInstallRejectedCount += 1;
+				publishDiagnosticSnapshot();
+				throw error;
 			}
-			session.installNativeBootstrap(bootstrap);
-			nativeBootstrapInstalled = true;
+			publishDiagnosticSnapshot();
 		},
 		installTelemetryProducer: (install): void => {
 			if (isDisposed) {
@@ -228,7 +263,11 @@ export function createBridgePaneRuntime(
 			if (session.setNativeBootstrapRequester === undefined) {
 				throw new Error('Bridge pane runtime session cannot install a native bootstrap requester.');
 			}
-			session.setNativeBootstrapRequester(requester);
+			session.setNativeBootstrapRequester((reason): void => {
+				if (isDisposed) return;
+				nativeBootstrapReplacementRequested = true;
+				requester(reason);
+			});
 		},
 		surfaceClient: (surface): BridgePaneSurfaceClient => {
 			const client = surfaceClients.get(surface);
@@ -241,7 +280,11 @@ export function createBridgePaneRuntime(
 function createDefaultBridgePaneSessionPort(
 	props: BridgePaneCommWorkerSessionProps = {},
 ): BridgePaneSessionPort {
-	const session = new BridgePaneCommWorkerSession(props);
+	const session = new BridgePaneCommWorkerSession({
+		...props,
+		recordDiagnosticSnapshot:
+			props.recordDiagnosticSnapshot ?? recordBridgePaneCommWorkerSessionDiagnosticSnapshot,
+	});
 	const bootstrapRequest = createPaneOwnedBridgeCommWorkerBootstrapRequest();
 	return {
 		createDispatcher: (dispatcherProps): BridgePaneCommWorkerDispatcher =>

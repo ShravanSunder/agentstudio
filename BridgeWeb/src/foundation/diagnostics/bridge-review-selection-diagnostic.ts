@@ -1,11 +1,74 @@
 export interface BridgeReviewSelectionDiagnostic {
+	fileModeSendAttemptCount?: number;
+	fileModeSendSynchronousFailureCount?: number;
 	initialSelectionRequestedCount: number;
 	initialSelectionSchedulingAcceptedCount: number;
+	latestFileModeDispatchDisposition?: BridgeDiagnosticDispatchDisposition | null;
+	latestFileSelectDispatchDisposition?: BridgeDiagnosticDispatchDisposition | null;
+	latestFileSelectLifecycleState?: BridgeSelectLifecycleState;
+	latestReviewSelectDispatchDisposition?: BridgeDiagnosticDispatchDisposition | null;
+	latestReviewSelectLifecycleState?: BridgeSelectLifecycleState;
+	nativeBootstrapInstallAcceptedCount?: number;
+	nativeBootstrapInstallAttemptCount?: number;
+	nativeBootstrapInstallCount?: number;
+	nativeBootstrapInstallRejectedCount?: number;
+	queuedCommandCount?: number;
+	replacementRequestCount?: number;
+	pageReadyState?: BridgePageReadyState;
 	selectionScheduledCount: number;
 	selectionFirstFrameReachedCount: number;
 	selectionSecondFrameReachedCount: number;
 	selectionSubmittedCount: number;
 	selectionDroppedCount: number;
+	sessionState?: BridgePaneCommWorkerSessionDiagnosticState;
+}
+
+export type BridgeDiagnosticDispatchDisposition =
+	| 'dropped_detached'
+	| 'queued_not_ready'
+	| 'posted';
+
+export type BridgeSelectLifecycleState =
+	| 'not_sent'
+	| 'pending'
+	| 'acked'
+	| 'failed'
+	| 'timed_out'
+	| 'superseded';
+
+export type BridgePageReadyState = 'awaiting' | 'ready' | 'failed';
+
+export type BridgePaneCommWorkerSessionDiagnosticState =
+	| 'awaiting_bootstrap'
+	| 'bootstrapping'
+	| 'ready'
+	| 'replacement_requested'
+	| 'disposed';
+
+export interface BridgePaneCommWorkerSessionDiagnosticSnapshot {
+	readonly latestFileModeDispatchDisposition: BridgeDiagnosticDispatchDisposition | null;
+	readonly latestFileSelectDispatchDisposition: BridgeDiagnosticDispatchDisposition | null;
+	readonly latestReviewSelectDispatchDisposition: BridgeDiagnosticDispatchDisposition | null;
+	readonly nativeBootstrapInstallCount: number;
+	readonly queuedCommandCount: number;
+	readonly replacementRequestCount: number;
+	readonly state: BridgePaneCommWorkerSessionDiagnosticState;
+}
+
+export interface BridgePaneRuntimeDiagnosticSnapshot {
+	readonly nativeBootstrapInstallAcceptedCount: number;
+	readonly nativeBootstrapInstallAttemptCount: number;
+	readonly nativeBootstrapInstallRejectedCount: number;
+}
+
+interface BridgeSelectionLifecycleRequestSnapshot {
+	readonly command: string;
+	readonly state: string;
+	readonly surface: string;
+}
+
+export interface BridgeSelectionLifecycleSnapshot {
+	readonly requestsById: Readonly<Record<string, BridgeSelectionLifecycleRequestSnapshot>>;
 }
 
 export type BridgeReviewSelectionDiagnosticStage =
@@ -46,6 +109,71 @@ export function recordBridgeReviewSelectionDiagnosticStage(
 	diagnostic[countKeyByStage[stage]] += 1;
 }
 
+export function recordBridgeFileModeSendAttempt(): void {
+	const diagnostic = ensureBridgeReviewSelectionDiagnostic();
+	if (diagnostic === null) return;
+	diagnostic.fileModeSendAttemptCount = (diagnostic.fileModeSendAttemptCount ?? 0) + 1;
+	diagnostic.fileModeSendSynchronousFailureCount ??= 0;
+}
+
+export function recordBridgeFileModeSendSynchronousFailure(): void {
+	const diagnostic = ensureBridgeReviewSelectionDiagnostic();
+	if (diagnostic === null) return;
+	diagnostic.fileModeSendSynchronousFailureCount =
+		(diagnostic.fileModeSendSynchronousFailureCount ?? 0) + 1;
+}
+
+export function recordBridgePageReadyState(state: BridgePageReadyState): void {
+	const diagnostic = ensureBridgeReviewSelectionDiagnostic();
+	if (diagnostic === null) return;
+	diagnostic.fileModeSendAttemptCount ??= 0;
+	diagnostic.fileModeSendSynchronousFailureCount ??= 0;
+	diagnostic.pageReadyState = state;
+}
+
+export function recordBridgeSelectionLifecycleSnapshot(props: {
+	readonly requestId: string | null;
+	readonly snapshot: BridgeSelectionLifecycleSnapshot;
+	readonly surface: 'fileView' | 'review';
+}): void {
+	const diagnostic = ensureBridgeReviewSelectionDiagnostic();
+	if (diagnostic === null) return;
+	const request =
+		props.requestId === null ? undefined : props.snapshot.requestsById[props.requestId];
+	const state = bridgeSelectLifecycleState(
+		request?.command === 'select' && request.surface === props.surface ? request.state : undefined,
+	);
+	if (props.surface === 'fileView') {
+		diagnostic.latestFileSelectLifecycleState = state;
+		return;
+	}
+	diagnostic.latestReviewSelectLifecycleState = state;
+}
+
+export function recordBridgePaneCommWorkerSessionDiagnosticSnapshot(
+	snapshot: BridgePaneCommWorkerSessionDiagnosticSnapshot,
+): void {
+	const diagnostic = ensureBridgeReviewSelectionDiagnostic();
+	if (diagnostic === null) return;
+	diagnostic.latestFileModeDispatchDisposition = snapshot.latestFileModeDispatchDisposition;
+	diagnostic.latestFileSelectDispatchDisposition = snapshot.latestFileSelectDispatchDisposition;
+	diagnostic.latestReviewSelectDispatchDisposition = snapshot.latestReviewSelectDispatchDisposition;
+	diagnostic.nativeBootstrapInstallCount = snapshot.nativeBootstrapInstallCount;
+	diagnostic.queuedCommandCount = snapshot.queuedCommandCount;
+	diagnostic.replacementRequestCount = snapshot.replacementRequestCount;
+	diagnostic.sessionState = snapshot.state;
+}
+
+export function recordBridgePaneRuntimeDiagnosticSnapshot(
+	snapshot: BridgePaneRuntimeDiagnosticSnapshot,
+): void {
+	const diagnostic = ensureBridgeReviewSelectionDiagnostic();
+	if (diagnostic === null) return;
+	diagnostic.nativeBootstrapInstallAcceptedCount = snapshot.nativeBootstrapInstallAcceptedCount;
+	diagnostic.nativeBootstrapInstallAttemptCount = snapshot.nativeBootstrapInstallAttemptCount;
+	diagnostic.nativeBootstrapInstallRejectedCount = snapshot.nativeBootstrapInstallRejectedCount;
+}
+
 export function readBridgeReviewSelectionDiagnostic(): BridgeReviewSelectionDiagnostic | null {
 	const diagnosticWindow = bridgeReviewSelectionDiagnosticWindow();
 	if (diagnosticWindow === null) {
@@ -81,6 +209,20 @@ function ensureBridgeReviewSelectionDiagnostic(): BridgeReviewSelectionDiagnosti
 	};
 	// oxlint-disable-next-line no-underscore-dangle -- Intentional Bridge diagnostic surface name.
 	return diagnosticWindow.__bridgeReviewSelectionDiagnostic;
+}
+
+function bridgeSelectLifecycleState(state: string | undefined): BridgeSelectLifecycleState {
+	switch (state) {
+		case 'pending':
+		case 'acked':
+		case 'failed':
+		case 'timed_out':
+		case 'superseded':
+			return state;
+		case undefined:
+		default:
+			return 'not_sent';
+	}
 }
 
 function bridgeReviewSelectionDiagnosticWindow(): Window | null {

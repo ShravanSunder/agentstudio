@@ -1,3 +1,8 @@
+import type {
+	BridgePaneCommWorkerSessionDiagnosticSnapshot,
+	BridgePaneCommWorkerSessionDiagnosticState,
+	BridgeDiagnosticDispatchDisposition,
+} from '../../foundation/diagnostics/bridge-review-selection-diagnostic.js';
 import type { BridgeTelemetryScope } from '../../foundation/telemetry/bridge-telemetry-scope.js';
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
 import { postBridgeCommTelemetryProducerInstall } from '../telemetry-worker/bridge-comm-telemetry-producer-install.js';
@@ -36,6 +41,9 @@ export interface BridgePaneCommWorkerSessionProps {
 	readonly bootstrapTimeoutMilliseconds?: number;
 	readonly createObjectURL?: (blob: Blob) => string;
 	readonly now?: () => number;
+	readonly recordDiagnosticSnapshot?: (
+		snapshot: BridgePaneCommWorkerSessionDiagnosticSnapshot,
+	) => void;
 	readonly requestNativeBootstrap?: (reason: 'workerReplacement') => void;
 	readonly revokeObjectURL?: (url: string) => void;
 	readonly workerFactory?: () => Promise<Worker> | Worker;
@@ -54,6 +62,9 @@ export class BridgePaneCommWorkerSession {
 	readonly #bootstrapTimeoutMilliseconds: number;
 	readonly #now: () => number;
 	readonly #queuedCommands: BridgeWorkerMainToServerMessage[] = [];
+	readonly #recordDiagnosticSnapshot: (
+		snapshot: BridgePaneCommWorkerSessionDiagnosticSnapshot,
+	) => void;
 	#requestNativeBootstrap: (reason: 'workerReplacement') => void;
 	readonly #workerFactory: () => Promise<Worker> | Worker;
 	#bootstrapClient: BridgePaneCommWorkerClient | null = null;
@@ -61,8 +72,14 @@ export class BridgePaneCommWorkerSession {
 	#isDisposed = false;
 	#isRestartRequested = false;
 	#isRuntimeReady = false;
+	#latestFileModeDispatchDisposition: BridgeDiagnosticDispatchDisposition | null = null;
+	#latestFileSelectDispatchDisposition: BridgeDiagnosticDispatchDisposition | null = null;
+	#latestReviewSelectDispatchDisposition: BridgeDiagnosticDispatchDisposition | null = null;
 	#mainPort: MessagePort | null = null;
 	#nativeBootstrap: BridgePaneCommWorkerNativeBootstrap | null = null;
+	#nativeBootstrapInstallCount = 0;
+	#replacementRequestCount = 0;
+	#state: BridgePaneCommWorkerSessionDiagnosticState = 'awaiting_bootstrap';
 	#telemetryProducerInstall: BridgePaneCommWorkerTelemetryProducerInstall | null = null;
 	#worker: Worker | null = null;
 	#workerPromise: Promise<Worker> | null = null;
@@ -70,6 +87,7 @@ export class BridgePaneCommWorkerSession {
 	constructor(props: BridgePaneCommWorkerSessionProps = {}) {
 		this.#bootstrapTimeoutMilliseconds = props.bootstrapTimeoutMilliseconds ?? 5000;
 		this.#now = props.now ?? readBridgeCommWorkerAbsoluteNowMilliseconds;
+		this.#recordDiagnosticSnapshot = props.recordDiagnosticSnapshot ?? ((): void => {});
 		this.#requestNativeBootstrap = props.requestNativeBootstrap ?? ((): void => {});
 		this.#workerFactory =
 			props.workerFactory ??
@@ -78,6 +96,7 @@ export class BridgePaneCommWorkerSession {
 				...(props.createObjectURL === undefined ? {} : { createObjectURL: props.createObjectURL }),
 				...(props.revokeObjectURL === undefined ? {} : { revokeObjectURL: props.revokeObjectURL }),
 			});
+		this.#publishDiagnosticSnapshot();
 	}
 
 	installNativeBootstrap(nativeBootstrap: BridgePaneCommWorkerNativeBootstrap): void {
@@ -88,7 +107,10 @@ export class BridgePaneCommWorkerSession {
 			this.#retireCurrentWorker();
 		}
 		this.#nativeBootstrap = nativeBootstrap;
+		this.#nativeBootstrapInstallCount += 1;
 		this.#isRestartRequested = false;
+		this.#state = 'bootstrapping';
+		this.#publishDiagnosticSnapshot();
 		void this.#ensureWorker().catch((): void => {});
 	}
 
@@ -121,10 +143,12 @@ export class BridgePaneCommWorkerSession {
 		return {
 			dispatch: (message): void => {
 				if (this.#isDisposed || !this.#clients.has(client)) {
+					this.#recordDiagnosticDispatch(message, 'dropped_detached');
 					return;
 				}
 				if (!this.#isRuntimeReady || this.#mainPort === null) {
 					this.#queuedCommands.push(message);
+					this.#recordDiagnosticDispatch(message, 'queued_not_ready');
 					void this.#ensureWorker().catch((): void => {});
 					return;
 				}
@@ -141,6 +165,8 @@ export class BridgePaneCommWorkerSession {
 		this.#clearBootstrapTimeout();
 		this.#clients.clear();
 		this.#queuedCommands.splice(0, this.#queuedCommands.length);
+		this.#state = 'disposed';
+		this.#publishDiagnosticSnapshot();
 		this.#telemetryProducerInstall?.producerPort.close();
 		this.#telemetryProducerInstall = null;
 		this.#retireCurrentWorker();
@@ -196,8 +222,10 @@ export class BridgePaneCommWorkerSession {
 						parsedMessage.data.status === 'ready'
 					) {
 						this.#isRuntimeReady = true;
+						this.#state = 'ready';
 						this.#clearBootstrapTimeout();
 						this.#flushQueuedCommands();
+						this.#publishDiagnosticSnapshot();
 					}
 					this.#publishWorkerMessages([parsedMessage.data]);
 				});
@@ -243,6 +271,7 @@ export class BridgePaneCommWorkerSession {
 				issuedAtMilliseconds: this.#now(),
 			}),
 		);
+		this.#recordDiagnosticDispatch(message, 'posted');
 	}
 
 	#postTelemetryProducerInstall(worker: Worker): void {
@@ -293,6 +322,9 @@ export class BridgePaneCommWorkerSession {
 			return;
 		}
 		this.#isRestartRequested = true;
+		this.#replacementRequestCount += 1;
+		this.#state = 'replacement_requested';
+		this.#publishDiagnosticSnapshot();
 		this.#requestNativeBootstrap('workerReplacement');
 	}
 
@@ -304,6 +336,38 @@ export class BridgePaneCommWorkerSession {
 		this.#worker?.terminate();
 		this.#worker = null;
 		this.#workerPromise = null;
+	}
+
+	#recordDiagnosticDispatch(
+		message: BridgeWorkerMainToServerMessage,
+		disposition: BridgeDiagnosticDispatchDisposition,
+	): void {
+		if (message.command === 'activeViewerModeUpdate' && message.update.mode === 'file') {
+			this.#latestFileModeDispatchDisposition = disposition;
+		} else if (message.command === 'select' && message.surface === 'fileView') {
+			this.#latestFileSelectDispatchDisposition = disposition;
+		} else if (message.command === 'select' && message.surface === 'review') {
+			this.#latestReviewSelectDispatchDisposition = disposition;
+		} else {
+			return;
+		}
+		this.#publishDiagnosticSnapshot();
+	}
+
+	#publishDiagnosticSnapshot(): void {
+		try {
+			this.#recordDiagnosticSnapshot({
+				latestFileModeDispatchDisposition: this.#latestFileModeDispatchDisposition,
+				latestFileSelectDispatchDisposition: this.#latestFileSelectDispatchDisposition,
+				latestReviewSelectDispatchDisposition: this.#latestReviewSelectDispatchDisposition,
+				nativeBootstrapInstallCount: this.#nativeBootstrapInstallCount,
+				queuedCommandCount: this.#queuedCommands.length,
+				replacementRequestCount: this.#replacementRequestCount,
+				state: this.#state,
+			});
+		} catch {
+			// Diagnostics are observational and cannot own the pane session lifecycle.
+		}
 	}
 }
 

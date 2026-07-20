@@ -2,7 +2,11 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
 	readBridgeReviewSelectionDiagnostic,
+	recordBridgeFileModeSendAttempt,
+	recordBridgeFileModeSendSynchronousFailure,
+	recordBridgePageReadyState,
 	recordBridgeReviewSelectionDiagnosticStage,
+	recordBridgeSelectionLifecycleSnapshot,
 	resetBridgeReviewSelectionDiagnosticForTesting,
 } from './bridge-review-selection-diagnostic.js';
 
@@ -48,6 +52,77 @@ describe('Bridge Review selection diagnostic', () => {
 
 		// Assert
 		expect(readBridgeReviewSelectionDiagnostic()).toBeNull();
+	});
+
+	test('retains scrub-safe page readiness, File mode send, and selection lifecycle state', () => {
+		// Arrange
+		ensureTestWindow();
+		resetBridgeReviewSelectionDiagnosticForTesting();
+		const lifecycleStates = ['pending', 'acked', 'failed', 'timed_out', 'superseded'] as const;
+
+		// Act / Assert
+		recordBridgePageReadyState('awaiting');
+		recordBridgePageReadyState('ready');
+		recordBridgeFileModeSendAttempt();
+		recordBridgeFileModeSendAttempt();
+		recordBridgeFileModeSendSynchronousFailure();
+		recordBridgeSelectionLifecycleSnapshot({
+			requestId: null,
+			snapshot: { requestsById: {} },
+			surface: 'review',
+		});
+		recordBridgeSelectionLifecycleSnapshot({
+			requestId: null,
+			snapshot: { requestsById: {} },
+			surface: 'fileView',
+		});
+		expect(readBridgeReviewSelectionDiagnostic()).toMatchObject({
+			fileModeSendAttemptCount: 2,
+			fileModeSendSynchronousFailureCount: 1,
+			latestFileSelectLifecycleState: 'not_sent',
+			latestReviewSelectLifecycleState: 'not_sent',
+			pageReadyState: 'ready',
+		});
+		for (const lifecycleState of lifecycleStates) {
+			const privateRequestId = `private-review-select-${lifecycleState}`;
+			recordBridgeSelectionLifecycleSnapshot({
+				requestId: privateRequestId,
+				snapshot: {
+					requestsById: {
+						[privateRequestId]: {
+							command: 'select',
+							state: lifecycleState,
+							surface: 'review',
+						},
+					},
+				},
+				surface: 'review',
+			});
+			const diagnostic = readBridgeReviewSelectionDiagnostic();
+			expect(diagnostic).toMatchObject({ latestReviewSelectLifecycleState: lifecycleState });
+			expect(JSON.stringify(diagnostic)).not.toContain(privateRequestId);
+		}
+		for (const lifecycleState of lifecycleStates) {
+			const privateRequestId = `private-file-select-${lifecycleState}`;
+			recordBridgeSelectionLifecycleSnapshot({
+				requestId: privateRequestId,
+				snapshot: {
+					requestsById: {
+						[privateRequestId]: {
+							command: 'select',
+							state: lifecycleState,
+							surface: 'fileView',
+						},
+					},
+				},
+				surface: 'fileView',
+			});
+			const diagnostic = readBridgeReviewSelectionDiagnostic();
+			expect(diagnostic).toMatchObject({ latestFileSelectLifecycleState: lifecycleState });
+			expect(JSON.stringify(diagnostic)).not.toContain(privateRequestId);
+		}
+		recordBridgePageReadyState('failed');
+		expect(readBridgeReviewSelectionDiagnostic()).toMatchObject({ pageReadyState: 'failed' });
 	});
 });
 

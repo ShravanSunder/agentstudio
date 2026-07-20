@@ -2,7 +2,10 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
-import { encodeBridgeWorkerSelectCommand } from './bridge-comm-worker-protocol.js';
+import {
+	encodeBridgeWorkerActiveViewerModeUpdateCommand,
+	encodeBridgeWorkerSelectCommand,
+} from './bridge-comm-worker-protocol.js';
 import {
 	BridgePaneCommWorkerSession,
 	disposeBridgePaneCommWorkerSession,
@@ -33,6 +36,33 @@ interface RecordedGlobalWorkerPost {
 	readonly transferredCapability: boolean;
 	readonly transferredPort: boolean;
 	readonly transferListLength: number;
+}
+
+interface ExpectedBridgePaneCommWorkerSessionDiagnosticSnapshot {
+	readonly latestFileModeDispatchDisposition:
+		| 'dropped_detached'
+		| 'queued_not_ready'
+		| 'posted'
+		| null;
+	readonly latestFileSelectDispatchDisposition:
+		| 'dropped_detached'
+		| 'queued_not_ready'
+		| 'posted'
+		| null;
+	readonly latestReviewSelectDispatchDisposition:
+		| 'dropped_detached'
+		| 'queued_not_ready'
+		| 'posted'
+		| null;
+	readonly nativeBootstrapInstallCount: number;
+	readonly queuedCommandCount: number;
+	readonly replacementRequestCount: number;
+	readonly state:
+		| 'awaiting_bootstrap'
+		| 'bootstrapping'
+		| 'ready'
+		| 'replacement_requested'
+		| 'disposed';
 }
 
 describe('Bridge pane comm worker session', () => {
@@ -223,6 +253,228 @@ describe('Bridge pane comm worker session', () => {
 			expect(await client.waitForCount(1)).toEqual([fileDisplayEvent]);
 			recorder.close();
 		} finally {
+			dispatcher.dispose();
+			session.dispose();
+		}
+	});
+
+	test('reports scrub-safe File mode and selection dispatch across worker replacement', async () => {
+		// Arrange
+		const workers = [new RecordingPaneCommWorker(), new RecordingPaneCommWorker()];
+		const workerFactory = vi.fn((): Worker => {
+			const worker = workers[workerFactory.mock.calls.length - 1];
+			if (worker === undefined) throw new Error('unexpected worker factory call');
+			return worker;
+		});
+		const diagnosticSnapshots: ExpectedBridgePaneCommWorkerSessionDiagnosticSnapshot[] = [];
+		const session = new BridgePaneCommWorkerSession({
+			recordDiagnosticSnapshot: (
+				snapshot: ExpectedBridgePaneCommWorkerSessionDiagnosticSnapshot,
+			): void => {
+				diagnosticSnapshots.push(snapshot);
+			},
+			workerFactory,
+		});
+		const runtimeBootstrap = makeRuntimeBootstrapRequest('diagnostic-runtime-bootstrap');
+		const client = new RecordingPaneCommWorkerClient();
+		const dispatcher = session.createDispatcher({
+			bootstrapRequest: runtimeBootstrap,
+			publishWorkerMessages: client.publish,
+		});
+		let firstPortRecorder: MessagePortRecorder | null = null;
+		let secondPortRecorder: MessagePortRecorder | null = null;
+
+		try {
+			expect(diagnosticSnapshots).toContainEqual(
+				expect.objectContaining({
+					nativeBootstrapInstallCount: 0,
+					queuedCommandCount: 0,
+					replacementRequestCount: 0,
+					state: 'awaiting_bootstrap',
+				}),
+			);
+
+			// Act: establish the first ready worker, then force replacement.
+			session.installNativeBootstrap(makeNativeBootstrap('diagnostic-worker-1'));
+			await flushMicrotasks();
+			expect(diagnosticSnapshots).toContainEqual(
+				expect.objectContaining({
+					nativeBootstrapInstallCount: 1,
+					queuedCommandCount: 0,
+					replacementRequestCount: 0,
+					state: 'bootstrapping',
+				}),
+			);
+			const firstInstall = bridgePaneCommWorkerInstallSchema.parse(
+				workers[0]?.globalPosts[0]?.message,
+			);
+			firstPortRecorder = new MessagePortRecorder(firstInstall.productPort);
+			await firstPortRecorder.waitForCount(1);
+			firstInstall.productPort.postMessage(makeReadyHealth(runtimeBootstrap.requestId));
+			await client.waitForCount(1);
+			client.clear();
+			dispatcher.dispatch(makeActiveViewerModeUpdateCommand('private-file-mode-posted', 1));
+			dispatcher.dispatch(
+				makeSelectCommand('private-file-select-posted', 2, 'private-item', 'fileView'),
+			);
+			expect(diagnosticSnapshots).toContainEqual(
+				expect.objectContaining({
+					latestFileModeDispatchDisposition: 'posted',
+					latestFileSelectDispatchDisposition: 'posted',
+					nativeBootstrapInstallCount: 1,
+					queuedCommandCount: 0,
+					replacementRequestCount: 0,
+					state: 'ready',
+				}),
+			);
+			workers[0]?.dispatchEvent(new Event('error'));
+			dispatcher.dispatch(makeActiveViewerModeUpdateCommand('private-file-mode-queued', 3));
+			dispatcher.dispatch(
+				makeSelectCommand('private-file-select-queued', 4, 'private-item', 'fileView'),
+			);
+			dispatcher.dispatch(
+				makeSelectCommand('private-queued-review-select', 5, 'private-item', 'review'),
+			);
+
+			// Assert: the select is queued against replacement state without retaining identity.
+			expect(diagnosticSnapshots).toContainEqual(
+				expect.objectContaining({
+					latestFileModeDispatchDisposition: 'queued_not_ready',
+					latestFileSelectDispatchDisposition: 'queued_not_ready',
+					latestReviewSelectDispatchDisposition: 'queued_not_ready',
+					nativeBootstrapInstallCount: 1,
+					queuedCommandCount: 3,
+					replacementRequestCount: 1,
+					state: 'replacement_requested',
+				}),
+			);
+
+			// Act: install fresh authority and make the replacement worker ready.
+			session.installNativeBootstrap(makeNativeBootstrap('diagnostic-worker-2'));
+			await flushMicrotasks();
+			const secondInstall = bridgePaneCommWorkerInstallSchema.parse(
+				workers[1]?.globalPosts[0]?.message,
+			);
+			secondPortRecorder = new MessagePortRecorder(secondInstall.productPort);
+			await secondPortRecorder.waitForCount(1);
+			secondInstall.productPort.postMessage(makeReadyHealth(runtimeBootstrap.requestId));
+			await client.waitForCount(1);
+			await secondPortRecorder.waitForCount(4);
+
+			// Assert: queued dispatch advances to posted only after replacement readiness.
+			expect(diagnosticSnapshots).toContainEqual(
+				expect.objectContaining({
+					latestFileModeDispatchDisposition: 'posted',
+					latestFileSelectDispatchDisposition: 'posted',
+					latestReviewSelectDispatchDisposition: 'posted',
+					nativeBootstrapInstallCount: 2,
+					queuedCommandCount: 0,
+					replacementRequestCount: 1,
+					state: 'ready',
+				}),
+			);
+
+			// Act / Assert: a detached client reports a drop, and disposal remains observable.
+			dispatcher.dispose();
+			dispatcher.dispatch(makeActiveViewerModeUpdateCommand('private-file-mode-detached', 6));
+			dispatcher.dispatch(
+				makeSelectCommand('private-file-select-detached', 7, 'private-item', 'fileView'),
+			);
+			dispatcher.dispatch(
+				makeSelectCommand('private-detached-review-select', 8, 'private-item', 'review'),
+			);
+			expect(diagnosticSnapshots.at(-1)).toEqual(
+				expect.objectContaining({
+					latestFileModeDispatchDisposition: 'dropped_detached',
+					latestFileSelectDispatchDisposition: 'dropped_detached',
+					latestReviewSelectDispatchDisposition: 'dropped_detached',
+					queuedCommandCount: 0,
+					state: 'ready',
+				}),
+			);
+			expect(JSON.stringify(diagnosticSnapshots)).not.toContain('private-');
+			session.dispose();
+			expect(diagnosticSnapshots.at(-1)).toEqual(expect.objectContaining({ state: 'disposed' }));
+		} finally {
+			firstPortRecorder?.close();
+			secondPortRecorder?.close();
+			dispatcher.dispose();
+			session.dispose();
+		}
+	});
+
+	test('keeps diagnostic recording observational across session bootstrap, dispatch, replacement, and disposal', async () => {
+		// Arrange
+		const workers = [new RecordingPaneCommWorker(), new RecordingPaneCommWorker()];
+		const workerFactory = vi.fn((): Worker => {
+			const worker = workers[workerFactory.mock.calls.length - 1];
+			if (worker === undefined) throw new Error('unexpected worker factory call');
+			return worker;
+		});
+		const replacementReasons: string[] = [];
+		let session: BridgePaneCommWorkerSession | undefined;
+
+		// Act / Assert: diagnostic failure cannot prevent session construction.
+		expect((): void => {
+			session = new BridgePaneCommWorkerSession({
+				recordDiagnosticSnapshot: (): never => {
+					throw new Error('diagnostic recorder failed');
+				},
+				requestNativeBootstrap: (reason): void => {
+					replacementReasons.push(reason);
+				},
+				workerFactory,
+			});
+		}).not.toThrow();
+		if (session === undefined)
+			throw new Error('Bridge pane comm worker session was not constructed.');
+		const runtimeBootstrap = makeRuntimeBootstrapRequest('fail-open-runtime-bootstrap');
+		const client = new RecordingPaneCommWorkerClient();
+		const dispatcher = session.createDispatcher({
+			bootstrapRequest: runtimeBootstrap,
+			publishWorkerMessages: client.publish,
+		});
+		let firstPortRecorder: MessagePortRecorder | null = null;
+
+		try {
+			// Act / Assert: bootstrap and queued dispatch continue through diagnostic failure.
+			expect((): void =>
+				dispatcher.dispatch(
+					makeSelectCommand('fail-open-queued-select', 1, 'private-item', 'review'),
+				),
+			).not.toThrow();
+			expect((): void =>
+				session?.installNativeBootstrap(makeNativeBootstrap('fail-open-worker-1')),
+			).not.toThrow();
+			await flushMicrotasks();
+			const firstInstall = bridgePaneCommWorkerInstallSchema.parse(
+				workers[0]?.globalPosts[0]?.message,
+			);
+			firstPortRecorder = new MessagePortRecorder(firstInstall.productPort);
+			await firstPortRecorder.waitForCount(1);
+			firstInstall.productPort.postMessage(makeReadyHealth(runtimeBootstrap.requestId));
+			await client.waitForCount(1);
+			const readyMessages = await firstPortRecorder.waitForCount(2);
+			expect(bridgeWorkerMainToServerMessageSchema.parse(readyMessages[1]).requestId).toBe(
+				'fail-open-queued-select',
+			);
+
+			// Act / Assert: replacement request and fresh authority survive diagnostic failure.
+			expect((): void => {
+				workers[0]?.dispatchEvent(new Event('error'));
+			}).not.toThrow();
+			expect(replacementReasons).toEqual(['workerReplacement']);
+			expect((): void =>
+				session?.installNativeBootstrap(makeNativeBootstrap('fail-open-worker-2')),
+			).not.toThrow();
+			await flushMicrotasks();
+			expect(workers[1]?.globalPosts).toHaveLength(1);
+
+			// Act / Assert: disposal remains a product lifecycle operation, never a diagnostic one.
+			expect((): void => session?.dispose()).not.toThrow();
+			expect(workers[1]?.terminateCount).toBe(1);
+		} finally {
+			firstPortRecorder?.close();
 			dispatcher.dispose();
 			session.dispose();
 		}
@@ -608,6 +860,23 @@ function makeSelectCommand(
 		surface,
 		selectedItemId,
 		selectedSource: 'user',
+	});
+}
+
+function makeActiveViewerModeUpdateCommand(
+	requestId: string,
+	epoch: number,
+): ReturnType<typeof encodeBridgeWorkerActiveViewerModeUpdateCommand> {
+	return encodeBridgeWorkerActiveViewerModeUpdateCommand({
+		epoch,
+		requestId,
+		update: {
+			activeSource: null,
+			mode: 'file',
+			nativeSelectionRequestId: null,
+			sequence: epoch,
+			sessionId: 'private-file-mode-session',
+		},
 	});
 }
 

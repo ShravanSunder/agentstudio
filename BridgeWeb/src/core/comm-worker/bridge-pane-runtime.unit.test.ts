@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+// oxlint-disable unicorn/require-post-message-target-origin -- MessagePort postMessage does not accept target origins.
 
 import {
 	createBridgeMainRenderSnapshotStore,
@@ -19,6 +20,7 @@ import {
 	BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
 	BRIDGE_PRODUCT_WIRE_VERSION,
 } from './bridge-product-contract-primitives.js';
+import { bridgePaneCommWorkerInstallSchema } from './bridge-product-session-contracts.js';
 import type {
 	BridgeWorkerFileDisplayPatchEvent,
 	BridgeWorkerMainToServerMessage,
@@ -29,6 +31,17 @@ import {
 	createBridgeWorkerRpcLifecycleStore,
 	type BridgeWorkerRpcLifecycleStore,
 } from './bridge-worker-rpc-lifecycle-store.js';
+
+interface ExpectedBridgePaneRuntimeDiagnosticSnapshot {
+	readonly nativeBootstrapInstallAcceptedCount: number;
+	readonly nativeBootstrapInstallAttemptCount: number;
+	readonly nativeBootstrapInstallRejectedCount: number;
+}
+
+interface RecordedPaneRuntimeWorkerPost {
+	readonly message: unknown;
+	readonly transferListLength: number;
+}
 
 describe('Bridge pane runtime', () => {
 	beforeEach((): void => {
@@ -166,6 +179,197 @@ describe('Bridge pane runtime', () => {
 		expect(activeDispatcherCount).toBe(0);
 		expect(() => fileClient.send(makeFileCommand())).toThrow(/disposed/u);
 		expect(runtime.lifecycleStore.getSnapshot().requestsById).toEqual({});
+	});
+
+	test('accepts exactly one replacement bootstrap after the pane session requests it', async () => {
+		// Arrange
+		const { createBridgePaneRuntime } = await loadBridgePaneRuntimeModule();
+		const workers = [new RecordingPaneRuntimeWorker(), new RecordingPaneRuntimeWorker()];
+		const workerFactory = vi.fn((): Worker => {
+			const worker = workers[workerFactory.mock.calls.length - 1];
+			if (worker === undefined) throw new Error('unexpected worker factory call');
+			return worker;
+		});
+		const runtime = createBridgePaneRuntime({ sessionProps: { workerFactory } });
+		const replacementReasons: string[] = [];
+		runtime.setNativeBootstrapRequester((reason): void => {
+			replacementReasons.push(reason);
+		});
+		const reviewClient = runtime.surfaceClient('review');
+		const deliveredMessages: BridgeWorkerServerToMainMessage[] = [];
+		const firstReady = createDeferredVoid();
+		const replacementReady = createDeferredVoid();
+		const unsubscribe = reviewClient.subscribeMessages((message): void => {
+			deliveredMessages.push(message);
+			if (message.kind !== 'health' || message.status !== 'ready') return;
+			if (message.requestId === 'pane-runtime-bootstrap' && replacementReasons.length === 0) {
+				firstReady.resolve();
+			} else if (message.requestId === 'pane-runtime-bootstrap') {
+				replacementReady.resolve();
+			}
+		});
+		const firstBootstrap = makeNativeBootstrap('worker-instance-1');
+		const arbitraryDuplicate = makeNativeBootstrap('worker-instance-arbitrary-duplicate');
+		const replacementBootstrap = makeNativeBootstrap('worker-instance-2');
+		const replacementDuplicate = makeNativeBootstrap('worker-instance-replacement-duplicate');
+		let firstPortRecorder: PaneRuntimeMessagePortRecorder | null = null;
+		let replacementPortRecorder: PaneRuntimeMessagePortRecorder | null = null;
+
+		try {
+			// Act: establish initial authority and reject an unsolicited duplicate.
+			runtime.installNativeBootstrap(firstBootstrap);
+			await flushPaneRuntimeMicrotasks();
+			expect(() => runtime.installNativeBootstrap(arbitraryDuplicate)).toThrow(/already|claim/u);
+			const firstInstall = bridgePaneCommWorkerInstallSchema.parse(
+				workers[0]?.globalPosts[0]?.message,
+			);
+			firstPortRecorder = new PaneRuntimeMessagePortRecorder(firstInstall.productPort);
+			await firstPortRecorder.waitForCount(1);
+			firstInstall.productPort.postMessage(makePaneRuntimeReadyHealth('pane-runtime-bootstrap'));
+			await firstReady.promise;
+
+			// Act: fail the worker, queue one Review command, then install fresh authority.
+			workers[0]?.dispatchEvent(new Event('error'));
+			const queuedRequestId = reviewClient.send(makeReviewSelectCommandInput());
+			runtime.installNativeBootstrap(replacementBootstrap);
+			expect(() => runtime.installNativeBootstrap(replacementDuplicate)).toThrow(/already|claim/u);
+			await flushPaneRuntimeMicrotasks();
+			const replacementInstall = bridgePaneCommWorkerInstallSchema.parse(
+				workers[1]?.globalPosts[0]?.message,
+			);
+			replacementPortRecorder = new PaneRuntimeMessagePortRecorder(replacementInstall.productPort);
+			const messagesBeforeReady = await replacementPortRecorder.waitForCount(1);
+			expect(messagesBeforeReady).toHaveLength(1);
+			replacementInstall.productPort.postMessage(
+				makePaneRuntimeReadyHealth('pane-runtime-bootstrap'),
+			);
+			await replacementReady.promise;
+			const replacementMessages = await replacementPortRecorder.waitForCount(2);
+
+			// Assert: replacement is single-use, the queued command posts once, and old traffic is inert.
+			expect(replacementReasons).toEqual(['workerReplacement']);
+			expect(workerFactory).toHaveBeenCalledTimes(2);
+			expect(workers[0]?.terminateCount).toBe(1);
+			expect(firstBootstrap.productCapability.byteLength).toBe(0);
+			expect(arbitraryDuplicate.productCapability.byteLength).toBe(
+				BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
+			);
+			expect(replacementBootstrap.productCapability.byteLength).toBe(0);
+			expect(replacementDuplicate.productCapability.byteLength).toBe(
+				BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
+			);
+			expect(
+				replacementMessages.filter(
+					(message): boolean =>
+						typeof message === 'object' &&
+						message !== null &&
+						'requestId' in message &&
+						message.requestId === queuedRequestId,
+				),
+			).toHaveLength(1);
+			firstInstall.productPort.postMessage(makePaneRuntimeReadyHealth('late-old-worker'));
+			await flushPaneRuntimeMicrotasks();
+			expect(deliveredMessages).not.toContainEqual(
+				expect.objectContaining({ requestId: 'late-old-worker' }),
+			);
+		} finally {
+			firstPortRecorder?.close();
+			replacementPortRecorder?.close();
+			unsubscribe();
+			runtime.dispose();
+		}
+	});
+
+	test('records accepted and rejected native bootstrap install attempts without authority identity', async () => {
+		// Arrange
+		const { createBridgePaneRuntime } = await loadBridgePaneRuntimeModule();
+		const installNativeBootstrap =
+			vi.fn<(bootstrap: BridgePaneCommWorkerNativeBootstrap) => void>();
+		const diagnosticSnapshots: ExpectedBridgePaneRuntimeDiagnosticSnapshot[] = [];
+		const session: BridgePaneSessionPort = {
+			createDispatcher: (): BridgePaneCommWorkerDispatcher => ({
+				dispatch: vi.fn(),
+				dispose: vi.fn(),
+			}),
+			dispose: vi.fn(),
+			installNativeBootstrap,
+		};
+		const runtime = createBridgePaneRuntime({
+			recordDiagnosticSnapshot: (snapshot: ExpectedBridgePaneRuntimeDiagnosticSnapshot): void => {
+				diagnosticSnapshots.push(snapshot);
+			},
+			sessionFactory: (): BridgePaneSessionPort => session,
+		});
+		const acceptedBootstrap = makeNativeBootstrap('private-accepted-worker');
+		const rejectedBootstrap = makeNativeBootstrap('private-rejected-worker');
+
+		// Act
+		runtime.installNativeBootstrap(acceptedBootstrap);
+		expect(() => runtime.installNativeBootstrap(rejectedBootstrap)).toThrow(
+			'Bridge pane runtime native capability claim was already installed.',
+		);
+
+		// Assert
+		expect(installNativeBootstrap).toHaveBeenCalledOnce();
+		expect(diagnosticSnapshots.at(-1)).toEqual({
+			nativeBootstrapInstallAcceptedCount: 1,
+			nativeBootstrapInstallAttemptCount: 2,
+			nativeBootstrapInstallRejectedCount: 1,
+		});
+		expect(JSON.stringify(diagnosticSnapshots)).not.toContain('private-');
+		runtime.dispose();
+	});
+
+	test('keeps diagnostic recording observational across runtime bootstrap, dispatch, replacement, and disposal', async () => {
+		// Arrange
+		const { createBridgePaneRuntime } = await loadBridgePaneRuntimeModule();
+		const dispatcherDispatch = vi.fn<(message: BridgeWorkerMainToServerMessage) => void>();
+		const dispatcherDispose = vi.fn();
+		const installNativeBootstrap =
+			vi.fn<(bootstrap: BridgePaneCommWorkerNativeBootstrap) => void>();
+		const sessionDispose = vi.fn();
+		let requestNativeBootstrap: ((reason: 'workerReplacement') => void) | undefined;
+		const session: BridgePaneSessionPort = {
+			createDispatcher: (): BridgePaneCommWorkerDispatcher => ({
+				dispatch: dispatcherDispatch,
+				dispose: dispatcherDispose,
+			}),
+			dispose: sessionDispose,
+			installNativeBootstrap,
+			setNativeBootstrapRequester: (requester): void => {
+				requestNativeBootstrap = requester;
+			},
+		};
+		let runtime: ReturnType<typeof createBridgePaneRuntime> | undefined;
+
+		// Act / Assert: diagnostic failure cannot prevent runtime construction or product dispatch.
+		expect((): void => {
+			runtime = createBridgePaneRuntime({
+				recordDiagnosticSnapshot: (): never => {
+					throw new Error('diagnostic recorder failed');
+				},
+				sessionFactory: (): BridgePaneSessionPort => session,
+			});
+		}).not.toThrow();
+		if (runtime === undefined) throw new Error('Bridge pane runtime was not constructed.');
+		const firstBootstrap = makeNativeBootstrap('fail-open-worker-1');
+		expect((): void => runtime?.installNativeBootstrap(firstBootstrap)).not.toThrow();
+		runtime.surfaceClient('fileView').send(makeFileCommandInput());
+		expect(dispatcherDispatch).toHaveBeenCalledOnce();
+
+		// Act / Assert: a requested replacement still admits exactly one fresh bootstrap.
+		const replacementRequester = vi.fn<(reason: 'workerReplacement') => void>();
+		runtime.setNativeBootstrapRequester(replacementRequester);
+		expect((): void => requestNativeBootstrap?.('workerReplacement')).not.toThrow();
+		expect(replacementRequester).toHaveBeenCalledWith('workerReplacement');
+		const replacementBootstrap = makeNativeBootstrap('fail-open-worker-2');
+		expect((): void => runtime?.installNativeBootstrap(replacementBootstrap)).not.toThrow();
+		expect(installNativeBootstrap).toHaveBeenCalledTimes(2);
+
+		// Act / Assert: diagnostics remain unable to interrupt teardown.
+		expect((): void => runtime?.dispose()).not.toThrow();
+		expect(dispatcherDispose).toHaveBeenCalledOnce();
+		expect(sessionDispose).toHaveBeenCalledOnce();
 	});
 
 	test('allows native capability installation to retry after the session rejects an attempt', async () => {
@@ -413,6 +617,113 @@ function makeFileCommandInput(): BridgeWorkerRpcCommandInput {
 		command: 'fileQueryUpdate',
 		epoch: 1,
 		query: { filterMode: 'all', searchMode: 'text', searchText: '' },
+	};
+}
+
+function makeReviewSelectCommandInput(): BridgeWorkerRpcCommandInput {
+	return {
+		command: 'select',
+		epoch: 1,
+		selectedItemId: 'review-item-1',
+		selectedSource: 'user',
+		surface: 'review',
+	};
+}
+
+function makePaneRuntimeReadyHealth(requestId: string): BridgeWorkerServerToMainMessage {
+	return {
+		direction: 'serverWorkerToMain',
+		kind: 'health',
+		requestId,
+		status: 'ready',
+		transferDescriptors: [],
+		wireVersion: 1,
+	};
+}
+
+class RecordingPaneRuntimeWorker extends EventTarget implements Worker {
+	onmessage: ((this: Worker, event: MessageEvent) => void) | null = null;
+	onmessageerror: ((this: Worker, event: MessageEvent) => void) | null = null;
+	onerror: ((this: AbstractWorker, event: ErrorEvent) => void) | null = null;
+	readonly globalPosts: RecordedPaneRuntimeWorkerPost[] = [];
+	terminateCount = 0;
+
+	postMessage(message: unknown, transferList: Transferable[]): void;
+	postMessage(message: unknown, options?: StructuredSerializeOptions): void;
+	postMessage(
+		message: unknown,
+		transferListOrOptions: Transferable[] | StructuredSerializeOptions = [],
+	): void {
+		const transferList = Array.isArray(transferListOrOptions)
+			? transferListOrOptions
+			: (transferListOrOptions.transfer ?? []);
+		this.globalPosts.push({
+			message: structuredClone(message, { transfer: transferList }),
+			transferListLength: transferList.length,
+		});
+	}
+
+	terminate(): void {
+		this.terminateCount += 1;
+	}
+}
+
+class PaneRuntimeMessagePortRecorder {
+	readonly #messages: unknown[] = [];
+	readonly #port: MessagePort;
+	readonly #waiters: Array<{
+		readonly count: number;
+		readonly resolve: (messages: readonly unknown[]) => void;
+	}> = [];
+
+	constructor(port: MessagePort) {
+		this.#port = port;
+		port.addEventListener('message', (event: MessageEvent<unknown>): void => {
+			this.#messages.push(event.data);
+			this.#resolveWaiters();
+		});
+		port.start();
+	}
+
+	waitForCount(count: number): Promise<readonly unknown[]> {
+		if (this.#messages.length >= count) return Promise.resolve([...this.#messages]);
+		return new Promise((resolve) => {
+			this.#waiters.push({ count, resolve });
+		});
+	}
+
+	close(): void {
+		this.#port.close();
+	}
+
+	#resolveWaiters(): void {
+		for (let index = this.#waiters.length - 1; index >= 0; index -= 1) {
+			const waiter = this.#waiters[index];
+			if (waiter !== undefined && this.#messages.length >= waiter.count) {
+				this.#waiters.splice(index, 1);
+				waiter.resolve([...this.#messages]);
+			}
+		}
+	}
+}
+
+async function flushPaneRuntimeMicrotasks(): Promise<void> {
+	await Promise.resolve();
+	await Promise.resolve();
+	await Promise.resolve();
+}
+
+function createDeferredVoid(): { readonly promise: Promise<void>; readonly resolve: () => void } {
+	let resolvePromise: (() => void) | null = null;
+	const promise = new Promise<void>((resolve): void => {
+		resolvePromise = resolve;
+	});
+	return {
+		promise,
+		resolve: (): void => {
+			if (resolvePromise === null) throw new Error('deferred resolver was not initialized');
+			resolvePromise();
+		},
 	};
 }
 
