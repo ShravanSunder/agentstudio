@@ -7,6 +7,7 @@ import Testing
 struct ZmxBackendTypedIdentityTests {
     @Test("attach and kill use the exact opaque identity")
     func attachAndKillUseExactOpaqueIdentity() async throws {
+        let expectedShell = SessionConfiguration.defaultShell()
         let executor = MockProcessExecutor()
         let backend = ZmxBackend(
             executor: executor,
@@ -27,7 +28,7 @@ struct ZmxBackendTypedIdentityTests {
                 "/usr/local/bin/zmx",
                 "attach",
                 storedText,
-                "/bin/zsh",
+                expectedShell,
                 "-i",
                 "-l",
             ])

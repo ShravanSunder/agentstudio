@@ -99,7 +99,7 @@ private func makeFixture() throws -> WorkspaceSQLiteSaveCoordinatorFixture {
                 zmxSessionID: .generateUUIDv7()
             )
         ),
-        metadata: PaneMetadata(title: "Exact pane"),
+        metadata: PaneMetadata(createdAt: createdAt, title: "Exact pane"),
         kind: .layout(
             drawer: Drawer(
                 drawerId: drawerID,

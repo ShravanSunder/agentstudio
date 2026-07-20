@@ -83,6 +83,7 @@ final class ZmxBackendTests {
 
     func test_attachCommand_format() throws {
         // Arrange
+        let expectedShell = SessionConfiguration.defaultShell()
         let handle = makePaneSessionHandle(
             id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344"
         )
@@ -97,7 +98,7 @@ final class ZmxBackendTests {
                 "/usr/local/bin/zmx",
                 "attach",
                 "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344",
-                "/bin/zsh",
+                expectedShell,
                 "-i",
                 "-l",
             ])
@@ -111,6 +112,7 @@ final class ZmxBackendTests {
 
     func test_attachCommand_escapesPathsWithSpaces() throws {
         // Arrange
+        let expectedShell = SessionConfiguration.defaultShell()
         let spacedBackend = ZmxBackend(
             executor: executor,
             zmxPath: "/Users/test user/bin/zmx",
@@ -130,7 +132,7 @@ final class ZmxBackendTests {
                 "/Users/test user/bin/zmx",
                 "attach",
                 "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344",
-                "/bin/zsh",
+                expectedShell,
                 "-i",
                 "-l",
             ])
