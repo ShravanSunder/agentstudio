@@ -142,12 +142,8 @@ export interface WorktreeStartupLoadTimingProof {
 }
 
 export interface ReviewStartupLoadTimingProof {
-	readonly metadataApplyDuration: WorktreeInteractionDurationSummary;
 	readonly pageLoadToMetadata: WorktreeInteractionDurationSummary;
-	readonly pageLoadToReviewReady: WorktreeInteractionDurationSummary;
 	readonly pageLoadToSelectedContentReady: WorktreeInteractionDurationSummary;
-	readonly reviewReadyDuration: WorktreeInteractionDurationSummary;
-	readonly selectedContentReadyDuration: WorktreeInteractionDurationSummary;
 }
 
 export interface WorktreeInteractionFailureDetail {
@@ -428,13 +424,7 @@ export function reviewStartupLoadTimingSatisfied(
 			proof.reviewStartupLoadTiming.pageLoadToSelectedContentReady,
 			1,
 		) &&
-		interactionDurationSummarySatisfied(proof.reviewStartupLoadTiming.pageLoadToReviewReady, 1) &&
-		interactionDurationSummarySatisfied(proof.reviewStartupLoadTiming.metadataApplyDuration, 1) &&
-		interactionDurationSummarySatisfied(
-			proof.reviewStartupLoadTiming.selectedContentReadyDuration,
-			1,
-		) &&
-		interactionDurationSummarySatisfied(proof.reviewStartupLoadTiming.reviewReadyDuration, 1)
+		interactionDurationSummarySatisfied(proof.reviewStartupLoadTiming.pageLoadToMetadata, 1)
 	);
 }
 

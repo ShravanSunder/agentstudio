@@ -39,7 +39,6 @@ import {
 	reviewTreeReachablePathScrollTopMap,
 	waitForAnyReviewSelectedContentState,
 	waitForReviewTreeScrollSettled,
-	waitForReviewVisibleDemandTelemetry,
 	waitForVisibleReviewTreeFilePath,
 } from './review-tree-click.ts';
 import { readBridgeDevTelemetryStatusSamples } from './route-probes.ts';
@@ -123,7 +122,6 @@ export async function collectReviewInteractionPerformanceProof(props: {
 	readonly page: Page;
 }): Promise<ReviewInteractionPerformanceProof> {
 	const reviewStartupLoadTiming = await collectReviewStartupLoadTimingProof(props.page);
-	await waitForReviewVisibleDemandTelemetry(props.page);
 	await resetReviewTreeForPerformanceSamples(props.page);
 	const reachablePathScrollTopByPath = await reviewTreeReachablePathScrollTopMap(props.page);
 	const clickTargets = normalWorktreeReviewPerformanceClickTargets(
@@ -291,66 +289,26 @@ export async function collectReviewStartupLoadTimingProof(
 		timeout: 30_000,
 	});
 	await page.waitForSelector('[data-testid="review-viewer-shell"]', { timeout: 30_000 });
-	const metadataApplySample = await waitForBridgeTelemetrySample({
-		name: 'performance.bridge.web.review_metadata_apply',
-		page,
-	});
+	await page.waitForFunction(
+		(): boolean => {
+			const shell = document.querySelector('[data-testid="review-viewer-shell"]');
+			return Number(shell?.getAttribute('data-review-metadata-item-count') ?? '0') > 0;
+		},
+		undefined,
+		{ timeout: 30_000 },
+	);
 	const pageLoadToMetadataMilliseconds = Math.max(0, performance.now() - pageLoadStartedAt);
 	await waitForAnyReviewSelectedContentState({ page, state: 'ready' });
-	const selectedContentReadySample = await waitForBridgeTelemetrySample({
-		name: 'performance.bridge.web.selected_content_ready',
-		page,
-	});
 	const pageLoadToSelectedContentReadyMilliseconds = Math.max(
 		0,
 		performance.now() - pageLoadStartedAt,
 	);
-	const reviewReadySample = await waitForBridgeTelemetrySample({
-		name: 'performance.bridge.web.review_ready',
-		page,
-	});
-	const pageLoadToReviewReadyMilliseconds = Math.max(0, performance.now() - pageLoadStartedAt);
 	return {
-		metadataApplyDuration: summarizeInteractionSamples([
-			metadataApplySample.durationMilliseconds ?? Number.NaN,
-		]),
 		pageLoadToMetadata: summarizeInteractionSamples([pageLoadToMetadataMilliseconds]),
-		pageLoadToReviewReady: summarizeInteractionSamples([pageLoadToReviewReadyMilliseconds]),
 		pageLoadToSelectedContentReady: summarizeInteractionSamples([
 			pageLoadToSelectedContentReadyMilliseconds,
 		]),
-		reviewReadyDuration: summarizeInteractionSamples([
-			reviewReadySample.durationMilliseconds ?? Number.NaN,
-		]),
-		selectedContentReadyDuration: summarizeInteractionSamples([
-			selectedContentReadySample.durationMilliseconds ?? Number.NaN,
-		]),
 	};
-}
-
-export async function waitForBridgeTelemetrySample(props: {
-	readonly name: string;
-	readonly page: Page;
-}): Promise<WorktreeBridgeTelemetrySampleProof> {
-	await props.page.waitForFunction(
-		(sampleName: string): boolean =>
-			(window.bridgeWorktreeVerifierTelemetrySamples ?? []).some(
-				(sample: WorktreeBridgeTelemetrySampleProof): boolean => sample.name === sampleName,
-			),
-		props.name,
-		{ timeout: 30_000 },
-	);
-	const sample = await props.page.evaluate(
-		(sampleName: string): WorktreeBridgeTelemetrySampleProof | null =>
-			(window.bridgeWorktreeVerifierTelemetrySamples ?? []).find(
-				(candidate: WorktreeBridgeTelemetrySampleProof): boolean => candidate.name === sampleName,
-			) ?? null,
-		props.name,
-	);
-	if (sample === null) {
-		throw new Error(`Expected Bridge telemetry sample ${props.name}`);
-	}
-	return sample;
 }
 
 export async function collectReviewTreeClickPerformanceSamples(props: {

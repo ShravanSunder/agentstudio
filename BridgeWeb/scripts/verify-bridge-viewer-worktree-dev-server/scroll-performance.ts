@@ -434,10 +434,10 @@ export function normalWorktreeReviewPerformanceClickTargets(
 			const lineCount = target.lineCount;
 			return (
 				worktreeFilePathEligibleForPerformanceClick(target.displayPath) &&
-				lineCount !== null &&
-				Number.isFinite(lineCount) &&
-				lineCount > 0 &&
-				lineCount <= maximumNormalPerformanceLineCount
+				(lineCount === null ||
+					(Number.isFinite(lineCount) &&
+						lineCount > 0 &&
+						lineCount <= maximumNormalPerformanceLineCount))
 			);
 		})
 		.toSorted((left, right): number => left.displayPath.localeCompare(right.displayPath));

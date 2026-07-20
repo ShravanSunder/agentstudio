@@ -130,12 +130,8 @@ export function makePassingReviewInteractionPerformanceProof(): ReviewInteractio
 			responseTotal: summarizeInteractionSamples(Array.from({ length: 100 }, (): number => 3)),
 		},
 		reviewStartupLoadTiming: {
-			metadataApplyDuration: summarizeInteractionSamples([8]),
 			pageLoadToMetadata: summarizeInteractionSamples([42]),
-			pageLoadToReviewReady: summarizeInteractionSamples([80]),
 			pageLoadToSelectedContentReady: summarizeInteractionSamples([65]),
-			reviewReadyDuration: summarizeInteractionSamples([12]),
-			selectedContentReadyDuration: summarizeInteractionSamples([10]),
 		},
 		reviewTreeBlankWindowCount: 0,
 		reviewTreeScrollSettleFrameCount: summarizeInteractionSamples(

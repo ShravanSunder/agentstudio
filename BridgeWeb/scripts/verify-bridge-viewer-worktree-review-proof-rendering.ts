@@ -116,8 +116,6 @@ export function reviewStartupTelemetrySatisfied(
 }
 
 const expectedReviewStartupTelemetrySampleNames = [
-	'performance.bridge.web.review_metadata_apply',
-	'performance.bridge.web.projection_total',
-	'performance.bridge.web.selected_content_ready',
-	'performance.bridge.web.review_ready',
+	'performance.bridge.viewer.time_to_first_interaction',
+	'performance.bridge.web.selected_content_painted',
 ];

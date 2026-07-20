@@ -301,7 +301,9 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(verifierSource).toContain('reviewStartupLoadTiming');
 		expect(verifierSource).toContain('pageLoadToMetadata');
 		expect(verifierSource).toContain('pageLoadToSelectedContentReady');
-		expect(verifierSource).toContain('pageLoadToReviewReady');
+		expect(verifierSource).not.toContain('performance.bridge.web.review_metadata_apply');
+		expect(verifierSource).not.toContain('performance.bridge.web.selected_content_ready');
+		expect(verifierSource).not.toContain('performance.bridge.web.review_ready');
 		expect(verifierSource).toContain('reviewTreeScrollSettleFrameCount');
 		expect(verifierSource).toContain('codeViewScrollSettleFrameCount');
 		expect(verifierSource).toContain('treeSelectionVisibleMilliseconds');
@@ -565,17 +567,13 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(reviewStartupTelemetrySatisfied([])).toBe(false);
 		expect(
 			reviewStartupTelemetrySatisfied([
-				makeReviewStartupTelemetrySample('performance.bridge.web.review_metadata_apply'),
-				makeReviewStartupTelemetrySample('performance.bridge.web.projection_total'),
-				makeReviewStartupTelemetrySample('performance.bridge.web.selected_content_ready'),
-				makeReviewStartupTelemetrySample('performance.bridge.web.review_ready'),
+				makeReviewStartupTelemetrySample('performance.bridge.viewer.time_to_first_interaction'),
+				makeReviewStartupTelemetrySample('performance.bridge.web.selected_content_painted'),
 			]),
 		).toBe(true);
 		expect(
 			reviewStartupTelemetrySatisfied([
-				makeReviewStartupTelemetrySample('performance.bridge.web.review_metadata_apply'),
-				makeReviewStartupTelemetrySample('performance.bridge.web.projection_total'),
-				makeReviewStartupTelemetrySample('performance.bridge.web.selected_content_ready'),
+				makeReviewStartupTelemetrySample('performance.bridge.viewer.time_to_first_interaction'),
 			]),
 		).toBe(false);
 	});
