@@ -77,6 +77,28 @@ describe('Bridge comm worker selected File preparation cancellation', () => {
 		expect(fileRenderJobs(harness.postedMessages)).toHaveLength(1);
 	});
 
+	test('reissues selected File load once after an unexpected EOF terminal failure', async () => {
+		const harness = await createPendingFilePreparationHarness();
+
+		await failAttempt(harness, 0, 'descriptor-file-1');
+
+		expect(harness.attempts).toHaveLength(2);
+		if (harness.attempts.length < 2) return;
+
+		await completeAttempt(harness, 1, 'descriptor-file-1');
+		expect(fileRenderJobs(harness.postedMessages)).toHaveLength(1);
+		expect(fileAvailabilityPatches(harness.postedMessages)).toContainEqual(
+			expect.objectContaining({ payload: expect.objectContaining({ state: 'ready' }) }),
+		);
+
+		const persistentFailureHarness = await createPendingFilePreparationHarness();
+		await failAttempt(persistentFailureHarness, 0, 'descriptor-file-1');
+		expect(persistentFailureHarness.attempts).toHaveLength(2);
+		if (persistentFailureHarness.attempts.length < 2) return;
+		await failAttempt(persistentFailureHarness, 1, 'descriptor-file-1', false);
+		expect(persistentFailureHarness.attempts).toHaveLength(2);
+	});
+
 	test('cancels once and reopens when the selected descriptor is replaced', async () => {
 		const harness = await createPendingFilePreparationHarness();
 
@@ -359,6 +381,31 @@ async function completeAttempt(
 	while (harness.scheduledDrains.length > 0) {
 		const drain = harness.scheduledDrains.shift();
 		if (drain !== undefined) await drain();
+		await flushBridgeWorkerRuntimeContinuations();
+	}
+}
+
+async function failAttempt(
+	harness: PendingFilePreparationHarness,
+	attemptIndex: number,
+	descriptorId: string,
+	expectRetry = true,
+): Promise<void> {
+	harness.attempts[attemptIndex]?.resolve({
+		code: 'unexpected_eof',
+		contentKind: 'file.content',
+		descriptorId,
+		kind: 'error',
+		safeMessage: 'Unexpected EOF while reading File content.',
+	});
+	await flushBridgeWorkerRuntimeContinuations();
+	if (expectRetry) {
+		await drainUntilAttemptCount(harness, attemptIndex + 2);
+		return;
+	}
+	while (harness.scheduledDrains.length > 0) {
+		const drain = harness.scheduledDrains.shift();
+		if (drain !== undefined) await drain().catch(() => undefined);
 		await flushBridgeWorkerRuntimeContinuations();
 	}
 }

@@ -20,9 +20,58 @@ import {
 	makeWorkerReviewContentMetadata,
 	openReviewContentFromDescriptorMap,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
+import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 
 describe('Bridge comm worker runtime protocol Review preparation', () => {
+	test('reissues selected Review preparation once after unexpected EOF', async () => {
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
+		let openCount = 0;
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			openReviewContent: (descriptor, abortSignal) => {
+				openCount += 1;
+				return openCount <= 2
+					? unexpectedEOFReviewContentStream(descriptor.descriptorId)
+					: openReviewContentFromDescriptorMap(descriptor, abortSignal);
+			},
+			productTransport: reviewProductSource.productTransport,
+			schedulePreparationDrain: (drain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'selected-unexpected-eof');
+		reviewProductSource.publishSource({
+			contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({ itemId: 'item-1', role: 'base', text: 'base\n' }),
+				makeContentRequestDescriptor({ itemId: 'item-1', role: 'head', text: 'head\n' }),
+			],
+			renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+			rows: [{ id: 'item-1', index: 0, parentId: null }],
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains.shift())();
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 1,
+				requestId: 'selected-unexpected-eof',
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+				surface: 'review',
+			}),
+		);
+		for (let round = 0; round < 8 && openCount < 4; round += 1) {
+			for (const drain of scheduledDrains.splice(0)) void drain();
+			await flushBridgeWorkerRuntimeContinuations();
+		}
+		expect(openCount).toBe(4);
+		reviewProductSource.close();
+	});
+
 	test('selected Review demand preempts an in-progress source reset and uses the newest generation only', async () => {
 		const clockMs = 0;
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
@@ -787,6 +836,26 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		expect(scheduledDrains).toHaveLength(1);
 	});
 });
+
+function unexpectedEOFReviewContentStream(
+	descriptorId: string,
+): BridgeProductContentStream<'review.content'> {
+	return {
+		contentKind: 'review.content',
+		contentRequestId: `unexpected-eof-${descriptorId}`,
+		frames: emptyReviewContentFrames(),
+		terminal: Promise.resolve({
+			code: 'unexpected_eof',
+			contentKind: 'review.content',
+			descriptorId,
+			kind: 'error',
+			retryable: false,
+			safeMessage: 'Unexpected EOF while reading Review content.',
+		}),
+	};
+}
+
+async function* emptyReviewContentFrames(): AsyncIterable<never> {}
 
 async function waitBridgeWorkerRuntimeTaskBoundary(): Promise<void> {
 	await new Promise<void>((resolve) => {

@@ -202,6 +202,8 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		string,
 		BridgeCommWorkerSelectedReviewContentReadyPreparationRequest
 	>();
+	const retriedSelectedPreparationRequests =
+		new WeakSet<BridgeCommWorkerSelectedReviewContentReadyPreparationRequest>();
 	let latestDemandExecutionRequest: BridgeCommWorkerDemandExecutionScheduleRequest | null = null;
 	let latestMetadataResetRequest: BridgeCommWorkerReviewMetadataResetScheduleRequest | null = null;
 	let activeSourceResetEpoch: number | null = null;
@@ -408,7 +410,21 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 				if (activeSelectedPreparationByItemId.get(request.itemId)?.ticket === ticket) {
 					activeSelectedPreparationByItemId.delete(request.itemId);
 					if (latestSelectedPreparationByItemId.get(request.itemId) === request) {
-						latestSelectedPreparationByItemId.delete(request.itemId);
+						if (!isReviewWorkAdmitted()) {
+							return;
+						}
+						if (request.store.getState().selectedId !== request.itemId) {
+							latestSelectedPreparationByItemId.delete(request.itemId);
+						} else if (
+							request.store.getState().availabilityByItemId.get(request.itemId) === 'failed' &&
+							!retriedSelectedPreparationRequests.has(request)
+						) {
+							retriedSelectedPreparationRequests.add(request);
+							scheduleSelectedContentReadyPreparation(request);
+							props.requestPreparationDrain();
+						} else {
+							latestSelectedPreparationByItemId.delete(request.itemId);
+						}
 					}
 				}
 				rederiveLatestDemandExecution();

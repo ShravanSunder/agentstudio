@@ -145,6 +145,8 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const fileContentPreparationGenerationByItemId = new Map<string, number>();
 	let latestSelectedFilePreparationRequest: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest | null =
 		null;
+	const retriedSelectedFilePreparationRequests =
+		new WeakSet<BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest>();
 	const abortFileContentPreparation = (itemId: string): void => {
 		const abortController = fileContentAbortControllersByItemId.get(itemId);
 		if (abortController === undefined) {
@@ -348,9 +350,21 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			const trackedCompletion = ticket.completion.finally((): void => {
 				if (fileContentAbortControllersByItemId.get(request.itemId) === abortController) {
 					fileContentAbortControllersByItemId.delete(request.itemId);
-					if (!abortController.signal.aborted && latestSelectedFilePreparationRequest === request) {
+					if (latestSelectedFilePreparationRequest !== request) return;
+					if (abortController.signal.aborted || !panePresentationAuthority.admitsWork) return;
+					if (request.store.getState().selectedId !== request.itemId) {
 						latestSelectedFilePreparationRequest = null;
+						return;
 					}
+					const selectedContentFailed =
+						request.store.getState().availabilityByItemId.get(request.itemId) === 'failed';
+					if (selectedContentFailed && !retriedSelectedFilePreparationRequests.has(request)) {
+						retriedSelectedFilePreparationRequests.add(request);
+						scheduleSelectedFileViewContentReadyPreparation(request);
+						requestPreparationDrain();
+						return;
+					}
+					latestSelectedFilePreparationRequest = null;
 				}
 			});
 			preparationCompletions.push(trackedCompletion);
