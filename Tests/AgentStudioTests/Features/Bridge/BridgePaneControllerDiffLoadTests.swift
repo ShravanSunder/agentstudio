@@ -24,6 +24,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
 
         await setRefreshComparison(fixture, changedFile: fixture.refreshedFile)
         await postRefreshEvent(fixture, path: "Sources/App/New.swift", batchSeq: 10)
+        await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
         #expect(loadResult == .success(commandId: fixture.commandId))
         #expect(fixture.controller.paneState.diff.status == .ready)
         expectRefreshPackageState(
@@ -43,6 +44,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let changedPackageDelta = fixture.controller.paneState.diff.packageDelta
 
         await postRefreshEvent(fixture, path: "Sources/App/New.swift", batchSeq: 11)
+        await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
         let unchangedPublication = try #require(
             fixture.controller.reviewPublicationCoordinator.committedPublicationForReplay(
                 productAdmission: productAdmission
@@ -57,6 +59,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
 
         await setRefreshComparison(fixture, changedFile: fixture.secondRefreshedFile)
         await postRefreshEvent(fixture, path: "Sources/App/Newer.swift", batchSeq: 12)
+        await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
         expectRefreshPackageState(
             fixture,
             itemId: "item-newer",
@@ -87,7 +90,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let gate = BridgeComparisonGate()
         await fixture.provider.setComparisonGate(gate)
         await setRefreshComparison(fixture, changedFile: fixture.refreshedFile)
-        async let firstRefresh: Void = postRefreshEvent(
+        await postRefreshEvent(
             fixture,
             path: "Sources/App/New.swift",
             batchSeq: 20
@@ -95,12 +98,12 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         await gate.waitForStartedComparisonCount(1)
 
         await setRefreshComparison(fixture, changedFile: fixture.secondRefreshedFile)
-        async let secondRefresh: Void = postRefreshEvent(
+        await postRefreshEvent(
             fixture,
             path: "Sources/App/Newer.swift",
             batchSeq: 21
         )
-        async let thirdRefresh: Void = postRefreshEvent(
+        await postRefreshEvent(
             fixture,
             path: "Sources/App/Newer.swift",
             batchSeq: 22
@@ -110,7 +113,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
 
         #expect(await fixture.provider.recordedComparisonRequestsCount() == 2)
         await gate.releaseAll()
-        _ = await (firstRefresh, secondRefresh, thirdRefresh)
+        await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
 
         #expect(await fixture.provider.recordedComparisonRequestsCount() == 3)
         expectRefreshPackageState(

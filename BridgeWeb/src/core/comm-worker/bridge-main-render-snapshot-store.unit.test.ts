@@ -809,6 +809,7 @@ function makeReviewDisplayPatchEvent(): BridgeWorkerReviewDisplayPatchEvent {
 				operation: 'upsert',
 				payload: {
 					metadataWindowIdentity: 'metadata-window-package-1-r11',
+					reviewGeneration: 1,
 					status: 'loading',
 					summary: null,
 					totalItemCount: 1,

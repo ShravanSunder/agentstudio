@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import Foundation
+import WebKit
 
 #if DEBUG
     private struct BridgeProductPaintCorrelationSnapshot: Decodable {
@@ -8,11 +9,17 @@ import Foundation
         let decodedSourceCorrelationCount: Int
         let documentVisibilityState: String
         let fileModeActivated: Bool
+        let fileModeLatestDispatchDisposition: String
+        let fileModeSendAttemptCount: Int
+        let fileModeSendSynchronousFailureCount: Int
         let fileIdentityChainMatched: Bool
         let filePaintedSourceMatched: Bool
         let filePaintedSourceMatchCount: Int
+        let fileSelectionLatestDispatchDisposition: String
+        let fileSelectionLatestLifecycleState: String
         let fileSelectedPathMatched: Bool
         let frameLivenessRafAlive: String
+        let pageReadyState: String
         let paintedElementCount: Int
         let reviewCanaryCandidateCount: Int
         let reviewDigestCandidateCount: Int
@@ -26,8 +33,17 @@ import Foundation
         let reviewSelectionFirstFrameReachedCount: Int
         let reviewSelectionInitialRequestedCount: Int
         let reviewSelectionInitialSchedulingAcceptedCount: Int
+        let reviewSelectionLatestDispatchDisposition: String
+        let reviewSelectionLatestLifecycleState: String
+        let reviewSelectionNativeBootstrapInstallAcceptedCount: Int
+        let reviewSelectionNativeBootstrapInstallAttemptCount: Int
+        let reviewSelectionNativeBootstrapInstallCount: Int
+        let reviewSelectionNativeBootstrapInstallRejectedCount: Int
+        let reviewSelectionQueuedCommandCount: Int
+        let reviewSelectionReplacementRequestCount: Int
         let reviewSelectionSecondFrameReachedCount: Int
         let reviewSelectionScheduledCount: Int
+        let reviewSelectionSessionState: String
         let reviewSelectionSubmittedCount: Int
         let reviewSelectedItemCandidateCount: Int
         let reviewSelectedItemPresent: Bool
@@ -53,7 +69,7 @@ import Foundation
             self.workerReplacementObserved = workerReplacementObserved
         }
 
-        var surfaceCorrelationSucceeded: Bool {
+        var reviewCorrelationSucceeded: Bool {
             guard let snapshot else { return false }
             return snapshot.documentVisibilityState == "visible"
                 && snapshot.frameLivenessRafAlive == "true"
@@ -61,6 +77,11 @@ import Foundation
                 && snapshot.reviewIdentityChainMatched
                 && snapshot.reviewPaintedSourceMatched
                 && snapshot.reviewPaintedSourceMatchCount == 1
+        }
+
+        var surfaceCorrelationSucceeded: Bool {
+            guard let snapshot else { return false }
+            return reviewCorrelationSucceeded
                 && snapshot.fileModeActivated
                 && snapshot.fileSelectedPathMatched
                 && snapshot.fileIdentityChainMatched
@@ -85,18 +106,31 @@ import Foundation
                     snapshot?.documentVisibilityState == "visible"),
                 "agentstudio.startup_diagnostic.bridge.product_paint.file_mode_activated": .bool(
                     snapshot?.fileModeActivated == true),
+                "agentstudio.startup_diagnostic.bridge.product_paint.file_mode.latest_dispatch_disposition": .string(
+                    snapshot?.fileModeLatestDispatchDisposition ?? "not_sent"),
+                "agentstudio.startup_diagnostic.bridge.product_paint.file_mode.send_attempt.count": .int(
+                    snapshot?.fileModeSendAttemptCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.file_mode.send_synchronous_failure.count": .int(
+                    snapshot?.fileModeSendSynchronousFailureCount ?? 0),
                 "agentstudio.startup_diagnostic.bridge.product_paint.file_identity_chain_matched": .bool(
                     snapshot?.fileIdentityChainMatched == true),
                 "agentstudio.startup_diagnostic.bridge.product_paint.file_source_matched": .bool(
                     snapshot?.filePaintedSourceMatched == true),
                 "agentstudio.startup_diagnostic.bridge.product_paint.file_source_match.count": .int(
                     snapshot?.filePaintedSourceMatchCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.file_selection.latest_dispatch_disposition":
+                    .string(
+                        snapshot?.fileSelectionLatestDispatchDisposition ?? "not_sent"),
+                "agentstudio.startup_diagnostic.bridge.product_paint.file_selection.latest_lifecycle_state": .string(
+                    snapshot?.fileSelectionLatestLifecycleState ?? "not_sent"),
                 "agentstudio.startup_diagnostic.bridge.product_paint.file_selected_identity_matched": .bool(
                     snapshot?.fileSelectedPathMatched == true),
                 "agentstudio.startup_diagnostic.bridge.product_paint.frame_live": .bool(
                     snapshot?.frameLivenessRafAlive == "true"),
                 "agentstudio.startup_diagnostic.bridge.product_paint.painted_element.count": .int(
                     snapshot?.paintedElementCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.page_ready.state": .string(
+                    snapshot?.pageReadyState ?? "awaiting"),
                 "agentstudio.startup_diagnostic.bridge.product_paint.review_candidate.canary.count": .int(
                     snapshot?.reviewCanaryCandidateCount ?? 0),
                 "agentstudio.startup_diagnostic.bridge.product_paint.review_candidate.digest.count": .int(
@@ -118,6 +152,10 @@ import Foundation
                 "agentstudio.startup_diagnostic.bridge.product_paint.review_selection.initial_scheduling_accepted.count":
                     .int(
                         snapshot?.reviewSelectionInitialSchedulingAcceptedCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_selection.latest_dispatch_disposition":
+                    .string(snapshot?.reviewSelectionLatestDispatchDisposition ?? "not_sent"),
+                "agentstudio.startup_diagnostic.bridge.product_paint.review_selection.latest_lifecycle_state":
+                    .string(snapshot?.reviewSelectionLatestLifecycleState ?? "not_sent"),
                 "agentstudio.startup_diagnostic.bridge.product_paint.review_selection.scheduled.count": .int(
                     snapshot?.reviewSelectionScheduledCount ?? 0),
                 "agentstudio.startup_diagnostic.bridge.product_paint.review_selection.first_frame_reached.count": .int(
@@ -128,6 +166,21 @@ import Foundation
                     snapshot?.reviewSelectionSubmittedCount ?? 0),
                 "agentstudio.startup_diagnostic.bridge.product_paint.review_selection.dropped.count": .int(
                     snapshot?.reviewSelectionDroppedCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.comm_session.state": .string(
+                    snapshot?.reviewSelectionSessionState ?? "awaiting_bootstrap"),
+                "agentstudio.startup_diagnostic.bridge.product_paint.comm_session.queued_command.count": .int(
+                    snapshot?.reviewSelectionQueuedCommandCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.comm_session.replacement_request.count": .int(
+                    snapshot?.reviewSelectionReplacementRequestCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.comm_session.native_bootstrap_install.count": .int(
+                    snapshot?.reviewSelectionNativeBootstrapInstallCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.runtime.native_bootstrap_install.attempt.count":
+                    .int(
+                        snapshot?.reviewSelectionNativeBootstrapInstallAttemptCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.runtime.native_bootstrap_install.accepted.count":
+                    .int(snapshot?.reviewSelectionNativeBootstrapInstallAcceptedCount ?? 0),
+                "agentstudio.startup_diagnostic.bridge.product_paint.runtime.native_bootstrap_install.rejected.count":
+                    .int(snapshot?.reviewSelectionNativeBootstrapInstallRejectedCount ?? 0),
                 "agentstudio.startup_diagnostic.bridge.product_paint.review_identity_chain_matched": .bool(
                     snapshot?.reviewIdentityChainMatched == true),
                 "agentstudio.startup_diagnostic.bridge.product_paint.review_source_matched": .bool(
@@ -160,14 +213,11 @@ import Foundation
             action: AgentStudioStartupDiagnosticAction
         ) async {
             NSApp.activate(ignoringOtherApps: true)
-            mainWindowController?.window?.makeKeyAndOrderFront(nil)
+            mainWindowController?.completeLaunchPresentation()
             await waitForStartupDiagnosticAppActivation()
 
             guard let terminalContainerBounds = await startupDiagnosticLaunchRestoreBounds() else {
-                recordBridgeProductPaintCorrelationResult(
-                    action: action,
-                    proof: BridgeProductPaintCorrelationProof(snapshot: nil)
-                )
+                recordUnavailableBridgeProductPaintCorrelationResult(action: action)
                 return
             }
             if !launchRestoreObservationState.didComplete {
@@ -180,18 +230,12 @@ import Foundation
             guard let worktreeURL = AgentStudioStartupDiagnosticAction.watchFolderURL(),
                 let oracle = Self.bridgeProductPaintCorrelationOracle(worktreeURL: worktreeURL)
             else {
-                recordBridgeProductPaintCorrelationResult(
-                    action: action,
-                    proof: BridgeProductPaintCorrelationProof(snapshot: nil)
-                )
+                recordUnavailableBridgeProductPaintCorrelationResult(action: action)
                 return
             }
             let worktree = store.repositoryTopologyAtom.ensureMainWorktree(at: worktreeURL)
             guard let pane = workspaceSurfaceCoordinator.openBridgeReviewInNewTab(worktreeId: worktree.id) else {
-                recordBridgeProductPaintCorrelationResult(
-                    action: action,
-                    proof: BridgeProductPaintCorrelationProof(snapshot: nil)
-                )
+                recordUnavailableBridgeProductPaintCorrelationResult(action: action)
                 return
             }
             workspaceSurfaceCoordinator.restoreVisiblePaneIfNeeded(pane.id, forceWhenBoundsExist: true)
@@ -201,10 +245,7 @@ import Foundation
                 let bridgeView = viewRegistry.view(for: pane.id)?
                     .mountedContent(as: BridgePaneMountView.self)
             else {
-                recordBridgeProductPaintCorrelationResult(
-                    action: action,
-                    proof: BridgeProductPaintCorrelationProof(snapshot: nil)
-                )
+                recordUnavailableBridgeProductPaintCorrelationResult(action: action)
                 return
             }
 
@@ -214,9 +255,13 @@ import Foundation
                 sha256: oracle.sha256,
                 canary: Self.bridgeProductPaintFixtureCanary
             )
+            let initialDeadline =
+                ContinuousClock.now
+                + AppPolicies.StartupDiagnostic.bridgeFileViewSmokeReadinessTimeout
             let initialProof = await waitForBridgeProductPaintCorrelation(
                 controller: bridgeView.controller,
-                javaScript: javaScript
+                javaScript: javaScript,
+                deadline: initialDeadline
             )
             guard initialProof.surfaceCorrelationSucceeded,
                 let initialWorkerInstanceId = await bridgeView.controller.productSessionOwner
@@ -226,42 +271,148 @@ import Foundation
                 return
             }
 
-            bridgeView.controller.loadApp()
+            let replayDeadline =
+                ContinuousClock.now
+                + AppPolicies.StartupDiagnostic.bridgeFileViewSmokeReadinessTimeout
+            let reloadNavigationEvents = bridgeView.controller.loadApp()
+            guard
+                await waitForBridgeProductPaintNavigationFinished(
+                    navigationEvents: reloadNavigationEvents,
+                    deadline: replayDeadline
+                )
+            else {
+                recordBridgeProductPaintCorrelationResult(action: action, proof: initialProof)
+                return
+            }
+            guard
+                let replayWorkerInstanceId = await waitForBridgeProductPaintWorkerReplacement(
+                    controller: bridgeView.controller,
+                    excluding: initialWorkerInstanceId,
+                    deadline: replayDeadline
+                )
+            else {
+                recordBridgeProductPaintCorrelationResult(action: action, proof: initialProof)
+                return
+            }
             guard bridgeView.controller.requestViewerSurface(.review) else {
                 recordBridgeProductPaintCorrelationResult(action: action, proof: initialProof)
                 return
             }
             let replayProof = await waitForBridgeProductPaintCorrelation(
                 controller: bridgeView.controller,
-                javaScript: javaScript
+                javaScript: javaScript,
+                deadline: replayDeadline
             )
-            let replayWorkerInstanceId = await bridgeView.controller.productSessionOwner
-                .activeBootstrap()?.workerInstanceId
             recordBridgeProductPaintCorrelationResult(
                 action: action,
                 proof: BridgeProductPaintCorrelationProof(
                     snapshot: replayProof.snapshot,
                     reloadReplaySucceeded: replayProof.surfaceCorrelationSucceeded,
-                    workerReplacementObserved: replayWorkerInstanceId != nil
-                        && replayWorkerInstanceId != initialWorkerInstanceId
+                    workerReplacementObserved: replayWorkerInstanceId != initialWorkerInstanceId
                 )
             )
         }
 
+        private func recordUnavailableBridgeProductPaintCorrelationResult(
+            action: AgentStudioStartupDiagnosticAction
+        ) {
+            recordBridgeProductPaintCorrelationResult(
+                action: action,
+                proof: BridgeProductPaintCorrelationProof(snapshot: nil)
+            )
+        }
+
+        private func waitForBridgeProductPaintNavigationFinished(
+            navigationEvents: some AsyncSequence<WebPage.NavigationEvent, any Error>,
+            deadline: ContinuousClock.Instant
+        ) async -> Bool {
+            let navigationTask = Task { @MainActor in
+                do {
+                    var didCommit = false
+                    for try await navigationEvent in navigationEvents {
+                        if Task.isCancelled { return false }
+                        switch navigationEvent {
+                        case .committed:
+                            didCommit = true
+                        case .finished:
+                            return didCommit
+                        default:
+                            continue
+                        }
+                    }
+                } catch {
+                    return false
+                }
+                return false
+            }
+
+            return await withTaskGroup(of: Bool.self) { group in
+                group.addTask {
+                    await navigationTask.value
+                }
+                group.addTask {
+                    do {
+                        try await ContinuousClock().sleep(until: deadline)
+                    } catch {
+                        return false
+                    }
+                    return false
+                }
+                let navigationFinished = await group.next() ?? false
+                group.cancelAll()
+                navigationTask.cancel()
+                return navigationFinished
+            }
+        }
+
+        private func waitForBridgeProductPaintWorkerReplacement(
+            controller: BridgePaneController,
+            excluding initialWorkerInstanceId: String,
+            deadline: ContinuousClock.Instant
+        ) async -> String? {
+            var workerInstanceId = await controller.productSessionOwner
+                .activeBootstrap()?.workerInstanceId
+            while (workerInstanceId == nil || workerInstanceId == initialWorkerInstanceId)
+                && ContinuousClock.now < deadline
+            {
+                if Task.isCancelled { return nil }
+                do {
+                    try await Task.sleep(
+                        nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
+                } catch {
+                    return nil
+                }
+                guard !Task.isCancelled, ContinuousClock.now < deadline else { return nil }
+                workerInstanceId = await controller.productSessionOwner
+                    .activeBootstrap()?.workerInstanceId
+            }
+            guard !Task.isCancelled, let workerInstanceId,
+                workerInstanceId != initialWorkerInstanceId
+            else {
+                return nil
+            }
+            return workerInstanceId
+        }
+
         private func waitForBridgeProductPaintCorrelation(
             controller: BridgePaneController,
-            javaScript: String
+            javaScript: String,
+            deadline: ContinuousClock.Instant
         ) async -> BridgeProductPaintCorrelationProof {
-            let start = ContinuousClock.now
             var proof = await bridgeProductPaintCorrelationProof(
                 controller: controller,
                 javaScript: javaScript
             )
             while !proof.surfaceCorrelationSucceeded
-                && start.duration(to: ContinuousClock.now)
-                    < AppPolicies.StartupDiagnostic.bridgeFileViewSmokeReadinessTimeout
+                && ContinuousClock.now < deadline
             {
-                try? await Task.sleep(nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
+                do {
+                    try await Task.sleep(
+                        nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
+                } catch {
+                    return proof
+                }
+                guard !Task.isCancelled, ContinuousClock.now < deadline else { return proof }
                 proof = await bridgeProductPaintCorrelationProof(
                     controller: controller,
                     javaScript: javaScript
@@ -360,7 +511,7 @@ import Foundation
                       for (const child of node.childNodes) visit(child);
                     };
                     visit(root);
-                    return parts.join(' ');
+                    return parts.join('');
                   };
                   const paintedElements = [];
                   const collectPainted = (root) => {
@@ -381,7 +532,12 @@ import Foundation
                     }
                     return null;
                   };
-                  collectPainted(document);
+                  const fileShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+                  const paintedCorrelationRoot =
+                    prior.reviewPaintedSourceMatched === true && fileShell !== null
+                      ? fileShell
+                      : document;
+                  collectPainted(paintedCorrelationRoot);
                   const correlations = paintedElements.flatMap((element) => {
                     try {
                       const values = JSON.parse(
@@ -399,6 +555,9 @@ import Foundation
                   });
                   const identityChainMatches = (correlation) => {
                     const paintedPublicationId = correlation?.paintedPublicationId;
+                    const pierreIdentityMatches = correlation?.surface === 'file'
+                      ? correlation?.pierreItemId === `file:${correlation?.itemId}`
+                      : correlation?.pierreItemId === correlation?.itemId;
                     return typeof correlation?.descriptorId === 'string' &&
                       correlation.descriptorId.length > 0 &&
                       typeof correlation?.requestId === 'string' &&
@@ -414,7 +573,7 @@ import Foundation
                       correlation?.semanticItemId === correlation?.itemId &&
                       typeof correlation?.pierreItemId === 'string' &&
                       correlation.pierreItemId.length > 0 &&
-                      correlation.pierreItemId === correlation.itemId &&
+                      pierreIdentityMatches &&
                       typeof paintedPublicationId === 'string' &&
                       paintedPublicationId.length > 0 &&
                       correlation?.publicationId === paintedPublicationId;
@@ -443,6 +602,10 @@ import Foundation
                   const reviewSelectionProbeCount = (name) => {
                     const value = Number(reviewSelectionProbe[name] ?? 0);
                     return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+                  };
+                  const reviewSelectionProbeEnum = (name, allowed, fallback) => {
+                    const value = reviewSelectionProbe[name];
+                    return typeof value === 'string' && allowed.includes(value) ? value : fallback;
                   };
                   const paintedElementCount = retainedCount(
                     'paintedElementCount', paintedElements.length
@@ -482,6 +645,63 @@ import Foundation
                     'reviewSelectionDroppedCount',
                     reviewSelectionProbeCount('selectionDroppedCount')
                   );
+                  const reviewSelectionLatestDispatchDisposition = reviewSelectionProbeEnum(
+                    'latestReviewSelectDispatchDisposition',
+                    ['dropped_detached', 'queued_not_ready', 'posted'],
+                    'not_sent'
+                  );
+                  const reviewSelectionLatestLifecycleState = reviewSelectionProbeEnum(
+                    'latestReviewSelectLifecycleState',
+                    ['not_sent', 'pending', 'acked', 'failed', 'timed_out', 'superseded'],
+                    'not_sent'
+                  );
+                  const pageReadyState = reviewSelectionProbeEnum(
+                    'pageReadyState',
+                    ['awaiting', 'ready', 'failed'],
+                    'awaiting'
+                  );
+                  const fileModeSendAttemptCount =
+                    reviewSelectionProbeCount('fileModeSendAttemptCount');
+                  const fileModeSendSynchronousFailureCount =
+                    reviewSelectionProbeCount('fileModeSendSynchronousFailureCount');
+                  const fileModeLatestDispatchDisposition = reviewSelectionProbeEnum(
+                    'latestFileModeDispatchDisposition',
+                    ['not_sent', 'dropped_detached', 'queued_not_ready', 'posted'],
+                    'not_sent'
+                  );
+                  const fileSelectionLatestDispatchDisposition = reviewSelectionProbeEnum(
+                    'latestFileSelectDispatchDisposition',
+                    ['not_sent', 'dropped_detached', 'queued_not_ready', 'posted'],
+                    'not_sent'
+                  );
+                  const fileSelectionLatestLifecycleState = reviewSelectionProbeEnum(
+                    'latestFileSelectLifecycleState',
+                    ['not_sent', 'pending', 'acked', 'failed', 'timed_out', 'superseded'],
+                    'not_sent'
+                  );
+                  const reviewSelectionSessionState = reviewSelectionProbeEnum(
+                    'sessionState',
+                    [
+                      'awaiting_bootstrap',
+                      'bootstrapping',
+                      'ready',
+                      'replacement_requested',
+                      'disposed'
+                    ],
+                    'awaiting_bootstrap'
+                  );
+                  const reviewSelectionQueuedCommandCount =
+                    reviewSelectionProbeCount('queuedCommandCount');
+                  const reviewSelectionReplacementRequestCount =
+                    reviewSelectionProbeCount('replacementRequestCount');
+                  const reviewSelectionNativeBootstrapInstallCount =
+                    reviewSelectionProbeCount('nativeBootstrapInstallCount');
+                  const reviewSelectionNativeBootstrapInstallAttemptCount =
+                    reviewSelectionProbeCount('nativeBootstrapInstallAttemptCount');
+                  const reviewSelectionNativeBootstrapInstallAcceptedCount =
+                    reviewSelectionProbeCount('nativeBootstrapInstallAcceptedCount');
+                  const reviewSelectionNativeBootstrapInstallRejectedCount =
+                    reviewSelectionProbeCount('nativeBootstrapInstallRejectedCount');
                   const activeViewerModeIsReview =
                     prior.activeViewerModeIsReview === true ||
                     appRoot?.getAttribute('data-bridge-viewer-mode') === 'review';
@@ -545,22 +765,34 @@ import Foundation
                     prior.reviewSelectedPathMatched === true || reviewSelectedPath === relativePath;
                   const fileButton = document.querySelector('[data-testid="bridge-viewer-context-file"]');
                   if (reviewPaintedSourceMatched && fileButton instanceof HTMLElement) fileButton.click();
-                  const fileShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+                  const fileViewerIsActive =
+                    fileShell?.getAttribute('data-file-viewer-active') === 'true';
                   const fileSelectedPath = fileShell?.getAttribute('data-selected-display-path') ?? '';
                   const fileSelectedItemId =
                     document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]')
                       ?.getAttribute('data-worktree-rendered-item-id') ?? '';
-                  if (reviewPaintedSourceMatched && fileSelectedPath !== relativePath) {
-                    const selector =
-                      `button[data-type="item"][data-item-type="file"][data-item-path="${CSS.escape(relativePath)}"]`;
-                    const row = queryOpenRoots(document, selector);
-                    if (row instanceof HTMLElement) row.click();
-                  }
                   const fileMatches = correlations.filter((value) =>
                     sourceMatches(value, 'file', 'file', fileSelectedItemId)
                   );
                   const filePaintedSourceMatched =
                     prior.filePaintedSourceMatched === true || fileMatches.length > 0;
+                  let fileSelectionActivationAttempted =
+                    prior.fileSelectionActivationAttempted === true;
+                  if (
+                    reviewPaintedSourceMatched &&
+                    fileViewerIsActive &&
+                    !filePaintedSourceMatched &&
+                    !fileSelectionActivationAttempted
+                  ) {
+                    const selector =
+                      `button[data-item-type="file"][data-item-path="${CSS.escape(relativePath)}"],` +
+                      `[data-type="item"][data-item-type="file"][data-item-path="${CSS.escape(relativePath)}"]`;
+                    const row = queryOpenRoots(fileShell, selector);
+                    if (row instanceof HTMLElement) {
+                      row.click();
+                      fileSelectionActivationAttempted = true;
+                    }
+                  }
                   const fileIdentityChainMatched =
                     prior.fileIdentityChainMatched === true ||
                     fileMatches.some(identityChainMatches);
@@ -599,7 +831,8 @@ import Foundation
                     filePaintedSourceMatched,
                     fileIdentityChainMatched,
                     filePaintedSourceMatchCount,
-                    fileSelectedPathMatched
+                    fileSelectedPathMatched,
+                    fileSelectionActivationAttempted
                   };
                   globalThis.__bridgeProductPaintCorrelationProbe = next;
                   return {
@@ -608,12 +841,18 @@ import Foundation
                     documentVisibilityState: document.visibilityState,
                     fileModeActivated:
                       fileButton?.getAttribute('data-bridge-viewer-context-selected') === 'true',
+                    fileModeLatestDispatchDisposition,
+                    fileModeSendAttemptCount,
+                    fileModeSendSynchronousFailureCount,
                     fileIdentityChainMatched,
                     filePaintedSourceMatched,
                     filePaintedSourceMatchCount,
+                    fileSelectionLatestDispatchDisposition,
+                    fileSelectionLatestLifecycleState,
                     fileSelectedPathMatched,
                     frameLivenessRafAlive:
                       globalThis.__bridgeFrameLivenessProbe?.rafAlive ?? 'missing',
+                    pageReadyState,
                     paintedElementCount,
                     reviewCanaryCandidateCount,
                     reviewDigestCandidateCount,
@@ -627,8 +866,17 @@ import Foundation
                     reviewSelectionFirstFrameReachedCount,
                     reviewSelectionInitialRequestedCount,
                     reviewSelectionInitialSchedulingAcceptedCount,
+                    reviewSelectionLatestDispatchDisposition,
+                    reviewSelectionLatestLifecycleState,
+                    reviewSelectionNativeBootstrapInstallAcceptedCount,
+                    reviewSelectionNativeBootstrapInstallAttemptCount,
+                    reviewSelectionNativeBootstrapInstallCount,
+                    reviewSelectionNativeBootstrapInstallRejectedCount,
+                    reviewSelectionQueuedCommandCount,
+                    reviewSelectionReplacementRequestCount,
                     reviewSelectionSecondFrameReachedCount,
                     reviewSelectionScheduledCount,
+                    reviewSelectionSessionState,
                     reviewSelectionSubmittedCount,
                     reviewSelectedItemCandidateCount,
                     reviewSelectedItemPresent,

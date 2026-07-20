@@ -138,7 +138,7 @@ describe('Bridge worker render fulfillment registry', () => {
 		});
 
 		// Act
-		const requeuedItemIds = registry.requeueActivePublicationsForSourceChurn(1);
+		const requeuedItemIds = registry.requeuePublicationsForSourceChurn(1);
 		const replacement = registry.beginPublication({
 			job: makeRenderJob('review-item-1'),
 			publicationSequence: 9,
@@ -152,7 +152,7 @@ describe('Bridge worker render fulfillment registry', () => {
 		expect(replacement.receiptIdentity.attemptId).not.toBe(first.receiptIdentity.attemptId);
 	});
 
-	test('retains already-painted unchanged content across source churn', () => {
+	test('revalidates already-painted unchanged content across source churn without reminting publication identity', () => {
 		// Arrange
 		const registry = createRegistry(reviewContext);
 		const first = registry.beginPublication({
@@ -165,21 +165,24 @@ describe('Bridge worker render fulfillment registry', () => {
 		registry.applyDisposition(disposition(first.receiptIdentity, 'painted', 3));
 
 		// Act
-		const requeuedItemIds = registry.requeueActivePublicationsForSourceChurn(4);
-		const retained = registry.beginPublication({
+		const requeuedItemIds = registry.requeuePublicationsForSourceChurn(4);
+		const revalidationState = registry.getItemState('review-item-1');
+		const replacement = registry.beginPublication({
 			job: makeRenderJob('review-item-1'),
 			publicationSequence: 9,
 			workerDerivationEpoch: 3,
 		});
 
 		// Assert
-		expect(requeuedItemIds).toEqual([]);
-		expect(retained).toMatchObject({
-			receiptIdentity: first.receiptIdentity,
-			shouldPublish: false,
-			status: 'duplicate',
+		expect(requeuedItemIds).toEqual(['review-item-1']);
+		expect(revalidationState).toMatchObject({
+			isDesired: true,
+			paintedResidency: first.receiptIdentity,
+			stage: 'desired',
 		});
-		expect(registry.getItemState('review-item-1')?.stage).toBe('painted');
+		expect(replacement).toMatchObject({ shouldPublish: true, status: 'published' });
+		expect(replacement.receiptIdentity.publicationId).toBe(first.receiptIdentity.publicationId);
+		expect(replacement.receiptIdentity.attemptId).not.toBe(first.receiptIdentity.attemptId);
 	});
 
 	test('replaces same-window publication authority when the surface derivation epoch advances', () => {

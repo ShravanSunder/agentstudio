@@ -108,6 +108,7 @@ function reviewSourceDisplayPatch(
 	}
 	const payload: BridgeWorkerReviewSourceDisplayPayload = {
 		metadataWindowIdentity: reviewMetadataWindowIdentity(snapshot),
+		reviewGeneration: snapshot.identity.generation,
 		status,
 		summary: snapshot.summary,
 		totalItemCount: snapshot.totalItemCount,

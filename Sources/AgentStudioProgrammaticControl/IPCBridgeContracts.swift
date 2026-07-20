@@ -192,6 +192,9 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
     public let activeViewerMode: String?
     public let documentVisibilityState: String?
     public let frameLivenessRafAlive: String?
+    public let reviewMetadataGeneration: Int?
+    public let reviewMetadataItemCount: Int?
+    public let reviewMetadataTreeRowCount: Int?
     public let reviewSelectedItemId: String?
     public let reviewCodeTextLength: Int?
     public let visibleHydrationStateProbe: IPCBridgeVisibleHydrationStateProbe?
@@ -222,6 +225,9 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
         activeViewerMode: String? = nil,
         documentVisibilityState: String? = nil,
         frameLivenessRafAlive: String? = nil,
+        reviewMetadataGeneration: Int? = nil,
+        reviewMetadataItemCount: Int? = nil,
+        reviewMetadataTreeRowCount: Int? = nil,
         reviewSelectedItemId: String? = nil,
         reviewCodeTextLength: Int? = nil,
         visibleHydrationStateProbe: IPCBridgeVisibleHydrationStateProbe? = nil,
@@ -251,6 +257,9 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
         self.activeViewerMode = activeViewerMode
         self.documentVisibilityState = documentVisibilityState
         self.frameLivenessRafAlive = frameLivenessRafAlive
+        self.reviewMetadataGeneration = reviewMetadataGeneration
+        self.reviewMetadataItemCount = reviewMetadataItemCount
+        self.reviewMetadataTreeRowCount = reviewMetadataTreeRowCount
         self.reviewSelectedItemId = reviewSelectedItemId
         self.reviewCodeTextLength = reviewCodeTextLength
         self.visibleHydrationStateProbe = visibleHydrationStateProbe

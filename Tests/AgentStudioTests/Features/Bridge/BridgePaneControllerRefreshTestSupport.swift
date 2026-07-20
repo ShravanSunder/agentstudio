@@ -41,11 +41,21 @@ func makeRefreshRevisionFixture() -> RefreshRevisionFixture {
         ),
         contentByHandleId: [:]
     )
+    let paneId = UUIDv7.generate()
     let controller = BridgePaneController(
-        paneId: UUIDv7.generate(),
+        paneId: paneId,
         state: BridgePaneState(
             panelKind: .diffViewer,
             source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+        ),
+        metadata: PaneMetadata(
+            contentType: .diff,
+            title: "Refresh revision",
+            facets: PaneContextFacets(
+                repoId: headEndpoint.repoId,
+                worktreeId: headEndpoint.worktreeId,
+                cwd: URL(fileURLWithPath: "/tmp/worktree")
+            )
         ),
         reviewSourceProvider: provider,
         initialPaneActivity: .foreground

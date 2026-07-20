@@ -11,6 +11,8 @@ import {
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	activateBridgeCommWorkerReviewViewerMode,
+	assertBridgeCommWorkerPreparationDrain,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 	makeImmediateReviewContentStream,
@@ -56,11 +58,12 @@ describe('Bridge comm worker Review product runtime', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'cross-surface-epoch');
 		await flushBridgeWorkerRuntimeContinuations();
 		events.push(reviewSnapshotWithContentEvent);
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(scheduledDrains).toHaveLength(1);
-		await requirePreparationDrain(scheduledDrains.shift())();
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains.shift())();
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Act
@@ -136,6 +139,7 @@ describe('Bridge comm worker Review product runtime', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'source-truth');
 
 		// Act
 		dispatch.message(
@@ -384,6 +388,7 @@ describe('Bridge comm worker Review product runtime', () => {
 			},
 			sendProductControl: async (): Promise<void> => {},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'pane-suppression');
 		await flushBridgeWorkerRuntimeContinuations();
 		events.push(reviewSnapshotWithContentEvent);
 		await flushBridgeWorkerRuntimeContinuations();
@@ -454,6 +459,160 @@ describe('Bridge comm worker Review product runtime', () => {
 		]);
 	});
 
+	test('aborts active Review content when File becomes the accepted viewer surface', async () => {
+		// Arrange
+		const events = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.metadata'>
+		>(64);
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const attempts: PendingReviewContentAttempt[] = [];
+		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+			cancel: async (): Promise<void> => {},
+			events,
+			subscriptionId: 'review-subscription-active-surface-lifecycle',
+			subscriptionKind: 'review.metadata',
+			update: async (): Promise<void> => {},
+		};
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			openReviewContent: (descriptor, abortSignal) =>
+				makePendingReviewContentStream({
+					abortSignal,
+					attempts,
+					descriptorId: descriptor.descriptorId,
+				}),
+			productTransport: makeProductTransport({ reviewSubscription, subscribedKinds: [] }),
+			schedulePreparationDrain: (drain): void => {
+				scheduledDrains.push(drain);
+			},
+			sendProductControl: async (): Promise<void> => {},
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+		events.push(reviewSnapshotWithContentEvent);
+		await flushBridgeWorkerRuntimeContinuations();
+		await drainBridgeCommWorkerPreparationUntilIdle(scheduledDrains);
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 1,
+				requestId: 'request-review-active-surface',
+				update: {
+					activeSource: null,
+					mode: 'review',
+					nativeSelectionRequestId: null,
+					sequence: 1,
+					sessionId: 'active-surface-lifecycle-session',
+				},
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 2,
+				requestId: 'request-review-active-surface-selection',
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+				surface: 'review',
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				epoch: 3,
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+				requestId: 'request-review-active-surface-viewport',
+				surface: 'review',
+				visibleItemIds: ['item-1'],
+			}),
+		);
+		await drainUntilReviewAttemptCount({ attempts, expectedCount: 2, scheduledDrains });
+
+		// Act
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 4,
+				requestId: 'request-file-active-surface',
+				update: {
+					activeSource: null,
+					mode: 'file',
+					nativeSelectionRequestId: null,
+					sequence: 2,
+					sessionId: 'active-surface-lifecycle-session',
+				},
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Assert
+		expect(attempts).toHaveLength(2);
+		expect(attempts.every(({ abortSignal }) => abortSignal.aborted)).toBe(true);
+
+		// Act
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				epoch: 5,
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+				requestId: 'request-inactive-review-viewport',
+				surface: 'review',
+				visibleItemIds: ['item-1'],
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(attempts).toHaveLength(2);
+
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 6,
+				requestId: 'request-review-active-surface-resume',
+				update: {
+					activeSource: null,
+					mode: 'review',
+					nativeSelectionRequestId: null,
+					sequence: 3,
+					sessionId: 'active-surface-lifecycle-session',
+				},
+			}),
+		);
+		await drainUntilReviewAttemptCount({ attempts, expectedCount: 4, scheduledDrains });
+
+		expect(attempts.slice(2).every(({ abortSignal }) => !abortSignal.aborted)).toBe(true);
+
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 5,
+				requestId: 'request-stale-file-active-surface',
+				update: {
+					activeSource: null,
+					mode: 'file',
+					nativeSelectionRequestId: null,
+					sequence: 4,
+					sessionId: 'active-surface-lifecycle-session',
+				},
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 7,
+				requestId: 'request-repeated-review-active-surface',
+				update: {
+					activeSource: null,
+					mode: 'review',
+					nativeSelectionRequestId: null,
+					sequence: 5,
+					sessionId: 'active-surface-lifecycle-session',
+				},
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(attempts).toHaveLength(4);
+		expect(attempts.slice(2).every(({ abortSignal }) => !abortSignal.aborted)).toBe(true);
+	});
+
 	test('opens a fresh Review stream when hidden and foreground frames arrive before abort continuations', async () => {
 		// Arrange
 		const events = new BridgeProductBoundedAsyncQueue<
@@ -496,6 +655,7 @@ describe('Bridge comm worker Review product runtime', () => {
 			},
 			sendProductControl: async (): Promise<void> => {},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'rapid-pane-resume');
 		await flushBridgeWorkerRuntimeContinuations();
 		events.push(reviewSnapshotWithContentEvent);
 		await flushBridgeWorkerRuntimeContinuations();
@@ -818,13 +978,6 @@ const reviewSnapshotWithContentEvent = {
 		},
 	],
 } satisfies BridgeProductSubscriptionEvent<'review.metadata'>;
-
-function requirePreparationDrain(
-	drain: BridgeCommWorkerPreparationDrain | undefined,
-): BridgeCommWorkerPreparationDrain {
-	if (drain === undefined) throw new Error('Expected a Bridge comm-worker preparation drain.');
-	return drain;
-}
 
 async function drainBridgeCommWorkerPreparationUntilIdle(
 	scheduledDrains: BridgeCommWorkerPreparationDrain[],

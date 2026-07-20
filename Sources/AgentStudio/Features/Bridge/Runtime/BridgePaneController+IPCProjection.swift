@@ -25,6 +25,9 @@ private struct BridgePageRenderSnapshot: Decodable {
     let activeViewerMode: String?
     let documentVisibilityState: String?
     let frameLivenessRafAlive: String?
+    let reviewMetadataGeneration: Int?
+    let reviewMetadataItemCount: Int?
+    let reviewMetadataTreeRowCount: Int?
     let reviewSelectedItemId: String?
     let reviewCodeTextLength: Int?
     let pageErrorCount: Int
@@ -146,6 +149,9 @@ extension BridgePaneController {
                     activeViewerMode: snapshot.activeViewerMode,
                     documentVisibilityState: snapshot.documentVisibilityState,
                     frameLivenessRafAlive: snapshot.frameLivenessRafAlive,
+                    reviewMetadataGeneration: snapshot.reviewMetadataGeneration,
+                    reviewMetadataItemCount: snapshot.reviewMetadataItemCount,
+                    reviewMetadataTreeRowCount: snapshot.reviewMetadataTreeRowCount,
                     reviewSelectedItemId: snapshot.reviewSelectedItemId,
                     reviewCodeTextLength: snapshot.reviewCodeTextLength,
                     visibleHydrationStateProbe: snapshot.visibleHydrationStateProbe,
@@ -581,6 +587,21 @@ extension BridgePaneController {
             objectOrNull(window.__bridgeFrameLivenessProbe)?.rafAlive,
             ['true', 'false', 'unknown']
           );
+          const reviewMetadataGeneration = reviewShell === null
+            ? null
+            : nonnegativeIntegerOrNull(
+                reviewShell.getAttribute('data-review-metadata-generation')
+              );
+          const reviewMetadataItemCount = reviewShell === null
+            ? null
+            : nonnegativeIntegerOrNull(
+                reviewShell.getAttribute('data-review-metadata-item-count')
+              );
+          const reviewMetadataTreeRowCount = reviewShell === null
+            ? null
+            : nonnegativeIntegerOrNull(
+                reviewShell.getAttribute('data-review-metadata-tree-row-count')
+              );
           const reviewCodePanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
           const reviewSelectedItemId = clippedNonemptyStringOrNull(
             reviewCodePanel?.getAttribute('data-selected-item-id'),
@@ -629,6 +650,9 @@ extension BridgePaneController {
             activeViewerMode,
             documentVisibilityState,
             frameLivenessRafAlive,
+            reviewMetadataGeneration,
+            reviewMetadataItemCount,
+            reviewMetadataTreeRowCount,
             reviewSelectedItemId,
             reviewCodeTextLength,
             pageErrorCount: errorProbe.length,

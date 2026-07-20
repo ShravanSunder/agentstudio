@@ -616,6 +616,7 @@ function reviewDisplayEvent(
 				operation: 'upsert',
 				payload: {
 					metadataWindowIdentity,
+					reviewGeneration: 1,
 					status: 'ready',
 					summary: {
 						additions: files.length,
@@ -688,6 +689,7 @@ function reviewDisplayAppendEvent(
 				operation: 'upsert',
 				payload: {
 					metadataWindowIdentity: 'review-recovery-witness-window-r2',
+					reviewGeneration: 1,
 					status: 'ready',
 					summary: {
 						additions: files.length,

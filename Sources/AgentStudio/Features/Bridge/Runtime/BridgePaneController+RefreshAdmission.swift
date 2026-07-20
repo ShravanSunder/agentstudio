@@ -162,7 +162,8 @@ extension BridgePaneController {
             return fileRefreshFailed ? .failed : .succeeded
         }
         let reviewOutcome = await refreshCurrentReviewPackage(
-            foregroundWorkAdmission: reservation.foregroundWorkAdmission
+            foregroundWorkAdmission: reservation.foregroundWorkAdmission,
+            productAdmission: productAdmission
         )
         guard reviewOutcome == .succeeded else { return reviewOutcome }
         return fileRefreshFailed ? .failed : .succeeded

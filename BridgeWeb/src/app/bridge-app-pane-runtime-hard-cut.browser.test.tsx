@@ -10,6 +10,10 @@ import {
 } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeWorkerRpcCommandInput } from '../core/comm-worker/bridge-worker-rpc-client.js';
 import {
+	readBridgeReviewSelectionDiagnostic,
+	resetBridgeReviewSelectionDiagnosticForTesting,
+} from '../foundation/diagnostics/bridge-review-selection-diagnostic.js';
+import {
 	actClick,
 	actWait,
 	installBridgeReadyHandshake,
@@ -24,12 +28,28 @@ import {
 } from './bridge-app-pane-runtime-position-test-support.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 
+type PaneRuntimeCommandLedgerEntry =
+	| {
+			readonly command: BridgeWorkerRpcCommandInput;
+			readonly owner: 'pane';
+	  }
+	| {
+			readonly command: BridgeWorkerRpcCommandInput;
+			readonly owner: 'surface';
+			readonly surface: 'fileView' | 'review';
+	  };
+
 const paneRuntimeObservation = vi.hoisted(() => ({
+	commandLedger: [] as PaneRuntimeCommandLedgerEntry[],
 	createCount: 0,
 	disposeCount: 0,
 	paneCommands: [] as BridgeWorkerRpcCommandInput[],
 	paneMessageListeners: [] as Array<(message: BridgeWorkerServerToMainMessage) => void>,
 	renderStores: new Map<'fileView' | 'review', BridgeMainRenderSnapshotStore>(),
+	surfaceCommands: [] as Array<{
+		readonly command: BridgeWorkerRpcCommandInput;
+		readonly surface: 'fileView' | 'review';
+	}>,
 	surfaceRequests: [] as Array<'fileView' | 'review'>,
 }));
 
@@ -72,7 +92,8 @@ vi.mock('../core/comm-worker/bridge-pane-runtime.js', async (importOriginal) => 
 							renderFulfillmentCoordinator,
 							renderStore,
 							send: (command: BridgeWorkerRpcCommandInput): string => {
-								void command;
+								paneRuntimeObservation.surfaceCommands.push({ command, surface });
+								paneRuntimeObservation.commandLedger.push({ command, owner: 'surface', surface });
 								surfaceRequestSequence += 1;
 								return `surface-command-${surface}-${surfaceRequestSequence}`;
 							},
@@ -111,6 +132,7 @@ vi.mock('../core/comm-worker/bridge-pane-runtime.js', async (importOriginal) => 
 					},
 					send: (command: BridgeWorkerRpcCommandInput): string => {
 						paneRuntimeObservation.paneCommands.push(command);
+						paneRuntimeObservation.commandLedger.push({ command, owner: 'pane' });
 						const requestId = `pane-command-${paneRuntimeObservation.paneCommands.length}`;
 						for (const listener of paneRuntimeObservation.paneMessageListeners) {
 							listener({
@@ -153,12 +175,15 @@ describe('BridgeApp pane runtime hard cut', () => {
 			await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
 		});
 		vi.restoreAllMocks();
+		paneRuntimeObservation.commandLedger = [];
 		paneRuntimeObservation.createCount = 0;
 		paneRuntimeObservation.disposeCount = 0;
 		paneRuntimeObservation.paneCommands = [];
 		paneRuntimeObservation.paneMessageListeners = [];
 		paneRuntimeObservation.renderStores.clear();
+		paneRuntimeObservation.surfaceCommands = [];
 		paneRuntimeObservation.surfaceRequests = [];
+		resetBridgeReviewSelectionDiagnosticForTesting();
 		document.body.replaceChildren();
 	});
 
@@ -201,6 +226,149 @@ describe('BridgeApp pane runtime hard cut', () => {
 			expect.arrayContaining(['fileView', 'review']),
 		);
 		expect(paneRuntimeObservation.disposeCount).toBe(0);
+	});
+
+	test('forwards one initial Review activation after bridge readiness', async () => {
+		// Arrange
+		const handshake = installBridgeReadyHandshake();
+		await actWait(async (): Promise<void> => {
+			render(
+				<BridgeAppProtocolRouter
+					codeViewWorkerPoolEnabled={false}
+					fileViewerProps={{ autoOpenInitialFile: false }}
+					protocol="review"
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		// Act
+		expect(
+			await pollWithinActUntilEqual(
+				() => readBridgeReviewSelectionDiagnostic()?.pageReadyState ?? null,
+				'ready',
+			),
+		).toBe('ready');
+		await actWait(() => Promise.resolve());
+
+		// Assert
+		const activeViewerModeUpdates = paneRuntimeObservation.paneCommands.filter(
+			(command): boolean => command.command === 'activeViewerModeUpdate',
+		);
+		expect(activeViewerModeUpdates).toHaveLength(1);
+		expect(activeViewerModeUpdates[0]).toEqual({
+			command: 'activeViewerModeUpdate',
+			direction: 'mainToServerWorker',
+			epoch: 1,
+			kind: 'command',
+			requestId: 'pane-runtime-owned',
+			transferDescriptors: [],
+			update: {
+				activeSource: null,
+				mode: 'review',
+				nativeSelectionRequestId: null,
+				sequence: 1,
+				sessionId: expect.any(String),
+			},
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+		handshake.dispose();
+	});
+
+	test('forwards one local File activation before the selected File row', async () => {
+		// Arrange
+		const handshake = installBridgeReadyHandshake();
+		await actWait(async (): Promise<void> => {
+			render(
+				<BridgeAppProtocolRouter
+					codeViewWorkerPoolEnabled={false}
+					fileViewerProps={{ autoOpenInitialFile: false }}
+					protocol="review"
+				/>,
+			);
+			await Promise.resolve();
+		});
+		await actWait(async (): Promise<void> => {
+			installBridgePanePositionFixtures({
+				fileRenderStore: requireRenderStore('fileView'),
+				reviewRenderStore: requireRenderStore('review'),
+			});
+			await Promise.resolve();
+		});
+		const appRoot = requireHTMLElement(document.querySelector('[data-testid="bridge-app-root"]'));
+		const reviewHost = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-mode-host-review"]'),
+		);
+		const reviewCodePanel = requireHTMLElement(
+			await pollWithinActUntilTruthy(() =>
+				reviewHost.querySelector('[data-testid="bridge-code-view-panel"]'),
+			),
+		);
+		expect(
+			await pollWithinActUntilEqual(
+				() => reviewCodePanel.getAttribute('data-code-view-item-count'),
+				'80',
+			),
+		).toBe('80');
+		expect(reviewCodePanel.getAttribute('data-selected-item-id')).toBe(
+			bridgePanePositionReviewItemId,
+		);
+		const activationLedgerStartIndex = paneRuntimeObservation.commandLedger.length;
+
+		// Act
+		await actClick(requireActiveContextButton('file'));
+		expect(
+			await pollWithinActUntilEqual(() => appRoot.getAttribute('data-bridge-viewer-mode'), 'file'),
+		).toBe('file');
+		const fileRow = requireHTMLElement(
+			await pollWithinActUntilTruthy(() => fileTreeRowForPath(bridgePanePositionFilePath)),
+		);
+		await actClick(fileRow);
+		const fileSelectCommand = await pollWithinActUntilTruthy(() =>
+			paneRuntimeObservation.surfaceCommands.find(
+				({ command, surface }): boolean =>
+					surface === 'fileView' &&
+					command.command === 'select' &&
+					command.selectedItemId === 'position-file-001',
+			),
+		);
+
+		// Assert
+		const activationLedger = paneRuntimeObservation.commandLedger.slice(activationLedgerStartIndex);
+		const fileSelectLedgerIndex = activationLedger.findIndex(
+			(entry): boolean =>
+				entry.owner === 'surface' &&
+				entry.surface === 'fileView' &&
+				entry.command.command === 'select' &&
+				entry.command.selectedItemId === 'position-file-001',
+		);
+		expect(fileSelectLedgerIndex).toBeGreaterThan(-1);
+		const fileActivationUpdatesBeforeSelect = activationLedger
+			.slice(0, fileSelectLedgerIndex)
+			.filter(
+				(entry): boolean =>
+					entry.owner === 'pane' &&
+					entry.command.command === 'activeViewerModeUpdate' &&
+					entry.command.update.mode === 'file' &&
+					entry.command.update.activeSource === null &&
+					entry.command.update.nativeSelectionRequestId === null,
+			);
+		expect(fileActivationUpdatesBeforeSelect).toHaveLength(1);
+		expect(fileSelectCommand).toMatchObject({
+			command: {
+				command: 'select',
+				selectedItemId: 'position-file-001',
+				selectedSource: 'user',
+				surface: 'fileView',
+			},
+			surface: 'fileView',
+		});
+		expect(readBridgeReviewSelectionDiagnostic()).toMatchObject({
+			fileModeSendAttemptCount: 2,
+			fileModeSendSynchronousFailureCount: 0,
+			pageReadyState: 'ready',
+		});
+		handshake.dispose();
 	});
 
 	test('retains real File and Review tree and code positions across native surface requests', async () => {
@@ -436,14 +604,11 @@ describe('BridgeApp pane runtime hard cut', () => {
 		).toBe('review');
 		const reviewSearchInputAfterReturn = reviewSearchInputWithin(reviewHost);
 		const reviewSearchValueAfterReturn = reviewSearchInputAfterReturn?.value;
-		await actWait(async (): Promise<void> => {
-			reviewSearchInputAfterReturn?.dispatchEvent(
-				new KeyboardEvent('keydown', { bubbles: true, composed: true, key: 'Escape' }),
-			);
-			await Promise.resolve();
-		});
+		await actClick(
+			requireHTMLElement(reviewHost.querySelector('[data-testid="bridge-review-search-clear"]')),
+		);
 		await advanceAnimationFrame();
-		const reviewSearchValueAfterExplicitClose = reviewSearchInputWithin(reviewHost)?.value;
+		const reviewSearchInputAfterExplicitClear = reviewSearchInputWithin(reviewHost);
 
 		// Assert: probes and current production state move together; invalid input is inert.
 		expect.soft(probes).toMatchObject([
@@ -467,9 +632,9 @@ describe('BridgeApp pane runtime hard cut', () => {
 			{ method: 'bridge.fileTree.search', status: 'accepted', treeSearchText: 'PositionFile080' },
 		]);
 		expect.soft(reviewCodePanel.getAttribute('data-selected-item-id')).toBe(selectedReviewItemId);
-		expect.soft(reviewSearchValueAfterCommand).toBe('positionreview080');
-		expect.soft(reviewSearchValueAfterReturn).toBe('positionreview080');
-		expect.soft(reviewSearchValueAfterExplicitClose).toBe('');
+		expect.soft(reviewSearchValueAfterCommand).toBe('PositionReview080');
+		expect.soft(reviewSearchValueAfterReturn).toBe('PositionReview080');
+		expect.soft(reviewSearchInputAfterExplicitClear).toBeNull();
 		expect
 			.soft(fileShell.getAttribute('data-selected-display-path'))
 			.toBe(bridgePanePositionFilePath);
@@ -698,14 +863,24 @@ async function dispatchBridgePageControl(
 }
 
 function reviewSearchInputWithin(reviewHost: HTMLElement): HTMLInputElement | null {
-	const treeContainer = reviewHost.querySelector('file-tree-container');
-	const searchInput = treeContainer?.shadowRoot?.querySelector('[data-file-tree-search-input]');
+	const searchInput = reviewHost.querySelector('[data-testid="bridge-review-search-input"]');
 	return searchInput instanceof HTMLInputElement ? searchInput : null;
 }
 
 function fileSearchInput(): HTMLInputElement | null {
 	const searchInput = document.querySelector('[data-testid="worktree-file-search-input"]');
 	return searchInput instanceof HTMLInputElement ? searchInput : null;
+}
+
+function fileTreeRowForPath(path: string): HTMLElement | null {
+	const treeHost = document.querySelector(
+		'[data-testid="bridge-file-viewer-pierre-file-tree"] file-tree-container',
+	);
+	if (!(treeHost instanceof HTMLElement) || treeHost.shadowRoot === null) return null;
+	const row = treeHost.shadowRoot.querySelector(
+		`[data-item-type="file"][data-item-path="${CSS.escape(path)}"]`,
+	);
+	return row instanceof HTMLElement ? row : null;
 }
 
 function requireActiveContextButton(mode: 'file' | 'review'): HTMLElement {

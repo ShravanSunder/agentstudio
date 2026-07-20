@@ -104,19 +104,32 @@ extension WebKitSerializedTests {
     @MainActor
     @Suite(.serialized)
     struct BridgeProductRealGitFileAndReviewWebKitTests {
-        private struct LiveProof {
+        struct LiveProof {
             let fileDOMAfterFileSwitch: BridgeProductWebKitCarrierDOMSnapshot
             let fileModeActivated: Bool
             let filePathSelected: Bool
+            let initialReviewGeneration: Int
             let native: BridgeProductWebKitCarrierNativeSnapshot
             let reviewDOMBeforeFileSwitch: BridgeProductWebKitCarrierDOMSnapshot
+            let reviewMetadataItemCount: Int
             let sourceOracle: LiveSourceOracle
+            let successorReviewGeneration: Int
             let trace: BridgeProductWebKitCarrierTrace
         }
 
-        private struct LiveSourceOracle {
+        struct LiveReviewMetadataDOMSnapshot: Decodable {
+            let itemCount: Int
+            let reviewGeneration: Int
+        }
+
+        struct LiveSourceOracle {
             let canaryText: String
             let path: String
+        }
+
+        enum LiveProofError: Error {
+            case initialReviewPublicationMissing
+            case successorReviewPublicationMissing
         }
 
         private struct TransactionalPublicationHarness {
@@ -183,7 +196,7 @@ extension WebKitSerializedTests {
             // Arrange
             let repoURL = try FilesystemTestGitRepo.create(named: "bridge-product-file-review-webkit")
             defer { FilesystemTestGitRepo.destroy(repoURL) }
-            try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
+            try seedHeavyReviewChanges(at: repoURL, trackedFileCount: 128)
             let sourceOracle = LiveSourceOracle(canaryText: "updated", path: "tracked.txt")
             let traceRecorder = BridgeProductWebKitCarrierTraceRecorder()
             let controller = makeController(
@@ -580,11 +593,11 @@ extension WebKitSerializedTests {
             else {
                 throw TransactionalPublicationTestError.replayDidNotApply
             }
-            let finalState = controller.reviewPublicationCoordinator.diagnosticSnapshot
             let receiptsAfterReplay = harness.controllerTarget.applicationReceipts
             _ = controller.reviewPublicationCoordinator.settleContentLease(
                 firstCheckpoint.retiringLease
             )
+            let finalState = controller.reviewPublicationCoordinator.diagnosticSnapshot
             return TransactionalPublicationProof(
                 applicationReceiptsAfterReplay: receiptsAfterReplay,
                 applicationReceiptsBeforeReplay: receiptsBeforeReplay,
@@ -685,6 +698,42 @@ extension WebKitSerializedTests {
             }
         }
 
+        private func seedHeavyReviewChanges(
+            at repoURL: URL,
+            trackedFileCount: Int
+        ) throws {
+            precondition(trackedFileCount >= 128)
+            let trackedPaths =
+                ["tracked.txt"]
+                + (1..<trackedFileCount).map { index in
+                    String(format: "zz-heavy-review-%03d.txt", index)
+                }
+            for (index, path) in trackedPaths.enumerated() {
+                try "initial \(index)\n".write(
+                    to: repoURL.appending(path: path),
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+            try FilesystemTestGitRepo.runGit(at: repoURL, args: ["add"] + trackedPaths)
+            try FilesystemTestGitRepo.runGit(
+                at: repoURL,
+                args: ["commit", "-m", "Seed heavy Review fixture"]
+            )
+            for (index, path) in trackedPaths.enumerated() {
+                try "initial \(index)\nupdated \(index)\n".write(
+                    to: repoURL.appending(path: path),
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+            try "new file\n".write(
+                to: repoURL.appending(path: "untracked.txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
         private func makeController(
             repoURL: URL,
             traceRecorder: BridgeProductWebKitCarrierTraceRecorder
@@ -717,6 +766,7 @@ extension WebKitSerializedTests {
                     gitReadContext: gitReadContext
                 ),
                 gitReadContext: gitReadContext,
+                worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator(),
                 telemetryRuntimePolicy: .live,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
                 telemetryRecorder: traceRecorder,
@@ -724,84 +774,30 @@ extension WebKitSerializedTests {
             )
         }
 
-        private func collectLiveProof(
-            controller: BridgePaneController,
-            sourceOracle: LiveSourceOracle,
-            traceRecorder: BridgeProductWebKitCarrierTraceRecorder
-        ) async throws -> BridgeProductWebKitCarrierRunResult<LiveProof> {
-            try await BridgeProductWebKitCarrierTestSupport.withHostedController(controller) { hostedController in
-                hostedController.loadApp()
-
-                _ = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(15)) {
-                    let dom = await BridgeProductWebKitCarrierTestSupport.domSnapshot(
-                        hostedController.page
-                    )
-                    let native = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(
-                        hostedController
-                    )
-                    return dom?.hasAppRoot == true && native.lifecycle == "active"
-                }
-                _ = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(15)) {
-                    let trace = await traceRecorder.scrubbedTrace()
-                    return trace.hasCanonicalEagerSubscriptions && trace.hasFileMetadataWindow
-                }
-                _ = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(15)) {
-                    await traceRecorder.scrubbedTrace().hasReviewMetadataPublication
-                }
-                _ = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(15)) {
-                    let dom = await BridgeProductWebKitCarrierTestSupport.domSnapshot(
-                        hostedController.page
-                    )
-                    guard let dom, let reviewRenderedItemId = dom.reviewRenderedItemId else {
-                        return false
-                    }
-                    return dom.hasReviewShell
-                        && dom.hasReviewCodeViewPanel
-                        && dom.reviewSelectedContentState == "ready"
-                        && dom.reviewRenderedItemId == reviewRenderedItemId
-                }
-                let reviewDOMBeforeFileSwitch =
-                    await BridgeProductWebKitCarrierTestSupport.domSnapshot(
-                        hostedController.page
-                    ) ?? .unavailable
-                let fileModeActivated = await BridgeProductWebKitCarrierTestSupport.activateFileMode(
-                    hostedController.page
+        func reviewMetadataDOMSnapshot(
+            _ controller: BridgePaneController
+        ) async -> LiveReviewMetadataDOMSnapshot? {
+            do {
+                let encodedSnapshot = try await controller.page.callJavaScript(
+                    """
+                    const shell = document.querySelector('[data-testid="review-viewer-shell"]');
+                    return JSON.stringify({
+                      itemCount: Number(shell?.getAttribute('data-review-metadata-item-count') ?? '0'),
+                      reviewGeneration: Number(shell?.getAttribute('data-review-metadata-generation') ?? '0')
+                    });
+                    """
                 )
-                let filePathSelected: Bool
-                if fileModeActivated {
-                    filePathSelected = await BridgeProductWebKitCarrierTestSupport.waitUntil(
-                        timeout: .seconds(15)
-                    ) {
-                        await BridgeProductWebKitCarrierTestSupport.selectFilePath(
-                            hostedController.page,
-                            path: sourceOracle.path
-                        )
-                    }
-                } else {
-                    filePathSelected = false
+                guard let encodedSnapshot = encodedSnapshot as? String,
+                    let snapshotData = encodedSnapshot.data(using: .utf8)
+                else {
+                    return nil
                 }
-                _ = await BridgeProductWebKitCarrierTestSupport.waitUntil(
-                    timeout: .seconds(15)
-                ) {
-                    let dom = await BridgeProductWebKitCarrierTestSupport.domSnapshot(
-                        hostedController.page
-                    )
-                    return dom?.fileReadableText.contains(sourceOracle.canaryText) == true
-                }
-                let fileDOMAfterFileSwitch =
-                    await BridgeProductWebKitCarrierTestSupport.domSnapshot(
-                        hostedController.page
-                    ) ?? .unavailable
-
-                return LiveProof(
-                    fileDOMAfterFileSwitch: fileDOMAfterFileSwitch,
-                    fileModeActivated: fileModeActivated,
-                    filePathSelected: filePathSelected,
-                    native: await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(hostedController),
-                    reviewDOMBeforeFileSwitch: reviewDOMBeforeFileSwitch,
-                    sourceOracle: sourceOracle,
-                    trace: await traceRecorder.scrubbedTrace()
+                return try JSONDecoder().decode(
+                    LiveReviewMetadataDOMSnapshot.self,
+                    from: snapshotData
                 )
+            } catch {
+                return nil
             }
         }
 
@@ -829,6 +825,14 @@ extension WebKitSerializedTests {
             #expect(
                 run.value.trace.hasReviewMetadataPublication,
                 "W0 product seam: production agentstudio-git Review metadata did not reach the worker stream; trace=\(run.value.trace)"
+            )
+            #expect(
+                run.value.reviewMetadataItemCount >= 128,
+                "W0 product seam: the worker did not publish the complete heavy Review metadata set; itemCount=\(run.value.reviewMetadataItemCount), trace=\(run.value.trace)"
+            )
+            #expect(
+                run.value.successorReviewGeneration > run.value.initialReviewGeneration,
+                "W0 product seam: the production refresh did not replace the initial Review publication; initialGeneration=\(run.value.initialReviewGeneration), successorGeneration=\(run.value.successorReviewGeneration)"
             )
             #expect(
                 run.value.native.nextControlRequestSequence > 1,
@@ -863,6 +867,14 @@ extension WebKitSerializedTests {
             #expect(
                 reviewDOM.reviewRenderedItemId?.isEmpty == false,
                 "G0 PACKAGED SEMANTIC ITEM MISSING: rendered Review item did not retain its canonical semantic identity"
+            )
+            #expect(
+                reviewDOM.correlations.contains { correlation in
+                    correlation.semanticItemId == reviewDOM.reviewRenderedItemId
+                        && correlation.sourceGeneration == run.value.successorReviewGeneration
+                        && correlation.readableText.contains(run.value.sourceOracle.canaryText)
+                },
+                "G0 PACKAGED SOURCE CORRELATION MISSING: refreshed selected Review content did not paint from the successor production stream; generation=\(run.value.successorReviewGeneration), host=\(run.hostSnapshot), reviewDOM=\(reviewDOM)"
             )
             #expect(
                 run.value.fileModeActivated,

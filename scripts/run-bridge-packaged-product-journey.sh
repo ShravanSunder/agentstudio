@@ -46,6 +46,7 @@ if [ "$dry_run" = true ]; then
   echo "dry-run contract: delegates to the standard debug observability runner"
   echo "dry-run contract: requires strict LaunchServices with direct fallback disabled"
   echo "dry-run contract: creates a private disposable hierarchical Git fixture outside the repo"
+  echo "dry-run contract: starts with 257 initial Review diffs across the hierarchical fixture"
   echo "dry-run contract: starts the bridge-product-paint-correlation diagnostic with one-shot IPC escrow"
   echo "dry-run contract: preserves the fixture and app for verification"
   exit 0
@@ -96,6 +97,19 @@ sha256_for_file() {
   "$SHASUM_BIN" -a 256 "$file_path" | awk '{ print $1 }'
 }
 
+fixture_digest_for_current_worktree() {
+  local fixture_path="${1:?missing fixture path}"
+  local fixture_baseline="${2:?missing fixture baseline}"
+  local content_oid
+  {
+    printf 'baseline\0%s\0' "$fixture_baseline"
+    while IFS= read -r -d '' relative_path; do
+      content_oid="$($GIT_BIN -C "$fixture_path" hash-object -- "$relative_path")"
+      printf 'path\0%s\0blob\0%s\0' "$relative_path" "$content_oid"
+    done < <("$GIT_BIN" -C "$fixture_path" ls-files -z)
+  } | "$SHASUM_BIN" -a 256 | awk '{ print $1 }'
+}
+
 identity_output="$($STANDARD_DEBUG_RUNNER --print-identity)"
 debug_code="$(identity_value AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE)"
 debug_data_root="$(identity_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
@@ -119,6 +133,8 @@ chmod 700 "$journey_root" "$fixture_root"
 journey_status=preparing
 journey_reason=""
 fixture_file_count=0
+review_diff_count=0
+fixture_digest=""
 baseline_commit=""
 tracked_relative_path=tracked.txt
 tracked_sha256=""
@@ -147,6 +163,8 @@ write_receipt() {
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_ROOT "$fixture_root"
     write_state_value STARTUP_ACTION bridge-product-paint-correlation
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_FILE_COUNT "$fixture_file_count"
+    write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_REVIEW_DIFF_COUNT "$review_diff_count"
+    write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_DIGEST "$fixture_digest"
     write_state_value BASELINE_COMMIT "$baseline_commit"
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_TRACKED_PATH "$tracked_relative_path"
     write_state_value TRACKED_CANARY bridge-product-paint-canary
@@ -213,14 +231,37 @@ baseline_commit="$($GIT_BIN -C "$fixture_root" rev-parse HEAD)"
 
 printf 'bridge-product-paint-canary\npackaged-journey-selected-source\n' \
   >"$fixture_root/$tracked_relative_path"
+for index in $(seq 0 255); do
+  group_index=$((index / 32))
+  segment_index=$(((index % 32) / 8))
+  printf -v relative_path 'tree/group-%02d/segment-%02d/file-%03d.swift' \
+    "$group_index" "$segment_index" "$index"
+  printf '\nbridge-packaged-live::%s\n' "$relative_path" >>"$fixture_root/$relative_path"
+done
 tracked_sha256="$(sha256_for_file "$fixture_root/$tracked_relative_path")"
 tracked_byte_count="$(wc -c <"$fixture_root/$tracked_relative_path" | tr -d '[:space:]')"
 
-fixture_status="$($GIT_BIN -C "$fixture_root" status --short)"
-if [ "$fixture_status" != " M $tracked_relative_path" ]; then
-  echo "fixture tracked mutation is not the only expected startup change: $fixture_status" >&2
+review_diff_count="$(
+  "$GIT_BIN" -C "$fixture_root" diff --name-only "$baseline_commit" -- \
+    | awk 'NF { count += 1 } END { print count + 0 }'
+)"
+if [ "$review_diff_count" -ne "$fixture_file_count" ]; then
+  echo "fixture Review diff count mismatch: expected $fixture_file_count, observed $review_diff_count" >&2
   exit 1
 fi
+if [ "$review_diff_count" -lt 100 ]; then
+  echo "fixture Review diff count is below the required minimum: $review_diff_count" >&2
+  exit 1
+fi
+if ! "$GIT_BIN" -C "$fixture_root" diff --cached --quiet --; then
+  echo "fixture contains unexpected staged changes after its baseline commit" >&2
+  exit 1
+fi
+if [ -n "$("$GIT_BIN" -C "$fixture_root" ls-files --others --exclude-standard)" ]; then
+  echo "fixture contains unexpected untracked files after its baseline commit" >&2
+  exit 1
+fi
+fixture_digest="$(fixture_digest_for_current_worktree "$fixture_root" "$baseline_commit")"
 
 journey_status=fixture_ready
 write_receipt "$journey_status" ""

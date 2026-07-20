@@ -871,6 +871,7 @@ function reviewDisplayPatchEvent(props: {
 				operation: 'upsert',
 				payload: {
 					metadataWindowIdentity: `review-window-epoch-${props.epoch}`,
+					reviewGeneration: props.epoch,
 					status: 'ready',
 					summary: {
 						additions: 0,

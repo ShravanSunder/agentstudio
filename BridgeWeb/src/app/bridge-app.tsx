@@ -30,6 +30,11 @@ import { bridgeTelemetryCompactSampleForEvent } from '../core/telemetry-worker/b
 import type { BridgeFileViewerAppProps } from '../file-viewer/bridge-file-viewer-app.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
 import {
+	recordBridgeFileModeSendAttempt,
+	recordBridgeFileModeSendSynchronousFailure,
+	recordBridgePageReadyState,
+} from '../foundation/diagnostics/bridge-review-selection-diagnostic.js';
+import {
 	createBridgeTelemetryRecorder,
 	createBridgeTelemetryRecorderFromClient,
 	type BridgeTelemetryRecorder,
@@ -160,7 +165,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const activeViewerModeSessionIdRef = useRef<string>(createBridgeActiveViewerModeSessionId());
 	const activeViewerModeSequenceRef = useRef(0);
 	const activeViewerModeRef = useRef<BridgeViewerMode>(activeViewerState.viewerMode);
-	const previousActiveViewerModeRef = useRef<BridgeViewerMode>(activeViewerState.viewerMode);
+	const previousActiveViewerModeRef = useRef<BridgeViewerMode | null>(null);
 	const activeViewerModeActivationRevisionRef = useRef(0);
 	const lastSentActiveViewerModeSignalKeyRef = useRef<string | null>(null);
 	const activeViewerModeSourceSentActivationRevisionsRef = useRef<Set<number>>(new Set());
@@ -249,6 +254,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		[activateViewerMode],
 	);
 	useEffect((): (() => void) => {
+		recordBridgePageReadyState('awaiting');
 		let telemetryConfigurationSequence = 0;
 		let isEffectInstalled = true;
 		const requestReplacementNativeBootstrap = (): void => {
@@ -397,6 +403,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				paneRuntimeHost.runtime.installNativeBootstrap(productSessionBootstrap);
 			},
 			onReady: (): void => {
+				recordBridgePageReadyState('ready');
 				isBridgeReadyRef.current = true;
 				isBridgeReadyGateOpenRef.current = true;
 				queueMicrotask((): void => {
@@ -409,6 +416,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				});
 			},
 			onReadyError: (): void => {
+				recordBridgePageReadyState('failed');
 				isBridgeReadyRef.current = false;
 				isBridgeReadyGateOpenRef.current = false;
 			},
@@ -439,6 +447,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			handshakeSessionRef.current = null;
 			isBridgeReadyRef.current = false;
 			isBridgeReadyGateOpenRef.current = false;
+			recordBridgePageReadyState('awaiting');
 			telemetryRecorderRef.current = createBridgeTelemetryRecorder(null);
 			const telemetryWorkerSession = telemetryWorkerSessionRef.current;
 			telemetryWorkerSessionRef.current = null;
@@ -483,6 +492,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const sendActiveViewerModeWorkerUpdate = useCallback(
 		(update: BridgeActiveViewerModeUpdate): Promise<boolean> => {
 			let requestId: string;
+			if (update.mode === 'file') recordBridgeFileModeSendAttempt();
 			try {
 				requestId = paneRuntimeHost.runtime.paneClient.send(
 					encodeBridgeWorkerActiveViewerModeUpdateCommand({
@@ -492,6 +502,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					}),
 				);
 			} catch {
+				if (update.mode === 'file') recordBridgeFileModeSendSynchronousFailure();
 				return Promise.resolve(false);
 			}
 			return new Promise<boolean>((resolve): void => {

@@ -18,6 +18,60 @@ type ReviewDeltaEvent = Extract<
 >;
 
 describe('Bridge comm worker Review display projection', () => {
+	test('projects native Review generation into the source display payload', () => {
+		// Arrange
+		const item = reviewItemMetadata(0);
+		const event: ReviewDeltaEvent = {
+			...reviewIdentity,
+			contentSources: [],
+			eventKind: 'review.delta',
+			fromRevision: 11,
+			operations: [],
+			revision: 12,
+			summary: reviewSummary(1),
+			toRevision: 12,
+		};
+		const snapshot: BridgeCommWorkerReviewMetadataSnapshot = {
+			baseEndpoint: reviewEndpoint('base', 'gitRef'),
+			contentSources: [reviewContentSource(item)],
+			extentFacts: [reviewExtentFact(item)],
+			headEndpoint: reviewEndpoint('head', 'workingTree'),
+			identity: reviewIdentity,
+			itemMetadata: [item],
+			orderedItemIds: [item.itemId],
+			query: reviewQuery(),
+			revision: 12,
+			summary: reviewSummary(1),
+			totalItemCount: 1,
+			totalTreeRowCount: 0,
+			treeRows: [],
+		};
+
+		// Act
+		const patches = bridgeCommWorkerReviewDisplayPatches({
+			event,
+			projectionResult: {
+				affectedItemIds: [],
+				invalidation: null,
+				projectionRevision: 12,
+				reset: false,
+			},
+			snapshot,
+			sourceStatus: 'ready',
+		});
+
+		// Assert
+		const sourcePatch = patches.find((patch) => patch.slice === 'reviewSource');
+		if (sourcePatch?.slice !== 'reviewSource' || sourcePatch.operation !== 'upsert') {
+			throw new Error('Expected Review source display patch.');
+		}
+		const sourcePayload = sourcePatch.payload as unknown;
+		if (!isReadonlyRecord(sourcePayload)) {
+			throw new Error('Expected Review source display payload.');
+		}
+		expect(sourcePayload['reviewGeneration']).toBe(reviewIdentity.generation);
+	});
+
 	test('preserves Review delta operations in canonical source order', () => {
 		// Arrange
 		const firstItem = reviewItemMetadata(0);

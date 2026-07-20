@@ -348,6 +348,17 @@ extension BridgeTelemetryEventValidator {
             default:
                 []
             }
+        let expectedAdditionalStringKeys: Set<String> =
+            contract.phase == "selection_commit"
+            ? [
+                "agentstudio.bridge.result",
+                "agentstudio.bridge.result_reason",
+                "agentstudio.bridge.viewer",
+            ]
+            : [
+                "agentstudio.bridge.result",
+                "agentstudio.bridge.result_reason",
+            ]
 
         return contract.matches(
             .init(
@@ -357,10 +368,7 @@ extension BridgeTelemetryEventValidator {
                 slice: reviewStartupSlice(for: contract.phase),
                 transport: reviewStartupTransport(for: contract.phase),
                 attributeKeys: .init(
-                    additionalStringKeys: [
-                        "agentstudio.bridge.result",
-                        "agentstudio.bridge.result_reason",
-                    ],
+                    additionalStringKeys: expectedAdditionalStringKeys,
                     numericKeys: expectedNumericKeys
                 )
             )

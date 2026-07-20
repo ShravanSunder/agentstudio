@@ -3,94 +3,96 @@ import Testing
 
 @testable import AgentStudio
 
-@MainActor
-@Suite(.serialized)
-struct WorkspaceBridgeGitReadActivityOrderingTests {
-    init() {
-        installTestAtomRegistryIfNeeded()
-    }
-
-    @Test("Bridge Git read activity follows canonical pane update and removal order")
-    func bridgeGitReadActivityFollowsCanonicalPaneOrder() async throws {
-        // Arrange
-        let setup = try makeActivityOrderingTestSetup()
-        try await setup.installViewsAndVerifyInitialActivities()
-
-        let blockerGate = BridgeGitReadOperationGate(returnValue: "blocker")
-        let targetGate = BridgeGitReadOperationGate(returnValue: "target")
-        let peerGate = BridgeGitReadOperationGate(returnValue: "peer")
-        let blockerRead = Task {
-            try await setup.scheduler.read(
-                request: makeBridgeGitReadRequest(worktree: "blocker", key: "blocker")
-            ) { await blockerGate.run() }
+extension WebKitSerializedTests {
+    @MainActor
+    @Suite(.serialized)
+    struct WorkspaceBridgeGitReadActivityOrderingTests {
+        init() {
+            installTestAtomRegistryIfNeeded()
         }
-        await blockerGate.waitUntilStarted()
-        let targetRead = Task {
-            try await setup.scheduler.read(
-                request: makeBridgeGitReadRequest(
-                    worktree: setup.targetWorktree.stableKey,
-                    key: "target"
-                )
-            ) { await targetGate.run() }
-        }
-        let peerRead = Task {
-            try await setup.scheduler.read(
-                request: makeBridgeGitReadRequest(
-                    worktree: setup.peerWorktree.stableKey,
-                    key: "peer"
-                )
-            ) { await peerGate.run() }
-        }
-        _ = await setup.eventProbe.waitFor(.queued, occurrence: 3)
 
-        // Act — preserve foreground → hidden → closed order for both target duplicates.
-        setup.store.setActiveTab(setup.peerTabId)
-        setup.coordinator.refreshBridgePaneActivities()
-        await expectBridgePaneActivity(
-            .loadedHidden,
-            for: setup.targetPane.id,
-            in: setup.coordinator,
-            because: "the target tab moved to the background"
-        )
-        await expectBridgePaneActivity(
-            .loadedHidden,
-            for: setup.duplicateTargetPane.id,
-            in: setup.coordinator,
-            because: "the duplicate target pane moved to the background"
-        )
-        await expectBridgePaneActivity(
-            .foreground,
-            for: setup.peerPane.id,
-            in: setup.coordinator,
-            because: "the peer pane moved into the active native surface"
-        )
-        setup.coordinator.closeBridgePaneActivityAuthority(for: setup.targetPane.id)
-        setup.coordinator.closeBridgePaneActivityAuthority(for: setup.duplicateTargetPane.id)
-        setup.coordinator.refreshBridgePaneActivities()
-        await setup.coordinator.drainBridgeGitReadActivityPropagation()
-        await blockerGate.release()
-        let secondStart = await setup.eventProbe.waitFor(.started, occurrence: 2)
+        @Test("Bridge Git read activity follows canonical pane update and removal order")
+        func bridgeGitReadActivityFollowsCanonicalPaneOrder() async throws {
+            // Arrange
+            let setup = try makeActivityOrderingTestSetup()
+            try await setup.installViewsAndVerifyInitialActivities()
 
-        // Assert — no older target update may overtake either close and restore stale rank.
-        let expectedPeerKey = BridgeGitReadWorktreeKey(token: setup.peerWorktree.stableKey)
-        #expect(secondStart.worktreeKey == expectedPeerKey)
-        if secondStart.worktreeKey == expectedPeerKey {
-            await peerGate.release()
-            await targetGate.waitUntilStarted()
-            await targetGate.release()
-        } else {
-            await targetGate.release()
-            await peerGate.waitUntilStarted()
-            await peerGate.release()
+            let blockerGate = BridgeGitReadOperationGate(returnValue: "blocker")
+            let targetGate = BridgeGitReadOperationGate(returnValue: "target")
+            let peerGate = BridgeGitReadOperationGate(returnValue: "peer")
+            let blockerRead = Task {
+                try await setup.scheduler.read(
+                    request: makeBridgeGitReadRequest(worktree: "blocker", key: "blocker")
+                ) { await blockerGate.run() }
+            }
+            await blockerGate.waitUntilStarted()
+            let targetRead = Task {
+                try await setup.scheduler.read(
+                    request: makeBridgeGitReadRequest(
+                        worktree: setup.targetWorktree.stableKey,
+                        key: "target"
+                    )
+                ) { await targetGate.run() }
+            }
+            let peerRead = Task {
+                try await setup.scheduler.read(
+                    request: makeBridgeGitReadRequest(
+                        worktree: setup.peerWorktree.stableKey,
+                        key: "peer"
+                    )
+                ) { await peerGate.run() }
+            }
+            _ = await setup.eventProbe.waitFor(.queued, occurrence: 3)
+
+            // Act — preserve foreground → hidden → closed order for both target duplicates.
+            setup.store.setActiveTab(setup.peerTabId)
+            setup.coordinator.refreshBridgePaneActivities()
+            await expectBridgePaneActivity(
+                .loadedHidden,
+                for: setup.targetPane.id,
+                in: setup.coordinator,
+                because: "the target tab moved to the background"
+            )
+            await expectBridgePaneActivity(
+                .loadedHidden,
+                for: setup.duplicateTargetPane.id,
+                in: setup.coordinator,
+                because: "the duplicate target pane moved to the background"
+            )
+            await expectBridgePaneActivity(
+                .foreground,
+                for: setup.peerPane.id,
+                in: setup.coordinator,
+                because: "the peer pane moved into the active native surface"
+            )
+            setup.coordinator.closeBridgePaneActivityAuthority(for: setup.targetPane.id)
+            setup.coordinator.closeBridgePaneActivityAuthority(for: setup.duplicateTargetPane.id)
+            setup.coordinator.refreshBridgePaneActivities()
+            await setup.coordinator.drainBridgeGitReadActivityPropagation()
+            await blockerGate.release()
+            let secondStart = await setup.eventProbe.waitFor(.started, occurrence: 2)
+
+            // Assert — no older target update may overtake either close and restore stale rank.
+            let expectedPeerKey = BridgeGitReadWorktreeKey(token: setup.peerWorktree.stableKey)
+            #expect(secondStart.worktreeKey == expectedPeerKey)
+            if secondStart.worktreeKey == expectedPeerKey {
+                await peerGate.release()
+                await targetGate.waitUntilStarted()
+                await targetGate.release()
+            } else {
+                await targetGate.release()
+                await peerGate.waitUntilStarted()
+                await peerGate.release()
+            }
+            #expect(try await blockerRead.value == "blocker")
+            #expect(try await targetRead.value == "target")
+            #expect(try await peerRead.value == "peer")
+            _ = await setup.eventProbe.waitFor(.slotReleased, occurrence: 3)
+            #expect(setup.coordinator.bridgePaneActivity(for: setup.targetPane.id) == .closed)
+            #expect(setup.coordinator.bridgePaneActivity(for: setup.duplicateTargetPane.id) == .closed)
+
+            await setup.finish()
         }
-        #expect(try await blockerRead.value == "blocker")
-        #expect(try await targetRead.value == "target")
-        #expect(try await peerRead.value == "peer")
-        _ = await setup.eventProbe.waitFor(.slotReleased, occurrence: 3)
-        #expect(setup.coordinator.bridgePaneActivity(for: setup.targetPane.id) == .closed)
-        #expect(setup.coordinator.bridgePaneActivity(for: setup.duplicateTargetPane.id) == .closed)
-
-        await setup.finish()
     }
 }
 

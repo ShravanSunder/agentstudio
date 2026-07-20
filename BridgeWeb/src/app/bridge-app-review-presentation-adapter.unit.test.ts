@@ -117,6 +117,7 @@ describe('Bridge Review presentation adapter', () => {
 			'loading',
 			{
 				metadataWindowIdentity: 'review-window-loading',
+				reviewGeneration: 1,
 				status: 'loading',
 				summary: null,
 				totalItemCount: null,
@@ -168,7 +169,7 @@ describe('Bridge Review presentation adapter', () => {
 		expect(presentationSnapshot).toBeNull();
 	});
 
-	test('propagates the worker catalog epoch as the Review reset generation', () => {
+	test('rotates presentation identity across worker epochs without changing native Review generation', () => {
 		// Arrange
 		const item = reviewDisplayItem('item-source', 'Sources/App/Feature.swift');
 		const rawTreeRows: readonly BridgeMainReviewTreeDisplayRow[] = [
@@ -191,7 +192,11 @@ describe('Bridge Review presentation adapter', () => {
 				treeRowCount: 1,
 			}),
 			displayStore: store,
-			reviewSourceSlice: readyReviewSourceSlice({ itemCount: 1, treeRowCount: 1 }),
+			reviewSourceSlice: readyReviewSourceSlice({
+				itemCount: 1,
+				reviewGeneration: 17,
+				treeRowCount: 1,
+			}),
 		});
 		const secondEpochPresentation = bridgeReviewPresentationSnapshotForDisplay({
 			catalogSnapshot: catalogSnapshot({
@@ -201,15 +206,73 @@ describe('Bridge Review presentation adapter', () => {
 				treeRowCount: 1,
 			}),
 			displayStore: store,
-			reviewSourceSlice: readyReviewSourceSlice({ itemCount: 1, treeRowCount: 1 }),
+			reviewSourceSlice: readyReviewSourceSlice({
+				itemCount: 1,
+				reviewGeneration: 17,
+				treeRowCount: 1,
+			}),
 		});
 
 		// Assert
-		expect(firstEpochPresentation?.reviewPackage.reviewGeneration).toBe(7);
-		expect(secondEpochPresentation?.reviewPackage.reviewGeneration).toBe(8);
+		expect(firstEpochPresentation?.reviewPackage.reviewGeneration).toBe(17);
+		expect(secondEpochPresentation?.reviewPackage.reviewGeneration).toBe(17);
 		expect(secondEpochPresentation?.presentationKey).not.toBe(
 			firstEpochPresentation?.presentationKey,
 		);
+	});
+
+	test('rotates presentation identity when native Review generation advances within one worker epoch', () => {
+		// Arrange
+		const item = reviewDisplayItem('item-source', 'Sources/App/Feature.swift');
+		const rawTreeRows: readonly BridgeMainReviewTreeDisplayRow[] = [
+			{
+				depth: 0,
+				isDirectory: false,
+				itemId: item.metadata.itemId,
+				path: item.metadata.headPath ?? item.metadata.itemId,
+				rowId: 'row-item-source',
+			},
+		];
+		const store = displayStore({ items: [item], rawTreeRows });
+		const firstReviewSourceSlice = {
+			...readyReviewSourceSlice({ itemCount: 1, treeRowCount: 1 }),
+			reviewGeneration: 41,
+		} satisfies ReturnType<typeof readyReviewSourceSlice> & {
+			readonly reviewGeneration: number;
+		};
+		const successorReviewSourceSlice = {
+			...readyReviewSourceSlice({ itemCount: 1, treeRowCount: 1 }),
+			reviewGeneration: 42,
+		} satisfies ReturnType<typeof readyReviewSourceSlice> & {
+			readonly reviewGeneration: number;
+		};
+
+		// Act
+		const firstPresentation = bridgeReviewPresentationSnapshotForDisplay({
+			catalogSnapshot: catalogSnapshot({
+				epoch: 7,
+				itemCount: 1,
+				revision: 1,
+				treeRowCount: 1,
+			}),
+			displayStore: store,
+			reviewSourceSlice: firstReviewSourceSlice,
+		});
+		const successorPresentation = bridgeReviewPresentationSnapshotForDisplay({
+			catalogSnapshot: catalogSnapshot({
+				epoch: 7,
+				itemCount: 1,
+				revision: 1,
+				treeRowCount: 1,
+			}),
+			displayStore: store,
+			reviewSourceSlice: successorReviewSourceSlice,
+		});
+
+		// Assert
+		expect(successorPresentation?.presentationKey).not.toBe(firstPresentation?.presentationKey);
+		expect(firstPresentation?.reviewPackage.reviewGeneration).toBe(41);
+		expect(successorPresentation?.reviewPackage.reviewGeneration).toBe(42);
 	});
 
 	test('keeps presentation identity across same-epoch resets and rotates it for a new epoch', () => {
@@ -449,12 +512,14 @@ function displayStore(props: {
 function readyReviewSourceSlice(props: {
 	readonly itemCount: number;
 	readonly metadataWindowIdentity?: string;
+	readonly reviewGeneration?: number;
 	readonly treeRowCount: number;
 }): Exclude<BridgeMainReviewSourceDisplaySlice, { readonly status: 'failed' }> & {
 	readonly status: 'ready';
 } {
 	return {
 		metadataWindowIdentity: props.metadataWindowIdentity ?? 'review-window-ready',
+		reviewGeneration: props.reviewGeneration ?? 1,
 		status: 'ready',
 		summary: {
 			additions: 1,

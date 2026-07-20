@@ -258,6 +258,7 @@ export function reviewDisplayEvent(props: {
 				operation: 'upsert',
 				payload: {
 					metadataWindowIdentity: `review-window-${props.projectionRevision}`,
+					reviewGeneration: 1,
 					status: 'ready',
 					summary: {
 						additions: 1,

@@ -134,8 +134,8 @@ struct IPCContractsTests {
         #expect(!IPCEventName.allCases.map(\.rawValue).contains { $0.hasPrefix("zmx.") })
     }
 
-    @Test("bridge render state keeps diagnostics probes optional for older payloads")
-    func bridgeRenderStateKeepsDiagnosticsProbesOptionalForOlderPayloads() throws {
+    @Test("bridge render state keeps diagnostics probes optional when omitted")
+    func bridgeRenderStateKeepsDiagnosticsProbesOptionalWhenOmitted() throws {
         let paneId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let payload = """
             {
@@ -151,7 +151,23 @@ struct IPCContractsTests {
                 "evaluateSucceeded": true,
                 "pageErrorCount": 0,
                 "pageErrorKinds": [],
-                "pageErrorMessages": []
+                "pageErrorMessages": [],
+                "nativeActivity": "foreground",
+                "foregroundWorkEpoch": 1,
+                "dirtyFactPresent": false,
+                "activeRefreshPassPresent": false,
+                "refreshPassCount": 0,
+                "productSession": {
+                  "activeProducerCount": 0,
+                  "activeProducerTaskCount": 0,
+                  "activeContentLeaseCount": 0,
+                  "queuedFrameCount": 0,
+                  "queuedByteCount": 0,
+                  "pendingFrameWaiterCount": 0,
+                  "inFlightFrameReceiptCount": 0,
+                  "pendingLifecycleAcknowledgementCount": 0,
+                  "nextMetadataStreamSequence": 0
+                }
               }
             }
             """

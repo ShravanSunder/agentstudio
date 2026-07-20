@@ -1,6 +1,7 @@
 import { expect } from 'vitest';
 
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
+import { encodeBridgeWorkerActiveViewerModeUpdateCommand } from './bridge-comm-worker-protocol.js';
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import type { BridgeCommWorkerPreparationDrain } from './bridge-comm-worker-runtime-protocol.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
@@ -84,6 +85,44 @@ export function createBridgeWorkerSequenceCounter(firstSequence: number): () => 
 		nextSequence += 1;
 		return sequence;
 	};
+}
+
+export function activateBridgeCommWorkerFileViewerMode(
+	dispatch: { readonly message: (data: unknown) => void },
+	requestLabel: string,
+): void {
+	dispatch.message(
+		encodeBridgeWorkerActiveViewerModeUpdateCommand({
+			epoch: 1,
+			requestId: `request-file-mode-${requestLabel}`,
+			update: {
+				activeSource: null,
+				mode: 'file',
+				nativeSelectionRequestId: null,
+				sequence: 1,
+				sessionId: `file-mode-${requestLabel}-session`,
+			},
+		}),
+	);
+}
+
+export function activateBridgeCommWorkerReviewViewerMode(
+	dispatch: { readonly message: (data: unknown) => void },
+	requestLabel: string,
+): void {
+	dispatch.message(
+		encodeBridgeWorkerActiveViewerModeUpdateCommand({
+			epoch: 1,
+			requestId: `request-review-mode-${requestLabel}`,
+			update: {
+				activeSource: null,
+				mode: 'review',
+				nativeSelectionRequestId: null,
+				sequence: 1,
+				sessionId: `review-mode-${requestLabel}-session`,
+			},
+		}),
+	);
 }
 
 export function assertBridgeCommWorkerPreparationDrain(

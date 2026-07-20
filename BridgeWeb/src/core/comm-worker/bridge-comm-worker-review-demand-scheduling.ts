@@ -167,7 +167,11 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 ): BridgeCommWorkerReviewDemandScheduling {
 	const defaultWorkSignal = new AbortController().signal;
 	const isWorkAdmitted = props.isWorkAdmitted ?? bridgeCommWorkerWorkIsAdmitted;
-	const workSignal = props.workSignal ?? ((): AbortSignal => defaultWorkSignal);
+	const paneWorkSignal = props.workSignal ?? ((): AbortSignal => defaultWorkSignal);
+	let surfaceActive = false;
+	let surfaceWorkLifecycle = createBridgeCommWorkerReviewSurfaceWorkLifecycle(paneWorkSignal());
+	const isReviewWorkAdmitted = (): boolean => surfaceActive && isWorkAdmitted();
+	const workSignal = (): AbortSignal => surfaceWorkLifecycle.signal;
 	let reviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource = {
 		contentItems: [],
 		contentRequestDescriptors: [],
@@ -241,7 +245,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		shouldMarkSourceChurn = true,
 	): boolean => {
 		latestDemandExecutionRequest = request;
-		if (!isWorkAdmitted()) {
+		if (!isReviewWorkAdmitted()) {
 			return false;
 		}
 		const workerDerivationEpoch = props.usesProductTransport
@@ -357,7 +361,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 	): void => {
 		cancelSpeculativeReviewPreparations(activeSpeculativePreparationsByItemId);
 		latestSelectedPreparationByItemId.set(request.itemId, request);
-		if (!isWorkAdmitted()) {
+		if (!isReviewWorkAdmitted()) {
 			return;
 		}
 		const workerDerivationEpoch = props.usesProductTransport
@@ -420,7 +424,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		request: BridgeCommWorkerReviewMetadataResetScheduleRequest,
 	): void => {
 		latestMetadataResetRequest = request;
-		if (!isWorkAdmitted()) return;
+		if (!isReviewWorkAdmitted()) return;
 		const sourceChurnAdmission = markVisibleDemandSourceChurnFromRequest({
 			affectedItemIds: request.affectedItemIds,
 			cause: request.cause,
@@ -431,7 +435,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		activeSourceResetEpoch = request.epoch;
 		const ticket = enqueueBridgeCommWorkerReviewSourceReset({
 			createSequence: props.createSequence,
-			isCurrentResetEpoch: () => isWorkAdmitted() && activeSourceResetEpoch === request.epoch,
+			isCurrentResetEpoch: () => isReviewWorkAdmitted() && activeSourceResetEpoch === request.epoch,
 			onResetComplete: () => {
 				if (activeSourceResetEpoch === request.epoch) {
 					activeSourceResetEpoch = null;
@@ -450,6 +454,8 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 	};
 
 	const suspend = (): void => {
+		surfaceActive = false;
+		surfaceWorkLifecycle.abort('review_surface_suspended');
 		for (const activePreparation of activeSelectedPreparationByItemId.values()) {
 			activePreparation.ticket.cancel();
 		}
@@ -466,7 +472,12 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 	};
 
 	const resume = (): void => {
+		surfaceActive = true;
 		if (!isWorkAdmitted()) return;
+		if (surfaceWorkLifecycle.signal.aborted) {
+			surfaceWorkLifecycle = createBridgeCommWorkerReviewSurfaceWorkLifecycle(paneWorkSignal());
+		}
+		if (surfaceWorkLifecycle.signal.aborted) return;
 		if (latestMetadataResetRequest !== null) scheduleMetadataReset(latestMetadataResetRequest);
 		if (latestDemandExecutionRequest !== null) {
 			enqueueVisibleDemandExecutionFromRequest(latestDemandExecutionRequest);
@@ -821,6 +832,33 @@ function hasReviewRuntimeSourceContent(
 			semantics,
 		})
 	);
+}
+
+interface BridgeCommWorkerReviewSurfaceWorkLifecycle {
+	readonly abort: (reason: unknown) => void;
+	readonly signal: AbortSignal;
+}
+
+function createBridgeCommWorkerReviewSurfaceWorkLifecycle(
+	paneWorkSignal: AbortSignal,
+): BridgeCommWorkerReviewSurfaceWorkLifecycle {
+	const abortController = new AbortController();
+	const detachPaneAbort = (): void => {
+		paneWorkSignal.removeEventListener('abort', abortFromPane);
+	};
+	const abort = (reason: unknown): void => {
+		detachPaneAbort();
+		if (!abortController.signal.aborted) abortController.abort(reason);
+	};
+	const abortFromPane = (): void => {
+		abort(paneWorkSignal.reason);
+	};
+	if (paneWorkSignal.aborted) {
+		abortFromPane();
+	} else {
+		paneWorkSignal.addEventListener('abort', abortFromPane, { once: true });
+	}
+	return { abort, signal: abortController.signal };
 }
 
 function bridgeCommWorkerWorkIsAdmitted(): boolean {

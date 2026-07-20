@@ -65,6 +65,7 @@ export interface RecordBridgeCommWorkerTaskTelemetryProps {
 	readonly action?: BridgeCommWorkerTelemetryAction;
 	readonly command?: BridgeCommWorkerTelemetryCommand;
 	readonly durationMilliseconds: number;
+	readonly fileMetadataSelectedPathResolved?: boolean;
 	readonly lane: BridgeCommWorkerTelemetryLane;
 	readonly payloadClass?: string;
 	readonly queueWaitMilliseconds?: number;
@@ -125,7 +126,13 @@ export function recordBridgeCommWorkerTaskTelemetry(
 				? {}
 				: { 'agentstudio.bridge.worker.patch_count': props.patchCount }),
 		},
-		booleanAttributes: {},
+		booleanAttributes:
+			props.fileMetadataSelectedPathResolved === undefined
+				? {}
+				: {
+						'agentstudio.bridge.worker.file_metadata_selected_path_resolved':
+							props.fileMetadataSelectedPathResolved,
+					},
 	});
 }
 

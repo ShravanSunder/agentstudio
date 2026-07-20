@@ -411,6 +411,9 @@ struct BridgeTelemetryCommWorkerContractTests {
                 extraNumbers: [
                     "agentstudio.bridge.worker.handler_duration_ms": 2,
                     "agentstudio.bridge.worker.queue_wait_ms": 4,
+                ],
+                extraBooleans: [
+                    "agentstudio.bridge.worker.file_metadata_selected_path_resolved": true
                 ]
             )
         )
@@ -475,8 +478,10 @@ struct BridgeTelemetryCommWorkerContractTests {
             "markFileViewed",
             "metadataInterestUpdate",
             "mode",
+            "renderDisposition",
             "reviewIntakeReady",
             "reviewInvalidate",
+            "reviewProjectionUpdate",
             "select",
             "viewport",
         ]

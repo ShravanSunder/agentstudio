@@ -3,306 +3,308 @@ import Testing
 
 @testable import AgentStudio
 
-@MainActor
-@Suite(.serialized)
-struct BridgePaneControllerProductBootstrapDeliveryTests {
-    init() {
-        installTestAtomRegistryIfNeeded()
-    }
+extension WebKitSerializedTests {
+    @MainActor
+    @Suite(.serialized)
+    struct BridgePaneControllerProductBootstrapDeliveryTests {
+        init() {
+            installTestAtomRegistryIfNeeded()
+        }
 
-    @Test("committed Review survives bootstrap failure and replays after worker replacement")
-    func committedReviewSurvivesBootstrapFailureAndReplaysAfterWorkerReplacement() async throws {
-        // Arrange
-        let paneId = UUIDv7.generate()
-        let reviewFixture = makeBootstrapCommittedReviewFixture()
-        var deliveredInstallations: [BridgeProductSessionInstallation] = []
-        let controller = BridgePaneController(
-            paneId: paneId,
-            state: BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
-            ),
-            reviewSourceProvider: reviewFixture.sourceProvider,
-            initialPaneActivity: .foreground,
-            productSessionBootstrapSink: { _, _, installation, _, _ in
-                deliveredInstallations.append(installation)
-                if deliveredInstallations.count == 1 {
-                    throw BridgeError.encoding("simulated ambiguous delivery failure")
+        @Test("committed Review survives bootstrap failure and replays after worker replacement")
+        func committedReviewSurvivesBootstrapFailureAndReplaysAfterWorkerReplacement() async throws {
+            // Arrange
+            let paneId = UUIDv7.generate()
+            let reviewFixture = makeBootstrapCommittedReviewFixture()
+            var deliveredInstallations: [BridgeProductSessionInstallation] = []
+            let controller = BridgePaneController(
+                paneId: paneId,
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
+                ),
+                reviewSourceProvider: reviewFixture.sourceProvider,
+                initialPaneActivity: .foreground,
+                productSessionBootstrapSink: { _, _, installation, _, _ in
+                    deliveredInstallations.append(installation)
+                    if deliveredInstallations.count == 1 {
+                        throw BridgeError.encoding("simulated ambiguous delivery failure")
+                    }
                 }
-            }
-        )
-        let commandId = UUIDv7.generate()
-        let loadResult = await controller.handleDiffCommand(
-            .loadDiff(
-                DiffArtifact(
-                    diffId: UUIDv7.generate(),
-                    worktreeId: reviewFixture.headEndpoint.worktreeId,
-                    patchData: Data()
-                )
-            ),
-            commandId: commandId,
-            correlationId: nil
-        )
-        #expect(loadResult == .success(commandId: commandId))
-        let committedPackage = try #require(controller.paneState.diff.packageMetadata)
-        let committedDelta = controller.paneState.diff.packageDelta
+            )
+            let commandId = UUIDv7.generate()
+            let loadResult = await controller.handleDiffCommand(
+                .loadDiff(
+                    DiffArtifact(
+                        diffId: UUIDv7.generate(),
+                        worktreeId: reviewFixture.headEndpoint.worktreeId,
+                        patchData: Data()
+                    )
+                ),
+                commandId: commandId,
+                correlationId: nil
+            )
+            #expect(loadResult == .success(commandId: commandId))
+            let committedPackage = try #require(controller.paneState.diff.packageMetadata)
+            let committedDelta = controller.paneState.diff.packageDelta
 
-        // Act
-        await controller.enqueueProductSessionBootstrapRequest(
-            requestId: "failed-initial-bootstrap",
-            reason: .initial
-        )
-        let initialInstallation = try #require(deliveredInstallations.first)
-        let staleReply = try await collectStaleBootstrapReply(from: initialInstallation)
-        await controller.enqueueProductSessionBootstrapRequest(
-            requestId: "retry-initial-bootstrap",
-            reason: .initial
-        )
-        let replacementInstallation = try #require(deliveredInstallations.last)
-        let productProvider = try #require(controller.productSchemeProvider)
-        let replaySubscription = try await openBootstrapReviewReplaySubscription(
-            controller: controller,
-            installation: replacementInstallation,
-            productProvider: productProvider
-        )
-        let replayEvent = try bootstrapReviewEvent(
-            from: try bootstrapReviewMetadataFrame(
-                from: try #require(
-                    await consumeNextBridgeProductProducerFrame(
-                        for: replaySubscription.lease,
-                        from: replacementInstallation.session,
-                        productAdmission: replaySubscription.productAdmission
+            // Act
+            await controller.enqueueProductSessionBootstrapRequest(
+                requestId: "failed-initial-bootstrap",
+                reason: .initial
+            )
+            let initialInstallation = try #require(deliveredInstallations.first)
+            let staleReply = try await collectStaleBootstrapReply(from: initialInstallation)
+            await controller.enqueueProductSessionBootstrapRequest(
+                requestId: "retry-initial-bootstrap",
+                reason: .initial
+            )
+            let replacementInstallation = try #require(deliveredInstallations.last)
+            let productProvider = try #require(controller.productSchemeProvider)
+            let replaySubscription = try await openBootstrapReviewReplaySubscription(
+                controller: controller,
+                installation: replacementInstallation,
+                productProvider: productProvider
+            )
+            let replayEvent = try bootstrapReviewEvent(
+                from: try bootstrapReviewMetadataFrame(
+                    from: try #require(
+                        await consumeNextBridgeProductProducerFrame(
+                            for: replaySubscription.lease,
+                            from: replacementInstallation.session,
+                            productAdmission: replaySubscription.productAdmission
+                        )
                     )
                 )
             )
-        )
 
-        // Assert
-        #expect(staleReply.response?.statusCode == 403)
-        #expect(deliveredInstallations.count == 2)
-        #expect(
-            replacementInstallation.bootstrap.workerInstanceId
-                != initialInstallation.bootstrap.workerInstanceId
-        )
-        #expect(replacementInstallation.capabilityBytes != initialInstallation.capabilityBytes)
-        #expect(controller.paneState.diff.packageMetadata == committedPackage)
-        #expect(controller.paneState.diff.packageDelta == committedDelta)
-        await #expect(throws: Never.self) {
-            _ = try await controller.loadContentForIPC(
-                contentHandleId: reviewFixture.committedHandle.handleId,
-                reviewGeneration: reviewFixture.committedHandle.reviewGeneration.rawValue
+            // Assert
+            #expect(staleReply.response?.statusCode == 403)
+            #expect(deliveredInstallations.count == 2)
+            #expect(
+                replacementInstallation.bootstrap.workerInstanceId
+                    != initialInstallation.bootstrap.workerInstanceId
             )
-        }
-        switch replayEvent {
-        case .sourceAccepted:
-            #expect(replayEvent.packageId == committedPackage.packageId)
-            #expect(replayEvent.generation == committedPackage.reviewGeneration.rawValue)
-        default:
-            Issue.record("Expected replacement worker replay to begin with Review sourceAccepted")
-        }
-        try await closeBridgeProductSessionProducer(
-            replaySubscription.lease,
-            in: replacementInstallation.session
-        )
-        #expect(await controller.teardown().value)
-    }
-
-    @Test("pane close suppresses a suspended product bootstrap delivery")
-    func paneCloseSuppressesSuspendedProductBootstrapDelivery() async throws {
-        // Arrange
-        let paneId = UUIDv7.generate()
-        let provider = BridgePaneProductSessionProviderGate()
-        let productAdmissionGate = BridgeProductAdmissionGate()
-        let initialInstallation = BridgePaneController.makeInitialProductSessionInstallation(
-            paneSessionId: paneId.uuidString,
-            provider: provider,
-            productAdmissionGate: productAdmissionGate
-        )
-        let owner = BridgePaneController.makeProductSessionOwner(
-            paneSessionId: paneId.uuidString,
-            provider: provider,
-            productAdmissionGate: productAdmissionGate,
-            activeInstallation: initialInstallation
-        )
-        let deliverySuspension = BridgeProductBootstrapDeliverySuspension()
-        var deliveredWorkerInstanceIds: [String] = []
-        let controller = BridgePaneController(
-            paneId: paneId,
-            state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "close-bootstrap")),
-            initialPaneActivity: .foreground,
-            productSessionDependencies: BridgePaneProductSessionDependencies(
-                installation: initialInstallation,
-                owner: owner
-            ),
-            productSessionBootstrapSink: { _, _, installation, _, productAdmission in
-                await deliverySuspension.suspendDelivery()
-                _ = productAdmission.withValidAdmission {
-                    deliveredWorkerInstanceIds.append(installation.bootstrap.workerInstanceId)
-                }
-            }
-        )
-
-        // Act
-        let bootstrapTask = Task { @MainActor in
-            await controller.enqueueProductSessionBootstrapRequest(
-                requestId: "suspended-initial-bootstrap",
-                reason: .initial
-            )
-        }
-        await deliverySuspension.waitUntilDeliveryIsSuspended()
-        let teardownTask = controller.teardown()
-        await deliverySuspension.resumeDelivery()
-        await bootstrapTask.value
-        let teardownSucceeded = await teardownTask.value
-        let ownerSnapshot = await owner.snapshot()
-
-        // Assert
-        #expect(deliveredWorkerInstanceIds.isEmpty)
-        #expect(teardownSucceeded)
-        #expect(ownerSnapshot.hasZeroResidue)
-        #expect(productAdmissionGate.diagnosticSnapshot.isOpen == false)
-    }
-
-    @Test("surface command queued during replacement binds to the replacement worker")
-    func surfaceCommandDuringReplacementBindsToReplacementWorker() async throws {
-        // Arrange
-        var deliveredInstallations: [BridgeProductSessionInstallation] = []
-        let controller = BridgePaneController(
-            paneId: UUIDv7.generate(),
-            state: BridgePaneState(
-                panelKind: .fileViewer,
-                source: .workspace(rootPath: "Sources", baseline: .unstaged)
-            ),
-            initialPaneActivity: .foreground,
-            productSessionBootstrapSink: { _, _, installation, _, _ in
-                deliveredInstallations.append(installation)
-            }
-        )
-        controller.hasPublishedProductSessionBootstrap = true
-        #expect(await controller.productSessionOwner.retire(reason: .workerReplacement) == .retired)
-        #expect(await controller.productSessionOwner.activeBootstrap() == nil)
-
-        // Act: the command is admitted while no worker is active.
-        #expect(controller.requestViewerSurface(.review))
-        await controller.surfaceSelectionTransitionTail?.value
-        let queuedSnapshot = controller.surfaceSelectionAuthority.diagnosticSnapshot
-
-        await controller.enqueueProductSessionBootstrapRequest(
-            requestId: "replacement-after-surface-command",
-            reason: .workerReplacement
-        )
-
-        // Assert: bootstrap activation remints the retained intent for worker B.
-        #expect(queuedSnapshot.desiredSurface == .review)
-        #expect(queuedSnapshot.needsDelivery)
-        #expect(queuedSnapshot.currentRequest == nil)
-        let replacement = try #require(deliveredInstallations.last)
-        let replacementRequest = try #require(
-            controller.surfaceSelectionAuthority.diagnosticSnapshot.currentRequest
-        )
-        #expect(replacementRequest.surface == .review)
-        #expect(replacementRequest.paneSessionId == replacement.bootstrap.paneSessionId)
-        #expect(replacementRequest.workerInstanceId == replacement.bootstrap.workerInstanceId)
-
-        let productAdmission = try #require(controller.productAdmissionGate.acquire())
-        let correlation = try BridgeProductControlCorrelation(
-            paneSessionId: replacement.bootstrap.paneSessionId,
-            requestId: "replacement-surface-receipt",
-            requestSequence: 1,
-            workerInstanceId: replacement.bootstrap.workerInstanceId
-        )
-        await controller.handleCommittedProductActiveViewerModeUpdate(
-            sessionId: "replacement-viewer-session",
-            sequence: 1,
-            mode: .review,
-            activeSource: nil,
-            productAdmission: productAdmission,
-            nativeSelectionRequestId: replacementRequest.requestId,
-            productCorrelation: correlation
-        )
-        #expect(
-            controller.surfaceSelectionAuthority.diagnosticSnapshot.lastAcceptedRequest
-                == replacementRequest
-        )
-        #expect(await controller.teardown().value)
-    }
-
-    @Test("cold Review intake admits nil or current stream and rejects stale stream")
-    func coldReviewIntakeAdmitsNilOrCurrentStreamAndRejectsStaleStream() async throws {
-        // Arrange
-        let nilStreamController = makeColdReviewIntakeController()
-        let currentStreamController = makeColdReviewIntakeController()
-        let staleStreamController = makeColdReviewIntakeController()
-        defer {
-            nilStreamController.teardown()
-            currentStreamController.teardown()
-            staleStreamController.teardown()
-        }
-        let nilStreamAdmission = try #require(nilStreamController.productAdmissionGate.acquire())
-        let currentStreamAdmission = try #require(
-            currentStreamController.productAdmissionGate.acquire()
-        )
-        let staleStreamAdmission = try #require(
-            staleStreamController.productAdmissionGate.acquire()
-        )
-
-        // Act
-        await nilStreamController.handleCommittedProductReviewIntakeReady(
-            BridgeProductReviewIntakeReadyRequest(reason: nil, streamId: nil),
-            productAdmission: nilStreamAdmission
-        )
-        await currentStreamController.handleCommittedProductReviewIntakeReady(
-            BridgeProductReviewIntakeReadyRequest(
-                reason: nil,
-                streamId: currentStreamController.reviewProtocolStreamId()
-            ),
-            productAdmission: currentStreamAdmission
-        )
-        await staleStreamController.handleCommittedProductReviewIntakeReady(
-            BridgeProductReviewIntakeReadyRequest(
-                reason: nil,
-                streamId: "review:stale-stream"
-            ),
-            productAdmission: staleStreamAdmission
-        )
-
-        // Assert
-        let nilStreamLoadTask = try #require(nilStreamController.activeReviewRefreshTask)
-        let currentStreamLoadTask = try #require(currentStreamController.activeReviewRefreshTask)
-        #expect(staleStreamController.activeReviewRefreshTask == nil)
-        #expect(staleStreamController.paneState.diff.packageMetadata == nil)
-        await nilStreamLoadTask.value
-        await currentStreamLoadTask.value
-        #expect(nilStreamController.paneState.diff.status == .ready)
-        #expect(nilStreamController.paneState.diff.packageMetadata != nil)
-        #expect(currentStreamController.paneState.diff.status == .ready)
-        #expect(currentStreamController.paneState.diff.packageMetadata != nil)
-    }
-
-    private func makeColdReviewIntakeController() -> BridgePaneController {
-        let paneId = UUIDv7.generate()
-        let reviewFixture = makeBootstrapCommittedReviewFixture()
-        return BridgePaneController(
-            paneId: paneId,
-            state: BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
-            ),
-            metadata: PaneMetadata(
-                paneId: PaneId(uuid: paneId),
-                contentType: .diff,
-                launchDirectory: URL(fileURLWithPath: "Sources"),
-                title: "Cold Review Intake",
-                facets: PaneContextFacets(
-                    repoId: reviewFixture.headEndpoint.repoId,
-                    worktreeId: reviewFixture.headEndpoint.worktreeId,
-                    worktreeName: "cold-review-intake",
-                    cwd: URL(fileURLWithPath: "Sources")
+            #expect(replacementInstallation.capabilityBytes != initialInstallation.capabilityBytes)
+            #expect(controller.paneState.diff.packageMetadata == committedPackage)
+            #expect(controller.paneState.diff.packageDelta == committedDelta)
+            await #expect(throws: Never.self) {
+                _ = try await controller.loadContentForIPC(
+                    contentHandleId: reviewFixture.committedHandle.handleId,
+                    reviewGeneration: reviewFixture.committedHandle.reviewGeneration.rawValue
                 )
-            ),
-            reviewSourceProvider: reviewFixture.sourceProvider,
-            initialPaneActivity: .foreground
-        )
+            }
+            switch replayEvent {
+            case .sourceAccepted:
+                #expect(replayEvent.packageId == committedPackage.packageId)
+                #expect(replayEvent.generation == committedPackage.reviewGeneration.rawValue)
+            default:
+                Issue.record("Expected replacement worker replay to begin with Review sourceAccepted")
+            }
+            try await closeBridgeProductSessionProducer(
+                replaySubscription.lease,
+                in: replacementInstallation.session
+            )
+            #expect(await controller.teardown().value)
+        }
+
+        @Test("pane close suppresses a suspended product bootstrap delivery")
+        func paneCloseSuppressesSuspendedProductBootstrapDelivery() async throws {
+            // Arrange
+            let paneId = UUIDv7.generate()
+            let provider = BridgePaneProductSessionProviderGate()
+            let productAdmissionGate = BridgeProductAdmissionGate()
+            let initialInstallation = BridgePaneController.makeInitialProductSessionInstallation(
+                paneSessionId: paneId.uuidString,
+                provider: provider,
+                productAdmissionGate: productAdmissionGate
+            )
+            let owner = BridgePaneController.makeProductSessionOwner(
+                paneSessionId: paneId.uuidString,
+                provider: provider,
+                productAdmissionGate: productAdmissionGate,
+                activeInstallation: initialInstallation
+            )
+            let deliverySuspension = BridgeProductBootstrapDeliverySuspension()
+            var deliveredWorkerInstanceIds: [String] = []
+            let controller = BridgePaneController(
+                paneId: paneId,
+                state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "close-bootstrap")),
+                initialPaneActivity: .foreground,
+                productSessionDependencies: BridgePaneProductSessionDependencies(
+                    installation: initialInstallation,
+                    owner: owner
+                ),
+                productSessionBootstrapSink: { _, _, installation, _, productAdmission in
+                    await deliverySuspension.suspendDelivery()
+                    _ = productAdmission.withValidAdmission {
+                        deliveredWorkerInstanceIds.append(installation.bootstrap.workerInstanceId)
+                    }
+                }
+            )
+
+            // Act
+            let bootstrapTask = Task { @MainActor in
+                await controller.enqueueProductSessionBootstrapRequest(
+                    requestId: "suspended-initial-bootstrap",
+                    reason: .initial
+                )
+            }
+            await deliverySuspension.waitUntilDeliveryIsSuspended()
+            let teardownTask = controller.teardown()
+            await deliverySuspension.resumeDelivery()
+            await bootstrapTask.value
+            let teardownSucceeded = await teardownTask.value
+            let ownerSnapshot = await owner.snapshot()
+
+            // Assert
+            #expect(deliveredWorkerInstanceIds.isEmpty)
+            #expect(teardownSucceeded)
+            #expect(ownerSnapshot.hasZeroResidue)
+            #expect(productAdmissionGate.diagnosticSnapshot.isOpen == false)
+        }
+
+        @Test("surface command queued during replacement binds to the replacement worker")
+        func surfaceCommandDuringReplacementBindsToReplacementWorker() async throws {
+            // Arrange
+            var deliveredInstallations: [BridgeProductSessionInstallation] = []
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(
+                    panelKind: .fileViewer,
+                    source: .workspace(rootPath: "Sources", baseline: .unstaged)
+                ),
+                initialPaneActivity: .foreground,
+                productSessionBootstrapSink: { _, _, installation, _, _ in
+                    deliveredInstallations.append(installation)
+                }
+            )
+            controller.hasPublishedProductSessionBootstrap = true
+            #expect(await controller.productSessionOwner.retire(reason: .workerReplacement) == .retired)
+            #expect(await controller.productSessionOwner.activeBootstrap() == nil)
+
+            // Act: the command is admitted while no worker is active.
+            #expect(controller.requestViewerSurface(.review))
+            await controller.surfaceSelectionTransitionTail?.value
+            let queuedSnapshot = controller.surfaceSelectionAuthority.diagnosticSnapshot
+
+            await controller.enqueueProductSessionBootstrapRequest(
+                requestId: "replacement-after-surface-command",
+                reason: .workerReplacement
+            )
+
+            // Assert: bootstrap activation remints the retained intent for worker B.
+            #expect(queuedSnapshot.desiredSurface == .review)
+            #expect(queuedSnapshot.needsDelivery)
+            #expect(queuedSnapshot.currentRequest == nil)
+            let replacement = try #require(deliveredInstallations.last)
+            let replacementRequest = try #require(
+                controller.surfaceSelectionAuthority.diagnosticSnapshot.currentRequest
+            )
+            #expect(replacementRequest.surface == .review)
+            #expect(replacementRequest.paneSessionId == replacement.bootstrap.paneSessionId)
+            #expect(replacementRequest.workerInstanceId == replacement.bootstrap.workerInstanceId)
+
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let correlation = try BridgeProductControlCorrelation(
+                paneSessionId: replacement.bootstrap.paneSessionId,
+                requestId: "replacement-surface-receipt",
+                requestSequence: 1,
+                workerInstanceId: replacement.bootstrap.workerInstanceId
+            )
+            await controller.handleCommittedProductActiveViewerModeUpdate(
+                sessionId: "replacement-viewer-session",
+                sequence: 1,
+                mode: .review,
+                activeSource: nil,
+                productAdmission: productAdmission,
+                nativeSelectionRequestId: replacementRequest.requestId,
+                productCorrelation: correlation
+            )
+            #expect(
+                controller.surfaceSelectionAuthority.diagnosticSnapshot.lastAcceptedRequest
+                    == replacementRequest
+            )
+            #expect(await controller.teardown().value)
+        }
+
+        @Test("cold Review intake admits nil or current stream and rejects stale stream")
+        func coldReviewIntakeAdmitsNilOrCurrentStreamAndRejectsStaleStream() async throws {
+            // Arrange
+            let nilStreamController = makeColdReviewIntakeController()
+            let currentStreamController = makeColdReviewIntakeController()
+            let staleStreamController = makeColdReviewIntakeController()
+            defer {
+                nilStreamController.teardown()
+                currentStreamController.teardown()
+                staleStreamController.teardown()
+            }
+            let nilStreamAdmission = try #require(nilStreamController.productAdmissionGate.acquire())
+            let currentStreamAdmission = try #require(
+                currentStreamController.productAdmissionGate.acquire()
+            )
+            let staleStreamAdmission = try #require(
+                staleStreamController.productAdmissionGate.acquire()
+            )
+
+            // Act
+            await nilStreamController.handleCommittedProductReviewIntakeReady(
+                BridgeProductReviewIntakeReadyRequest(reason: nil, streamId: nil),
+                productAdmission: nilStreamAdmission
+            )
+            await currentStreamController.handleCommittedProductReviewIntakeReady(
+                BridgeProductReviewIntakeReadyRequest(
+                    reason: nil,
+                    streamId: currentStreamController.reviewProtocolStreamId()
+                ),
+                productAdmission: currentStreamAdmission
+            )
+            await staleStreamController.handleCommittedProductReviewIntakeReady(
+                BridgeProductReviewIntakeReadyRequest(
+                    reason: nil,
+                    streamId: "review:stale-stream"
+                ),
+                productAdmission: staleStreamAdmission
+            )
+
+            // Assert
+            let nilStreamLoadTask = try #require(nilStreamController.activeReviewRefreshTask)
+            let currentStreamLoadTask = try #require(currentStreamController.activeReviewRefreshTask)
+            #expect(staleStreamController.activeReviewRefreshTask == nil)
+            #expect(staleStreamController.paneState.diff.packageMetadata == nil)
+            await nilStreamLoadTask.value
+            await currentStreamLoadTask.value
+            #expect(nilStreamController.paneState.diff.status == .ready)
+            #expect(nilStreamController.paneState.diff.packageMetadata != nil)
+            #expect(currentStreamController.paneState.diff.status == .ready)
+            #expect(currentStreamController.paneState.diff.packageMetadata != nil)
+        }
+
+        private func makeColdReviewIntakeController() -> BridgePaneController {
+            let paneId = UUIDv7.generate()
+            let reviewFixture = makeBootstrapCommittedReviewFixture()
+            return BridgePaneController(
+                paneId: paneId,
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
+                ),
+                metadata: PaneMetadata(
+                    paneId: PaneId(uuid: paneId),
+                    contentType: .diff,
+                    launchDirectory: URL(fileURLWithPath: "Sources"),
+                    title: "Cold Review Intake",
+                    facets: PaneContextFacets(
+                        repoId: reviewFixture.headEndpoint.repoId,
+                        worktreeId: reviewFixture.headEndpoint.worktreeId,
+                        worktreeName: "cold-review-intake",
+                        cwd: URL(fileURLWithPath: "Sources")
+                    )
+                ),
+                reviewSourceProvider: reviewFixture.sourceProvider,
+                initialPaneActivity: .foreground
+            )
+        }
     }
 }
 

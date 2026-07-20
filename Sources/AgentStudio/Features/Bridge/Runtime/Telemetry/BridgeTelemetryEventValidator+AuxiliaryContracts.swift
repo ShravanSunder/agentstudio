@@ -154,21 +154,33 @@ extension BridgeTelemetryEventValidator {
     private static func commWorkerMessageHandlerContractMatches(
         _ contract: BridgeTelemetryEventContract
     ) -> Bool {
-        workerTaskContractMatches(
+        let additionalStringKeys: Set<String> = [
+            "agentstudio.bridge.result",
+            "agentstudio.bridge.worker.command",
+            "agentstudio.bridge.worker.lane",
+            "agentstudio.bridge.worker.task_kind",
+        ]
+        let numericKeys: Set<String> = [
+            "agentstudio.bridge.worker.handler_duration_ms",
+            "agentstudio.bridge.worker.queue_wait_ms",
+        ]
+        return workerTaskContractMatches(
             contract,
             attributeKeys: .init(
-                additionalStringKeys: [
-                    "agentstudio.bridge.result",
-                    "agentstudio.bridge.worker.command",
-                    "agentstudio.bridge.worker.lane",
-                    "agentstudio.bridge.worker.task_kind",
-                ],
-                numericKeys: [
-                    "agentstudio.bridge.worker.handler_duration_ms",
-                    "agentstudio.bridge.worker.queue_wait_ms",
-                ]
+                additionalStringKeys: additionalStringKeys,
+                numericKeys: numericKeys
             )
         )
+            || workerTaskContractMatches(
+                contract,
+                attributeKeys: .init(
+                    additionalStringKeys: additionalStringKeys,
+                    numericKeys: numericKeys,
+                    booleanKeys: [
+                        "agentstudio.bridge.worker.file_metadata_selected_path_resolved"
+                    ]
+                )
+            )
     }
 
     private static func commWorkerContentPreparationContractMatches(

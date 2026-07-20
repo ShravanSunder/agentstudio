@@ -498,10 +498,10 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     }
 
     func refreshCurrentReviewPackage(
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        productAdmission: BridgeProductAdmissionContext
     ) async -> BridgePaneRefreshCatchUpOutcome {
         guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .stale }
-        guard let productAdmission = productAdmissionGate.acquire() else { return .stale }
         guard
             let currentPublication = reviewPublicationCoordinator.committedPublicationForReplay(
                 productAdmission: productAdmission

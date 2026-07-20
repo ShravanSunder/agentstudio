@@ -578,7 +578,7 @@ enum BridgeProductWebKitCarrierTestSupport {
         window.contentView = mountView
         window.alphaValue = 0.01
         window.ignoresMouseEvents = true
-        window.orderBack(nil)
+        window.makeKeyAndOrderFront(nil)
 
         do {
             let value = try await operation(controller)

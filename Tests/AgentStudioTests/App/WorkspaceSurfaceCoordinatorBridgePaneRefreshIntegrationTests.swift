@@ -3,153 +3,155 @@ import Testing
 
 @testable import AgentStudio
 
-@MainActor
-@Suite(.serialized)
-struct WorkspaceBridgePaneRefreshIntegrationTests {
-    init() {
-        installTestAtomRegistryIfNeeded()
-    }
-
-    @Test("canonical workspace activity and raw worktree events reach the installed Bridge refresh gate")
-    func canonicalWorkspaceActivityAndRawWorktreeEventsReachInstalledControllerGate() async throws {
-        // Arrange
-        let setup = try makeWorkspaceRefreshTestSetup()
-        let harness = setup.harness
-        let repoId = setup.repoId
-        let worktree = setup.worktree
-        let bridgePane = setup.bridgePane
-        let controller = setup.controller
-
-        // Assert — the native workspace mint propagates into the controller work gate.
-        await expectBridgePaneActivity(
-            .foreground,
-            for: bridgePane.id,
-            in: harness.coordinator,
-            because: "the workspace pane is installed in the active native surface"
-        )
-        await expectControllerRefreshActivity(
-            .foreground,
-            controller: controller,
-            because: "the canonical workspace activity was propagated to its installed controller"
-        )
-
-        // Act — hide through a canonical native fact, then send raw worktree events.
-        harness.appLifecycleStore.setActive(false)
-        await expectBridgePaneActivity(
-            .loadedHidden,
-            for: bridgePane.id,
-            in: harness.coordinator,
-            because: "the application became inactive"
-        )
-        await expectControllerRefreshActivity(
-            .loadedHidden,
-            controller: controller,
-            because: "the controller must share the workspace activity authority"
-        )
-        let fileChangeset = FileChangeset(
-            worktreeId: worktree.id,
-            repoId: repoId,
-            rootPath: worktree.path,
-            paths: ["Sources/App/WorkspaceRefresh.swift"],
-            timestamp: .now,
-            batchSeq: 71
-        )
-        let latestStatus = GitWorkingTreeStatus(
-            summary: GitWorkingTreeSummary(
-                changed: 3,
-                staged: 1,
-                untracked: 2
-            ),
-            branch: "feature/workspace-refresh",
-            origin: nil
-        )
-        _ = await harness.coordinator.handleFilesystemEnvelopeIfNeeded(
-            RuntimeEnvelopeHarness.filesystemEnvelope(
-                event: .filesChanged(changeset: fileChangeset),
-                repoId: repoId,
-                worktreeId: worktree.id
-            )
-        )
-        _ = await harness.coordinator.handleFilesystemEnvelopeIfNeeded(
-            RuntimeEnvelopeHarness.gitEnvelope(
-                event: .snapshotChanged(
-                    snapshot: GitWorkingTreeSnapshot(
-                        worktreeId: worktree.id,
-                        repoId: repoId,
-                        rootPath: worktree.path,
-                        summary: latestStatus.summary,
-                        branch: latestStatus.branch
-                    )
-                ),
-                repoId: repoId,
-                worktreeId: worktree.id
-            )
-        )
-
-        // Assert — both raw events used the one controller ingress and retained one dirty fact.
-        let snapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
-        let dirtyFact = try #require(snapshot.dirtyFact)
-        #expect(snapshot.activity == .loadedHidden)
-        #expect(snapshot.activeRefreshPass == nil)
-        #expect(snapshot.refreshPassCount == 0)
-        #expect(dirtyFact.filePaths == ["Sources/App/WorkspaceRefresh.swift"])
-        #expect(dirtyFact.latestFileStatus == latestStatus)
-        #expect(dirtyFact.requiresReviewRefresh)
-
-        await harness.finish()
-    }
-
-    @Test("raw worktree invalidation is recorded once when derived projection becomes stale")
-    func rawWorktreeInvalidationIsRecordedOnceWhenDerivedProjectionBecomesStale() async throws {
-        // Arrange
-        let projectionIndex = RefreshGateableFilesystemProjectionIndex()
-        let setup = try makeWorkspaceRefreshTestSetup(projectionIndex: projectionIndex)
-        let harness = setup.harness
-        let controller = setup.controller
-        harness.appLifecycleStore.setActive(false)
-        await expectControllerRefreshActivity(
-            .loadedHidden,
-            controller: controller,
-            because: "raw invalidation must remain pending while the pane is hidden"
-        )
-        let changeset = FileChangeset(
-            worktreeId: setup.worktree.id,
-            repoId: setup.repoId,
-            rootPath: setup.worktree.path,
-            paths: ["Sources/App/StaleProjection.swift"],
-            containsGitInternalChanges: false,
-            suppressedIgnoredPathCount: 1,
-            suppressedGitInternalPathCount: 0,
-            timestamp: .now,
-            batchSeq: 81
-        )
-        let envelope = RuntimeEnvelopeHarness.filesystemEnvelope(
-            event: .filesChanged(changeset: changeset),
-            repoId: setup.repoId,
-            worktreeId: setup.worktree.id
-        )
-        await projectionIndex.pauseNextProjection()
-
-        // Act — suspend the derived projection, advance its pane generation, then let the
-        // stale projection finish. The exact raw repo/worktree event remains authoritative.
-        let projectionTask = Task { @MainActor in
-            await harness.coordinator.handleFilesystemEnvelopeIfNeeded(envelope)
+extension WebKitSerializedTests {
+    @MainActor
+    @Suite(.serialized)
+    struct WorkspaceBridgePaneRefreshIntegrationTests {
+        init() {
+            installTestAtomRegistryIfNeeded()
         }
-        await projectionIndex.waitForPausedProjection()
-        harness.coordinator.upsertPaneFilesystemProjectionContext(for: setup.bridgePane)
-        await projectionIndex.resumePausedProjection()
-        #expect(await projectionTask.value)
 
-        // Assert — one raw record survives even though the derived projection is discarded.
-        // The additive suppressed count detects accidental double routing.
-        let snapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
-        let dirtyFact = snapshot.dirtyFact
-        #expect(dirtyFact?.filePaths == ["Sources/App/StaleProjection.swift"])
-        #expect(dirtyFact?.latestBatchSequence == 81)
-        #expect(dirtyFact?.fileChangeset?.suppressedIgnoredPathCount == 1)
-        #expect(snapshot.refreshPassCount == 0)
+        @Test("canonical workspace activity and raw worktree events reach the installed Bridge refresh gate")
+        func canonicalWorkspaceActivityAndRawWorktreeEventsReachInstalledControllerGate() async throws {
+            // Arrange
+            let setup = try makeWorkspaceRefreshTestSetup()
+            let harness = setup.harness
+            let repoId = setup.repoId
+            let worktree = setup.worktree
+            let bridgePane = setup.bridgePane
+            let controller = setup.controller
 
-        await harness.finish()
+            // Assert — the native workspace mint propagates into the controller work gate.
+            await expectBridgePaneActivity(
+                .foreground,
+                for: bridgePane.id,
+                in: harness.coordinator,
+                because: "the workspace pane is installed in the active native surface"
+            )
+            await expectControllerRefreshActivity(
+                .foreground,
+                controller: controller,
+                because: "the canonical workspace activity was propagated to its installed controller"
+            )
+
+            // Act — hide through a canonical native fact, then send raw worktree events.
+            harness.appLifecycleStore.setActive(false)
+            await expectBridgePaneActivity(
+                .loadedHidden,
+                for: bridgePane.id,
+                in: harness.coordinator,
+                because: "the application became inactive"
+            )
+            await expectControllerRefreshActivity(
+                .loadedHidden,
+                controller: controller,
+                because: "the controller must share the workspace activity authority"
+            )
+            let fileChangeset = FileChangeset(
+                worktreeId: worktree.id,
+                repoId: repoId,
+                rootPath: worktree.path,
+                paths: ["Sources/App/WorkspaceRefresh.swift"],
+                timestamp: .now,
+                batchSeq: 71
+            )
+            let latestStatus = GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(
+                    changed: 3,
+                    staged: 1,
+                    untracked: 2
+                ),
+                branch: "feature/workspace-refresh",
+                origin: nil
+            )
+            _ = await harness.coordinator.handleFilesystemEnvelopeIfNeeded(
+                RuntimeEnvelopeHarness.filesystemEnvelope(
+                    event: .filesChanged(changeset: fileChangeset),
+                    repoId: repoId,
+                    worktreeId: worktree.id
+                )
+            )
+            _ = await harness.coordinator.handleFilesystemEnvelopeIfNeeded(
+                RuntimeEnvelopeHarness.gitEnvelope(
+                    event: .snapshotChanged(
+                        snapshot: GitWorkingTreeSnapshot(
+                            worktreeId: worktree.id,
+                            repoId: repoId,
+                            rootPath: worktree.path,
+                            summary: latestStatus.summary,
+                            branch: latestStatus.branch
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: worktree.id
+                )
+            )
+
+            // Assert — both raw events used the one controller ingress and retained one dirty fact.
+            let snapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
+            let dirtyFact = try #require(snapshot.dirtyFact)
+            #expect(snapshot.activity == .loadedHidden)
+            #expect(snapshot.activeRefreshPass == nil)
+            #expect(snapshot.refreshPassCount == 0)
+            #expect(dirtyFact.filePaths == ["Sources/App/WorkspaceRefresh.swift"])
+            #expect(dirtyFact.latestFileStatus == latestStatus)
+            #expect(dirtyFact.requiresReviewRefresh)
+
+            await harness.finish()
+        }
+
+        @Test("raw worktree invalidation is recorded once when derived projection becomes stale")
+        func rawWorktreeInvalidationIsRecordedOnceWhenDerivedProjectionBecomesStale() async throws {
+            // Arrange
+            let projectionIndex = RefreshGateableFilesystemProjectionIndex()
+            let setup = try makeWorkspaceRefreshTestSetup(projectionIndex: projectionIndex)
+            let harness = setup.harness
+            let controller = setup.controller
+            harness.appLifecycleStore.setActive(false)
+            await expectControllerRefreshActivity(
+                .loadedHidden,
+                controller: controller,
+                because: "raw invalidation must remain pending while the pane is hidden"
+            )
+            let changeset = FileChangeset(
+                worktreeId: setup.worktree.id,
+                repoId: setup.repoId,
+                rootPath: setup.worktree.path,
+                paths: ["Sources/App/StaleProjection.swift"],
+                containsGitInternalChanges: false,
+                suppressedIgnoredPathCount: 1,
+                suppressedGitInternalPathCount: 0,
+                timestamp: .now,
+                batchSeq: 81
+            )
+            let envelope = RuntimeEnvelopeHarness.filesystemEnvelope(
+                event: .filesChanged(changeset: changeset),
+                repoId: setup.repoId,
+                worktreeId: setup.worktree.id
+            )
+            await projectionIndex.pauseNextProjection()
+
+            // Act — suspend the derived projection, advance its pane generation, then let the
+            // stale projection finish. The exact raw repo/worktree event remains authoritative.
+            let projectionTask = Task { @MainActor in
+                await harness.coordinator.handleFilesystemEnvelopeIfNeeded(envelope)
+            }
+            await projectionIndex.waitForPausedProjection()
+            harness.coordinator.upsertPaneFilesystemProjectionContext(for: setup.bridgePane)
+            await projectionIndex.resumePausedProjection()
+            #expect(await projectionTask.value)
+
+            // Assert — one raw record survives even though the derived projection is discarded.
+            // The additive suppressed count detects accidental double routing.
+            let snapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
+            let dirtyFact = snapshot.dirtyFact
+            #expect(dirtyFact?.filePaths == ["Sources/App/StaleProjection.swift"])
+            #expect(dirtyFact?.latestBatchSequence == 81)
+            #expect(dirtyFact?.fileChangeset?.suppressedIgnoredPathCount == 1)
+            #expect(snapshot.refreshPassCount == 0)
+
+            await harness.finish()
+        }
     }
 }
 

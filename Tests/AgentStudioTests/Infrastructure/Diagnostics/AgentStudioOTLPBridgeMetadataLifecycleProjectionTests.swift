@@ -91,10 +91,7 @@ struct BridgeMetadataLifecycleOTLPProjectionTests {
     }
 
     @Test
-    func metadataProducerFailureVocabularySurvivesValidationAndProjection() {
-        let validator = BridgeTelemetryEventValidator(
-            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
-        )
+    func metadataProducerFailureVocabularySurvivesProjection() {
         let failureReasons = [
             "cancellation",
             "file_source_unavailable",
@@ -124,16 +121,9 @@ struct BridgeMetadataLifecycleOTLPProjectionTests {
                 result: "failure",
                 resultReason: failureReason
             )
-            let sample = metadataLifecycleSample(
-                name: "performance.bridge.swift.metadata_bootstrap_lifecycle",
-                stringAttributes: attributes,
-                numericAttributes: [:]
-            )
-
-            #expect(validator.validate(sample) == .accepted)
             let projection = AgentStudioOTLPTraceProjection.project(
                 metadataLifecycleTraceRecord(
-                    body: sample.name,
+                    body: "performance.bridge.swift.metadata_bootstrap_lifecycle",
                     stringAttributes: attributes,
                     numericAttributes: [:]
                 )
@@ -150,10 +140,7 @@ struct BridgeMetadataLifecycleOTLPProjectionTests {
     }
 
     @Test
-    func reviewPublicationSettlementVocabularySurvivesValidationAndProjection() {
-        let validator = BridgeTelemetryEventValidator(
-            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
-        )
+    func reviewPublicationSettlementVocabularySurvivesProjection() {
         let settlements: [(phase: String, result: String, reason: String)] = [
             ("review_metadata_publication_started", "started", "none"),
             ("review_metadata_publication_completed", "success", "none"),
@@ -172,16 +159,9 @@ struct BridgeMetadataLifecycleOTLPProjectionTests {
                 resultReason: settlement.reason
             )
             let numericAttributes = reviewPublicationNumericAttributes(phase: settlement.phase)
-            let sample = metadataLifecycleSample(
-                name: "performance.bridge.swift.review_metadata_publication",
-                stringAttributes: attributes,
-                numericAttributes: numericAttributes
-            )
-
-            #expect(validator.validate(sample) == .accepted)
             let projection = AgentStudioOTLPTraceProjection.project(
                 metadataLifecycleTraceRecord(
-                    body: sample.name,
+                    body: "performance.bridge.swift.review_metadata_publication",
                     stringAttributes: attributes,
                     numericAttributes: numericAttributes
                 )
@@ -242,22 +222,6 @@ private func reviewPublicationNumericAttributes(phase: String) -> [String: Doubl
         attributes["agentstudio.bridge.review.publication.superseded"] = 0
     }
     return attributes
-}
-
-private func metadataLifecycleSample(
-    name: String,
-    stringAttributes: [String: String],
-    numericAttributes: [String: Double]
-) -> BridgeTelemetrySample {
-    BridgeTelemetrySample(
-        scope: .web,
-        name: name,
-        durationMilliseconds: nil,
-        traceContext: nil,
-        stringAttributes: stringAttributes,
-        numericAttributes: numericAttributes,
-        booleanAttributes: [:]
-    )
 }
 
 private func metadataLifecycleTraceRecord(

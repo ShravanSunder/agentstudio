@@ -428,6 +428,7 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
                 gitReadContext: gitReadContext
             ),
             gitReadContext: gitReadContext,
+            worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator(),
             telemetryRuntimePolicy: .live,
             telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
             initialPaneActivity: .foreground

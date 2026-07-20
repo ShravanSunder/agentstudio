@@ -9,6 +9,7 @@ import {
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	activateBridgeCommWorkerFileViewerMode,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
@@ -153,6 +154,33 @@ describe('Bridge comm worker selected File preparation cancellation', () => {
 		]);
 		expect(harness.abortCount()).toBe(1);
 	});
+
+	test('aborts an in-flight selected File load when Review becomes accepted', async () => {
+		// Arrange
+		const harness = await createPendingFilePreparationHarness();
+		expect(harness.attempts).toHaveLength(1);
+
+		// Act
+		harness.dispatch.message(
+			encodeBridgeWorkerActiveViewerModeUpdateCommand({
+				epoch: 2,
+				requestId: 'request-review-mode-aborts-selected-file',
+				update: {
+					activeSource: null,
+					mode: 'review',
+					nativeSelectionRequestId: null,
+					sequence: 2,
+					sessionId: 'review-mode-aborts-selected-file-session',
+				},
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Assert
+		expect(harness.abortCount()).toBe(1);
+		expect(harness.attempts).toHaveLength(1);
+		expect(fileRenderJobs(harness.postedMessages)).toHaveLength(0);
+	});
 });
 
 interface PendingFilePreparationHarness {
@@ -263,6 +291,7 @@ async function createPendingFilePreparationHarness(): Promise<PendingFilePrepara
 			scheduledDrains.push(drain);
 		},
 	});
+	activateBridgeCommWorkerFileViewerMode(dispatch, 'preparation-cancellation');
 	const publishPresentation = (
 		activityRevision: number,
 		nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],

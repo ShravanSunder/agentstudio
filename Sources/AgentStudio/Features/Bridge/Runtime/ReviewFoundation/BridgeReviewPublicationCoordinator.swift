@@ -57,7 +57,8 @@ struct BridgeReviewPreparedPublication: Equatable, Sendable {
         )
         guard suppliedHandleById.count == contentHandles.count,
             contentHandles.allSatisfy({ handle in
-                handle.reviewGeneration == package.reviewGeneration
+                handle.sizeBytes >= 0
+                    && handle.reviewGeneration == package.reviewGeneration
                     && package.itemsById[handle.itemId] != nil
             })
         else {

@@ -207,6 +207,7 @@ function makeReviewDisplayEvent(
 				operation: 'upsert',
 				payload: {
 					metadataWindowIdentity: reviewMetadataWindowIdentity,
+					reviewGeneration: 1,
 					status: 'ready',
 					summary: {
 						additions: reviewFileCount,

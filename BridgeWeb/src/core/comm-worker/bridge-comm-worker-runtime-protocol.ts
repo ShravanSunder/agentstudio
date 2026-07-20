@@ -256,6 +256,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const fileQueryProjection = new BridgeCommWorkerFileQueryProjection();
 	let updateFileMetadataDemand: ((demand: BridgeCommWorkerFileMetadataDemand) => void) | null =
 		null;
+	let currentFileMetadataSelectedPathResolved: boolean | undefined;
 	let productController: BridgeCommWorkerProductController | null = null;
 
 	const drainPreparation: BridgeCommWorkerPreparationDrain = async () => {
@@ -316,7 +317,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		request: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
 	): void => {
 		latestSelectedFilePreparationRequest = request;
-		if (!panePresentationAuthority.admitsWork) return;
+		if (!panePresentationAuthority.admitsWork || activeViewerMode !== 'file') return;
 		const workerDerivationEpoch = activeFileWorkerDerivationEpoch;
 		if (workerDerivationEpoch === null) return;
 		abortAllFileContentPreparations();
@@ -358,6 +359,15 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			fileContentAbortControllersByItemId.delete(request.itemId);
 		}
 	};
+	const resumeLatestSelectedFileViewContentReadyPreparation = (): void => {
+		const latestFileRequest = latestSelectedFilePreparationRequest;
+		if (
+			latestFileRequest !== null &&
+			latestFileRequest.store.getState().selectedId === latestFileRequest.itemId
+		) {
+			scheduleSelectedFileViewContentReadyPreparation(latestFileRequest);
+		}
+	};
 	const handler = createBridgeCommWorkerCommandHandler({
 		contentItems: [],
 		contentRequestDescriptors: [],
@@ -393,6 +403,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			fileViewRuntimeSource = source;
 		},
 		updateFileMetadataDemand: (demand): void => {
+			currentFileMetadataSelectedPathResolved = demand.selectedPath !== null;
 			updateFileMetadataDemand?.(demand);
 		},
 		...(props.productTransport === undefined
@@ -448,13 +459,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				reviewDemandScheduling.suspend();
 			}
 			if (application.enteredForeground) {
-				reviewDemandScheduling.resume();
-				const latestFileRequest = latestSelectedFilePreparationRequest;
-				if (
-					latestFileRequest !== null &&
-					latestFileRequest.store.getState().selectedId === latestFileRequest.itemId
-				) {
-					scheduleSelectedFileViewContentReadyPreparation(latestFileRequest);
+				if (activeViewerMode === 'review') reviewDemandScheduling.resume();
+				if (activeViewerMode === 'file') {
+					resumeLatestSelectedFileViewContentReadyPreparation();
 				}
 			}
 			publishUpdatingChrome();
@@ -615,15 +622,30 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		}
 
 		shouldRequestDrainAfterMessage = false;
-		if (parsedMessage.data.command === 'activeViewerModeUpdate') {
-			activeViewerMode = parsedMessage.data.update.mode;
-			publishUpdatingChrome();
-		}
+		currentFileMetadataSelectedPathResolved = undefined;
 		const handlerStartedAtMilliseconds = readBridgeCommWorkerRuntimeNowMilliseconds(props.now);
 		const queueWaitMilliseconds =
 			handlerStartedAtMilliseconds -
 			(parsedMessage.data.issuedAtMilliseconds ?? handlerStartedAtMilliseconds);
 		const messages = handler.handleMessage(parsedMessage.data);
+		if (
+			parsedMessage.data.command === 'activeViewerModeUpdate' &&
+			bridgeWorkerRuntimeMessagesContainReadyRequest({
+				messages,
+				requestId: parsedMessage.data.requestId,
+			}) &&
+			activeViewerMode !== parsedMessage.data.update.mode
+		) {
+			activeViewerMode = parsedMessage.data.update.mode;
+			if (activeViewerMode === 'file') {
+				reviewDemandScheduling.suspend();
+				resumeLatestSelectedFileViewContentReadyPreparation();
+			} else {
+				abortAllFileContentPreparations();
+				reviewDemandScheduling.resume();
+			}
+			publishUpdatingChrome();
+		}
 		if (
 			parsedMessage.data.command === 'renderDisposition' &&
 			parsedMessage.data.receipt.surface === 'review'
@@ -635,6 +657,11 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		recordBridgeCommWorkerTaskTelemetry({
 			command: parsedMessage.data.command,
 			durationMilliseconds: handlerDurationMilliseconds,
+			...(parsedMessage.data.command === 'select' && parsedMessage.data.surface === 'fileView'
+				? {
+						fileMetadataSelectedPathResolved: currentFileMetadataSelectedPathResolved === true,
+					}
+				: {}),
 			lane: bridgeCommWorkerTelemetryLaneForMessage(parsedMessage.data),
 			queueWaitMilliseconds,
 			taskKind: 'message_handler',

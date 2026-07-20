@@ -124,6 +124,41 @@ struct WorkspaceBridgeConstructionIntegrationTests {
         await harness.finish()
     }
 
+    @Test("production Review open admits initial construction before returning")
+    func productionReviewOpenAdmitsInitialConstructionBeforeReturning() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-production-review-open-activity"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let harness = makeBridgePaneActivityTestHarness()
+        let repo = harness.store.addRepo(at: repositoryURL)
+        let worktree = try #require(
+            harness.store.repo(repo.id)?.worktrees.first(where: { $0.isMainWorktree })
+        )
+        enterForegroundNativeEnvironment(harness)
+
+        // Act
+        let pane = try #require(
+            harness.coordinator.openBridgeReviewInNewTab(worktreeId: worktree.id)
+        )
+        let controller = try #require(
+            harness.viewRegistry.allBridgeViews[pane.id]?.controller
+        )
+
+        // Assert — the production open must establish foreground admission synchronously.
+        #expect(harness.coordinator.bridgePaneActivity(for: pane.id) == .foreground)
+        #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .foreground)
+        let admittedReviewTask = controller.activeReviewRefreshTask
+        #expect(admittedReviewTask != nil)
+        await admittedReviewTask?.value
+        #expect(controller.paneState.diff.status == .ready)
+        #expect(controller.paneState.diff.packageMetadata != nil)
+
+        await harness.finish()
+    }
+
     @Test("one worktree freshness advance precedes invalidation fan-out to both panes")
     func freshnessAdvancesOnceBeforePaneFanOut() async throws {
         // Arrange

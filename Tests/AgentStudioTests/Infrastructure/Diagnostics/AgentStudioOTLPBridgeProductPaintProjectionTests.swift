@@ -42,6 +42,21 @@ extension AgentStudioOTLPBridgeTraceProjectionTests {
                     "\(prefix).review_selection.second_frame_reached.count": .int(5),
                     "\(prefix).review_selection.submitted.count": .int(6),
                     "\(prefix).review_selection.dropped.count": .int(7),
+                    "\(prefix).review_selection.latest_dispatch_disposition": .string("posted"),
+                    "\(prefix).review_selection.latest_lifecycle_state": .string("acked"),
+                    "\(prefix).page_ready.state": .string("ready"),
+                    "\(prefix).file_mode.send_attempt.count": .int(14),
+                    "\(prefix).file_mode.send_synchronous_failure.count": .int(15),
+                    "\(prefix).file_mode.latest_dispatch_disposition": .string("posted"),
+                    "\(prefix).file_selection.latest_dispatch_disposition": .string("queued_not_ready"),
+                    "\(prefix).file_selection.latest_lifecycle_state": .string("pending"),
+                    "\(prefix).comm_session.state": .string("ready"),
+                    "\(prefix).comm_session.queued_command.count": .int(8),
+                    "\(prefix).comm_session.replacement_request.count": .int(9),
+                    "\(prefix).comm_session.native_bootstrap_install.count": .int(10),
+                    "\(prefix).runtime.native_bootstrap_install.attempt.count": .int(11),
+                    "\(prefix).runtime.native_bootstrap_install.accepted.count": .int(12),
+                    "\(prefix).runtime.native_bootstrap_install.rejected.count": .int(13),
                     "\(prefix).review_shell_present": .bool(true),
                     "\(prefix).review_selected_item_present": .bool(true),
                     "\(prefix).review_selected_path_present": .bool(true),
@@ -113,6 +128,44 @@ extension AgentStudioOTLPBridgeTraceProjectionTests {
         #expect(projection.attributes["\(prefix).review_selection.second_frame_reached.count"] == .int(5))
         #expect(projection.attributes["\(prefix).review_selection.submitted.count"] == .int(6))
         #expect(projection.attributes["\(prefix).review_selection.dropped.count"] == .int(7))
+        #expect(
+            projection.attributes["\(prefix).review_selection.latest_dispatch_disposition"]
+                == .string("posted")
+        )
+        #expect(
+            projection.attributes["\(prefix).review_selection.latest_lifecycle_state"]
+                == .string("acked")
+        )
+        #expect(projection.attributes["\(prefix).page_ready.state"] == .string("ready"))
+        #expect(projection.attributes["\(prefix).file_mode.send_attempt.count"] == .int(14))
+        #expect(
+            projection.attributes["\(prefix).file_mode.send_synchronous_failure.count"] == .int(15)
+        )
+        #expect(
+            projection.attributes["\(prefix).file_mode.latest_dispatch_disposition"] == .string("posted")
+        )
+        #expect(
+            projection.attributes["\(prefix).file_selection.latest_dispatch_disposition"]
+                == .string("queued_not_ready")
+        )
+        #expect(
+            projection.attributes["\(prefix).file_selection.latest_lifecycle_state"] == .string("pending")
+        )
+        #expect(projection.attributes["\(prefix).comm_session.state"] == .string("ready"))
+        #expect(projection.attributes["\(prefix).comm_session.queued_command.count"] == .int(8))
+        #expect(projection.attributes["\(prefix).comm_session.replacement_request.count"] == .int(9))
+        #expect(
+            projection.attributes["\(prefix).comm_session.native_bootstrap_install.count"] == .int(10)
+        )
+        #expect(
+            projection.attributes["\(prefix).runtime.native_bootstrap_install.attempt.count"] == .int(11)
+        )
+        #expect(
+            projection.attributes["\(prefix).runtime.native_bootstrap_install.accepted.count"] == .int(12)
+        )
+        #expect(
+            projection.attributes["\(prefix).runtime.native_bootstrap_install.rejected.count"] == .int(13)
+        )
         #expect(projection.attributes["\(prefix).review_shell_present"] == .bool(true))
         #expect(projection.attributes["\(prefix).review_selected_item_present"] == .bool(true))
         #expect(projection.attributes["\(prefix).review_selected_path_present"] == .bool(true))

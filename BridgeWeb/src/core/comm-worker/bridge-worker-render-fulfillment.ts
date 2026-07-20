@@ -215,6 +215,7 @@ export interface BridgeWorkerRenderFulfillmentState extends BridgeWorkerRenderCo
 
 export type BridgeWorkerRenderFulfillmentEvent =
 	| { readonly kind: 'preparation.started' }
+	| { readonly kind: 'source.revalidationRequested' }
 	| {
 			readonly kind: 'publication.started';
 			readonly attemptId: string;
@@ -269,6 +270,8 @@ export function reduceBridgeWorkerRenderFulfillment(
 		case 'preparation.started':
 			assertStage(state, 'desired', event.kind);
 			return updateState(state, { stage: 'preparing' });
+		case 'source.revalidationRequested':
+			return requestSourceRevalidation(state);
 		case 'publication.started':
 			return startPublication(state, event);
 		case 'render.disposition':
@@ -281,6 +284,18 @@ export function reduceBridgeWorkerRenderFulfillment(
 			return acceptPaintedSelection(state, bridgeWorkerSelectionAcceptedReceiptSchema.parse(event));
 	}
 	return assertNever(event);
+}
+
+function requestSourceRevalidation(
+	state: BridgeWorkerRenderFulfillmentState,
+): BridgeWorkerRenderFulfillmentState {
+	assertStage(state, 'painted', 'source.revalidationRequested');
+	return updateState(state, {
+		activeAttempt: null,
+		isDesired: true,
+		retryAtMilliseconds: null,
+		stage: 'desired',
+	});
 }
 
 function startPublication(

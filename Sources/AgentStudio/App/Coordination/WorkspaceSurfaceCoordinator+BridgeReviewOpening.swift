@@ -117,6 +117,7 @@ extension WorkspaceSurfaceCoordinator {
         let tab = Tab(paneId: pane.id, name: tabNameForPane(pane))
         store.tabLayoutAtom.appendTab(tab)
         store.tabLayoutAtom.setActiveTab(tab.id)
+        refreshBridgePaneActivities()
 
         Self.logger.info("Opened \(logName) pane \(pane.id)")
         return pane

@@ -4,11 +4,14 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 JOURNEY_STATE_FILE="${AGENTSTUDIO_BRIDGE_PACKAGED_JOURNEY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-observability/latest-bridge-packaged-product-journey.env}"
 LSOF_BIN="${AGENTSTUDIO_LSOF_BIN:-/usr/sbin/lsof}"
+GIT_BIN=/usr/bin/git
+SHASUM_BIN=/usr/bin/shasum
 
 if [ "${1:-}" = "--dry-run" ]; then
   cat <<'DRY_RUN'
 dry-run ok: binds bundle/executable/assets to the current candidate
 dry-run ok: uses one persistent authenticated semantic IPC session
+dry-run ok: requires exactly 257 initial Review diffs and retains the 100-diff floor before IPC authentication
 dry-run ok: proves Review early/middle/final traversal
 dry-run ok: proves two independent panes and hidden-to-foreground refresh
 dry-run ok: binds Victoria marker and proof token
@@ -36,10 +39,26 @@ print(values[0] if values else "")
 PY
 }
 
+fixture_digest_for_current_worktree() {
+  local fixture_path="${1:?missing fixture path}"
+  local fixture_baseline="${2:?missing fixture baseline}"
+  local content_oid
+  {
+    printf 'baseline\0%s\0' "$fixture_baseline"
+    while IFS= read -r -d '' relative_path; do
+      content_oid="$($GIT_BIN -C "$fixture_path" hash-object -- "$relative_path")"
+      printf 'path\0%s\0blob\0%s\0' "$relative_path" "$content_oid"
+    done < <("$GIT_BIN" -C "$fixture_path" ls-files -z)
+  } | "$SHASUM_BIN" -a 256 | awk '{ print $1 }'
+}
+
 journey_status=""
 observability_state_file=""
 fixture_root=""
 expected_file_count=""
+expected_review_diff_count=""
+expected_fixture_digest=""
+baseline_commit=""
 early_path=""
 middle_path=""
 final_path=""
@@ -57,6 +76,9 @@ while IFS='=' read -r key raw_value; do
     AGENTSTUDIO_BRIDGE_JOURNEY_OBSERVABILITY_STATE_FILE) observability_state_file="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_ROOT) fixture_root="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_FILE_COUNT) expected_file_count="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_REVIEW_DIFF_COUNT) expected_review_diff_count="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_DIGEST) expected_fixture_digest="$value" ;;
+    BASELINE_COMMIT) baseline_commit="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_EARLY_PATH) early_path="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_MIDDLE_PATH) middle_path="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_FINAL_PATH) final_path="$value" ;;
@@ -82,6 +104,52 @@ case "$expected_file_count" in
     exit 1
     ;;
 esac
+case "$expected_review_diff_count" in
+  ''|*[!0-9]*)
+    echo "Bridge packaged journey expected Review diff count is invalid: $expected_review_diff_count" >&2
+    exit 1
+    ;;
+esac
+if [ "$expected_file_count" -ne 257 ]; then
+  echo "Bridge packaged journey expected file count must be exactly 257: $expected_file_count" >&2
+  exit 1
+fi
+if [ "$expected_review_diff_count" -ne "$expected_file_count" ]; then
+  echo "Bridge packaged journey expected Review diff count must equal expected file count: expected $expected_file_count, observed $expected_review_diff_count" >&2
+  exit 1
+fi
+if [ "$expected_review_diff_count" -lt 100 ]; then
+  echo "Bridge packaged journey rejects fewer than 100 initial Review diffs: $expected_review_diff_count" >&2
+  exit 1
+fi
+case "$expected_fixture_digest" in
+  ''|*[!0-9a-f]*)
+    echo "Bridge packaged journey fixture digest is invalid" >&2
+    exit 1
+    ;;
+esac
+if [ "${#expected_fixture_digest}" -ne 64 ]; then
+  echo "Bridge packaged journey fixture digest is invalid" >&2
+  exit 1
+fi
+if [ -z "$baseline_commit" ] \
+  || ! "$GIT_BIN" -C "$fixture_root" cat-file -e "$baseline_commit^{commit}" 2>/dev/null; then
+  echo "Bridge packaged journey baseline commit is invalid" >&2
+  exit 1
+fi
+actual_review_diff_count="$(
+  "$GIT_BIN" -C "$fixture_root" diff --name-only "$baseline_commit" -- \
+    | awk 'NF { count += 1 } END { print count + 0 }'
+)"
+if [ "$actual_review_diff_count" -ne "$expected_review_diff_count" ]; then
+  echo "Bridge packaged journey initial Review diff count mismatch: expected $expected_review_diff_count, observed $actual_review_diff_count" >&2
+  exit 1
+fi
+actual_fixture_digest="$(fixture_digest_for_current_worktree "$fixture_root" "$baseline_commit")"
+if [ "$actual_fixture_digest" != "$expected_fixture_digest" ]; then
+  echo "Bridge packaged journey fixture digest mismatch" >&2
+  exit 1
+fi
 for required_path in "$early_path" "$middle_path" "$final_path" "$tracked_path"; do
   if [ -z "$required_path" ] || [ ! -f "$fixture_root/$required_path" ]; then
     echo "Bridge packaged journey sentinel is missing: ${required_path:-<missing>}" >&2
@@ -196,6 +264,7 @@ AGENTSTUDIO_BRIDGE_JOURNEY_PROOF_TOKEN="$state_proof_token" \
   "$ipc_token" \
   "$fixture_root" \
   "$expected_file_count" \
+  "$expected_review_diff_count" \
   "$early_path" \
   "$middle_path" \
   "$final_path" \
@@ -209,8 +278,9 @@ import time
 
 metadata_path, token_path, fixture_root = sys.argv[1:4]
 expected_file_count = int(sys.argv[4])
-sentinel_paths = sys.argv[5:8]
-tracked_path = sys.argv[8]
+expected_review_diff_count = int(sys.argv[5])
+sentinel_paths = sys.argv[6:9]
+tracked_path = sys.argv[9]
 response_timeout = float(os.environ.get("AGENTSTUDIO_BRIDGE_JOURNEY_IPC_TIMEOUT_SECONDS", "20"))
 
 
@@ -366,39 +436,58 @@ try:
         )
     for relative_path in corpus_paths:
         absolute_path = os.path.join(fixture_root, relative_path)
-        marker = f"\nbridge-packaged-live::{relative_path}\n"
-        with open(absolute_path, "a", encoding="utf-8") as file:
-            file.write(marker)
         if relative_path in sentinel_paths:
             with open(absolute_path, "rb") as file:
                 source_hash_by_path[relative_path] = hashlib.sha256(file.read()).hexdigest()
     if set(source_hash_by_path) != set(sentinel_paths):
         fail("Bridge packaged journey failed to hash every traversal sentinel")
 
-    generation_before = session.request("bridge.diff.getPackage", {"handle": review_handle}).get(
-        "reviewGeneration"
-    )
-    session.request("bridge.diff.refresh", {"handle": review_handle})
-
     def read_package():
         return session.request("bridge.diff.getPackage", {"handle": review_handle})
 
-    package = wait_for(
-        "Review package",
+    initial_package = wait_for(
+        "initial Review package",
         read_package,
         lambda value: value.get("status") == "ready"
-        and value.get("summary", {}).get("filesChanged") == expected_file_count
-        and len(value.get("items", [])) == expected_file_count
-        and (
-            generation_before is None
-            or value.get("reviewGeneration") is not None
-            and value.get("reviewGeneration") >= generation_before
-        ),
+        and value.get("summary", {}).get("filesChanged") == expected_review_diff_count
+        and len(value.get("items", [])) == expected_review_diff_count,
+    )
+    generation_before = initial_package.get("reviewGeneration")
+    if not isinstance(generation_before, int):
+        fail("Initial Review package has no generation")
+
+    session.request("bridge.diff.refresh", {"handle": review_handle})
+
+    package = wait_for(
+        "refreshed Review package",
+        read_package,
+        lambda value: value.get("status") == "ready"
+        and value.get("summary", {}).get("filesChanged") == expected_review_diff_count
+        and len(value.get("items", [])) == expected_review_diff_count
+        and value.get("reviewGeneration") is not None
+        and value.get("reviewGeneration") > generation_before,
     )
     items_by_path = {item.get("displayPath"): item for item in package.get("items", [])}
     missing_paths = [path for path in sentinel_paths if path not in items_by_path]
     if missing_paths:
         fail(f"Review package omitted traversal sentinels: {missing_paths}")
+
+    def read_review_page():
+        return session.request("bridge.diff.renderState", {"handle": review_handle})
+
+    review_page = wait_for(
+        "refreshed Review page metadata",
+        read_review_page,
+        lambda value: value.get("diagnostics", {}).get("evaluateSucceeded") is True
+        and value.get("diagnostics", {}).get("pageErrorCount") == 0
+        and value.get("summary", {}).get("activeViewerMode") == "review"
+        and value.get("summary", {}).get("reviewMetadataGeneration")
+        == package.get("reviewGeneration")
+        and value.get("summary", {}).get("reviewMetadataItemCount")
+        == expected_review_diff_count
+        and (value.get("summary", {}).get("reviewMetadataTreeRowCount") or 0)
+        >= expected_review_diff_count,
+    )
 
     for position, relative_path in zip(("early", "middle", "final"), sentinel_paths):
         item = items_by_path[relative_path]

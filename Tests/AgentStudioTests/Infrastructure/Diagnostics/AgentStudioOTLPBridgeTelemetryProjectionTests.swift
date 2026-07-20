@@ -225,6 +225,7 @@ struct AgentStudioOTLPBridgeTelemetryProjectionTests {
                 "agentstudio.bridge.transport": .string("worker"),
                 "agentstudio.bridge.worker.action": .string("applySelectedFact"),
                 "agentstudio.bridge.worker.command": .string("select"),
+                "agentstudio.bridge.worker.file_metadata_selected_path_resolved": .bool(true),
                 "agentstudio.bridge.worker.handler_duration_ms": .double(2.5),
                 "agentstudio.bridge.worker.lane": .string("selected"),
                 "agentstudio.bridge.worker.patch_count": .int(2),
@@ -242,6 +243,10 @@ struct AgentStudioOTLPBridgeTelemetryProjectionTests {
 
         #expect(projection.attributes["agentstudio.bridge.worker.action"] == .string("applySelectedFact"))
         #expect(projection.attributes["agentstudio.bridge.worker.command"] == .string("select"))
+        #expect(
+            projection.attributes["agentstudio.bridge.worker.file_metadata_selected_path_resolved"]
+                == .bool(true)
+        )
         #expect(projection.attributes["agentstudio.bridge.worker.handler_duration_ms"] == .double(2.5))
         #expect(projection.attributes["agentstudio.bridge.worker.lane"] == .string("selected"))
         #expect(projection.attributes["agentstudio.bridge.worker.patch_count"] == .int(2))

@@ -145,7 +145,7 @@ export function createBridgeCommWorkerCommandHandler(
 		const postCommitEffects: Array<() => void> = [];
 		if (application.reset) {
 			postCommitEffects.push((): void => {
-				reviewStore.renderFulfillmentRegistry.requeueActivePublicationsForSourceChurn();
+				reviewStore.renderFulfillmentRegistry.requeuePublicationsForSourceChurn();
 			});
 		}
 		let state: 'committed' | 'pending' | 'rolledBack' = 'pending';

@@ -66,6 +66,7 @@ struct BridgeTelemetryReviewStartupValidatorTests {
                     extraStrings: [
                         "agentstudio.bridge.result": "success",
                         "agentstudio.bridge.result_reason": "none",
+                        "agentstudio.bridge.viewer": "review",
                     ]
                 )
             ),

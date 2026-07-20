@@ -612,8 +612,10 @@ extension BridgeTelemetryEventValidator {
             "markFileViewed",
             "metadataInterestUpdate",
             "mode",
+            "renderDisposition",
             "reviewIntakeReady",
             "reviewInvalidate",
+            "reviewProjectionUpdate",
             "select",
             "viewport",
         ],
@@ -743,5 +745,6 @@ extension BridgeTelemetryEventValidator {
         "agentstudio.bridge.selected",
         "agentstudio.bridge.stream_id_matches",
         "agentstudio.bridge.viewer.active",
+        "agentstudio.bridge.worker.file_metadata_selected_path_resolved",
     ]
 }

@@ -327,9 +327,9 @@ final class BridgePaneController {
     /// Load the bundled React application via the custom scheme.
     ///
     /// `page.isLoading == false` does not guarantee React has mounted.
-    func loadApp() {
-        guard let appURL = URL(string: "agentstudio://app/index.html") else { return }
-        _ = page.load(appURL)
+    @discardableResult
+    func loadApp() -> some AsyncSequence<WebPage.NavigationEvent, any Error> {
+        page.load(URL(string: "agentstudio://app/index.html"))
     }
 
     /// Called when the pane is being removed or the controller is being deallocated.

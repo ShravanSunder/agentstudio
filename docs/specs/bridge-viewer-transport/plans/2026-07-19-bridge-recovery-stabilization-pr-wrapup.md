@@ -317,11 +317,13 @@ mise run verify-bridge-packaged-product-journey
 ```
 
 Require strict LaunchServices; final HEAD/bundle/executable/PID/marker/fixture
-digest; 257-file hierarchical File tree plus one changed Review canary;
-selection, scroll, content
-materialization and correlated painted source; zero page errors; and
-runner/verifier exit 0. This fixture proves File plus one fresh Review pane; it
-does not substitute for the restored-plus-fresh two-Review-pane oq4s proof.
+digest; a 257-file hierarchical fixture with all 257 files changed before app
+launch and a verifier floor of at least 100 initial Review diffs; selection,
+early/middle/final traversal, content materialization and correlated painted
+source; zero page errors; and runner/verifier exit 0. This deterministic fixture
+proves File plus one fresh multi-file Review pane under repeatable load; it does
+not substitute for the restored-plus-fresh two-Review-pane oq4s proof against
+the actual current worktree.
 
 Peekaboo may supplement visual evidence but never substitutes for the verifier.
 Do not terminate a preserved failing candidate until its sibling-pane and

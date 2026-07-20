@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import {
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerFileDisplayResyncCommand,
@@ -11,6 +12,7 @@ import {
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	activateBridgeCommWorkerFileViewerMode,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
@@ -38,7 +40,104 @@ const source = {
 	worktreeId: '00000000-0000-4000-8000-000000000002',
 } as const;
 
+const fileViewProductTestBudget = {
+	className: 'interactive',
+	maxBytes: 2 * 1024 * 1024,
+	maxWindowLines: 10_000,
+} as const;
+
 describe('Bridge comm worker File product runtime', () => {
+	test('records whether File select resolved a worker-owned metadata path', async () => {
+		// Arrange
+		const events = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'file.metadata'>
+		>(64);
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const subscription: BridgeProductSubscription<'file.metadata'> = {
+			cancel: async (): Promise<void> => {},
+			events,
+			subscriptionId: 'file-subscription-select-path-telemetry',
+			subscriptionKind: 'file.metadata',
+			update: async (): Promise<void> => {},
+		};
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			productTransport: makeProductTransport({
+				onDiscoverSource: (): void => {},
+				onOpenDescriptor: (): void => {},
+				subscription,
+			}),
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Act
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 1,
+				requestId: 'request-select-before-file-path',
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+				surface: 'fileView',
+			}),
+		);
+		events.push({ eventKind: 'file.sourceAccepted', source });
+		events.push(makeTreeWindowEvent());
+		await flushBridgeWorkerRuntimeContinuations();
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 2,
+				requestId: 'request-select-after-file-path',
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+				surface: 'fileView',
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerViewportCommand({
+				epoch: 3,
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+				requestId: 'request-viewport-after-file-path',
+				surface: 'fileView',
+				visibleItemIds: ['file-1'],
+			}),
+		);
+
+		// Assert
+		const messageHandlerSamples = telemetrySamples.filter(
+			(sample): boolean =>
+				sample.name === 'performance.bridge.worker.task' &&
+				sample.stringAttributes['agentstudio.bridge.worker.task_kind'] === 'message_handler',
+		);
+		const fileSelectSamples = messageHandlerSamples.filter(
+			(sample): boolean =>
+				sample.stringAttributes['agentstudio.bridge.worker.command'] === 'select',
+		);
+		expect(
+			fileSelectSamples.map(
+				(sample) =>
+					sample.booleanAttributes[
+						'agentstudio.bridge.worker.file_metadata_selected_path_resolved'
+					],
+			),
+		).toEqual([false, true]);
+		const viewportSample = messageHandlerSamples.find(
+			(sample) => sample.stringAttributes['agentstudio.bridge.worker.command'] === 'viewport',
+		);
+		expect(viewportSample).toBeDefined();
+		expect(viewportSample?.booleanAttributes).not.toHaveProperty(
+			'agentstudio.bridge.worker.file_metadata_selected_path_resolved',
+		);
+	});
+
 	test('default scheduler opens selected File content after sustained viewport churn', async () => {
 		// Arrange
 		const events = new BridgeProductBoundedAsyncQueue<
@@ -56,11 +155,7 @@ describe('Bridge comm worker File product runtime', () => {
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-			fileViewBudget: {
-				className: 'interactive',
-				maxBytes: 2 * 1024 * 1024,
-				maxWindowLines: 10_000,
-			},
+			fileViewBudget: fileViewProductTestBudget,
 			productTransport: makeProductTransport({
 				onDiscoverSource: (): void => {},
 				onOpenDescriptor: (descriptorId): void => {
@@ -70,6 +165,7 @@ describe('Bridge comm worker File product runtime', () => {
 			}),
 		});
 		await flushBridgeWorkerRuntimeContinuations();
+		activateBridgeCommWorkerFileViewerMode(dispatch, 'default-scheduler');
 		events.push({ eventKind: 'file.sourceAccepted', source });
 		events.push(makeTreeWindowEvent());
 		events.push(makeDescriptorReadyEvent());
@@ -126,11 +222,7 @@ describe('Bridge comm worker File product runtime', () => {
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-			fileViewBudget: {
-				className: 'interactive',
-				maxBytes: 2 * 1024 * 1024,
-				maxWindowLines: 10_000,
-			},
+			fileViewBudget: fileViewProductTestBudget,
 			productTransport: makeProductTransport({
 				onDiscoverSource: (): void => {},
 				onOpenDescriptor: (descriptorId): void => {
@@ -144,6 +236,7 @@ describe('Bridge comm worker File product runtime', () => {
 			},
 		});
 		await flushBridgeWorkerRuntimeContinuations();
+		activateBridgeCommWorkerFileViewerMode(dispatch, 'cross-surface-store-isolation');
 		fileEvents.push({ eventKind: 'file.sourceAccepted', source });
 		fileEvents.push(makeTreeWindowEvent());
 		fileEvents.push(makeDescriptorReadyEvent());
@@ -225,11 +318,7 @@ describe('Bridge comm worker File product runtime', () => {
 				createdSequences.push(sequence);
 				return sequence;
 			},
-			fileViewBudget: {
-				className: 'interactive',
-				maxBytes: 2 * 1024 * 1024,
-				maxWindowLines: 10_000,
-			},
+			fileViewBudget: fileViewProductTestBudget,
 			productTransport,
 			schedulePreparationDrain: (drain): void => {
 				scheduledDrains.push(drain);
@@ -237,6 +326,7 @@ describe('Bridge comm worker File product runtime', () => {
 		});
 
 		// Act
+		activateBridgeCommWorkerFileViewerMode(dispatch, 'main-relay-hard-cut');
 		dispatch.message(
 			encodeBridgeWorkerSelectCommand({
 				epoch: 1,
@@ -359,11 +449,7 @@ describe('Bridge comm worker File product runtime', () => {
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-			fileViewBudget: {
-				className: 'interactive',
-				maxBytes: 2 * 1024 * 1024,
-				maxWindowLines: 10_000,
-			},
+			fileViewBudget: fileViewProductTestBudget,
 			pump,
 			productTransport: makeProductTransport({
 				onDiscoverSource: (): void => {},

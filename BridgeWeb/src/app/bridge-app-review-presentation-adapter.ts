@@ -49,6 +49,7 @@ interface BridgeReviewPresentationLedger {
 	epoch: number | null;
 	readonly itemIdsByIndex: Array<string | null>;
 	readonly rawItemsById: Map<string, BridgeWorkerReviewDisplayItem>;
+	reviewGeneration: number;
 	snapshot: BridgeReviewPresentationSnapshot;
 	readonly treeRowsByIndex: Array<ReviewTreeRowMetadata | null>;
 }
@@ -82,7 +83,11 @@ export function bridgeReviewPresentationSnapshotForDisplay(props: {
 	const reviewSourceSlice = props.reviewSourceSlice;
 	if (!isPresentableReviewSourceDisplaySlice(reviewSourceSlice)) return null;
 	const previousLedger = presentationLedgerByDisplayStore.get(props.displayStore);
-	if (previousLedger === undefined || previousLedger.epoch !== props.catalogSnapshot.epoch) {
+	if (
+		previousLedger === undefined ||
+		previousLedger.epoch !== props.catalogSnapshot.epoch ||
+		previousLedger.reviewGeneration !== reviewSourceSlice.reviewGeneration
+	) {
 		return rebuildBridgeReviewPresentationLedger({
 			catalogSnapshot: props.catalogSnapshot,
 			displayStore: props.displayStore,
@@ -133,14 +138,15 @@ function rebuildBridgeReviewPresentationLedger(props: {
 		]),
 	);
 	const presentationKey = JSON.stringify([
-		'bridge-review-presentation-v3',
+		'bridge-review-presentation-v4',
 		props.catalogSnapshot.epoch ?? 0,
+		props.reviewSourceSlice.reviewGeneration,
 	]);
 	const reviewPackage = presentationPackageForDisplay({
 		itemsById,
 		orderedItemIds,
 		presentationKey,
-		reviewGeneration: props.catalogSnapshot.epoch ?? 0,
+		reviewGeneration: props.reviewSourceSlice.reviewGeneration,
 		reviewSourceSlice: props.reviewSourceSlice,
 		revision: props.catalogSnapshot.revision,
 	});
@@ -161,6 +167,7 @@ function rebuildBridgeReviewPresentationLedger(props: {
 		epoch: props.catalogSnapshot.epoch,
 		itemIdsByIndex: orderedItemIds.map((itemId) => itemId),
 		rawItemsById: new Map(orderedDisplayItems.map((item) => [item.metadata.itemId, item])),
+		reviewGeneration: props.reviewSourceSlice.reviewGeneration,
 		snapshot,
 		treeRowsByIndex: reviewTreeRows.map((row) => row),
 	});

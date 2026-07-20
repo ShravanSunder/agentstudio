@@ -225,6 +225,7 @@ enum AgentStudioOTLPTraceProjection {
         "terminal.activity.close_reason",
         "terminal.activity.source",
     ]).union(BridgeProductStreamProjectionKeys.stringKeys)
+        .union(BridgeProductPaintProjectionKeys.stringKeys)
 
     private static let allowedPayloadNamedStringAttributeKeys: Set<String> = [
         "agentstudio.bridge.tree_path_count_bucket",
@@ -605,6 +606,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.telemetry.proof_eligible",
         "agentstudio.bridge.telemetry.settlement_acknowledged",
         "agentstudio.bridge.viewer.active",
+        "agentstudio.bridge.worker.file_metadata_selected_path_resolved",
         "agentstudio.ghostty.route.result",
         "agentstudio.inbox.notification.coalesced",
         "agentstudio.inbox.notification.revoked",
@@ -905,9 +907,24 @@ private enum BridgeProductStreamProjectionKeys {
 private enum BridgeProductPaintProjectionKeys {
     private static let prefix = "agentstudio.startup_diagnostic.bridge.product_paint"
 
+    static let stringKeys: Set<String> = Set(
+        [
+            "comm_session.state",
+            "file_mode.latest_dispatch_disposition",
+            "file_selection.latest_dispatch_disposition",
+            "file_selection.latest_lifecycle_state",
+            "page_ready.state",
+            "review_selection.latest_dispatch_disposition",
+            "review_selection.latest_lifecycle_state",
+        ].map { "\(prefix).\($0)" })
     static let numericKeys: Set<String> = Set(
         [
+            "comm_session.native_bootstrap_install.count",
+            "comm_session.queued_command.count",
+            "comm_session.replacement_request.count",
             "decoded_correlation.count",
+            "file_mode.send_attempt.count",
+            "file_mode.send_synchronous_failure.count",
             "file_source_match.count",
             "painted_element.count",
             "review_candidate.canary.count",
@@ -926,6 +943,9 @@ private enum BridgeProductPaintProjectionKeys {
             "review_selection.second_frame_reached.count",
             "review_selection.submitted.count",
             "review_source_match.count",
+            "runtime.native_bootstrap_install.accepted.count",
+            "runtime.native_bootstrap_install.attempt.count",
+            "runtime.native_bootstrap_install.rejected.count",
         ].map { "\(prefix).\($0)" })
     static let booleanKeys: Set<String> = Set(
         [

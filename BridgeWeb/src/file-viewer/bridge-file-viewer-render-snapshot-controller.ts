@@ -31,6 +31,7 @@ import type {
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeWorkerFileQuery } from '../core/comm-worker/bridge-worker-file-query-contracts.js';
+import { recordBridgeSelectionLifecycleSnapshot } from '../foundation/diagnostics/bridge-review-selection-diagnostic.js';
 import type { BridgeFileViewerSelectedCodeViewItem } from './bridge-file-viewer-code-view-items.js';
 import type { BridgeFileViewerSelection } from './bridge-file-viewer-display-model.js';
 
@@ -82,6 +83,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 		throw new Error('Bridge File Viewer requires its pane-owned File surface client.');
 	}
 	const requestSequenceRef = useRef(0);
+	const latestFileSelectRequestIdRef = useRef<string | null>(null);
 	const workerEpochRef = useRef(0);
 	const renderSnapshotStore = fileViewClient.renderStore;
 	const renderSnapshot = useSyncExternalStore(
@@ -99,9 +101,17 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 		},
 		[fileViewClient.renderFulfillmentCoordinator, renderSnapshotStore],
 	);
+	const recordLatestFileSelectLifecycleSnapshot = useCallback((): void => {
+		recordBridgeSelectionLifecycleSnapshot({
+			requestId: latestFileSelectRequestIdRef.current,
+			snapshot: fileViewClient.lifecycle.getSnapshot(),
+			surface: 'fileView',
+		});
+	}, [fileViewClient]);
 	useEffect((): (() => void) => {
 		const unsubscribe = fileViewClient.subscribeMessages((message): void => {
 			publishWorkerMessages([message]);
+			recordLatestFileSelectLifecycleSnapshot();
 		});
 		fileViewClient.send(
 			encodeBridgeWorkerFileDisplayResyncCommand({
@@ -111,8 +121,9 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 				transactionId: null,
 			}),
 		);
+		recordLatestFileSelectLifecycleSnapshot();
 		return unsubscribe;
-	}, [fileViewClient, publishWorkerMessages]);
+	}, [fileViewClient, publishWorkerMessages, recordLatestFileSelectLifecycleSnapshot]);
 
 	const dispatchSelectedFileViewContentRequest = useCallback(
 		(dispatchProps: {
@@ -123,7 +134,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 				selectedItemId: dispatchProps.fileId,
 				source: dispatchProps.selectedSource,
 			});
-			fileViewClient.send(
+			latestFileSelectRequestIdRef.current = fileViewClient.send(
 				encodeBridgeWorkerSelectCommand({
 					epoch: nextBridgeFileViewerWorkerEpoch(workerEpochRef),
 					requestId: nextBridgeFileViewerWorkerRequestId(requestSequenceRef),
@@ -132,8 +143,9 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 					selectedSource: dispatchProps.selectedSource,
 				}),
 			);
+			recordLatestFileSelectLifecycleSnapshot();
 		},
-		[fileViewClient, renderSnapshotStore],
+		[fileViewClient, recordLatestFileSelectLifecycleSnapshot, renderSnapshotStore],
 	);
 	const dispatchFileViewQueryFact = useCallback(
 		(query: BridgeWorkerFileQuery): void => {

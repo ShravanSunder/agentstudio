@@ -207,9 +207,17 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		return Object.freeze(releasedItemIds);
 	}
 
-	requeueActivePublicationsForSourceChurn(atMilliseconds: number = this.#now()): readonly string[] {
+	requeuePublicationsForSourceChurn(atMilliseconds: number = this.#now()): readonly string[] {
 		const requeuedItemIds: string[] = [];
 		for (const [itemId, currentState] of this.#fulfillmentByItemId) {
+			if (currentState.stage === 'painted') {
+				const desiredState = reduceBridgeWorkerRenderFulfillment(currentState, {
+					kind: 'source.revalidationRequested',
+				});
+				this.#fulfillmentByItemId.set(itemId, desiredState);
+				requeuedItemIds.push(itemId);
+				continue;
+			}
 			if (currentState.activeAttempt === null) continue;
 			const retryState = reduceBridgeWorkerRenderFulfillment(currentState, {
 				...activeBridgeWorkerRenderReceiptIdentity(currentState),

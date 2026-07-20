@@ -30,6 +30,7 @@ import {
 } from '../core/comm-worker/bridge-worker-pierre-courier.js';
 import type { BridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { BridgeWorkerRpcLifecycleSnapshot } from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
+import { recordBridgeSelectionLifecycleSnapshot } from '../foundation/diagnostics/bridge-review-selection-diagnostic.js';
 
 const BRIDGE_REVIEW_INTAKE_READY_MAX_ATTEMPTS = 3;
 
@@ -149,9 +150,15 @@ export function useBridgeReviewRenderSnapshotController(
 	const workerEpochRef = useRef(0);
 	const hoveredReviewItemIdRef = useRef<string | null>(null);
 	const reviewIntakeReadyAttemptRef = useRef<BridgeReviewIntakeReadyAttempt | null>(null);
+	const latestReviewSelectRequestIdRef = useRef<string | null>(null);
 	const markFileViewedFailureCallbacksRef = useRef<Map<string, () => void>>(new Map());
 	const settleWorkerRequests = useCallback((): void => {
 		const lifecycleSnapshot = props.reviewClient.lifecycle.getSnapshot();
+		recordBridgeSelectionLifecycleSnapshot({
+			requestId: latestReviewSelectRequestIdRef.current,
+			snapshot: lifecycleSnapshot,
+			surface: 'review',
+		});
 		settleBridgeReviewWorkerLifecycleRequests({
 			failureCallbacksByRequestId: markFileViewedFailureCallbacksRef.current,
 			lifecycleSnapshot,
@@ -199,7 +206,7 @@ export function useBridgeReviewRenderSnapshotController(
 	);
 	const emitSelectedReviewItemIntent = useCallback(
 		(itemId: string, selectedSource: 'keyboard' | 'programmatic' | 'user'): void => {
-			props.reviewClient.send(
+			latestReviewSelectRequestIdRef.current = props.reviewClient.send(
 				encodeBridgeWorkerSelectCommand({
 					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
 					requestId: 'review-client-owned',
