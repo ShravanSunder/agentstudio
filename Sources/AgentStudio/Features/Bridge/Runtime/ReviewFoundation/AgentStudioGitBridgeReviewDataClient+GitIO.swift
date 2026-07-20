@@ -126,6 +126,8 @@ extension AgentStudioGitBridgeReviewDataClient {
             throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as BridgeSharedReviewContentBackingError {
+            throw error
         } catch let error as GitDataPlaneError {
             throw bridgeFailure(for: error, handle: handle)
         } catch {

@@ -399,32 +399,6 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         )
     }
 
-    func loadContent(_ request: BridgeContentLoadRequest) async throws -> BridgeContentLoadResult {
-        guard let locator = contentLocator(for: request.handle) else {
-            throw BridgeProviderFailure.missingContent(handleId: request.handle.handleId)
-        }
-        guard locator.reviewGeneration == request.requestedGeneration,
-            request.handle.reviewGeneration == request.requestedGeneration
-        else {
-            throw BridgeProviderFailure.staleReviewGeneration(
-                storedGeneration: locator.reviewGeneration,
-                requestedGeneration: request.requestedGeneration
-            )
-        }
-        let content = try await contentPayload(
-            for: locator,
-            handle: request.handle,
-            requestedGeneration: request.requestedGeneration
-        )
-        return BridgeContentLoadResult(
-            handle: request.handle,
-            data: content.data,
-            mimeType: request.handle.mimeType,
-            contentHash: request.handle.contentHash,
-            contentHashAlgorithm: request.handle.contentHashAlgorithm
-        )
-    }
-
     func streamContent(
         _ request: BridgeContentStreamRequest,
         chunkByteCount: Int,
@@ -646,8 +620,15 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
     }
 
     func contentLocator(for handle: BridgeContentHandle) -> ContentLocator? {
+        contentLocators(for: handle).first
+    }
+
+    func contentLocators(for handle: BridgeContentHandle) -> [ContentLocator] {
         let identity = contentLocatorIdentity(for: handle)
-        return sharedLocatorStackByIdentity[identity]?.last ?? liveLocatorByIdentity[identity]
+        if let sharedLocators = sharedLocatorStackByIdentity[identity], !sharedLocators.isEmpty {
+            return Array(sharedLocators.reversed())
+        }
+        return liveLocatorByIdentity[identity].map { [$0] } ?? []
     }
 
     func bridgeChangeKind(_ kind: GitDiffChangeKind) -> BridgeFileChangeKind {

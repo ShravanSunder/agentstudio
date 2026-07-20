@@ -601,9 +601,16 @@ struct BridgePaneReviewSharedConstructionTests {
         let request = fixture.request(packageId: "package-retained", generation: 1)
         let bindingA = try await fixture.firstBinder.acquire(request)
         let handleA = try #require(bindingA.result.registeredContentHandles.last)
+        guard case .reviewTemplate(let templateA) = bindingA.artifactPin.constructionLease.artifact else {
+            Issue.record("Expected retained Review backing A")
+            return
+        }
+        let backingA = try #require(templateA.backing)
         let locatorCountAfterA = await fixture.firstClient.registeredContentLocatorCount()
+        #expect(backingA.uninstallOperationCount == 1)
         let bindingAJoin = try await fixture.firstBinder.acquire(request)
         #expect(await fixture.firstClient.registeredContentLocatorCount() == locatorCountAfterA)
+        #expect(backingA.uninstallOperationCount == 1)
         await bindingAJoin.artifactPin.releaseAndWait()
         _ = await fixture.coordinator.invalidate(worktree: fixture.worktreeIdentityKey)
         let bindingB = try await fixture.firstBinder.acquire(request)
@@ -689,7 +696,7 @@ struct BridgePaneReviewSharedConstructionTests {
     }
 }
 
-private struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
+struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
     let testRoot: URL
     let repositoryPath: URL
     let coordinator: BridgeWorktreeProductConstructionCoordinator
@@ -708,7 +715,8 @@ private struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
     static func make(
         baseRef: String = String(repeating: "a", count: 40),
         contentReadGateByLocator: [GitContentLocator: BridgeGitContentReadGate] = [:],
-        revisionResolutionGate: BridgeGitContentReadGate? = nil
+        revisionResolutionGate: BridgeGitContentReadGate? = nil,
+        schedulerEventSink: BridgeGitReadSchedulerEventSink? = nil
     ) throws -> Self {
         let (testRoot, repositoryPath, backingRoot) = try makeFixturePaths()
         let baseOID = String(repeating: "a", count: 40)
@@ -748,19 +756,7 @@ private struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
             contentReadGateByLocator: contentReadGateByLocator,
             revisionResolutionGate: revisionResolutionGate
         )
-        let scheduler = BridgeGitReadScheduler(
-            topology: BridgeGitReadSchedulerTopology(
-                slotsByOperationClass: [
-                    .reviewMetadata: [BridgeGitReadSlotID(token: "shared-review-metadata")],
-                    .selectedVisibleContent: [BridgeGitReadSlotID(token: "shared-review-content")],
-                ],
-                maximumQueuedOperationCountByClass: [
-                    .reviewMetadata: 8,
-                    .selectedVisibleContent: 8,
-                ],
-                maximumLogicalWaiterCountPerOperation: 8
-            )
-        )
+        let scheduler = Self.makeScheduler(eventSink: schedulerEventSink)
         let firstContext = BridgeGitReadContext(
             scheduler: scheduler,
             worktreeKey: BridgeGitReadWorktreeKey(token: StableKey.fromPath(repositoryPath)),

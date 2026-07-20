@@ -101,7 +101,7 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
         backing: BridgeSharedReviewContentBacking,
         handles: [BridgeContentHandle]
     ) async throws {
-        let locatorIdentities = handles.map(contentLocatorIdentity)
+        var installedLocatorIdentities: [ContentLocatorIdentity] = []
         for handle in handles {
             let identity = BridgeSharedReviewContentIdentity(
                 itemIdentity: handle.itemId,
@@ -119,19 +119,22 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
                 $0.registrationIdentity == backing.artifactIdentity
             }) != true {
                 sharedLocatorStackByIdentity[locatorIdentity, default: []].append(locator)
+                installedLocatorIdentities.append(locatorIdentity)
             }
         }
+        guard !installedLocatorIdentities.isEmpty else { return }
+        let locatorIdentitiesToUninstall = installedLocatorIdentities
         guard
             backing.registerUninstallOperation({ [weak self] in
                 await self?.uninstallSharedContent(
                     backingArtifactIdentity: backing.artifactIdentity,
-                    locatorIdentities: locatorIdentities
+                    locatorIdentities: locatorIdentitiesToUninstall
                 )
             })
         else {
             uninstallSharedContent(
                 backingArtifactIdentity: backing.artifactIdentity,
-                locatorIdentities: locatorIdentities
+                locatorIdentities: locatorIdentitiesToUninstall
             )
             throw BridgeSharedReviewContentBackingError.invalidated
         }
@@ -140,6 +143,40 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
     func registeredContentLocatorCount() -> Int {
         liveLocatorByIdentity.count
             + sharedLocatorStackByIdentity.values.reduce(0) { $0 + $1.count }
+    }
+
+    func loadContent(_ request: BridgeContentLoadRequest) async throws -> BridgeContentLoadResult {
+        let locators = contentLocators(for: request.handle)
+        guard let firstLocator = locators.first else {
+            throw BridgeProviderFailure.missingContent(handleId: request.handle.handleId)
+        }
+        guard firstLocator.reviewGeneration == request.requestedGeneration,
+            request.handle.reviewGeneration == request.requestedGeneration
+        else {
+            throw BridgeProviderFailure.staleReviewGeneration(
+                storedGeneration: firstLocator.reviewGeneration,
+                requestedGeneration: request.requestedGeneration
+            )
+        }
+        for locator in locators {
+            do {
+                let content = try await contentPayload(
+                    for: locator,
+                    handle: request.handle,
+                    requestedGeneration: request.requestedGeneration
+                )
+                return BridgeContentLoadResult(
+                    handle: request.handle,
+                    data: content.data,
+                    mimeType: request.handle.mimeType,
+                    contentHash: request.handle.contentHash,
+                    contentHashAlgorithm: request.handle.contentHashAlgorithm
+                )
+            } catch BridgeSharedReviewContentBackingError.invalidated {
+                continue
+            }
+        }
+        throw BridgeSharedReviewContentBackingError.invalidated
     }
 
     func contentPayload(

@@ -101,6 +101,10 @@ final class BridgeSharedReviewContentBacking: @unchecked Sendable {
         lock.withLock { state.isAcceptingReads ? state.sourceByIdentity.count : 0 }
     }
 
+    var uninstallOperationCount: Int {
+        lock.withLock { state.uninstallOperations.count }
+    }
+
     func source(
         for identity: BridgeSharedReviewContentIdentity
     ) throws -> BridgeSharedReviewImmutableContentSource {
