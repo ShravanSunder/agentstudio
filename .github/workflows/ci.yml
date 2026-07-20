@@ -186,7 +186,7 @@ jobs:
         env:
           SWIFT_TEST_WORKERS: "4"
           SWIFT_TEST_SKIP_PREBUILD: "1"
-          SWIFT_TEST_TIMEOUT_SECONDS: "1200"
+          SWIFT_TEST_TIMEOUT_SECONDS: "600"
           _XCB_BYPASS: "1"
         run: mise run test-large
 

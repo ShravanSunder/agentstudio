@@ -301,7 +301,7 @@ struct TerminalActivityAgentSettledHeuristicTests {
         clock.advance(by: .seconds(180))
         #expect(await Self.agentSettledPromotionCount(from: subscriber) == 1)
 
-        router.markUnseenActivityObserved(paneId: paneId.uuid)
+        await observeUnseenActivity(paneId: paneId, through: router)
         await clock.waitForPendingSleepCount(exactly: 0)
         nowMilliseconds.set(366_000)
         let observedCycleStartGeneration = clock.scheduledSleepGeneration
@@ -348,7 +348,7 @@ struct TerminalActivityAgentSettledHeuristicTests {
         await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, through: router)
         await waitForReplacementSleepPair(clock: clock, scheduledAfter: secondEventSleepGeneration)
 
-        router.markUnseenActivityObserved(paneId: paneId.uuid)
+        await observeUnseenActivity(paneId: paneId, through: router)
         await clock.waitForPendingSleepCount(exactly: 0)
 
         clock.advance(by: .seconds(180))
@@ -395,6 +395,20 @@ struct TerminalActivityAgentSettledHeuristicTests {
                         outputBurstThreshold: 30
                     )
                 )
+            )
+        )
+    }
+
+    private func observeUnseenActivity(
+        paneId: PaneId,
+        through router: TerminalActivityRouter
+    ) async {
+        await router.consumeTerminalActivityInput(
+            .orderedControl(
+                surfaceID: paneId.uuid,
+                paneID: paneId.uuid,
+                precedingAggregate: nil,
+                control: .observed
             )
         )
     }

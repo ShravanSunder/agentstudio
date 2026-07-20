@@ -349,15 +349,18 @@ actor TerminalActivityProjector {
         await outcomeSink(outcomes)
     }
 
-    func reset() {
-        for task in unseenCloseTasks.values { task.cancel() }
-        for task in agentCloseTasks.values { task.cancel() }
+    func reset() async {
+        let closeTasks = Array(unseenCloseTasks.values) + Array(agentCloseTasks.values)
+        let retirementTasks = Array(unseenRetirementTasks.values) + Array(agentRetirementTasks.values)
+        for task in closeTasks { task.cancel() }
         unseenCloseTasks.removeAll()
         agentCloseTasks.removeAll()
         unseenRetirementTasks.removeAll()
         agentRetirementTasks.removeAll()
         paneStates.removeAll()
         outcomeSink = nil
+        for task in closeTasks { await task.value }
+        for task in retirementTasks { await task.value }
     }
 
     var retainedPaneCount: Int { paneStates.count }
@@ -442,7 +445,7 @@ actor TerminalActivityProjector {
     }
 
     private func scheduleUnseenClose(for paneID: UUID, state: PaneState) {
-        unseenCloseTasks[paneID]?.cancel()
+        cancelUnseenWindow(for: paneID)
         guard let window = state.unseenWindow else { return }
         let delay = self.delay
         let duration = unseenQuietDuration
@@ -462,7 +465,7 @@ actor TerminalActivityProjector {
     }
 
     private func scheduleAgentClose(for paneID: UUID, state: PaneState) {
-        agentCloseTasks[paneID]?.cancel()
+        cancelAgentCandidate(for: paneID)
         guard let candidate = state.agentCandidate else { return }
         let delay = self.delay
         let duration = agentSettledQuietDuration
