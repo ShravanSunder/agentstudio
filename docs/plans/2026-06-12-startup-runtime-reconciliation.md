@@ -1,5 +1,12 @@
 # Startup Runtime Reconciliation Implementation Plan
 
+> **OBSOLETE — DO NOT EXECUTE.** Startup zmx discovery, anchor hydration,
+> adoption, reconciliation, and persistence are forbidden by the current
+> [Session Lifecycle Architecture](../architecture/session_lifecycle.md).
+> Restore strictly decodes the stored opaque `ZmxSessionID`, applies composition
+> once, and attaches the exact stored ID without mutation. The remainder is a
+> non-normative historical record.
+
 Date: 2026-06-12
 Source spec: `docs/superpowers/specs/2026-06-12-startup-runtime-reconciliation.md`
 Status: reviewed by `plan-review-swarm`; accepted findings folded into this

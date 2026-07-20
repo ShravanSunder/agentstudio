@@ -9,25 +9,38 @@ struct PaneIdTests {
     // MARK: - Creation
 
     @Test
-    func defaultInitCreatesV7UUID() {
+    func generateUUIDv7CreatesV7UUID() {
         // Act
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         // Assert
-        #expect(paneId.isV7, "Default PaneId should use UUID v7")
+        #expect(paneId.isV7, "Explicit PaneId generation should use UUID v7")
     }
 
     @Test
-    func uuidInitWrapsExistingUUID() {
+    func existingUUIDInitPreservesV7UUID() {
         // Arrange
         let existing = UUIDv7.generate(milliseconds: 1_700_000_000_000)
 
         // Act
-        let paneId = PaneId(uuid: existing)
+        let paneId = PaneId(existingUUID: existing)
 
         // Assert
         #expect(paneId.uuid == existing)
         #expect(paneId.isV7, "Wrapped UUID should remain v7 in canonical flows")
+    }
+
+    @Test
+    func existingUUIDInitPreservesHistoricalUUIDVerbatim() {
+        // Arrange
+        let historicalUUID = UUID(uuidString: "AABBCCDD-1122-4344-8566-778899001122")!
+
+        // Act
+        let paneId = PaneId(existingUUID: historicalUUID)
+
+        // Assert
+        #expect(paneId.uuid == historicalUUID)
+        #expect(!paneId.isV7)
     }
 
     // MARK: - hexPrefix
@@ -35,7 +48,7 @@ struct PaneIdTests {
     @Test
     func hexPrefixReturns16LowercaseHexChars() {
         // Arrange
-        let paneId = PaneId(uuid: UUID(uuidString: "01890f10-1234-7abc-8def-0123456789ab")!)
+        let paneId = PaneId(existingUUID: UUID(uuidString: "01890f10-1234-7abc-8def-0123456789ab")!)
 
         // Act
         let prefix = paneId.hexPrefix
@@ -49,7 +62,7 @@ struct PaneIdTests {
     func hexPrefixIsAlwaysLowercase() {
         // Act — generate several PaneIds
         for _ in 0..<20 {
-            let paneId = PaneId()
+            let paneId = PaneId.generateUUIDv7()
             let prefix = paneId.hexPrefix
             #expect(prefix == prefix.lowercased(), "hexPrefix must be lowercase: \(prefix)")
             #expect(prefix.count == 16)
@@ -61,7 +74,7 @@ struct PaneIdTests {
         // The documented derivation from session_lifecycle.md:
         // pane16 = first16hex(lowercase(removeHyphens(paneId.uuidString)))
         let uuid = UUID(uuidString: "01890F10-1234-7ABC-8DEF-0123456789AB")!
-        let paneId = PaneId(uuid: uuid)
+        let paneId = PaneId(existingUUID: uuid)
 
         // Manual derivation
         let expected = String(
@@ -79,7 +92,7 @@ struct PaneIdTests {
     @Test
     func fullHexReturns32LowercaseHexChars() {
         // Arrange
-        let paneId = PaneId(uuid: UUID(uuidString: "01890f10-1234-7abc-8def-0123456789ab")!)
+        let paneId = PaneId(existingUUID: UUID(uuidString: "01890f10-1234-7abc-8def-0123456789ab")!)
 
         // Act & Assert
         let expected = "01890f1012347abc8def0123456789ab"
@@ -92,7 +105,7 @@ struct PaneIdTests {
     @Test
     func codableRoundTrip() throws {
         // Arrange
-        let original = PaneId()
+        let original = PaneId.generateUUIDv7()
 
         // Act
         let data = try JSONEncoder().encode(original)
@@ -118,20 +131,26 @@ struct PaneIdTests {
     }
 
     @Test
-    func codableRejectsNonV7UUIDString() throws {
-        let v4UUID = UUID(uuidString: "AABBCCDD-1122-3344-5566-778899001122")!
+    func codablePreservesHistoricalUUIDString() throws {
+        // Arrange
+        let v4UUID = UUID(uuidString: "AABBCCDD-1122-4344-8566-778899001122")!
         let v4Data = try JSONEncoder().encode(v4UUID)
 
-        #expect(throws: Error.self) {
-            try JSONDecoder().decode(PaneId.self, from: v4Data)
-        }
+        // Act
+        let decoded = try JSONDecoder().decode(PaneId.self, from: v4Data)
+        let reencoded = try JSONEncoder().encode(decoded)
+
+        // Assert
+        #expect(decoded.uuid == v4UUID)
+        #expect(!decoded.isV7)
+        #expect(reencoded == v4Data)
     }
 
     @Test
     func codableEncodesToBareUUIDString() throws {
         // Arrange
         let uuid = UUID(uuidString: "01890f10-1234-7abc-8def-0123456789ab")!
-        let paneId = PaneId(uuid: uuid)
+        let paneId = PaneId(existingUUID: uuid)
 
         // Act
         let paneIdData = try JSONEncoder().encode(paneId)
@@ -144,8 +163,8 @@ struct PaneIdTests {
     @Test
     func codableWorksInDictionary() throws {
         // Arrange — simulate WorkspaceStore's [PaneId: SomeValue] pattern
-        let id1 = PaneId()
-        let id2 = PaneId()
+        let id1 = PaneId.generateUUIDv7()
+        let id2 = PaneId.generateUUIDv7()
         let dict: [PaneId: String] = [id1: "pane-a", id2: "pane-b"]
 
         // Act — this verifies PaneId works as a Codable dictionary key
@@ -164,8 +183,8 @@ struct PaneIdTests {
     func equalityBasedOnUUID() {
         // Arrange
         let uuid = UUIDv7.generate(milliseconds: 1_700_000_000_000)
-        let a = PaneId(uuid: uuid)
-        let b = PaneId(uuid: uuid)
+        let a = PaneId(existingUUID: uuid)
+        let b = PaneId(existingUUID: uuid)
 
         // Assert
         #expect(a == b)
@@ -174,29 +193,29 @@ struct PaneIdTests {
 
     @Test
     func inequalityForDifferentUUIDs() {
-        let a = PaneId()
-        let b = PaneId()
+        let a = PaneId.generateUUIDv7()
+        let b = PaneId.generateUUIDv7()
         #expect(a != b)
     }
 
     @Test
     func worksAsSetElement() {
         // Arrange
-        let id = PaneId()
+        let id = PaneId.generateUUIDv7()
         var set: Set<PaneId> = [id, id, id]
 
         // Assert
         #expect(set.count == 1)
         #expect(set.contains(id))
 
-        set.insert(PaneId())
+        set.insert(PaneId.generateUUIDv7())
         #expect(set.count == 2)
     }
 
     @Test
     func worksAsDictionaryKey() {
         // Arrange
-        let id = PaneId()
+        let id = PaneId.generateUUIDv7()
         var dict: [PaneId: String] = [:]
 
         // Act
@@ -211,8 +230,8 @@ struct PaneIdTests {
     @Test
     func v7PaneIdsCompareByCreationTime() {
         // Arrange — create with increasing timestamps
-        let earlier = PaneId(uuid: UUIDv7.generate(milliseconds: 1_700_000_000_000))
-        let later = PaneId(uuid: UUIDv7.generate(milliseconds: 1_700_000_001_000))
+        let earlier = PaneId(existingUUID: UUIDv7.generate(milliseconds: 1_700_000_000_000))
+        let later = PaneId(existingUUID: UUIDv7.generate(milliseconds: 1_700_000_001_000))
 
         // Assert
         #expect(earlier < later)
@@ -224,15 +243,15 @@ struct PaneIdTests {
     @Test
     func descriptionIsUUIDString() {
         let uuid = UUID(uuidString: "01890f10-1234-7abc-8def-0123456789ab")!
-        let paneId = PaneId(uuid: uuid)
+        let paneId = PaneId(existingUUID: uuid)
         #expect(paneId.description == uuid.uuidString)
         #expect(paneId.uuidString == uuid.uuidString)
     }
 
     @Test
-    func debugDescriptionIncludesVersion() {
-        let v7 = PaneId()
-        #expect(v7.debugDescription.contains("v7=true"))
+    func debugDescriptionIncludesExactUUID() {
+        let v7 = PaneId.generateUUIDv7()
+        #expect(v7.debugDescription == "PaneId(\(v7.uuid.uuidString))")
     }
 
     // MARK: - createdAt
@@ -241,7 +260,7 @@ struct PaneIdTests {
     func createdAtReturnsDateForV7() {
         // Arrange
         let before = Date()
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         // Assert
         guard let createdAt = paneId.createdAt else {

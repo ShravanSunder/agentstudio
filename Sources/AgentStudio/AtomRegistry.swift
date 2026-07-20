@@ -45,7 +45,7 @@ final class AtomRegistry {
 
     init(
         activeWorkspaceSelection: ActiveWorkspaceSelectionAtom = .init(),
-        workspaceIdentity: WorkspaceIdentityAtom = .init(),
+        workspaceIdentity: WorkspaceIdentityAtom = .init(installationState: .awaitingCanonicalComposition),
         workspaceWindowMemory: WorkspaceWindowMemoryAtom = .init(),
         workspaceRepositoryTopology: RepositoryTopologyAtom = .init(),
         workspacePaneGraph: WorkspacePaneGraphAtom? = nil,
@@ -267,7 +267,7 @@ final class AtomRegistry {
         WorkspacePaneFocusDerived()
     }
 
-    lazy var attendedPane = AttendedPaneAtom(
+    lazy var attendedPane = AttendedPaneDerived(
         tabLayout: workspaceTabLayout,
         windowLifecycle: windowLifecycle,
         managementLayer: managementLayer

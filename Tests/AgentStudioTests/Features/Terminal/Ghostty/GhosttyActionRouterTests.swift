@@ -1,3 +1,5 @@
+import AgentStudioAppIPC
+import AgentStudioProgrammaticControl
 import AppKit
 import GhosttyKit
 import Testing
@@ -7,7 +9,7 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct GhosttyActionRouterTests {
-    private final class FakeActionRoutingLookup: GhosttyActionRoutingLookup {
+    final class FakeActionRoutingLookup: GhosttyActionRoutingLookup {
         private let surfaceIdsByViewObjectId: [ObjectIdentifier: UUID]
         private let paneIdsBySurfaceId: [UUID: UUID]
 
@@ -152,7 +154,7 @@ struct GhosttyActionRouterTests {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
         let surfaceId = UUID()
         let paneUUID = UUIDv7.generate()
-        let paneId = PaneId(uuid: paneUUID)
+        let paneId = PaneId(existingUUID: paneUUID)
         let runtime = TerminalRuntime(
             paneId: paneId,
             metadata: PaneMetadata(
@@ -184,12 +186,283 @@ struct GhosttyActionRouterTests {
         #expect(runtime.metadata.title == "test")
     }
 
+    @Test("contracted tab title retains its runtime event kind and replay route")
+    func contractedTabTitleRetainsRuntimeRoute() async throws {
+        let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
+        let surfaceId = UUIDv7.generate()
+        let paneUUID = UUIDv7.generate()
+        let paneId = PaneId(existingUUID: paneUUID)
+        let runtime = TerminalRuntime(
+            paneId: paneId,
+            metadata: PaneMetadata(paneId: paneId, title: "Before")
+        )
+        let runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(runtime)
+        let lookup = FakeActionRoutingLookup(
+            surfaceIdsByViewObjectId: [surfaceViewObjectId: surfaceId],
+            paneIdsBySurfaceId: [surfaceId: paneUUID]
+        )
+        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
+        defer {
+            Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry)
+        }
+
+        Ghostty.ActionRouter.routeContractedTitleMetadata(
+            .tabTitleChanged("After"),
+            surfaceViewObjectID: surfaceViewObjectId,
+            routingLookup: lookup
+        )
+
+        #expect(runtime.metadata.title == "After")
+        let replay = await runtime.eventsSince(seq: 0)
+        #expect(replay.events.count == 1)
+        let envelope = try #require(replay.events.first)
+        guard case .pane(let paneEnvelope) = envelope else {
+            Issue.record("expected pane runtime envelope")
+            return
+        }
+        guard case .terminal(.tabTitleChanged(let title)) = paneEnvelope.event else {
+            Issue.record("expected contracted tab-title runtime event")
+            return
+        }
+        #expect(title == "After")
+    }
+
+    @Test("equal contracted first title still records startup readiness")
+    func equalContractedFirstTitleRecordsStartupReadiness() async throws {
+        let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
+        let surfaceId = UUIDv7.generate()
+        let paneUUID = UUIDv7.generate()
+        let paneId = PaneId(existingUUID: paneUUID)
+        let runtime = TerminalRuntime(
+            paneId: paneId,
+            metadata: PaneMetadata(paneId: paneId, title: "Same")
+        )
+        let runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(runtime)
+        let lookup = FakeActionRoutingLookup(
+            surfaceIdsByViewObjectId: [surfaceViewObjectId: surfaceId],
+            paneIdsBySurfaceId: [surfaceId: paneUUID]
+        )
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+                "AGENTSTUDIO_TRACE_NAME": "equal-title-startup",
+                "AGENTSTUDIO_TRACE_TAGS": "terminal.startup",
+            ]),
+            processIdentifier: 255,
+            sessionID: "equal-title-startup",
+            timeUnixNano: { 910 }
+        )
+        let startupRecorder = AgentStudioStartupTraceRecorder(traceRuntime: traceRuntime)
+        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
+        Ghostty.ActionRouter.bindStartupTraceRecorder(startupRecorder)
+        defer {
+            Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry)
+            Ghostty.ActionRouter.bindStartupTraceRecorder(nil)
+        }
+
+        Ghostty.ActionRouter.routeContractedTitleMetadata(
+            .titleChanged("Same"),
+            surfaceViewObjectID: surfaceViewObjectId,
+            routingLookup: lookup
+        )
+        try await startupRecorder.drain()
+
+        #expect((await runtime.eventsSince(seq: 0)).events.isEmpty)
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("terminal.startup.title_ready"))
+    }
+
+    @Test("exact routing seals an earlier title before a later title arrives")
+    func exactRoutingSealsEarlierTitleBeforeLaterTitle() async throws {
+        let fixture = ExactBarrierFixture()
+        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(fixture.runtimeRegistry)
+        defer { Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry) }
+
+        #expect(
+            Ghostty.ActionRouter.admitTranslatedActionToTerminalRuntime(
+                .titleChanged("A"),
+                surfaceID: fixture.surfaceID,
+                accumulator: fixture.accumulator
+            ) == .handledLocally
+        )
+        let exactAdmission = Ghostty.ActionRouter.admitTranslatedActionToTerminalRuntime(
+            .commandFinished(exitCode: 7, duration: 42),
+            surfaceID: fixture.surfaceID,
+            accumulator: fixture.accumulator
+        )
+
+        // The exact MainActor task is intentionally gated here while a later title arrives.
+        #expect(
+            Ghostty.ActionRouter.admitTranslatedActionToTerminalRuntime(
+                .titleChanged("C"),
+                surfaceID: fixture.surfaceID,
+                accumulator: fixture.accumulator
+            ) == .handledLocally
+        )
+
+        guard case .routeExactFactOrControl(let precedingTitle) = exactAdmission else {
+            Issue.record("expected exact routing admission")
+            return
+        }
+        let sealedTitle = try #require(precedingTitle)
+        #expect(sealedTitle.metadata.runtimeTitle == .titleChanged("A"))
+
+        #expect(
+            Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
+                precedingTitle: sealedTitle,
+                actionTag: UInt32(GHOSTTY_ACTION_COMMAND_FINISHED.rawValue),
+                payload: .commandFinished(exitCode: 7, duration: 42),
+                surfaceViewObjectID: fixture.surfaceViewObjectID,
+                expectedSurfaceID: fixture.surfaceID,
+                routingLookup: fixture.routingLookup
+            )
+        )
+        let laterBatch = try #require(fixture.accumulator.beginDrain(for: fixture.surfaceID))
+        let laterTitle = try #require(laterBatch.titleMetadata?.runtimeTitle)
+        Ghostty.ActionRouter.routeContractedTitleMetadata(
+            laterTitle,
+            surfaceViewObjectID: fixture.surfaceViewObjectID,
+            routingLookup: fixture.routingLookup
+        )
+        #expect(fixture.accumulator.finishDrain(for: fixture.surfaceID) == .idle)
+
+        let replay = await fixture.runtime.eventsSince(seq: 0)
+        #expect(terminalEventNames(from: replay.events) == ["title:A", "command:7", "title:C"])
+    }
+
+    @Test("an exact fact admitted before a title has no preceding title barrier")
+    func exactFirstLeavesLaterTitleAfterBarrier() async throws {
+        let fixture = ExactBarrierFixture()
+        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(fixture.runtimeRegistry)
+        defer { Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry) }
+
+        let exactAdmission = Ghostty.ActionRouter.admitTranslatedActionToTerminalRuntime(
+            .commandFinished(exitCode: 3, duration: 9),
+            surfaceID: fixture.surfaceID,
+            accumulator: fixture.accumulator
+        )
+        guard case .routeExactFactOrControl(let precedingTitle) = exactAdmission else {
+            Issue.record("expected exact routing admission")
+            return
+        }
+        #expect(precedingTitle == nil)
+        #expect(
+            Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
+                precedingTitle: precedingTitle,
+                actionTag: UInt32(GHOSTTY_ACTION_COMMAND_FINISHED.rawValue),
+                payload: .commandFinished(exitCode: 3, duration: 9),
+                surfaceViewObjectID: fixture.surfaceViewObjectID,
+                expectedSurfaceID: fixture.surfaceID,
+                routingLookup: fixture.routingLookup
+            )
+        )
+
+        #expect(
+            Ghostty.ActionRouter.admitTranslatedActionToTerminalRuntime(
+                .titleChanged("later"),
+                surfaceID: fixture.surfaceID,
+                accumulator: fixture.accumulator
+            ) == .handledLocally
+        )
+        let laterBatch = try #require(fixture.accumulator.beginDrain(for: fixture.surfaceID))
+        let laterTitle = try #require(laterBatch.titleMetadata?.runtimeTitle)
+        Ghostty.ActionRouter.routeContractedTitleMetadata(
+            laterTitle,
+            surfaceViewObjectID: fixture.surfaceViewObjectID,
+            routingLookup: fixture.routingLookup
+        )
+        #expect(fixture.accumulator.finishDrain(for: fixture.surfaceID) == .idle)
+
+        let replay = await fixture.runtime.eventsSince(seq: 0)
+        #expect(terminalEventNames(from: replay.events) == ["command:3", "title:later"])
+    }
+
+    @Test("deferred exact routing rejects a replacement surface at the same view address")
+    func exactRoutingRejectsReplacementSurfaceLifetime() async throws {
+        let originalSurfaceID = UUIDv7.generate()
+        let replacementSurfaceID = UUIDv7.generate()
+        let replacementPaneUUID = UUIDv7.generate()
+        let surfaceViewObjectID = ObjectIdentifier(NSView(frame: .zero))
+        let replacementPaneID = PaneId(existingUUID: replacementPaneUUID)
+        let replacementRuntime = TerminalRuntime(
+            paneId: replacementPaneID,
+            metadata: PaneMetadata(paneId: replacementPaneID, title: "Replacement")
+        )
+        let runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(replacementRuntime)
+        let replacementLookup = FakeActionRoutingLookup(
+            surfaceIdsByViewObjectId: [surfaceViewObjectID: replacementSurfaceID],
+            paneIdsBySurfaceId: [replacementSurfaceID: replacementPaneUUID]
+        )
+        let accumulator = TerminalLocalActionAccumulator { _, _ in }
+        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
+        defer { Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry) }
+
+        #expect(accumulator.offer(.titleChanged("Retired"), for: originalSurfaceID) == .scheduled)
+        let sealedTitle = try #require(
+            accumulator.detachTitleBeforeExactBarrier(for: originalSurfaceID)
+        )
+
+        let routed = Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
+            precedingTitle: sealedTitle,
+            actionTag: UInt32(GHOSTTY_ACTION_COMMAND_FINISHED.rawValue),
+            payload: .commandFinished(exitCode: 9, duration: 12),
+            surfaceViewObjectID: surfaceViewObjectID,
+            expectedSurfaceID: originalSurfaceID,
+            routingLookup: replacementLookup
+        )
+
+        #expect(!routed)
+        #expect((await replacementRuntime.eventsSince(seq: 0)).events.isEmpty)
+    }
+
+    @Test("retired surface lifetime is not current after routing removal")
+    func retiredSurfaceLifetimeIsNotCurrent() {
+        let retainedView = NSView(frame: .zero)
+
+        #expect(
+            !Ghostty.ActionRouter.isCurrentSurfaceLifetime(
+                expectedSurfaceID: UUIDv7.generate(),
+                surfaceViewObjectID: ObjectIdentifier(retainedView),
+                routingLookup: FakeActionRoutingLookup()
+            )
+        )
+    }
+
+    @Test("queued close does not retire a same-pane undo remount")
+    func queuedCloseRejectsSamePaneUndoRemount() {
+        let paneID = UUIDv7.generate()
+
+        #expect(
+            !Ghostty.ActionRouter.shouldSubmitSurfaceClose(
+                currentPaneID: paneID,
+                closingPaneID: paneID
+            )
+        )
+        #expect(
+            Ghostty.ActionRouter.shouldSubmitSurfaceClose(
+                currentPaneID: nil,
+                closingPaneID: paneID
+            )
+        )
+    }
+
     @Test("registered surface routes commandFinished payload through runtime envelope")
     func actionRouter_endToEnd_commandFinishedPayloadReachesRuntime() async {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
         let surfaceId = UUID()
         let paneUUID = UUIDv7.generate()
-        let paneId = PaneId(uuid: paneUUID)
+        let paneId = PaneId(existingUUID: paneUUID)
         let runtime = TerminalRuntime(
             paneId: paneId,
             metadata: PaneMetadata(
@@ -238,7 +511,7 @@ struct GhosttyActionRouterTests {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
         let surfaceId = UUID()
         let paneUUID = UUIDv7.generate()
-        let paneId = PaneId(uuid: paneUUID)
+        let paneId = PaneId(existingUUID: paneUUID)
         let runtime = TerminalRuntime(
             paneId: paneId,
             metadata: PaneMetadata(
@@ -324,10 +597,9 @@ struct GhosttyActionRouterTests {
         )
         #expect(
             events.contains {
-                guard case .terminal(.scrollbarChanged(ScrollbarState(top: 900, bottom: 940, total: 1000))) = $0
-                else { return false }
+                guard case .terminal(.scrollbarChanged) = $0 else { return false }
                 return true
-            }
+            } == false
         )
         #expect(
             events.contains {
@@ -342,7 +614,7 @@ struct GhosttyActionRouterTests {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
         let surfaceId = UUID()
         let paneUUID = UUIDv7.generate()
-        let paneId = PaneId(uuid: paneUUID)
+        let paneId = PaneId(existingUUID: paneUUID)
         let runtime = TerminalRuntime(
             paneId: paneId,
             metadata: PaneMetadata(
@@ -405,7 +677,7 @@ struct GhosttyActionRouterTests {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
         let surfaceId = UUID()
         let paneUUID = UUIDv7.generate()
-        let paneId = PaneId(uuid: paneUUID)
+        let paneId = PaneId(existingUUID: paneUUID)
         let runtime = TerminalRuntime(
             paneId: paneId,
             metadata: PaneMetadata(
@@ -459,7 +731,7 @@ struct GhosttyActionRouterTests {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
         let surfaceId = UUID()
         let paneUUID = UUIDv7.generate()
-        let paneId = PaneId(uuid: paneUUID)
+        let paneId = PaneId(existingUUID: paneUUID)
         let runtime = TerminalRuntime(
             paneId: paneId,
             metadata: PaneMetadata(
@@ -520,5 +792,45 @@ struct GhosttyActionRouterTests {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-ghostty-action-router-tests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
+    private func terminalEventNames(from envelopes: [RuntimeEnvelope]) -> [String] {
+        envelopes.compactMap { envelope in
+            guard case .pane(let paneEnvelope) = envelope else { return nil }
+            switch paneEnvelope.event {
+            case .terminal(.titleChanged(let title)):
+                return "title:\(title)"
+            case .terminal(.commandFinished(let exitCode, _)):
+                return "command:\(exitCode)"
+            default:
+                return nil
+            }
+        }
+    }
+
+}
+
+@MainActor
+private struct ExactBarrierFixture {
+    let surfaceViewObjectID = ObjectIdentifier(NSView(frame: .zero))
+    let surfaceID = UUIDv7.generate()
+    let paneUUID = UUIDv7.generate()
+    let runtime: TerminalRuntime
+    let runtimeRegistry: RuntimeRegistry
+    let routingLookup: GhosttyActionRouterTests.FakeActionRoutingLookup
+    let accumulator = TerminalLocalActionAccumulator { _, _ in }
+
+    init() {
+        let paneID = PaneId(existingUUID: paneUUID)
+        runtime = TerminalRuntime(
+            paneId: paneID,
+            metadata: PaneMetadata(paneId: paneID, title: "Before")
+        )
+        runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(runtime)
+        routingLookup = GhosttyActionRouterTests.FakeActionRoutingLookup(
+            surfaceIdsByViewObjectId: [surfaceViewObjectID: surfaceID],
+            paneIdsBySurfaceId: [surfaceID: paneUUID]
+        )
     }
 }

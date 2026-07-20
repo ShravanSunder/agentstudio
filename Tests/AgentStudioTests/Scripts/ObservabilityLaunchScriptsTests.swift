@@ -65,7 +65,11 @@ struct ObservabilityLaunchScriptsTests {
         #expect(wrapperScript.contains("PREBUILD_TIMEOUT_SECONDS=$PREBUILD_TIMEOUT_SECONDS"))
         #expect(wrapperScript.contains("run_swift_with_timeout"))
         #expect(wrapperScript.contains("requested swift test args: $*"))
-        #expect(wrapperScript.contains("swift test --skip-build \"$@\" --build-path \"$BUILD_PATH\""))
+        #expect(
+            wrapperScript.contains(
+                "swift test --skip-build \"$@\" --skip ZmxE2ETests --build-path \"$BUILD_PATH\""
+            )
+        )
         #expect(testHelperScript.contains("Timeout in seconds for the one-time test bundle build"))
         #expect(testHelperScript.contains("\"prebuild test bundles\" \\\n    \"$PREBUILD_TIMEOUT_SECONDS\""))
         #expect(testHelperScript.contains("swift_test_output_has_failures()"))
@@ -181,15 +185,14 @@ struct ObservabilityLaunchScriptsTests {
         #expect(verifierScript.contains("state_status"))
         #expect(verifierScript.contains("state_pid"))
         #expect(verifierScript.contains("bundle_release_channel_for_executable"))
-        #expect(verifierScript.contains("app.zmx_startup_reconciliation.completed"))
+        #expect(verifierScript.contains("app.did_finish_launching.succeeded"))
         #expect(verifierScript.contains("terminal.tcc.access_probe"))
         #expect(verifierScript.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION"))
         #expect(verifierScript.contains("tcc-upgrade-probe"))
         #expect(verifierScript.contains("agentstudio.tcc.access.result"))
         #expect(verifierScript.contains("agentstudio.tcc.responsible.kind"))
-        #expect(verifierScript.contains("agentstudio.zmx.startup.inventory_outcome"))
-        #expect(verifierScript.contains("agentstudio.zmx.startup.protected_session_count"))
-        #expect(verifierScript.contains("startup zmx reconciliation inventory was unavailable"))
+        #expect(verifierScript.contains("agentstudio.app.startup.phase"))
+        #expect(verifierScript.contains("agentstudio.app.startup.outcome"))
     }
 
     @Test("beta observability verifier fails before querying logs when launcher state failed")
@@ -290,8 +293,8 @@ struct ObservabilityLaunchScriptsTests {
                     #!/bin/bash
                     echo called >> "\(curlMarker.path)"
                     printf '%s\\n' "$*" >> "\(curlArguments.path)"
-                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
-                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                    if [[ "$*" == *"app.did_finish_launching.succeeded"* ]]; then
+                      printf '{"_msg":"app.did_finish_launching.succeeded","agentstudio.app.startup.phase":"did_finish_launching","agentstudio.app.startup.outcome":"succeeded"}\\n'
                       exit 0
                     fi
                     if [[ "$*" == *"app.startup_diagnostic_action."* ]]; then
@@ -415,8 +418,8 @@ struct ObservabilityLaunchScriptsTests {
         #expect(!FileManager.default.fileExists(atPath: curlMarker.path))
     }
 
-    @Test("beta observability verifier fails when startup reconciliation telemetry is missing")
-    func betaObservabilityVerifierFailsWhenStartupReconciliationTelemetryIsMissing() throws {
+    @Test("beta observability verifier fails when completed app launch telemetry is missing")
+    func betaObservabilityVerifierFailsWhenCompletedAppLaunchTelemetryIsMissing() throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -439,7 +442,7 @@ struct ObservabilityLaunchScriptsTests {
                     "curl",
                     """
                     #!/bin/bash
-                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]] || [[ "$*" == *":* | limit 1"* ]]; then
+                    if [[ "$*" == *"app.did_finish_launching.succeeded"* ]] || [[ "$*" == *":* | limit 1"* ]]; then
                       exit 0
                     fi
                     printf '{"service.name":"AgentStudio","service.version":"0.0.54-beta.99","dev.release.channel":"beta","dev.runtime.flavor":"release","_msg":"app.process.start"}\\n'
@@ -457,7 +460,7 @@ struct ObservabilityLaunchScriptsTests {
         )
 
         #expect(result.exitCode == 1)
-        #expect(result.stderr.contains("no startup zmx reconciliation record"))
+        #expect(result.stderr.contains("no completed app launch record"))
     }
 
     @Test("beta observability verifier rejects unexpected beta app path")
@@ -494,8 +497,8 @@ struct ObservabilityLaunchScriptsTests {
         #expect(!FileManager.default.fileExists(atPath: curlMarker.path))
     }
 
-    @Test("debug observability verifier requires startup reconciliation telemetry and scrubbed output")
-    func debugObservabilityVerifierRequiresStartupReconciliationTelemetryAndScrubbedOutput() throws {
+    @Test("debug observability verifier requires completed app launch telemetry and scrubbed output")
+    func debugObservabilityVerifierRequiresCompletedAppLaunchTelemetryAndScrubbedOutput() throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -526,8 +529,8 @@ struct ObservabilityLaunchScriptsTests {
                     #!/bin/bash
                     echo called >> "\(curlMarker.path)"
                     printf '%s\\n' "$*" >> "\(curlArguments.path)"
-                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
-                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                    if [[ "$*" == *"app.did_finish_launching.succeeded"* ]]; then
+                      printf '{"_msg":"app.did_finish_launching.succeeded","agentstudio.app.startup.phase":"did_finish_launching","agentstudio.app.startup.outcome":"succeeded"}\\n'
                       exit 0
                     fi
                     if [[ "$*" == *"app.startup_diagnostic_action."* ]]; then
@@ -564,8 +567,8 @@ struct ObservabilityLaunchScriptsTests {
         #expect(!curlArgumentText.contains("agentstudio.trace.name"))
     }
 
-    @Test("debug observability verifier fails when startup reconciliation telemetry is missing")
-    func debugObservabilityVerifierFailsWhenStartupReconciliationTelemetryIsMissing() throws {
+    @Test("debug observability verifier fails when completed app launch telemetry is missing")
+    func debugObservabilityVerifierFailsWhenCompletedAppLaunchTelemetryIsMissing() throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -591,7 +594,7 @@ struct ObservabilityLaunchScriptsTests {
                     "curl",
                     """
                     #!/bin/bash
-                    if [[ "$*" == *":* | limit 1"* ]] || [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
+                    if [[ "$*" == *":* | limit 1"* ]] || [[ "$*" == *"app.did_finish_launching.succeeded"* ]]; then
                       exit 0
                     fi
                     printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+abcd1234","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
@@ -609,59 +612,7 @@ struct ObservabilityLaunchScriptsTests {
         )
 
         #expect(result.exitCode == 1)
-        #expect(result.stderr.contains("no startup zmx reconciliation record"))
-    }
-
-    @Test("debug observability verifier rejects unavailable startup inventory by default")
-    func debugObservabilityVerifierRejectsUnavailableStartupInventoryByDefault() throws {
-        let fixture = try LauncherScriptFixture()
-        defer { fixture.cleanup() }
-        let stateFile = fixture.url("latest.env")
-        try """
-        AGENTSTUDIO_OBSERVABILITY_STATUS=running
-        AGENTSTUDIO_OBSERVABILITY_MARKER=debug-marker
-        AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=testcode
-        AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())
-        AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
-        AGENTSTUDIO_OBSERVABILITY_APP=\(shellEscapedStateValue(fixture.url("Agent Studio Debug testcode.app").path))
-        """.write(to: stateFile, atomically: true, encoding: .utf8)
-        let debugApp = try fixture.makeAppBundle(
-            name: "Agent Studio Debug testcode.app",
-            releaseChannel: "stable",
-            bundleIdentifier: "com.agentstudio.app.debug.dtestcode"
-        )
-
-        let result = try fixture.runVerifier(
-            scriptPath: "scripts/verify-debug-observability.sh",
-            stateFile: stateFile,
-            environment: [
-                "AGENTSTUDIO_CURL_BIN": try fixture.executable(
-                    "curl",
-                    """
-                    #!/bin/bash
-                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
-                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"unavailable","agentstudio.zmx.startup.live_session_count":0,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":0,"agentstudio.zmx.startup.unresolved_candidate_count":1,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
-                      exit 0
-                    fi
-                    if [[ "$*" == *":* | limit 1"* ]]; then
-                      exit 0
-                    fi
-                    printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+abcd1234","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
-                    exit 0
-                    """
-                ).path,
-                "AGENTSTUDIO_LSOF_BIN": try fixture.executable(
-                    "lsof",
-                    """
-                    #!/bin/bash
-                    echo "n\(debugApp.path)/Contents/MacOS/AgentStudio"
-                    """
-                ).path,
-            ]
-        )
-
-        #expect(result.exitCode == 1)
-        #expect(result.stderr.contains("inventory was unavailable"))
+        #expect(result.stderr.contains("no completed app launch record"))
     }
 
     @Test("debug observability verifier rejects stale running state before querying logs")

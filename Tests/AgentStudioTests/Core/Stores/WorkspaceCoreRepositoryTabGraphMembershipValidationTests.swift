@@ -274,7 +274,7 @@ struct TabGraphMembershipValidationTests {
     ) -> WorkspaceCoreRepository.PaneRecord {
         .init(
             id: id,
-            content: .terminal(provider: .zmx, lifetime: .persistent),
+            content: .terminal(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7()),
             metadata: .init(
                 executionBackend: .local,
                 createdAt: Date(timeIntervalSince1970: 300),

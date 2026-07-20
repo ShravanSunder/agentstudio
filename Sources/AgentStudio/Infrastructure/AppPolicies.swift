@@ -31,6 +31,14 @@ enum AppPolicies {
         static let debouncedAutosaveFailureDampingThreshold: Int = 3
     }
 
+    enum TerminalActivation {
+        static let maximumConcurrentAdmissions: Int = 4
+    }
+
+    enum NonterminalContentMount {
+        static let maximumMountsPerMainActorTurn: Int = 4
+    }
+
     enum GitRefresh {
         static let defaultPolicy = Policy()
         static let defaultStatusReadTimeout: Duration = .seconds(1)
@@ -104,6 +112,11 @@ enum AppPolicies {
                 return hash
             }
         }
+    }
+
+    enum WatchedFolderScanning {
+        static let maximumConcurrentTraversalQuanta: Int = 2
+        static let fallbackCadence: Duration = .seconds(300)
     }
 
     enum ZmxStartup {

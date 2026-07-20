@@ -15,8 +15,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
     func surfaceCwdChangedUpdatesPaneWorktreeIdentity() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-surface-cwd-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let surfaceManager = CWDIdentitySurfaceManager()
@@ -67,12 +66,76 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
+    @Test("surface cwd tracing belongs to coordinator rather than topology lookup")
+    func surfaceCwdTracingBelongsToCoordinatorRatherThanTopologyLookup() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-surface-cwd-topology-trace-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: traceDirectory) }
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "surface-cwd-topology-trace",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 927,
+            timeUnixNano: { 125 }
+        )
+        let performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
+        let store = WorkspaceStore()
+        let surfaceManager = CWDIdentitySurfaceManager()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/surface-cwd-topology-trace-repo"))
+        let pane = store.createPane(
+            launchDirectory: repo.repoPath,
+            title: "Terminal",
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                worktreeId: repo.worktrees[0].id,
+                cwd: repo.repoPath
+            )
+        )
+        store.appendTab(Tab(paneId: pane.id))
+
+        let directLookup = store.repositoryTopologyAtom.repoAndWorktree(
+            containing: repo.repoPath.appending(path: "DirectLookup")
+        )
+        #expect(directLookup?.repo.id == repo.id)
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        #expect(!FileManager.default.fileExists(atPath: outputFileURL.path))
+
+        let coordinator = WorkspaceSurfaceCoordinator(
+            store: store,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: store),
+            surfaceManager: surfaceManager,
+            runtimeRegistry: RuntimeRegistry(),
+            windowLifecycleStore: WindowLifecycleAtom(),
+            performanceTraceRecorder: performanceTraceRecorder
+        )
+        let coordinatorCwd = repo.repoPath.appending(path: "CoordinatorLookup")
+        surfaceManager.sendCWDChange(surfaceId: UUID(), paneId: pane.id, cwd: coordinatorCwd)
+
+        await eventually("surface cwd should pass through coordinator topology lookup") {
+            store.pane(pane.id)?.metadata.cwd == coordinatorCwd
+        }
+        try await performanceTraceRecorder.drain()
+
+        let traceContents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        let topologyLookupRecords = traceContents.split(separator: "\n").filter {
+            $0.contains("\"body\":\"performance.topology.repo_and_worktree\"")
+        }
+        let topologyLookupRecord = try #require(topologyLookupRecords.single)
+        #expect(topologyLookupRecord.contains("\"agentstudio.performance.topology.index.count\":1"))
+        #expect(topologyLookupRecord.contains("\"agentstudio.performance.topology.has_match\":true"))
+
+        await coordinator.shutdown()
+    }
+
     @Test("surface cwd changed clears stale worktree identity when cwd leaves known worktrees")
     func surfaceCwdChangedClearsStaleWorktreeIdentityWhenCwdLeavesKnownWorktrees() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-surface-cwd-clears-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+        let store = WorkspaceStore()
         let surfaceManager = CWDIdentitySurfaceManager()
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,
@@ -122,8 +185,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-runtime-cwd-\(UUID().uuidString)")
         let bus = makeTestPaneRuntimeEventBus()
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+        let store = WorkspaceStore()
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
@@ -158,7 +220,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         _ = await bus.post(
             RuntimeEnvelopeHarness.paneEnvelope(
                 event: .terminal(.cwdChanged(rawCwdPath)),
-                paneId: PaneId(uuid: pane.id)
+                paneId: PaneId(existingUUID: pane.id)
             )
         )
 
@@ -183,8 +245,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
     func surfaceCwdChangedEnrichesLiveFacetsWhilePreservingLaunchDirectory() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-floating-cwd-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+        let store = WorkspaceStore()
         let surfaceManager = CWDIdentitySurfaceManager()
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,

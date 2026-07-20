@@ -102,21 +102,24 @@ final class TerminalActivityAtom {
                 ),
                 to: &snapshot
             )
-        case .scrollbarChanged(let state):
-            snapshot.scrollbarState = state
-            snapshot.outputBurst = nextOutputBurstState(
-                current: snapshot.outputBurst,
-                newTotal: state.total
-            )
         default:
-            break
+            return
         }
 
+        guard snapshotsByPaneId[paneId] != snapshot else { return }
         snapshotsByPaneId[paneId] = snapshot
     }
 
     func clear(paneId: UUID) {
         snapshotsByPaneId.removeValue(forKey: paneId)
+    }
+
+    func apply(_ update: TerminalActivityCompactUpdate) {
+        var snapshot = snapshotsByPaneId[update.paneID] ?? TerminalActivitySnapshot(paneId: update.paneID)
+        snapshot.scrollbarState = update.scrollbarState
+        snapshot.outputBurst = update.outputBurst
+        guard snapshotsByPaneId[update.paneID] != snapshot else { return }
+        snapshotsByPaneId[update.paneID] = snapshot
     }
 
     func reset() {
@@ -132,33 +135,5 @@ final class TerminalActivityAtom {
         if snapshot.recentURLRequests.count > recentURLLimit {
             snapshot.recentURLRequests.removeFirst(snapshot.recentURLRequests.count - recentURLLimit)
         }
-    }
-
-    private func nextOutputBurstState(
-        current: TerminalOutputBurstState,
-        newTotal: Int
-    ) -> TerminalOutputBurstState {
-        let baselineTotal: Int
-        switch current {
-        case .unknown:
-            return .quiet(lastTotal: newTotal)
-        case .quiet(let lastTotal):
-            baselineTotal = lastTotal
-        case .accumulating(let burst):
-            baselineTotal = burst.baselineTotal
-        }
-
-        guard newTotal > baselineTotal else {
-            return .quiet(lastTotal: newTotal)
-        }
-
-        return .accumulating(
-            TerminalOutputBurst(
-                baselineTotal: baselineTotal,
-                latestTotal: newTotal,
-                addedRows: newTotal - baselineTotal,
-                threshold: outputBurstThreshold
-            )
-        )
     }
 }

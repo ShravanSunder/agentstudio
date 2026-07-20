@@ -1,6 +1,8 @@
 import Foundation
 
 enum PaneRuntimeEventBus {
+    static let performanceReporter = RuntimeDeliveryPerformanceReporter()
+
     static let shared = EventBus<RuntimeEnvelope>(
         name: "paneRuntime",
         replayConfiguration: .init(
@@ -8,6 +10,7 @@ enum PaneRuntimeEventBus {
             sourceKey: { envelope in
                 envelope.source.description
             }
-        )
+        ),
+        performanceReporter: performanceReporter
     )
 }

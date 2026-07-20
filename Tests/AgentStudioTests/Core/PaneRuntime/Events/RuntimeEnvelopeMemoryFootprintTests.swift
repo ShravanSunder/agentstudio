@@ -29,7 +29,7 @@ struct RuntimeEnvelopeMemoryFootprintTests {
             RuntimeEnvelope.pane(
                 PaneEnvelope.test(
                     event: .terminal(.bellRang),
-                    paneId: PaneId(),
+                    paneId: PaneId.generateUUIDv7(),
                     paneKind: .terminal,
                     seq: UInt64(index)
                 )

@@ -1,8 +1,19 @@
 # zmx Session Anchor + Pane Source Removal
 
+> **OBSOLETE — DO NOT EXECUTE.** This plan records the superseded nullable,
+> path-derived session-anchor migration. Its derivation, fallback, hydration,
+> adoption, repair, and startup-reconciliation guidance is non-normative. The
+> current contract is [Session Lifecycle Architecture](../architecture/session_lifecycle.md):
+> every terminal pane owns an independent non-optional opaque `ZmxSessionID`;
+> new identities use UUIDv7, SQLite stores them verbatim, and restore is a mutation-
+> free strict-decode → one-
+> apply → activation → exact-ID attach DAG.
+
 Date: 2026-06-11
 Branch context: `issues-with-persistance` (plan authored here; execution continues here)
-Status: implemented — plan-review-swarm completed, accepted revisions folded in, and T0/T1/T2/T3/T4/T5/T5b/T6/T7/T8/T9/T10/T11 executed. Source-format, source-lint, boundary, focused, full default test, zmx E2E, and isolated-app smoke gates are recorded below; the final full `mise run lint` release-script subcheck hung in `render-homebrew-cask.sh` and is documented as an unrelated validation blocker.
+Historical status: implemented at the time; superseded in full by the strict
+opaque identity and read-only restore contract above. The remainder is retained
+only as a record of the discarded design and its former proof.
 
 ## Execution State (handoff, 2026-06-11)
 

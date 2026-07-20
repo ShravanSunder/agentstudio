@@ -36,6 +36,10 @@ struct EventBusSubscriberDiagnostics: Equatable, Sendable {
     let replayStatus: EventBusReplayStatus
     let failureClasses: Set<EventBusFailureClass>
 
+    var pendingDeliveryCount: UInt64 {
+        yieldedCount.saturatingSubtract(consumedCount)
+    }
+
     var requiresRecovery: Bool {
         failureClasses.contains(.criticalDrop)
             || failureClasses.contains(.criticalPressure)
@@ -146,6 +150,7 @@ actor EventBus<Envelope: Sendable> {
 
     private let busName: String
     private let replayConfiguration: ReplayConfiguration?
+    private let performanceReporter: RuntimeDeliveryPerformanceReporter?
     private var subscribers: [UUID: SubscriberRecord] = [:]
     private var retainedRecoveryDiagnostics: [EventBusSubscriberDiagnostics] = []
     private var droppedEventCount: UInt64 = 0
@@ -155,14 +160,19 @@ actor EventBus<Envelope: Sendable> {
 
     init(
         name: String = "eventBus",
-        replayConfiguration: ReplayConfiguration? = nil
+        replayConfiguration: ReplayConfiguration? = nil,
+        performanceReporter: RuntimeDeliveryPerformanceReporter? = nil
     ) {
         self.busName = name
         self.replayConfiguration = replayConfiguration
+        self.performanceReporter = performanceReporter
     }
 
     isolated deinit {
         for subscriber in subscribers.values {
+            performanceReporter?.recordEventBusSubscriberRemoved(
+                pendingDeliveryCount: subscriber.yieldedCount.saturatingSubtract(subscriber.consumedCount)
+            )
             subscriber.continuation.finish()
         }
         subscribers.removeAll(keepingCapacity: false)
@@ -184,6 +194,7 @@ actor EventBus<Envelope: Sendable> {
                 policy: policy,
                 replayStatus: replaySnapshot.status
             )
+            self.performanceReporter?.recordEventBusSubscriberAdded()
             replayLoop: for envelope in replaySnapshot.envelopes {
                 switch continuation.yield(envelope) {
                 case .enqueued:
@@ -325,6 +336,9 @@ actor EventBus<Envelope: Sendable> {
     private func removeSubscriber(_ id: UUID) {
         guard let subscriber = subscribers.removeValue(forKey: id) else { return }
         let diagnostics = diagnostics(subscriberID: id, subscriber: subscriber)
+        performanceReporter?.recordEventBusSubscriberRemoved(
+            pendingDeliveryCount: diagnostics.pendingDeliveryCount
+        )
         if diagnostics.requiresRecovery {
             retainedRecoveryDiagnostics.append(diagnostics)
         }
@@ -334,6 +348,7 @@ actor EventBus<Envelope: Sendable> {
         guard var subscriber = subscribers[id] else { return }
         subscriber.consumedCount += 1
         subscribers[id] = subscriber
+        performanceReporter?.recordEventBusDeliveryConsumed()
     }
 
     private func recordYielded(_ id: UUID) {
@@ -345,6 +360,7 @@ actor EventBus<Envelope: Sendable> {
             subscriber.failureClasses.insert(.criticalPressure)
         }
         subscribers[id] = subscriber
+        performanceReporter?.recordEventBusDeliveryEnqueued()
     }
 
     private func recordDrop(_ id: UUID, phase: DeliveryPhase) {
@@ -353,8 +369,10 @@ actor EventBus<Envelope: Sendable> {
         switch phase {
         case .live:
             subscriber.liveDroppedCount += 1
+            performanceReporter?.recordEventBusLiveDrop()
         case .replay:
             subscriber.replayDroppedCount += 1
+            performanceReporter?.recordEventBusReplayDrop()
         }
         switch subscriber.policy {
         case .criticalUnbounded:

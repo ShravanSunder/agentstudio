@@ -21,9 +21,7 @@ struct PaneManagementContextTests {
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
-                interactionAtom: atoms.workspaceTabLayout,
-                persistor: persistor
-            )
+                interactionAtom: atoms.workspaceTabLayout)
 
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
@@ -81,9 +79,7 @@ struct PaneManagementContextTests {
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
-                interactionAtom: atoms.workspaceTabLayout,
-                persistor: persistor
-            )
+                interactionAtom: atoms.workspaceTabLayout)
 
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
@@ -116,9 +112,7 @@ struct PaneManagementContextTests {
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
-                interactionAtom: atoms.workspaceTabLayout,
-                persistor: persistor
-            )
+                interactionAtom: atoms.workspaceTabLayout)
 
             let pane = store.createPane(
                 title: "Floating"
@@ -144,9 +138,7 @@ struct PaneManagementContextTests {
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
-                interactionAtom: atoms.workspaceTabLayout,
-                persistor: persistor
-            )
+                interactionAtom: atoms.workspaceTabLayout)
 
             let cwd = URL(fileURLWithPath: "/Users/dev/project-dev")
             let pane = store.createPane(
@@ -177,9 +169,7 @@ struct PaneManagementContextTests {
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
-                interactionAtom: atoms.workspaceTabLayout,
-                persistor: persistor
-            )
+                interactionAtom: atoms.workspaceTabLayout)
 
             let pane = store.createPane(
                 content: .webview(WebviewState(url: URL(string: "https://github.com")!)),
@@ -206,9 +196,7 @@ struct PaneManagementContextTests {
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
-                interactionAtom: atoms.workspaceTabLayout,
-                persistor: persistor
-            )
+                interactionAtom: atoms.workspaceTabLayout)
 
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {

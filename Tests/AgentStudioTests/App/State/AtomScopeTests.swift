@@ -178,7 +178,9 @@ struct AtomScopeTests {
         await AtomScope.$override.withValue(override) {
             let worker = BackgroundAtomMutator()
             let pane = Pane(
-                content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+                content: .terminal(
+                    TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+                ),
                 metadata: PaneMetadata(
                     title: "Background Hop"
                 )

@@ -330,10 +330,12 @@ struct RepoExplorerReadModelTests {
             organizationName: nil,
             repos: [repo]
         )
-        let projection = RepoExplorerSidebarProjection(
-            resolvedGroups: [group],
-            loadingRepos: [],
-            showsNoResults: false
+        let projection = RepoExplorerSidebarProjection.ready(
+            RepoExplorerSidebarContent(
+                resolvedGroups: [group],
+                loadingRepos: [],
+                showsNoResults: false
+            )
         )
 
         let index = RepoExplorerRowIndex(

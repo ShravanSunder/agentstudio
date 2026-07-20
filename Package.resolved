@@ -1,12 +1,12 @@
 {
-  "originHash" : "36e851d0dcccaf6768ad14d3e71096725346bef4c061511c51cd40df12e718af",
+  "originHash" : "a4668c8040c3c9ec011b9a8f0b467be93b0400e61475e00e0622baef3cdf73b1",
   "pins" : [
     {
       "identity" : "agentstudio-git",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ShravanSunder/agentstudio-git.git",
       "state" : {
-        "revision" : "90bb17da9d7030f4ae954d45cf150a0f5fe6511b"
+        "revision" : "a50dedfe8f40609c44f8fb43cf01a19ad3d806b9"
       }
     },
     {

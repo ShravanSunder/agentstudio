@@ -253,7 +253,7 @@ if [ -n "$state_proof_token" ]; then
   proof_token_query="$(logsql_exact_filter "agent.proof.launch" "$state_proof_token")"
   query="$query $proof_token_query"
 fi
-startup_event_query="$(logsql_exact_filter "_msg" "app.zmx_startup_reconciliation.completed")"
+startup_event_query="$(logsql_exact_filter "_msg" "app.did_finish_launching.succeeded")"
 preferences_loaded_event_query="$(logsql_exact_filter "_msg" "app.preferences.global.loaded")"
 
 query_logs() {
@@ -278,36 +278,25 @@ fi
 
 startup_response="$(
   query_logs \
-    "$query $startup_event_query | fields _msg,agentstudio.zmx.startup.inventory_outcome,agentstudio.zmx.startup.live_session_count,agentstudio.zmx.startup.hydrated_anchor_count,agentstudio.zmx.startup.protected_session_count,agentstudio.zmx.startup.unresolved_candidate_count,agentstudio.zmx.startup.unmatched_live_session_count | limit 5"
+    "$query $startup_event_query | fields _msg,agentstudio.app.startup.phase,agentstudio.app.startup.outcome | limit 5"
 )"
 if [ -z "$startup_response" ]; then
-  echo "no startup zmx reconciliation record found in VictoriaLogs for marker $MARKER" >&2
+  echo "no completed app launch record found in VictoriaLogs for marker $MARKER" >&2
   exit 1
 fi
 
 required_startup_fields=(
-  agentstudio.zmx.startup.inventory_outcome
-  agentstudio.zmx.startup.live_session_count
-  agentstudio.zmx.startup.hydrated_anchor_count
-  agentstudio.zmx.startup.protected_session_count
-  agentstudio.zmx.startup.unresolved_candidate_count
-  agentstudio.zmx.startup.unmatched_live_session_count
+  agentstudio.app.startup.phase
+  agentstudio.app.startup.outcome
 )
 
 for field in "${required_startup_fields[@]}"; do
   if ! grep -q "\"$field\":" <<<"$startup_response"; then
-    echo "startup zmx reconciliation record missing field: $field" >&2
+    echo "completed app launch record missing field: $field" >&2
     echo "$startup_response" >&2
     exit 1
   fi
 done
-
-if [ "${AGENTSTUDIO_OBSERVABILITY_ALLOW_UNAVAILABLE_ZMX_STARTUP:-0}" != "1" ] &&
-  grep -q '"agentstudio.zmx.startup.inventory_outcome":"unavailable"' <<<"$startup_response"; then
-  echo "startup zmx reconciliation inventory was unavailable" >&2
-  echo "$startup_response" >&2
-  exit 1
-fi
 
 startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-$state_startup_diagnostic_action}"
 if [ "$startup_diagnostic_action" = "tcc-upgrade-probe" ]; then

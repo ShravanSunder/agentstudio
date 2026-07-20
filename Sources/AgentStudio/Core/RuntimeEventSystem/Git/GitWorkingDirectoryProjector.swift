@@ -22,7 +22,7 @@ actor GitWorkingDirectoryProjector {
     private let delay: AsyncDelay
     private let refreshPolicy: AppPolicies.GitRefresh.Policy
     private let subscriptionBufferLimit: Int
-    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
 
     private var subscriptionTask: Task<Void, Never>?
     private var periodicRefreshTask: Task<Void, Never>?
@@ -45,7 +45,20 @@ actor GitWorkingDirectoryProjector {
     private var nextPeriodicBatchSeqByWorktreeId: [UUID: UInt64] = [:]
     private var periodicRefreshTick: UInt64 = 0
     private var nextEnvelopeSequence: UInt64 = 0
+    var lastRecordedLogicalDebtSnapshot: GitLogicalDebtSnapshot?
     private var isShuttingDown = false
+
+    var queuedLogicalDebtCount: Int {
+        pendingByWorktreeId.count
+    }
+
+    var retryPendingLogicalDebtCount: Int {
+        nilStatusRetryTasks.count
+    }
+
+    var runningLogicalDebtCount: Int {
+        worktreeTasks.count
+    }
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -239,6 +252,7 @@ actor GitWorkingDirectoryProjector {
     }
 
     private func admitPendingWorktrees() {
+        defer { recordLogicalDebtSnapshotIfChanged() }
         guard !isShuttingDown else { return }
         let availableSlots = refreshPolicy.maxConcurrentStatusComputes - worktreeTasks.count
         guard availableSlots > 0 else { return }
@@ -387,6 +401,7 @@ actor GitWorkingDirectoryProjector {
             task.cancel()
         }
         worktreeTaskGenerationByWorktreeId.removeValue(forKey: worktreeId)
+        recordLogicalDebtSnapshotIfChanged()
     }
 
     private func addSuppressedWorktree(_ worktreeId: UUID) {
@@ -469,6 +484,7 @@ actor GitWorkingDirectoryProjector {
             guard var nextChangeset = pendingByWorktreeId.removeValue(forKey: worktreeId) else {
                 return
             }
+            recordLogicalDebtSnapshotIfChanged()
             if coalescingWindow > .zero {
                 do {
                     try await delay.wait(coalescingWindow)
@@ -482,6 +498,7 @@ actor GitWorkingDirectoryProjector {
                 }
                 guard !Task.isCancelled else { return }
                 if let newer = pendingByWorktreeId.removeValue(forKey: worktreeId) {
+                    recordLogicalDebtSnapshotIfChanged()
                     nextChangeset = newer
                 }
             }
@@ -640,6 +657,7 @@ actor GitWorkingDirectoryProjector {
             guard !Task.isCancelled else { return }
             await self?.enqueueNilStatusRetry(changeset)
         }
+        recordLogicalDebtSnapshotIfChanged()
     }
 
     private func enqueueNilStatusRetry(_ changeset: FileChangeset) {
@@ -651,6 +669,7 @@ actor GitWorkingDirectoryProjector {
             pendingByWorktreeId[changeset.worktreeId] = changeset
             admitPendingWorktrees()
         }
+        recordLogicalDebtSnapshotIfChanged()
     }
 
     private func isCurrent(_ changeset: FileChangeset) -> Bool {

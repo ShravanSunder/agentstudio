@@ -93,7 +93,7 @@ struct PaneObservationResolverTests {
     private func makeLayoutPane(id: UUID, drawer: Drawer) -> Pane {
         Pane(
             id: id,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(title: "Pane"),
             kind: .layout(drawer: drawer)
         )
@@ -102,7 +102,7 @@ struct PaneObservationResolverTests {
     private func makeDrawerChildPane(id: UUID, parentPaneId: UUID) -> Pane {
         Pane(
             id: id,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(title: "Drawer"),
             kind: .drawerChild(parentPaneId: parentPaneId)
         )

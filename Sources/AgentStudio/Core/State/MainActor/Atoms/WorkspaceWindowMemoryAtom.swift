@@ -4,24 +4,32 @@ import Observation
 @MainActor
 @Observable
 final class WorkspaceWindowMemoryAtom {
-    private(set) var sidebarWidth: CGFloat = 250
-    private(set) var windowFrame: CGRect?
+    var sidebarWidth: CGFloat { storedSidebarWidth }
+    var windowFrame: CGRect? { storedWindowFrame }
 
-    func hydrate(
+    private var storedSidebarWidth: CGFloat
+    private var storedWindowFrame: CGRect?
+
+    init(sidebarWidth: CGFloat = 250, windowFrame: CGRect? = nil) {
+        storedSidebarWidth = sidebarWidth
+        storedWindowFrame = windowFrame
+    }
+
+    func replaceWindowMemory(
         sidebarWidth: CGFloat,
         windowFrame: CGRect?
     ) {
-        self.sidebarWidth = sidebarWidth
-        self.windowFrame = windowFrame
+        storedSidebarWidth = sidebarWidth
+        storedWindowFrame = windowFrame
     }
 
     func setSidebarWidth(_ sidebarWidth: CGFloat) {
-        guard self.sidebarWidth != sidebarWidth else { return }
-        self.sidebarWidth = sidebarWidth
+        guard storedSidebarWidth != sidebarWidth else { return }
+        storedSidebarWidth = sidebarWidth
     }
 
     func setWindowFrame(_ windowFrame: CGRect?) {
-        guard self.windowFrame != windowFrame else { return }
-        self.windowFrame = windowFrame
+        guard storedWindowFrame != windowFrame else { return }
+        storedWindowFrame = windowFrame
     }
 }

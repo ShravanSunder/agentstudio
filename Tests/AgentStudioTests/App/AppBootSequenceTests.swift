@@ -1,5 +1,4 @@
 import Foundation
-import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -7,14 +6,17 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct AppBootSequenceTests {
-    @Test("boot sequence exposes the architecture-ordered steps")
-    func orderedStepsMatchesArchitectureContract() {
+    @Test("boot sequence exposes only composition prerequisites before presentation")
+    func presentationPrerequisitesMatchArchitectureContract() {
         #expect(
-            WorkspaceBootSequence.orderedSteps == [
+            WorkspaceBootSequence.presentationPrerequisiteSteps == [
                 .loadCanonicalStore,
+                .establishRuntimeBus,
+            ])
+        #expect(
+            WorkspaceBootSequence.postPresentationSteps == [
                 .loadCacheStore,
                 .loadUIStore,
-                .establishRuntimeBus,
                 .startFilesystemActor,
                 .startGitProjector,
                 .startForgeActor,
@@ -22,23 +24,47 @@ struct AppBootSequenceTests {
                 .triggerInitialTopologySync,
                 .armPersistenceObservation,
                 .readyForReactiveSidebar,
+                .checkWorktrunkDependency,
             ])
     }
 
-    @Test("boot runner executes all steps in declared order")
-    func runExecutesOrderedSequence() {
+    @Test("presentation runner cannot execute post-presentation work")
+    func presentationRunnerExecutesOnlyPrerequisites() {
         var recorded: [WorkspaceBootStep] = []
-        WorkspaceBootSequence.run { step in
+        WorkspaceBootSequence.runPresentationPrerequisites { step in
             recorded.append(step)
         }
-        #expect(recorded == WorkspaceBootSequence.orderedSteps)
+        #expect(recorded == WorkspaceBootSequence.presentationPrerequisiteSteps)
+        #expect(!recorded.contains(.loadCacheStore))
+        #expect(!recorded.contains(.loadUIStore))
+        #expect(!recorded.contains(.triggerInitialTopologySync))
+        #expect(!recorded.contains(.checkWorktrunkDependency))
     }
 
     @Test("every boot step explains why it exists")
     func bootStepsDocumentTheirPurpose() {
-        for step in WorkspaceBootSequence.orderedSteps {
+        for step in WorkspaceBootSequence.presentationPrerequisiteSteps
+            + WorkspaceBootSequence.postPresentationSteps
+        {
             #expect(!step.purpose.isEmpty, "Missing boot purpose for \(step.rawValue)")
         }
+    }
+
+    @Test("window presentation precedes independent cache and topology startup")
+    func windowPresentationPrecedesIndependentStartupLanes() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let appDelegateSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
+            encoding: .utf8
+        )
+        let presentation = try #require(
+            appDelegateSource.range(of: "self.presentWindowAfterWorkspaceComposition()")
+        )
+        let postPresentation = try #require(
+            appDelegateSource.range(of: "await self.bootWorkspacePostPresentationServices(")
+        )
+
+        #expect(presentation.lowerBound < postPresentation.lowerBound)
     }
 
     @Test("boot observation step arms every autosaving persistence store")
@@ -51,6 +77,7 @@ struct AppBootSequenceTests {
 
         #expect(appDelegateSource.contains("case .armPersistenceObservation:"))
         #expect(appDelegateSource.contains("bootArmPersistenceObservation()"))
+        #expect(appDelegateSource.contains("store.startObserving()"))
         #expect(appDelegateSource.contains("repoCacheStore.startObserving()"))
         #expect(appDelegateSource.contains("sidebarCacheStore.startObserving()"))
         #expect(appDelegateSource.contains("uiStateStore.startObserving()"))
@@ -87,7 +114,7 @@ struct AppBootSequenceTests {
         #expect(!appDelegateSource.contains("traceRuntime = .fromEnvironment()"))
         #expect(appDelegateSource.contains("makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)"))
         #expect(appDelegateSource.contains("sqliteDatastore: workspaceSQLiteDatastore"))
-        #expect(appDelegateSource.contains("await store.restoreAsync()"))
+        #expect(appDelegateSource.contains("await store.loadCanonicalComposition()"))
         #expect(appDelegateSource.contains("await repoCacheStore.restoreAsync("))
         #expect(appDelegateSource.contains("await sidebarCacheStore.restoreAsync("))
         #expect(appDelegateSource.contains("await uiStateStore.restoreAsync("))
@@ -186,162 +213,64 @@ struct AppBootSequenceTests {
         )
     }
 
-    @Test("boot archive coordinator marks companion imports before archiving legacy workspace files")
-    func bootArchiveCoordinatorMarksCompanionImportsBeforeArchivingLegacyWorkspaceFiles() async throws {
-        let workspaceId = UUID()
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.boot.archive.core")
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
-        let localRoot = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        try FileManager.default.createDirectory(at: localRoot, withIntermediateDirectories: true)
-        let datastore = WorkspaceSQLiteDatastore(
-            coreRepository: coreRepository,
-            makeLocalRepository: { workspaceId in
-                let localURL = localRoot.appending(path: "\(workspaceId.uuidString).local.sqlite")
-                let localPool = try SQLiteDatabaseFactory.makeFileBackedPool(
-                    at: localURL,
-                    label: "AgentStudio.boot.archive.local.\(workspaceId.uuidString)"
-                )
-                try WorkspaceLocalMigrations.migrate(localPool)
-                return WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localPool)
-            }
+    @Test("canonical boot exhaustively handles strict SQLite load results")
+    func canonicalBootExhaustivelyHandlesStrictSQLiteLoadResults() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let workspaceBootSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
+            encoding: .utf8
         )
-        try await datastore.saveWorkspaceSnapshotBundle(
-            .emptyTopologyFixture(
-                workspace: .emptyFixture(
-                    id: workspaceId,
-                    name: "Archive Ready",
-                    updatedAt: Date(timeIntervalSince1970: 1_700_004_000)
-                )
+        let workspaceStoreSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(workspaceStoreSource.contains("func loadCanonicalComposition() async -> WorkspaceStoreLoadResult"))
+        #expect(workspaceStoreSource.contains("case loaded(WorkspacePreparedCompositionAcceptance)"))
+        #expect(
+            workspaceStoreSource.contains("case initializedDefaultWorkspace(WorkspacePreparedCompositionAcceptance)"))
+        #expect(workspaceStoreSource.contains("case failed(WorkspaceStoreLoadFailure)"))
+        #expect(workspaceBootSource.contains("switch await store.loadCanonicalComposition()"))
+        #expect(
+            workspaceBootSource.contains(
+                "case .loaded(let acceptance), .initializedDefaultWorkspace(let acceptance):"
             )
         )
-        let persistor = WorkspacePersistor(
-            workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        #expect(
+            workspaceBootSource.contains(
+                "acceptWorkspacePreparedContentMountCohort(acceptance.contentMountCohort)"
+            )
         )
-        #expect(persistor.ensureDirectory())
-        try persistor.save(.init(id: workspaceId, name: "Legacy Archive Candidate"))
-        try persistor.saveCache(.init(workspaceId: workspaceId))
-        try persistor.saveUI(.init(workspaceId: workspaceId))
-        try persistor.saveSidebarCache(.init(workspaceId: workspaceId))
-        try coreRepository.markLegacyWorkspaceCoreImported(
-            workspaceId: workspaceId,
-            sourceStatePath: persistor.canonicalWorkspaceStatePath(for: workspaceId),
-            importedAt: Date(timeIntervalSince1970: 1_700_004_005)
-        )
-
-        let archiveResult = await WorkspaceLegacyArchiveCoordinator.archiveLegacyWorkspaceFilesIfReady(
-            workspaceId: workspaceId,
-            persistor: persistor,
-            sqliteDatastore: datastore,
-            canArchiveLegacyCompanionFiles: true,
-            now: { Date(timeIntervalSince1970: 1_700_004_010) }
-        )
-
-        guard case .archived = archiveResult.outcome else {
-            Issue.record("Expected legacy workspace files to archive, got \(archiveResult.outcome)")
-            return
-        }
-        #expect(archiveResult.recoveryEvents.isEmpty)
-        let importStatus = try #require(
-            try coreRepository.fetchLegacyWorkspaceImportStatus(workspaceId: workspaceId))
-        #expect(importStatus.settingsImportedAt != nil)
-        #expect(importStatus.localImportedAt != nil)
-        #expect(importStatus.cacheImportedAt != nil)
-        #expect(importStatus.archivedAt != nil)
-        #expect(!persistor.hasLegacyWorkspaceFiles(for: workspaceId))
+        #expect(workspaceBootSource.contains("case .failed(let failure):"))
+        #expect(workspaceBootSource.contains("preconditionFailure(\"Workspace startup invariant violated:"))
+        #expect(!workspaceBootSource.contains("restoreFromLegacyJSON"))
+        #expect(!workspaceBootSource.contains("saveImportedLegacySnapshot"))
+        #expect(!workspaceBootSource.contains("legacyImportStatus"))
+        #expect(!workspaceBootSource.contains("WorkspaceLegacyArchiveCoordinator"))
     }
 
-    @Test("boot archive coordinator returns local recovery events discovered during readiness")
-    func bootArchiveCoordinatorReturnsLocalRecoveryEventsDiscoveredDuringReadiness() async throws {
-        let workspaceId = UUID()
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.boot.archive.recovery.core")
-        let seedLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.boot.archive.recovery.local")
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        try WorkspaceLocalMigrations.migrate(seedLocalQueue)
-        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
-        let seedBackend = WorkspaceSQLiteStoreBackend(
-            coreRepository: coreRepository,
-            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: seedLocalQueue) }
+    @Test("repository topology restore is independent until initial topology replay")
+    func repositoryTopologyRestoreIsIndependentUntilInitialTopologyReplay() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let workspaceBootSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
+            encoding: .utf8
         )
-        try seedBackend.save(.emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Archive Recovery")))
-        let datastore = WorkspaceSQLiteDatastore(
-            coreRepository: coreRepository,
-            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: seedLocalQueue) },
-            makeLocalRestoreRepository: { workspaceId in
-                throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(
-                    workspaceId,
-                    quarantinedFilename: "\(workspaceId.uuidString).local.sqlite.corrupt-test"
-                )
-            }
+        let topologyTaskCreation = try #require(
+            workspaceBootSource.range(of: "repositoryTopologyLoadTask = Task { @MainActor in")
         )
-        let persistor = WorkspacePersistor(
-            workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let topologyTaskAwait = try #require(
+            workspaceBootSource.range(of: "await repositoryTopologyLoadTask.value")
         )
-        #expect(persistor.ensureDirectory())
-        try persistor.save(.init(id: workspaceId, name: "Legacy Archive Candidate"))
-
-        let archiveResult = await WorkspaceLegacyArchiveCoordinator.archiveLegacyWorkspaceFilesIfReady(
-            workspaceId: workspaceId,
-            persistor: persistor,
-            sqliteDatastore: datastore,
-            canArchiveLegacyCompanionFiles: true
+        let initialReplay = try #require(
+            workspaceBootSource.range(of: "await self.replayBootTopology(")
         )
 
-        #expect(archiveResult.outcome == .skipped(.notReady))
-        #expect(
-            archiveResult.recoveryEvents.contains { event in
-                event.store == .workspace
-                    && event.workspaceId == workspaceId
-                    && event.recovery == .quarantinedAndReset
-                    && event.quarantinedFilename?.contains(".local.sqlite.corrupt-test") == true
-            },
-            "Recovery events: \(archiveResult.recoveryEvents)"
-        )
-    }
-
-    @Test("legacy workspace archive readiness requires completed SQLite and companion import proof")
-    func legacyWorkspaceArchiveReadinessRequiresCompletedSQLiteAndCompanionImportProof() {
-        #expect(
-            WorkspaceLegacyArchiveReadiness.canArchiveLegacyFiles(
-                hasSQLiteBackend: true,
-                hasCompletedSnapshot: true,
-                hasLegacyWorkspaceFiles: true,
-                canArchiveLegacyCompanionFiles: true
-            )
-        )
-        #expect(
-            !WorkspaceLegacyArchiveReadiness.canArchiveLegacyFiles(
-                hasSQLiteBackend: false,
-                hasCompletedSnapshot: true,
-                hasLegacyWorkspaceFiles: true,
-                canArchiveLegacyCompanionFiles: true
-            )
-        )
-        #expect(
-            !WorkspaceLegacyArchiveReadiness.canArchiveLegacyFiles(
-                hasSQLiteBackend: true,
-                hasCompletedSnapshot: false,
-                hasLegacyWorkspaceFiles: true,
-                canArchiveLegacyCompanionFiles: true
-            )
-        )
-        #expect(
-            !WorkspaceLegacyArchiveReadiness.canArchiveLegacyFiles(
-                hasSQLiteBackend: true,
-                hasCompletedSnapshot: true,
-                hasLegacyWorkspaceFiles: false,
-                canArchiveLegacyCompanionFiles: true
-            )
-        )
-        #expect(
-            !WorkspaceLegacyArchiveReadiness.canArchiveLegacyFiles(
-                hasSQLiteBackend: true,
-                hasCompletedSnapshot: true,
-                hasLegacyWorkspaceFiles: true,
-                canArchiveLegacyCompanionFiles: false
-            )
-        )
+        #expect(topologyTaskCreation.lowerBound < topologyTaskAwait.lowerBound)
+        #expect(topologyTaskAwait.lowerBound < initialReplay.lowerBound)
+        #expect(workspaceBootSource.components(separatedBy: "await repositoryTopologyLoadTask.value").count == 2)
     }
 
     @Test("termination flushes settings before shutdown completes")

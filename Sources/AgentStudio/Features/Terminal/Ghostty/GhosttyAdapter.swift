@@ -8,8 +8,7 @@ private let ghosttyAdapterLogger = Logger(subsystem: "com.agentstudio", category
 
 /// Adapter boundary translating low-level Ghostty action tags into typed
 /// domain events consumed by TerminalRuntime.
-@MainActor
-final class GhosttyAdapter {
+final class GhosttyAdapter: Sendable {
     private static let interceptOnlyTags: Set<GhosttyActionTag> = [
         .quit,
         .newWindow,
@@ -108,6 +107,7 @@ final class GhosttyAdapter {
         preconditionFailure("translate(actionTag:) missing routed case for \(actionTag)")
     }
 
+    @MainActor
     func route(
         actionTag: UInt32,
         payload: ActionPayload = .noPayload,

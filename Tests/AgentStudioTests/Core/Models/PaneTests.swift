@@ -19,12 +19,14 @@ final class PaneTests {
 
     func test_defaultInit_generatesV7PaneId() {
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata()
         )
 
         #expect(UUIDv7.isV7(pane.id))
-        #expect(pane.metadata.paneId == PaneId(uuid: pane.id))
+        #expect(pane.metadata.paneId == PaneId(existingUUID: pane.id))
     }
 
     @Test
@@ -162,6 +164,25 @@ final class PaneTests {
     }
 
     @Test
+    func test_codable_roundTrip_preservesHistoricalPaneId() throws {
+        let historicalPaneId = UUID(uuidString: "10000000-0000-4000-8000-000000000001")!
+        let pane = Pane(
+            id: historicalPaneId,
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
+            metadata: PaneMetadata(title: "Historical pane")
+        )
+
+        let data = try encoder.encode(pane)
+        let decoded = try decoder.decode(Pane.self, from: data)
+
+        #expect(decoded.id == historicalPaneId)
+        #expect(decoded.metadata.paneId == PaneId(existingUUID: historicalPaneId))
+        #expect(!UUIDv7.isV7(decoded.id))
+    }
+
+    @Test
 
     func test_codable_roundTrip_webviewPane() throws {
         let pane = Pane(
@@ -190,7 +211,9 @@ final class PaneTests {
             isExpanded: false
         )
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(title: "Host"),
             kind: .layout(drawer: drawer)
         )
@@ -260,7 +283,9 @@ final class PaneTests {
             isExpanded: true
         )
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(title: "Legacy Host"),
             kind: .layout(drawer: drawer)
         )
@@ -516,7 +541,9 @@ final class PaneTests {
     func test_paneKind_drawerChild_hasNoDrawer() {
         let parentId = UUID()
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            content: .terminal(
+                TerminalState(provider: .ghostty, lifetime: .temporary, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(),
             kind: .drawerChild(parentPaneId: parentId)
         )
@@ -541,7 +568,9 @@ final class PaneTests {
     func test_withDrawer_noOpForDrawerChild() {
         let parentId = UUID()
         var pane = Pane(
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            content: .terminal(
+                TerminalState(provider: .ghostty, lifetime: .temporary, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(),
             kind: .drawerChild(parentPaneId: parentId)
         )
@@ -567,7 +596,9 @@ final class PaneTests {
     func test_pane_defaultKind_hasCollapsedDrawer() {
         // Arrange — default Pane init uses .layout(drawer: Drawer())
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
+            content: .terminal(
+                TerminalState(provider: .ghostty, lifetime: .temporary, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata()
         )
 

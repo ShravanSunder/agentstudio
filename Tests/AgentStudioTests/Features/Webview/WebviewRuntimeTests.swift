@@ -115,7 +115,7 @@ struct WebviewRuntimeTests {
         commandHandler: (any WebviewRuntimeCommandHandling)? = nil,
         paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
     ) -> WebviewRuntime {
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .browser,

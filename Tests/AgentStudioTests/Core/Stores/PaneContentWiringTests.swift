@@ -11,9 +11,7 @@ final class PaneContentWiringTests {
 
     init() {
         installTestAtomRegistryIfNeeded()
-        store = WorkspaceStore(
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
+        store = WorkspaceStore()
     }
 
     // MARK: - WorkspaceStore.createPane(content:)
@@ -58,7 +56,13 @@ final class PaneContentWiringTests {
 
     func test_createPane_terminalContent_viaGenericOverload() {
         let pane = store.createPane(
-            content: .terminal(TerminalState(provider: .ghostty, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(
+                    provider: .ghostty,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            ),
             metadata: PaneMetadata(title: "Term")
         )
 
@@ -68,8 +72,8 @@ final class PaneContentWiringTests {
 
     @Test
 
-    func test_createPane_marksDirty() {
-        store.flush()
+    func test_createPane_marksDirty() async {
+        _ = await store.flushAsync()
         _ = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://test.com")!, showNavigation: false)),
             metadata: PaneMetadata(title: "Web")
@@ -104,65 +108,6 @@ final class PaneContentWiringTests {
     }
 
     // MARK: - Persistence round-trip
-
-    @Test
-
-    func test_webviewPane_persistsAndRestores() {
-        let persistDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        let persistor = WorkspacePersistor(workspacesDir: persistDir)
-        let store1 = WorkspaceStore(persistor: persistor)
-
-        let pane = store1.createPane(
-            content: .webview(WebviewState(url: URL(string: "https://round-trip.com")!, showNavigation: false)),
-            metadata: PaneMetadata(title: "Persist Web")
-        )
-        let tab = Tab(paneId: pane.id)
-        store1.appendTab(tab)
-        store1.flush()
-
-        // Restore into new store
-        let store2 = WorkspaceStore(persistor: persistor)
-        store2.restore()
-
-        let restored = store2.pane(pane.id)
-        #expect((restored) != nil)
-        #expect(restored?.title == "Persist Web")
-        if case .webview(let state) = restored?.content {
-            #expect(state.url.absoluteString == "https://round-trip.com")
-            #expect(!(state.showNavigation))
-        } else {
-            Issue.record("Expected .webview content after restore, got \(String(describing: restored?.content))")
-        }
-    }
-
-    @Test
-
-    func test_codeViewerPane_persistsAndRestores() {
-        let persistDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        let persistor = WorkspacePersistor(workspacesDir: persistDir)
-        let store1 = WorkspaceStore(persistor: persistor)
-
-        let filePath = URL(fileURLWithPath: "/tmp/code.swift")
-        let pane = store1.createPane(
-            content: .codeViewer(CodeViewerState(filePath: filePath, scrollToLine: 99)),
-            metadata: PaneMetadata(title: "Persist Code")
-        )
-        let tab = Tab(paneId: pane.id)
-        store1.appendTab(tab)
-        store1.flush()
-
-        let store2 = WorkspaceStore(persistor: persistor)
-        store2.restore()
-
-        let restored = store2.pane(pane.id)
-        #expect((restored) != nil)
-        if case .codeViewer(let state) = restored?.content {
-            #expect(state.filePath == filePath)
-            #expect(state.scrollToLine == 99)
-        } else {
-            Issue.record("Expected .codeViewer content after restore")
-        }
-    }
 
     // MARK: - ViewRegistry generalization
 
@@ -246,13 +191,15 @@ final class PaneContentWiringTests {
 
     @Test
 
-    func test_updatePaneWebviewState_marksDirty() {
+    func test_updatePaneWebviewState_marksDirty() async throws {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com")!)),
             metadata: PaneMetadata(title: "Web")
         )
-        store.flush()
+        store.appendTab(Tab(paneId: pane.id))
+        let flushOutcome = await store.flushAsync()
+        try #require(flushOutcome == .persisted)
         #expect(!(store.isDirty))
 
         // Act
@@ -260,6 +207,24 @@ final class PaneContentWiringTests {
 
         // Assert
         #expect(store.isDirty)
+    }
+
+    @Test
+    func test_syncPaneWebviewState_equalStateDoesNotMarkWorkspaceDirty() async throws {
+        let state = WebviewState(url: URL(string: "https://example.com")!)
+        let pane = store.createPane(
+            content: .webview(state),
+            metadata: PaneMetadata(title: "Web")
+        )
+        store.appendTab(Tab(paneId: pane.id))
+        let flushOutcome = await store.flushAsync()
+        try #require(flushOutcome == .persisted)
+        #expect(!store.isDirty)
+
+        store.syncPaneWebviewState(pane.id, state: state)
+        await Task.yield()
+
+        #expect(!store.isDirty)
     }
 
     @Test

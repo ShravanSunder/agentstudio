@@ -127,7 +127,7 @@ final class BridgePaneController {
         let resolvedReviewSourceProvider = reviewSourceProvider ?? BridgeUnavailableReviewSourceProvider()
         self.reviewContentStore = BridgeContentStore(provider: resolvedReviewSourceProvider)
         self.reviewPipeline = BridgeReviewPipeline(provider: resolvedReviewSourceProvider)
-        let runtimePaneId = PaneId(uuid: paneId)
+        let runtimePaneId = PaneId(existingUUID: paneId)
         let defaultMetadata = Self.makeDefaultRuntimeMetadata(paneId: runtimePaneId, state: state)
         let resolvedMetadata = (metadata ?? defaultMetadata).canonicalizedIdentity(
             paneId: runtimePaneId,

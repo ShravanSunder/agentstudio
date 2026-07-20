@@ -60,6 +60,13 @@ extension WorkspaceSQLiteStateBridge {
     }
 }
 
-enum WorkspaceSQLiteStateBridgeError: Error {
+enum WorkspaceSQLiteStateBridgeError: Error, Equatable, Sendable {
     case invalidPayloadJSON
+    case layoutPaneMissingDrawer(UUID)
+    case missingWindowState
+    case missingDrawerExpansionState
+    case missingActiveArrangementState
+    case missingTabShell
+    case invalidTabArrangementSet(UUID)
+    case activeArrangementNotInTab(UUID)
 }

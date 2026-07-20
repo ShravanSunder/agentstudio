@@ -57,47 +57,8 @@ struct WorkspaceSQLiteCommitProtocolTests {
         #expect(try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) == nil)
     }
 
-    @Test("active selection repair ignores staged-only rows")
-    func activeSelectionRepairIgnoresStagedOnlyRows() throws {
-        let completedWorkspaceId = UUID()
-        let stagedWorkspaceId = UUID()
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.commit.active-selection.core")
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
-        try saveCompletedCoreSnapshot(
-            workspaceId: completedWorkspaceId,
-            name: "Completed",
-            updatedAt: Date(timeIntervalSince1970: 2),
-            coreRepository: coreRepository
-        )
-        try coreRepository.upsertWorkspace(
-            .init(
-                id: stagedWorkspaceId,
-                name: "Staged",
-                createdAt: Date(timeIntervalSince1970: 1),
-                updatedAt: Date(timeIntervalSince1970: 3)
-            )
-        )
-        try coreRepository.markWorkspaceSQLiteSnapshotStaged(
-            workspaceId: stagedWorkspaceId,
-            stagedAt: Date(timeIntervalSince1970: 3)
-        )
-        try coreRepository.selectActiveWorkspace(
-            stagedWorkspaceId,
-            updatedAt: Date(timeIntervalSince1970: 3)
-        )
-
-        let repairedWorkspaceId = try coreRepository.repairActiveCompletedWorkspaceSelection(
-            updatedAt: Date(timeIntervalSince1970: 4)
-        )
-
-        #expect(repairedWorkspaceId == completedWorkspaceId)
-        #expect(try coreRepository.fetchActiveWorkspaceId() == completedWorkspaceId)
-    }
-
-    @Test("failed local save leaves staged core recoverable with deterministic local defaults")
-    func failedLocalSaveLeavesStagedCoreRecoverableWithDeterministicLocalDefaults() throws {
+    @Test("failed local save leaves staged core incomplete without synthesizing local defaults")
+    func failedLocalSaveLeavesStagedCoreIncompleteWithoutSynthesizingLocalDefaults() throws {
         let workspaceId = UUID()
         let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.commit.failure.core")
         let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.commit.failure.local")
@@ -132,17 +93,15 @@ struct WorkspaceSQLiteCommitProtocolTests {
         }
 
         #expect(try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) == nil)
-        let recovered = try #require(try workingBackend.load(preferredWorkspaceId: workspaceId))
-        #expect(recovered.name == "Staged But Not Local")
-        #expect(recovered.sidebarWidth == 250)
-        #expect(
-            try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) == recovered.updatedAt)
         #expect(
             try WorkspaceLocalRepository(
                 workspaceId: workspaceId,
                 databaseWriter: localQueue
-            ).fetchCompletedWorkspaceSQLiteSnapshotAt() == recovered.updatedAt
+            ).fetchCompletedWorkspaceSQLiteSnapshotAt() == committedAt
         )
+        #expect(throws: WorkspaceSQLiteStoreBackend.BackendError.incompleteWorkspaceSnapshot(workspaceId)) {
+            _ = try workingBackend.load()
+        }
     }
 
     @Test("successful core and local save leaves matching completion tokens")

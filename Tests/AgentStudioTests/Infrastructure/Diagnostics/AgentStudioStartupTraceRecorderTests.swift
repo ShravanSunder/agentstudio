@@ -28,35 +28,6 @@ struct AgentStudioStartupTraceRecorderTests {
     }
 
     @Test
-    func recorderEmitsZmxStartupReconciliationFields() async throws {
-        let runtime = makeTraceRuntime(tags: "app.startup", timeUnixNano: { 151 })
-        let recorder = AgentStudioStartupTraceRecorder(traceRuntime: runtime)
-
-        recorder.recordZmxStartupReconciliation(
-            .init(
-                inventoryOutcome: .complete,
-                liveSessionCount: 4,
-                hydratedAnchorCount: 1,
-                protectedSessionCount: 3,
-                unresolvedCandidateCount: 0,
-                unmatchedLiveSessionCount: 1
-            )
-        )
-        try await recorder.drain()
-
-        let contents = try traceContents(from: runtime)
-        #expect(contents.contains("\"body\":\"app.zmx_startup_reconciliation.completed\""))
-        #expect(contents.contains("\"agentstudio.app.startup.phase\":\"zmx_startup_reconciliation\""))
-        #expect(contents.contains("\"agentstudio.app.startup.outcome\":\"complete\""))
-        #expect(contents.contains("\"agentstudio.zmx.startup.inventory_outcome\":\"complete\""))
-        #expect(contents.contains("\"agentstudio.zmx.startup.live_session_count\":4"))
-        #expect(contents.contains("\"agentstudio.zmx.startup.hydrated_anchor_count\":1"))
-        #expect(contents.contains("\"agentstudio.zmx.startup.protected_session_count\":3"))
-        #expect(contents.contains("\"agentstudio.zmx.startup.unresolved_candidate_count\":0"))
-        #expect(contents.contains("\"agentstudio.zmx.startup.unmatched_live_session_count\":1"))
-    }
-
-    @Test
     func recorderEmitsTerminalStartupEventWithPaneSurfaceAndZmxAttributes() async throws {
         let paneID = UUID()
         let surfaceID = UUID()

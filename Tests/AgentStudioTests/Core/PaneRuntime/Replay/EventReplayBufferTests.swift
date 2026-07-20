@@ -76,7 +76,7 @@ struct EventReplayBufferTests {
         timestamp: ContinuousClock.Instant = ContinuousClock().now,
         event: PaneRuntimeEvent
     ) -> RuntimeEnvelope {
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         return .pane(
             PaneEnvelope(
                 source: .pane(paneId),

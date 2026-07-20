@@ -1,6 +1,6 @@
 import Foundation
 
-struct TabShell: Identifiable, Equatable {
+struct TabShell: Identifiable, Equatable, Sendable {
     let id: UUID
 
     private(set) var name: String

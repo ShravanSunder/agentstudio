@@ -905,11 +905,15 @@ struct TabBarEmptyState: View {
 #if DEBUG
     struct CustomTabBar_Previews: PreviewProvider {
         static var previews: some View {
-            let tempDir = FileManager.default.temporaryDirectory
-                .appending(path: "preview-\(UUID().uuidString)")
-            let persistor = WorkspacePersistor(workspacesDir: tempDir)
-            let store = WorkspaceStore(persistor: persistor)
-            store.restore()
+            let atomRegistry = AtomRegistry()
+            let store = WorkspaceStore(
+                identityAtom: atomRegistry.workspaceIdentity,
+                windowMemoryAtom: atomRegistry.workspaceWindowMemory,
+                repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,
+                paneAtom: atomRegistry.workspacePane,
+                tabLayoutAtom: atomRegistry.workspaceTabLayout,
+                mutationCoordinator: atomRegistry.workspaceMutationCoordinator
+            )
             let adapter = TabBarAdapter(store: store, repoCache: RepoCacheAtom())
 
             return VStack(spacing: 0) {

@@ -106,7 +106,7 @@ struct InboxSidebarFocusActivationTests {
 
     @Test("activation resolver focuses live pane rows")
     func activationResolverFocusesLivePane() {
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let notification = InboxNotification(
             id: UUID(),
             timestamp: Date(timeIntervalSince1970: 100),
@@ -121,7 +121,9 @@ struct InboxSidebarFocusActivationTests {
         workspacePaneAtom.addPane(
             Pane(
                 id: paneId.uuid,
-                content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+                content: .terminal(
+                    TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+                ),
                 metadata: PaneMetadata(
                     paneId: paneId,
                     contentType: .terminal,
@@ -155,9 +157,11 @@ struct InboxSidebarFocusActivationTests {
         let workspacePaneAtom = WorkspacePaneAtom()
         let parentPane = Pane(
             id: parentPaneId,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(
-                paneId: PaneId(uuid: parentPaneId),
+                paneId: PaneId(existingUUID: parentPaneId),
                 contentType: .terminal,
                 title: "Parent"
             ),
@@ -165,9 +169,11 @@ struct InboxSidebarFocusActivationTests {
         )
         let drawerPane = Pane(
             id: drawerPaneId,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
             metadata: PaneMetadata(
-                paneId: PaneId(uuid: drawerPaneId),
+                paneId: PaneId(existingUUID: drawerPaneId),
                 contentType: .terminal,
                 title: "Drawer"
             ),

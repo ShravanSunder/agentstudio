@@ -29,12 +29,6 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "agentstudio.app.startup.outcome": .string("succeeded"),
                 "agentstudio.ghostty.status": .int(0),
                 "agentstudio.trace.tag": .string("app.startup"),
-                "agentstudio.zmx.startup.inventory_outcome": .string("complete"),
-                "agentstudio.zmx.startup.live_session_count": .int(4),
-                "agentstudio.zmx.startup.hydrated_anchor_count": .int(1),
-                "agentstudio.zmx.startup.protected_session_count": .int(3),
-                "agentstudio.zmx.startup.unresolved_candidate_count": .int(0),
-                "agentstudio.zmx.startup.unmatched_live_session_count": .int(1),
             ]
         )
 
@@ -51,12 +45,6 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.resource["agentstudio.session.id"] == nil)
         #expect(projection.attributes["agentstudio.app.startup.phase"] == .string("ghostty_init"))
         #expect(projection.attributes["agentstudio.app.startup.outcome"] == .string("succeeded"))
-        #expect(projection.attributes["agentstudio.zmx.startup.inventory_outcome"] == .string("complete"))
-        #expect(projection.attributes["agentstudio.zmx.startup.live_session_count"] == .int(4))
-        #expect(projection.attributes["agentstudio.zmx.startup.hydrated_anchor_count"] == .int(1))
-        #expect(projection.attributes["agentstudio.zmx.startup.protected_session_count"] == .int(3))
-        #expect(projection.attributes["agentstudio.zmx.startup.unresolved_candidate_count"] == .int(0))
-        #expect(projection.attributes["agentstudio.zmx.startup.unmatched_live_session_count"] == .int(1))
         #expect(projection.attributes["agentstudio.event.time_unix_nano"] == .int(100))
         #expect(projection.attributes["agentstudio.ghostty.status"] == .int(0))
         #expect(projection.traceID == nil)
@@ -875,6 +863,36 @@ struct AgentStudioOTLPTraceProjectionSanitizationTests {
         #expect(projection.resource["process.pid"] == nil)
         #expect(!renderedProjection.contains("/Users/shravan"))
         #expect(!renderedProjection.contains(worktreeID.uuidString))
+    }
+
+    @Test
+    func runtimePressureProjectionKeepsMemoryGauges() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 601,
+            severityText: .info,
+            body: "performance.process.malloc_zone",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.process.malloc.blocks_in_use": .int(7),
+                "agentstudio.performance.process.malloc.size_in_use_bytes": .int(11),
+                "agentstudio.performance.process.malloc.maximum_size_in_use_bytes": .int(13),
+                "agentstudio.performance.process.malloc.size_allocated_bytes": .int(17),
+                "agentstudio.performance.private_payload": .string("do not export"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes["agentstudio.performance.process.malloc.blocks_in_use"] == .int(7))
+        #expect(projection.attributes["agentstudio.performance.process.malloc.size_in_use_bytes"] == .int(11))
+        #expect(
+            projection.attributes["agentstudio.performance.process.malloc.maximum_size_in_use_bytes"] == .int(13))
+        #expect(projection.attributes["agentstudio.performance.process.malloc.size_allocated_bytes"] == .int(17))
+        #expect(projection.attributes["agentstudio.performance.private_payload"] == nil)
     }
 
     private func performanceProjectionRecord(worktreeID: UUID) -> AgentStudioTraceRecord {

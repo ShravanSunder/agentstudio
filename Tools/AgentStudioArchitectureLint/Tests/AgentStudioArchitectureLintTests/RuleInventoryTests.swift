@@ -43,5 +43,6 @@ enum ExpectedRuleInventory {
         ExpectedRule(id: "agentstudio_no_task_sleep_in_tests", severity: .error),
         ExpectedRule(id: "agentstudio_toolbar_tooltip_source", severity: .error),
         ExpectedRule(id: "agentstudio_eventbus_subscriber_policy_required", severity: .error),
+        ExpectedRule(id: "agentstudio_terminal_local_disposition_publication", severity: .error),
     ]
 }

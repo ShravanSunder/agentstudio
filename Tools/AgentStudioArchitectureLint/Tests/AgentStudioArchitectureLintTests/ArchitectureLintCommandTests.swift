@@ -7,7 +7,8 @@ import Testing
 struct ArchitectureLintCommandTests {
     @Test("good fixtures pass")
     func goodFixturesPass() throws {
-        let result = runCommand(arguments: [fixturePath("Good")])
+        let fixture = fixturePath("Good")
+        let result = runCommand(arguments: [fixture], workspaceRootPath: fixture)
 
         #expect(result.exitCode == 0, Comment(rawValue: result.output))
         #expect(result.output.isEmpty)
@@ -15,7 +16,8 @@ struct ArchitectureLintCommandTests {
 
     @Test("bad fixtures fail with architecture rule diagnostics")
     func badFixturesFail() throws {
-        let result = runCommand(arguments: [fixturePath("Bad")])
+        let fixture = fixturePath("Bad")
+        let result = runCommand(arguments: [fixture], workspaceRootPath: fixture)
 
         #expect(result.exitCode == 1)
         #expect(result.output.contains("error: [agentstudio_import_direction]"))
@@ -59,7 +61,10 @@ struct ArchitectureLintCommandTests {
             .path
     }
 
-    private func runCommand(arguments: [String]) -> CommandRunResult {
+    private func runCommand(
+        arguments: [String],
+        workspaceRootPath: String = FileManager.default.currentDirectoryPath
+    ) -> CommandRunResult {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-architecture-lint-\(UUID().uuidString)")
         let outputURL = temporaryDirectory.appendingPathComponent("stdout.log")
@@ -76,7 +81,9 @@ struct ArchitectureLintCommandTests {
         let command = ArchitectureLintCommand(
             fileManager: .default,
             standardOutput: outputHandle,
-            standardError: errorHandle
+            standardError: errorHandle,
+            rules: ArchitectureRuleRegistry.rules,
+            workspaceRootPath: workspaceRootPath
         )
 
         let exitCode = command.run(arguments: arguments)

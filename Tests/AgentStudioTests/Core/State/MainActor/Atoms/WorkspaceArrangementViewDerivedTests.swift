@@ -190,7 +190,7 @@ struct WorkspaceArrangementViewDerivedTests {
     private func makePane(id: UUID) -> Pane {
         Pane(
             id: id,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata()
         )
     }
@@ -198,7 +198,7 @@ struct WorkspaceArrangementViewDerivedTests {
     private func makeDrawerChild(id: UUID, parentPaneId: UUID) -> Pane {
         Pane(
             id: id,
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())),
             metadata: PaneMetadata(),
             kind: .drawerChild(parentPaneId: parentPaneId)
         )

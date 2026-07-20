@@ -6,7 +6,7 @@ enum RepoExplorerEmptyState: Equatable, Sendable {
     case favoritesOnlyEmpty
 }
 
-struct RepoExplorerSidebarProjection: Equatable, Sendable {
+struct RepoExplorerSidebarContent: Equatable, Sendable {
     let resolvedGroups: [RepoPresentationGroup]
     let worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]]
     let loadingRepos: [RepoPresentationItem]
@@ -67,6 +67,85 @@ struct RepoExplorerProjectedWorktreeRow: Equatable, Sendable {
     let placementContext: RepoExplorerPlacementContext?
 }
 
+enum RepoExplorerSidebarProjection: Equatable, Sendable {
+    case ready(RepoExplorerSidebarContent)
+    case degraded(RepoExplorerTopologyFault)
+
+    var resolvedGroups: [RepoPresentationGroup] {
+        switch self {
+        case .ready(let content): content.resolvedGroups
+        case .degraded: []
+        }
+    }
+
+    var loadingRepos: [RepoPresentationItem] {
+        switch self {
+        case .ready(let content): content.loadingRepos
+        case .degraded: []
+        }
+    }
+
+    var worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]] {
+        switch self {
+        case .ready(let content): content.worktreeRowsByGroupId
+        case .degraded: [:]
+        }
+    }
+
+    var emptyState: RepoExplorerEmptyState {
+        switch self {
+        case .ready(let content): content.emptyState
+        case .degraded: .content
+        }
+    }
+
+    var showsNoResults: Bool {
+        switch self {
+        case .ready(let content): content.showsNoResults
+        case .degraded: false
+        }
+    }
+
+    var showsFavoritesEmptyState: Bool {
+        switch self {
+        case .ready(let content): content.showsFavoritesEmptyState
+        case .degraded: false
+        }
+    }
+
+    init(
+        resolvedGroups: [RepoPresentationGroup],
+        worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]] = [:],
+        loadingRepos: [RepoPresentationItem],
+        showsNoResults: Bool
+    ) {
+        self = .ready(
+            RepoExplorerSidebarContent(
+                resolvedGroups: resolvedGroups,
+                worktreeRowsByGroupId: worktreeRowsByGroupId,
+                loadingRepos: loadingRepos,
+                showsNoResults: showsNoResults
+            )
+        )
+    }
+
+    init(
+        resolvedGroups: [RepoPresentationGroup],
+        worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]] = [:],
+        loadingRepos: [RepoPresentationItem],
+        emptyState: RepoExplorerEmptyState
+    ) {
+        self = .ready(
+            RepoExplorerSidebarContent(
+                resolvedGroups: resolvedGroups,
+                worktreeRowsByGroupId: worktreeRowsByGroupId,
+                loadingRepos: loadingRepos,
+                emptyState: emptyState
+            )
+        )
+    }
+}
+
 enum RepoExplorerProjection {
     private struct PlacementEntry {
         let repo: RepoPresentationItem
@@ -83,6 +162,13 @@ enum RepoExplorerProjection {
         cancellationCheck: () throws -> Void
     ) rethrows -> RepoExplorerSidebarProjection {
         try cancellationCheck()
+        var topologyFaultDetector = RepoExplorerTopologyFaultDetector()
+        for repo in snapshot.repos {
+            topologyFaultDetector.observe(repo)
+        }
+        if let topologyFault = topologyFaultDetector.fault {
+            return .degraded(topologyFault)
+        }
         let resolvedRepos = resolvedRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId)
         let loadingRepos = loadingRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId)
         let visibleResolvedRepos = repos(
@@ -144,14 +230,16 @@ enum RepoExplorerProjection {
             projectedRowsByGroupId = placementProjection.worktreeRowsByGroupId
         }
 
-        return RepoExplorerSidebarProjection(
-            resolvedGroups: resolvedGroups,
-            worktreeRowsByGroupId: projectedRowsByGroupId,
-            loadingRepos: filteredLoadingRepos,
-            emptyState: emptyState(
-                snapshot: snapshot,
+        return .ready(
+            RepoExplorerSidebarContent(
                 resolvedGroups: resolvedGroups,
-                loadingRepos: filteredLoadingRepos
+                worktreeRowsByGroupId: projectedRowsByGroupId,
+                loadingRepos: filteredLoadingRepos,
+                emptyState: emptyState(
+                    snapshot: snapshot,
+                    resolvedGroups: resolvedGroups,
+                    loadingRepos: filteredLoadingRepos
+                )
             )
         )
     }

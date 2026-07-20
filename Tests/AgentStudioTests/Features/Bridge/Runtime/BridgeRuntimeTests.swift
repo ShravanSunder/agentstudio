@@ -141,7 +141,7 @@ struct BridgeRuntimeTests {
         commandHandler: (any BridgeRuntimeCommandHandling)? = nil,
         paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
     ) -> BridgeRuntime {
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .diff,

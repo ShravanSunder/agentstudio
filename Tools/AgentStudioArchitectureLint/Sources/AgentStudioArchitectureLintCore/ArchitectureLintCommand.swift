@@ -6,6 +6,7 @@ public struct ArchitectureLintCommand {
     private let standardOutput: FileHandle
     private let standardError: FileHandle
     private let rules: [any ArchitectureRule]
+    private let workspaceRootPath: String
 
     public init(
         fileManager: FileManager,
@@ -16,7 +17,8 @@ public struct ArchitectureLintCommand {
             fileManager: fileManager,
             standardOutput: standardOutput,
             standardError: standardError,
-            rules: ArchitectureRuleRegistry.rules
+            rules: ArchitectureRuleRegistry.rules,
+            workspaceRootPath: FileManager.default.currentDirectoryPath
         )
     }
 
@@ -24,12 +26,14 @@ public struct ArchitectureLintCommand {
         fileManager: FileManager,
         standardOutput: FileHandle,
         standardError: FileHandle,
-        rules: [any ArchitectureRule]
+        rules: [any ArchitectureRule],
+        workspaceRootPath: String = FileManager.default.currentDirectoryPath
     ) {
         self.fileManager = fileManager
         self.standardOutput = standardOutput
         self.standardError = standardError
         self.rules = rules
+        self.workspaceRootPath = workspaceRootPath
     }
 
     public func run(arguments: [String]) -> Int32 {
@@ -62,17 +66,27 @@ public struct ArchitectureLintCommand {
     }
 
     private func lint(files: [String]) throws -> [ArchitectureDiagnostic] {
-        var diagnostics: [ArchitectureDiagnostic] = []
-        for file in files {
+        var seenSourceIdentities: Set<String> = []
+        let contexts = try files.compactMap { file -> ArchitectureLintContext? in
             let source = try String(contentsOfFile: file, encoding: .utf8)
             let sourceFile = Parser.parse(source: source)
             let context = ArchitectureLintContext(
                 path: file,
                 source: source,
-                sourceFile: sourceFile
+                sourceFile: sourceFile,
+                workspaceRootPath: workspaceRootPath
             )
-            for rule in rules {
-                diagnostics.append(contentsOf: rule.validate(context: context))
+            guard seenSourceIdentities.insert(context.syntaxScopeSourceIdentity).inserted else {
+                return nil
+            }
+            return context
+        }
+
+        var diagnostics: [ArchitectureDiagnostic] = []
+        for rule in rules {
+            let preparedRule = rule.prepared(for: contexts)
+            for context in contexts {
+                diagnostics.append(contentsOf: preparedRule.validate(context: context))
             }
         }
         return diagnostics

@@ -8,33 +8,38 @@ A pane's identity (`PaneId`) is stable across its entire lifecycle — creation,
 
 ## Identity Contract (Canonical)
 
-`PaneId` is the only primary identity. zmx session names are spawn-time
-anchors: minted deterministically when the pane is created, stored on terminal
-content, and read back verbatim for attach, restore, and startup reconciliation. The
-deterministic `ZmxBackend` helpers are ID mints and legacy hydration fallbacks,
-not restore-time source of truth.
+`PaneId` is the pane's primary identity. Every terminal pane also owns a
+separate, non-optional opaque `ZmxSessionID`. New pane and session identities
+are independent UUIDv7 values minted at terminal-pane creation; neither is
+derived from the other. SQLite stores the `ZmxSessionID` text verbatim, and zmx
+attach receives that exact value. Restore preserves every existing nonempty
+stored identity, including historical `as-*` values, without interpretation or
+rewrite. Repository, worktree, path, launch-directory, drawer, pane fragments, and live
+daemon inventory never participate in session identity.
 
 ### Identifier Types
 
 | Identifier | Type | Owner | Persisted | Generation | Used For |
 |------------|------|-------|-----------|------------|----------|
 | `PaneId` | `PaneId` (`struct` wrapping `UUID`) | `WorkspaceStore` | Yes | `Pane.init(id: UUID = UUIDv7.generate(), ...)` with `PaneMetadata.paneId = PaneId(uuid: id)` | Universal pane identity across store/layout/view/runtime/surface |
-| `RepoStableKey` | `String` (16 hex) | `Repo` | Derived | `StableKey.fromPath(repoPath)` | Deterministic zmx key segment |
-| `WorktreeStableKey` | `String` (16 hex) | `Worktree` | Derived | `StableKey.fromPath(worktree.path)` | Deterministic zmx key segment |
-| `MainZmxSessionId` | `String` (53 chars) | `TerminalState.zmxSessionId` | Yes (`pane_content_terminal.zmx_session_id`) | Minted at pane creation from birth repo/worktree stable keys: `as-<repo16>-<worktree16>-<pane16>` | zmx daemon/socket identity for worktree layout panes |
-| `FloatingZmxSessionId` | `String` (53 chars) | `TerminalState.zmxSessionId` | Yes (`pane_content_terminal.zmx_session_id`) | Minted at pane creation from launch-directory stable key used in both repo/worktree segments | zmx daemon/socket identity for floating layout panes |
-| `DrawerZmxSessionId` | `String` (38 chars) | `TerminalState.zmxSessionId` | Yes (`pane_content_terminal.zmx_session_id`) | Minted at drawer-child creation: `as-d--<parentPane16>--<drawerPane16>` | zmx daemon/socket identity for drawer panes |
+| `ZmxSessionID` | strong opaque value type | `TerminalState` | Yes (existing `pane_content_terminal.zmx_session_id` text column) | New values independently use UUIDv7 at terminal-state creation; existing nonempty values restore verbatim | Exact zmx daemon/socket identity for every terminal pane |
 
-### Session Name Calculation Rules
+### Session Identity Rules
 
-1. `paneHex = lowercase(removeHyphens(paneId.uuidString))`
-2. `pane16 = (uuidVersion(paneId) == 7) ? last16hex(paneHex) : first16hex(paneHex)`
-3. UUIDv7 puts timestamp bits at the front; using trailing bits preserves per-pane entropy.
-4. `mainSessionId = "as-" + repoStableKey + "-" + worktreeStableKey + "-" + pane16`
-5. `floatingSessionId` uses `StableKey.fromPath(launchDirectory)` for both stable-key segments.
-6. `drawerSessionId = "as-d--" + parentPane16 + "--" + drawerPane16`
-7. `repoStableKey` and `worktreeStableKey` are deterministic SHA-256 path keys (16 hex chars each)
-8. After minting, the session id is stored. Later cwd/facet changes must not change it.
+1. Terminal-state construction mints one fresh UUIDv7 `ZmxSessionID`.
+2. The type is non-optional. Persistence decoding accepts an existing nonempty
+   opaque value and does not interpret its format.
+3. Repository decode/write boundaries require the strong non-optional type and
+   round-trip the existing SQLite text exactly. This cut adds no schema or data
+   migration.
+4. Restore is read-only: strict decode, one composition apply, activation, then
+   attach with the exact stored ID.
+5. No repair, hydration, adoption, discovery, inference, backfill, fallback, or
+   identity mutation exists during restore or startup.
+6. No migration rewrites an existing session identity.
+7. The zmx subprocess boundary accepts only the strong `ZmxSessionID` type,
+   never caller-supplied raw text. This is a security boundary as well as a
+   domain invariant; restored historical values remain exact typed identities.
 
 ### PaneId Lifecycle (ASCII)
 
@@ -61,9 +66,8 @@ Persist (core.sqlite)
     |
     v   app relaunch
 Restore (WorkspaceStore.restore)
-    -> panes = Dictionary(state.panes by pane.id)
-    -> prune invalid paneId references
-    -> repair invariants (activePaneId, duplicate pane IDs, etc.)
+    -> strict SQLite decode of a complete valid composition
+    -> one composition apply; no normalization, repair, or persistence write
     |
     v
 WorkspaceSurfaceCoordinator.restoreAllViews()
@@ -74,25 +78,24 @@ WorkspaceSurfaceCoordinator.restoreAllViews()
 ### zmx Interplay and Lookups (ASCII)
 
 ```text
-Pane creation
-  - worktree/floating/drawer context mints a deterministic zmx id
+Terminal-pane creation
+  - independently mint PaneId UUIDv7 and ZmxSessionID UUIDv7
                   |
                   v
-TerminalState.zmxSessionId
-  - persisted in pane_content_terminal.zmx_session_id
+TerminalState.zmxSessionID
+  - required opaque value restored from pane_content_terminal.zmx_session_id
                   |
                   v
-TerminalRestoreRuntime / attach / diagnostics
-  - read stored id first
-  - derive only as legacy fallback for rows missing the anchor
+SQLite strict decode
+  - reject missing or empty identity; preserve existing text exactly
                   |
                   v
-AppDelegate.reconcileZmxSessionAnchorsAtStartup()
-  - skip live inventory when all persistent zmx panes have valid stored anchors
-  - hydrate/adopt missing or invalid legacy anchors from one live zmx inventory
-  - protect stored and same-kind pane-session matches
-  - observe unprotected runtime-only sessions as janitor candidates
-  - never kill zmx sessions during boot
+one composition apply
+                  |
+                  v
+terminal activation
+  - zmx attach receives the exact stored ZmxSessionID
+  - no discovery, inference, adoption, fallback, backfill, or write
 ```
 
 ### Lookup Ownership Table
@@ -103,7 +106,7 @@ AppDelegate.reconcileZmxSessionAnchorsAtStartup()
 | `paneId -> View` | `ViewRegistry` | `viewRegistry.view(for: paneId)` |
 | `paneId -> RuntimeStatus` | `SessionRuntime.statuses` | `runtime.status(for: paneId)` |
 | `paneId -> Surface` | `SurfaceManager` metadata/state | `SurfaceMetadata.paneId`, attach/detach paths |
-| `paneId -> zmx session name` | `TerminalState.zmxSessionId` | `TerminalRestoreRuntime.zmxSessionId(for:store:)`; legacy fallback uses `ZmxBackend.sessionId(...)` / `floatingSessionId(...)` / `drawerSessionId(...)` only when the stored anchor is missing |
+| `paneId -> zmx session name` | required `TerminalState.zmxSessionID` | strict SQLite decode and immutable terminal activation input |
 | `zmx session name -> live daemon` | zmx process state in `ZMX_DIR` | `zmx list` parse |
 
 ### Socket Path Budget (Darwin)
@@ -146,9 +149,8 @@ execution and records
 `AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable` in its state file.
 That fallback is valid for Victoria/OTLP debug proof and keeps the same isolated
 data/zmx root. It is not beta promotion proof and not full GUI proof.
-Future zmx session-name compaction should keep equivalent entropy to the
-current `repo16`/`worktree16`/`pane16` segments while using a denser alphabet;
-do not reduce pane identity to the short debug worktree code.
+The short debug worktree code scopes the zmx root only. It never contributes to
+the opaque session name; all newly generated names use UUIDv7.
 
 ## Session Properties
 
@@ -221,8 +223,8 @@ sequenceDiagram
     alt Already open
         PC->>Store: setActiveTab(existingTab.id)
     else New session needed
-        PC->>Store: createPane(launchDirectory, facets, content: .terminal(zmxSessionId))
-        Store-->>PC: Pane (new UUID)
+        PC->>Store: create terminal pane (new PaneId + ZmxSessionID UUIDv7 values)
+        Store-->>PC: Pane with required terminal session identity
         PC->>SM: createSurface(config, metadata)
         SM-->>PC: ManagedSurface
         PC->>SM: attach(surfaceId, paneId)
@@ -286,27 +288,24 @@ sequenceDiagram
     participant Coord as WorkspaceSurfaceCoordinator
 
     AD->>Store: restore()
-    Store->>DB: load()
-    DB-->>Store: WorkspaceSQLiteSnapshot (core.sqlite)
+    Store->>DB: strict decode of core/local SQLite composition
+    DB-->>Store: complete immutable WorkspaceSQLiteSnapshot
+    Store->>Store: apply composition once
 
-    Note over Store: Filter out temporary panes
-    Note over Store: Preserve panes; missing worktree facets become nil/orphaned
-    Note over Store: Prune dangling pane IDs from layouts
-    Note over Store: Remove empty tabs, fix activeTabId
-
-    AD->>Coord: restoreAllViews()
-    loop each pane in active tabs
-        Coord->>Coord: createViewForContent(pane) / restoreView(pane)
+    AD->>Coord: activate accepted terminal composition
+    loop each scheduled terminal pane
+        Coord->>Coord: create surface and attach exact stored ZmxSessionID
     end
 
     AD->>AD: Create MainWindowController
 ```
 
-**Restore filtering details:**
-- **Temporary filtering**: Panes with `lifetime == .temporary` are removed
-- **Worktree validation**: Panes survive missing worktrees. Dangling facet refs are written as NULL during SQLite persistence, and topology changes can mark panes `.orphaned` for UI/restore behavior.
-- **Layout pruning**: Pane IDs not in the valid pane set are removed from all layout nodes; single-child splits collapse; empty tabs removed
-- **Main view guarantee**: If no `.main` view exists, one is created
+Restore is a read-only DAG: strict SQLite decode, one composition apply,
+terminal activation, then exact-ID zmx attach. Missing or invalid required state
+is a decode/restore failure; startup does not normalize the graph, prune or
+invent references, repair cursors, infer session identities, or write a
+corrected snapshot. Repository/topology startup proceeds independently and
+never gates or mutates composition or session identity.
 
 ---
 
@@ -326,7 +325,10 @@ AppDelegate.applicationWillTerminate / applicationShouldTerminate
 ## Persistence
 
 State is persisted through `WorkspaceSQLiteDatastore` into `core.sqlite` plus
-per-workspace `local.sqlite`. Legacy JSON is import/fallback input only. See
+per-workspace `local.sqlite`. Workspace composition restores only from SQLite;
+legacy workspace JSON import/fallback is not part of the target startup DAG and
+is removed by the persistence hard cut. Preferences JSON remains a separate
+settings concern. See
 [Component Architecture — Persistence](component_architecture.md#5-persistence)
 for the full write strategy, filtering, and schema details.
 
@@ -342,7 +344,8 @@ Key points:
 
 The zmx backend provides session persistence across app restarts. When enabled, terminal sessions survive app crashes — the user sees only a Ghostty terminal surface while zmx preserves the PTY and scrollback in the background via raw byte passthrough daemons.
 
-For the startup sequencing details (deferred attach, geometry readiness, and test coverage), see [Zmx Restore and Sizing](zmx_restore_and_sizing.md).
+Geometry readiness is a runtime activation concern only; it does not participate
+in session identity or restore-time discovery.
 
 ### Architecture
 
@@ -412,7 +415,7 @@ Client receives serialized state → writes to stdout → Ghostty renders
 Shell's SIGWINCH redraw arrives → Ghostty renders current prompt
 ```
 
-The `redraw=0` injection tells the outer terminal "this process cannot redraw prompts — don't clear prompt rows on resize." This is the Kitty protocol extension applied via `rewritePromptRedraw()` in the daemon's output path. Without it, the outer terminal clears prompt rows expecting the shell to redraw, but the shell's redraw goes through zmx's IPC relay with cursor coordinates relative to the inner PTY. See [zmx Restore and Sizing](zmx_restore_and_sizing.md) for deferred attach sequencing and geometry details.
+The `redraw=0` injection tells the outer terminal "this process cannot redraw prompts — don't clear prompt rows on resize." This is the Kitty protocol extension applied via `rewritePromptRedraw()` in the daemon's output path. Without it, the outer terminal clears prompt rows expecting the shell to redraw, but the shell's redraw goes through zmx's IPC relay with cursor coordinates relative to the inner PTY. Geometry and resize sequencing do not change the stored session identity.
 
 ### ZMX_DIR Isolation
 
@@ -445,33 +448,25 @@ The zmx binary is resolved via a fallback chain:
 3. **`which zmx`** fallback
 4. If none found: fall back to ephemeral `.ghostty` provider (no persistence)
 
-### Session Name Anchors
+### Canonical Session Identity
 
 See **Identity Contract (Canonical)** above for the complete source of truth.
 
-- New worktree panes mint `ZmxBackend.sessionId(repoStableKey:worktreeStableKey:paneId:)` at creation.
-- New floating panes mint `ZmxBackend.floatingSessionId(launchDirectory:paneId:)` at creation.
-- New drawer panes mint `ZmxBackend.drawerSessionId(parentPaneId:drawerPaneId:)` at creation.
-- All three are stored on `TerminalState.zmxSessionId`; restore and startup reconciliation read that stored value instead of re-deriving from live facets.
+- Every new terminal-pane creation path mints one independent UUIDv7
+  `ZmxSessionID` with the `PaneId`.
+- Repository decode requires a nonempty value from the existing SQLite text
+  column and reconstructs the opaque typed identity without rewriting it.
+- Activation passes that same value to zmx attach.
+- zmx attach, health, list, and kill boundaries accept the opaque typed identity;
+  raw caller-supplied subprocess input is rejected before command creation.
 
-### Startup zmx Session Reconciliation
+### Startup Is Not a Session Reconciliation Boundary
 
-On app launch, `AppDelegate.reconcileZmxSessionAnchorsAtStartup()` discovers
-zmx daemons with Agent Studio prefixes, hydrates/adopts any missing legacy
-stored anchors, and logs sessions not tracked or protected by persisted panes
-as future janitor candidates.
-
-Boot is intentionally non-destructive:
-
-1. Do not kill on discovery.
-2. Do not run TTL cleanup during startup.
-3. Persist hydrated anchors before any restore/attach logic depends on them.
-4. Treat runtime-only sessions as diagnostic output until a background janitor
-   owns durable instance/workspace ownership proof.
-
-This must stay aligned with:
-- [Zmx Restore and Sizing — Startup zmx Session Reconciliation](zmx_restore_and_sizing.md#startup-zmx-session-reconciliation-luna-324)
-- [Pane Runtime Architecture — Contract 5b](pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
+App launch does not list zmx daemons to decide identity or restoration. It does
+not hydrate, adopt, infer, backfill, repair, rename, or persist a session ID.
+Operational cleanup, if separately authorized, is outside restore and cannot
+use pane/path fragments, rewrite existing identities, weaken the strong type, or
+change the UUIDv7 generation rule for new sessions.
 
 ---
 
@@ -533,5 +528,4 @@ stateDiagram-v2
 - **[Surface Architecture](ghostty_surface_architecture.md)** — Surface ownership, state machine, undo close, health monitoring
 - **[App Architecture](appkit_swiftui_architecture.md)** — AppKit + SwiftUI hybrid, per-tab hosting, ViewRegistry slots
 - **[zmx Terminal Integration](zmx_terminal_integration_lessons.md)** — Two-terminal problem, OSC 133 fix, design principles
-- **[zmx Restore and Sizing](zmx_restore_and_sizing.md)** — Deferred attach, geometry readiness, SIGWINCH relay
 - **[Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md)** — SSH tunnel architecture, fork strategy

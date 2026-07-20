@@ -4,36 +4,36 @@ import Observation
 @MainActor
 @Observable
 final class WorkspaceDrawerCursorAtom {
-    private(set) var expandedDrawerId: UUID?
+    var expandedDrawerId: UUID? { storedExpandedDrawerId }
+
+    private var storedExpandedDrawerId: UUID?
+
+    init(expandedDrawerId: UUID? = nil) {
+        storedExpandedDrawerId = expandedDrawerId
+    }
 
     func isExpanded(drawerId: UUID) -> Bool {
-        expandedDrawerId == drawerId
+        storedExpandedDrawerId == drawerId
     }
 
     func toggleDrawer(drawerId: UUID) {
-        expandedDrawerId = expandedDrawerId == drawerId ? nil : drawerId
+        storedExpandedDrawerId = storedExpandedDrawerId == drawerId ? nil : drawerId
     }
 
     func expandDrawer(drawerId: UUID) {
-        expandedDrawerId = drawerId
+        storedExpandedDrawerId = drawerId
     }
 
     func collapseAllDrawers() {
-        expandedDrawerId = nil
+        storedExpandedDrawerId = nil
     }
 
-    func hydrate(persistedPanes: [Pane], validDrawerIds: Set<UUID>) {
-        let expandedDrawerIds: [UUID] = persistedPanes.compactMap { pane in
-            guard let drawer = pane.drawer, drawer.isExpanded, validDrawerIds.contains(drawer.drawerId) else {
-                return nil
-            }
-            return drawer.drawerId
-        }
-        expandedDrawerId = expandedDrawerIds.last
+    func replaceExpandedDrawer(_ expandedDrawerId: UUID?) {
+        storedExpandedDrawerId = expandedDrawerId
     }
 
     func prune(validDrawerIds: Set<UUID>) {
-        guard let expandedDrawerId, !validDrawerIds.contains(expandedDrawerId) else { return }
-        self.expandedDrawerId = nil
+        guard let storedExpandedDrawerId, !validDrawerIds.contains(storedExpandedDrawerId) else { return }
+        self.storedExpandedDrawerId = nil
     }
 }

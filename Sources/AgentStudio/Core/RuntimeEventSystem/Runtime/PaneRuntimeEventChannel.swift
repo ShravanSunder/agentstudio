@@ -11,6 +11,8 @@ final class PaneRuntimeEventChannel {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneRuntimeEventChannel")
     private let clock: ContinuousClock
     private let replayBuffer: EventReplayBuffer
+    private let performanceReporter: RuntimeDeliveryPerformanceReporter
+    private let performanceChannelToken: RuntimeDeliveryChannelToken
     private let busContinuation: AsyncStream<RuntimeEnvelope>.Continuation
     private let busConsumerTask: Task<Void, Never>
 
@@ -21,10 +23,15 @@ final class PaneRuntimeEventChannel {
     init(
         clock: ContinuousClock = ContinuousClock(),
         replayBuffer: EventReplayBuffer = EventReplayBuffer(),
-        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
+        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
+        performanceReporter: RuntimeDeliveryPerformanceReporter = PaneRuntimeEventBus.performanceReporter
     ) {
         self.clock = clock
         self.replayBuffer = replayBuffer
+        self.performanceReporter = performanceReporter
+        let performanceChannelToken = RuntimeDeliveryChannelToken.make()
+        self.performanceChannelToken = performanceChannelToken
+        performanceReporter.registerRuntimeChannel(performanceChannelToken)
 
         let (stream, continuation) = AsyncStream.makeStream(
             of: RuntimeEnvelope.self,
@@ -33,7 +40,12 @@ final class PaneRuntimeEventChannel {
         self.busContinuation = continuation
         // swiftlint:disable:next no_task_detached
         self.busConsumerTask = Task.detached {
-            await Self.consumeOutboundBusStream(stream, paneEventBus: paneEventBus)
+            await Self.consumeOutboundBusStream(
+                stream,
+                paneEventBus: paneEventBus,
+                performanceReporter: performanceReporter,
+                performanceChannelToken: performanceChannelToken
+            )
         }
     }
 
@@ -98,11 +110,18 @@ final class PaneRuntimeEventChannel {
 
     @concurrent nonisolated private static func consumeOutboundBusStream(
         _ stream: AsyncStream<RuntimeEnvelope>,
-        paneEventBus: EventBus<RuntimeEnvelope>
+        paneEventBus: EventBus<RuntimeEnvelope>,
+        performanceReporter: RuntimeDeliveryPerformanceReporter,
+        performanceChannelToken: RuntimeDeliveryChannelToken
     ) async {
         let detachedLogger = Logger(subsystem: "com.agentstudio", category: "PaneRuntimeEventChannel")
+        defer {
+            performanceReporter.retireRuntimeChannel(performanceChannelToken)
+        }
         for await envelope in stream {
+            guard !Task.isCancelled else { break }
             let postResult = await paneEventBus.post(envelope)
+            performanceReporter.recordRuntimeChannelOutboundPosted(performanceChannelToken)
             if postResult.droppedCount > 0 {
                 detachedLogger.warning(
                     "Dropped pane runtime bus event for \(postResult.droppedCount, privacy: .public) subscriber(s); seq=\(envelope.seq, privacy: .public)"
@@ -160,8 +179,9 @@ final class PaneRuntimeEventChannel {
 
         switch busContinuation.yield(envelope) {
         case .enqueued:
-            break
+            performanceReporter.recordRuntimeChannelOutboundEnqueued(performanceChannelToken)
         case .dropped(let droppedEnvelope):
+            performanceReporter.recordRuntimeChannelOutboundDropped()
             Self.logger.warning(
                 "Dropped pane runtime outbound buffer event seq=\(droppedEnvelope.seq, privacy: .public)"
             )

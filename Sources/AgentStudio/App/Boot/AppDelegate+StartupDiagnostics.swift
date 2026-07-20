@@ -281,7 +281,10 @@ extension AppDelegate {
                 return
             }
 
-            await workspaceSurfaceCoordinator.restoreAllViews(in: terminalContainerBounds)
+            workspaceSurfaceCoordinator.restoreVisiblePaneIfNeeded(
+                pane.id,
+                forceWhenBoundsExist: true
+            )
             await Task.yield()
             mainWindowController?.syncVisibleTerminalGeometry(reason: "ipcTerminalSmoke")
             let renderProof = await waitForIPCTerminalSmokeRenderProof(for: pane.id)
@@ -571,7 +574,10 @@ extension AppDelegate {
             """
         )
 
-        await workspaceSurfaceCoordinator.restoreAllViews(in: terminalContainerBounds)
+        mountCrossTabMoveGeometrySmokeFixture(
+            fixture,
+            terminalContainerBounds: terminalContainerBounds
+        )
         mainWindowController?.syncVisibleTerminalGeometry(reason: "crossTabMoveGeometrySmokeBefore")
         await Task.yield()
         workspaceSurfaceCoordinator.execute(
@@ -704,7 +710,7 @@ extension AppDelegate {
         let terminalView = viewRegistry.terminalView(for: paneId)
         let mountedSurfaces = [terminalView?.ghosttySurface].compactMap { $0 }
         let validGeometryCount = mountedSurfaces.filter(Self.surfaceHasValidSmokeGeometry).count
-        let runtime = workspaceSurfaceCoordinator.runtimeForPane(PaneId(uuid: paneId))
+        let runtime = workspaceSurfaceCoordinator.runtimeForPane(PaneId(existingUUID: paneId))
 
         return CrossTabMoveGeometrySmokeRenderProof(
             expectedVisiblePaneCount: 1,
@@ -756,7 +762,6 @@ extension AppDelegate {
             viewRegistry.ensureSlot(for: paneId)
         }
 
-        viewRegistry.beginInitialRestore()
         let sourceTab = Tab(paneId: movedPane.id, name: "Smoke Source")
         let destinationTab = Tab(paneId: targetPane.id, name: "Smoke Destination")
         store.tabLayoutAtom.appendTab(sourceTab)
@@ -789,11 +794,36 @@ extension AppDelegate {
         )
     }
 
+    private func mountCrossTabMoveGeometrySmokeFixture(
+        _ fixture: CrossTabMoveGeometrySmokeFixture,
+        terminalContainerBounds: CGRect
+    ) {
+        let resolvedPaneFramesByTabID = workspaceSurfaceCoordinator.resolveInitialFramesByTabId(
+            in: terminalContainerBounds
+        )
+        for paneID in fixture.paneIds {
+            guard viewRegistry.view(for: paneID) == nil,
+                let pane = store.paneAtom.pane(paneID)
+            else {
+                continue
+            }
+            _ = workspaceSurfaceCoordinator.createViewForContent(
+                pane: pane,
+                initialFrame: workspaceSurfaceCoordinator.initialFrame(
+                    for: pane,
+                    resolvedPaneFramesByTabId: resolvedPaneFramesByTabID
+                ),
+                treatAsRestoredSessionStart: false
+            )
+        }
+    }
+
     private func createCrossTabMoveGeometrySmokePane(title: String) -> Pane {
         store.paneAtom.createPane(
             title: title,
             provider: .zmx,
-            lifetime: .temporary
+            lifetime: .temporary,
+            zmxSessionID: .generateUUIDv7()
         )
     }
 

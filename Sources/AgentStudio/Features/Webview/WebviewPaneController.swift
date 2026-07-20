@@ -51,7 +51,7 @@ final class WebviewPaneController {
 
     init(paneId: UUID, state: WebviewState) {
         self.paneId = paneId
-        let runtimePaneId = PaneId(uuid: paneId)
+        let runtimePaneId = PaneId(existingUUID: paneId)
         let runtimeMetadata = Self.makeDefaultRuntimeMetadata(
             paneId: runtimePaneId,
             state: state

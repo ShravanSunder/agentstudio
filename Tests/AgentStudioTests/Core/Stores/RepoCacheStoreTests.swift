@@ -683,29 +683,4 @@ struct RepoCacheStoreTests {
         #expect(reportedRecovery?.quarantinedFilename?.contains(".workspace.cache.corrupt-") == true)
         #expect(FileManager.default.fileExists(atPath: corruptURL.path) == false)
     }
-
-    @Test
-    func flushFailure_reportsSaveFailedRecovery() async {
-        let workspaceId = UUID()
-        let blockedDirectoryURL = FileManager.default.temporaryDirectory
-            .appending(path: "repo-cache-blocked-\(UUID().uuidString)")
-        try? Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
-        var reportedRecovery: PersistenceRecoveryEvent?
-        let store = RepoCacheStore(
-            atom: RepoCacheAtom(),
-            persistor: WorkspacePersistor(workspacesDir: blockedDirectoryURL),
-            recoveryReporter: { reportedRecovery = $0 }
-        )
-
-        do {
-            try await store.flushAsync(for: workspaceId)
-            Issue.record("Expected repo cache flush to fail")
-        } catch {
-            // Expected path.
-        }
-
-        #expect(reportedRecovery?.store == .repoCache)
-        #expect(reportedRecovery?.workspaceId == workspaceId)
-        #expect(reportedRecovery?.recovery == .saveFailed)
-    }
 }

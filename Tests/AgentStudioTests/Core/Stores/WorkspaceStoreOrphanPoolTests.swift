@@ -10,9 +10,7 @@ final class WorkspaceStoreOrphanPoolTests {
     private var store: WorkspaceStore!
 
     init() {
-        store = WorkspaceStore(
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))
+        store = WorkspaceStore()
     }
 
     // MARK: - Helpers
@@ -133,10 +131,9 @@ final class WorkspaceStoreOrphanPoolTests {
 
     @Test
 
-    func test_backgroundPane_marksDirty() {
+    func test_backgroundPane_marksDirty() async {
         let (_, pane) = createTabWithPane()
-        store.flush()
-
+        _ = await store.flushAsync()
         store.backgroundPane(pane.id)
 
         #expect(store.isDirty)

@@ -80,7 +80,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/tagged-command-repo"))
         let main = try #require(store.repos.first?.worktrees.first)
-        try store.repositoryTopologyAtom.setRepoTags(["client-alpha"], repoId: repo.id)
+        try store.mutationCoordinator.setRepoTags(["client-alpha"], repositoryID: repo.id)
 
         let items = CommandBarDataSource.items(
             scope: .repos,

@@ -545,6 +545,17 @@ struct RepoExplorerView: View {
                             )
                         )
                     }
+
+                case .topologyFault(let fault):
+                    RepoExplorerTopologyFaultRow(fault: fault)
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: AppStyles.General.Spacing.standard,
+                                leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset,
+                                bottom: AppStyles.General.Spacing.standard,
+                                trailing: AppStyles.General.Spacing.standard
+                            )
+                        )
                 }
             }
 
@@ -884,6 +895,29 @@ struct RepoExplorerView: View {
         return attributes
     }
 
+}
+
+private struct RepoExplorerTopologyFaultRow: View {
+    let fault: RepoExplorerTopologyFault
+
+    var body: some View {
+        HStack(alignment: .top, spacing: AppStyles.General.Spacing.standard) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.yellow)
+
+            VStack(alignment: .leading, spacing: AppStyles.General.Spacing.tight) {
+                Text("Repository data unavailable")
+                    .font(.system(size: AppStyles.General.Typography.textBase, weight: .semibold))
+                Text(
+                    "Detected \(fault.duplicateIdentityCount) duplicate worktree identity claim(s). Refresh repositories to recover."
+                )
+                .font(.system(size: AppStyles.General.Typography.textSm))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .allowsHitTesting(false)
+    }
 }
 
 private struct RepoExplorerLoadingSectionHeaderRow: View {

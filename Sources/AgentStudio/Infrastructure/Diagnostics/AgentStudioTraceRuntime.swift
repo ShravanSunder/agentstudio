@@ -117,7 +117,9 @@ struct AgentStudioTraceRuntime: Sendable {
         timeUnixNano()
     }
 
-    func updateIdentitySnapshot(_ snapshot: AgentStudioTraceIdentitySnapshot) async {
+    func updateIdentitySnapshot(
+        _ snapshot: AgentStudioTraceIdentitySnapshot
+    ) async -> AgentStudioTraceIdentityUpdateOutcome {
         await identityStore.update(snapshot)
     }
 

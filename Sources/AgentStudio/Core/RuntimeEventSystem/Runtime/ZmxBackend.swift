@@ -33,27 +33,27 @@ struct ZmxCommandRetryPolicy: Sendable {
 
 /// Identifies a backend session that backs a single terminal pane.
 struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
-    let id: String
+    let id: ZmxSessionID
 }
 
 /// Backend-agnostic protocol for managing per-pane terminal sessions.
 protocol SessionBackend: Sendable {
     var isAvailable: Bool { get async }
-    func createPaneSession(repo: Repo, worktree: Worktree, paneId: UUID) async throws -> PaneSessionHandle
+    func createPaneSession(sessionID: ZmxSessionID) async throws -> PaneSessionHandle
     func attachCommand(for handle: PaneSessionHandle) -> String
     func destroyPaneSession(_ handle: PaneSessionHandle) async throws
     func healthCheck(_ handle: PaneSessionHandle) async -> Bool
     func socketExists() -> Bool
     func sessionExists(_ handle: PaneSessionHandle) async -> Bool
-    func discoverOrphanSessions(excluding knownIds: Set<String>) async -> [String]
-    func destroySessionById(_ sessionId: String) async throws
+    func discoverOrphanSessions(excluding knownSessionIDs: Set<ZmxSessionID>) async -> [ZmxSessionID]
+    func destroySessionByID(_ sessionID: ZmxSessionID) async throws
 }
 
 enum SessionBackendError: Error, LocalizedError {
     case notAvailable
     case timeout
     case operationFailed(String)
-    case sessionNotFound(String)
+    case sessionNotFound(ZmxSessionID)
 
     var errorDescription: String? {
         switch self {
@@ -64,7 +64,7 @@ enum SessionBackendError: Error, LocalizedError {
         case .operationFailed(let detail):
             return "Operation failed: \(detail)"
         case .sessionNotFound(let id):
-            return "Session not found: \(id)"
+            return "Session not found: \(id.rawValue)"
         }
     }
 }
@@ -88,14 +88,14 @@ enum ZmxSessionInventoryOutcome: Equatable, Sendable {
 
 struct ZmxSessionInventorySnapshot: Equatable, Sendable {
     let outcome: ZmxSessionInventoryOutcome
-    let sessionIds: Set<String>
+    let sessionIDs: Set<ZmxSessionID>
 
-    static func complete(_ sessionIds: Set<String>) -> Self {
-        Self(outcome: .complete, sessionIds: sessionIds)
+    static func complete(_ sessionIDs: Set<ZmxSessionID>) -> Self {
+        Self(outcome: .complete, sessionIDs: sessionIDs)
     }
 
     static func unavailable(_ reason: String) -> Self {
-        Self(outcome: .unavailable(reason), sessionIds: [])
+        Self(outcome: .unavailable(reason), sessionIDs: [])
     }
 }
 
@@ -110,9 +110,6 @@ struct ZmxSessionInventorySnapshot: Equatable, Sendable {
 /// (zero CLI calls), and the actual process starts when the Ghostty surface
 /// executes the attach command.
 final class ZmxBackend: SessionBackend {
-    /// Prefix for all Agent Studio zmx sessions.
-    static let sessionPrefix = "as-"
-
     /// Default zmx directory for socket/state isolation.
     static let defaultZmxDir: String = {
         AppDataPaths.zmxDirectory().path
@@ -165,92 +162,6 @@ final class ZmxBackend: SessionBackend {
         self.retrySleep = retrySleep
     }
 
-    // MARK: - Session ID Generation
-
-    /// Generate a deterministic session ID from stable keys + pane UUID.
-    /// Format: `as-<repoKey16>-<wtKey16>-<pane16>` (53 chars)
-    ///
-    /// `pane16` is derived from the pane UUID tail (last 16 hex chars).
-    /// In greenfield mode all pane identifiers are UUIDv7, so tail entropy is canonical.
-    static func sessionId(repoStableKey: String, worktreeStableKey: String, paneId: UUID) -> String {
-        let paneSegment = paneSessionSegment(paneId)
-        return "\(sessionPrefix)\(repoStableKey)-\(worktreeStableKey)-\(paneSegment)"
-    }
-
-    /// Floating top-level session ID: derive a stable key from the pane cwd and
-    /// reuse it for both repo/worktree segments so restart attach stays deterministic.
-    static func floatingSessionId(launchDirectory: URL, paneId: UUID) -> String {
-        let stableKey = StableKey.fromPath(launchDirectory)
-        return sessionId(
-            repoStableKey: stableKey,
-            worktreeStableKey: stableKey,
-            paneId: paneId
-        )
-    }
-
-    /// Drawer session ID: `as-d--<parentPaneId16>--<drawerPaneId16>`
-    /// Uses pane UUIDs (not worktree stable keys) since drawer identity
-    /// flows through the parent pane relationship, not worktree association.
-    static func drawerSessionId(parentPaneId: UUID, drawerPaneId: UUID) -> String {
-        let parentSegment = paneSessionSegment(parentPaneId)
-        let drawerSegment = paneSessionSegment(drawerPaneId)
-        return "as-d--\(parentSegment)--\(drawerSegment)"
-    }
-
-    static func paneSessionSegment(_ paneId: UUID) -> String {
-        let hex = paneId.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-        return String(hex.suffix(16))
-    }
-
-    static func mainSessionId(_ sessionId: String, matchesPaneId paneId: UUID) -> Bool {
-        sessionId.hasPrefix(sessionPrefix)
-            && !isDrawerSessionId(sessionId)
-            && sessionId.hasSuffix("-\(paneSessionSegment(paneId))")
-    }
-
-    static func drawerSessionId(_ sessionId: String, matchesPaneId paneId: UUID) -> Bool {
-        isDrawerSessionId(sessionId)
-            && sessionId.hasSuffix("--\(paneSessionSegment(paneId))")
-    }
-
-    static func isValidStoredMainSessionId(_ sessionId: String, paneId: UUID) -> Bool {
-        let segments = sessionId.split(separator: "-", omittingEmptySubsequences: false)
-        guard segments.count == 4, segments[0] == "as" else { return false }
-        return isLowercaseHex16(segments[1])
-            && isLowercaseHex16(segments[2])
-            && segments[3] == Substring(paneSessionSegment(paneId))
-    }
-
-    static func isValidStoredLayoutPaneSessionId(_ sessionId: String, paneId: UUID) -> Bool {
-        isValidStoredMainSessionId(sessionId, paneId: paneId)
-            || drawerSessionId(sessionId, matchesPaneId: paneId)
-    }
-
-    static func isValidStoredDrawerSessionId(
-        _ sessionId: String,
-        parentPaneId: UUID,
-        drawerPaneId: UUID
-    ) -> Bool {
-        let prefix = "\(sessionPrefix)d--"
-        guard sessionId.hasPrefix(prefix) else { return false }
-        let tail = String(sessionId.dropFirst(prefix.count))
-        let segments = tail.components(separatedBy: "--")
-        guard segments.count == 2 else { return false }
-        return segments[0] == paneSessionSegment(parentPaneId)
-            && segments[1] == paneSessionSegment(drawerPaneId)
-    }
-
-    private static func isDrawerSessionId(_ sessionId: String) -> Bool {
-        sessionId.hasPrefix("\(sessionPrefix)d--")
-    }
-
-    private static func isLowercaseHex16(_ value: Substring) -> Bool {
-        guard value.count == 16 else { return false }
-        return value.unicodeScalars.allSatisfy { scalar in
-            (48...57).contains(scalar.value) || (97...102).contains(scalar.value)
-        }
-    }
-
     // MARK: - Availability
 
     var isAvailable: Bool {
@@ -263,13 +174,7 @@ final class ZmxBackend: SessionBackend {
     // MARK: - Pane Session Lifecycle
 
     /// Build a handle for a zmx session. No CLI call — zmx auto-creates on first attach.
-    func createPaneSession(repo: Repo, worktree: Worktree, paneId: UUID) async throws -> PaneSessionHandle {
-        let sessionId = Self.sessionId(
-            repoStableKey: repo.stableKey,
-            worktreeStableKey: worktree.stableKey,
-            paneId: paneId
-        )
-
+    func createPaneSession(sessionID: ZmxSessionID) async throws -> PaneSessionHandle {
         // Ensure the zmx directory exists for socket isolation
         try FileManager.default.createDirectory(
             atPath: zmxDir,
@@ -277,13 +182,13 @@ final class ZmxBackend: SessionBackend {
             attributes: nil
         )
 
-        return PaneSessionHandle(id: sessionId)
+        return PaneSessionHandle(id: sessionID)
     }
 
     func attachCommand(for handle: PaneSessionHandle) -> String {
         Self.buildAttachCommand(
             zmxPath: zmxPath,
-            sessionId: handle.id,
+            sessionID: handle.id,
             shell: Self.getDefaultShell()
         )
     }
@@ -296,47 +201,40 @@ final class ZmxBackend: SessionBackend {
     /// zmx auto-creates a daemon on first attach — no separate create step needed.
     static func buildAttachCommand(
         zmxPath: String,
-        sessionId: String,
+        sessionID: ZmxSessionID,
         shell: String
     ) -> String {
         let escapedPath = shellEscape(zmxPath)
-        let escapedId = shellEscape(sessionId)
+        let escapedId = shellEscape(sessionID.rawValue)
         let escapedShell = shellEscape(shell)
         return "\(escapedPath) attach \(escapedId) \(escapedShell) -i -l"
     }
 
-    /// Double-quote a string for safe shell interpolation.
+    /// Encode one opaque argument for POSIX shell parsing.
     ///
-    /// This string is injected into an interactive shell via `sendText`, so it
-    /// must survive one level of shell parsing in a double-quoted context.
+    /// Single-quoted arguments preserve every byte except the quote itself;
+    /// embedded quotes use the standard close-quote, escaped-quote, reopen
+    /// sequence. This is deliberately an argument encoder, not an identity
+    /// normalizer: stored zmx session text must reach zmx unchanged.
     static func shellEscape(_ value: String) -> String {
-        let escaped =
-            value
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "$", with: "\\$")
-            .replacingOccurrences(of: "!", with: "\\!")
-            .replacingOccurrences(of: "`", with: "\\`")
-        return "\"\(escaped)\""
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
     func destroyPaneSession(_ handle: PaneSessionHandle) async throws {
         let result = try await executeWithRetry(
             command: zmxPath,
-            args: ["kill", handle.id],
-            operation: "zmx kill \(handle.id)"
+            args: ["kill", handle.id.rawValue],
+            operation: "zmx kill \(handle.id.rawValue)"
         )
 
         guard result.succeeded else {
             throw SessionBackendError.operationFailed(
-                "Failed to destroy zmx session '\(handle.id)': \(result.stderr)"
+                "Failed to destroy zmx session '\(handle.id.rawValue)': \(result.stderr)"
             )
         }
     }
 
-    /// Check if a zmx session is alive by parsing `zmx list` output.
-    /// Uses conservative substring matching since the output format
-    /// is not yet fully stabilized.
+    /// Check if the exact durable zmx identity is alive in `zmx list` output.
     func healthCheck(_ handle: PaneSessionHandle) async -> Bool {
         do {
             let result = try await executeWithRetry(
@@ -345,14 +243,14 @@ final class ZmxBackend: SessionBackend {
                 operation: "zmx list for healthCheck"
             )
             guard result.succeeded else { return false }
-            let lines = result.stdout.components(separatedBy: "\n")
-            let found = lines.contains { $0.contains(handle.id) }
+            let listedSessionIDs = Self.extractSessionIDs(from: result.stdout)
+            let found = listedSessionIDs.contains(handle.id)
             if !found, !result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                zmxLogger.debug("zmx list succeeded but session \(handle.id) not found in output")
+                zmxLogger.debug("zmx list succeeded but session \(handle.id.rawValue) not found in output")
             }
             return found
         } catch {
-            zmxLogger.debug("Health check failed for session \(handle.id): \(error.localizedDescription)")
+            zmxLogger.debug("Health check failed for session \(handle.id.rawValue): \(error.localizedDescription)")
             return false
         }
     }
@@ -367,8 +265,7 @@ final class ZmxBackend: SessionBackend {
         await healthCheck(handle)
     }
 
-    /// Discover live AgentStudio-owned zmx sessions.
-    /// Filters by the compact main-session and drawer-session prefixes.
+    /// Discover every live zmx identity exactly as listed by the isolated backend.
     func discoverAgentStudioSessions() async -> ZmxSessionInventorySnapshot {
         do {
             let result = try await executeWithRetry(
@@ -381,14 +278,7 @@ final class ZmxBackend: SessionBackend {
                 return .unavailable(result.stderr)
             }
 
-            // Parse zmx list output — each line may contain a session name.
-            // Extract session names that start with our prefix.
-            let sessionIds = result.stdout
-                .components(separatedBy: "\n")
-                .filter { !$0.isEmpty }
-                .compactMap(Self.extractSessionName(from:))
-                .filter { $0.hasPrefix(Self.sessionPrefix) || $0.hasPrefix("as-d--") }
-            return .complete(Set(sessionIds))
+            return .complete(Self.extractSessionIDs(from: result.stdout))
         } catch {
             zmxLogger.warning("Failed to discover AgentStudio zmx sessions: \(error.localizedDescription)")
             return .unavailable(error.localizedDescription)
@@ -396,33 +286,42 @@ final class ZmxBackend: SessionBackend {
     }
 
     /// Discover zmx sessions that are not tracked by the store.
-    func discoverOrphanSessions(excluding knownIds: Set<String>) async -> [String] {
+    func discoverOrphanSessions(excluding knownSessionIDs: Set<ZmxSessionID>) async -> [ZmxSessionID] {
         let inventory = await discoverAgentStudioSessions()
         switch inventory.outcome {
         case .complete:
-            return inventory.sessionIds
-                .filter { !knownIds.contains($0) }
-                .sorted()
+            return inventory.sessionIDs
+                .filter { !knownSessionIDs.contains($0) }
+                .sorted { $0.rawValue < $1.rawValue }
         case .unavailable, .skipped:
             return []
         }
     }
 
-    func destroySessionById(_ sessionId: String) async throws {
+    func destroySessionByID(_ sessionID: ZmxSessionID) async throws {
         let result = try await executeWithRetry(
             command: zmxPath,
-            args: ["kill", sessionId],
-            operation: "zmx kill \(sessionId)"
+            args: ["kill", sessionID.rawValue],
+            operation: "zmx kill \(sessionID.rawValue)"
         )
 
         guard result.succeeded else {
             throw SessionBackendError.operationFailed(
-                "Failed to destroy zmx session '\(sessionId)': \(result.stderr)"
+                "Failed to destroy zmx session '\(sessionID.rawValue)': \(result.stderr)"
             )
         }
     }
 
     // MARK: - Helpers
+
+    private static func extractSessionIDs(from listOutput: String) -> Set<ZmxSessionID> {
+        Set(
+            listOutput
+                .components(separatedBy: "\n")
+                .compactMap(extractSessionName(from:))
+                .compactMap(ZmxSessionID.init(restoring:))
+        )
+    }
 
     private static func defaultRetrySleep(_ duration: Duration) async {
         try? await Task.sleep(nanoseconds: duration.nanosecondsForTaskSleep)

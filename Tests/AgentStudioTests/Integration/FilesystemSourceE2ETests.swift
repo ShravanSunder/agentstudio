@@ -16,9 +16,7 @@ extension E2ESerializedTests {
 
             let workspaceDir = repoURL.deletingLastPathComponent().appending(path: "workspace-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: workspaceDir) }
-            let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: workspaceDir))
-            store.restore()
-
+            let store = WorkspaceStore()
             let repo = store.addRepo(at: repoURL)
             let worktree = Worktree(
                 repoId: repo.id,
@@ -45,7 +43,11 @@ extension E2ESerializedTests {
                 gitWorkingTreeProvider: ShellGitWorkingTreeStatusProvider(
                     processExecutor: DefaultProcessExecutor(timeout: 5))
             )
-            let paneProjectionStore = PaneFilesystemProjectionAtom()
+            let paneProjectionSubscription = await paneEventBus.subscribe(
+                policy: .criticalUnbounded,
+                subscriberName: #function
+            )
+            let paneProjectionSubscriber = RecordingSubscriber(subscription: paneProjectionSubscription)
             let repoCache = RepoCacheAtom()
             let cacheCoordinator = WorkspaceCacheCoordinator(
                 bus: paneEventBus,
@@ -64,7 +66,6 @@ extension E2ESerializedTests {
                 runtimeRegistry: RuntimeRegistry(),
                 paneEventBus: paneEventBus,
                 filesystemSource: filesystemSource,
-                paneFilesystemProjectionStore: paneProjectionStore,
                 windowLifecycleStore: WindowLifecycleAtom()
             )
             coordinator.syncFilesystemRootsAndActivity()
@@ -85,14 +86,21 @@ extension E2ESerializedTests {
                 return snapshot.summary.changed >= 1 && snapshot.summary.untracked >= 1
             }
 
-            await eventually("pane projection snapshot should update") {
-                guard let snapshot = paneProjectionStore.snapshotsByPaneId[pane.id] else { return false }
-                return snapshot.changedPaths.contains("tracked.txt")
-                    && snapshot.changedPaths.contains("untracked.txt")
+            await eventually("pane projection event should publish") {
+                RuntimeEnvelopeHarness.paneEvents(from: await paneProjectionSubscriber.snapshot()).contains { event in
+                    guard event.paneId.uuid == pane.id else { return false }
+                    guard
+                        case .paneFilesystemContext(
+                            .cwdSubtreeChanged(_, let paths, _)
+                        ) = event.event
+                    else { return false }
+                    return paths.contains("tracked.txt") && paths.contains("untracked.txt")
+                }
             }
 
             await coordinator.shutdown()
             await cacheCoordinator.shutdown()
+            await paneProjectionSubscriber.shutdown()
 
             await eventually("filesystem source E2E should leave no subscribers behind") {
                 await paneEventBus.subscriberCount == 0

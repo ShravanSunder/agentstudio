@@ -3,26 +3,19 @@ import AppKit
 import SwiftUI
 import os.log
 
-protocol ZmxStartupSessionInventory: Sendable {
-    func discoverLiveSessionInventory() async -> ZmxSessionInventorySnapshot
-}
-
-extension ZmxBackend: ZmxStartupSessionInventory {
-    func discoverLiveSessionInventory() async -> ZmxSessionInventorySnapshot {
-        await discoverAgentStudioSessions()
-    }
-}
-
-struct ZmxStartupReconciliationSummary: Equatable, Sendable {
-    let inventoryOutcome: ZmxSessionInventoryOutcome
-    let liveSessionCount: Int
-    let hydratedAnchorCount: Int
-    let protectedSessionCount: Int
-    let unresolvedCandidateCount: Int
-    let unmatchedLiveSessionCount: Int
-}
-
 let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
+
+struct InstalledWorkspacePreparedContentMountOwners {
+    let cohort: WorkspacePreparedContentMountCohort
+    let terminalAdmissionPort: PreparedTerminalMountAdmissionPort
+    let coordinator: WorkspacePreparedContentMountCoordinator
+}
+
+enum WorkspacePreparedContentMountBootState {
+    case awaitingCanonicalComposition
+    case accepted(WorkspacePreparedContentMountCohort)
+    case installed(InstalledWorkspacePreparedContentMountOwners)
+}
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
@@ -30,6 +23,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: - Shared Services (created once at launch)
     // Module-internal to support focused same-type AppDelegate extensions.
     var atomStore: AtomRegistry!
+    private var workspacePreparedContentMountBootState = WorkspacePreparedContentMountBootState
+        .awaitingCanonicalComposition
+    var installedWorkspacePreparedContentMountOwners: InstalledWorkspacePreparedContentMountOwners {
+        guard case .installed(let owners) = workspacePreparedContentMountBootState else {
+            preconditionFailure("prepared content mount owners accessed before runtime boot")
+        }
+        return owners
+    }
+    var acceptedWorkspacePreparedContentMountCohort: WorkspacePreparedContentMountCohort {
+        guard case .accepted(let cohort) = workspacePreparedContentMountBootState else {
+            preconditionFailure("prepared content mount cohort accessed outside accepted boot phase")
+        }
+        return cohort
+    }
     var store: WorkspaceStore!
     var repoCache: RepoCacheAtom! { atomStore.repoCache }
     var uiState: WorkspaceSidebarState! { atomStore.workspaceSidebarState }
@@ -63,14 +70,37 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var windowLifecycleStore: WindowLifecycleAtom!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
     var managementLayerMonitor: ManagementLayerMonitor!
+
+    func acceptWorkspacePreparedContentMountCohort(_ cohort: WorkspacePreparedContentMountCohort) {
+        guard case .awaitingCanonicalComposition = workspacePreparedContentMountBootState else {
+            preconditionFailure("prepared content mount cohort accepted more than once")
+        }
+        workspacePreparedContentMountBootState = .accepted(cohort)
+    }
+
+    func installWorkspacePreparedContentMountOwners(
+        _ owners: InstalledWorkspacePreparedContentMountOwners
+    ) {
+        guard case .accepted(let acceptedCohort) = workspacePreparedContentMountBootState,
+            acceptedCohort == owners.cohort
+        else {
+            preconditionFailure("prepared content mount owners installed without their accepted cohort")
+        }
+        workspacePreparedContentMountBootState = .installed(owners)
+    }
     // MARK: - Command Bar
     var commandBarController: CommandBarPanelController!
     // MARK: - OAuth
     var oauthService: OAuthService!
     var filesystemPipelineBootTask: Task<Void, Never>?
+    var shouldStartRepositoryTopologyAfterWindowPresentation = false
+    var repositoryTopologyLoadTask: Task<Void, Never>?
     var initialTopologySyncTask: Task<Void, Never>?
     var persistenceObservationBootTask: Task<Void, Never>?
-    var isObservingTraceIdentityInputs = false
+    var traceIdentityRefreshTask: Task<Void, Never>?
+    var traceIdentityRefreshNeedsReplay = false
+    var isTraceIdentityCaptureInProgress = false
+    var traceIdentityFleetCaptureCount: UInt64 = 0
     private var terminationDrainTask: Task<Void, Never>?
     var launchRestoreObservationTask: Task<Void, Never>?
     var windowRestoreBridge: WindowRestoreBridge?
@@ -89,7 +119,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         startupTraceRecorder: AgentStudioStartupTraceRecorder
     ) {
         self.traceRuntime = traceRuntime
-        self.performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
+        self.performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(
+            traceRuntime: traceRuntime,
+            runtimeDeliveryPerformanceReporter: PaneRuntimeEventBus.performanceReporter
+        )
         self.startupTraceRecorder = startupTraceRecorder
         super.init()
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
@@ -111,9 +144,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             RestoreTrace.log("unset NO_COLOR for terminal color support")
         }
 
-        // Check for worktrunk dependency
-        checkWorktrunkInstallation()
-
         // Set up main menu (doesn't depend on zmx restore)
         setupMainMenu()
 
@@ -124,21 +154,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.bootWorkspaceServices(
+            await self.bootWorkspacePresentationPrerequisites(
                 persistor: persistor,
                 paneRuntimeBus: paneRuntimeBus,
                 filesystemSource: &filesystemSource
             )
-            self.finishLaunchingAfterWorkspaceBoot()
+            self.presentWindowAfterWorkspaceComposition()
+            await self.bootWorkspacePostPresentationServices(
+                persistor: persistor,
+                paneRuntimeBus: paneRuntimeBus,
+                filesystemSource: &filesystemSource
+            )
+            self.finishPostPresentationStartup()
         }
     }
 
-    private func finishLaunchingAfterWorkspaceBoot() {
-        startupTraceRecorder.recordAppStartup(
-            "app.did_finish_launching.succeeded",
-            phase: "did_finish_launching",
-            outcome: "succeeded"
-        )
+    private func presentWindowAfterWorkspaceComposition() {
         // Create main window
         mainWindowController = MainWindowController(
             store: store,
@@ -169,7 +200,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             RestoreTrace.log("mainWindow showWindow: window=nil")
         }
+    }
 
+    private func finishPostPresentationStartup() {
+        startupTraceRecorder.recordAppStartup(
+            "app.did_finish_launching.succeeded",
+            phase: "did_finish_launching",
+            outcome: "succeeded"
+        )
         RestoreTrace.log("appDidFinishLaunching: end")
         runStartupDiagnosticActionIfRequested()
         scheduleFullDiskAccessHealthCheck()
@@ -178,6 +216,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     isolated deinit {
         appIPCServer?.stop()
         filesystemPipelineBootTask?.cancel()
+        repositoryTopologyLoadTask?.cancel()
         initialTopologySyncTask?.cancel()
         persistenceObservationBootTask?.cancel()
         launchRestoreObservationTask?.cancel()
@@ -186,7 +225,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: - Dependency Check
 
-    private func checkWorktrunkInstallation() {
+    func presentWorktrunkInstallationOfferIfNeeded() {
         guard !WorktrunkService.shared.isInstalled else { return }
 
         let alert = NSAlert()
@@ -222,270 +261,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         default:
             break
         }
-    }
-
-    // MARK: - Startup zmx Session Reconciliation
-
-    /// Hydrate legacy zmx session anchors from live inventory at startup.
-    /// This path is intentionally non-destructive: boot may classify and
-    /// persist, but it must never kill zmx sessions.
-    /// Called from `applicationDidFinishLaunching` (always main thread).
-    @MainActor
-    func reconcileZmxSessionAnchorsAtStartup(
-        sessionConfiguration: SessionConfiguration = .detect(),
-        makeInventory: (SessionConfiguration) -> (any ZmxStartupSessionInventory)? =
-            AppDelegate.makeZmxStartupSessionInventory
-    ) async {
-        guard needsStartupZmxAnchorHydration() else {
-            appLogger.debug("Skipping startup zmx session reconciliation: all persistent zmx panes have stored anchors")
-            recordZmxStartupReconciliation(
-                .init(
-                    inventoryOutcome: .skipped("no legacy zmx panes missing stored anchors"),
-                    liveSessionCount: 0,
-                    hydratedAnchorCount: 0,
-                    protectedSessionCount: 0,
-                    unresolvedCandidateCount: 0,
-                    unmatchedLiveSessionCount: 0
-                )
-            )
-            return
-        }
-
-        let config = sessionConfiguration
-        guard let zmxPath = config.zmxPath else {
-            appLogger.debug("zmx not found — skipping startup zmx session reconciliation")
-            recordZmxStartupReconciliation(
-                .init(
-                    inventoryOutcome: .unavailable("zmx not found"),
-                    liveSessionCount: 0,
-                    hydratedAnchorCount: 0,
-                    protectedSessionCount: 0,
-                    unresolvedCandidateCount: 0,
-                    unmatchedLiveSessionCount: 0
-                )
-            )
-            return
-        }
-
-        let terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: config)
-        guard let inventory = makeInventory(config) else {
-            appLogger.warning("Startup zmx session reconciliation skipped because inventory could not be created")
-            recordZmxStartupReconciliation(
-                .init(
-                    inventoryOutcome: .unavailable("inventory unavailable for \(zmxPath)"),
-                    liveSessionCount: 0,
-                    hydratedAnchorCount: 0,
-                    protectedSessionCount: 0,
-                    unresolvedCandidateCount: 0,
-                    unmatchedLiveSessionCount: 0
-                )
-            )
-            return
-        }
-
-        let reconciliationTask = Task { @MainActor () -> Result<ZmxStartupReconciliationSummary, any Error> in
-            do {
-                let summary = try await self.runZmxStartupSessionReconciliation(
-                    inventory: inventory,
-                    terminalRestoreRuntime: terminalRestoreRuntime
-                )
-                return .success(summary)
-            } catch {
-                return .failure(error)
-            }
-        }
-        let timeoutTask = Task {
-            do {
-                try await Task.sleep(nanoseconds: AppPolicies.ZmxStartup.reconciliationTimeout.nanosecondsForTaskSleep)
-                reconciliationTask.cancel()
-            } catch {}
-        }
-        defer {
-            timeoutTask.cancel()
-        }
-
-        do {
-            switch await reconciliationTask.value {
-            case .success(let summary):
-                recordZmxStartupReconciliation(summary)
-            case .failure(let reconciliationError):
-                throw reconciliationError
-            }
-        } catch is CancellationError {
-            appLogger.warning("Startup zmx session reconciliation timed out")
-            recordZmxStartupReconciliation(
-                unavailableStartupReconciliationSummary(
-                    reason: "startup reconciliation timeout",
-                    terminalRestoreRuntime: terminalRestoreRuntime
-                )
-            )
-        } catch {
-            appLogger.warning("Startup zmx session reconciliation failed: \(error.localizedDescription)")
-            recordZmxStartupReconciliation(
-                unavailableStartupReconciliationSummary(
-                    reason: "startup reconciliation failed",
-                    terminalRestoreRuntime: terminalRestoreRuntime
-                )
-            )
-        }
-    }
-
-    private func unavailableStartupReconciliationSummary(
-        reason: String,
-        terminalRestoreRuntime: TerminalRestoreRuntime
-    ) -> ZmxStartupReconciliationSummary {
-        let candidates = zmxOrphanCleanupCandidates(terminalRestoreRuntime: terminalRestoreRuntime)
-        let unavailableSummary = ZmxOrphanCleanupPlanner.unavailableInventorySummary(candidates: candidates)
-        return .init(
-            inventoryOutcome: .unavailable(reason),
-            liveSessionCount: 0,
-            hydratedAnchorCount: 0,
-            protectedSessionCount: unavailableSummary.protectedSessionCount,
-            unresolvedCandidateCount: unavailableSummary.unresolvedCandidateCount,
-            unmatchedLiveSessionCount: 0
-        )
-    }
-
-    nonisolated static func makeZmxStartupSessionInventory(
-        sessionConfiguration config: SessionConfiguration
-    ) -> (any ZmxStartupSessionInventory)? {
-        guard let zmxPath = config.zmxPath else { return nil }
-        let inventory: any ZmxStartupSessionInventory = ZmxBackend(zmxPath: zmxPath, zmxDir: config.zmxDir)
-        return inventory
-    }
-
-    func runZmxStartupSessionReconciliation(
-        inventory: any ZmxStartupSessionInventory,
-        terminalRestoreRuntime: TerminalRestoreRuntime
-    ) async throws -> ZmxStartupReconciliationSummary {
-        let liveInventory = await inventory.discoverLiveSessionInventory()
-        let candidates = zmxOrphanCleanupCandidates(terminalRestoreRuntime: terminalRestoreRuntime)
-
-        switch liveInventory.outcome {
-        case .complete:
-            break
-        case .unavailable(let reason), .skipped(let reason):
-            appLogger.warning("Startup zmx session inventory unavailable: \(reason)")
-            let unavailableSummary = ZmxOrphanCleanupPlanner.unavailableInventorySummary(candidates: candidates)
-            return .init(
-                inventoryOutcome: liveInventory.outcome,
-                liveSessionCount: 0,
-                hydratedAnchorCount: 0,
-                protectedSessionCount: unavailableSummary.protectedSessionCount,
-                unresolvedCandidateCount: unavailableSummary.unresolvedCandidateCount,
-                unmatchedLiveSessionCount: 0
-            )
-        }
-
-        let liveSessionIds = liveInventory.sessionIds
-        let hydrationPlan = ZmxOrphanCleanupPlanner.plan(
-            candidates: candidates,
-            liveSessionIds: liveSessionIds
-        )
-        let reconciliationPlan = hydrationPlan.cleanupPlan
-
-        guard await persistHydratedZmxSessionAnchors(hydrationPlan.sessionIdsToPersistByPaneId) else {
-            return .init(
-                inventoryOutcome: liveInventory.outcome,
-                liveSessionCount: liveSessionIds.count,
-                hydratedAnchorCount: 0,
-                protectedSessionCount: reconciliationPlan.knownSessionIds.count,
-                unresolvedCandidateCount: reconciliationPlan.unresolvedCandidateCount,
-                unmatchedLiveSessionCount: 0
-            )
-        }
-
-        if reconciliationPlan.shouldSkipCleanup {
-            appLogger.warning(
-                "Startup zmx session reconciliation found one or more unresolved persisted zmx pane session IDs"
-            )
-        }
-        if !reconciliationPlan.knownSessionIds.isEmpty {
-            appLogger.info(
-                "Startup zmx session reconciliation: protecting \(reconciliationPlan.knownSessionIds.count) known persisted zmx session(s)"
-            )
-        }
-
-        let unmatchedLiveSessionIds = reconciliationPlan.destroyableOrphanSessionIds(from: liveSessionIds)
-        if !unmatchedLiveSessionIds.isEmpty {
-            appLogger.info(
-                "Startup zmx session reconciliation observed \(unmatchedLiveSessionIds.count) unmatched live zmx session(s); boot is non-destructive"
-            )
-        }
-
-        return .init(
-            inventoryOutcome: liveInventory.outcome,
-            liveSessionCount: liveSessionIds.count,
-            hydratedAnchorCount: hydrationPlan.sessionIdsToPersistByPaneId.count,
-            protectedSessionCount: reconciliationPlan.knownSessionIds.count,
-            unresolvedCandidateCount: reconciliationPlan.unresolvedCandidateCount,
-            unmatchedLiveSessionCount: unmatchedLiveSessionIds.count
-        )
-    }
-
-    func recordZmxStartupReconciliation(_ summary: ZmxStartupReconciliationSummary) {
-        startupTraceRecorder.recordZmxStartupReconciliation(summary)
-    }
-
-    func zmxOrphanCleanupCandidates(
-        terminalRestoreRuntime: TerminalRestoreRuntime
-    ) -> [ZmxOrphanCleanupCandidate] {
-        store.paneAtom.panes.values.compactMap { pane in
-            guard pane.provider == .zmx else { return nil }
-            let storedSessionId = pane.terminalState?.zmxSessionId
-            let derivedSessionId = terminalRestoreRuntime.legacyZmxSessionId(for: pane, store: store)
-            if let parentPaneId = pane.parentPaneId {
-                return .drawer(
-                    parentPaneId: parentPaneId,
-                    paneId: pane.id,
-                    storedSessionId: storedSessionId,
-                    derivedSessionId: derivedSessionId
-                )
-            }
-            return .main(
-                paneId: pane.id,
-                storedSessionId: storedSessionId,
-                derivedSessionId: derivedSessionId
-            )
-        }
-    }
-
-    func needsStartupZmxAnchorHydration() -> Bool {
-        store.paneAtom.panes.values.contains { pane in
-            guard pane.provider == .zmx else { return false }
-            guard let storedSessionId = pane.terminalState?.zmxSessionId else { return true }
-            if let parentPaneId = pane.parentPaneId {
-                return !ZmxBackend.isValidStoredDrawerSessionId(
-                    storedSessionId,
-                    parentPaneId: parentPaneId,
-                    drawerPaneId: pane.id
-                )
-            }
-            return !ZmxBackend.isValidStoredLayoutPaneSessionId(storedSessionId, paneId: pane.id)
-        }
-    }
-
-    func persistHydratedZmxSessionAnchors(_ sessionIdsByPaneId: [UUID: String]) async -> Bool {
-        guard !sessionIdsByPaneId.isEmpty else { return true }
-        let sortedAnchors = sessionIdsByPaneId.sorted { lhs, rhs in
-            lhs.key.uuidString < rhs.key.uuidString
-        }
-        var didChange = false
-        for (paneId, sessionId) in sortedAnchors {
-            if store.paneAtom.setTerminalZmxSessionId(paneId, sessionId: sessionId) {
-                didChange = true
-            }
-        }
-        guard didChange else { return true }
-
-        let flushOutcome = await store.flushAsync()
-        guard flushOutcome.succeeded else {
-            appLogger.warning("Startup zmx session reconciliation failed to persist hydrated zmx session anchors")
-            return false
-        }
-        appLogger.info(
-            "Persisted \(sessionIdsByPaneId.count) hydrated zmx session anchor(s) during startup reconciliation")
-        return true
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -771,8 +546,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             rootURL = selectedURL.standardizedFileURL
         }
 
-        // 1. Persist the watched path (direct store mutation)
-        _ = store.repositoryTopologyAtom.addWatchedPath(rootURL)
+        // 1. Persist the watched path through the topology mutation owner.
+        _ = store.mutationCoordinator.addWatchedPath(rootURL)
 
         // 2. Signal scanning state for UI. Sidebar stays collapsed until
         //    the first repo is discovered — never show an empty sidebar.
@@ -830,7 +605,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
 
             let refreshSummary = await self.watchedFolderCommands.refreshWatchedFolders(
-                self.store.repositoryTopologyAtom.watchedPaths.map(\.path)
+                self.store.repositoryTopologyAtom.watchedPaths
             )
 
             let repoPaths = refreshSummary.repoPaths(in: rootURL)

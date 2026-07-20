@@ -40,7 +40,8 @@ struct TerminalTemplate: Codable, Identifiable, Hashable {
             content: .terminal(
                 TerminalState(
                     provider: provider,
-                    lifetime: .persistent
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
                 )),
             metadata: PaneMetadata(
                 launchDirectory: launchDirectory,

@@ -105,7 +105,7 @@ enum RuntimeEnvelopeHarness {
 
     static func paneEnvelope(
         event: PaneRuntimeEvent,
-        paneId: PaneId = PaneId(),
+        paneId: PaneId = PaneId.generateUUIDv7(),
         source: EventSource? = nil,
         seq: UInt64 = 1,
         eventId: UUID = UUID()

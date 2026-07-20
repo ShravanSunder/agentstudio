@@ -11,17 +11,13 @@ final class CollapsedBarLabelPartsTests {
     private var store: WorkspaceStore!
 
     init() {
-        registry = AtomRegistry()
+        registry = makeInstalledTestAtomRegistry()
         store = WorkspaceStore(
             identityAtom: registry.workspaceIdentity,
             windowMemoryAtom: registry.workspaceWindowMemory,
             repositoryTopologyAtom: registry.workspaceRepositoryTopology,
             paneAtom: registry.workspacePane,
-            tabLayoutAtom: registry.workspaceTabLayout,
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-            )
-        )
+            tabLayoutAtom: registry.workspaceTabLayout)
     }
 
     @Test

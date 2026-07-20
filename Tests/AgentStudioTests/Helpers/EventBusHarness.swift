@@ -4,10 +4,30 @@ import Testing
 @testable import AgentStudio
 
 actor RecordedEventBuffer<Envelope: Sendable> {
+    private struct EventWaiter {
+        let predicate: @Sendable (Envelope) -> Bool
+        let continuation: CheckedContinuation<Envelope, Never>
+    }
+
     private var events: [Envelope] = []
+    private var eventWaiters: [EventWaiter] = []
 
     func append(_ event: Envelope) {
         events.append(event)
+
+        var matchingWaiters: [EventWaiter] = []
+        var pendingWaiters: [EventWaiter] = []
+        for waiter in eventWaiters {
+            if waiter.predicate(event) {
+                matchingWaiters.append(waiter)
+            } else {
+                pendingWaiters.append(waiter)
+            }
+        }
+        eventWaiters = pendingWaiters
+        for waiter in matchingWaiters {
+            waiter.continuation.resume(returning: event)
+        }
     }
 
     func snapshot() -> [Envelope] {
@@ -20,6 +40,16 @@ actor RecordedEventBuffer<Envelope: Sendable> {
 
     func last(where predicate: @Sendable (Envelope) -> Bool) -> Envelope? {
         events.last(where: predicate)
+    }
+
+    func firstEvent(where predicate: @escaping @Sendable (Envelope) -> Bool) async -> Envelope {
+        if let event = events.first(where: predicate) {
+            return event
+        }
+
+        return await withCheckedContinuation { continuation in
+            eventWaiters.append(EventWaiter(predicate: predicate, continuation: continuation))
+        }
     }
 }
 
@@ -63,6 +93,10 @@ final class RecordingSubscriber<Envelope: Sendable>: @unchecked Sendable {
 
     func last(where predicate: @escaping @Sendable (Envelope) -> Bool) async -> Envelope? {
         await buffer.last(where: predicate)
+    }
+
+    func firstEvent(where predicate: @escaping @Sendable (Envelope) -> Bool) async -> Envelope {
+        await buffer.firstEvent(where: predicate)
     }
 
     func shutdown() async {

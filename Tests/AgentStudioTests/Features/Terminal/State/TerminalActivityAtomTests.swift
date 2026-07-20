@@ -7,7 +7,7 @@ import Testing
 @Suite("TerminalActivityAtom")
 struct TerminalActivityAtomTests {
     private func paneEnvelope(
-        paneId: PaneId = PaneId(),
+        paneId: PaneId = PaneId.generateUUIDv7(),
         event: GhosttyEvent,
         seq: UInt64 = 1
     ) -> PaneEnvelope {
@@ -19,10 +19,20 @@ struct TerminalActivityAtomTests {
         )
     }
 
+    @Test("ignored terminal events do not create observable activity state")
+    func ignoredTerminalEventsDoNotCreateState() {
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let paneId = PaneId.generateUUIDv7()
+
+        atom.consume(paneEnvelope(paneId: paneId, event: .titleChanged("build")))
+
+        #expect(atom.snapshot(for: paneId.uuid) == nil)
+    }
+
     @Test("tracks every progress state including non-error and remove")
     func tracksEveryProgressStateIncludingNonErrorAndRemove() {
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         atom.consume(
             paneEnvelope(
@@ -54,7 +64,7 @@ struct TerminalActivityAtomTests {
     @Test("tracks cwd and recent URL requests without turning them into notifications")
     func tracksCwdAndRecentURLRequests() {
         let atom = TerminalActivityAtom(outputBurstThreshold: 30, recentURLLimit: 2)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         atom.consume(paneEnvelope(paneId: paneId, event: .cwdChanged("/tmp/project")))
         atom.consume(
@@ -85,43 +95,35 @@ struct TerminalActivityAtomTests {
         #expect(snapshot?.recentURLRequests.map(\.kind) ?? [] == [.html, .unknown])
     }
 
-    @Test("scrollbar total growth accumulates output bursts above threshold")
-    func scrollbarTotalGrowthAccumulatesOutputBurstsAboveThreshold() {
+    @Test("compact projector updates replace scrollbar and output burst state")
+    func compactProjectorUpdatesReplaceScrollbarAndOutputBurstState() {
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
+        let surfaceID = UUIDv7.generate()
 
-        atom.consume(
-            paneEnvelope(
-                paneId: paneId,
-                event: .scrollbarChanged(ScrollbarState(top: 50, bottom: 80, total: 100))
+        atom.apply(
+            TerminalActivityCompactUpdate(
+                surfaceID: surfaceID,
+                paneID: paneId.uuid,
+                scrollbarState: ScrollbarState(top: 50, bottom: 80, total: 100),
+                outputBurst: .quiet(lastTotal: 100)
             )
         )
         #expect(atom.snapshot(for: paneId.uuid)?.outputBurst == .quiet(lastTotal: 100))
 
-        atom.consume(
-            paneEnvelope(
-                paneId: paneId,
-                event: .scrollbarChanged(ScrollbarState(top: 60, bottom: 90, total: 115)),
-                seq: 2
-            )
-        )
-        #expect(
-            atom.snapshot(for: paneId.uuid)?.outputBurst
-                == .accumulating(
+        atom.apply(
+            TerminalActivityCompactUpdate(
+                surfaceID: surfaceID,
+                paneID: paneId.uuid,
+                scrollbarState: ScrollbarState(top: 80, bottom: 110, total: 135),
+                outputBurst: .accumulating(
                     TerminalOutputBurst(
                         baselineTotal: 100,
-                        latestTotal: 115,
-                        addedRows: 15,
+                        latestTotal: 135,
+                        addedRows: 35,
                         threshold: 30
                     )
                 )
-        )
-
-        atom.consume(
-            paneEnvelope(
-                paneId: paneId,
-                event: .scrollbarChanged(ScrollbarState(top: 80, bottom: 110, total: 135)),
-                seq: 3
             )
         )
         #expect(
@@ -141,22 +143,25 @@ struct TerminalActivityAtomTests {
     @Test("scrollbar state records pinned-to-bottom observation")
     func scrollbarStateRecordsPinnedToBottomObservation() {
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
-        atom.consume(
-            paneEnvelope(
-                paneId: paneId,
-                event: .scrollbarChanged(ScrollbarState(top: 40, bottom: 80, total: 100))
+        atom.apply(
+            TerminalActivityCompactUpdate(
+                surfaceID: UUIDv7.generate(),
+                paneID: paneId.uuid,
+                scrollbarState: ScrollbarState(top: 40, bottom: 80, total: 100),
+                outputBurst: .quiet(lastTotal: 100)
             )
         )
         #expect(atom.snapshot(for: paneId.uuid)?.scrollbarState?.isPinnedToBottom == false)
         #expect(atom.snapshot(for: paneId.uuid)?.isPinnedToBottom == false)
 
-        atom.consume(
-            paneEnvelope(
-                paneId: paneId,
-                event: .scrollbarChanged(ScrollbarState(top: 80, bottom: 100, total: 100)),
-                seq: 2
+        atom.apply(
+            TerminalActivityCompactUpdate(
+                surfaceID: UUIDv7.generate(),
+                paneID: paneId.uuid,
+                scrollbarState: ScrollbarState(top: 80, bottom: 100, total: 100),
+                outputBurst: .quiet(lastTotal: 100)
             )
         )
         #expect(atom.snapshot(for: paneId.uuid)?.scrollbarState?.isPinnedToBottom == true)
@@ -166,7 +171,7 @@ struct TerminalActivityAtomTests {
     @Test("clear removes per-pane terminal activity")
     func clearRemovesPerPaneTerminalActivity() {
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
 
         atom.consume(paneEnvelope(paneId: paneId, event: .cwdChanged("/tmp/project")))
         atom.clear(paneId: paneId.uuid)

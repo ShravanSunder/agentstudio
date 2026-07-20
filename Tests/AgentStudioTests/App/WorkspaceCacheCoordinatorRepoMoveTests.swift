@@ -11,7 +11,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             path: "workspace-cache-coordinator-repo-move-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
-        return WorkspaceStore(persistor: persistor)
+        return WorkspaceStore()
     }
 
     @Test("repoRemoved marks panes orphaned and prunes cache while preserving canonical identities")
@@ -129,7 +129,10 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             discoveredWorktrees: [discoveredAtNewPath]
         )
 
-        #expect(reassociated)
+        guard case .accepted = reassociated else {
+            Issue.record("expected repo reassociation acceptance")
+            return
+        }
         #expect(workspaceStore.isRepoUnavailable(repo.id) == false)
         #expect(workspaceStore.repos[0].repoPath == relocatedPath)
         #expect(workspaceStore.repos[0].worktrees.count == 1)
@@ -235,8 +238,59 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             discoveredWorktrees: [discoveredAtNewPath]
         )
 
-        #expect(reassociated)
+        guard case .accepted = reassociated else {
+            Issue.record("expected repo reassociation acceptance")
+            return
+        }
         #expect(workspaceStore.pane(pane.id)?.residency == .backgrounded)
+    }
+
+    @Test("re-association rejection preserves orphaned pane residency and topology")
+    func reassociationRejectionPreservesOrphanedPaneAndTopology() throws {
+        let workspaceStore = makeWorkspaceStore()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: EventBus<RuntimeEnvelope>(),
+            workspaceStore: workspaceStore,
+            repoCache: RepoCacheAtom(),
+            scopeSyncHandler: { _ in }
+        )
+        let firstRepoPath = URL(fileURLWithPath: "/tmp/repo-reassociation-rejection-first")
+        let secondRepoPath = URL(fileURLWithPath: "/tmp/repo-reassociation-rejection-second")
+        let firstRepo = workspaceStore.addRepo(at: firstRepoPath)
+        let secondRepo = workspaceStore.addRepo(at: secondRepoPath)
+        let firstWorktree = try #require(workspaceStore.repos.first(where: { $0.id == firstRepo.id })?.worktrees.single)
+        let pane = workspaceStore.createPane(
+            launchDirectory: firstRepoPath,
+            facets: PaneContextFacets(repoId: firstRepo.id, worktreeId: firstWorktree.id, cwd: firstRepoPath)
+        )
+        workspaceStore.appendTab(Tab(paneId: pane.id))
+        workspaceStore.markRepoUnavailable(firstRepo.id)
+        _ = workspaceStore.orphanPanesForRepo(firstRepo.id)
+        let reposBeforeRejection = workspaceStore.repos
+        let unavailableRepoIdsBeforeRejection = workspaceStore.repositoryTopologyAtom.unavailableRepoIds
+        let generationBeforeRejection = workspaceStore.repositoryTopologyAtom.worktreePathIndexGeneration
+
+        let result = coordinator.reassociateRepo(
+            repoId: firstRepo.id,
+            to: URL(fileURLWithPath: "/tmp/repo-reassociation-rejection-relocated"),
+            discoveredWorktrees: [
+                Worktree(
+                    repoId: firstRepo.id,
+                    name: "conflicting-linked-worktree",
+                    path: secondRepo.repoPath,
+                    isMainWorktree: false
+                )
+            ]
+        )
+
+        guard case .rejected = result else {
+            Issue.record("expected repo reassociation rejection")
+            return
+        }
+        #expect(workspaceStore.repos == reposBeforeRejection)
+        #expect(workspaceStore.repositoryTopologyAtom.unavailableRepoIds == unavailableRepoIdsBeforeRejection)
+        #expect(workspaceStore.repositoryTopologyAtom.worktreePathIndexGeneration == generationBeforeRejection)
+        #expect(workspaceStore.pane(pane.id)?.residency.isOrphaned == true)
     }
 
     @Test("repoRemoved does not overwrite pendingUndo residency")

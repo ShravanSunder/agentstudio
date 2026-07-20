@@ -169,17 +169,10 @@ struct TerminalState: Codable, Hashable, Sendable {
     var provider: SessionProvider
     /// Lifecycle: persistent (zmx-backed) or temporary.
     var lifetime: SessionLifetime
-    /// zmx session identity captured at spawn. Frozen for the pane's lifetime:
-    /// attach/restore/orphan-cleanup must read this stored value and never
-    /// re-derive identity from live facets or topology. Nil only for panes
-    /// spawned before the anchor existed (backfilled on first restore touch).
-    var zmxSessionId: String?
+    /// Durable session identity captured before pane insertion and reused
+    /// verbatim for attach and restoration.
+    let zmxSessionID: ZmxSessionID
 
-    init(provider: SessionProvider, lifetime: SessionLifetime, zmxSessionId: String? = nil) {
-        self.provider = provider
-        self.lifetime = lifetime
-        self.zmxSessionId = zmxSessionId
-    }
 }
 
 // MARK: - Webview State

@@ -17,21 +17,12 @@ extension WorkspaceCoreRepository {
     }
 
     enum PaneContentRecord: Equatable, Sendable {
-        case terminal(provider: SessionProvider, lifetime: SessionLifetime, zmxSessionId: String?)
+        case terminal(provider: SessionProvider, lifetime: SessionLifetime, zmxSessionID: ZmxSessionID)
         case webview(url: URL, title: String, showNavigation: Bool)
         case codeViewer(filePath: URL, scrollToLine: Int?)
         /// `contentType` and `payloadKind` are routing/index tokens; `payloadJSON`
         /// is the content-specific representation for payload-backed pane types.
         case payload(contentType: PaneContentType, payloadKind: String, payloadJSON: String)
-
-        /// Anchor-less convenience for terminal records (test fixtures and
-        /// call sites that have no spawn-time session id in hand).
-        static func terminal(
-            provider: SessionProvider,
-            lifetime: SessionLifetime
-        ) -> Self {
-            .terminal(provider: provider, lifetime: lifetime, zmxSessionId: nil)
-        }
 
         var contentType: PaneContentType {
             switch self {
@@ -69,13 +60,9 @@ extension WorkspaceCoreRepository {
             self.executionBackend = executionBackend
             self.createdAt = createdAt
             self.title = title
-            self.note = normalizedOptionalString(note)
-            self.checkoutRef = normalizedOptionalString(checkoutRef)
-            self.durableFacets = durableFacets.fillingNilFields(
-                from: .init(
-                    cwd: launchDirectory
-                )
-            )
+            self.note = note
+            self.checkoutRef = checkoutRef
+            self.durableFacets = durableFacets
         }
     }
 
@@ -90,13 +77,6 @@ extension WorkspaceCoreRepository {
             self.cwd = cwd
         }
 
-        func fillingNilFields(from defaults: Self) -> Self {
-            .init(
-                repoId: repoId ?? defaults.repoId,
-                worktreeId: worktreeId ?? defaults.worktreeId,
-                cwd: cwd ?? defaults.cwd
-            )
-        }
     }
 
     enum PaneResidencyRecord: Equatable, Sendable {
@@ -144,12 +124,6 @@ extension WorkspaceCoreRepository {
             return .init(panes: panes)
         }
     }
-}
-
-private func normalizedOptionalString(_ value: String?) -> String? {
-    guard let value else { return nil }
-    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
 }
 
 private func decodePaneRecord(_ database: Database, row: Row) throws -> WorkspaceCoreRepository.PaneRecord {

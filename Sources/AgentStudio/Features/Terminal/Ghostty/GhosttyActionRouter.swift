@@ -18,6 +18,20 @@ extension Ghostty {
         @MainActor private static var runtimeRegistryOverride: RuntimeRegistry = .shared
         @MainActor static var startupTraceRecorder: AgentStudioStartupTraceRecorder?
         static let actionTraceQueueStore = GhosttyActionTraceQueueStore()
+        static let localActionDrainScheduler = TerminalLocalActionDrainScheduler { surfaceID in
+            await drainLocalActions(for: surfaceID)
+        }
+        static let localActionAccumulator = TerminalLocalActionAccumulator(
+            scheduleDrain: { surfaceID, schedule in
+                localActionDrainScheduler.schedule(surfaceID, schedule)
+            },
+            scheduleFollowUpDrain: { surfaceID, schedule in
+                localActionDrainScheduler.scheduleFollowUp(surfaceID, schedule)
+            },
+            cancelScheduledTitleDrain: { surfaceID in
+                localActionDrainScheduler.cancel(for: surfaceID)
+            }
+        )
         static let explicitlyRoutedTags: Set<GhosttyActionTag> = [
             .newTab,
             .ringBell,
@@ -215,13 +229,6 @@ extension Ghostty {
                     return false
                 }
                 let title = String(cString: titlePtr)
-                if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface,
-                    let resolvedSurfaceView = surfaceView(from: surface)
-                {
-                    Task { @MainActor [weak resolvedSurfaceView] in
-                        resolvedSurfaceView?.titleDidChange(title)
-                    }
-                }
                 return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
                     payload: .titleChanged(title),
@@ -678,24 +685,73 @@ extension Ghostty {
                 return handledResult
             }
 
-            let surfaceViewObjectId = ObjectIdentifier(resolvedSurfaceView)
-            // Preserve Ghostty's synchronous handled contract while the actual runtime
-            // delivery completes on MainActor.
-            Task { @MainActor [weak resolvedSurfaceView] in
-                if let resolvedSurfaceView {
+            let expectedSurfaceID = resolvedSurfaceView.managedSurfaceID
+            let event = GhosttyAdapter.shared.translate(actionTag: actionTag, payload: payload)
+            let disposition = admitTranslatedActionToTerminalRuntime(
+                event,
+                surfaceID: expectedSurfaceID,
+                accumulator: localActionAccumulator
+            )
+            let precedingTitle: TerminalPrecedingTitleBarrier?
+            switch disposition {
+            case .routeExactFactOrControl(let sealedTitle):
+                precedingTitle = sealedTitle
+            case .updateDirectHostState:
+                Task { @MainActor [weak resolvedSurfaceView] in
+                    guard let resolvedSurfaceView else { return }
                     updateSurfaceHostCache(
                         actionTag: actionTag,
                         payload: payload,
                         surfaceView: resolvedSurfaceView
                     )
                 }
+                return handledResult
+            case .handledLocally:
+                return handledResult
+            }
+
+            let surfaceViewObjectId = ObjectIdentifier(resolvedSurfaceView)
+            // Preserve Ghostty's synchronous handled contract while the actual runtime
+            // delivery completes on MainActor.
+            Task { @MainActor [weak resolvedSurfaceView] in
                 let routingLookup = routingLookupProvider()
-                _ = routeActionToTerminalRuntimeOnMainActor(
+                guard
+                    isCurrentSurfaceLifetime(
+                        expectedSurfaceID: expectedSurfaceID,
+                        surfaceViewObjectID: surfaceViewObjectId,
+                        routingLookup: routingLookup
+                    )
+                else { return }
+                if let resolvedSurfaceView {
+                    guard resolvedSurfaceView.managedSurfaceID == expectedSurfaceID else { return }
+                    if let surfaceTitle = precedingTitle?.metadata.surfaceTitle,
+                        resolvedSurfaceView.title != surfaceTitle
+                    {
+                        resolvedSurfaceView.titleDidChange(surfaceTitle)
+                    }
+                    updateSurfaceHostCache(
+                        actionTag: actionTag,
+                        payload: payload,
+                        surfaceView: resolvedSurfaceView
+                    )
+                }
+                _ = routeExactFactOrControlOnMainActor(
+                    precedingTitle: precedingTitle,
                     actionTag: actionTag,
                     payload: payload,
-                    surfaceViewObjectId: surfaceViewObjectId,
+                    surfaceViewObjectID: surfaceViewObjectId,
+                    expectedSurfaceID: expectedSurfaceID,
                     routingLookup: routingLookup
                 )
+                if let precedingTitle, let resolvedSurfaceView {
+                    resolvedSurfaceView.performanceTraceRecorder?.recordTerminalAccumulatorDrain(
+                        terminalAccumulatorDrainPerformanceSnapshot(for: precedingTitle),
+                        queueAge: terminalAccumulatorQueueAge(
+                            firstOfferedAtNanoseconds: precedingTitle.firstOfferedAtNanoseconds,
+                            currentUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                        )
+                    )
+                }
             }
             return handledResult
         }
@@ -725,110 +781,5 @@ extension Ghostty {
             }
         }
 
-        @MainActor
-        static func routeActionToTerminalRuntimeOnMainActor(
-            actionTag: UInt32,
-            payload: GhosttyAdapter.ActionPayload,
-            surfaceViewObjectId: ObjectIdentifier,
-            routingLookup: any GhosttyActionRoutingLookup
-        ) -> Bool {
-            guard let surfaceId = routingLookup.surfaceId(forViewObjectId: surfaceViewObjectId) else {
-                traceGhosttyAction(
-                    body: "ghostty.action.dropped",
-                    actionTag: actionTag,
-                    payload: payload,
-                    signalClass: .unhandled,
-                    routeResult: false,
-                    reason: "surface_not_registered"
-                )
-                ghosttyLogger.warning("Dropped action tag \(actionTag): surface not registered in SurfaceManager")
-                return false
-            }
-            guard let paneUUID = routingLookup.paneId(for: surfaceId) else {
-                traceGhosttyAction(
-                    body: "ghostty.action.dropped",
-                    actionTag: actionTag,
-                    payload: payload,
-                    surfaceId: surfaceId,
-                    signalClass: .unhandled,
-                    routeResult: false,
-                    reason: "pane_not_mapped"
-                )
-                ghosttyLogger.warning("Dropped action tag \(actionTag): no pane mapped for surface \(surfaceId)")
-                return false
-            }
-            guard UUIDv7.isV7(paneUUID) else {
-                traceGhosttyAction(
-                    body: "ghostty.action.dropped",
-                    actionTag: actionTag,
-                    payload: payload,
-                    paneId: paneUUID,
-                    surfaceId: surfaceId,
-                    signalClass: .unhandled,
-                    routeResult: false,
-                    reason: "pane_id_not_uuid_v7"
-                )
-                ghosttyLogger.warning(
-                    "Dropped action tag \(actionTag): mapped pane id is not UUID v7 \(paneUUID.uuidString, privacy: .public)"
-                )
-                return false
-            }
-            let paneId = PaneId(uuid: paneUUID)
-            let routedRuntime = runtimeRegistryForActionRouting.runtime(for: paneId) as? TerminalRuntime
-            let runtime: TerminalRuntime?
-            if let routedRuntime {
-                runtime = routedRuntime
-            } else if ObjectIdentifier(runtimeRegistryForActionRouting) != ObjectIdentifier(RuntimeRegistry.shared) {
-                runtime = RuntimeRegistry.shared.runtime(for: paneId) as? TerminalRuntime
-            } else {
-                runtime = nil
-            }
-
-            guard let runtime else {
-                traceGhosttyAction(
-                    body: "ghostty.action.dropped",
-                    actionTag: actionTag,
-                    payload: payload,
-                    paneId: paneUUID,
-                    surfaceId: surfaceId,
-                    signalClass: .unhandled,
-                    routeResult: false,
-                    reason: "runtime_not_found"
-                )
-                ghosttyLogger.warning(
-                    "Dropped action tag \(actionTag): terminal runtime not found for pane \(paneUUID)")
-                return false
-            }
-
-            let event = GhosttyAdapter.shared.translate(actionTag: actionTag, payload: payload)
-            traceGhosttyAction(
-                body: "ghostty.action.translated",
-                actionTag: actionTag,
-                payload: payload,
-                event: event,
-                paneId: paneUUID,
-                surfaceId: surfaceId,
-                signalClass: signalClass(for: event, fallbackActionTag: actionTag),
-                routeResult: true,
-                reason: nil
-            )
-            traceTerminalStartupMilestones(
-                actionTag: actionTag,
-                event: event,
-                paneID: paneUUID,
-                surfaceID: surfaceId
-            )
-            GhosttyAdapter.shared.route(
-                actionTag: actionTag,
-                payload: payload,
-                to: runtime
-            )
-            return true
-        }
-
-        static func surfaceView(from surface: ghostty_surface_t) -> SurfaceView? {
-            guard let userdata = ghostty_surface_userdata(surface) else { return nil }
-            return Unmanaged<SurfaceView>.fromOpaque(userdata).takeUnretainedValue()
-        }
     }
 }

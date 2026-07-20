@@ -269,6 +269,9 @@ extension Ghostty {
         /// The ghostty surface handle
         nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
 
+        /// Immutable managed lifetime identity available at the synchronous callback boundary.
+        nonisolated let managedSurfaceID: UUID
+
         /// The ghostty app reference
         private weak var ghosttyApp: App?
         private(set) var hostScrollbarState: ScrollbarState?
@@ -340,6 +343,7 @@ extension Ghostty {
 
         init(
             app: App,
+            managedSurfaceID: UUID,
             config: SurfaceConfiguration? = nil,
             performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
         ) {
@@ -349,6 +353,7 @@ extension Ghostty {
                 )
             }
             config.requireInitialFrameForSurfaceCreation()
+            self.managedSurfaceID = managedSurfaceID
             self.ghosttyApp = app
             self.hostConfigSnapshot = app.hostConfigSnapshot()
             self.performanceTraceRecorder = performanceTraceRecorder

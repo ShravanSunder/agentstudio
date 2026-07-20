@@ -5,18 +5,29 @@ struct ArchitectureLintContext {
     let path: String
     let source: String
     let sourceFile: SourceFileSyntax
+    private let workspaceRootPath: String
+
+    init(
+        path: String,
+        source: String,
+        sourceFile: SourceFileSyntax,
+        workspaceRootPath: String = FileManager.default.currentDirectoryPath
+    ) {
+        self.path = path
+        self.source = source
+        self.sourceFile = sourceFile
+        self.workspaceRootPath = workspaceRootPath
+    }
 
     var normalizedPath: String {
         path.replacingOccurrences(of: "\\", with: "/")
     }
 
     var workspaceRelativePath: String? {
-        let normalizedWorkingDirectory = FileManager.default.currentDirectoryPath
+        let normalizedWorkingDirectory =
+            workspaceRootPath
             .replacingOccurrences(of: "\\", with: "/")
-        let path = normalizedPath
-        guard path.hasPrefix("/") else {
-            return path
-        }
+        let path = normalizedAbsolutePath
         if path == normalizedWorkingDirectory {
             return ""
         }
@@ -25,6 +36,20 @@ struct ArchitectureLintContext {
             return nil
         }
         return String(path.dropFirst(workingDirectoryPrefix.count))
+    }
+
+    var syntaxScopeSourceIdentity: String {
+        workspaceRelativePath ?? normalizedAbsolutePath
+    }
+
+    private var normalizedAbsolutePath: String {
+        if normalizedPath.hasPrefix("/") {
+            return normalizedPath
+        }
+        return URL(
+            fileURLWithPath: normalizedPath,
+            relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        ).standardizedFileURL.path
     }
 
     func location(for position: AbsolutePosition) -> (line: Int, column: Int) {

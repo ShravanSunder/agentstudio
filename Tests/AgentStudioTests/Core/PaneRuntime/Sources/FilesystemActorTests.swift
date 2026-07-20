@@ -5,6 +5,50 @@ import Testing
 
 @Suite(.serialized)
 struct FilesystemActorTests {
+    @Test("older scheduler snapshot cannot overwrite a newer logical-debt publication")
+    func olderSchedulerSnapshotCannotOverwriteNewerLogicalDebtPublication() async throws {
+        let traceRuntime = makeFilesystemLogicalDebtTraceRuntime()
+        let recorder = AgentStudioPerformanceTraceRecorder(
+            traceRuntime: traceRuntime,
+            processMemorySampleWait: { false }
+        )
+        let clock = TestPushClock()
+        let actor = FilesystemActor(
+            bus: EventBus<RuntimeEnvelope>(),
+            fseventStreamClient: ControllableFSEventStreamClient(),
+            sleepClock: clock,
+            debounceWindow: .seconds(1),
+            maxFlushLatency: .seconds(2),
+            performanceTraceRecorder: recorder
+        )
+        let worktreeID = UUIDv7.generate()
+        await actor.register(
+            worktreeId: worktreeID,
+            repoId: worktreeID,
+            rootPath: URL(
+                fileURLWithPath: "/tmp/logical-debt-ordering-\(UUIDv7.generate().uuidString)"
+            )
+        )
+        let snapshotGate = LogicalDebtSnapshotGate()
+        let olderPublication = Task {
+            await actor.recordLogicalDebtSnapshotIfChanged(
+                watchedFolderStateSnapshot: { await snapshotGate.waitForRelease() }
+            )
+        }
+        await snapshotGate.waitUntilEntered()
+
+        await actor.enqueueRawPaths(worktreeId: worktreeID, paths: ["Sources/Fresher.swift"])
+        let newerSnapshot = await actor.lastRecordedLogicalDebtSnapshot
+        #expect(newerSnapshot?.logicalDebtCount == 2)
+
+        await snapshotGate.release()
+        await olderPublication.value
+        #expect(await actor.lastRecordedLogicalDebtSnapshot == newerSnapshot)
+
+        await actor.shutdown()
+        try await recorder.drain()
+    }
+
     @Test("register emits worktreeRegistered fact")
     func registerEmitsWorktreeRegisteredFact() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -620,6 +664,52 @@ struct FilesystemActorTests {
         await actor.shutdown()
     }
 
+    @Test("logical debt retains drain custody until the accepted filesystem batch finishes")
+    func logicalDebtRetainsDrainCustodyUntilBatchFinishes() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
+            sleepClock: clock,
+            debounceWindow: .milliseconds(60),
+            maxFlushLatency: .seconds(1)
+        )
+        let observed = ObservedFilesystemChanges()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        let collectionTask = Task {
+            for await envelope in stream {
+                await observed.record(envelope)
+            }
+        }
+        defer { collectionTask.cancel() }
+
+        let worktreeId = UUID()
+        await actor.register(
+            worktreeId: worktreeId,
+            repoId: worktreeId,
+            rootPath: URL(fileURLWithPath: "/tmp/logical-debt-\(UUID().uuidString)")
+        )
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/Accepted.swift"])
+        await clock.waitForPendingSleepCount()
+
+        let pendingSnapshot = await actor.logicalDebtSnapshot()
+        #expect(pendingSnapshot.pendingWorktreeCount == 1)
+        #expect(pendingSnapshot.drainTaskCount == 1)
+        #expect(pendingSnapshot.logicalDebtCount == 2)
+
+        clock.advance(by: .milliseconds(60))
+        _ = await observed.next()
+        let reachedZeroDebt = await waitUntilFilesystemLogicalDebt(actor, equals: 0)
+        #expect(reachedZeroDebt)
+        let finalSnapshot = await actor.logicalDebtSnapshot()
+        #expect(finalSnapshot.pendingWorktreeCount == 0)
+        #expect(finalSnapshot.drainTaskCount == 0)
+        #expect(finalSnapshot.logicalDebtCount == 0)
+
+        await actor.shutdown()
+    }
+
     @Test("max latency flushes pending changes even when debounce keeps extending")
     func maxLatencyFlushesPendingChanges() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -766,6 +856,76 @@ struct FilesystemActorTests {
             debounceWindow: .zero,
             maxFlushLatency: .zero
         )
+    }
+
+    private func waitUntilFilesystemLogicalDebt(
+        _ actor: FilesystemActor,
+        equals expectedCount: Int,
+        maxTurns: Int = 10_000
+    ) async -> Bool {
+        for _ in 0..<maxTurns {
+            if await actor.logicalDebtSnapshot().logicalDebtCount == expectedCount {
+                return true
+            }
+            await Task.yield()
+        }
+        return await actor.logicalDebtSnapshot().logicalDebtCount == expectedCount
+    }
+
+    private func makeFilesystemLogicalDebtTraceRuntime() -> AgentStudioTraceRuntime {
+        AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": FileManager.default.temporaryDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "filesystem-logical-debt-ordering-\(UUIDv7.generate().uuidString)",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 924
+        )
+    }
+}
+
+private actor LogicalDebtSnapshotGate {
+    private var didEnter = false
+    private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitForRelease() async -> WatchedFolderScanSchedulerStateSnapshot {
+        didEnter = true
+        let waiters = entryWaiters
+        entryWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+        return .active(
+            WatchedFolderScanSchedulerActiveState(
+                ready: 1,
+                activeQuanta: 0,
+                awaitingValidations: 0,
+                pendingResults: 0,
+                leasedResults: 0,
+                dirtyFollowUps: 0,
+                resultCustodyHighWater: 0
+            )
+        )
+    }
+
+    func waitUntilEntered() async {
+        guard !didEnter else { return }
+        await withCheckedContinuation { continuation in
+            entryWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }
 

@@ -214,7 +214,7 @@ struct SwiftPaneRuntimeTests {
         fileDirectory: URL,
         paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
     ) -> SwiftPaneRuntime {
-        let paneId = PaneId()
+        let paneId = PaneId.generateUUIDv7()
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .codeViewer,

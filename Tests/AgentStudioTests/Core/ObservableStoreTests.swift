@@ -28,8 +28,7 @@ final class ObservableStoreTests {
             workspacesDir: FileManager.default.temporaryDirectory
                 .appending(path: "obs-tests-\(UUID().uuidString)")
         )
-        store = WorkspaceStore(persistor: persistor)
-        store.restore()
+        store = WorkspaceStore()
     }
 
     deinit {
@@ -340,6 +339,22 @@ final class ObservableStoreTests {
         // Assert
         #expect(flag.fired)
         #expect(store.pane(pane.id)?.title == "Updated")
+    }
+
+    @Test
+    func test_observationTracking_doesNotFireOnEqualPaneTitleUpdate() {
+        let pane = store.createPane(title: "Unchanged")
+        let flag = ObservationFlag()
+        withObservationTracking {
+            _ = store.panes
+        } onChange: {
+            flag.fired = true
+        }
+
+        store.updatePaneTitle(pane.id, title: "Unchanged")
+
+        #expect(!flag.fired)
+        #expect(store.pane(pane.id)?.title == "Unchanged")
     }
 
     @Test

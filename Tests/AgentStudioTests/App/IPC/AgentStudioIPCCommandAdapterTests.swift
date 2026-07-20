@@ -480,7 +480,7 @@ struct AgentStudioIPCCommandAdapterTests {
             windowSnapshot: .singleActiveWindow(UUID()),
             shellCommandHandler: shellCommandHandler
         )
-        let repoId = harness.workspaceStore.repositoryTopologyAtom.addRepo(
+        let repoId = harness.workspaceStore.mutationCoordinator.addRepo(
             at: URL(fileURLWithPath: "/tmp/agentstudio-ipc-owned-repo")
         ).id
 

@@ -27,8 +27,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
     ) -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-undo-restore-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let coordinator = WorkspaceSurfaceCoordinator(
@@ -150,18 +149,14 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-undo-restore-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
-        let identityAtom = WorkspaceIdentityAtom()
-        identityAtom.hydrate(
+        let identityAtom = WorkspaceIdentityAtom(
             workspaceId: workspaceId,
             workspaceName: "Deferred Drawer Restore",
             createdAt: Date(timeIntervalSince1970: 1_700_000_088)
         )
-        var recoveryEvents: [PersistenceRecoveryEvent] = []
         let store = WorkspaceStore(
             identityAtom: identityAtom,
-            persistor: WorkspacePersistor(workspacesDir: tempDir),
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
-            recoveryReporter: { event in recoveryEvents.append(event) }
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
@@ -190,18 +185,10 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         let flushOutcome = await store.flushAsync()
 
         #expect(flushOutcome.succeeded)
-        #expect(
-            !recoveryEvents.contains {
-                $0.store == .workspace && $0.workspaceId == workspaceId && $0.recovery == .tabMembershipRepaired
-            }
-        )
         let restoredStore = WorkspaceStore(
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-            ),
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
-        await restoredStore.restoreAsync()
+        await restoredStore.loadCanonicalComposition()
 
         let restoredTab = try #require(restoredStore.tab(tab.id))
         let restoredParent = try #require(restoredStore.pane(parentPane.id))

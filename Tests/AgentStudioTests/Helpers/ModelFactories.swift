@@ -55,7 +55,13 @@ func makePane(
 ) -> Pane {
     Pane(
         id: id,
-        content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
+        content: .terminal(
+            TerminalState(
+                provider: provider,
+                lifetime: lifetime,
+                zmxSessionID: .generateUUIDv7()
+            )
+        ),
         metadata: PaneMetadata(launchDirectory: launchDirectory, title: title, facets: facets),
         residency: residency
     )
@@ -112,12 +118,4 @@ func makeSurfaceMetadata(
         repoId: repoId,
         paneId: paneId
     )
-}
-
-// MARK: - PaneSessionHandle Factory
-
-func makePaneSessionHandle(
-    id: String = "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-a1b2c3d4e5f6a7b8"
-) -> PaneSessionHandle {
-    PaneSessionHandle(id: id)
 }

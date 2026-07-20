@@ -30,6 +30,7 @@ struct FilesystemSourceSyncRequest: Sendable, Equatable {
     let paneContextGeneration: UInt64
     let topologyEntries: [FilesystemProjectionTopologyEntry]
     let paneEntries: [FilesystemProjectionPaneEntry]
+    let appliedContextsByWorktreeId: [UUID: WorktreeFilesystemContext]
     let appliedActivityByWorktreeId: [UUID: Bool]
     let activePaneWorktreeId: UUID?
     let appliedActivePaneWorktreeId: UUID?

@@ -84,7 +84,13 @@ struct WorkspaceMutationCoordinatorTests {
 
         let parentPaneId = UUID()
         let drawerPane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            content: .terminal(
+                TerminalState(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            ),
             metadata: PaneMetadata(title: "Drawer"),
             kind: .drawerChild(parentPaneId: parentPaneId)
         )
@@ -110,7 +116,8 @@ struct WorkspaceMutationCoordinatorTests {
         let drawerPane = try #require(
             paneAtom.addDrawerPane(
                 to: parentPane.id,
-                parentFallbackCWD: nil
+                parentFallbackCWD: nil,
+                zmxSessionID: .generateUUIDv7()
             )
         )
 

@@ -8,31 +8,16 @@
 
 Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces events on the `EventBus`. A single `WorkspaceCacheCoordinator` consumes all events, writing topology changes to the canonical store and enrichment data to the cache store. The sidebar is a pure reader of all three stores via `@Observable` binding — zero imperative fetches, zero mutations.
 
-SQLite cutover status: normal boot now opens `core.sqlite`, the active
-workspace's `<workspace-id>.local.sqlite`, and the workspace settings file
-through the SQLite-backed store path. Legacy JSON files remain import and
-recovery sources only: when SQLite has no authoritative rows, they are
-materialized into the new stores; after import status marks a lane complete,
-stale legacy JSON is not replayed over SQLite/settings state.
-
-Legacy workspace-state import is isolated from the live store wrapper.
-`WorkspaceStore+LegacySQLiteImport` is the thin call site that captures the
-pre-import SQLite state, builds importer input from the current atoms, and
-applies the result. `WorkspaceLegacySQLiteImporter` owns the legacy import
-policy and returns explicit outcomes: no legacy files, initial active import,
-no pending retry work while keeping selection, retry materialized without
-selection change, partial import with a usable active workspace, or failure with
-no usable import. Retry paths must keep the existing SQLite active workspace
-selected without rewriting `active_workspace_id`; only first boot or incomplete
-initial import may select an imported legacy workspace.
-
-Recovery invariants are split by lane. A workspace snapshot is archive-ready
-only when the core and local SQLite completion timestamps match. If local
-completion is stale or the local sidecar cannot be read, restore still hydrates
-from the canonical core rows with deterministic local defaults and repairs the
-local completion row when possible. Sidecar quarantine is corruption-only:
-`SQLITE_CORRUPT` and `SQLITE_NOTADB` failures may move database/WAL/SHM files;
-ordinary open failures must not quarantine sidecars.
+Normal boot opens `core.sqlite` and the selected workspace's
+`<workspace-id>.local.sqlite` through one strict SQLite composition path.
+Workspace composition JSON is not a boot, import, migration, fallback, or
+recovery source. Valid completed core/local snapshots load exactly. Only a
+newly created empty SQLite store may bootstrap one UUIDv7-backed empty
+workspace. Missing, incomplete, corrupt, or invalid existing composition fails
+before atom installation or terminal activation and is never repaired,
+quarantined, recreated, or rewritten by startup. Historical GRDB schema
+migrations remain so valid older databases can open; preference/settings JSON
+and independently owned cache import policies remain separate.
 
 ---
 
@@ -43,7 +28,6 @@ Data flows DOWN only — tier N never reads tier N+1.
 ```
 TIER A: CANONICAL CONFIG (source of truth, user intent)
   Live source: ~/.agentstudio/core.sqlite
-  Legacy import source: ~/.agentstudio/workspaces/<id>/workspace.state.json
   Owner: canonical workspace atoms + WorkspaceStore persistence wrapper
   Mutated by: explicit user actions + topology consumer (discovery events)
   Contains: canonical repos, canonical worktrees, panes, tabs, layouts
@@ -264,7 +248,11 @@ struct WorkspaceUIState: Codable {
 
 ## Enrichment Pipeline
 
-Sequential enrichment via EventBus. Each stage subscribes to the bus and produces enriched events back to the bus. The bus fans out — the coordinator gets intermediate events directly (no latency blocking).
+Sequential enrichment facts still travel through EventBus, but workspace
+filesystem projection has two effect shapes. Boot, explicit rebuild, and an
+accepted topology delta request full reconciliation. Ordinary pane mount,
+removal, CWD, and active-pane changes use affected-key effects and do not
+rebuild the full projection.
 
 ```
 WORKSPACE STATE (canonical repos/worktrees, panes/tabs)
@@ -316,7 +304,10 @@ WorkspaceCacheCoordinator (@MainActor, topology accumulator)
 WorkspaceSurfaceCoordinator (ordered post-topology effects)
   topologyDidChange(delta):
     → orphanPanesForWorktree for delta.removedWorktrees
-    → syncFilesystemRootsAndActivity() (register new / unregister removed)
+    → full filesystem reconciliation for accepted topology delta
+  ordinary pane/CWD/active changes:
+    → typed affected-key effect admission
+    → pane or active-worktree projection only
       │
       ▼
 RepoEnrichmentCacheAtom + RecentWorkspaceTargetAtom (@Observable, passive)
@@ -393,6 +384,61 @@ syncScope_*         — ACTOR registration management
 ```
 
 Method naming convention makes responsibility explicit. If coordinator grows too large, method groups become natural extraction points. Does not run git/network commands or access filesystem directly.
+
+### Filesystem Effect Admission And Projection
+
+Filesystem source authority and workspace projection are separate
+responsibilities. There are two independent lanes:
+
+```text
+FilesystemActor / GitWorkingDirectoryProjector
+  -> globally published WorktreeScopedEvent
+  -> PaneFilesystemProjectionAdmission (consumer-side)
+     -> filesChanged / snapshotChanged -> project affected panes
+     -> every other owned case         -> explicitly ignored here
+  -> FilesystemProjectionIndex
+  -> WorkspaceSurfaceCoordinator sequences any published pane facts
+
+pane mount / removal / CWD / active-pane change
+  -> local affected-key coordinator effect
+  -> FilesystemProjectionIndex
+  -> applied / stale / inapplicable
+  -> changed activity/active-worktree update to FilesystemActor
+  -> no EventBus fact solely for index maintenance
+```
+
+`PaneFilesystemProjectionAdmission` exhaustively switches over the owned
+`WorktreeScopedEvent`, `FilesystemEvent`, and `GitWorkingDirectoryEvent`
+families. Every case explicitly selects projection or `.ignored`; no catch-all
+default silently schedules work. This is pane-projection admission after the
+bounded worktree fact reaches EventBus, not Terminal-style pre-publication
+source admission. The original filesystem/Git facts remain globally available
+to other consumers; only relevant cases derive pane-scoped
+`PaneFilesystemContextEvent` facts.
+
+Effect rules:
+
+- Full reconciliation is reserved for boot, explicit rebuild, and an accepted
+  topology delta.
+- Pane mount, pane removal, and pane CWD changes update only the keyed pane.
+- Active-pane changes project only the active-worktree effect.
+- Unrelated actions schedule no filesystem projection work.
+- `FilesystemProjectionIndex.applyPaneUpdate` reports `.applied`, `.stale`, or
+  `.inapplicable`, so the coordinator can distinguish a committed projection
+  from obsolete or irrelevant work.
+- Full source-sync requests carry an explicit
+  `appliedContextsByWorktreeId` baseline with no implicit empty default.
+  Coordinator mirrors advance immediately after each awaited source write, so
+  a superseding pass compares desired state with registration, activity, and
+  active-worktree effects that actually completed rather than an optimistic
+  committed index snapshot.
+
+`FilesystemActor` remains the authority for observed filesystem facts and root
+registration. `FilesystemProjectionIndex` remains a rebuildable, off-main
+projection of those facts and of current pane/worktree membership; it does not
+become canonical workspace state. Terminal contraction and filesystem
+projection deliberately use separate domain types rather than a generic
+admission framework.
 
 ### Discovery — Repo Scanning
 
@@ -811,9 +857,13 @@ Reader             Sidebar                          Rendering truth via @Observa
 **The handler pattern:**
 - `WorkspaceCacheCoordinator` produces a `WorktreeTopologyDelta` after reconciliation
 - It handles cache cleanup itself (it owns `repoCache`)
-- It calls `topologyEffectHandler.topologyDidChange(delta)` for ordering-sensitive effects
-- `WorkspaceSurfaceCoordinator` conforms to `TopologyEffectHandler`: orphans panes for removed worktrees, syncs filesystem roots
+- It calls `topologyEffectHandler.topologyDidChange(delta)` for ordering-sensitive effects and a full filesystem reconciliation
+- `WorkspaceSurfaceCoordinator` conforms to `TopologyEffectHandler`: it orphans panes for removed worktrees and reconciles filesystem roots after accepted topology changes
 - `WorkspaceSurfaceCoordinator` does NOT subscribe to topology events on the bus — it receives topology changes only via the handler
+
+Ordinary pane mount/removal/CWD and active-pane changes do not re-enter this
+topology accumulator. They use the separate affected-key entry points described
+in [Filesystem Effect Admission And Projection](#filesystem-effect-admission-and-projection).
 
 This replaces the previous pattern where `WorkspaceSurfaceCoordinator` subscribed to topology events on the bus and scheduled a deferred filesystem sync. That worked by accident (deferred `Task` ran after the coordinator's synchronous store mutation) but was fragile — any change to the timing would break ordering.
 

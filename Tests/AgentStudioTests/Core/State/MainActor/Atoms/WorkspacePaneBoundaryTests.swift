@@ -10,8 +10,16 @@ struct WorkspacePaneBoundaryTests {
     func paneGraphStateStripsCursorAndDisplayFields() throws {
         let repoId = UUID()
         let worktreeId = UUID()
+        let paneId = UUIDv7.generate()
         let pane = Pane(
-            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            id: paneId,
+            content: .terminal(
+                TerminalState(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            ),
             metadata: PaneMetadata(
                 launchDirectory: URL(filePath: "/tmp/agent-studio"),
                 title: "Terminal",
@@ -28,11 +36,19 @@ struct WorkspacePaneBoundaryTests {
                 ),
                 note: "ship it"
             ),
-            kind: .layout(drawer: Drawer(paneIds: [], isExpanded: true))
+            kind: .layout(
+                drawer: Drawer(
+                    parentPaneId: paneId,
+                    paneIds: [],
+                    isExpanded: true
+                )
+            )
         )
         let graphAtom = WorkspacePaneGraphAtom()
 
-        graphAtom.hydrate(persistedPanes: [pane], validWorktreeIds: [worktreeId])
+        graphAtom.replacePaneStates(
+            try requirePaneGraphReplacement([pane.id: PaneGraphState(pane: pane)])
+        )
 
         let state = try #require(graphAtom.paneState(pane.id))
         #expect(state.metadata.facets.repoId == repoId)
@@ -55,6 +71,7 @@ struct WorkspacePaneBoundaryTests {
         let paneAtom = WorkspacePaneAtom(graphAtom: graphAtom)
         let pane = paneAtom.createPane(
             launchDirectory: URL(filePath: "/tmp/project"),
+            zmxSessionID: .generateUUIDv7(),
             facets: PaneContextFacets(
                 repoId: repoId,
                 worktreeId: worktreeId,
@@ -75,27 +92,18 @@ struct WorkspacePaneBoundaryTests {
         #expect(projectedPane.worktreeId == nil)
     }
 
-    @Test("Setting identical zmx session anchor is a no-op")
-    func settingIdenticalZmxSessionAnchorIsNoOp() throws {
+    @Test("Pane creation preserves the caller-supplied zmx identity")
+    func paneCreationPreservesCallerSuppliedZmxIdentity() throws {
         let graphAtom = WorkspacePaneGraphAtom()
         let paneAtom = WorkspacePaneAtom(graphAtom: graphAtom)
-        let pane = paneAtom.createPane()
-        let sessionId = ZmxBackend.sessionId(
-            repoStableKey: "1111111111111111",
-            worktreeStableKey: "2222222222222222",
-            paneId: pane.id
-        )
+        let suppliedSessionID = try #require(ZmxSessionID(restoring: "existing-session"))
+        let pane = paneAtom.createPane(zmxSessionID: suppliedSessionID)
 
-        let firstUpdateChangedState = paneAtom.setTerminalZmxSessionId(pane.id, sessionId: sessionId)
-        let secondUpdateChangedState = paneAtom.setTerminalZmxSessionId(pane.id, sessionId: sessionId)
-
-        #expect(firstUpdateChangedState)
-        #expect(!secondUpdateChangedState)
         guard case .terminal(let terminalState) = graphAtom.paneState(pane.id)?.content else {
             Issue.record("Expected pane content to remain terminal")
             return
         }
-        #expect(terminalState.zmxSessionId == sessionId)
+        #expect(terminalState.zmxSessionID == suppliedSessionID)
     }
 
     @Test("Drawer cursor owns expansion and derived panes reflect it atomically")
@@ -104,8 +112,8 @@ struct WorkspacePaneBoundaryTests {
         let drawerCursorAtom = WorkspaceDrawerCursorAtom()
         let paneAtom = WorkspacePaneAtom(graphAtom: graphAtom, drawerCursorAtom: drawerCursorAtom)
         let derived = WorkspacePaneDerived(graphAtom: graphAtom, drawerCursorAtom: drawerCursorAtom)
-        let firstPane = paneAtom.createPane()
-        let secondPane = paneAtom.createPane()
+        let firstPane = paneAtom.createPane(zmxSessionID: .generateUUIDv7())
+        let secondPane = paneAtom.createPane(zmxSessionID: .generateUUIDv7())
         let firstDrawerId = try #require(graphAtom.paneState(firstPane.id)?.drawer?.drawerId)
         let secondDrawerId = try #require(graphAtom.paneState(secondPane.id)?.drawer?.drawerId)
 
@@ -133,12 +141,11 @@ struct WorkspacePaneBoundaryTests {
             isMainWorktree: false
         )
         let topologyAtom = RepositoryTopologyAtom()
-        topologyAtom.hydrate(
-            runtimeRepos: [
+        try replaceTopology(
+            topologyAtom,
+            repositories: [
                 Repo(id: repo.id, name: repo.name, repoPath: repo.repoPath, worktrees: [worktree])
-            ],
-            watchedPaths: [],
-            unavailableRepoIds: []
+            ]
         )
         let cacheAtom = RepoEnrichmentCacheAtom()
         cacheAtom.setRepoEnrichment(
@@ -165,6 +172,7 @@ struct WorkspacePaneBoundaryTests {
         )
         let pane = paneAtom.createPane(
             launchDirectory: worktreePath,
+            zmxSessionID: .generateUUIDv7(),
             facets: PaneContextFacets(
                 repoId: repoId,
                 repoName: "stale repo",
@@ -202,12 +210,11 @@ struct WorkspacePaneBoundaryTests {
             isMainWorktree: false
         )
         let topologyAtom = RepositoryTopologyAtom()
-        topologyAtom.hydrate(
-            runtimeRepos: [
+        try replaceTopology(
+            topologyAtom,
+            repositories: [
                 Repo(id: repoId, name: "agent-studio", repoPath: repoPath, worktrees: [worktree])
-            ],
-            watchedPaths: [],
-            unavailableRepoIds: []
+            ]
         )
         let graphAtom = WorkspacePaneGraphAtom()
         let drawerCursorAtom = WorkspaceDrawerCursorAtom()
@@ -219,6 +226,7 @@ struct WorkspacePaneBoundaryTests {
         )
         let pane = paneAtom.createPane(
             launchDirectory: worktreePath,
+            zmxSessionID: .generateUUIDv7(),
             facets: PaneContextFacets(cwd: worktreePath.appending(path: "Sources"))
         )
 
@@ -230,14 +238,15 @@ struct WorkspacePaneBoundaryTests {
     }
 
     @Test("Pane count uses durable graph worktree membership without topology derivation")
-    func paneCountUsesDurableGraphWorktreeMembershipWithoutTopologyDerivation() {
+    func paneCountUsesDurableGraphWorktreeMembershipWithoutTopologyDerivation() throws {
         let repoId = UUID()
         let worktreeId = UUID()
         let repoPath = URL(filePath: "/tmp/project-dev/agent-studio")
         let worktreePath = repoPath.appending(path: "performance")
         let topologyAtom = RepositoryTopologyAtom()
-        topologyAtom.hydrate(
-            runtimeRepos: [
+        try replaceTopology(
+            topologyAtom,
+            repositories: [
                 Repo(
                     id: repoId,
                     name: "agent-studio",
@@ -252,9 +261,7 @@ struct WorkspacePaneBoundaryTests {
                         )
                     ]
                 )
-            ],
-            watchedPaths: [],
-            unavailableRepoIds: []
+            ]
         )
         let paneAtom = WorkspacePaneAtom(
             graphAtom: WorkspacePaneGraphAtom(),
@@ -262,9 +269,42 @@ struct WorkspacePaneBoundaryTests {
         )
         _ = paneAtom.createPane(
             launchDirectory: worktreePath,
+            zmxSessionID: .generateUUIDv7(),
             facets: PaneContextFacets(cwd: worktreePath.appending(path: "Sources"))
         )
 
         #expect(paneAtom.paneCount(for: worktreeId) == 0)
     }
+
+    private func replaceTopology(
+        _ atom: RepositoryTopologyAtom,
+        repositories: [Repo]
+    ) throws {
+        guard
+            case .prepared(let replacement) = RepositoryTopologyReplacement.prepare(
+                repositories: repositories,
+                watchedPaths: [],
+                unavailableRepositoryIDs: []
+            )
+        else {
+            throw WorkspacePaneBoundaryTestError.topologyReplacementRejected
+        }
+        atom.replaceTopology(replacement)
+    }
+
+    private func requirePaneGraphReplacement(
+        _ paneStates: [UUID: PaneGraphState]
+    ) throws -> WorkspacePaneGraphReplacement {
+        switch WorkspacePaneGraphReplacement.prepare(paneStates) {
+        case .success(let replacement):
+            return replacement
+        case .failure:
+            throw WorkspacePaneBoundaryTestError.paneGraphReplacementRejected
+        }
+    }
+}
+
+private enum WorkspacePaneBoundaryTestError: Error {
+    case paneGraphReplacementRejected
+    case topologyReplacementRejected
 }

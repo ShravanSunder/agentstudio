@@ -32,9 +32,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     private func makeHarness() -> Harness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-luna295-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
-        store.restore()
+        let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let windowLifecycleStore = WindowLifecycleAtom()
@@ -49,8 +47,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
-            sessionConfiguration: fixtureSessionConfiguration,
-            liveSessionIdsProvider: { _ in [] }
+            sessionConfiguration: fixtureSessionConfiguration
         )
         return Harness(
             store: store,
@@ -64,6 +61,65 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
+
+    @Test
+    func preparedTerminalMount_rejectsMissingTrustedFrameBeforeSurfaceCreation() throws {
+        // Arrange
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let admission = try makePreparedTerminalAdmission(
+            pane: makeAcceptedPreparedTerminalPane(launchDirectory: harness.tempDir)
+        )
+
+        // Act
+        let result = harness.coordinator.mountPreparedTerminalContent(
+            admission: admission,
+            initialFrame: nil
+        )
+
+        // Assert
+        #expect(
+            result
+                == .failed(
+                    failure: .surfaceCreationFailed(code: "trusted_initial_frame_unavailable"),
+                    retry: .doNotRetry
+                )
+        )
+        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+    }
+
+    @Test
+    func preparedTerminalMount_usesAcceptedPaneAndFrozenFrameWithoutTopologyLookup() throws {
+        // Arrange
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = makeAcceptedPreparedTerminalPane(launchDirectory: harness.tempDir)
+        let admission = try makePreparedTerminalAdmission(pane: pane)
+        let frozenFrame = NSRect(x: 12, y: 18, width: 880, height: 540)
+
+        // Act
+        let result = harness.coordinator.mountPreparedTerminalContent(
+            admission: admission,
+            initialFrame: frozenFrame
+        )
+
+        // Assert
+        #expect(
+            result
+                == .failed(
+                    failure: .surfaceCreationFailed(code: "prepared_mount_failed"),
+                    retry: .retry
+                )
+        )
+        #expect(harness.surfaceManager.createdPaneIds == [pane.id])
+        #expect(harness.surfaceManager.createdConfigsByPaneId[pane.id]?.initialFrame == frozenFrame)
+        let expectedSessionID = try #require(pane.terminalState?.zmxSessionID)
+        #expect(
+            harness.surfaceManager.createdConfigsByPaneId[pane.id]?
+                .startupStrategy.startupCommandForSurface?
+                .contains(expectedSessionID.rawValue) == true
+        )
+    }
 
     @Test
     func newZmxPane_uses_directSurfaceCommand_notDeferredShell() throws {
@@ -87,7 +143,14 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         )
 
         let config = try #require(harness.surfaceManager.lastConfig)
+        let generatedSessionID = try #require(pane.terminalState?.zmxSessionID)
+        let generatedUUID = try #require(UUID(uuidString: generatedSessionID.rawValue))
         #expect(config.startupStrategy.startupCommandForSurface?.contains(" attach ") == true)
+        #expect(
+            config.startupStrategy.startupCommandForSurface?
+                .contains(ZmxBackend.shellEscape(generatedSessionID.rawValue)) == true
+        )
+        #expect(UUIDv7.isV7(generatedUUID))
         #expect(config.environmentVariables["ZMX_DIR"] == fixtureSessionConfiguration.zmxDir)
         #expect(config.environmentVariables["ZMX_SESSION"]?.isEmpty == true)
         #expect(config.environmentVariables["ZMX_SESSION_PREFIX"]?.isEmpty == true)
@@ -137,7 +200,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func restoreAllViews_skips_hiddenZmxWithoutLiveSession_underDefaultPolicy() async throws {
+    func preparedContentOwner_restoresHiddenZmxWithoutConsultingDaemonInventory() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -160,26 +223,22 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         harness.store.appendTab(hiddenTab)
         harness.store.setActiveTab(visibleTab.id)
 
-        let customConfig = SessionConfiguration(
-            isEnabled: true,
-            zmxPath: "/tmp/fake-zmx",
-            zmxDir: "/tmp/fake-zmx-dir",
-            healthCheckInterval: 30,
-            maxCheckpointAge: 60
-        )
-        harness.coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
-            sessionConfiguration: customConfig,
-            liveSessionIdsProvider: { _ in [] }
+        try await mountPreparedTerminalCohort(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            entries: [
+                (visiblePane, .activeVisible, .tab(tabID: visibleTab.id)),
+                (hiddenPane, .hidden, .tab(tabID: hiddenTab.id)),
+            ],
+            trustedBounds: trustedBounds
         )
 
-        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
-        await harness.coordinator.restoreAllViews(in: trustedBounds)
-
-        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id])
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == visiblePane.id }.count == 2)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenPane.id }.count == 2)
     }
 
     @Test
-    func restoreAllViews_restores_hiddenZmxWithLiveSession_afterVisiblePane() async throws {
+    func preparedContentOwner_attemptsVisibleAndHiddenZmxAttachDuringInitialRestore() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -202,83 +261,27 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         harness.store.appendTab(hiddenTab)
         harness.store.setActiveTab(visibleTab.id)
 
-        let liveSessionId = ZmxBackend.sessionId(
-            repoStableKey: repo.stableKey,
-            worktreeStableKey: worktree.stableKey,
-            paneId: hiddenPane.id
+        try await mountPreparedTerminalCohort(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            entries: [
+                (visiblePane, .activeVisible, .tab(tabID: visibleTab.id)),
+                (hiddenPane, .hidden, .tab(tabID: hiddenTab.id)),
+            ],
+            trustedBounds: trustedBounds
         )
-        let customConfig = SessionConfiguration(
-            isEnabled: true,
-            zmxPath: "/tmp/fake-zmx",
-            zmxDir: "/tmp/fake-zmx-dir",
-            healthCheckInterval: 30,
-            maxCheckpointAge: 60
-        )
-        harness.coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
-            sessionConfiguration: customConfig,
-            liveSessionIdsProvider: { _ in [liveSessionId] }
-        )
-
-        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
-        await harness.coordinator.restoreAllViews(in: trustedBounds)
-
-        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenPane.id])
-    }
-
-    @Test
-    func activePartialRestoreThenFullRestore_attemptsZmxAttachDuringInitialRestore() async throws {
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-
-        let repo = harness.store.addRepo(at: harness.tempDir)
-        let worktree = try #require(repo.worktrees.first)
-        let visiblePane = harness.store.createPane(
-            launchDirectory: worktree.path,
-            provider: .zmx,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-        )
-        let hiddenPane = harness.store.createPane(
-            launchDirectory: worktree.path,
-            provider: .zmx,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-        )
-
-        let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
-        let hiddenTab = Tab(paneId: hiddenPane.id, name: "Hidden")
-        harness.store.appendTab(visibleTab)
-        harness.store.appendTab(hiddenTab)
-        harness.store.setActiveTab(visibleTab.id)
-
-        let liveSessionId = ZmxBackend.sessionId(
-            repoStableKey: repo.stableKey,
-            worktreeStableKey: worktree.stableKey,
-            paneId: hiddenPane.id
-        )
-        harness.coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
-            sessionConfiguration: fixtureSessionConfiguration,
-            liveSessionIdsProvider: { _ in [liveSessionId] }
-        )
-        harness.viewRegistry.beginInitialRestore()
-        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
-        harness.windowLifecycleStore.recordLaunchLayoutSettled()
-
-        harness.coordinator.restoreViewsForActiveTabIfNeeded()
 
         let visiblePlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: visiblePane.id))
-        #expect(visiblePlaceholder.mode == .failedToStart)
-        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id])
-        #expect(harness.viewRegistry.isInitialRestorePending == true)
-
-        await harness.coordinator.restoreAllViews(in: trustedBounds)
-
         let hiddenPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenPane.id))
+        #expect(visiblePlaceholder.mode == .failedToStart)
         #expect(hiddenPlaceholder.mode == .failedToStart)
-        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenPane.id])
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == visiblePane.id }.count == 2)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenPane.id }.count == 2)
         #expect(harness.viewRegistry.isInitialRestorePending == false)
     }
 
     @Test
-    func selectTab_createsPreviouslySkippedHiddenPane_onFirstReveal() async throws {
+    func selectTabReusesHiddenPaneRestoredDuringStartup() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -301,28 +304,24 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         harness.store.appendTab(hiddenTab)
         harness.store.setActiveTab(visibleTab.id)
 
-        let customConfig = SessionConfiguration(
-            isEnabled: true,
-            zmxPath: "/tmp/fake-zmx",
-            zmxDir: "/tmp/fake-zmx-dir",
-            healthCheckInterval: 30,
-            maxCheckpointAge: 60
+        try await mountPreparedTerminalCohort(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            entries: [
+                (visiblePane, .activeVisible, .tab(tabID: visibleTab.id)),
+                (hiddenPane, .hidden, .tab(tabID: hiddenTab.id)),
+            ],
+            trustedBounds: trustedBounds
         )
-        harness.coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
-            sessionConfiguration: customConfig,
-            liveSessionIdsProvider: { _ in [] }
-        )
-        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
-        await harness.coordinator.restoreAllViews(in: trustedBounds)
-        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id])
+        let creationAttemptsBeforeSelection = harness.surfaceManager.createdPaneIds
 
         harness.coordinator.execute(.selectTab(tabId: hiddenTab.id))
 
-        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenPane.id])
+        #expect(harness.surfaceManager.createdPaneIds == creationAttemptsBeforeSelection)
     }
 
     @Test
-    func restoreAllViews_restores_hiddenDrawerZmxWithLiveSession_underNonZmxParent() async throws {
+    func preparedContentOwner_restoresHiddenDrawerZmxUnderNonZmxParent() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -346,32 +345,35 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
         harness.store.setActiveTab(visibleTab.id)
 
-        let liveSessionId = ZmxBackend.drawerSessionId(
-            parentPaneId: hiddenParentPane.id,
-            drawerPaneId: hiddenDrawerPane.id
-        )
-        let customConfig = SessionConfiguration(
-            isEnabled: true,
-            zmxPath: "/tmp/fake-zmx",
-            zmxDir: "/tmp/fake-zmx-dir",
-            healthCheckInterval: 30,
-            maxCheckpointAge: 60
-        )
-        harness.coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
-            sessionConfiguration: customConfig,
-            liveSessionIdsProvider: { _ in [liveSessionId] }
+        let acceptedHiddenParent = try #require(harness.store.pane(hiddenParentPane.id))
+        let hiddenDrawer = try #require(harness.store.pane(hiddenDrawerPane.id))
+        let hiddenDrawerID = try #require(acceptedHiddenParent.drawer?.drawerId)
+        try await mountPreparedTerminalCohort(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            entries: [
+                (visiblePane, .activeVisible, .tab(tabID: visibleTab.id)),
+                (acceptedHiddenParent, .hidden, .tab(tabID: hiddenTab.id)),
+                (
+                    hiddenDrawer,
+                    .hidden,
+                    .drawer(
+                        tabID: hiddenTab.id,
+                        parentPaneID: PaneId(existingUUID: hiddenParentPane.id),
+                        drawerID: hiddenDrawerID
+                    )
+                ),
+            ],
+            trustedBounds: trustedBounds
         )
 
-        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
-        await harness.coordinator.restoreAllViews(in: trustedBounds)
-
-        #expect(
-            harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenParentPane.id, hiddenDrawerPane.id]
-        )
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == visiblePane.id }.count == 2)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenParentPane.id }.count == 2)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenDrawerPane.id }.count == 2)
     }
 
     @Test
-    func restoreAllViews_restores_hiddenDrawerZmxWithLiveSession_evenWhenHiddenParentZmxIsSkipped() async throws {
+    func preparedContentOwner_restoresHiddenDrawerAndHiddenZmxParent() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -395,30 +397,35 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
         harness.store.setActiveTab(visibleTab.id)
 
-        let liveSessionId = ZmxBackend.drawerSessionId(
-            parentPaneId: hiddenParentPane.id,
-            drawerPaneId: hiddenDrawerPane.id
-        )
-        let customConfig = SessionConfiguration(
-            isEnabled: true,
-            zmxPath: "/tmp/fake-zmx",
-            zmxDir: "/tmp/fake-zmx-dir",
-            healthCheckInterval: 30,
-            maxCheckpointAge: 60
-        )
-        harness.coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
-            sessionConfiguration: customConfig,
-            liveSessionIdsProvider: { _ in [liveSessionId] }
+        let acceptedHiddenParent = try #require(harness.store.pane(hiddenParentPane.id))
+        let hiddenDrawer = try #require(harness.store.pane(hiddenDrawerPane.id))
+        let hiddenDrawerID = try #require(acceptedHiddenParent.drawer?.drawerId)
+        try await mountPreparedTerminalCohort(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            entries: [
+                (visiblePane, .activeVisible, .tab(tabID: visibleTab.id)),
+                (acceptedHiddenParent, .hidden, .tab(tabID: hiddenTab.id)),
+                (
+                    hiddenDrawer,
+                    .hidden,
+                    .drawer(
+                        tabID: hiddenTab.id,
+                        parentPaneID: PaneId(existingUUID: hiddenParentPane.id),
+                        drawerID: hiddenDrawerID
+                    )
+                ),
+            ],
+            trustedBounds: trustedBounds
         )
 
-        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
-        await harness.coordinator.restoreAllViews(in: trustedBounds)
-
-        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenDrawerPane.id])
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == visiblePane.id }.count == 2)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenParentPane.id }.count == 2)
+        #expect(harness.surfaceManager.createdPaneIds.filter { $0 == hiddenDrawerPane.id }.count == 2)
     }
 
     @Test
-    func restoreAllViews_passesResolvedInitialFrame_toVisiblePane() async throws {
+    func preparedContentOwner_passesResolvedInitialFrame_toVisiblePane() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -436,8 +443,11 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
 
         let containerWidth: CGFloat = 1000
         let containerHeight: CGFloat = 600
-        await harness.coordinator.restoreAllViews(
-            in: CGRect(x: 0, y: 0, width: containerWidth, height: containerHeight)
+        try await mountPreparedTerminalCohort(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            entries: [(pane, .activeVisible, .tab(tabID: tab.id))],
+            trustedBounds: CGRect(x: 0, y: 0, width: containerWidth, height: containerHeight)
         )
 
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
@@ -448,7 +458,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func restoreAllViews_passesResolvedInitialFrame_toExpandedDrawerPane() async throws {
+    func preparedContentOwner_passesResolvedInitialFrame_toExpandedDrawerPane() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -465,8 +475,25 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         harness.store.setActiveTab(tab.id)
         let drawerPane = try #require(harness.store.addDrawerPane(to: pane.id))
 
-        await harness.coordinator.restoreAllViews(
-            in: CGRect(x: 0, y: 0, width: 1000, height: 600)
+        let acceptedParentPane = try #require(harness.store.pane(pane.id))
+        let acceptedDrawerPane = try #require(harness.store.pane(drawerPane.id))
+        let drawerID = try #require(acceptedParentPane.drawer?.drawerId)
+        try await mountPreparedTerminalCohort(
+            coordinator: harness.coordinator,
+            viewRegistry: harness.viewRegistry,
+            entries: [
+                (acceptedParentPane, .activeVisible, .tab(tabID: tab.id)),
+                (
+                    acceptedDrawerPane,
+                    .activeVisible,
+                    .drawer(
+                        tabID: tab.id,
+                        parentPaneID: PaneId(existingUUID: pane.id),
+                        drawerID: drawerID
+                    )
+                ),
+            ],
+            trustedBounds: CGRect(x: 0, y: 0, width: 1000, height: 600)
         )
 
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[drawerPane.id])
@@ -651,7 +678,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func restoreAllViews_retriesFloatingTerminalPreparingPlaceholderWhenBoundsExist() async throws {
+    func targetedRepair_retriesFloatingTerminalPreparingPlaceholderWhenBoundsExist() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -663,7 +690,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         #expect(preparingPlaceholder.mode == .preparing)
 
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
-        await harness.coordinator.restoreAllViews(in: trustedBounds)
+        harness.coordinator.restoreViewsForActiveTabIfNeeded()
 
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
         let failedPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
@@ -741,6 +768,112 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         #expect(harness.surfaceManager.lastConfig == nil)
         #expect(harness.surfaceManager.createdPaneIds.isEmpty)
     }
+}
+
+@MainActor
+private func mountPreparedTerminalCohort(
+    coordinator: WorkspaceSurfaceCoordinator,
+    viewRegistry: ViewRegistry,
+    entries: [(Pane, TerminalActivationVisibilityPriority, TerminalHostPlacementIdentity)],
+    trustedBounds: CGRect
+) async throws {
+    let generation = try preparedTerminalCohortGeneration()
+    let descriptors = try entries.map { pane, priority, placement in
+        try preparedTerminalCohortDescriptor(
+            pane: pane,
+            visibilityPriority: priority,
+            hostPlacement: placement
+        )
+    }
+    let resolvedFramesByTabID = coordinator.resolveInitialFramesByTabId(in: trustedBounds)
+    let initialFramesByPaneID = nonEmptyInitialFramesByPaneID(resolvedFramesByTabID)
+    let cohort = WorkspacePreparedContentMountCohort(
+        generation: generation,
+        terminalActivationInput: TerminalActivationInput(entries: descriptors),
+        nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+    )
+    viewRegistry.beginInitialRestore()
+    let owner = WorkspacePreparedContentMountCoordinator(
+        cohort: cohort,
+        viewRegistry: viewRegistry,
+        terminalAdmissionPort: PreparedTerminalMountAdmissionPort(
+            generation: generation,
+            initialFramesByPaneID: initialFramesByPaneID,
+            viewRegistry: viewRegistry,
+            mountHandler: coordinator
+        ),
+        nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
+            generation: generation,
+            coordinator: coordinator
+        )
+    )
+    _ = await owner.mount()
+}
+
+private func nonEmptyInitialFramesByPaneID(
+    _ framesByTabID: [UUID: [UUID: CGRect]]
+) -> [PaneId: NSRect] {
+    var framesByPaneID: [PaneId: NSRect] = [:]
+    for tabFrames in framesByTabID.values {
+        for (paneID, frame) in tabFrames where !frame.isEmpty {
+            framesByPaneID[PaneId(existingUUID: paneID)] = frame
+        }
+    }
+    return framesByPaneID
+}
+
+@MainActor
+private func preparedTerminalCohortGeneration() throws -> WorkspaceContentMountGeneration {
+    WorkspaceContentMountGeneration()
+}
+
+private func preparedTerminalCohortDescriptor(
+    pane: Pane,
+    visibilityPriority: TerminalActivationVisibilityPriority,
+    hostPlacement: TerminalHostPlacementIdentity
+) throws -> TerminalActivationDescriptor {
+    guard case .terminal = pane.content else {
+        preconditionFailure("prepared terminal cohort requires terminal content")
+    }
+    return TerminalActivationDescriptor(
+        pane: pane,
+        visibilityPriority: visibilityPriority,
+        hostPlacement: hostPlacement
+    )
+}
+
+private func makeAcceptedPreparedTerminalPane(launchDirectory: URL) -> Pane {
+    Pane(
+        id: UUIDv7.generate(),
+        content: .terminal(
+            TerminalState(
+                provider: .zmx,
+                lifetime: .persistent,
+                zmxSessionID: .generateUUIDv7()
+            )
+        ),
+        metadata: PaneMetadata(
+            launchDirectory: launchDirectory,
+            title: "Accepted Prepared Terminal"
+        )
+    )
+}
+
+@MainActor
+private func makePreparedTerminalAdmission(pane: Pane) throws -> TerminalActivationAdmission {
+    let generation = WorkspaceContentMountGeneration()
+    guard case .terminal = pane.content else {
+        preconditionFailure("prepared terminal admission requires terminal content")
+    }
+    return TerminalActivationAdmission(
+        generation: generation,
+        descriptor: TerminalActivationDescriptor(
+            pane: pane,
+            visibilityPriority: .activeVisible,
+            hostPlacement: .tab(tabID: UUIDv7.generate())
+        ),
+        attempt: 1
+    )
 }
 
 @MainActor

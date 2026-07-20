@@ -134,75 +134,95 @@ final class SessionConfigurationTests {
         #expect(config.healthCheckInterval == 30.0)
     }
 
-    @Test
-
-    func test_sessionRestoreDetect_usesExistingSessionsOnlyHiddenRestorePolicy() {
-        let config = SessionConfiguration.detect(environment: [:])
-
-        #expect(config.shouldRestoreHiddenPane(hasExistingSession: true))
-        #expect(!config.shouldRestoreHiddenPane(hasExistingSession: false))
-    }
-
     // MARK: - zmxDir
 
     @Test
 
-    func test_zmxPath_usesEnvironmentOverride() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-session-config-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+    func test_zmxPath_usesEnvironmentOverride() async {
+        // Arrange
+        let operationalExecutablePath = "/usr/bin/true"
 
-        let zmxURL = tempDir.appending(path: "zmx")
-        try "#!/bin/sh\nexit 0\n".write(to: zmxURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: zmxURL.path)
+        // Act
+        // Detached by design: the test must exercise the off-main executable probe.
+        // swiftlint:disable:next no_task_detached
+        let config = await Task.detached {
+            SessionConfiguration.detect(environment: [
+                SessionConfiguration.zmxPathEnvironmentKey: operationalExecutablePath,
+                AppDataPaths.traceProofTokenEnvironmentKey: "test-proof-token",
+            ])
+        }.value
 
+        // Assert
+        #expect(config.zmxPath == operationalExecutablePath)
+    }
+
+    @Test
+    func test_zmxPath_ignoresAuthorizedNonOperationalOverride() async {
+        // Arrange
+        let nonOperationalExecutablePath = "/usr/bin/false"
+
+        // Act
+        // Detached by design: the test must exercise the off-main executable probe.
+        // swiftlint:disable:next no_task_detached
+        let config = await Task.detached {
+            SessionConfiguration.detect(environment: [
+                SessionConfiguration.zmxPathEnvironmentKey: nonOperationalExecutablePath,
+                AppDataPaths.traceProofTokenEnvironmentKey: "test-proof-token",
+            ])
+        }.value
+
+        // Assert
+        #expect(config.zmxPath != nonOperationalExecutablePath)
+    }
+
+    @Test
+    func test_zmxPath_ignoresAuthorizedNonExecutableOverride() throws {
+        // Arrange
+        let nonExecutableURL = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-session-config-non-executable-\(UUID().uuidString)")
+        try Data().write(to: nonExecutableURL)
+        defer { try? FileManager.default.removeItem(at: nonExecutableURL) }
+
+        // Act
         let config = SessionConfiguration.detect(environment: [
-            SessionConfiguration.zmxPathEnvironmentKey: zmxURL.path,
+            SessionConfiguration.zmxPathEnvironmentKey: nonExecutableURL.path,
             AppDataPaths.traceProofTokenEnvironmentKey: "test-proof-token",
         ])
 
-        #expect(config.zmxPath == zmxURL.path)
+        // Assert
+        #expect(config.zmxPath != nonExecutableURL.path)
     }
 
     @Test
-    func test_zmxPath_ignoresEnvironmentOverrideWithoutDebugProofToken() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-session-config-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+    func test_zmxPath_ignoresEnvironmentOverrideWithoutDebugProofToken() {
+        // Arrange
+        let operationalExecutablePath = "/usr/bin/true"
 
-        let zmxURL = tempDir.appending(path: "zmx")
-        try "#!/bin/sh\nexit 0\n".write(to: zmxURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: zmxURL.path)
-
+        // Act
         let config = SessionConfiguration.detect(environment: [
-            SessionConfiguration.zmxPathEnvironmentKey: zmxURL.path
+            SessionConfiguration.zmxPathEnvironmentKey: operationalExecutablePath
         ])
 
-        #expect(config.zmxPath != zmxURL.path)
+        // Assert
+        #expect(config.zmxPath != operationalExecutablePath)
     }
 
     @Test
-    func test_zmxPath_ignoresEnvironmentOverrideForReleaseBuilds() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-session-config-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+    func test_zmxPath_ignoresEnvironmentOverrideForReleaseBuilds() {
+        // Arrange
+        let operationalExecutablePath = "/usr/bin/true"
 
-        let zmxURL = tempDir.appending(path: "zmx")
-        try "#!/bin/sh\nexit 0\n".write(to: zmxURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: zmxURL.path)
-
+        // Act
         let config = SessionConfiguration.detect(
             environment: [
-                SessionConfiguration.zmxPathEnvironmentKey: zmxURL.path,
+                SessionConfiguration.zmxPathEnvironmentKey: operationalExecutablePath,
                 AppDataPaths.traceProofTokenEnvironmentKey: "test-proof-token",
             ],
             isDebugBuild: false
         )
 
-        #expect(config.zmxPath != zmxURL.path)
+        // Assert
+        #expect(config.zmxPath != operationalExecutablePath)
     }
 
     @Test

@@ -135,18 +135,14 @@ private func withMainWindowControllerHarness<T>(
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "main-window-controller-tests-\(UUID().uuidString)")
     let persistor = WorkspacePersistor(workspacesDir: tempDir)
-    let atoms = AtomRegistry()
+    let atoms = makeInstalledTestAtomRegistry()
     let store = WorkspaceStore(
         identityAtom: atoms.workspaceIdentity,
         windowMemoryAtom: atoms.workspaceWindowMemory,
         repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
         paneAtom: atoms.workspacePane,
         tabLayoutAtom: atoms.workspaceTabLayout,
-        mutationCoordinator: atoms.workspaceMutationCoordinator,
-        persistor: persistor
-    )
-    store.restore()
-
+        mutationCoordinator: atoms.workspaceMutationCoordinator)
     let viewRegistry = ViewRegistry()
     let runtime = SessionRuntime(atom: atoms.sessionRuntime, store: store)
     let coordinator = WorkspaceSurfaceCoordinator(

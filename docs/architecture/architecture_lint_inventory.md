@@ -34,6 +34,22 @@ SwiftLint through `mise run lint` and CI.
 | Production async delays avoid generic clock sleep overloads. | `agentstudio_no_generic_clock_sleep` | error | `docs/superpowers/specs/2026-06-18-agentstudio-swiftsyntax-async-sleep-rule-spec.md` |
 | Tests avoid direct wall-clock `Task.sleep(...)` calls and wait for events, state, or injected fake clocks. | `agentstudio_no_task_sleep_in_tests` | error | `AGENTS.md#no-wall-clock-tests` |
 | Dense action controls use typed tooltip sources instead of raw `.help("...")`, AppKit `toolTip = "..."`, or custom hover strings. Shared components consume resolved render values only. | `agentstudio_toolbar_tooltip_source` | error | `docs/superpowers/specs/2026-06-19-typed-tooltip-source-contract.md` |
+| Production EventBus subscriptions and wait helpers name an explicit semantic subscriber policy; wrappers cannot hide a default or zero-argument policy. | `agentstudio_eventbus_subscriber_policy_required` | error | `docs/specs/2026-07-02-eventbus-subscriber-policy.md` |
+| Terminal-local `GhosttyActionDisposition` branches contract locally and cannot reach the shared exact semantic publication edge. | `agentstudio_terminal_local_disposition_publication` | error | [Pane Runtime Contract 7](pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction) |
+
+The Terminal publication guard is deliberately lexical. In AgentStudio's
+Terminal source, it recognizes switches whose subject is
+`GhosttyActionDisposition.classify(...)`; the exact classifier call must be the
+direct switch subject rather than a stored result. Each `.latestPresentation`,
+`.latestSemanticMetadata`, `.activityEvidence`, `.exactLocalLifecycle`, and
+`.diagnostic` branch must end in a top-level `return` and must not directly call
+`routeActionToTerminalRuntimeOnMainActor`. This blocks direct local-branch
+publication, stored-classifier bypass, and post-switch fallthrough to the shared
+semantic edge while leaving `.exactFactOrControl` eligible for that ordered
+route. The rule does not perform general type resolution or control-flow
+analysis. It does not enforce Inbox classification; `InboxNotificationRouter`
+independently uses exhaustive top-level and nested owned-event switches with
+typed ignore reasons.
 
 ## Former Shell And Custom SwiftLint Coverage
 
@@ -56,6 +72,8 @@ SwiftLint through `mise run lint` and CI.
 | Fail direct atom access from IPC services and adapters. | Blocking | `agentstudio_ipc_no_direct_atom_access` |
 | Fail production `Task.sleep(for:)` and generic `.sleep(for:)` outside the approved delay seam. | Blocking | `agentstudio_no_generic_clock_sleep` |
 | Fail direct `Task.sleep(...)` calls in test files. | Blocking | `agentstudio_no_task_sleep_in_tests` |
+| Fail production EventBus subscriptions or wait helpers that omit semantic subscriber policy, use raw buffering policy, or hide a default policy in a wrapper. | Blocking | `agentstudio_eventbus_subscriber_policy_required` |
+| Fail Terminal-local Ghostty disposition branches that directly publish or can fall through to the shared exact semantic publication edge. | Blocking | `agentstudio_terminal_local_disposition_publication` |
 | Print repo-cache dictionary read inventory. | Reclassified to review-only | The old script's report-only inventory is replaced by this document plus blocking rules for the hot-path violation class. Broad inventory reports were noisy and not a required CI gate. |
 
 ## Test And Fixture Proof

@@ -139,6 +139,231 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func processMallocRecordProjectsPairedMemoryGauges() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 457,
+            severityText: .info,
+            body: "performance.process.malloc_zone",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.process.malloc.blocks_in_use": .int(7),
+                "agentstudio.performance.process.malloc.size_in_use_bytes": .int(11),
+                "agentstudio.performance.process.malloc.maximum_size_in_use_bytes": .int(13),
+                "agentstudio.performance.process.malloc.size_allocated_bytes": .int(17),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.eventName == "performance.process.malloc_zone")
+        #expect(
+            metricEvent.samples.map(\.label) == [
+                "agentstudio_performance_process_malloc_blocks_in_use",
+                "agentstudio_performance_process_malloc_maximum_size_in_use_bytes",
+                "agentstudio_performance_process_malloc_size_allocated_bytes",
+                "agentstudio_performance_process_malloc_size_in_use_bytes",
+            ])
+        #expect(
+            metricEvent.measurements.allSatisfy { measurement in
+                if case .gauge = measurement { return true }
+                return false
+            })
+    }
+
+    @Test
+    func runtimePressureAggregateDeltasAreCountersWhileRetainedValuesStayGauges() throws {
+        let factory = RecordingMetricsFactory()
+        let metrics = AgentStudioOTLPPerformanceMetrics(factory: factory)
+        let dimensions = [
+            ("drain_class", "immediate"),
+            ("event", "performance.terminal.accumulator_drain"),
+        ]
+        let firstRecord = Self.projectedPerformanceRecord(
+            body: "performance.terminal.accumulator_drain",
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(3),
+                "agentstudio.performance.terminal.accumulator.drain.class": .string("immediate"),
+                "agentstudio.performance.terminal.accumulator.offered.count": .int(10),
+                "agentstudio.performance.terminal.accumulator.replaced.count": .int(8),
+                "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(4),
+                "agentstudio.performance.terminal.accumulator.retained_size_bytes": .int(256),
+            ]
+        )
+        let secondRecord = Self.projectedPerformanceRecord(
+            body: "performance.terminal.accumulator_drain",
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(1),
+                "agentstudio.performance.terminal.accumulator.drain.class": .string("immediate"),
+                "agentstudio.performance.terminal.accumulator.offered.count": .int(5),
+                "agentstudio.performance.terminal.accumulator.replaced.count": .int(3),
+                "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(2),
+                "agentstudio.performance.terminal.accumulator.retained_size_bytes": .int(128),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: firstRecord))
+        metrics.record(firstRecord)
+        metrics.record(secondRecord)
+
+        #expect(
+            metricEvent.dimensions.contains(
+                AgentStudioOTLPPerformanceMetricDimension(name: "drain_class", value: "immediate")
+            )
+        )
+        #expect(
+            metricEvent.measurements.contains { measurement in
+                if case .counter(let sample) = measurement {
+                    return sample.label == "agentstudio_performance_terminal_accumulator_offered_count"
+                }
+                return false
+            })
+        #expect(
+            metricEvent.measurements.contains { measurement in
+                if case .gauge(let sample) = measurement {
+                    return sample.label == "agentstudio_performance_terminal_accumulator_retained_entry_count"
+                }
+                return false
+            })
+        #expect(
+            factory.counter(
+                label: "agentstudio_performance_terminal_accumulator_offered_count",
+                dimensions: dimensions
+            )?.totalValue == 15)
+        #expect(
+            factory.counter(
+                label: "agentstudio_performance_terminal_accumulator_replaced_count",
+                dimensions: dimensions
+            )?.totalValue == 11)
+        #expect(
+            factory.recorder(
+                label: "agentstudio_performance_terminal_accumulator_retained_entry_count",
+                dimensions: dimensions
+            )?.values == [4, 2])
+        #expect(
+            factory.recorder(
+                label: "agentstudio_performance_terminal_accumulator_retained_size_bytes",
+                dimensions: dimensions
+            )?.values == [256, 128])
+        #expect(
+            factory.recorder(
+                label: AgentStudioOTLPPerformanceMetrics.elapsedMetricLabel,
+                dimensions: dimensions
+            )?.values == [3, 1])
+    }
+
+    @Test
+    func commonQuiescenceRecordsProjectExactAggregateGaugeSeries() throws {
+        let records = [
+            Self.projectedPerformanceRecord(
+                body: "performance.filesystem.logical_debt",
+                attributes: [
+                    "agentstudio.performance.filesystem.pending_worktree.count": .int(9),
+                    "agentstudio.performance.filesystem.drain_task.count": .int(8),
+                    "agentstudio.performance.filesystem.watched_folder.ready.count": .int(7),
+                    "agentstudio.performance.filesystem.watched_folder.active.count": .int(6),
+                    "agentstudio.performance.filesystem.watched_folder.dirty_follow_up.count": .int(2),
+                    "agentstudio.performance.filesystem.logical_debt.count": .int(1),
+                ]
+            ),
+            Self.projectedPerformanceRecord(
+                body: "performance.git.logical_debt",
+                attributes: [
+                    "agentstudio.performance.git.logical_pending.count": .int(4),
+                    "agentstudio.performance.git.retry_pending.count": .int(3),
+                    "agentstudio.performance.git.logical_running.count": .int(2),
+                    "agentstudio.performance.git.logical_debt.count": .int(1),
+                ]
+            ),
+            Self.projectedPerformanceRecord(
+                body: "performance.runtime_delivery.snapshot",
+                attributes: [
+                    "agentstudio.performance.runtime_delivery.runtime_channel_outbound_pending.count": .int(8),
+                    "agentstudio.performance.runtime_delivery.eventbus_active_delivery_debt.count": .int(7),
+                    "agentstudio.performance.runtime_delivery.total_pending.count": .int(6),
+                    "agentstudio.performance.runtime_delivery.runtime_channel_outbound_dropped.count": .int(5),
+                    "agentstudio.performance.runtime_delivery.runtime_channel_retired_undelivered.count": .int(4),
+                    "agentstudio.performance.runtime_delivery.eventbus_live_dropped.count": .int(3),
+                    "agentstudio.performance.runtime_delivery.eventbus_replay_dropped.count": .int(2),
+                    "agentstudio.performance.runtime_delivery.eventbus_retired_undelivered.count": .int(1),
+                    "agentstudio.performance.runtime_delivery.eventbus_active_subscriber.count": .int(4),
+                ]
+            ),
+        ]
+
+        let metricEvents = try records.map { record in
+            try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+        }
+
+        #expect(
+            metricEvents[0].samples.map(\.label) == [
+                "agentstudio_performance_filesystem_drain_task_count",
+                "agentstudio_performance_filesystem_logical_debt_count",
+                "agentstudio_performance_filesystem_pending_worktree_count",
+                "agentstudio_performance_filesystem_watched_folder_active_count",
+                "agentstudio_performance_filesystem_watched_folder_dirty_follow_up_count",
+                "agentstudio_performance_filesystem_watched_folder_ready_count",
+            ])
+        #expect(
+            metricEvents[1].samples.map(\.label) == [
+                "agentstudio_performance_git_logical_debt_count",
+                "agentstudio_performance_git_logical_pending_count",
+                "agentstudio_performance_git_logical_running_count",
+                "agentstudio_performance_git_retry_pending_count",
+            ])
+        #expect(
+            metricEvents[2].samples.map(\.label) == [
+                "agentstudio_performance_runtime_delivery_eventbus_active_delivery_debt_count",
+                "agentstudio_performance_runtime_delivery_eventbus_active_subscriber_count",
+                "agentstudio_performance_runtime_delivery_eventbus_live_dropped_count",
+                "agentstudio_performance_runtime_delivery_eventbus_replay_dropped_count",
+                "agentstudio_performance_runtime_delivery_eventbus_retired_undelivered_count",
+                "agentstudio_performance_runtime_delivery_runtime_channel_outbound_dropped_count",
+                "agentstudio_performance_runtime_delivery_runtime_channel_outbound_pending_count",
+                "agentstudio_performance_runtime_delivery_runtime_channel_retired_undelivered_count",
+                "agentstudio_performance_runtime_delivery_total_pending_count",
+            ])
+        #expect(
+            metricEvents.flatMap(\.measurements).allSatisfy { measurement in
+                if case .gauge = measurement { return true }
+                return false
+            })
+    }
+
+    @Test
+    func commonQuiescenceGaugeRecordsNonzeroThenZero() throws {
+        let factory = RecordingMetricsFactory()
+        let metrics = AgentStudioOTLPPerformanceMetrics(factory: factory)
+        let dimensions = [("event", "performance.runtime_delivery.snapshot")]
+
+        metrics.record(
+            Self.projectedPerformanceRecord(
+                body: "performance.runtime_delivery.snapshot",
+                attributes: [
+                    "agentstudio.performance.runtime_delivery.total_pending.count": .int(6)
+                ]
+            ))
+        metrics.record(
+            Self.projectedPerformanceRecord(
+                body: "performance.runtime_delivery.snapshot",
+                attributes: [
+                    "agentstudio.performance.runtime_delivery.total_pending.count": .int(0)
+                ]
+            ))
+
+        let gauge = try #require(
+            factory.recorder(
+                label: "agentstudio_performance_runtime_delivery_total_pending_count",
+                dimensions: dimensions
+            )
+        )
+        #expect(gauge.values == [6, 0])
+    }
+
+    @Test
     func bridgePerformanceRecordProjectsOnlySafeBridgeMetrics() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 124,
@@ -524,6 +749,24 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             ]
         )
     }
+
+    private static func projectedPerformanceRecord(
+        body: String,
+        attributes: [String: AgentStudioTraceValue]
+    ) -> AgentStudioOTLPProjectedLogRecord {
+        AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 458,
+            severityText: .info,
+            body: body,
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: attributes
+        )
+    }
+
 }
 
 private final class RecordingMetricsFactory: MetricsFactory, @unchecked Sendable {

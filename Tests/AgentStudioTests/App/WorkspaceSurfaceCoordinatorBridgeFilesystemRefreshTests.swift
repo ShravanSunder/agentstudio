@@ -16,8 +16,7 @@ extension WebKitSerializedTests {
         func coordinatorRoutesPaneFilesystemContextToMountedBridgeController() async throws {
             let tempDir = FileManager.default.temporaryDirectory
                 .appending(path: "agentstudio-bridge-filesystem-refresh-\(UUID().uuidString)")
-            let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-            store.restore()
+            let store = WorkspaceStore()
             let paneEventBus = makeTestPaneRuntimeEventBus()
             let viewRegistry = ViewRegistry()
             let coordinator = makeTestWorkspaceSurfaceCoordinator(
@@ -86,7 +85,7 @@ extension WebKitSerializedTests {
                     event: .paneFilesystemContext(
                         .cwdSubtreeChanged(
                             context: PaneFilesystemContext(
-                                paneId: PaneId(uuid: paneId),
+                                paneId: PaneId(existingUUID: paneId),
                                 repoId: headEndpoint.repoId,
                                 cwd: URL(fileURLWithPath: "/tmp/worktree"),
                                 worktreeId: headEndpoint.worktreeId
@@ -95,7 +94,7 @@ extension WebKitSerializedTests {
                             batchSeq: 10
                         )
                     ),
-                    paneId: PaneId(uuid: paneId)
+                    paneId: PaneId(existingUUID: paneId)
                 )
             )
 
