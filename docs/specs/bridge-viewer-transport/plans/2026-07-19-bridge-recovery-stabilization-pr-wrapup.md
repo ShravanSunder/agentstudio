@@ -337,7 +337,9 @@ Launch only the current worktree identity:
 
 ```text
 mise run observability:up
-AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1 mise run run-debug-observability -- --detach
+AGENTSTUDIO_TRACE_TAGS='app.startup,bridge.performance.*' \
+AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1 \
+mise run run-debug-observability -- --detach
 mise run verify-debug-observability
 ```
 
