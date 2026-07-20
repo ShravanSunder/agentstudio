@@ -17,9 +17,7 @@ func makeWorkspaceSurfaceCoordinatorViewFactoryHarness(
 ) -> WorkspaceSurfaceCoordinatorViewFactoryHarness {
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-coordinator-tests-\(UUID().uuidString)")
-    let persistor = WorkspacePersistor(workspacesDir: tempDir)
-    let store = WorkspaceStore(persistor: persistor)
-    store.restore()
+    let store = WorkspaceStore()
     let viewRegistry = ViewRegistry()
     let runtime = SessionRuntime(store: store)
     let coordinator = WorkspaceSurfaceCoordinator(

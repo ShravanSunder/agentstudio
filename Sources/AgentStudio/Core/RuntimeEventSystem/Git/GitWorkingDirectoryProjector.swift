@@ -1,10 +1,6 @@
 import Foundation
 import os
 
-extension GitProjectorPerformanceRecording {
-    var isEnabled: Bool { true }
-}
-
 /// Event-driven projector that derives local git state from filesystem facts.
 ///
 /// Input:
@@ -508,6 +504,7 @@ actor GitWorkingDirectoryProjector {
                 worktreeTasks.removeValue(forKey: worktreeId)
                 worktreeTaskGenerationByWorktreeId.removeValue(forKey: worktreeId)
                 admitPendingWorktrees()
+                recordLogicalDebtSnapshotIfChanged()
             }
         }
 

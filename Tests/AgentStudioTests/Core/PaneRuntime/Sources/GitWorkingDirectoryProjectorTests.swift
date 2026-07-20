@@ -7,6 +7,21 @@ import Testing
 
 @Suite("GitWorkingDirectoryProjector")
 struct GitWorkingDirectoryProjectorTests {
+    @Test("disabled performance recorder suppresses logical debt traces")
+    func disabledPerformanceRecorderSuppressesLogicalDebtTraces() async {
+        let recorder = GitProjectorTraceRecorderSpy(isEnabled: false)
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+            coalescingWindow: .zero,
+            performanceTraceRecorder: recorder
+        )
+
+        await actor.recordLogicalDebtSnapshotIfChanged()
+
+        #expect(recorder.recordedAttributes(for: .gitLogicalDebt).isEmpty)
+    }
+
     @Test("logical debt trace records retry insertion and pending dequeue transitions")
     func logicalDebtTraceRecordsRetryAndPendingDequeueTransitions() async throws {
         let traceRuntime = makeGitLogicalDebtTraceRuntime()
@@ -3561,7 +3576,12 @@ private final class GitProjectorTraceRecorderSpy: GitProjectorPerformanceRecordi
     }
 
     private let lock = NSLock()
+    let isEnabled: Bool
     private var recordedEvents: [(AgentStudioPerformanceTraceRecorder.Event, [String: AgentStudioTraceValue])] = []
+
+    init(isEnabled: Bool = true) {
+        self.isEnabled = isEnabled
+    }
 
     func record(
         _ event: AgentStudioPerformanceTraceRecorder.Event,

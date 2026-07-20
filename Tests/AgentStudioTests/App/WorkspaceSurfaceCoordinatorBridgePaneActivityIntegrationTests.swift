@@ -45,8 +45,8 @@ struct WorkspaceBridgePaneActivityIntegrationTests {
         installTestAtomRegistryIfNeeded()
     }
 
-    @Test("real initial restore defers hidden Bridge panes until their tab activates")
-    func realInitialRestoreDefersHiddenBridgePaneUntilActivation() async throws {
+    @Test("prepared initial mount keeps hidden Bridge panes loaded-hidden until their tab activates")
+    func preparedInitialMountKeepsHiddenBridgePaneLoadedHiddenUntilActivation() async {
         // Arrange
         let harness = makeBridgePaneActivityTestHarness()
         let hiddenBridgePane = harness.store.createPane(
@@ -61,15 +61,49 @@ struct WorkspaceBridgePaneActivityIntegrationTests {
         let hiddenTab = Tab(paneId: hiddenBridgePane.id, name: "Hidden")
         harness.store.appendTab(hiddenTab)
         harness.store.setActiveTab(harness.tabId)
-        harness.viewRegistry.beginInitialRestore()
         enterForegroundNativeEnvironment(harness)
-        let trustedBounds = CGRect(x: 0, y: 0, width: 1200, height: 800)
-        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: 1200, height: 800)
+        )
         harness.windowLifecycleStore.recordLaunchLayoutSettled()
         harness.coordinator.refreshBridgePaneActivities()
+        let generation = WorkspaceContentMountGeneration()
+        let cohort = WorkspacePreparedContentMountCohort(
+            generation: generation,
+            terminalActivationInput: TerminalActivationInput(entries: []),
+            nonterminalContentMountInput: NonterminalContentMountInput(
+                entries: [
+                    NonterminalContentMountDescriptor(
+                        content: .bridgePanel(harness.bridgePane),
+                        visibilityPriority: .activeVisible,
+                        hostPlacement: .tab(tabID: harness.tabId)
+                    ),
+                    NonterminalContentMountDescriptor(
+                        content: .bridgePanel(hiddenBridgePane),
+                        visibilityPriority: .hidden,
+                        hostPlacement: .tab(tabID: hiddenTab.id)
+                    ),
+                ]
+            )
+        )
+        harness.viewRegistry.beginInitialRestore()
+        let mountCoordinator = WorkspacePreparedContentMountCoordinator(
+            cohort: cohort,
+            viewRegistry: harness.viewRegistry,
+            terminalAdmissionPort: PreparedTerminalMountAdmissionPort(
+                generation: generation,
+                initialFramesByPaneID: [:],
+                viewRegistry: harness.viewRegistry,
+                mountHandler: harness.coordinator
+            ),
+            nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
+                generation: generation,
+                coordinator: harness.coordinator
+            )
+        )
 
         // Act
-        await harness.coordinator.restoreAllViews(in: trustedBounds)
+        _ = await mountCoordinator.mount()
 
         // Assert
         await expectBridgePaneActivity(
@@ -79,13 +113,21 @@ struct WorkspaceBridgePaneActivityIntegrationTests {
             because: "the active restored tab was hydrated"
         )
         #expect(harness.viewRegistry.allBridgeViews[harness.bridgePane.id] != nil)
-        #expect(harness.coordinator.bridgePaneActivity(for: hiddenBridgePane.id) == .dormant)
-        #expect(harness.coordinator.bridgePaneActivityAuthorityIdentity(for: hiddenBridgePane.id) != nil)
-        #expect(harness.viewRegistry.view(for: hiddenBridgePane.id) == nil)
+        await expectBridgePaneActivity(
+            .loadedHidden,
+            for: hiddenBridgePane.id,
+            in: harness.coordinator,
+            because: "the prepared hidden pane is mounted under loaded-hidden activity"
+        )
+        let hiddenAuthorityIdentity = harness.coordinator.bridgePaneActivityAuthorityIdentity(
+            for: hiddenBridgePane.id
+        )
+        #expect(hiddenAuthorityIdentity != nil)
+        #expect(harness.viewRegistry.allBridgeViews[hiddenBridgePane.id] != nil)
 
-        // Act — reveal the previously hidden restored tab through the real active-tab restore path.
+        // Act — reveal the prepared hidden pane through canonical tab activity propagation.
         harness.store.setActiveTab(hiddenTab.id)
-        harness.coordinator.restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
+        harness.coordinator.refreshBridgePaneActivities()
 
         // Assert
         await expectBridgePaneActivity(
@@ -95,6 +137,10 @@ struct WorkspaceBridgePaneActivityIntegrationTests {
             because: "the hidden restored tab activated"
         )
         #expect(harness.viewRegistry.allBridgeViews[hiddenBridgePane.id] != nil)
+        #expect(
+            harness.coordinator.bridgePaneActivityAuthorityIdentity(for: hiddenBridgePane.id)
+                == hiddenAuthorityIdentity
+        )
         await expectBridgePaneActivity(
             .loadedHidden,
             for: harness.bridgePane.id,

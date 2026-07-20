@@ -39,10 +39,7 @@ func makeBridgePaneActivityTestHarness(
 ) -> BridgePaneActivityTestHarness {
     let tempDirectory = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-bridge-pane-activity-\(UUID().uuidString)")
-    let store = WorkspaceStore(
-        persistor: WorkspacePersistor(workspacesDir: tempDirectory)
-    )
-    store.restore()
+    let store = WorkspaceStore()
     let bridgePane = store.createPane(
         content: .bridgePanel(
             BridgePaneState(

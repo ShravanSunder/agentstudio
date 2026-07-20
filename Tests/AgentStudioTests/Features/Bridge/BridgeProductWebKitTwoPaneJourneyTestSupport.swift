@@ -491,7 +491,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
                 )
             ),
             metadata: PaneMetadata(
-                paneId: PaneId(uuid: paneId),
+                paneId: PaneId(existingUUID: paneId),
                 contentType: .diff,
                 launchDirectory: repoURL,
                 title: title,

@@ -165,7 +165,7 @@ extension WebKitSerializedTests {
             let mountedView = BridgePaneMountView(paneId: pane.id, controller: controller)
             harness.coordinator.registerHostedView(mountedView: mountedView, for: pane.id)
             harness.coordinator.registerRuntime(controller.runtime)
-            let runtimePaneId = PaneId(uuid: pane.id)
+            let runtimePaneId = PaneId(existingUUID: pane.id)
             _ = await paneEventBus.post(makeBridgeReplayEnvelope(paneId: runtimePaneId, sequence: 1))
             try await openBridgePaneProductSession(installation)
             let metadataReply = try await startBridgePaneProductMetadataReply(
@@ -229,14 +229,14 @@ extension WebKitSerializedTests {
             )
             harness.store.appendTab(Tab(paneId: pane.id))
             _ = try #require(harness.coordinator.createViewForContent(pane: pane))
-            #expect(harness.coordinator.runtimeForPane(PaneId(uuid: pane.id)) is BridgeRuntime)
+            #expect(harness.coordinator.runtimeForPane(PaneId(existingUUID: pane.id)) is BridgeRuntime)
 
             // Act
             await harness.coordinator.shutdown()
 
             // Assert
             #expect(harness.viewRegistry.view(for: pane.id) == nil)
-            #expect(harness.coordinator.runtimeForPane(PaneId(uuid: pane.id)) == nil)
+            #expect(harness.coordinator.runtimeForPane(PaneId(existingUUID: pane.id)) == nil)
             #expect(harness.coordinator.pendingBridgePaneRetirementCount == 0)
         }
 
@@ -254,7 +254,7 @@ extension WebKitSerializedTests {
             )
             harness.store.appendTab(Tab(paneId: pane.id))
             _ = try #require(harness.coordinator.createViewForContent(pane: pane))
-            #expect(harness.coordinator.runtimeForPane(PaneId(uuid: pane.id)) is BridgeRuntime)
+            #expect(harness.coordinator.runtimeForPane(PaneId(existingUUID: pane.id)) is BridgeRuntime)
 
             // Act
             harness.coordinator.teardownView(for: pane.id, shouldUnregisterRuntime: false)
@@ -263,7 +263,7 @@ extension WebKitSerializedTests {
 
             // Assert
             #expect(harness.viewRegistry.view(for: pane.id) == nil)
-            #expect(harness.coordinator.runtimeForPane(PaneId(uuid: pane.id)) == nil)
+            #expect(harness.coordinator.runtimeForPane(PaneId(existingUUID: pane.id)) == nil)
             #expect(harness.coordinator.pendingBridgePaneRetirementCount == 0)
         }
 
@@ -518,9 +518,9 @@ extension WebKitSerializedTests {
             _ = coordinator.createViewForContent(pane: bridgePane)
             _ = coordinator.createViewForContent(pane: codeViewerPane)
 
-            #expect(coordinator.runtimeForPane(PaneId(uuid: webviewPane.id)) is WebviewRuntime)
-            #expect(coordinator.runtimeForPane(PaneId(uuid: bridgePane.id)) is BridgeRuntime)
-            #expect(coordinator.runtimeForPane(PaneId(uuid: codeViewerPane.id)) is SwiftPaneRuntime)
+            #expect(coordinator.runtimeForPane(PaneId(existingUUID: webviewPane.id)) is WebviewRuntime)
+            #expect(coordinator.runtimeForPane(PaneId(existingUUID: bridgePane.id)) is BridgeRuntime)
+            #expect(coordinator.runtimeForPane(PaneId(existingUUID: codeViewerPane.id)) is SwiftPaneRuntime)
         }
 
         @Test("createViewForContent returns nil for unsupported pane content")
@@ -544,13 +544,20 @@ extension WebKitSerializedTests {
             #expect(viewRegistry.registeredPaneIds.isEmpty)
         }
 
-        @Test("floating zmx restore uses drawer session IDs for drawer panes")
-        func floatingZmxRestoreSessionId_drawerPane_usesDrawerSessionId() {
+        @Test("floating zmx restore uses stored session IDs for drawer panes")
+        func floatingZmxRestoreSessionId_drawerPane_usesStoredSessionId() {
             let parentPaneId = UUIDv7.generate()
             let drawerPaneId = UUIDv7.generate()
+            let storedSessionID = ZmxSessionID.generateUUIDv7()
             let pane = Pane(
                 id: drawerPaneId,
-                content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+                content: .terminal(
+                    TerminalState(
+                        provider: .zmx,
+                        lifetime: .persistent,
+                        zmxSessionID: storedSessionID
+                    )
+                ),
                 metadata: PaneMetadata(
                     launchDirectory: URL(fileURLWithPath: "/Users/test"),
                     title: "Drawer"
@@ -558,33 +565,38 @@ extension WebKitSerializedTests {
                 kind: .drawerChild(parentPaneId: parentPaneId)
             )
 
-            let sessionId = WorkspaceSurfaceCoordinator.floatingZmxRestoreSessionId(
-                for: pane,
-                launchDirectory: URL(fileURLWithPath: "/Users/test")
-            )
+            let harness = makeWorkspaceSurfaceCoordinatorViewFactoryHarness()
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            let sessionID = harness.coordinator.terminalRestoreRuntime.zmxSessionID(for: pane)
 
-            #expect(sessionId == ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId))
+            #expect(sessionID == storedSessionID)
         }
 
-        @Test("floating zmx restore uses floating session IDs for top-level floating panes")
-        func floatingZmxRestoreSessionId_topLevelFloatingPane_usesFloatingSessionId() {
+        @Test("floating zmx restore uses stored session IDs for top-level floating panes")
+        func floatingZmxRestoreSessionId_topLevelFloatingPane_usesStoredSessionId() {
             let paneId = UUIDv7.generate()
             let launchDirectory = URL(fileURLWithPath: "/Users/test/project")
+            let storedSessionID = ZmxSessionID.generateUUIDv7()
             let pane = Pane(
                 id: paneId,
-                content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+                content: .terminal(
+                    TerminalState(
+                        provider: .zmx,
+                        lifetime: .persistent,
+                        zmxSessionID: storedSessionID
+                    )
+                ),
                 metadata: PaneMetadata(
                     launchDirectory: launchDirectory,
                     title: "Floating"
                 )
             )
 
-            let sessionId = WorkspaceSurfaceCoordinator.floatingZmxRestoreSessionId(
-                for: pane,
-                launchDirectory: launchDirectory
-            )
+            let harness = makeWorkspaceSurfaceCoordinatorViewFactoryHarness()
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            let sessionID = harness.coordinator.terminalRestoreRuntime.zmxSessionID(for: pane)
 
-            #expect(sessionId == ZmxBackend.floatingSessionId(launchDirectory: launchDirectory, paneId: paneId))
+            #expect(sessionID == storedSessionID)
         }
     }
 }

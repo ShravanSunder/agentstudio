@@ -15,24 +15,27 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
     func closeFourBridgeTabsKeepsTopologyLookupTelemetryBounded() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-close-bridge-topology-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let store = WorkspaceStore(persistor: persistor)
-        store.restore()
+        let traceDirectory = temporaryTraceDirectoryURL()
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+            try? FileManager.default.removeItem(at: traceDirectory)
+        }
+        let runtime = makePerformanceTraceRuntime(traceDirectory: traceDirectory)
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+        let store = WorkspaceStore()
+        let surfaceManager = TopologyTraceSurfaceManager()
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
             runtime: SessionRuntime(store: store),
-            surfaceManager: TopologyTraceSurfaceManager(),
+            surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: EventBus<RuntimeEnvelope>(),
             filesystemSource: TopologyTraceRecordingFilesystemSource(),
-            paneFilesystemProjectionStore: PaneFilesystemProjectionAtom(),
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            performanceTraceRecorder: recorder
         )
-        defer {
-            Task { await coordinator.shutdown() }
-            try? FileManager.default.removeItem(at: tempDir)
-        }
+        defer { Task { await coordinator.shutdown() } }
 
         let repo = store.addRepo(at: tempDir.appending(path: "bridge-root"))
         let worktree = try #require(store.repo(repo.id)?.worktrees.single)
@@ -46,10 +49,16 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
         store.setActiveTab(tabs[0].id)
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
-        let traceDirectory = temporaryTraceDirectoryURL()
-        let runtime = makePerformanceTraceRuntime(traceDirectory: traceDirectory)
-        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
-        store.repositoryTopologyAtom.setPerformanceTraceRecorder(recorder)
+        let repeatedCoordinatorCWD = worktree.path.appending(path: "Sources")
+        let sentinelCoordinatorCWD = worktree.path.appending(path: "Tests")
+        let tracedPaneID = try #require(tabs[0].activePaneId)
+        for _ in 0..<64 {
+            surfaceManager.sendCWDChange(paneId: tracedPaneID, cwd: repeatedCoordinatorCWD)
+        }
+        surfaceManager.sendCWDChange(paneId: tracedPaneID, cwd: sentinelCoordinatorCWD)
+        await eventually("coordinator should consume the sentinel CWD change") {
+            store.pane(tracedPaneID)?.metadata.cwd == sentinelCoordinatorCWD
+        }
 
         for tab in tabs {
             for _ in 0..<16 {
@@ -65,7 +74,8 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
 
         let outputFileURL = try #require(runtime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
-        #expect(countOccurrences(of: "\"body\":\"performance.topology.repo_and_worktree\"", in: contents) == 1)
+        #expect(countOccurrences(of: "\"body\":\"performance.topology.repo_and_worktree\"", in: contents) == 2)
+        await coordinator.shutdown()
     }
 
     private func makeCWDOnlyBridgePane(
@@ -118,15 +128,15 @@ private actor TopologyTraceRecordingFilesystemSource: WorkspaceFilesystemSourceM
     private(set) var activityByWorktreeId: [UUID: Bool] = [:]
     private(set) var activePaneWorktreeId: UUID?
 
-    func start() {}
+    func start() async {}
 
-    func shutdown() {}
+    func shutdown() async {}
 
-    func register(worktreeId: UUID, repoId _: UUID, rootPath: URL) {
+    func register(worktreeId: UUID, repoId _: UUID, rootPath: URL) async {
         registeredRoots[worktreeId] = rootPath
     }
 
-    func unregister(worktreeId: UUID) {
+    func unregister(worktreeId: UUID) async {
         registeredRoots.removeValue(forKey: worktreeId)
         activityByWorktreeId.removeValue(forKey: worktreeId)
         if activePaneWorktreeId == worktreeId {
@@ -134,7 +144,7 @@ private actor TopologyTraceRecordingFilesystemSource: WorkspaceFilesystemSourceM
         }
     }
 
-    func assertTopology(_ assertion: FilesystemTopologyAssertion) {
+    func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
         let desiredWorktreeIds = Set(assertion.contextsByWorktreeId.keys)
         registeredRoots = assertion.contextsByWorktreeId.mapValues(\.rootPath)
         activityByWorktreeId = activityByWorktreeId.filter { desiredWorktreeIds.contains($0.key) }
@@ -143,27 +153,30 @@ private actor TopologyTraceRecordingFilesystemSource: WorkspaceFilesystemSourceM
         }
     }
 
-    func setActivity(worktreeId: UUID, isActiveInApp: Bool) {
+    func setActivity(worktreeId: UUID, isActiveInApp: Bool) async {
         activityByWorktreeId[worktreeId] = isActiveInApp
     }
 
-    func setActivePaneWorktree(worktreeId: UUID?) {
+    func setActivePaneWorktree(worktreeId: UUID?) async {
         activePaneWorktreeId = worktreeId
     }
 
 }
 
 private final class TopologyTraceSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
+    private let cwdContinuation: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>.Continuation
+    let surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
 
     init() {
-        self.cwdStream = AsyncStream { continuation in
-            continuation.onTermination = { _ in }
-        }
+        let stream = AsyncStream.makeStream(of: SurfaceManager.SurfaceCWDChangeEvent.self)
+        self.surfaceCWDChanges = stream.stream
+        self.cwdContinuation = stream.continuation
     }
 
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> {
-        cwdStream
+    func sendCWDChange(paneId: UUID, cwd: URL) {
+        cwdContinuation.yield(
+            SurfaceManager.SurfaceCWDChangeEvent(surfaceId: UUID(), paneId: paneId, cwd: cwd)
+        )
     }
 
     func syncFocus(activeSurfaceId _: UUID?) {}

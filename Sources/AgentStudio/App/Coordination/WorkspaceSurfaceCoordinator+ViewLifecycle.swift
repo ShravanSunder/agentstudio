@@ -79,10 +79,7 @@ extension WorkspaceSurfaceCoordinator {
                 treatAsRestoredSessionStart: treatAsRestoredSessionStart
             )
 
-        case .bridgePanel(let state):
-            return createBridgePaneView(for: pane, state: state)
-
-        case .webview, .codeViewer, .unsupported:
+        case .webview, .codeViewer, .bridgePanel, .unsupported:
             return mountCurrentNonterminalContent(pane: pane)
         }
     }

@@ -84,7 +84,7 @@ struct StoreVisibilityTierResolverTests {
             .appending(path: "agentstudio-visibility-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let store = WorkspaceStore()
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let pane = store.createPane(
@@ -99,8 +99,8 @@ struct StoreVisibilityTierResolverTests {
 
         let resolver = StoreVisibilityTierResolver(store: store)
 
-        #expect(resolver.tier(for: PaneId(uuid: pane.id)) == .p1Hidden)
-        #expect(!resolver.isActive(PaneId(uuid: pane.id)))
+        #expect(resolver.tier(for: PaneId(existingUUID: pane.id)) == .p1Hidden)
+        #expect(!resolver.isActive(PaneId(existingUUID: pane.id)))
     }
 
     @Test

@@ -8,6 +8,8 @@ import Foundation
 /// in unit tests with a spy. `AgentStudioPerformanceTraceRecorder` is the
 /// production conformer; it forwards to OTLP/JSONL exactly as before.
 protocol GitProjectorPerformanceRecording: Sendable {
+    var isEnabled: Bool { get }
+
     func record(
         _ event: AgentStudioPerformanceTraceRecorder.Event,
         attributes: [String: AgentStudioTraceValue]

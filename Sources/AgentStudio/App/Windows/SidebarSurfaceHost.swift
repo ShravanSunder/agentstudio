@@ -75,6 +75,7 @@ struct SidebarSurfaceHost: View {
             RepoExplorerView(
                 store: store,
                 onRefocusActivePane: onRefocusActivePane,
+                onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
                 onShowNotificationsForWorktree: { worktree in
                     Self.showNotifications(
                         for: worktree,

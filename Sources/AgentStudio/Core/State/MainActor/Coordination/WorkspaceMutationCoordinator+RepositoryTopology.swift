@@ -51,6 +51,54 @@ extension WorkspaceMutationCoordinator {
         return repository
     }
 
+    @discardableResult
+    func ensureMainWorktree(at path: URL) -> Worktree {
+        let normalizedPath = path.standardizedFileURL
+        let incomingStableKey = StableKey.fromPath(normalizedPath)
+        if let repositoryIndex = repositoryTopologyAtom.repos.firstIndex(where: {
+            $0.repoPath.standardizedFileURL == normalizedPath || $0.stableKey == incomingStableKey
+        }) {
+            let repository = repositoryTopologyAtom.repos[repositoryIndex]
+            if let existingWorktree = repository.worktrees.first(where: \.isMainWorktree)
+                ?? repository.worktrees.first
+            {
+                if repositoryTopologyAtom.isRepoUnavailable(repository.id) {
+                    applyTopology(
+                        repositories: repositoryTopologyAtom.repos,
+                        watchedPaths: repositoryTopologyAtom.watchedPaths,
+                        unavailableRepositoryIDs: repositoryTopologyAtom.unavailableRepoIds.subtracting([
+                            repository.id
+                        ])
+                    )
+                }
+                return existingWorktree
+            }
+
+            let repairedWorktree = Worktree(
+                repoId: repository.id,
+                name: normalizedPath.lastPathComponent,
+                path: normalizedPath,
+                isMainWorktree: true
+            )
+            var repairedRepositories = repositoryTopologyAtom.repos
+            repairedRepositories[repositoryIndex].name = normalizedPath.lastPathComponent
+            repairedRepositories[repositoryIndex].repoPath = normalizedPath
+            repairedRepositories[repositoryIndex].worktrees = [repairedWorktree]
+            applyTopology(
+                repositories: repairedRepositories,
+                watchedPaths: repositoryTopologyAtom.watchedPaths,
+                unavailableRepositoryIDs: repositoryTopologyAtom.unavailableRepoIds.subtracting([repository.id])
+            )
+            return repairedWorktree
+        }
+
+        let repository = addRepo(at: normalizedPath)
+        guard let mainWorktree = repository.worktrees.first(where: \.isMainWorktree) else {
+            preconditionFailure("newly added repository is missing its main worktree")
+        }
+        return mainWorktree
+    }
+
     func removeRepo(_ repositoryID: UUID) {
         guard repositoryTopologyAtom.repo(repositoryID) != nil else { return }
         applyTopology(

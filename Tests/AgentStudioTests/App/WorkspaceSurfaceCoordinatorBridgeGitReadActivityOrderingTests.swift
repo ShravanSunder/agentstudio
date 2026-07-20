@@ -163,8 +163,7 @@ private struct ActivityOrderingTestSetup {
 private func makeActivityOrderingTestSetup() throws -> ActivityOrderingTestSetup {
     let tempDirectory = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-bridge-git-activity-ordering-\(UUID().uuidString)")
-    let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDirectory))
-    store.restore()
+    let store = WorkspaceStore()
     let targetRepo = store.addRepo(at: tempDirectory.appending(path: "target-repo"))
     let restoredTargetRepo = try #require(store.repo(targetRepo.id))
     let targetWorktree = try #require(restoredTargetRepo.worktrees.first)

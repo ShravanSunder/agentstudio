@@ -120,7 +120,9 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     }
 
     func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary {
-        await filesystemActor.refreshWatchedFolders(watchedPaths)
+        let summary = await filesystemActor.refreshWatchedFolders(watchedPaths)
+        await gitWorkingDirectoryProjector.refreshRegisteredWorktreesImmediately()
+        return summary
     }
 
     func applyScopeChange(_ change: ScopeChange) async {

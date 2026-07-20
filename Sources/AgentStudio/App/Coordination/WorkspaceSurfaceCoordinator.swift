@@ -312,16 +312,19 @@ final class WorkspaceSurfaceCoordinator {
         let lookupClock = ContinuousClock()
         let lookupStartedAt = lookupClock.now
         let resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: cwd)
-        performanceTraceRecorder?.recordDuration(
-            .repoAndWorktreeLookup,
-            duration: lookupStartedAt.duration(to: lookupClock.now),
-            attributes: [
-                "agentstudio.performance.topology.index.count": .int(
-                    store.repositoryTopologyAtom.worktreePathIndexCount
-                ),
-                "agentstudio.performance.topology.has_match": .bool(resolvedContext != nil),
-            ]
-        )
+        if let cwd {
+            performanceTraceRecorder?.recordRepoAndWorktreeLookup(
+                duration: lookupStartedAt.duration(to: lookupClock.now),
+                indexCount: store.repositoryTopologyAtom.worktreePathIndexCount,
+                hasMatch: resolvedContext != nil,
+                fact: AgentStudioPerformanceTraceRecorder.TopologyLookupFact(
+                    normalizedCWD: cwd.standardizedFileURL.path,
+                    worktreePathIndexGeneration: store.repositoryTopologyAtom.worktreePathIndexGeneration,
+                    repoId: resolvedContext?.repo.id,
+                    worktreeId: resolvedContext?.worktree.id
+                )
+            )
+        }
         let updateResult = store.paneAtom.updatePaneCWDAndResolvedContext(
             paneId,
             cwd: cwd,

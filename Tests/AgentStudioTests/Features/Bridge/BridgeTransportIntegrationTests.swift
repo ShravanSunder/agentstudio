@@ -153,7 +153,7 @@ extension WebKitSerializedTests {
                     source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
                 ),
                 metadata: PaneMetadata(
-                    paneId: PaneId(uuid: paneId),
+                    paneId: PaneId(existingUUID: paneId),
                     contentType: .diff,
                     launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
                     title: "Bridge Review",

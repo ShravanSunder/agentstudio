@@ -435,7 +435,7 @@ extension WebKitSerializedTests {
                     )
                 ),
                 metadata: PaneMetadata(
-                    paneId: PaneId(uuid: input.paneId),
+                    paneId: PaneId(existingUUID: input.paneId),
                     contentType: .diff,
                     launchDirectory: input.repoURL,
                     title: "Bridge Product Review Replay",
@@ -750,7 +750,7 @@ extension WebKitSerializedTests {
                     )
                 ),
                 metadata: PaneMetadata(
-                    paneId: PaneId(uuid: paneId),
+                    paneId: PaneId(existingUUID: paneId),
                     contentType: .diff,
                     launchDirectory: repoURL,
                     title: "Bridge Product Carrier",

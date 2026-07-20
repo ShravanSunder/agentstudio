@@ -140,7 +140,7 @@ extension AppDelegate {
             guard let folderURL = AgentStudioStartupDiagnosticAction.watchFolderURL() else {
                 return nil
             }
-            return store.repositoryTopologyAtom.ensureMainWorktree(at: folderURL.standardizedFileURL).id
+            return store.mutationCoordinator.ensureMainWorktree(at: folderURL.standardizedFileURL).id
         }
 
         private func recordBridgeReviewObservabilitySmokePhase(

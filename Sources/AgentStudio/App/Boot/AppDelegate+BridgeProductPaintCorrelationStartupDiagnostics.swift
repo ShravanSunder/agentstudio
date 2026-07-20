@@ -233,7 +233,7 @@ import WebKit
                 recordUnavailableBridgeProductPaintCorrelationResult(action: action)
                 return
             }
-            let worktree = store.repositoryTopologyAtom.ensureMainWorktree(at: worktreeURL)
+            let worktree = store.mutationCoordinator.ensureMainWorktree(at: worktreeURL)
             guard let pane = workspaceSurfaceCoordinator.openBridgeReviewInNewTab(worktreeId: worktree.id) else {
                 recordUnavailableBridgeProductPaintCorrelationResult(action: action)
                 return

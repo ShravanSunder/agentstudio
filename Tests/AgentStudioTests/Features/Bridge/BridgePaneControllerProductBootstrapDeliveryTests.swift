@@ -290,7 +290,7 @@ extension WebKitSerializedTests {
                     source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
                 ),
                 metadata: PaneMetadata(
-                    paneId: PaneId(uuid: paneId),
+                    paneId: PaneId(existingUUID: paneId),
                     contentType: .diff,
                     launchDirectory: URL(fileURLWithPath: "Sources"),
                     title: "Cold Review Intake",

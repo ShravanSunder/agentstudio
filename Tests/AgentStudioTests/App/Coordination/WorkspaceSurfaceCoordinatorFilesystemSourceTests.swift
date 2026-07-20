@@ -755,16 +755,16 @@ actor OrderedRecordingFilesystemSource: WorkspaceFilesystemSourceManaging {
         }
         operationCountWaiters = remainingCountWaiters
         guard case .assertTopology(let worktreeIds) = operation else { return }
-        var remainingCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+        var remainingTopologyCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
         let currentAssertTopologyCount = assertTopologyCount
         for (minimumCount, continuation) in topologyCountWaiters {
             if currentAssertTopologyCount >= minimumCount {
                 continuation.resume()
             } else {
-                remainingCountWaiters.append((minimumCount, continuation))
+                remainingTopologyCountWaiters.append((minimumCount, continuation))
             }
         }
-        topologyCountWaiters = remainingCountWaiters
+        topologyCountWaiters = remainingTopologyCountWaiters
         var remainingWaiters: [(Set<UUID>, CheckedContinuation<Void, Never>)] = []
         for (expectedWorktreeIds, continuation) in topologyWaiters {
             if expectedWorktreeIds == worktreeIds {

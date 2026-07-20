@@ -88,8 +88,6 @@ private struct PresentationFactsWindowHarness {
 private func withPresentationFactsWindowHarness<T>(
     body: @MainActor (PresentationFactsWindowHarness) async throws -> T
 ) async rethrows -> T {
-    let tempDirectory = FileManager.default.temporaryDirectory
-        .appending(path: "main-window-presentation-facts-\(UUID().uuidString)")
     let atoms = AtomRegistry()
     let store = WorkspaceStore(
         identityAtom: atoms.workspaceIdentity,
@@ -97,10 +95,8 @@ private func withPresentationFactsWindowHarness<T>(
         repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
         paneAtom: atoms.workspacePane,
         tabLayoutAtom: atoms.workspaceTabLayout,
-        mutationCoordinator: atoms.workspaceMutationCoordinator,
-        persistor: WorkspacePersistor(workspacesDir: tempDirectory)
+        mutationCoordinator: atoms.workspaceMutationCoordinator
     )
-    store.restore()
     let viewRegistry = ViewRegistry()
     let appLifecycleStore = AppLifecycleAtom()
     let coordinator = WorkspaceSurfaceCoordinator(
@@ -153,7 +149,6 @@ private func withPresentationFactsWindowHarness<T>(
     (controller?.window?.contentViewController as? MainSplitViewController)?.shutdown()
     controller?.close()
     await coordinator.shutdown()
-    try? FileManager.default.removeItem(at: tempDirectory)
     return result
 }
 

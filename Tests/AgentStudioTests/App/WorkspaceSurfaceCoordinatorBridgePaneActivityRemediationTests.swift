@@ -59,7 +59,7 @@ struct WorkspaceBridgePaneActivityRemediationTests {
         )
         #expect(replacementController !== originalController)
         #expect(
-            harness.coordinator.runtimeForPane(PaneId(uuid: harness.bridgePane.id))
+            harness.coordinator.runtimeForPane(PaneId(existingUUID: harness.bridgePane.id))
                 === replacementController.runtime
         )
         #expect(

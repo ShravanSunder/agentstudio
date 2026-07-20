@@ -49,6 +49,38 @@ struct WorkspaceBridgeConstructionIntegrationTests {
         await harness.finish()
     }
 
+    @Test("steady-state Bridge creation registers its filesystem projection context")
+    func steadyStateBridgeCreationRegistersFilesystemProjectionContext() async throws {
+        // Arrange
+        let harness = makeBridgePaneActivityTestHarness()
+        let setup = try makeTwoPaneWorktreeSetup(in: harness)
+        let affectedKeyCountBefore = harness.coordinator.filesystemAffectedKeyRequestCount
+
+        // Act
+        let mountedView = harness.coordinator.createViewForContent(pane: setup.firstPane)
+
+        // Assert
+        #expect(mountedView != nil)
+        #expect(
+            harness.coordinator.filesystemAffectedKeyRequestCount
+                == affectedKeyCountBefore + 1
+        )
+        let update = try #require(
+            harness.coordinator.pendingFilesystemPaneUpdatesByPaneId[setup.firstPane.id]
+        )
+        guard case .upsert(let entry) = update.kind else {
+            Issue.record("Steady-state Bridge mount did not upsert its filesystem context")
+            await harness.finish()
+            return
+        }
+        #expect(entry.paneId == setup.firstPane.id)
+        #expect(entry.repoId == setup.repoId)
+        #expect(entry.worktreeId == setup.worktree.id)
+        #expect(entry.cwd == setup.worktree.path)
+
+        await harness.finish()
+    }
+
     @Test("create-before-tab Bridge Review reaches its coordinator provider after foreground promotion")
     func createBeforeTabBridgeReviewReachesProviderAfterForegroundPromotion() async throws {
         // Arrange

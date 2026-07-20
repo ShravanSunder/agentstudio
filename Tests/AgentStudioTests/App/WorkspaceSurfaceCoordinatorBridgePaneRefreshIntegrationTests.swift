@@ -227,6 +227,10 @@ private actor RefreshGateableFilesystemProjectionIndex: WorkspaceFilesystemProje
     private var pausedProjectionRelease: CheckedContinuation<Void, Never>?
     private var projectionIsPaused = false
 
+    func shutdown() async {
+        await base.shutdown()
+    }
+
     func pauseNextProjection() {
         shouldPauseNextProjection = true
     }
@@ -255,7 +259,9 @@ private actor RefreshGateableFilesystemProjectionIndex: WorkspaceFilesystemProje
         )
     }
 
-    func applyPaneUpdate(_ update: FilesystemProjectionPaneUpdate) async {
+    func applyPaneUpdate(
+        _ update: FilesystemProjectionPaneUpdate
+    ) async -> FilesystemProjectionPaneUpdateOutcome {
         await base.applyPaneUpdate(update)
     }
 

@@ -520,6 +520,28 @@ struct RepositoryTopologyAtomTests {
         #expect(acceptance.delta.didChange)
     }
 
+    @Test("ensure main worktree repairs an empty unavailable repository through topology replacement")
+    func ensureMainWorktreeRepairsEmptyUnavailableRepository() throws {
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-ensure-main-repair")
+        let repo = coordinator.addRepo(at: repoPath)
+        _ = coordinator.reconcileDiscoveredWorktrees(repo.id, worktrees: [])
+        coordinator.markRepoUnavailable(repo.id)
+        let generationBeforeRepair = atom.worktreePathIndexGeneration
+
+        let repairedWorktree = coordinator.ensureMainWorktree(at: repoPath)
+
+        let repairedRepository = try #require(atom.repo(repo.id))
+        #expect(repairedRepository.worktrees == [repairedWorktree])
+        #expect(repairedWorktree.repoId == repo.id)
+        #expect(repairedWorktree.path == repoPath.standardizedFileURL)
+        #expect(repairedWorktree.isMainWorktree)
+        #expect(!atom.isRepoUnavailable(repo.id))
+        #expect(atom.worktreePathIndexGeneration == generationBeforeRepair + 1)
+        #expect(atom.repoAndWorktree(containing: repoPath)?.worktree.id == repairedWorktree.id)
+    }
+
     @Test(
         "scanned reconciliation preserves identity by path, main-worktree role, and name",
         arguments: [

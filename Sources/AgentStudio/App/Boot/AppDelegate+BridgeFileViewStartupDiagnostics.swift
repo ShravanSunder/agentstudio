@@ -81,7 +81,7 @@ import Foundation
                 return
             }
 
-            _ = store.repositoryTopologyAtom.ensureMainWorktree(at: folderURL.standardizedFileURL)
+            _ = store.mutationCoordinator.ensureMainWorktree(at: folderURL.standardizedFileURL)
             let worktreeCount = store.repositoryTopologyAtom.repos.flatMap(\.worktrees).count
             guard worktreeCount == 1 else {
                 recordBridgeFileViewObservabilitySmokeSkipped(
@@ -144,7 +144,7 @@ import Foundation
                 return
             }
 
-            let targetWorktree = store.repositoryTopologyAtom.ensureMainWorktree(
+            let targetWorktree = store.mutationCoordinator.ensureMainWorktree(
                 at: folderURL.standardizedFileURL
             )
 
@@ -251,7 +251,7 @@ import Foundation
 
         private func bridgeFileViewObservabilitySmokeWorktreeId() -> UUID? {
             if let folderURL = AgentStudioStartupDiagnosticAction.watchFolderURL() {
-                return store.repositoryTopologyAtom.ensureMainWorktree(at: folderURL.standardizedFileURL).id
+                return store.mutationCoordinator.ensureMainWorktree(at: folderURL.standardizedFileURL).id
             }
             let worktrees = store.repositoryTopologyAtom.repos.flatMap(\.worktrees)
             return worktrees.count == 1 ? worktrees[0].id : nil

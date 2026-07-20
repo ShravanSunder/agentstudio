@@ -412,7 +412,7 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
                 )
             ),
             metadata: PaneMetadata(
-                paneId: PaneId(uuid: paneId),
+                paneId: PaneId(existingUUID: paneId),
                 contentType: .diff,
                 launchDirectory: repoURL,
                 title: "Bridge Native Surface Selection",

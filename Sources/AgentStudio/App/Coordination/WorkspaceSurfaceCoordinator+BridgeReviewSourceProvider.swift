@@ -11,10 +11,10 @@ extension WorkspaceSurfaceCoordinator {
                 return provider
             }
         #endif
-        let worktreePath = bridgeWorktreePath(for: pane, state: state)
+        let location = bridgeReviewRepositoryLocation(for: pane, state: state)
         return BridgeReviewSourceProviderFactory.gitProvider(
-            repositoryPath: worktreePath,
-            gitReadContext: bridgeGitReadContext(for: pane, state: state)
+            location: location,
+            gitReadContext: bridgeGitReadContext(for: pane, repositoryLocation: location)
         )
     }
 
@@ -22,25 +22,34 @@ extension WorkspaceSurfaceCoordinator {
         for pane: Pane,
         state: BridgePaneState
     ) -> BridgeGitReadContext? {
-        let resolvedWorktree = resolvedWorktreeContext(for: pane)?.worktree
-        guard let worktreePath = resolvedWorktree?.path ?? bridgeWorkspaceSourcePath(from: state.source)
-        else { return nil }
+        bridgeGitReadContext(
+            for: pane,
+            repositoryLocation: bridgeReviewRepositoryLocation(for: pane, state: state)
+        )
+    }
+
+    private func bridgeGitReadContext(
+        for pane: Pane,
+        repositoryLocation: BridgeReviewRepositoryLocation
+    ) -> BridgeGitReadContext? {
+        guard let repositoryURL = repositoryLocation.repositoryURL else { return nil }
         return BridgeGitReadContext(
             scheduler: bridgeGitReadScheduler,
             worktreeKey: BridgeGitReadWorktreeKey(
-                token: resolvedWorktree?.stableKey ?? StableKey.fromPath(worktreePath)
+                token: StableKey.fromPath(repositoryURL)
             ),
             scopeKey: BridgeGitReadScopeKey(token: pane.id.uuidString)
         )
     }
 
-    private func bridgeWorktreePath(for pane: Pane, state: BridgePaneState) -> URL? {
-        resolvedWorktreeContext(for: pane)?.worktree.path
-            ?? bridgeWorkspaceSourcePath(from: state.source)
-    }
-
-    private func bridgeWorkspaceSourcePath(from source: BridgePaneSource?) -> URL? {
-        guard case .workspace(let rootPath, _) = source else { return nil }
-        return URL(fileURLWithPath: rootPath)
+    private func bridgeReviewRepositoryLocation(
+        for pane: Pane,
+        state: BridgePaneState
+    ) -> BridgeReviewRepositoryLocation {
+        BridgeReviewSourceProviderFactory.repositoryLocation(
+            source: state.source,
+            launchDirectory: pane.metadata.launchDirectory,
+            currentWorkingDirectory: pane.metadata.cwd
+        )
     }
 }
