@@ -593,6 +593,38 @@ struct BridgePaneReviewSharedConstructionTests {
         #expect(await fixture.firstClient.registeredContentLocatorCount() == 0)
     }
 
+    @Test("unchanged refresh candidate release preserves retained same-generation locators")
+    func unchangedRefreshCandidateReleasePreservesRetainedSameGenerationLocators() async throws {
+        // Arrange
+        let fixture = try BridgeSharedReviewConstructionFixture.make()
+        defer { fixture.removeTestRoot() }
+        let request = fixture.request(packageId: "package-retained", generation: 1)
+        let bindingA = try await fixture.firstBinder.acquire(request)
+        let handleA = try #require(bindingA.result.registeredContentHandles.last)
+        let locatorCountAfterA = await fixture.firstClient.registeredContentLocatorCount()
+        let bindingAJoin = try await fixture.firstBinder.acquire(request)
+        #expect(await fixture.firstClient.registeredContentLocatorCount() == locatorCountAfterA)
+        await bindingAJoin.artifactPin.releaseAndWait()
+        _ = await fixture.coordinator.invalidate(worktree: fixture.worktreeIdentityKey)
+        let bindingB = try await fixture.firstBinder.acquire(request)
+        let handleB = try #require(bindingB.result.registeredContentHandles.last)
+        #expect(handleA.handleId == handleB.handleId)
+        #expect(handleA.reviewGeneration == handleB.reviewGeneration)
+
+        // Act
+        await bindingB.artifactPin.releaseAndWait()
+
+        // Assert
+        #expect(
+            try await fixture.firstProvider.loadContent(
+                BridgeContentLoadRequest(handle: handleA, requestedGeneration: 1)
+            ).data == Data("head-a".utf8)
+        )
+        await bindingA.artifactPin.releaseAndWait()
+        await fixture.waitUntilBackingDirectoryIsEmpty()
+        #expect(await fixture.firstClient.registeredContentLocatorCount() == 0)
+    }
+
     @Test("shared descriptor versions are semantic across pane generations")
     func sharedDescriptorVersionsAreGenerationNeutralAndSourceDerived() async throws {
         // Arrange
@@ -653,6 +685,7 @@ struct BridgePaneReviewSharedConstructionTests {
         }
         await fixture.waitUntilBackingDirectoryIsEmpty()
         #expect(await fixture.coordinator.snapshot().entryCount == 0)
+        #expect(await fixture.firstClient.registeredContentLocatorCount() == 0)
     }
 }
 

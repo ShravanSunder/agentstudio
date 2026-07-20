@@ -10,16 +10,35 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
         handles: [BridgeContentHandle],
         freshnessKey: BridgeGitReadFreshnessKey
     ) async throws -> BridgeSharedReviewContentBacking {
+        let registrations:
+            [(
+                handle: BridgeContentHandle,
+                locatorIdentity: ContentLocatorIdentity,
+                locator: ContentLocator
+            )] = try handles.map { handle in
+                let locatorIdentity = contentLocatorIdentity(for: handle)
+                guard let locator = liveLocatorByIdentity[locatorIdentity] else {
+                    throw BridgeSharedReviewContentBackingError.missingLocator
+                }
+                return (handle, locatorIdentity, locator)
+            }
+        defer {
+            for registration in registrations
+            where liveLocatorByIdentity[registration.locatorIdentity]?.registrationIdentity
+                == registration.locator.registrationIdentity
+            {
+                liveLocatorByIdentity.removeValue(forKey: registration.locatorIdentity)
+            }
+        }
         let artifactIdentity = UUIDv7.generate()
         let artifactDirectory = sharedContentRootURL.appending(path: artifactIdentity.uuidString)
         try await Self.createBackingDirectory(artifactDirectory)
         do {
             var sourceByIdentity: [BridgeSharedReviewContentIdentity: BridgeSharedReviewImmutableContentSource] = [:]
             var capturedByteCount = 0
-            for handle in handles {
-                guard let locator = locatorByIdentity[contentLocatorIdentity(for: handle)] else {
-                    throw BridgeSharedReviewContentBackingError.missingLocator
-                }
+            for registration in registrations {
+                let handle = registration.handle
+                let locator = registration.locator
                 let identity = BridgeSharedReviewContentIdentity(
                     itemIdentity: handle.itemId,
                     role: handle.role,
@@ -90,10 +109,17 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
                 contentHash: handle.contentHash
             )
             _ = try backing.source(for: identity)
-            locatorByIdentity[contentLocatorIdentity(for: handle)] = ContentLocator(
+            let locatorIdentity = contentLocatorIdentity(for: handle)
+            let locator = ContentLocator(
+                registrationIdentity: backing.artifactIdentity,
                 source: .shared(backing: backing, identity: identity),
                 reviewGeneration: handle.reviewGeneration
             )
+            if sharedLocatorStackByIdentity[locatorIdentity]?.contains(where: {
+                $0.registrationIdentity == backing.artifactIdentity
+            }) != true {
+                sharedLocatorStackByIdentity[locatorIdentity, default: []].append(locator)
+            }
         }
         guard
             backing.registerUninstallOperation({ [weak self] in
@@ -112,7 +138,8 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
     }
 
     func registeredContentLocatorCount() -> Int {
-        locatorByIdentity.count
+        liveLocatorByIdentity.count
+            + sharedLocatorStackByIdentity.values.reduce(0) { $0 + $1.count }
     }
 
     func contentPayload(
@@ -207,13 +234,17 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
         locatorIdentities: [ContentLocatorIdentity]
     ) {
         for locatorIdentity in locatorIdentities {
-            guard let locator = locatorByIdentity[locatorIdentity],
-                case .shared(let backing, _) = locator.source,
-                backing.artifactIdentity == backingArtifactIdentity
-            else {
+            guard let locators = sharedLocatorStackByIdentity[locatorIdentity] else {
                 continue
             }
-            locatorByIdentity.removeValue(forKey: locatorIdentity)
+            let retainedLocators = locators.filter {
+                $0.registrationIdentity != backingArtifactIdentity
+            }
+            if retainedLocators.isEmpty {
+                sharedLocatorStackByIdentity.removeValue(forKey: locatorIdentity)
+            } else {
+                sharedLocatorStackByIdentity[locatorIdentity] = retainedLocators
+            }
         }
     }
 

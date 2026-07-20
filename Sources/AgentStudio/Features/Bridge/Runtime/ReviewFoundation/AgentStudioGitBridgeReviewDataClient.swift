@@ -18,6 +18,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
     }
 
     struct ContentLocator: Sendable {
+        let registrationIdentity: UUID
         let source: ContentSource
         let reviewGeneration: BridgeReviewGeneration
     }
@@ -55,7 +56,8 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
     let gitReadContext: BridgeGitReadContext
     let gitDataPlaneReadTimeout: Duration
     let sharedContentRootURL: URL
-    var locatorByIdentity: [ContentLocatorIdentity: ContentLocator] = [:]
+    var liveLocatorByIdentity: [ContentLocatorIdentity: ContentLocator] = [:]
+    var sharedLocatorStackByIdentity: [ContentLocatorIdentity: [ContentLocator]] = [:]
 
     init(
         repositoryPath: URL,
@@ -270,7 +272,8 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
                 )
             )
             if let handle = descriptor.contentRoles.file {
-                locatorByIdentity[contentLocatorIdentity(for: handle)] = ContentLocator(
+                liveLocatorByIdentity[contentLocatorIdentity(for: handle)] = ContentLocator(
+                    registrationIdentity: UUIDv7.generate(),
                     source: .live(target: target, path: request.path),
                     reviewGeneration: request.reviewGeneration
                 )
@@ -397,7 +400,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
     }
 
     func loadContent(_ request: BridgeContentLoadRequest) async throws -> BridgeContentLoadResult {
-        guard let locator = locatorByIdentity[contentLocatorIdentity(for: request.handle)] else {
+        guard let locator = contentLocator(for: request.handle) else {
             throw BridgeProviderFailure.missingContent(handleId: request.handle.handleId)
         }
         guard locator.reviewGeneration == request.requestedGeneration,
@@ -427,7 +430,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         chunkByteCount: Int,
         emitChunk: BridgeContentStreamEmitter
     ) async throws -> BridgeContentStreamResult {
-        guard let locator = locatorByIdentity[contentLocatorIdentity(for: request.handle)] else {
+        guard let locator = contentLocator(for: request.handle) else {
             throw BridgeProviderFailure.missingContent(handleId: request.handle.handleId)
         }
         guard locator.reviewGeneration == request.requestedGeneration,
@@ -628,7 +631,8 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
             role: role,
             reviewGeneration: reviewGeneration
         )
-        locatorByIdentity[contentLocatorIdentity(for: handle)] = ContentLocator(
+        liveLocatorByIdentity[contentLocatorIdentity(for: handle)] = ContentLocator(
+            registrationIdentity: UUIDv7.generate(),
             source: .live(target: target, path: path),
             reviewGeneration: reviewGeneration
         )
@@ -639,6 +643,11 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
             handleId: handle.handleId,
             reviewGeneration: handle.reviewGeneration
         )
+    }
+
+    func contentLocator(for handle: BridgeContentHandle) -> ContentLocator? {
+        let identity = contentLocatorIdentity(for: handle)
+        return sharedLocatorStackByIdentity[identity]?.last ?? liveLocatorByIdentity[identity]
     }
 
     func bridgeChangeKind(_ kind: GitDiffChangeKind) -> BridgeFileChangeKind {
