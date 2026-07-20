@@ -430,6 +430,139 @@ struct BridgeProductReviewAvailabilityTests {
         #expect(await pump.cancel())
     }
 
+    @Test("foreground return replays Review publication interrupted at final-frame observation")
+    @MainActor
+    // swiftlint:disable:next function_body_length
+    func foregroundReturnReplaysReviewPublicationInterruptedAtFinalFrameObservation() async throws {
+        // Arrange
+        let activityCoordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground
+        )
+        let initialForegroundAdmission = try #require(
+            activityCoordinator.acquireForegroundWork()
+        )
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        let pump = BridgeProductSchemeFramePump(
+            session: harness.session,
+            producerLease: lease,
+            productAdmission: harness.productAdmission.context,
+            acknowledgeLifecycle: { _ in true }
+        )
+        let reviewPackage = try availabilityReviewPackageFixture()
+        let publication = availabilityCommittedPublication(reviewPackage)
+        let replayProvider = AvailabilityReviewPublicationProvider()
+        let traceRecorder = AvailabilityReviewPublicationTraceRecorder()
+        let coordinator = BridgePaneProductMetadataCoordinator(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: BridgePaneProductReviewMetadataSource(),
+            reviewPublicationReplay: { _ in replayProvider.publication },
+            refreshWorkAdmissionSource: activityCoordinator.workAdmissionSource,
+            lifecycleTraceRecorder: traceRecorder
+        )
+        await coordinator.install(
+            request: try availabilityMetadataStreamRequest(),
+            lease: lease,
+            productAdmission: harness.productAdmission.context,
+            session: harness.session
+        )
+        _ = try await openAvailabilityReviewSubscription(
+            coordinator: coordinator,
+            harness: harness,
+            pump: pump
+        )
+        replayProvider.publication = publication
+        let reservation = try await coordinator.reserveReviewPublication(
+            package: reviewPackage,
+            publicationId: publication.publicationId,
+            productAdmission: harness.productAdmission.context,
+            foregroundWorkAdmission: initialForegroundAdmission
+        )
+        let interruptedDelivery = Task {
+            await coordinator.deliverReviewPublication(
+                publication,
+                reservation: reservation,
+                productAdmission: harness.productAdmission.context,
+                foregroundWorkAdmission: initialForegroundAdmission
+            )
+        }
+        #expect(await waitForAvailabilityQueuedFrameCount(1, session: harness.session))
+        let sourceAccepted = try await pullAvailabilityMetadataFrame(from: pump)
+        guard case .subscriptionData(let sourceAcceptedData) = sourceAccepted,
+            case .reviewMetadata(.sourceAccepted) = sourceAcceptedData.data
+        else {
+            Issue.record("Expected initial replay sourceAccepted")
+            return
+        }
+        #expect(await waitForAvailabilityQueuedFrameCount(1, session: harness.session))
+        guard case .frame(let heldFinalFrame) = await pump.nextFrame() else {
+            Issue.record("Expected initial replay final frame")
+            return
+        }
+        #expect(
+            await waitForAvailabilityProducerPacingWaiterCount(
+                1,
+                session: harness.session
+            )
+        )
+
+        // Act
+        activityCoordinator.applyActivity(.loadedHidden)
+        await coordinator.suspendForegroundWork()
+        let interruptedDisposition = await interruptedDelivery.value
+        let suspendedProducerSnapshot = await harness.session.producerSnapshot()
+        #expect(suspendedProducerSnapshot.activeProducerCount == 1)
+        #expect(suspendedProducerSnapshot.inFlightFrameReceiptCount == 1)
+        #expect(suspendedProducerSnapshot.pendingProducerObservationPacingWaiterCount == 0)
+        #expect(
+            await harness.session.subscriptionSnapshot(
+                subscriptionId: "review-subscription-1"
+            ) != nil
+        )
+        let heldFinalAcknowledged = await pump.acknowledgeFrameConsumed(heldFinalFrame.receipt)
+        activityCoordinator.applyActivity(.foreground)
+        await coordinator.resumeForegroundWork()
+        #expect(await waitForAvailabilityQueuedFrameCount(1, session: harness.session))
+        let replayedSourceAccepted = try await pullAvailabilityMetadataFrame(from: pump)
+        #expect(await waitForAvailabilityQueuedFrameCount(1, session: harness.session))
+        let replayedFinalFrame = try await pullAvailabilityMetadataFrame(from: pump)
+        #expect(await waitForAvailabilityQueuedFrameCount(1, session: harness.session))
+        let replayedPublicationFinalFrame = try await pullAvailabilityMetadataFrame(from: pump)
+        #expect(heldFinalAcknowledged)
+        #expect(interruptedDisposition == .deferred)
+        #expect(await waitForAvailabilityPublicationCompletion(traceRecorder))
+        #expect(
+            await waitForAvailabilityProducerPacingWaiterCount(
+                0,
+                session: harness.session
+            )
+        )
+
+        // Assert
+        let replayedEvents = availabilityReviewMetadataEvents(
+            in: [replayedSourceAccepted, replayedFinalFrame, replayedPublicationFinalFrame]
+        )
+        #expect(
+            replayedEvents.contains {
+                if case .sourceAccepted = $0 { return true }
+                return false
+            })
+        #expect(
+            replayedEvents.contains {
+                if case .snapshot = $0 { return true }
+                return false
+            })
+        #expect(
+            await traceRecorder.publicationEvents.contains { event in
+                if case .completed = event { return true }
+                return false
+            }
+        )
+        #expect(initialForegroundAdmission.withValidAdmission { true } == nil)
+        await coordinator.uninstall(lease: lease)
+        #expect(await pump.cancel())
+    }
+
     @Test("failing Review publication cannot reset a replacement metadata stream")
     func failingReviewPublicationCannotResetReplacementMetadataStream() async throws {
         // Arrange
@@ -688,6 +821,49 @@ private func pullAvailabilityMetadataFrame(
     let decoder = try BridgeProductMetadataFrameDecoder()
     let frames = try decoder.append(delivery.frame.data)
     return try #require(frames.first)
+}
+
+private func waitForAvailabilityProducerPacingWaiterCount(
+    _ expectedCount: Int,
+    session: BridgeProductSession
+) async -> Bool {
+    for _ in 0..<1000 {
+        if await session.producerSnapshot().pendingProducerObservationPacingWaiterCount
+            == expectedCount
+        {
+            return true
+        }
+        await Task.yield()
+    }
+    return false
+}
+
+private func waitForAvailabilityQueuedFrameCount(
+    _ minimumCount: Int,
+    session: BridgeProductSession
+) async -> Bool {
+    for _ in 0..<1000 {
+        if await session.producerSnapshot().queuedFrameCount >= minimumCount {
+            return true
+        }
+        await Task.yield()
+    }
+    return false
+}
+
+private func waitForAvailabilityPublicationCompletion(
+    _ recorder: AvailabilityReviewPublicationTraceRecorder
+) async -> Bool {
+    for _ in 0..<1000 {
+        if await recorder.publicationEvents.contains(where: {
+            if case .completed = $0 { return true }
+            return false
+        }) {
+            return true
+        }
+        await Task.yield()
+    }
+    return false
 }
 
 private func exerciseAvailabilityPublicationFailure(

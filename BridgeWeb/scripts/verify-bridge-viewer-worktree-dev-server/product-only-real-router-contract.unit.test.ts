@@ -475,15 +475,18 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		expect(violationCodes).not.toContain('REVIEW_FRESH_ROUTE_VISIBLE_HYDRATION_MISSING');
 	});
 
-	test('keeps the registered worktree verifier pointed at the self-hosted real-router lane', async () => {
+	test('routes performance-only work to the representative runner and keeps product-only as default', async () => {
 		const registeredVerifierSource = await readFile(
 			new URL('../verify-bridge-viewer-worktree-dev-server.ts', import.meta.url),
 			'utf8',
 		);
 
+		expect(registeredVerifierSource).toContain('performanceOnlyMode');
+		expect(registeredVerifierSource).toContain('runSelfHostedBridgeViewerPerformanceVerifier');
+		expect(registeredVerifierSource).toContain('runBridgeViewerWorktreeDevServerVerifier');
 		expect(registeredVerifierSource).toContain('runSelfHostedBridgeViewerProductOnlyRegression');
-		expect(registeredVerifierSource).not.toContain(
-			"from './verify-bridge-viewer-worktree-dev-server/runner.ts'",
+		expect(registeredVerifierSource).toMatch(
+			/performanceOnlyMode[\s\S]*runSelfHostedBridgeViewerPerformanceVerifier\(\)[\s\S]*runSelfHostedBridgeViewerProductOnlyRegression\(\)/u,
 		);
 	});
 

@@ -561,6 +561,23 @@ try:
 
     focus_foreground_pane(file_handle, "File pane foreground")
 
+    def read_file_page():
+        return session.request("bridge.diff.renderState", {"handle": file_handle})
+
+    wait_for(
+        "File page metadata",
+        read_file_page,
+        lambda value: value.get("diagnostics", {}).get("evaluateSucceeded") is True
+        and value.get("diagnostics", {}).get("pageErrorCount") == 0
+        and value.get("summary", {}).get("activeViewerMode") == "file"
+        and value.get("summary", {}).get("documentVisibilityState") == "visible"
+        and value.get("summary", {}).get("frameLivenessRafAlive") == "true"
+        and (value.get("summary", {}).get("worktreeDescriptorCount") or 0)
+        == value.get("summary", {}).get("worktreeTotalDescriptorCount")
+        and (value.get("summary", {}).get("worktreeDescriptorCount") or 0)
+        >= expected_file_count,
+    )
+
     def reveal_final_file():
         return session.request(
             "bridge.fileTree.revealPath", {"handle": file_handle, "path": sentinel_paths[-1]}

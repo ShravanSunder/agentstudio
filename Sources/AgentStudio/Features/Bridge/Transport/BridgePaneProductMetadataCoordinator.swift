@@ -328,13 +328,21 @@ actor BridgePaneProductMetadataCoordinator {
 
     func suspendForegroundWork() async {
         for subscriptionId in subscriptionKindById.keys {
-            if openedSourceSubscriptionIds.contains(subscriptionId) {
+            if subscriptionKindById[subscriptionId] == .reviewMetadata {
+                deferredOpenSubscriptionIds.insert(subscriptionId)
+                deferredUpdateSubscriptionIds.remove(subscriptionId)
+            } else if openedSourceSubscriptionIds.contains(subscriptionId) {
                 deferredUpdateSubscriptionIds.insert(subscriptionId)
             } else {
                 deferredOpenSubscriptionIds.insert(subscriptionId)
             }
         }
         let producerTasks = producerTaskLifecycle.takeAndCancelEveryProducerTask()
+        if let activeStream {
+            await activeStream.session.resolveProducerObservationPacingCancellation(
+                for: activeStream.lease
+            )
+        }
         await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
     }
 
