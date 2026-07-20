@@ -22,6 +22,19 @@ struct BridgeProductSchemeAdapter: Sendable {
     let session: BridgeProductSession
     let provider: any BridgeProductSchemeProvider
     let productAdmissionGate: BridgeProductAdmissionGate
+    let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+
+    init(
+        session: BridgeProductSession,
+        provider: any BridgeProductSchemeProvider,
+        productAdmissionGate: BridgeProductAdmissionGate,
+        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
+    ) {
+        self.session = session
+        self.provider = provider
+        self.productAdmissionGate = productAdmissionGate
+        self.telemetryRecorder = telemetryRecorder
+    }
 
     func route(
         _ request: URLRequest,
@@ -77,11 +90,39 @@ struct BridgeProductSchemeAdapter: Sendable {
             bridgeProductSchemeAdapterLogger.debug("Product request routing cancelled")
             continuation.finish()
         } catch {
+            let failureReason = BridgeProductSchemeContainedFailureReason(error: error)
             bridgeProductSchemeAdapterLogger.error(
-                "Product request routing failed error=\(String(describing: error), privacy: .public)"
+                "Product request routing failed reason=\(failureReason.rawValue, privacy: .public)"
             )
-            continuation.finish(throwing: error)
+            await recordContainedFailure(reason: failureReason)
+            continuation.finish()
         }
+    }
+
+    private func recordContainedFailure(
+        reason: BridgeProductSchemeContainedFailureReason
+    ) async {
+        guard let telemetryRecorder else { return }
+        await telemetryRecorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .webKit,
+                name: "performance.bridge.webkit.product_scheme_failure_contained",
+                durationMilliseconds: nil,
+                traceContext: nil,
+                stringAttributes: [
+                    "agentstudio.bridge.phase": "error",
+                    "agentstudio.bridge.plane": "observability",
+                    "agentstudio.bridge.priority": "hot",
+                    "agentstudio.bridge.result": "failure",
+                    "agentstudio.bridge.result_reason": reason.rawValue,
+                    "agentstudio.bridge.slice": "connection_health",
+                    "agentstudio.bridge.transport": "scheme",
+                ],
+                numericAttributes: [:],
+                booleanAttributes: [:]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
     }
 
     private func routeAccepted(
@@ -529,6 +570,32 @@ struct BridgeProductSchemeAdapter: Sendable {
             .sequenceExhausted, .staleDerivationEpoch, .staleWorker,
             .streamSequenceConflict:
             409
+        }
+    }
+}
+
+private enum BridgeProductSchemeContainedFailureReason: String {
+    case frameAcknowledgementRejected = "frame_acknowledgement_rejected"
+    case frameDeliveryRejected = "frame_delivery_rejected"
+    case invalidRequestURL = "invalid_request_url"
+    case producerRetirementFailed = "producer_retirement_failed"
+    case responseDeliveryRejected = "response_delivery_rejected"
+    case unexpected
+
+    init(error: any Error) {
+        switch error as? BridgeProductSchemeAdapterError {
+        case .frameAcknowledgementRejected:
+            self = .frameAcknowledgementRejected
+        case .frameDeliveryRejected:
+            self = .frameDeliveryRejected
+        case .invalidRequestURL:
+            self = .invalidRequestURL
+        case .producerRetirementFailed:
+            self = .producerRetirementFailed
+        case .responseDeliveryRejected:
+            self = .responseDeliveryRejected
+        case nil:
+            self = .unexpected
         }
     }
 }

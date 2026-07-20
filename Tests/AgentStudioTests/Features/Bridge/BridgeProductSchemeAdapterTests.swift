@@ -449,8 +449,8 @@ struct BridgeProductSchemeAdapterTests {
         #expect((await harness.session.producerSnapshot()).hasZeroResidue)
     }
 
-    @Test("provider completion without a terminal frame fails instead of clean EOF")
-    func missingTerminalFrameFailsTheResponse() async throws {
+    @Test("provider completion without a terminal frame is contained at the WebKit boundary")
+    func missingTerminalFrameIsContainedAtWebKitBoundary() async throws {
         // Arrange
         let harness = try BridgeProductSchemeAdapterHarness.make(
             contentReturnsWithoutTerminal: true
@@ -491,25 +491,33 @@ struct BridgeProductSchemeAdapterTests {
                 )
             )
         )
-        let rejectedAsProtocolFailure: Bool
+        let endedWithoutThrowing: Bool
         do {
-            _ = try await iterator.next()
-            rejectedAsProtocolFailure = false
-        } catch BridgeProductSchemeAdapterError.frameDeliveryRejected {
-            rejectedAsProtocolFailure = true
+            endedWithoutThrowing = try await iterator.next() == nil
         } catch {
-            rejectedAsProtocolFailure = false
+            endedWithoutThrowing = false
         }
         await routedReply.routingTask.value
 
         // Assert
         #expect(openingObservation.response?.statusCode == 204)
         #expect(openingObservation.body.isEmpty)
-        #expect(rejectedAsProtocolFailure)
+        #expect(endedWithoutThrowing)
         #expect((await harness.session.producerSnapshot()).hasZeroResidue)
         let providerSnapshot = await harness.provider.snapshot
         #expect(providerSnapshot.contentRequestCount == 1)
         #expect(providerSnapshot.acknowledgedLifecycleCount == 1)
+        let containmentSamples = await harness.telemetryRecorder.samples
+        #expect(containmentSamples.count == 1)
+        #expect(containmentSamples.first?.scope == .webKit)
+        #expect(
+            containmentSamples.first?.name
+                == "performance.bridge.webkit.product_scheme_failure_contained"
+        )
+        #expect(
+            containmentSamples.first?.stringAttributes["agentstudio.bridge.result_reason"]
+                == "frame_delivery_rejected"
+        )
     }
 
 }

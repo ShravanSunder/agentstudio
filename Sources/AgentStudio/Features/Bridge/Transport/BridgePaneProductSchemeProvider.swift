@@ -309,7 +309,13 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async {
-        guard let foregroundWorkAdmission = refreshWorkAdmissionSource.acquire() else { return }
+        guard let foregroundWorkAdmission = refreshWorkAdmissionSource.acquire() else {
+            _ = await beginActivityInvalidatedProducerRetirement(
+                lease: lease,
+                session: session
+            )
+            return
+        }
         guard
             let invalidationHandlerId = foregroundWorkAdmission.registerInvalidationHandler({
                 Task { [weak self] in

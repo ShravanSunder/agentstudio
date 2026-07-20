@@ -11,7 +11,8 @@ struct BridgeProductSessionInstallation: Sendable {
     static func make(
         paneSessionId: String,
         provider: any BridgeProductSchemeProvider,
-        productAdmissionGate: BridgeProductAdmissionGate
+        productAdmissionGate: BridgeProductAdmissionGate,
+        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
     ) throws -> Self {
         var capabilityBytes = [UInt8](
             repeating: 0,
@@ -41,7 +42,8 @@ struct BridgeProductSessionInstallation: Sendable {
             productAdapter: BridgeProductSchemeAdapter(
                 session: session,
                 provider: provider,
-                productAdmissionGate: productAdmissionGate
+                productAdmissionGate: productAdmissionGate,
+                telemetryRecorder: telemetryRecorder
             ),
             session: session
         )
@@ -132,6 +134,7 @@ actor BridgePaneProductSessionOwner {
     private let paneSessionId: String
     private var preparedInstallationsByWorkerInstanceId: [String: BridgeProductSessionInstallation] = [:]
     private let provider: any BridgeProductSchemeProvider
+    private let telemetryRecorder: (any BridgePerformanceTraceRecording)?
     private var installationAwaitingRetirementRetry: BridgeProductSessionInstallation?
 
     func activeBootstrap() -> BridgeProductSessionBootstrap? {
@@ -142,7 +145,8 @@ actor BridgePaneProductSessionOwner {
         paneSessionId: String,
         provider: any BridgeProductSchemeProvider,
         productAdmissionGate: BridgeProductAdmissionGate,
-        activeInstallation: BridgeProductSessionInstallation? = nil
+        activeInstallation: BridgeProductSessionInstallation? = nil,
+        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
     ) throws {
         try BridgeProductContractDecoding.validateIdentifier(paneSessionId, codingPath: [])
         precondition(
@@ -151,6 +155,7 @@ actor BridgePaneProductSessionOwner {
         )
         self.paneSessionId = paneSessionId
         self.provider = provider
+        self.telemetryRecorder = telemetryRecorder
         self.productAdmissionGate = productAdmissionGate
         self.activeInstallation = activeInstallation
         self.schemeRouter = BridgeProductSchemeSessionRouter(
@@ -170,7 +175,8 @@ actor BridgePaneProductSessionOwner {
                 let candidate = try BridgeProductSessionInstallation.make(
                     paneSessionId: paneSessionId,
                     provider: provider,
-                    productAdmissionGate: productAdmissionGate
+                    productAdmissionGate: productAdmissionGate,
+                    telemetryRecorder: telemetryRecorder
                 )
                 preparedInstallationsByWorkerInstanceId[candidate.bootstrap.workerInstanceId] = candidate
                 return candidate

@@ -54,6 +54,40 @@ struct BridgePaneProductContentActivityAdmissionTests {
         try await finishActivityContentContext(context)
     }
 
+    @Test("closing before registered content producer entry cancels its waiting delivery")
+    @MainActor
+    func closingBeforeRegisteredContentProducerEntryCancelsWaitingDelivery() async throws {
+        // Arrange
+        let producerEntryGate = BridgeContentLoadGate()
+        let context = try await makeActivityContentContext(
+            request: bridgeProductFileContentRequest(identitySuffix: "activity-close-before-entry"),
+            initialActivity: .foreground,
+            fileBytes: Data("delayed-entry".utf8),
+            producerEntryGate: producerEntryGate
+        )
+        await producerEntryGate.waitForStartedLoadCount(1)
+        let pendingPull = Task {
+            await context.harness.session.pullProducerFrame(
+                for: context.lease,
+                productAdmission: context.harness.productAdmission.context
+            )
+        }
+        let waitingSnapshot = await waitForActivityContentState(context) { snapshot in
+            snapshot.pendingFrameWaiterCount == 1
+        }
+        #expect(waitingSnapshot.pendingFrameWaiterCount == 1)
+
+        // Act
+        context.activityCoordinator.close()
+        await producerEntryGate.releaseAll()
+        let pullResult = await pendingPull.value
+        await waitForActivityContentProducerToFinish(context)
+
+        // Assert
+        #expect(pullResult == .cancelled)
+        try await finishActivityContentContext(context)
+    }
+
     @Test("hiding during File streaming suppresses remaining frames and closes reader once")
     @MainActor
     func hidingDuringFileStreamingSuppressesRemainingFrames() async throws {
@@ -377,7 +411,8 @@ private func makeActivityContentContext(
     fileBytes: Data,
     suspendReviewBody: Bool = false,
     invalidateActivityOnFileReaderClose: Bool = false,
-    fileEndOfSourceGate: BridgeContentLoadGate? = nil
+    fileEndOfSourceGate: BridgeContentLoadGate? = nil,
+    producerEntryGate: BridgeContentLoadGate? = nil
 ) async throws -> ActivityContentContext {
     let activityCoordinator = BridgePaneRefreshAdmissionCoordinator(
         initialActivity: initialActivity
@@ -408,6 +443,7 @@ private func makeActivityContentContext(
         request: request,
         productAdmission: harness.productAdmission.context
     ) { lease in
+        await producerEntryGate?.waitUntilReleased()
         await provider.runContentProducer(
             request: request,
             lease: lease,

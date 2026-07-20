@@ -8,6 +8,7 @@ struct BridgeProductSchemeAdapterHarness {
     let capabilityHeader: String
     let provider: BridgeProductSchemeProviderSpy
     let session: BridgeProductSession
+    let telemetryRecorder: BridgeProductSchemeTelemetryRecorderSpy
 
     static func make(
         holdFirstControlResponse: Bool = false,
@@ -27,15 +28,18 @@ struct BridgeProductSchemeAdapterHarness {
             metadataProgressFrameCount: metadataProgressFrameCount
         )
         let productAdmissionGate = BridgeProductAdmissionGate()
+        let telemetryRecorder = BridgeProductSchemeTelemetryRecorderSpy()
         return Self(
             adapter: BridgeProductSchemeAdapter(
                 session: session,
                 provider: provider,
-                productAdmissionGate: productAdmissionGate
+                productAdmissionGate: productAdmissionGate,
+                telemetryRecorder: telemetryRecorder
             ),
             capabilityHeader: capabilityHeader,
             provider: provider,
-            session: session
+            session: session,
+            telemetryRecorder: telemetryRecorder
         )
     }
 
@@ -52,6 +56,33 @@ struct BridgeProductSchemeAdapterHarness {
                 body: body
             )
         )
+    }
+}
+
+actor BridgeProductSchemeTelemetryRecorderSpy: BridgePerformanceTraceRecording {
+    private var recordedSamples: [BridgeTelemetrySample] = []
+
+    func record(sample: BridgeTelemetrySample, receivedAtUnixNano: UInt64) async {
+        _ = receivedAtUnixNano
+        recordedSamples.append(sample)
+    }
+
+    func recordDrop(
+        reason: BridgeTelemetryDropReason,
+        droppedCount: Int,
+        firstRejectedEventName: String?,
+        receivedAtUnixNano: UInt64
+    ) async {
+        _ = reason
+        _ = droppedCount
+        _ = firstRejectedEventName
+        _ = receivedAtUnixNano
+    }
+
+    func drain() async throws {}
+
+    var samples: [BridgeTelemetrySample] {
+        recordedSamples
     }
 }
 

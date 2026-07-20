@@ -528,7 +528,8 @@ extension BridgePaneController {
         let installation = makeInitialProductSessionInstallation(
             paneSessionId: input.paneSessionId,
             provider: provider,
-            productAdmissionGate: productAdmissionGate
+            productAdmissionGate: productAdmissionGate,
+            telemetryRecorder: input.telemetryRecorder
         )
         return BridgePaneProductSessionDependencies(
             installation: installation,
@@ -536,7 +537,8 @@ extension BridgePaneController {
                 paneSessionId: input.paneSessionId,
                 provider: provider,
                 productAdmissionGate: productAdmissionGate,
-                activeInstallation: installation
+                activeInstallation: installation,
+                telemetryRecorder: input.telemetryRecorder
             ),
             committedCallTarget: committedCallTarget,
             productProvider: provider
@@ -570,13 +572,15 @@ extension BridgePaneController {
     nonisolated static func makeInitialProductSessionInstallation(
         paneSessionId: String,
         provider: any BridgeProductSchemeProvider,
-        productAdmissionGate: BridgeProductAdmissionGate
+        productAdmissionGate: BridgeProductAdmissionGate,
+        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
     ) -> BridgeProductSessionInstallation {
         do {
             return try .make(
                 paneSessionId: paneSessionId,
                 provider: provider,
-                productAdmissionGate: productAdmissionGate
+                productAdmissionGate: productAdmissionGate,
+                telemetryRecorder: telemetryRecorder
             )
         } catch {
             preconditionFailure("Bridge product capability generation failed: \(error)")
@@ -587,14 +591,16 @@ extension BridgePaneController {
         paneSessionId: String,
         provider: any BridgeProductSchemeProvider,
         productAdmissionGate: BridgeProductAdmissionGate,
-        activeInstallation: BridgeProductSessionInstallation
+        activeInstallation: BridgeProductSessionInstallation,
+        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
     ) -> BridgePaneProductSessionOwner {
         do {
             return try BridgePaneProductSessionOwner(
                 paneSessionId: paneSessionId,
                 provider: provider,
                 productAdmissionGate: productAdmissionGate,
-                activeInstallation: activeInstallation
+                activeInstallation: activeInstallation,
+                telemetryRecorder: telemetryRecorder
             )
         } catch {
             preconditionFailure("Bridge product session owner construction failed: \(error)")
