@@ -107,9 +107,21 @@ struct TerminalActivityProjectorTests {
     }
 
     private final class OutcomeRecorder: @unchecked Sendable {
+        private enum OutcomeWaitError: Error {
+            case timedOut
+        }
+
+        private struct OutcomeWaiter {
+            let id: Int
+            let predicate: @Sendable ([TerminalActivityProjectionOutcome]) -> Bool
+            let continuation: CheckedContinuation<[TerminalActivityProjectionOutcome], any Error>
+        }
+
         private let lock = NSLock()
+        private var nextOutcomeWaiterID = 0
         private var recordedOutcomes: [TerminalActivityProjectionOutcome] = []
         private var recordedBatches: [[TerminalActivityProjectionOutcome]] = []
+        private var outcomeWaiters: [OutcomeWaiter] = []
 
         var outcomes: [TerminalActivityProjectionOutcome] {
             lock.withLock { recordedOutcomes }
@@ -120,10 +132,86 @@ struct TerminalActivityProjectorTests {
         }
 
         func record(_ batch: [TerminalActivityProjectionOutcome]) {
+            var completedWaiters: [OutcomeWaiter] = []
+            var outcomeSnapshot: [TerminalActivityProjectionOutcome] = []
             lock.withLock {
                 recordedBatches.append(batch)
                 recordedOutcomes.append(contentsOf: batch)
+                outcomeSnapshot = recordedOutcomes
+                outcomeWaiters.removeAll { waiter in
+                    guard waiter.predicate(outcomeSnapshot) else { return false }
+                    completedWaiters.append(waiter)
+                    return true
+                }
             }
+            for waiter in completedWaiters {
+                waiter.continuation.resume(returning: outcomeSnapshot)
+            }
+        }
+
+        func firstSnapshot(
+            timeout: Duration = .seconds(10),
+            where predicate: @escaping @Sendable ([TerminalActivityProjectionOutcome]) -> Bool
+        ) async throws -> [TerminalActivityProjectionOutcome] {
+            try await withThrowingTaskGroup(of: [TerminalActivityProjectionOutcome].self) { group in
+                group.addTask {
+                    try await self.waitForSnapshot(where: predicate)
+                }
+                group.addTask {
+                    try await AsyncDelay.taskSleep.wait(timeout)
+                    throw OutcomeWaitError.timedOut
+                }
+                defer { group.cancelAll() }
+                guard let snapshot = try await group.next() else {
+                    throw CancellationError()
+                }
+                return snapshot
+            }
+        }
+
+        private func waitForSnapshot(
+            where predicate: @escaping @Sendable ([TerminalActivityProjectionOutcome]) -> Bool
+        ) async throws -> [TerminalActivityProjectionOutcome] {
+            let waiterID = lock.withLock {
+                defer { nextOutcomeWaiterID += 1 }
+                return nextOutcomeWaiterID
+            }
+
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    var immediateResult: Result<[TerminalActivityProjectionOutcome], any Error>?
+                    lock.withLock {
+                        if Task.isCancelled {
+                            immediateResult = .failure(CancellationError())
+                        } else if predicate(recordedOutcomes) {
+                            immediateResult = .success(recordedOutcomes)
+                        } else {
+                            outcomeWaiters.append(
+                                OutcomeWaiter(
+                                    id: waiterID,
+                                    predicate: predicate,
+                                    continuation: continuation
+                                )
+                            )
+                        }
+                    }
+                    if let immediateResult {
+                        continuation.resume(with: immediateResult)
+                    }
+                }
+            } onCancel: {
+                self.cancelOutcomeWaiter(id: waiterID)
+            }
+        }
+
+        private func cancelOutcomeWaiter(id: Int) {
+            let continuation = lock.withLock {
+                guard let index = outcomeWaiters.firstIndex(where: { $0.id == id }) else {
+                    return nil as CheckedContinuation<[TerminalActivityProjectionOutcome], any Error>?
+                }
+                return outcomeWaiters.remove(at: index).continuation
+            }
+            continuation?.resume(throwing: CancellationError())
         }
     }
 
@@ -291,7 +379,7 @@ struct TerminalActivityProjectorTests {
     }
 
     @Test("quiet settlement is derived by the projector actor")
-    func quietSettlementIsProjectorOwned() async {
+    func quietSettlementIsProjectorOwned() async throws {
         let clock = TestPushClock()
         let projector = TerminalActivityProjector(
             unseenQuietDuration: .milliseconds(750),
@@ -316,8 +404,8 @@ struct TerminalActivityProjectorTests {
         )
         await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: .milliseconds(750))
-        await assertEventuallyAsync("projector should emit one settled activity") {
-            recorder.outcomes.contains { outcome in
+        _ = try await recorder.firstSnapshot { outcomes in
+            outcomes.contains { outcome in
                 guard case .unseenActivitySettled(_, let outcomePaneID, let activity) = outcome else { return false }
                 return activity.rowsAdded == 40 && outcomePaneID == paneID
             }
@@ -325,7 +413,7 @@ struct TerminalActivityProjectorTests {
     }
 
     @Test("separate single-sample drains preserve cross-drain activity growth")
-    func separateSingleSampleDrainsPreserveActivityGrowth() async {
+    func separateSingleSampleDrainsPreserveActivityGrowth() async throws {
         let clock = TestPushClock()
         let projector = TerminalActivityProjector(
             unseenQuietDuration: .milliseconds(750),
@@ -367,8 +455,8 @@ struct TerminalActivityProjectorTests {
 
         await clock.waitForPendingSleepCount(exactly: 2)
         clock.advance(by: .milliseconds(750))
-        await assertEventuallyAsync("cross-drain growth should settle through both activity lanes") {
-            let settledRows = recorder.outcomes.compactMap { outcome -> Int? in
+        _ = try await recorder.firstSnapshot { outcomes in
+            let settledRows = outcomes.compactMap { outcome -> Int? in
                 switch outcome {
                 case .unseenActivitySettled(_, let outcomePaneID, let activity),
                     .agentSettledActivityPromoted(_, let outcomePaneID, let activity):
@@ -383,7 +471,7 @@ struct TerminalActivityProjectorTests {
     }
 
     @Test("late unseen callback cannot settle a replacement window with the same generation")
-    func lateUnseenCallbackCannotSettleReplacementWindow() async {
+    func lateUnseenCallbackCannotSettleReplacementWindow() async throws {
         let clock = LateCompletionClock()
         let projector = TerminalActivityProjector(
             unseenQuietDuration: .milliseconds(750),
@@ -427,8 +515,8 @@ struct TerminalActivityProjectorTests {
             } == false)
 
         clock.resumeSleep(generation: 1)
-        await assertEventuallyAsync("replacement unseen window should settle from its own callback") {
-            recorder.outcomes.contains { outcome in
+        _ = try await recorder.firstSnapshot { outcomes in
+            outcomes.contains { outcome in
                 guard case .unseenActivitySettled(let surfaceID, let outcomePaneID, _) = outcome else {
                     return false
                 }
@@ -439,7 +527,7 @@ struct TerminalActivityProjectorTests {
     }
 
     @Test("late agent callback cannot promote a replacement candidate with the same generation")
-    func lateAgentCallbackCannotPromoteReplacementCandidate() async {
+    func lateAgentCallbackCannotPromoteReplacementCandidate() async throws {
         let clock = LateCompletionClock()
         let projector = TerminalActivityProjector(
             agentSettledQuietDuration: .seconds(180),
@@ -493,8 +581,8 @@ struct TerminalActivityProjectorTests {
             } == false)
 
         clock.resumeSleep(generation: 1)
-        await assertEventuallyAsync("replacement agent candidate should promote from its own callback") {
-            recorder.outcomes.contains { outcome in
+        _ = try await recorder.firstSnapshot { outcomes in
+            outcomes.contains { outcome in
                 guard case .agentSettledActivityPromoted(let surfaceID, let outcomePaneID, _) = outcome else {
                     return false
                 }

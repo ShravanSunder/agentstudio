@@ -10,6 +10,15 @@ struct PaneTabViewControllerLaunchRestoreTests {
     init() {
         installTestAtomRegistryIfNeeded()
     }
+
+    private let fixtureSessionConfiguration = SessionConfiguration(
+        isEnabled: true,
+        zmxPath: "/tmp/fake-zmx",
+        zmxDir: "/tmp/fake-zmx-dir",
+        healthCheckInterval: 30,
+        maxCheckpointAge: 60
+    )
+
     private struct Harness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
@@ -45,6 +54,10 @@ struct PaneTabViewControllerLaunchRestoreTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: .shared,
             windowLifecycleStore: windowLifecycleStore
+        )
+        coordinator.sessionConfig = fixtureSessionConfiguration
+        coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
+            sessionConfiguration: fixtureSessionConfiguration
         )
         let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
         let controller = PaneTabViewController(
