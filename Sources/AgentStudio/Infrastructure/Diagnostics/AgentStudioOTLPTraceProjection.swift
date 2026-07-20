@@ -90,6 +90,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.management_layer.command",
         "agentstudio.performance.pane_action.name",
         "agentstudio.performance.sidebar.toggle.intent",
+        "agentstudio.performance.terminal.accumulator.drain.class",
         "agentstudio.performance.terminal.geometry.reason",
         "agentstudio.performance.terminal.surface.source",
         "agentstudio.persistence.backend",

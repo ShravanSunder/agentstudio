@@ -523,6 +523,7 @@ extension WorkspaceSurfaceCoordinator {
                 registerHostedView(mountedView: view, for: pane.id)
                 registerTerminalRuntimeIfNeeded(for: pane)
                 runtime.markRunning(pane.id)
+                registerPaneFilesystemContextIfNeeded(for: pane)
                 Self.logger.info("Restored view from undo for pane \(pane.id)")
                 return view
             } else {

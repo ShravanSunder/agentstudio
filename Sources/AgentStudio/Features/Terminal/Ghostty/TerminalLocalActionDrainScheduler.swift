@@ -5,7 +5,10 @@ typealias TerminalMainActorDrainOperation = @MainActor @Sendable () async -> Voi
 /// Delays title-only publication while preserving the existing next-turn path
 /// for presentation, activity, and lifecycle work.
 final class TerminalLocalActionDrainScheduler: @unchecked Sendable {
-    static let titlePublicationWindowMilliseconds = 250
+    static let titlePublicationMaximumMilliseconds = 250
+    static let titleAdmissionSlackMilliseconds = 25
+    static let titleDrainAdmissionDelayMilliseconds =
+        titlePublicationMaximumMilliseconds - titleAdmissionSlackMilliseconds
 
     private enum ClaimPhase {
         case titleDeadline(DispatchWorkItem)
@@ -39,7 +42,7 @@ final class TerminalLocalActionDrainScheduler: @unchecked Sendable {
             scheduleTitleDeadline
             ?? { [schedulingQueue] workItem in
                 schedulingQueue.asyncAfter(
-                    deadline: .now() + .milliseconds(Self.titlePublicationWindowMilliseconds),
+                    deadline: .now() + .milliseconds(Self.titleDrainAdmissionDelayMilliseconds),
                     execute: workItem
                 )
             }

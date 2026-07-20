@@ -1732,7 +1732,7 @@ Definitions:
 - **Semantic projection** privately combines aggregates and ordered controls,
   emitting only changed, lower-volume facts.
 
-`GhosttyActionDisposition` is the verified exhaustive five-way admission
+`GhosttyActionDisposition` is the verified exhaustive six-way admission
 decision. Classification happens before MainActor routing. The route categories
 are deliberately Terminal-specific:
 
@@ -1740,11 +1740,12 @@ are deliberately Terminal-specific:
 | --- | --- | --- |
 | Exact fact | `TerminalRuntime` exact event handling | May produce a runtime envelope when coordination needs the exact fact |
 | Latest presentation | Fixed-key `TerminalLocalActionAccumulator` slot | Apply the latest compact value locally; do not publish the raw sample |
+| Latest semantic metadata | Fixed-key `TerminalLocalActionAccumulator` slot followed by `TerminalRuntime` | Contract title metadata by surface lifetime; publish only the changed latest value |
 | Activity evidence | Fixed-key accumulator plus bounded sufficient statistics | Project off-main and publish only changed semantic activity outcomes |
 | Exact local lifecycle | Ordered compact local apply | Preserve lifecycle ordering locally without envelope, sequence, replay, or bus work |
 | Diagnostic | Explicit diagnostic/accounting path | Never silently fall through into semantic publication |
 
-`admitTranslatedActionToTerminalRuntime` performs that five-way classification
+`admitTranslatedActionToTerminalRuntime` performs that six-way classification
 exactly once and returns the exhaustive three-case
 `GhosttyTranslatedActionAdmission` callback result:
 `routeExactFactOrControl`, `updateDirectHostState`, or `handledLocally`. This

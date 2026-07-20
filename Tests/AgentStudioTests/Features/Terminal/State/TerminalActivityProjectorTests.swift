@@ -324,6 +324,64 @@ struct TerminalActivityProjectorTests {
         }
     }
 
+    @Test("separate single-sample drains preserve cross-drain activity growth")
+    func separateSingleSampleDrainsPreserveActivityGrowth() async {
+        let clock = TestPushClock()
+        let projector = TerminalActivityProjector(
+            unseenQuietDuration: .milliseconds(750),
+            agentSettledQuietDuration: .milliseconds(750),
+            clock: clock
+        )
+        let recorder = OutcomeRecorder()
+        await projector.configure { outcomes in recorder.record(outcomes) }
+        let context = TerminalActivityProjectionContext(
+            isAttended: false,
+            isAgentClassified: true,
+            outputBurstThreshold: 30
+        )
+        let paneID = UUIDv7.generate()
+        let surfaceID = UUIDv7.generate()
+
+        let samples: [(total: Int, observedAt: Int64)] = [
+            (total: 100, observedAt: 1000),
+            (total: 400, observedAt: 32_000),
+            (total: 700, observedAt: 62_000),
+        ]
+        for sample in samples {
+            let state = ScrollbarState(
+                top: max(0, sample.total - 40),
+                bottom: sample.total,
+                total: sample.total
+            )
+            await projector.ingest(
+                surfaceID: surfaceID,
+                paneID: paneID,
+                aggregate: makeSingleSampleAggregate(
+                    state: state,
+                    observedAtMilliseconds: sample.observedAt
+                ),
+                latestState: state,
+                context: context
+            )
+        }
+
+        await clock.waitForPendingSleepCount(exactly: 2)
+        clock.advance(by: .milliseconds(750))
+        await assertEventuallyAsync("cross-drain growth should settle through both activity lanes") {
+            let settledRows = recorder.outcomes.compactMap { outcome -> Int? in
+                switch outcome {
+                case .unseenActivitySettled(_, let outcomePaneID, let activity),
+                    .agentSettledActivityPromoted(_, let outcomePaneID, let activity):
+                    return outcomePaneID == paneID ? activity.rowsAdded : nil
+                default:
+                    return nil
+                }
+            }
+            return settledRows == [600, 600]
+        }
+        await projector.reset()
+    }
+
     @Test("late unseen callback cannot settle a replacement window with the same generation")
     func lateUnseenCallbackCannotSettleReplacementWindow() async {
         let clock = LateCompletionClock()
@@ -586,6 +644,16 @@ struct TerminalActivityProjectorTests {
             observedAtMilliseconds: latestObservedAtMilliseconds
         )
         return aggregate
+    }
+
+    private func makeSingleSampleAggregate(
+        state: ScrollbarState,
+        observedAtMilliseconds: Int64
+    ) -> TerminalScrollbarActivityAggregate {
+        TerminalScrollbarActivityAggregate(
+            state: state,
+            observedAtMilliseconds: observedAtMilliseconds
+        )
     }
 
     private var attendedContext: TerminalActivityProjectionContext {

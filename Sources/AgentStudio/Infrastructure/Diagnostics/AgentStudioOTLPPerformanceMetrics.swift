@@ -234,6 +234,16 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         {
             dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "reason", value: reason))
         }
+        if record.body == "performance.terminal.accumulator_drain",
+            case .string(let drainClass) = record.attributes[
+                "agentstudio.performance.terminal.accumulator.drain.class"
+            ],
+            isSafeDimensionValue(drainClass)
+        {
+            dimensions.append(
+                AgentStudioOTLPPerformanceMetricDimension(name: "drain_class", value: drainClass)
+            )
+        }
         if record.body.hasPrefix("performance.bridge.") {
             appendBridgeDimension(
                 name: "phase",

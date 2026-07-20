@@ -701,6 +701,45 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
         #expect(harness.coordinator.runtimeForPane(runtimePaneId) == nil)
     }
 
+    @Test("reused-surface undo schedules affected pane filesystem registration without full reconciliation")
+    func reusedSurfaceUndo_schedulesAffectedPaneFilesystemRegistration() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let pane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Reused")
+        let fullReconciliationCountBefore = harness.coordinator.filesystemFullReconciliationRequestCount
+        let affectedKeyCountBefore = harness.coordinator.filesystemAffectedKeyRequestCount
+
+        harness.coordinator.registerPaneFilesystemContextIfNeeded(for: pane)
+
+        #expect(
+            harness.coordinator.filesystemFullReconciliationRequestCount
+                == fullReconciliationCountBefore
+        )
+        #expect(harness.coordinator.filesystemAffectedKeyRequestCount == affectedKeyCountBefore + 1)
+        #expect(harness.coordinator.pendingFilesystemPaneUpdatesByPaneId[pane.id] != nil)
+
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let sourceURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift"
+        )
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let reusedBranchStart = try #require(
+            source.range(of: "if undone.metadata.paneId == pane.id {")
+        )
+        let mismatchBranchStart = try #require(
+            source.range(
+                of: "} else {",
+                range: reusedBranchStart.upperBound..<source.endIndex
+            )
+        )
+        let reusedBranch = String(source[reusedBranchStart.lowerBound..<mismatchBranchStart.lowerBound])
+
+        #expect(reusedBranch.contains("registerPaneFilesystemContextIfNeeded(for: pane)"))
+        #expect(!reusedBranch.contains("syncFilesystemRootsAndActivity"))
+    }
+
     @Test("fresh createView registers runtime before createSurface")
     func freshCreateView_registersRuntimeBeforeCreateSurface() {
         let harness = makeHarness()

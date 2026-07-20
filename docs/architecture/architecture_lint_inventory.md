@@ -41,8 +41,8 @@ The Terminal publication guard is deliberately lexical. In AgentStudio's
 Terminal source, it recognizes switches whose subject is
 `GhosttyActionDisposition.classify(...)`; the exact classifier call must be the
 direct switch subject rather than a stored result. Each `.latestPresentation`,
-`.activityEvidence`, `.exactLocalLifecycle`, and `.diagnostic` branch must end
-in a top-level `return` and must not directly call
+`.latestSemanticMetadata`, `.activityEvidence`, `.exactLocalLifecycle`, and
+`.diagnostic` branch must end in a top-level `return` and must not directly call
 `routeActionToTerminalRuntimeOnMainActor`. This blocks direct local-branch
 publication, stored-classifier bypass, and post-switch fallthrough to the shared
 semantic edge while leaving `.exactFactOrControl` eligible for that ordered

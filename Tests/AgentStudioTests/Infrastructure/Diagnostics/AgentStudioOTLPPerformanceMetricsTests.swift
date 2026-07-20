@@ -178,11 +178,15 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     func runtimePressureAggregateDeltasAreCountersWhileRetainedValuesStayGauges() throws {
         let factory = RecordingMetricsFactory()
         let metrics = AgentStudioOTLPPerformanceMetrics(factory: factory)
-        let dimensions = [("event", "performance.terminal.accumulator_drain")]
+        let dimensions = [
+            ("drain_class", "immediate"),
+            ("event", "performance.terminal.accumulator_drain"),
+        ]
         let firstRecord = Self.projectedPerformanceRecord(
             body: "performance.terminal.accumulator_drain",
             attributes: [
                 "agentstudio.performance.elapsed_ms": .double(3),
+                "agentstudio.performance.terminal.accumulator.drain.class": .string("immediate"),
                 "agentstudio.performance.terminal.accumulator.offered.count": .int(10),
                 "agentstudio.performance.terminal.accumulator.replaced.count": .int(8),
                 "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(4),
@@ -193,6 +197,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             body: "performance.terminal.accumulator_drain",
             attributes: [
                 "agentstudio.performance.elapsed_ms": .double(1),
+                "agentstudio.performance.terminal.accumulator.drain.class": .string("immediate"),
                 "agentstudio.performance.terminal.accumulator.offered.count": .int(5),
                 "agentstudio.performance.terminal.accumulator.replaced.count": .int(3),
                 "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(2),
@@ -204,6 +209,11 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         metrics.record(firstRecord)
         metrics.record(secondRecord)
 
+        #expect(
+            metricEvent.dimensions.contains(
+                AgentStudioOTLPPerformanceMetricDimension(name: "drain_class", value: "immediate")
+            )
+        )
         #expect(
             metricEvent.measurements.contains { measurement in
                 if case .counter(let sample) = measurement {

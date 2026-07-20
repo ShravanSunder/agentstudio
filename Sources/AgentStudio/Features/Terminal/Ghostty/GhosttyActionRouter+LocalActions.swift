@@ -80,6 +80,12 @@ extension Ghostty.ActionRouter {
             defaultActivityContext: terminalActivityProjectionContext(paneID: paneID)
         )
         Task { @MainActor in
+            guard
+                shouldSubmitSurfaceClose(
+                    currentPaneID: SurfaceManager.shared.paneId(for: surfaceID),
+                    closingPaneID: paneID
+                )
+            else { return }
             await submitTerminalActivityInput(
                 .orderedControl(
                     surfaceID: surfaceID,
@@ -89,6 +95,13 @@ extension Ghostty.ActionRouter {
                 )
             )
         }
+    }
+
+    static func shouldSubmitSurfaceClose(
+        currentPaneID: UUID?,
+        closingPaneID: UUID
+    ) -> Bool {
+        currentPaneID != closingPaneID
     }
 
     static func offerLocalPresentation(
@@ -235,7 +248,10 @@ extension Ghostty.ActionRouter {
         )
         let currentUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
         surfaceView.performanceTraceRecorder?.recordTerminalAccumulatorDrain(
-            terminalAccumulatorDrainPerformanceSnapshot(for: batch),
+            terminalAccumulatorDrainPerformanceSnapshot(
+                for: batch,
+                drainClass: terminalAccumulatorDrainClass(for: batch)
+            ),
             queueAge: terminalAccumulatorQueueAge(
                 firstOfferedAtNanoseconds: batch.firstOfferedAtNanoseconds,
                 currentUptimeNanoseconds: currentUptimeNanoseconds
@@ -244,9 +260,11 @@ extension Ghostty.ActionRouter {
     }
 
     static func terminalAccumulatorDrainPerformanceSnapshot(
-        for batch: TerminalLocalActionBatch
+        for batch: TerminalLocalActionBatch,
+        drainClass: TerminalAccumulatorDrainClass
     ) -> TerminalAccumulatorDrainPerformanceSnapshot {
         TerminalAccumulatorDrainPerformanceSnapshot(
+            drainClass: drainClass,
             offeredCount: batch.metrics.offeredCount,
             replacedCount: batch.metrics.replacedCount,
             equalSuppressedCount: batch.metrics.equalSuppressedCount,
@@ -259,11 +277,25 @@ extension Ghostty.ActionRouter {
         )
     }
 
+    static func terminalAccumulatorDrainClass(
+        for batch: TerminalLocalActionBatch
+    ) -> TerminalAccumulatorDrainClass {
+        let containsImmediateWork =
+            batch.presentation.scrollbarState != nil
+            || batch.presentation.mouseShape != nil
+            || batch.presentation.mouseVisibility != nil
+            || batch.presentation.searchUpdate != nil
+            || batch.activity != nil
+            || batch.searchLifecycle != nil
+        return containsImmediateWork ? .immediate : .titleWindow
+    }
+
     static func terminalAccumulatorDrainPerformanceSnapshot(
         for barrier: TerminalPrecedingTitleBarrier
     ) -> TerminalAccumulatorDrainPerformanceSnapshot {
         let retainedEntryCount = barrier.metadata.surfaceTitle == nil ? 1 : 2
         return TerminalAccumulatorDrainPerformanceSnapshot(
+            drainClass: .exactBarrier,
             offeredCount: barrier.metrics.offeredCount,
             replacedCount: barrier.metrics.replacedCount,
             equalSuppressedCount: barrier.metrics.equalSuppressedCount,
@@ -312,13 +344,30 @@ extension Ghostty.ActionRouter {
     }
 
     @MainActor
+    static func isCurrentSurfaceLifetime(
+        expectedSurfaceID: UUID,
+        surfaceViewObjectID: ObjectIdentifier,
+        routingLookup: any GhosttyActionRoutingLookup
+    ) -> Bool {
+        routingLookup.surfaceId(forViewObjectId: surfaceViewObjectID) == expectedSurfaceID
+    }
+
+    @MainActor
     static func routeExactFactOrControlOnMainActor(
         precedingTitle: TerminalPrecedingTitleBarrier?,
         actionTag: UInt32,
         payload: GhosttyAdapter.ActionPayload,
         surfaceViewObjectID: ObjectIdentifier,
+        expectedSurfaceID: UUID,
         routingLookup: any GhosttyActionRoutingLookup
     ) -> Bool {
+        guard
+            isCurrentSurfaceLifetime(
+                expectedSurfaceID: expectedSurfaceID,
+                surfaceViewObjectID: surfaceViewObjectID,
+                routingLookup: routingLookup
+            )
+        else { return false }
         if let precedingTitle {
             routeContractedTitleMetadata(
                 precedingTitle.metadata.runtimeTitle,

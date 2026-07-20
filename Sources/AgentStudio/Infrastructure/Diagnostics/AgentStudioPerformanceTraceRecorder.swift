@@ -1,6 +1,13 @@
 import Foundation
 
+enum TerminalAccumulatorDrainClass: String, Equatable, Sendable {
+    case immediate
+    case titleWindow = "title_window"
+    case exactBarrier = "exact_barrier"
+}
+
 struct TerminalAccumulatorDrainPerformanceSnapshot: Equatable, Sendable {
+    let drainClass: TerminalAccumulatorDrainClass
     let offeredCount: UInt64
     let replacedCount: UInt64
     let equalSuppressedCount: UInt64
@@ -160,6 +167,9 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
             .terminalAccumulatorDrain,
             duration: queueAge,
             attributes: [
+                "agentstudio.performance.terminal.accumulator.drain.class": .string(
+                    snapshot.drainClass.rawValue
+                ),
                 "agentstudio.performance.terminal.accumulator.offered.count": Self.traceInteger(
                     snapshot.offeredCount),
                 "agentstudio.performance.terminal.accumulator.replaced.count": Self.traceInteger(

@@ -321,6 +321,7 @@ struct GhosttyActionRouterTests {
                 actionTag: UInt32(GHOSTTY_ACTION_COMMAND_FINISHED.rawValue),
                 payload: .commandFinished(exitCode: 7, duration: 42),
                 surfaceViewObjectID: fixture.surfaceViewObjectID,
+                expectedSurfaceID: fixture.surfaceID,
                 routingLookup: fixture.routingLookup
             )
         )
@@ -360,6 +361,7 @@ struct GhosttyActionRouterTests {
                 actionTag: UInt32(GHOSTTY_ACTION_COMMAND_FINISHED.rawValue),
                 payload: .commandFinished(exitCode: 3, duration: 9),
                 surfaceViewObjectID: fixture.surfaceViewObjectID,
+                expectedSurfaceID: fixture.surfaceID,
                 routingLookup: fixture.routingLookup
             )
         )
@@ -382,6 +384,77 @@ struct GhosttyActionRouterTests {
 
         let replay = await fixture.runtime.eventsSince(seq: 0)
         #expect(terminalEventNames(from: replay.events) == ["command:3", "title:later"])
+    }
+
+    @Test("deferred exact routing rejects a replacement surface at the same view address")
+    func exactRoutingRejectsReplacementSurfaceLifetime() async throws {
+        let originalSurfaceID = UUIDv7.generate()
+        let replacementSurfaceID = UUIDv7.generate()
+        let replacementPaneUUID = UUIDv7.generate()
+        let surfaceViewObjectID = ObjectIdentifier(NSView(frame: .zero))
+        let replacementPaneID = PaneId(existingUUID: replacementPaneUUID)
+        let replacementRuntime = TerminalRuntime(
+            paneId: replacementPaneID,
+            metadata: PaneMetadata(paneId: replacementPaneID, title: "Replacement")
+        )
+        let runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(replacementRuntime)
+        let replacementLookup = FakeActionRoutingLookup(
+            surfaceIdsByViewObjectId: [surfaceViewObjectID: replacementSurfaceID],
+            paneIdsBySurfaceId: [replacementSurfaceID: replacementPaneUUID]
+        )
+        let accumulator = TerminalLocalActionAccumulator { _, _ in }
+        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
+        defer { Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry) }
+
+        #expect(accumulator.offer(.titleChanged("Retired"), for: originalSurfaceID) == .scheduled)
+        let sealedTitle = try #require(
+            accumulator.detachTitleBeforeExactBarrier(for: originalSurfaceID)
+        )
+
+        let routed = Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
+            precedingTitle: sealedTitle,
+            actionTag: UInt32(GHOSTTY_ACTION_COMMAND_FINISHED.rawValue),
+            payload: .commandFinished(exitCode: 9, duration: 12),
+            surfaceViewObjectID: surfaceViewObjectID,
+            expectedSurfaceID: originalSurfaceID,
+            routingLookup: replacementLookup
+        )
+
+        #expect(!routed)
+        #expect((await replacementRuntime.eventsSince(seq: 0)).events.isEmpty)
+    }
+
+    @Test("retired surface lifetime is not current after routing removal")
+    func retiredSurfaceLifetimeIsNotCurrent() {
+        let retainedView = NSView(frame: .zero)
+
+        #expect(
+            !Ghostty.ActionRouter.isCurrentSurfaceLifetime(
+                expectedSurfaceID: UUIDv7.generate(),
+                surfaceViewObjectID: ObjectIdentifier(retainedView),
+                routingLookup: FakeActionRoutingLookup()
+            )
+        )
+    }
+
+    @Test("queued close does not retire a same-pane undo remount")
+    func queuedCloseRejectsSamePaneUndoRemount() {
+        let paneID = UUIDv7.generate()
+
+        #expect(
+            !Ghostty.ActionRouter.shouldSubmitSurfaceClose(
+                currentPaneID: paneID,
+                closingPaneID: paneID
+            )
+        )
+        #expect(
+            Ghostty.ActionRouter.shouldSubmitSurfaceClose(
+                currentPaneID: nil,
+                closingPaneID: paneID
+            )
+        )
     }
 
     @Test("registered surface routes commandFinished payload through runtime envelope")

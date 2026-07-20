@@ -371,6 +371,10 @@ actor TerminalActivityProjector {
         aggregate: TerminalScrollbarActivityAggregate,
         latestState: ScrollbarState
     ) -> ActivityWindow {
+        let crossAggregatePositiveRowGrowth =
+            existing.map {
+                max(0, aggregate.firstTotalRows - $0.latestRows)
+            } ?? 0
         var window =
             existing
             ?? ActivityWindow(
@@ -389,7 +393,7 @@ actor TerminalActivityProjector {
             )
         window.lastObservedAtMilliseconds = aggregate.latestObservedAtMilliseconds
         window.eventCount += aggregate.sampleCount
-        window.rowsAdded += aggregate.cumulativePositiveRowGrowth
+        window.rowsAdded += crossAggregatePositiveRowGrowth + aggregate.cumulativePositiveRowGrowth
         window.latestRows = aggregate.latestTotalRows
         window.latestIsPinnedToBottom = latestState.isPinnedToBottom
         window.generation &+= 1

@@ -5,6 +5,13 @@ import Testing
 
 @Suite("Terminal local action accumulator")
 struct TerminalLocalActionAccumulatorTests {
+    @Test("title drain admission reserves explicit slack before the publication maximum")
+    func titleDrainAdmissionReservesPublicationSlack() {
+        #expect(TerminalLocalActionDrainScheduler.titlePublicationMaximumMilliseconds == 250)
+        #expect(TerminalLocalActionDrainScheduler.titleAdmissionSlackMilliseconds == 25)
+        #expect(TerminalLocalActionDrainScheduler.titleDrainAdmissionDelayMilliseconds == 225)
+    }
+
     @Test("title-only offers request one title-window drain")
     func titleOnlyOffersRequestOneTitleWindowDrain() {
         let scheduler = DrainScheduleRecorder()
@@ -195,6 +202,7 @@ struct TerminalLocalActionAccumulatorTests {
         #expect(barrier.metrics.scheduledDrainCount == 0)
         #expect(barrier.metrics.followUpDrainCount == 0)
         let performanceSnapshot = Ghostty.ActionRouter.terminalAccumulatorDrainPerformanceSnapshot(for: barrier)
+        #expect(performanceSnapshot.drainClass == .exactBarrier)
         #expect(performanceSnapshot.mainActorTaskCount == 0)
         #expect(performanceSnapshot.activityAggregateCount == 0)
         #expect(performanceSnapshot.retainedEntryCount == 2)
@@ -274,6 +282,7 @@ struct TerminalLocalActionAccumulatorTests {
         #expect(scheduler.scheduledSurfaceIDs == [surfaceID])
         #expect(accumulator.retainedEntryCount <= TerminalLocalActionAccumulator.maximumRetainedEntriesPerSurface)
         let batch = try #require(accumulator.beginDrain(for: surfaceID))
+        #expect(Ghostty.ActionRouter.terminalAccumulatorDrainClass(for: batch) == .titleWindow)
         #expect(batch.titleMetadata?.runtimeTitle == .tabTitleChanged("tab-99999"))
         #expect(batch.titleMetadata?.surfaceTitle == "window-99998")
         #expect(batch.metrics.offeredCount == 100_000)
@@ -339,6 +348,7 @@ struct TerminalLocalActionAccumulatorTests {
         }
 
         let batch = try #require(accumulator.beginDrain(for: surfaceID))
+        #expect(Ghostty.ActionRouter.terminalAccumulatorDrainClass(for: batch) == .immediate)
         let activity = try #require(batch.activity)
         #expect(activity.cumulativePositiveRowGrowth == 15)
         #expect(activity.firstObservedAtMilliseconds == 10)

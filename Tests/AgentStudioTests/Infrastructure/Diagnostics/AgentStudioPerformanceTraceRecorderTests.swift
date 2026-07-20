@@ -22,6 +22,7 @@ struct AgentStudioPerformanceTraceRecorderTests {
 
         recorder.recordTerminalAccumulatorDrain(
             TerminalAccumulatorDrainPerformanceSnapshot(
+                drainClass: .immediate,
                 offeredCount: 100,
                 replacedCount: 80,
                 equalSuppressedCount: 10,
@@ -67,6 +68,11 @@ struct AgentStudioPerformanceTraceRecorderTests {
         let outputFileURL = try #require(runtime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"body\":\"performance.terminal.accumulator_drain\""))
+        #expect(
+            contents.contains(
+                "\"agentstudio.performance.terminal.accumulator.drain.class\":\"immediate\""
+            )
+        )
         #expect(contents.contains("\"body\":\"performance.terminal.compact_apply\""))
         #expect(contents.contains("\"body\":\"performance.filesystem.effect_snapshot\""))
         #expect(contents.contains("\"body\":\"performance.trace_identity.snapshot\""))
