@@ -1,38 +1,44 @@
-import Darwin.Mach
 import Foundation
 import Testing
 
 @testable import AgentStudio
 
-@Suite("RuntimeEnvelope memory footprint")
+@Suite("RuntimeEnvelope retained payload footprint")
 struct RuntimeEnvelopeMemoryFootprintTests {
-    @Test("reports approximate bytes-per-envelope for common runtime payloads")
-    func reportApproximateEnvelopeFootprint() async {
+    @Test("reports deterministic minimum bytes-per-envelope for common runtime payloads")
+    func reportMinimumEnvelopeFootprint() async {
         let count = 20_000
 
         let topology = measureFootprint(label: "system.topology.worktreeRegistered", count: count) { index in
-            RuntimeEnvelope.system(
-                SystemEnvelope.test(
-                    event: .topology(
-                        .worktreeRegistered(
-                            worktreeId: UUID(),
-                            repoId: UUID(),
-                            rootPath: URL(fileURLWithPath: "/tmp/repo-\(index)")
-                        )
-                    ),
-                    seq: UInt64(index)
-                )
+            let rootPath = URL(fileURLWithPath: "/tmp/repo-\(index)")
+            return MeasuredRuntimeEnvelope(
+                envelope: RuntimeEnvelope.system(
+                    SystemEnvelope.test(
+                        event: .topology(
+                            .worktreeRegistered(
+                                worktreeId: UUID(),
+                                repoId: UUID(),
+                                rootPath: rootPath
+                            )
+                        ),
+                        seq: UInt64(index)
+                    )
+                ),
+                retainedPayloadBytes: rootPath.path.utf8.count
             )
         }
 
         let paneBell = measureFootprint(label: "pane.terminal.bellRang", count: count) { index in
-            RuntimeEnvelope.pane(
-                PaneEnvelope.test(
-                    event: .terminal(.bellRang),
-                    paneId: PaneId.generateUUIDv7(),
-                    paneKind: .terminal,
-                    seq: UInt64(index)
-                )
+            MeasuredRuntimeEnvelope(
+                envelope: RuntimeEnvelope.pane(
+                    PaneEnvelope.test(
+                        event: .terminal(.bellRang),
+                        paneId: PaneId.generateUUIDv7(),
+                        paneKind: .terminal,
+                        seq: UInt64(index)
+                    )
+                ),
+                retainedPayloadBytes: 0
             )
         }
 
@@ -40,24 +46,28 @@ struct RuntimeEnvelopeMemoryFootprintTests {
             label: "worktree.filesChanged.small(5 paths)",
             count: count
         ) { index in
-            RuntimeEnvelope.worktree(
-                WorktreeEnvelope.test(
-                    event: .filesystem(
-                        .filesChanged(
-                            changeset: FileChangeset(
-                                worktreeId: UUID(),
-                                repoId: UUID(),
-                                rootPath: URL(fileURLWithPath: "/tmp/repo-\(index)"),
-                                paths: makePaths(index: index, count: 5),
-                                timestamp: ContinuousClock().now,
-                                batchSeq: UInt64(index)
+            let paths = makePaths(index: index, count: 5)
+            return MeasuredRuntimeEnvelope(
+                envelope: RuntimeEnvelope.worktree(
+                    WorktreeEnvelope.test(
+                        event: .filesystem(
+                            .filesChanged(
+                                changeset: FileChangeset(
+                                    worktreeId: UUID(),
+                                    repoId: UUID(),
+                                    rootPath: URL(fileURLWithPath: "/tmp/repo-\(index)"),
+                                    paths: paths,
+                                    timestamp: ContinuousClock().now,
+                                    batchSeq: UInt64(index)
+                                )
                             )
-                        )
-                    ),
-                    repoId: UUID(),
-                    worktreeId: UUID(),
-                    seq: UInt64(index)
-                )
+                        ),
+                        repoId: UUID(),
+                        worktreeId: UUID(),
+                        seq: UInt64(index)
+                    )
+                ),
+                retainedPayloadBytes: retainedPathPayloadBytes(paths)
             )
         }
 
@@ -65,98 +75,85 @@ struct RuntimeEnvelopeMemoryFootprintTests {
             label: "worktree.filesChanged.large(100 paths)",
             count: count
         ) { index in
-            RuntimeEnvelope.worktree(
-                WorktreeEnvelope.test(
-                    event: .filesystem(
-                        .filesChanged(
-                            changeset: FileChangeset(
-                                worktreeId: UUID(),
-                                repoId: UUID(),
-                                rootPath: URL(fileURLWithPath: "/tmp/repo-\(index)"),
-                                paths: makePaths(index: index, count: 100),
-                                timestamp: ContinuousClock().now,
-                                batchSeq: UInt64(index)
+            let paths = makePaths(index: index, count: 100)
+            return MeasuredRuntimeEnvelope(
+                envelope: RuntimeEnvelope.worktree(
+                    WorktreeEnvelope.test(
+                        event: .filesystem(
+                            .filesChanged(
+                                changeset: FileChangeset(
+                                    worktreeId: UUID(),
+                                    repoId: UUID(),
+                                    rootPath: URL(fileURLWithPath: "/tmp/repo-\(index)"),
+                                    paths: paths,
+                                    timestamp: ContinuousClock().now,
+                                    batchSeq: UInt64(index)
+                                )
                             )
-                        )
-                    ),
-                    repoId: UUID(),
-                    worktreeId: UUID(),
-                    seq: UInt64(index)
-                )
+                        ),
+                        repoId: UUID(),
+                        worktreeId: UUID(),
+                        seq: UInt64(index)
+                    )
+                ),
+                retainedPayloadBytes: retainedPathPayloadBytes(paths)
             )
         }
 
         print("[RuntimeEnvelopeMemory] count=\(count)")
         for sample in [topology, paneBell, filesChangedSmall, filesChangedLarge] {
             print(
-                "[RuntimeEnvelopeMemory] \(sample.label): totalDelta=\(sample.totalDeltaBytes) bytes, approxPerEnvelope=\(sample.approxBytesPerEnvelope) bytes"
+                "[RuntimeEnvelopeMemory] \(sample.label): retainedPayload=\(sample.retainedPayloadBytes) bytes, minimumPerEnvelope=\(sample.minimumBytesPerEnvelope) bytes"
             )
         }
 
-        #expect(topology.approxBytesPerEnvelope > 0)
-        #expect(filesChangedSmall.approxBytesPerEnvelope > 0)
-        #expect(filesChangedLarge.approxBytesPerEnvelope > filesChangedSmall.approxBytesPerEnvelope)
-        #expect(paneBell.totalDeltaBytes <= topology.totalDeltaBytes)
+        #expect(topology.minimumBytesPerEnvelope > paneBell.minimumBytesPerEnvelope)
+        #expect(filesChangedSmall.minimumBytesPerEnvelope > topology.minimumBytesPerEnvelope)
+        #expect(filesChangedLarge.minimumBytesPerEnvelope > filesChangedSmall.minimumBytesPerEnvelope)
     }
+}
+
+private struct MeasuredRuntimeEnvelope {
+    let envelope: RuntimeEnvelope
+    let retainedPayloadBytes: Int
 }
 
 private struct FootprintSample {
     let label: String
-    let totalDeltaBytes: UInt64
-    let approxBytesPerEnvelope: UInt64
+    let retainedPayloadBytes: Int
+    let minimumBytesPerEnvelope: Int
 }
 
 private func measureFootprint(
     label: String,
     count: Int,
-    makeEnvelope: (Int) -> RuntimeEnvelope
+    makeEnvelope: (Int) -> MeasuredRuntimeEnvelope
 ) -> FootprintSample {
     var storage: [RuntimeEnvelope] = []
     storage.reserveCapacity(count)
+    var retainedPayloadBytes = 0
 
-    _ = currentResidentMemoryBytes()
-    let before = currentResidentMemoryBytes()
     for index in 0..<count {
-        storage.append(makeEnvelope(index))
+        let measuredEnvelope = makeEnvelope(index)
+        storage.append(measuredEnvelope.envelope)
+        retainedPayloadBytes += measuredEnvelope.retainedPayloadBytes
     }
-    let after = currentResidentMemoryBytes()
-
-    let delta = after > before ? after - before : 0
-    let approxPerEnvelope = count > 0 ? UInt64(Double(delta) / Double(count)) : 0
 
     withExtendedLifetime(storage) {}
 
     return FootprintSample(
         label: label,
-        totalDeltaBytes: delta,
-        approxBytesPerEnvelope: approxPerEnvelope
+        retainedPayloadBytes: retainedPayloadBytes,
+        minimumBytesPerEnvelope: MemoryLayout<RuntimeEnvelope>.stride + retainedPayloadBytes / count
     )
-}
-
-private func currentResidentMemoryBytes() -> UInt64 {
-    var info = mach_task_basic_info()
-    var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
-
-    let kernResult = withUnsafeMutablePointer(to: &info) { infoPointer in
-        infoPointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { reboundPointer in
-            task_info(
-                mach_task_self_,
-                task_flavor_t(MACH_TASK_BASIC_INFO),
-                reboundPointer,
-                &count
-            )
-        }
-    }
-
-    guard kernResult == KERN_SUCCESS else {
-        return 0
-    }
-
-    return UInt64(info.resident_size)
 }
 
 private func makePaths(index: Int, count: Int) -> [String] {
     (0..<count).map { pathIndex in
         "src/feature\(index % 100)/module\(pathIndex)/file\(index)-\(pathIndex).swift"
     }
+}
+
+private func retainedPathPayloadBytes(_ paths: [String]) -> Int {
+    paths.count * MemoryLayout<String>.stride + paths.reduce(0) { $0 + $1.utf8.count }
 }

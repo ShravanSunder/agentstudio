@@ -3,7 +3,7 @@ import Testing
 
 @testable import AgentStudio
 
-@Suite(.serialized)
+@Suite
 final class BridgeBrowserNativeRPCCutoverSourceScanTests {
     @Test
     func scriptMessageRPCPlane_isCompileDeadExceptOneShotPageLoadBootstrap() throws {
@@ -222,6 +222,15 @@ final class BridgeBrowserNativeRPCCutoverSourceScanTests {
     }
 
     private func directPrivilegedRPCRelayMatches(in source: String) -> [String] {
+        guard
+            source.contains("webkit"),
+            source.contains("messageHandlers"),
+            source.contains("rpc"),
+            source.contains("postMessage")
+        else {
+            return []
+        }
+
         let normalizedSource =
             source
             .replacingOccurrences(of: #"[\s\n\r\t]+"#, with: "", options: .regularExpression)

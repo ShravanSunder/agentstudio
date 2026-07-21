@@ -125,6 +125,10 @@ struct BridgePaneProductContentActivityAdmissionTests {
 
         // Act
         context.activityCoordinator.applyActivity(.loadedHidden)
+        let retiredDeliverySnapshot = await waitForActivityContentState(context) { snapshot in
+            snapshot.inFlightFrameReceiptCount == 0
+        }
+        #expect(retiredDeliverySnapshot.inFlightFrameReceiptCount == 0)
         #expect(
             !(await context.harness.session.acknowledgeContentFrameObservation(
                 try activityContentFrameAcknowledgement(

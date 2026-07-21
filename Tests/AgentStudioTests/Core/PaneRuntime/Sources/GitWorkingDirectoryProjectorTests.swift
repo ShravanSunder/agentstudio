@@ -83,22 +83,25 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(debtCounts == [2, 1, 2, 1, 2, 1, 0])
     }
 
-    @Test("default provider emits real SDK-backed initial git snapshot")
-    func defaultProviderEmitsRealSDKBackedInitialGitSnapshot() async throws {
-        let repoURL = try FilesystemTestGitRepo.create(named: "projector-default-sdk-provider")
+    @Test("real SDK provider emits initial git snapshot")
+    func realSDKProviderEmitsInitialGitSnapshot() async throws {
+        let repoURL = try FilesystemTestGitRepo.create(named: "projector-real-sdk-provider")
         defer { FilesystemTestGitRepo.destroy(repoURL) }
         try "initial\n".write(to: repoURL.appending(path: "tracked.txt"), atomically: true, encoding: .utf8)
         try FilesystemTestGitRepo.runGit(at: repoURL, args: ["add", "tracked.txt"])
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["commit", "-m", "Seed projector default"])
+        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["commit", "-m", "Seed projector SDK"])
         try "initial\nupdated\n".write(to: repoURL.appending(path: "tracked.txt"), atomically: true, encoding: .utf8)
 
         let bus = EventBus<RuntimeEnvelope>()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        var iterator = stream.makeAsyncIterator()
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
+            gitWorkingTreeProvider: AgentStudioGitWorkingTreeStatusProvider(
+                timeoutScheduler: PassiveAgentStudioGitStatusTimeoutScheduler()
+            ),
             coalescingWindow: .zero
         )
-        let observed = ObservedGitEvents()
-        let collectionTask = await startCollection(on: bus, observed: observed)
         await actor.start()
 
         let worktreeId = UUID()
@@ -110,17 +113,21 @@ struct GitWorkingDirectoryProjectorTests {
             )
         )
 
-        let didReceiveSnapshot = await waitUntil(maxTurns: 2_000_000) {
-            await observed.snapshotCount(for: worktreeId) >= 1
+        var snapshot: GitWorkingTreeSnapshot?
+        while let envelope = await iterator.next() {
+            guard case .worktree(let worktreeEnvelope) = envelope else { continue }
+            guard worktreeEnvelope.worktreeId == worktreeId else { continue }
+            guard case .gitWorkingDirectory(.snapshotChanged(let emittedSnapshot)) = worktreeEnvelope.event else {
+                continue
+            }
+            snapshot = emittedSnapshot
+            break
         }
-        #expect(didReceiveSnapshot)
-        let snapshot = await observed.latestSnapshot(for: worktreeId)
         #expect(snapshot?.rootPath == repoURL)
         #expect(snapshot?.branch == "main")
         #expect(snapshot?.summary.changed == 1)
 
         await actor.shutdown()
-        collectionTask.cancel()
     }
 
     @Test("worktreeRegistered triggers eager initial git snapshot")
@@ -3386,6 +3393,15 @@ struct GitWorkingDirectoryProjectorTests {
             }
         }
         fatalError("Unable to find deterministic UUID for background stripe \(expectedStripe)")
+    }
+}
+
+private struct PassiveAgentStudioGitStatusTimeoutScheduler: AgentStudioGitStatusTimeoutScheduler {
+    func scheduleTimeout(
+        after _: Duration,
+        _: @escaping @Sendable () -> Void
+    ) -> AgentStudioGitScheduledTimeout {
+        AgentStudioGitScheduledTimeout {}
     }
 }
 
