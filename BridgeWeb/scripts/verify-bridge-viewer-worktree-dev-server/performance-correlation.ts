@@ -1,6 +1,3 @@
-import type { Page } from 'playwright';
-
-import { readBridgeWorktreeVerifierTelemetrySamples } from './route-probes.ts';
 import type { WorktreeBridgeTelemetrySampleProof } from './types.ts';
 
 export interface ReviewWorkerQueueWaitMilliseconds {
@@ -26,57 +23,23 @@ export function reviewContentStateCanRenderFirstVisibleWindow(
 
 export function collectReviewWorkerQueueWaitMilliseconds(props: {
 	readonly sampleCount: number;
-	readonly samples: readonly WorktreeBridgeTelemetrySampleProof[];
+	readonly selectedPhaseSamples: readonly WorktreeBridgeTelemetrySampleProof[];
+	readonly visiblePhaseSamples: readonly WorktreeBridgeTelemetrySampleProof[];
 }): ReviewWorkerQueueWaitMilliseconds {
 	return {
 		selected: reviewWorkerQueueWaitMillisecondsForLane({
 			command: 'select',
 			lane: 'selected',
 			sampleCount: props.sampleCount,
-			samples: props.samples,
+			samples: props.selectedPhaseSamples,
 		}),
 		visible: reviewWorkerQueueWaitMillisecondsForLane({
 			command: 'viewport',
 			lane: 'visible',
 			sampleCount: props.sampleCount,
-			samples: props.samples,
+			samples: props.visiblePhaseSamples,
 		}),
 	};
-}
-
-export async function waitForReviewWorkerQueueWaitMilliseconds(props: {
-	readonly page: Page;
-	readonly sampleCount: number;
-	readonly timeoutMilliseconds: number;
-}): Promise<ReviewWorkerQueueWaitMilliseconds> {
-	try {
-		await props.page.waitForFunction(
-			(sampleCount: number): boolean => {
-				const samples = window.bridgeWorktreeVerifierTelemetrySamples ?? [];
-				const matchingCount = (command: string, lane: string): number =>
-					samples.filter(
-						(sample): boolean =>
-							sample.name === 'performance.bridge.worker.task' &&
-							sample.workerTaskKind === 'message_handler' &&
-							sample.workerCommand === command &&
-							sample.workerLane === lane &&
-							Number.isFinite(sample.numericAttributes['agentstudio.bridge.worker.queue_wait_ms']),
-					).length;
-				return (
-					matchingCount('select', 'selected') >= sampleCount &&
-					matchingCount('viewport', 'visible') >= sampleCount
-				);
-			},
-			props.sampleCount,
-			{ timeout: props.timeoutMilliseconds },
-		);
-	} catch {
-		// Return the observed counts so the proof fails with an honest sample deficit.
-	}
-	return collectReviewWorkerQueueWaitMilliseconds({
-		sampleCount: props.sampleCount,
-		samples: await readBridgeWorktreeVerifierTelemetrySamples(props.page),
-	});
 }
 
 function reviewWorkerQueueWaitMillisecondsForLane(props: {

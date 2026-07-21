@@ -32,7 +32,7 @@ import {
 	waitForWorktreeSelectedPathMilliseconds,
 	worktreeFirstVisibleContentWindowDiagnosticMessage,
 } from './performance-click-waits.ts';
-import { waitForReviewWorkerQueueWaitMilliseconds } from './performance-correlation.ts';
+import { collectReviewWorkerQueueWaitMilliseconds } from './performance-correlation.ts';
 import { reviewClickFailureDiagnosticMessage } from './review-selection.ts';
 import {
 	collectInPageReviewTreeClickPerformanceSample,
@@ -109,17 +109,19 @@ export async function collectReviewInteractionPerformanceProof(props: {
 		clickTargets,
 		page: props.page,
 	});
+	const selectedWorkerQueueSamples = await readBridgeDevTelemetryStatusSamples(props.page);
 	const reviewDevContentResponseTiming = await collectReviewDevContentResponseTimingProof(
 		props.page,
 	);
 	await resetReviewTreeForPerformanceSamples(props.page);
 	const treeScrollSamples = await collectReviewTreeScrollPerformanceSamples(props.page);
-	const codeViewScrollSamples = await collectReviewCodeViewScrollPerformanceSamples(props.page);
-	const workerQueueWaitMilliseconds = await waitForReviewWorkerQueueWaitMilliseconds({
-		page: props.page,
+	const visibleWorkerQueueSamples = await readBridgeDevTelemetryStatusSamples(props.page);
+	const workerQueueWaitMilliseconds = collectReviewWorkerQueueWaitMilliseconds({
 		sampleCount: interactionPerformanceSampleCount,
-		timeoutMilliseconds: interactionPerformanceSampleTimeoutMilliseconds,
+		selectedPhaseSamples: selectedWorkerQueueSamples,
+		visiblePhaseSamples: visibleWorkerQueueSamples,
 	});
+	const codeViewScrollSamples = await collectReviewCodeViewScrollPerformanceSamples(props.page);
 	const codeViewItemCountAfter = await readReviewCodeViewItemCount(props.page);
 	return {
 		browserOrNativeRuntime: 'vite',

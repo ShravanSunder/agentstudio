@@ -25,10 +25,10 @@ describe('worktree performance correlation', () => {
 		expect(parseNullableNumericAttribute('not-a-number')).toBeNull();
 	});
 
-	test('selects only Review selected and visible message-handler queue waits', () => {
-		const samples = [
+	test('selects Review worker queue waits from their phase-specific status snapshots', () => {
+		const selectedPhaseSamples = [
 			makeWorkerTaskSample({ command: 'select', lane: 'selected', queueWaitMilliseconds: 7 }),
-			makeWorkerTaskSample({ command: 'viewport', lane: 'visible', queueWaitMilliseconds: 11 }),
+			makeWorkerTaskSample({ command: 'viewport', lane: 'visible', queueWaitMilliseconds: 97 }),
 			makeWorkerTaskSample({
 				command: 'select',
 				lane: 'selected',
@@ -38,11 +38,16 @@ describe('worktree performance correlation', () => {
 			makeWorkerTaskSample({ command: 'viewport', lane: 'selected', queueWaitMilliseconds: 17 }),
 			makeWorkerTaskSample({ command: 'select', lane: 'selected', queueWaitMilliseconds: null }),
 		];
+		const visiblePhaseSamples = [
+			makeWorkerTaskSample({ command: 'select', lane: 'selected', queueWaitMilliseconds: 89 }),
+			makeWorkerTaskSample({ command: 'viewport', lane: 'visible', queueWaitMilliseconds: 11 }),
+		];
 
 		expect(
 			collectReviewWorkerQueueWaitMilliseconds({
-				samples,
 				sampleCount: 100,
+				selectedPhaseSamples,
+				visiblePhaseSamples,
 			}),
 		).toEqual({ selected: [7], visible: [11] });
 	});
