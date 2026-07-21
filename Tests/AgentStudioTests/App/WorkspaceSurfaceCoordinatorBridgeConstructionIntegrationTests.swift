@@ -191,6 +191,96 @@ struct WorkspaceBridgeConstructionIntegrationTests {
         await harness.finish()
     }
 
+    @Test("topology replay repairs an active restored Review controller created before topology")
+    func topologyReplayRepairsActiveRestoredReviewController() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-restored-review-topology-replay"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let harness = makeBridgePaneActivityTestHarness()
+        let state = BridgePaneState(
+            panelKind: .diffViewer,
+            source: .workspace(rootPath: repositoryURL.path, baseline: .headMinusOne)
+        )
+        let pane = harness.store.createPane(
+            content: .bridgePanel(state),
+            metadata: PaneMetadata(
+                contentType: .diff,
+                launchDirectory: repositoryURL,
+                title: "Restored Review before topology"
+            )
+        )
+        harness.viewRegistry.ensureSlot(for: pane.id)
+        let reviewProvider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(
+                    endpointId: "restored-topology-base",
+                    kind: .gitRef
+                ),
+                headEndpoint: makeBridgeEndpoint(
+                    endpointId: "restored-topology-head",
+                    kind: .workingTree
+                ),
+                changedFiles: [
+                    makeBridgeEndpointChangedFile(
+                        fileId: "restored-topology-item",
+                        path: "Sources/RestoredTopology.swift",
+                        sizeBytes: 100
+                    )
+                ]
+            ),
+            contentByHandleId: [:]
+        )
+        harness.coordinator.bridgeReviewSourceProviderOverridesByPaneId[pane.id] = reviewProvider
+        let tab = Tab(paneId: pane.id, name: "Restored Review before topology")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        enterForegroundNativeEnvironment(harness)
+        let initialView = harness.coordinator.createBridgePaneView(for: pane, state: state)
+
+        // Assert — initial construction cannot acquire worktree-scoped Review work.
+        #expect(initialView.controller.runtime.metadata.repoId == nil)
+        #expect(initialView.controller.runtime.metadata.worktreeId == nil)
+        #expect(initialView.controller.activeReviewRefreshTask == nil)
+        #expect(initialView.controller.paneState.diff.packageMetadata == nil)
+        #expect(await reviewProvider.recordedComparisonRequestsCount() == 0)
+
+        // Act — repository topology restoration completes after the pane was mounted.
+        let restoredRepo = harness.store.addRepo(at: repositoryURL)
+        let restoredWorktree = try #require(
+            harness.store.repo(restoredRepo.id)?.worktrees.first(where: { $0.isMainWorktree })
+        )
+        harness.coordinator.repairRestoredBridgePanesAfterInitialTopologyReplay()
+        await harness.coordinator.drainBridgePaneRetirements()
+        let replacementController = try #require(
+            harness.viewRegistry.allBridgeViews[pane.id]?.controller
+        )
+        await waitForActiveReviewRefreshTaskToFinish(replacementController)
+
+        // Assert — replay reconstructs immutable provider identity and retries automatically.
+        #expect(replacementController !== initialView.controller)
+        #expect(replacementController.runtime.metadata.repoId == restoredRepo.id)
+        #expect(replacementController.runtime.metadata.worktreeId == restoredWorktree.id)
+        #expect(replacementController.paneState.diff.status == .ready)
+        #expect(replacementController.paneState.diff.packageMetadata != nil)
+        #expect(await reviewProvider.recordedComparisonRequestsCount() == 1)
+
+        // Act — the one-shot replay hook is idempotent after identity is repaired.
+        harness.coordinator.repairRestoredBridgePanesAfterInitialTopologyReplay()
+        await harness.coordinator.drainBridgePaneRetirements()
+        let stableController = try #require(
+            harness.viewRegistry.allBridgeViews[pane.id]?.controller
+        )
+
+        // Assert — no second reconstruction or Review package build is admitted.
+        #expect(stableController === replacementController)
+        #expect(await reviewProvider.recordedComparisonRequestsCount() == 1)
+
+        await harness.finish()
+    }
+
     @Test("one worktree freshness advance precedes invalidation fan-out to both panes")
     func freshnessAdvancesOnceBeforePaneFanOut() async throws {
         // Arrange

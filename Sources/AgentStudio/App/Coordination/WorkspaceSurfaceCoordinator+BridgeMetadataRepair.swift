@@ -2,6 +2,33 @@ import Foundation
 
 @MainActor
 extension WorkspaceSurfaceCoordinator {
+    func repairRestoredBridgePanesAfterInitialTopologyReplay() {
+        guard let activeTab = store.tabLayoutAtom.activeTab,
+            let fallbackPaneId = activeTab.activePaneId ?? activeTab.activePaneIds.first
+        else { return }
+
+        let renderedPaneIds = PaneObservationResolver.currentRenderedPaneIds(
+            activeTab: activeTab,
+            fallbackPaneId: fallbackPaneId
+        )
+        for paneId in renderedPaneIds {
+            guard let pane = store.paneAtom.pane(paneId),
+                case .bridgePanel(let state) = pane.content,
+                let controller = viewRegistry.view(for: paneId)?
+                    .mountedContent(as: BridgePaneMountView.self)?.controller,
+                controller.runtime.metadata.repoId == nil
+                    || controller.runtime.metadata.worktreeId == nil
+            else { continue }
+
+            let repairedMetadata = bridgePaneControllerMetadata(for: pane, state: state)
+            guard repairedMetadata.repoId != nil,
+                repairedMetadata.worktreeId != nil
+            else { continue }
+
+            execute(.repair(.recreateSurface(paneId: paneId)))
+        }
+    }
+
     func bridgePaneControllerMetadata(for pane: Pane, state: BridgePaneState) -> PaneMetadata {
         var metadata = pane.metadata
         guard metadata.repoId == nil || metadata.worktreeId == nil else {

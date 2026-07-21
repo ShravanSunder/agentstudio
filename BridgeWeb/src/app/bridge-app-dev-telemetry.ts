@@ -44,7 +44,7 @@ export function createBridgeAppDevTelemetryBootstrapConfig(
 				outboxMaxCount: 4,
 				maxRetryAttempts: 3,
 				drainTimeoutMilliseconds: 5_000,
-				minimumFlushIntervalMilliseconds: 250,
+				minimumFlushIntervalMilliseconds: 0,
 			},
 		},
 	};

@@ -50,7 +50,7 @@ struct BridgeTelemetryWorkerPolicy: Codable, Equatable, Sendable {
         outboxMaxBytes: 256 * 1024,
         outboxMaxCount: 4,
         maxRetryAttempts: 3,
-        minimumFlushIntervalMilliseconds: 250,
+        minimumFlushIntervalMilliseconds: 0,
         drainTimeoutMilliseconds: 2000
     )
 

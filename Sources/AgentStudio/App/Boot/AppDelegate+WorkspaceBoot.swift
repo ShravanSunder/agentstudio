@@ -408,6 +408,7 @@ extension AppDelegate {
             guard let self else { return }
             await repositoryTopologyLoadTask.value
             await self.replayBootTopology(store: self.store, coordinator: self.workspaceCacheCoordinator)
+            self.workspaceSurfaceCoordinator.repairRestoredBridgePanesAfterInitialTopologyReplay()
             if let filesystemPipelineBootTask = self.filesystemPipelineBootTask {
                 await filesystemPipelineBootTask.value
             }
