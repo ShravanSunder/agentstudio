@@ -25,7 +25,6 @@ if (rootElement !== null) {
 		scenario: searchParams.get('scenario') ?? options.scenario,
 	});
 	const telemetryHost = installBridgeAppDevTelemetryHost({
-		respondToHandshakeRequests: false,
 		scenario: telemetryScenario,
 	});
 	const productSessionHost = installBridgeAppDevProductSessionHost();

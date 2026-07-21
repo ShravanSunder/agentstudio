@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
@@ -10,6 +12,7 @@ import {
 } from '../core/telemetry-worker/bridge-telemetry-worker-entry.js';
 import { createBridgeTelemetryWorkerProducer } from '../core/telemetry-worker/bridge-telemetry-worker-producer.js';
 import { acceptedTransport } from '../core/telemetry-worker/bridge-telemetry-worker.unit.test-support.js';
+import { installBridgeAppDevProductSessionHost } from './bridge-app-dev-product-session-host.js';
 import {
 	createBridgeAppDevTelemetryBootstrapConfig,
 	installBridgeAppDevTelemetryHost,
@@ -23,8 +26,13 @@ describe('Bridge app dev telemetry host', () => {
 	test('responds to the Bridge handshake with web telemetry config', () => {
 		const target = new EventTarget();
 		const handshakeDetails: unknown[] = [];
+		const fetchBootstrap = vi.fn<typeof fetch>();
 		target.addEventListener('__bridge_handshake', (event: Event): void => {
 			handshakeDetails.push('detail' in event ? event.detail : null);
+		});
+		const productSessionHost = installBridgeAppDevProductSessionHost({
+			fetchBootstrap,
+			target,
 		});
 		const host = installBridgeAppDevTelemetryHost({
 			createTelemetrySessionId: (): string => 'dev-telemetry-test-session',
@@ -53,8 +61,22 @@ describe('Bridge app dev telemetry host', () => {
 				},
 			},
 		]);
+		expect(fetchBootstrap).not.toHaveBeenCalled();
 
 		host.dispose();
+		productSessionHost.dispose();
+	});
+
+	test('wires one dev handshake responder into the pane telemetry producer path', async () => {
+		const [bootstrapSource, appSource] = await Promise.all([
+			readFile(new URL('./bridge-app-dev-bootstrap.tsx', import.meta.url), 'utf8'),
+			readFile(new URL('./bridge-app.tsx', import.meta.url), 'utf8'),
+		]);
+
+		expect(bootstrapSource.match(/installBridgeAppDevTelemetryHost\(\{/g)).toHaveLength(1);
+		expect(bootstrapSource).not.toContain('respondToHandshakeRequests: false');
+		expect(appSource).toContain('onTelemetryConfig: configureTelemetryRecorder');
+		expect(appSource).toContain('paneRuntimeHost.runtime.installTelemetryProducer');
 	});
 
 	test('retains the required Review reset footprint until credits recycle', async () => {
