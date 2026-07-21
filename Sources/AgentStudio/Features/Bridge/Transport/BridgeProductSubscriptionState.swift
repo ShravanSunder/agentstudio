@@ -337,6 +337,14 @@ struct BridgeProductSubscriptionState: Sendable {
         return Self.snapshot(record)
     }
 
+    mutating func terminate(subscriptionId: String) {
+        let subscriptionIdentity = ExactUTF8Identity(subscriptionId)
+        recordsBySubscriptionId.removeValue(forKey: subscriptionIdentity)
+        barrierIntents.removeAll {
+            ExactUTF8Identity($0.subscriptionId) == subscriptionIdentity
+        }
+    }
+
     mutating func reconcile(
         activeSubscriptions: [BridgeProductActiveSubscription]
     ) throws -> BridgeProductSubscriptionResyncResult {

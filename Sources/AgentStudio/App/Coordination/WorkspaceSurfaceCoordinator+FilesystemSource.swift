@@ -67,6 +67,12 @@ extension WorkspaceSurfaceCoordinator {
         startFilesystemEffectTaskIfNeeded()
     }
 
+    func scheduleSidebarVisibleWorktreesUpdate() {
+        guard hasPendingSidebarVisibleWorktreesUpdate else { return }
+        filesystemAffectedKeyRequestCount &+= 1
+        startFilesystemEffectTaskIfNeeded()
+    }
+
     func startObservingActivePaneWorktree() {
         guard !isObservingActivePaneWorktree else { return }
         isObservingActivePaneWorktree = true
@@ -298,6 +304,12 @@ extension WorkspaceSurfaceCoordinator {
         filesystemSyncRequested
             || !pendingFilesystemPaneUpdatesByPaneId.isEmpty
             || pendingActivePaneWorktreeUpdate
+            || hasPendingSidebarVisibleWorktreesUpdate
+    }
+
+    private var hasPendingSidebarVisibleWorktreesUpdate: Bool {
+        atom(\.sidebarVisibleWorktreesRuntime).visibleWorktreeIds
+            != filesystemLastSidebarVisibleWorktreeIds
     }
 
     private func performAffectedFilesystemEffectsPass() async {
@@ -306,6 +318,9 @@ extension WorkspaceSurfaceCoordinator {
         pendingFilesystemPaneUpdatesByPaneId.removeAll(keepingCapacity: true)
         let shouldUpdateActivePaneWorktree = pendingActivePaneWorktreeUpdate
         pendingActivePaneWorktreeUpdate = false
+        let sidebarVisibleWorktreeIds = atom(\.sidebarVisibleWorktreesRuntime).visibleWorktreeIds
+        let shouldUpdateSidebarVisibleWorktrees =
+            sidebarVisibleWorktreeIds != filesystemLastSidebarVisibleWorktreeIds
         var didApplyPaneEffect = false
 
         for paneUpdate in paneUpdates {
@@ -332,6 +347,12 @@ extension WorkspaceSurfaceCoordinator {
                 guard !Task.isCancelled else { return }
                 filesystemLastActivePaneWorktreeId = nextActivePaneWorktreeId
             }
+        }
+
+        if shouldUpdateSidebarVisibleWorktrees {
+            await filesystemSource.setSidebarVisibleWorktrees(sidebarVisibleWorktreeIds)
+            guard !Task.isCancelled else { return }
+            filesystemLastSidebarVisibleWorktreeIds = sidebarVisibleWorktreeIds
         }
 
         if didApplyPaneEffect {

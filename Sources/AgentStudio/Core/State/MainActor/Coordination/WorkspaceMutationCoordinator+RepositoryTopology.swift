@@ -75,6 +75,7 @@ extension WorkspaceMutationCoordinator {
             }
 
             let repairedWorktree = Worktree(
+                id: UUIDv7.generate(),
                 repoId: repository.id,
                 name: normalizedPath.lastPathComponent,
                 path: normalizedPath,

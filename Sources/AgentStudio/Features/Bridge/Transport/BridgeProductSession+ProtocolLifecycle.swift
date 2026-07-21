@@ -32,10 +32,10 @@ extension BridgeProductSession {
                 )
                 switch result {
                 case .enqueued:
-                    protocolSubscriptionDeliveryById.removeValue(forKey: subscriptionId)
+                    terminateProtocolSubscription(subscriptionId: subscriptionId)
                     resumeProducerFrameWaiterIfPossible(for: target.lease)
                 case .queueReset:
-                    protocolSubscriptionDeliveryById.removeAll(keepingCapacity: false)
+                    terminateAllProtocolSubscriptionsWithDeliveries()
                     resumeProducerFrameWaiterIfPossible(for: target.lease)
                 case .rejected:
                     break
@@ -87,7 +87,7 @@ extension BridgeProductSession {
                     protocolSubscriptionDeliveryById[subscriptionId] = delivery
                     resumeProducerFrameWaiterIfPossible(for: target.lease)
                 case .queueReset:
-                    protocolSubscriptionDeliveryById.removeAll(keepingCapacity: false)
+                    terminateAllProtocolSubscriptionsWithDeliveries()
                     resumeProducerFrameWaiterIfPossible(for: target.lease)
                 case .rejected:
                     break
@@ -95,6 +95,19 @@ extension BridgeProductSession {
                 return result
             } ?? .rejected(.lifecycleClosed)
         } ?? .rejected(.lifecycleClosed)
+    }
+
+    private func terminateProtocolSubscription(subscriptionId: String) {
+        protocolSubscriptionDeliveryById.removeValue(forKey: subscriptionId)
+        subscriptionState.terminate(subscriptionId: subscriptionId)
+    }
+
+    private func terminateAllProtocolSubscriptionsWithDeliveries() {
+        let subscriptionIds = protocolSubscriptionDeliveryById.keys
+        for subscriptionId in subscriptionIds {
+            subscriptionState.terminate(subscriptionId: subscriptionId)
+        }
+        protocolSubscriptionDeliveryById.removeAll(keepingCapacity: false)
     }
 
     func admitRequiredProtocolLifecycleFrame(

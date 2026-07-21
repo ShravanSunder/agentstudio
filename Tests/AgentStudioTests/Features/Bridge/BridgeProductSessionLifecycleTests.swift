@@ -152,6 +152,100 @@ struct BridgeProductSessionLifecycleTests {
         )
     }
 
+    @Test("resync reopens a File subscription after its delivered reset becomes terminal")
+    func resyncReopensFileSubscriptionAfterDeliveredReset() async throws {
+        // Arrange
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let metadataLease = try await harness.admitMetadataFrames(through: 0)
+        let fileOpenRequest = try bridgeProductLifecycleControlRequest(
+            bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 2)
+        )
+        let fileOpenToken = try #require(
+            try await harness.begin(fileOpenRequest).executionToken
+        )
+        #expect(await harness.session.claimControlProviderDispatch(token: fileOpenToken))
+        let emptyFileSHA256 =
+            try BridgeProductSubscriptionInterestState
+            .fileMetadata(interests: [], pathScope: [])
+            .sha256Hex()
+        let fileOpenResponse = try BridgeProductControlResponse.subscriptionOpenAccepted(
+            correlating: fileOpenRequest,
+            interestSha256: emptyFileSHA256
+        )
+        _ = try await harness.session.completeControl(
+            token: fileOpenToken,
+            exactResponseBytes: try JSONEncoder().encode(fileOpenResponse)
+        )
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: metadataLease,
+                from: harness.session,
+                productAdmission: harness.productAdmission.context
+            )?.sequence == 1
+        )
+        await harness.session.settleControlProviderDispatch(token: fileOpenToken)
+        let foregroundWork = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+        let resetResult = try await harness.session.enqueueSubscriptionReset(
+            subscriptionId: "file-subscription-1",
+            reason: .staleSource,
+            productAdmission: harness.productAdmission.context,
+            foregroundWorkAdmission: foregroundWork.admission
+        )
+        guard case .enqueued = resetResult else {
+            Issue.record("Expected subscription.reset to remove the live File delivery")
+            try await harness.closeProducer(metadataLease)
+            return
+        }
+        let resyncRequest = try bridgeProductLifecycleControlRequest([
+            "activeSubscriptions": [
+                [
+                    "interestRevision": 0,
+                    "interestSha256": emptyFileSHA256,
+                    "subscriptionId": "file-subscription-1",
+                    "subscriptionKind": "file.metadata",
+                    "workerDerivationEpoch": 2,
+                ]
+            ],
+            "kind": "workerSession.resync",
+            "lastAcceptedRequestSequence": 2,
+            "lastAcceptedStreamSequence": 1,
+            "paneSessionId": "pane-session-1",
+            "requestId": "request-resync-3",
+            "requestSequence": 3,
+            "wireVersion": BridgeProductWireContract.version,
+            "workerInstanceId": "worker-instance-1",
+        ])
+
+        // Act
+        let resyncToken = try #require(
+            try await harness.begin(resyncRequest).executionToken
+        )
+        let resyncResponse = try await harness.authoritativeResyncResponse(
+            request: resyncRequest,
+            token: resyncToken
+        )
+        _ = try await harness.session.completeControl(
+            token: resyncToken,
+            exactResponseBytes: try JSONEncoder().encode(resyncResponse)
+        )
+        let survivingFileSubscription = await harness.session.subscriptionSnapshot(
+            subscriptionId: "file-subscription-1"
+        )
+        try await harness.closeProducer(metadataLease)
+
+        // Assert
+        guard case .resyncAccepted(let acceptedResponse) = resyncResponse else {
+            Issue.record("Expected resync.accepted")
+            return
+        }
+        #expect(
+            (
+                acceptedResponse.reconciliation.map(\.dispositionName),
+                survivingFileSubscription == nil
+            ) == (["reopenRequired"], true)
+        )
+    }
+
     @Test("resync validates sequence and response facts before atomic surface reconciliation")
     func resyncIsAtomicAcrossIndependentSurfaceEpochs() async throws {
         // Arrange

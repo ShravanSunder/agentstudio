@@ -459,6 +459,67 @@ final class WorkspaceCacheCoordinatorTests {
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot?.summary.changed == 2)
     }
 
+    @Test("termination drains pending enrichment before the first persistence flush")
+    func terminationDrainsPendingEnrichmentBeforeFirstPersistenceFlush() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let clock = TestPushClock()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: bus,
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            scopeSyncHandler: { _ in },
+            enrichmentApplierFlushInterval: .milliseconds(25),
+            enrichmentApplierClock: clock
+        )
+        let repoId = UUID()
+        let worktreeId = UUID()
+        coordinator.startConsuming()
+        await waitForSubscriber(bus: bus)
+
+        await bus.post(
+            .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .branchChanged(
+                            worktreeId: worktreeId,
+                            repoId: repoId,
+                            from: "main",
+                            to: "termination-branch"
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                )
+            )
+        )
+
+        let didScheduleFlush = await waitUntilYielding {
+            clock.pendingSleepCount == 1
+        }
+        #expect(didScheduleFlush)
+        #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
+
+        var branchObservedByFirstPersistenceFlush: String?
+        await runFirstPersistenceFlushAfterWorkspaceCacheShutdown(
+            workspaceCacheCoordinator: coordinator
+        ) {
+            branchObservedByFirstPersistenceFlush = repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch
+        }
+
+        #expect(branchObservedByFirstPersistenceFlush == "termination-branch")
+
+        var didRunSecondPersistenceFlush = false
+        await runFirstPersistenceFlushAfterWorkspaceCacheShutdown(
+            workspaceCacheCoordinator: coordinator
+        ) {
+            didRunSecondPersistenceFlush = true
+        }
+        #expect(didRunSecondPersistenceFlush)
+    }
+
     @Test
     func enrichment_branchChanged_preservesExistingSnapshot() {
         let workspaceStore = makeWorkspaceStore()

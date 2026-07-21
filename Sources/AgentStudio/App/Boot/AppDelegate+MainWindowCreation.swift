@@ -99,7 +99,7 @@ extension AppDelegate {
             paneInboxPresenter: dependencies.paneInboxNotificationPresenter,
             performanceTraceRecorder: dependencies.performanceTraceRecorder,
             onSidebarVisibleWorktreesChanged: { [weak workspaceSurfaceCoordinator] in
-                workspaceSurfaceCoordinator?.syncFilesystemRootsAndActivity()
+                workspaceSurfaceCoordinator?.scheduleSidebarVisibleWorktreesUpdate()
             },
             closeTransitionCoordinator: dependencies.closeTransitionCoordinator
         )
