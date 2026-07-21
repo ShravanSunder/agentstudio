@@ -91,6 +91,109 @@ describe('Bridge worker RPC lifecycle store', () => {
 		});
 	});
 
+	test('preserves duplicate request id and missing request read errors', () => {
+		const store = createBridgeWorkerRpcLifecycleStore();
+
+		store.startRequest({ requestId: 'tracked', command: 'select' });
+
+		expect(() => store.startRequest({ requestId: 'tracked', command: 'hover' })).toThrow(
+			'Bridge worker RPC request tracked is already tracked.',
+		);
+		expect(() => store.ackRequest({ requestId: 'missing', acknowledgedAtSequence: 1 })).toThrow(
+			'Bridge worker RPC request missing is not tracked.',
+		);
+	});
+
+	test.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.NaN])(
+		'rejects invalid terminal history capacity %s',
+		(terminalHistoryCapacityPerSurface) => {
+			expect(() =>
+				createBridgeWorkerRpcLifecycleStore({ terminalHistoryCapacityPerSurface }),
+			).toThrow(
+				'Bridge worker RPC lifecycle store requires a positive safe terminal history capacity.',
+			);
+		},
+	);
+
+	test('evicts the oldest terminal request on the same surface by settlement order', () => {
+		const store = createBridgeWorkerRpcLifecycleStore({ terminalHistoryCapacityPerSurface: 2 });
+
+		store.startRequest({ requestId: 'settles-late', command: 'select', surface: 'review' });
+		store.startRequest({ requestId: 'settles-first', command: 'hover', surface: 'review' });
+		store.ackRequest({ requestId: 'settles-first', acknowledgedAtSequence: 1 });
+		store.startRequest({ requestId: 'settles-second', command: 'viewport', surface: 'review' });
+		store.ackRequest({ requestId: 'settles-second', acknowledgedAtSequence: 2 });
+		store.ackRequest({ requestId: 'settles-late', acknowledgedAtSequence: 3 });
+
+		const requestsById = store.getSnapshot().requestsById;
+		expect(requestsById['settles-first']).toBeUndefined();
+		expect(requestsById['settles-second']).toMatchObject({ state: 'acked' });
+		expect(requestsById['settles-late']).toMatchObject({
+			state: 'acked',
+			acknowledgedAtSequence: 3,
+		});
+	});
+
+	test('never evicts pending requests when terminal history reaches capacity', () => {
+		const store = createBridgeWorkerRpcLifecycleStore({ terminalHistoryCapacityPerSurface: 1 });
+		let publishCount = 0;
+		store.subscribe(() => {
+			publishCount += 1;
+		});
+
+		store.startRequest({ requestId: 'pending-review', command: 'select', surface: 'review' });
+		store.startRequest({ requestId: 'terminal-old', command: 'hover', surface: 'review' });
+		store.ackRequest({ requestId: 'terminal-old', acknowledgedAtSequence: 1 });
+		store.startRequest({ requestId: 'terminal-latest', command: 'viewport', surface: 'review' });
+		store.ackRequest({ requestId: 'terminal-latest', acknowledgedAtSequence: 2 });
+
+		const requestsById = store.getSnapshot().requestsById;
+		expect(requestsById['pending-review']).toMatchObject({ state: 'pending' });
+		expect(requestsById['terminal-old']).toBeUndefined();
+		expect(requestsById['terminal-latest']).toMatchObject({ state: 'acked' });
+		expect(publishCount).toBe(5);
+	});
+
+	test('bounds terminal history independently for each surface', () => {
+		const store = createBridgeWorkerRpcLifecycleStore({ terminalHistoryCapacityPerSurface: 1 });
+
+		for (const surface of ['fileView', 'pane', 'review'] as const) {
+			store.startRequest({ requestId: `${surface}-old`, command: 'select', surface });
+			store.ackRequest({ requestId: `${surface}-old`, acknowledgedAtSequence: 1 });
+		}
+		store.startRequest({ requestId: 'review-latest', command: 'hover', surface: 'review' });
+		store.ackRequest({ requestId: 'review-latest', acknowledgedAtSequence: 2 });
+
+		const requestsById = store.getSnapshot().requestsById;
+		expect(requestsById['fileView-old']).toMatchObject({ state: 'acked' });
+		expect(requestsById['pane-old']).toMatchObject({ state: 'acked' });
+		expect(requestsById['review-old']).toBeUndefined();
+		expect(requestsById['review-latest']).toMatchObject({ state: 'acked' });
+	});
+
+	test('retains failed and timed out settlements until each is genuinely oldest', () => {
+		const store = createBridgeWorkerRpcLifecycleStore({ terminalHistoryCapacityPerSurface: 2 });
+
+		store.startRequest({ requestId: 'failed', command: 'select', surface: 'fileView' });
+		store.failRequest({ requestId: 'failed', reason: 'rejected' });
+		store.startRequest({ requestId: 'timed-out', command: 'hover', surface: 'fileView' });
+		store.timeoutRequest({ requestId: 'timed-out' });
+
+		expect(store.getSnapshot().requestsById['failed']).toMatchObject({
+			state: 'failed',
+			reason: 'rejected',
+		});
+		expect(store.getSnapshot().requestsById['timed-out']).toMatchObject({ state: 'timed_out' });
+
+		store.startRequest({ requestId: 'latest', command: 'viewport', surface: 'fileView' });
+		store.ackRequest({ requestId: 'latest', acknowledgedAtSequence: 3 });
+
+		const requestsById = store.getSnapshot().requestsById;
+		expect(requestsById['failed']).toBeUndefined();
+		expect(requestsById['timed-out']).toMatchObject({ state: 'timed_out' });
+		expect(requestsById['latest']).toMatchObject({ state: 'acked' });
+	});
+
 	test('converted Bridge worker surfaces do not import async cache primitives', () => {
 		const root = join(process.cwd(), 'src', 'core', 'comm-worker');
 		const forbiddenPatterns = [

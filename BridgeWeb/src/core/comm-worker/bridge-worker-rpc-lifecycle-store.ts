@@ -3,6 +3,8 @@ import type { BridgeWorkerMainToServerCommand } from './bridge-worker-contracts.
 type BridgeWorkerRpcCommand = BridgeWorkerMainToServerCommand['command'];
 type BridgeWorkerRpcRequestState = 'pending' | 'acked' | 'failed' | 'timed_out' | 'superseded';
 
+const DEFAULT_TERMINAL_HISTORY_CAPACITY_PER_SURFACE = 128;
+
 export type BridgeWorkerRpcSurface = 'fileView' | 'pane' | 'review';
 
 export interface BridgeWorkerRpcRollbackMetadata {
@@ -63,17 +65,49 @@ export interface BridgeWorkerRpcLifecycleStore {
 	readonly timeoutRequest: (props: TimeoutBridgeWorkerRpcRequestProps) => void;
 }
 
-export function createBridgeWorkerRpcLifecycleStore(): BridgeWorkerRpcLifecycleStore {
+export interface CreateBridgeWorkerRpcLifecycleStoreProps {
+	readonly terminalHistoryCapacityPerSurface?: number;
+}
+
+export function createBridgeWorkerRpcLifecycleStore(
+	options: CreateBridgeWorkerRpcLifecycleStoreProps = {},
+): BridgeWorkerRpcLifecycleStore {
+	const terminalHistoryCapacityPerSurface =
+		options.terminalHistoryCapacityPerSurface ?? DEFAULT_TERMINAL_HISTORY_CAPACITY_PER_SURFACE;
+	if (
+		!Number.isSafeInteger(terminalHistoryCapacityPerSurface) ||
+		terminalHistoryCapacityPerSurface <= 0
+	) {
+		throw new Error(
+			'Bridge worker RPC lifecycle store requires a positive safe terminal history capacity.',
+		);
+	}
 	let snapshot: BridgeWorkerRpcLifecycleSnapshot = { requestsById: {} };
 	const listeners = new Set<() => void>();
+	const terminalRequestIdsBySurface: Record<BridgeWorkerRpcSurface, string[]> = {
+		fileView: [],
+		pane: [],
+		review: [],
+	};
 	let isDisposed = false;
 
 	const publish = (nextRequest: BridgeWorkerRpcRequestEnvelope): void => {
+		const nextRequestsById = {
+			...snapshot.requestsById,
+			[nextRequest.requestId]: nextRequest,
+		};
+		if (nextRequest.state !== 'pending') {
+			const terminalRequestIds = terminalRequestIdsBySurface[nextRequest.surface];
+			const existingTerminalIndex = terminalRequestIds.indexOf(nextRequest.requestId);
+			if (existingTerminalIndex >= 0) terminalRequestIds.splice(existingTerminalIndex, 1);
+			terminalRequestIds.push(nextRequest.requestId);
+			while (terminalRequestIds.length > terminalHistoryCapacityPerSurface) {
+				const oldestTerminalRequestId = terminalRequestIds.shift();
+				if (oldestTerminalRequestId !== undefined) delete nextRequestsById[oldestTerminalRequestId];
+			}
+		}
 		snapshot = {
-			requestsById: {
-				...snapshot.requestsById,
-				[nextRequest.requestId]: nextRequest,
-			},
+			requestsById: nextRequestsById,
 		};
 		for (const listener of listeners) {
 			listener();
@@ -93,6 +127,9 @@ export function createBridgeWorkerRpcLifecycleStore(): BridgeWorkerRpcLifecycleS
 			if (isDisposed) return;
 			isDisposed = true;
 			listeners.clear();
+			terminalRequestIdsBySurface.fileView.length = 0;
+			terminalRequestIdsBySurface.pane.length = 0;
+			terminalRequestIdsBySurface.review.length = 0;
 			snapshot = { requestsById: {} };
 		},
 		getSnapshot: (): BridgeWorkerRpcLifecycleSnapshot => snapshot,
@@ -144,7 +181,12 @@ export function createBridgeWorkerRpcLifecycleStore(): BridgeWorkerRpcLifecycleS
 			});
 		},
 		rollbackRequest: (props: RollbackBridgeWorkerRpcRequestProps): void => {
-			if (isDisposed || snapshot.requestsById[props.requestId] === undefined) return;
+			if (isDisposed) return;
+			const existing = snapshot.requestsById[props.requestId];
+			if (existing === undefined) return;
+			const terminalRequestIds = terminalRequestIdsBySurface[existing.surface];
+			const terminalIndex = terminalRequestIds.indexOf(props.requestId);
+			if (terminalIndex >= 0) terminalRequestIds.splice(terminalIndex, 1);
 			const nextRequestsById = { ...snapshot.requestsById };
 			delete nextRequestsById[props.requestId];
 			snapshot = { requestsById: nextRequestsById };
