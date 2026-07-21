@@ -40,28 +40,6 @@ export function makePassingInteractionPerformanceProof(): WorktreeInteractionPer
 		},
 		clickToFirstVisibleContentWindow: summarizeInteractionSamples(passingClickSamples),
 		commitSha: '0123456789abcdef',
-		demandQueueWait: {
-			foreground: summarizeInteractionSamples(Array.from({ length: 100 }, (): number => 8)),
-			visible: summarizeInteractionSamples(Array.from({ length: 100 }, (): number => 16)),
-		},
-		foregroundContentLoadTiming: {
-			executorInFlight: summarizeInteractionSamples(Array.from({ length: 100 }, (): number => 24)),
-			executorPendingWait: summarizeInteractionSamples(
-				Array.from({ length: 100 }, (): number => 0),
-			),
-			resourceBodyRegistryCommit: summarizeInteractionSamples(
-				Array.from({ length: 100 }, (): number => 1),
-			),
-			resourceFetchResponseWait: summarizeInteractionSamples(
-				Array.from({ length: 100 }, (): number => 12),
-			),
-			resourceFirstChunkWait: summarizeInteractionSamples(
-				Array.from({ length: 100 }, (): number => 4),
-			),
-			resourceStreamRead: summarizeInteractionSamples(
-				Array.from({ length: 100 }, (): number => 18),
-			),
-		},
 		fileClickSampleCount: 100,
 		runMarker: 'bridgeviewer-worktree-vite-123',
 		scrollToVisibleRows: summarizeInteractionSamples(passingScrollSamples),
@@ -100,9 +78,6 @@ export function makePassingReviewInteractionPerformanceProof(): ReviewInteractio
 			),
 			contentReadyAfterSelectedPath: summarizeInteractionSamples(
 				Array.from({ length: 100 }, (): number => 10),
-			),
-			selectedDemandDuration: summarizeInteractionSamples(
-				Array.from({ length: 100 }, (): number => 8),
 			),
 			selectedPathState: summarizeInteractionSamples(Array.from({ length: 100 }, (): number => 30)),
 			treeSelectionVisible: summarizeInteractionSamples(
@@ -145,6 +120,10 @@ export function makePassingReviewInteractionPerformanceProof(): ReviewInteractio
 		),
 		runMarker: 'bridgeviewer-review-vite-123',
 		workerMode: 'on',
+		workerQueueWait: {
+			selected: summarizeInteractionSamples(Array.from({ length: 100 }, (): number => 8)),
+			visible: summarizeInteractionSamples(Array.from({ length: 100 }, (): number => 16)),
+		},
 	};
 }
 

@@ -54,8 +54,6 @@ export interface WorktreeInteractionPerformanceProof {
 	readonly clickPhaseDurations: WorktreeFileClickPhaseDurationSummaries;
 	readonly clickToFirstVisibleContentWindow: WorktreeInteractionDurationSummary;
 	readonly commitSha: string;
-	readonly demandQueueWait: WorktreeDemandQueueWaitProof;
-	readonly foregroundContentLoadTiming: WorktreeForegroundContentLoadTimingProof;
 	readonly fileClickFailureDetails?: readonly WorktreeInteractionFailureDetail[];
 	readonly fileClickSlowSampleDetails?: readonly WorktreeInteractionSlowSampleDetail[];
 	readonly fileClickSampleCount: number;
@@ -91,6 +89,7 @@ export interface ReviewInteractionPerformanceProof {
 	readonly reviewTreeWrongVisibleRowCount: number;
 	readonly runMarker: string;
 	readonly workerMode: 'on' | 'off';
+	readonly workerQueueWait: ReviewWorkerQueueWaitProof;
 	readonly codeViewScrollSettleFrameCount: WorktreeInteractionDurationSummary;
 }
 
@@ -109,7 +108,6 @@ export interface ReviewClickPhaseDurationSummaries {
 export interface ReviewClickReadinessBreakdownSummaries {
 	readonly codeViewMaterializedAfterContentReady: WorktreeInteractionDurationSummary;
 	readonly contentReadyAfterSelectedPath: WorktreeInteractionDurationSummary;
-	readonly selectedDemandDuration: WorktreeInteractionDurationSummary;
 	readonly selectedPathState: WorktreeInteractionDurationSummary;
 	readonly treeSelectionVisible: WorktreeInteractionDurationSummary;
 	readonly visibleContentRenderedAfterMaterialization: WorktreeInteractionDurationSummary;
@@ -121,18 +119,9 @@ export interface ReviewDevContentResponseTimingProof {
 	readonly responseTotal: WorktreeInteractionDurationSummary;
 }
 
-export interface WorktreeDemandQueueWaitProof {
-	readonly foreground: WorktreeInteractionDurationSummary;
+export interface ReviewWorkerQueueWaitProof {
+	readonly selected: WorktreeInteractionDurationSummary;
 	readonly visible: WorktreeInteractionDurationSummary;
-}
-
-export interface WorktreeForegroundContentLoadTimingProof {
-	readonly executorInFlight: WorktreeInteractionDurationSummary;
-	readonly executorPendingWait: WorktreeInteractionDurationSummary;
-	readonly resourceBodyRegistryCommit: WorktreeInteractionDurationSummary;
-	readonly resourceFetchResponseWait: WorktreeInteractionDurationSummary;
-	readonly resourceFirstChunkWait: WorktreeInteractionDurationSummary;
-	readonly resourceStreamRead: WorktreeInteractionDurationSummary;
 }
 
 export interface WorktreeStartupLoadTimingProof {
@@ -162,7 +151,6 @@ export interface WorktreeInteractionSlowSampleDetail {
 	readonly preClickMilliseconds?: number | null;
 	readonly readyMilliseconds: number | null;
 	readonly selectedMilliseconds: number | null;
-	readonly selectedDemandDurationMilliseconds?: number | null;
 	readonly selectedMaterializationMilliseconds?: number | null;
 	readonly treeSelectionVisibleMilliseconds?: number | null;
 	readonly visibleContentRenderedMilliseconds?: number | null;
@@ -321,11 +309,6 @@ export function worktreeInteractionPerformanceSatisfied(
 		proof.fileClickSampleCount >= minimumInteractionPerformanceSampleCount &&
 		proof.treeScrollSampleCount >= minimumInteractionPerformanceSampleCount &&
 		clickPhaseDurationSummariesSatisfied(proof.clickPhaseDurations, proof.fileClickSampleCount) &&
-		demandQueueWaitSatisfied(proof.demandQueueWait) &&
-		foregroundContentLoadTimingSatisfied(
-			proof.foregroundContentLoadTiming,
-			proof.fileClickSampleCount,
-		) &&
 		worktreeStartupLoadTimingSatisfied(proof) &&
 		proof.clickToFirstVisibleContentWindow.sampleCount === proof.fileClickSampleCount &&
 		proof.scrollToVisibleRows.sampleCount === proof.treeScrollSampleCount &&
@@ -396,7 +379,10 @@ export function reviewInteractionPerformanceSatisfied(
 		proof.reviewTreeWrongVisibleRowCount === 0 &&
 		proof.codeViewBlankWindowCount === 0 &&
 		proof.codeViewItemCountAfter > 0 &&
-		proof.codeViewHeightChangeCount >= 0
+		proof.codeViewHeightChangeCount >= 0 &&
+		reviewWorkerQueueWaitSatisfied(proof.workerQueueWait) &&
+		proof.reviewClickPhaseDurations.selectionCommit.p99Ms !== null &&
+		proof.reviewClickPhaseDurations.selectionCommit.p99Ms < 32
 	);
 }
 
@@ -442,7 +428,6 @@ function reviewClickReadinessBreakdownSatisfied(
 			breakdown.contentReadyAfterSelectedPath,
 			reviewClickSampleCount,
 		) &&
-		interactionDurationSummarySatisfied(breakdown.selectedDemandDuration, reviewClickSampleCount) &&
 		interactionDurationSummarySatisfied(
 			breakdown.codeViewMaterializedAfterContentReady,
 			reviewClickSampleCount,
@@ -478,40 +463,27 @@ function clickPhaseDurationSummariesSatisfied(
 	);
 }
 
-function demandQueueWaitSatisfied(queueWait: WorktreeDemandQueueWaitProof | undefined): boolean {
+function reviewWorkerQueueWaitSatisfied(
+	queueWait: ReviewWorkerQueueWaitProof | undefined,
+): boolean {
 	return (
 		queueWait !== undefined &&
 		interactionDurationSummarySatisfied(
-			queueWait.foreground,
+			queueWait.selected,
 			minimumInteractionPerformanceSampleCount,
 		) &&
-		queueWait.foreground.p95Ms !== null &&
-		queueWait.foreground.p95Ms < 32 &&
-		queueWait.foreground.p99Ms !== null &&
-		queueWait.foreground.p99Ms < 64 &&
+		queueWait.selected.p95Ms !== null &&
+		queueWait.selected.p95Ms < 16 &&
+		queueWait.selected.p99Ms !== null &&
+		queueWait.selected.p99Ms < 32 &&
 		interactionDurationSummarySatisfied(
 			queueWait.visible,
 			minimumInteractionPerformanceSampleCount,
 		) &&
 		queueWait.visible.p95Ms !== null &&
-		queueWait.visible.p95Ms < 64 &&
+		queueWait.visible.p95Ms < 32 &&
 		queueWait.visible.p99Ms !== null &&
-		queueWait.visible.p99Ms < 100
-	);
-}
-
-function foregroundContentLoadTimingSatisfied(
-	timing: WorktreeForegroundContentLoadTimingProof | undefined,
-	fileClickSampleCount: number,
-): boolean {
-	return (
-		timing !== undefined &&
-		interactionDurationSummarySatisfied(timing.executorPendingWait, fileClickSampleCount) &&
-		interactionDurationSummarySatisfied(timing.executorInFlight, fileClickSampleCount) &&
-		interactionDurationSummarySatisfied(timing.resourceBodyRegistryCommit, fileClickSampleCount) &&
-		interactionDurationSummarySatisfied(timing.resourceFetchResponseWait, fileClickSampleCount) &&
-		interactionDurationSummarySatisfied(timing.resourceFirstChunkWait, fileClickSampleCount) &&
-		interactionDurationSummarySatisfied(timing.resourceStreamRead, fileClickSampleCount)
+		queueWait.visible.p99Ms < 64
 	);
 }
 

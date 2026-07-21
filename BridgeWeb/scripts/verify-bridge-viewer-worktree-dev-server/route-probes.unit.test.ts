@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 
 import { assertSelectedContentRouteProof } from './content-state.js';
+import { mapBridgeTelemetrySampleToProof } from './route-probes.ts';
 import type { WorktreeFileContentRouteProbe } from './types.js';
 
 const routeProbesSourcePath = fileURLToPath(new URL('./route-probes.ts', import.meta.url));
@@ -53,5 +54,30 @@ describe('Bridge viewer product File content route probe', () => {
 		expect(source).toContain("'**/__bridge-product/content**'");
 		expect(source).not.toContain('/__bridge-worktree/file-content');
 		expect(source).not.toContain('MatchesHandle');
+	});
+
+	test('retains worker queue correlation attributes from dev telemetry', () => {
+		const proof = mapBridgeTelemetrySampleToProof({
+			booleanAttributes: {},
+			durationMilliseconds: 1,
+			name: 'performance.bridge.worker.task',
+			numericAttributes: { 'agentstudio.bridge.worker.queue_wait_ms': 9 },
+			scope: 'web',
+			stringAttributes: {
+				'agentstudio.bridge.phase': 'worker_task',
+				'agentstudio.bridge.result': 'success',
+				'agentstudio.bridge.slice': 'worker_task',
+				'agentstudio.bridge.transport': 'worker',
+				'agentstudio.bridge.worker.command': 'select',
+				'agentstudio.bridge.worker.lane': 'selected',
+				'agentstudio.bridge.worker.task_kind': 'message_handler',
+			},
+			traceContext: null,
+		});
+
+		expect(proof.workerCommand).toBe('select');
+		expect(proof.workerLane).toBe('selected');
+		expect(proof.workerTaskKind).toBe('message_handler');
+		expect(proof.numericAttributes['agentstudio.bridge.worker.queue_wait_ms']).toBe(9);
 	});
 });

@@ -134,11 +134,9 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		).toBe(false);
 	});
 
-	test('requires click phase and demand queue-wait attribution in interaction performance proof', () => {
+	test('requires File click phase and startup attribution in interaction performance proof', () => {
 		const {
 			clickPhaseDurations: _clickPhaseDurations,
-			demandQueueWait: _demandQueueWait,
-			foregroundContentLoadTiming: _foregroundContentLoadTiming,
 			startupLoadTiming: _startupLoadTiming,
 			...proofWithoutAttribution
 		} = makePassingInteractionPerformanceProof();
@@ -188,21 +186,16 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(verifierSource).toContain('commitSha');
 		expect(verifierSource).toContain('workerMode');
 		expect(verifierSource).toContain('clickPhaseDurations');
-		expect(verifierSource).toContain('demandQueueWait');
-		expect(verifierSource).toContain('foregroundContentLoadTiming');
-		expect(verifierSource).toContain('foregroundExecutorPendingWaitMilliseconds');
-		expect(verifierSource).toContain('foregroundExecutorInFlightMilliseconds');
-		expect(verifierSource).toContain('foregroundResourceBodyRegistryCommitMilliseconds');
-		expect(verifierSource).toContain('foregroundResourceFetchResponseWaitMilliseconds');
-		expect(verifierSource).toContain('foregroundResourceFirstChunkWaitMilliseconds');
-		expect(verifierSource).toContain('foregroundResourceStreamReadMilliseconds');
+		expect(verifierSource).not.toContain('demandQueueWait');
+		expect(verifierSource).not.toContain('foregroundContentLoadTiming');
+		expect(verifierSource).not.toContain('foregroundExecutorPendingWaitMilliseconds');
+		expect(verifierSource).not.toContain('foregroundExecutorInFlightMilliseconds');
 		expect(verifierSource).toContain('collectWorktreeStartupLoadTimingProof');
 		expect(verifierSource).toContain('startupLoadTiming');
 		expect(verifierSource).toContain('pageLoadToContentReady');
 		expect(verifierSource).toContain('pageLoadToFirstVisibleContentWindow');
 		expect(verifierSource).toContain('treeScrollSettleFrameCount');
 		expect(verifierSource).toContain('settleFrameCounts');
-		expect(verifierSource).toContain('data-last-open-load-resource-body-registry-commit-ms');
 		expect(verifierSource).toContain('summarizeClickPhaseDurations');
 		expect(verifierSource).not.toContain('makePendingInteractionPerformanceProof');
 	});
@@ -310,6 +303,12 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(verifierSource).toContain('treeSelectionVisibleMilliseconds');
 		expect(verifierSource).toContain('codeViewMaterializedMilliseconds');
 		expect(verifierSource).toContain('visibleContentRenderedMilliseconds');
+		expect(verifierSource).toContain('workerQueueWait');
+		expect(verifierSource).toContain('performance.bridge.worker.task');
+		expect(verifierSource).toContain("command: 'select'");
+		expect(verifierSource).toContain("command: 'viewport'");
+		expect(verifierSource).toContain("lane: 'selected'");
+		expect(verifierSource).toContain("lane: 'visible'");
 		expect(verifierSource).toContain('extentFacts');
 		expect(verifierSource).toContain('maximumNormalPerformanceLineCount');
 		expect(verifierSource).toContain('reviewInteractionPerformanceSatisfied');

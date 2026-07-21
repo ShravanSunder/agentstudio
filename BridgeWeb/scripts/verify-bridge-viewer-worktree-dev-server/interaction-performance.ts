@@ -32,6 +32,7 @@ import {
 	waitForWorktreeSelectedPathMilliseconds,
 	worktreeFirstVisibleContentWindowDiagnosticMessage,
 } from './performance-click-waits.ts';
+import { waitForReviewWorkerQueueWaitMilliseconds } from './performance-correlation.ts';
 import { reviewClickFailureDiagnosticMessage } from './review-selection.ts';
 import {
 	collectInPageReviewTreeClickPerformanceSample,
@@ -56,7 +57,6 @@ import {
 	worktreeFilePathEligibleForPerformanceClick,
 	worktreeFileTreeReachablePathSet,
 } from './scroll-performance.ts';
-import { readWorktreeFileOpenLoadTelemetry } from './telemetry.ts';
 import {
 	interactionPerformanceSampleCount,
 	interactionPerformanceSampleTimeoutMilliseconds,
@@ -81,30 +81,6 @@ export async function collectWorktreeInteractionPerformanceProof(props: {
 			clickSamples.durationMilliseconds,
 		),
 		commitSha: await readCurrentCommitSha(),
-		demandQueueWait: {
-			foreground: summarizeInteractionSamples(clickSamples.foregroundQueueWaitMilliseconds),
-			visible: summarizeInteractionSamples(scrollSamples.visibleQueueWaitMilliseconds),
-		},
-		foregroundContentLoadTiming: {
-			executorInFlight: summarizeInteractionSamples(
-				clickSamples.foregroundExecutorInFlightMilliseconds,
-			),
-			executorPendingWait: summarizeInteractionSamples(
-				clickSamples.foregroundExecutorPendingWaitMilliseconds,
-			),
-			resourceBodyRegistryCommit: summarizeInteractionSamples(
-				clickSamples.foregroundResourceBodyRegistryCommitMilliseconds,
-			),
-			resourceFetchResponseWait: summarizeInteractionSamples(
-				clickSamples.foregroundResourceFetchResponseWaitMilliseconds,
-			),
-			resourceFirstChunkWait: summarizeInteractionSamples(
-				clickSamples.foregroundResourceFirstChunkWaitMilliseconds,
-			),
-			resourceStreamRead: summarizeInteractionSamples(
-				clickSamples.foregroundResourceStreamReadMilliseconds,
-			),
-		},
 		fileClickFailureDetails: clickSamples.failureDetails,
 		fileClickSlowSampleDetails: clickSamples.slowSampleDetails,
 		fileClickSampleCount: clickSamples.durationMilliseconds.length,
@@ -139,6 +115,11 @@ export async function collectReviewInteractionPerformanceProof(props: {
 	await resetReviewTreeForPerformanceSamples(props.page);
 	const treeScrollSamples = await collectReviewTreeScrollPerformanceSamples(props.page);
 	const codeViewScrollSamples = await collectReviewCodeViewScrollPerformanceSamples(props.page);
+	const workerQueueWaitMilliseconds = await waitForReviewWorkerQueueWaitMilliseconds({
+		page: props.page,
+		sampleCount: interactionPerformanceSampleCount,
+		timeoutMilliseconds: interactionPerformanceSampleTimeoutMilliseconds,
+	});
 	const codeViewItemCountAfter = await readReviewCodeViewItemCount(props.page);
 	return {
 		browserOrNativeRuntime: 'vite',
@@ -172,6 +153,10 @@ export async function collectReviewInteractionPerformanceProof(props: {
 		),
 		runMarker: `bridgeviewer-review-vite-${proofRunCreatedAtUnixMilliseconds}`,
 		workerMode: workerModeFromDevServerUrl(worktreeDevServerUrl),
+		workerQueueWait: {
+			selected: summarizeInteractionSamples(workerQueueWaitMilliseconds.selected),
+			visible: summarizeInteractionSamples(workerQueueWaitMilliseconds.visible),
+		},
 	};
 }
 
@@ -321,7 +306,6 @@ export async function collectReviewTreeClickPerformanceSamples(props: {
 	readonly failureDetails: readonly WorktreeInteractionFailureDetail[];
 	readonly contentReadyAfterSelectedPathMilliseconds: readonly number[];
 	readonly readyAfterSelectionMilliseconds: readonly number[];
-	readonly selectedDemandDurationMilliseconds: readonly number[];
 	readonly selectionCommitMilliseconds: readonly number[];
 	readonly selectedPathStateMilliseconds: readonly number[];
 	readonly slowSampleDetails: readonly WorktreeInteractionSlowSampleDetail[];
@@ -339,7 +323,6 @@ export async function collectReviewTreeClickPerformanceSamples(props: {
 	const failureDetails: WorktreeInteractionFailureDetail[] = [];
 	const contentReadyAfterSelectedPathMilliseconds: number[] = [];
 	const readyAfterSelectionMilliseconds: number[] = [];
-	const selectedDemandDurationMilliseconds: number[] = [];
 	const selectionCommitMilliseconds: number[] = [];
 	const selectedPathStateMilliseconds: number[] = [];
 	const slowSampleDetails: WorktreeInteractionSlowSampleDetail[] = [];
@@ -387,9 +370,6 @@ export async function collectReviewTreeClickPerformanceSamples(props: {
 			contentReadyAfterSelectedPathMilliseconds.push(
 				Math.max(0, sample.readyMilliseconds - sample.selectedMilliseconds),
 			);
-			selectedDemandDurationMilliseconds.push(
-				sample.selectedDemandDurationMilliseconds ?? Number.NaN,
-			);
 			selectionCommitMilliseconds.push(sample.selectedMilliseconds);
 			selectedPathStateMilliseconds.push(sample.selectedMilliseconds);
 			readyAfterSelectionMilliseconds.push(
@@ -417,7 +397,6 @@ export async function collectReviewTreeClickPerformanceSamples(props: {
 					preClickMilliseconds,
 					readyMilliseconds: sample.readyMilliseconds,
 					selectedMilliseconds: sample.selectedMilliseconds,
-					selectedDemandDurationMilliseconds: sample.selectedDemandDurationMilliseconds,
 					selectedMaterializationMilliseconds: sample.selectedMaterializationMilliseconds,
 					treeSelectionVisibleMilliseconds: sample.treeSelectionVisibleMilliseconds,
 					visibleContentRenderedMilliseconds: sample.visibleContentRenderedMilliseconds,
@@ -427,7 +406,6 @@ export async function collectReviewTreeClickPerformanceSamples(props: {
 			durationMilliseconds.push(Number.NaN);
 			codeViewMaterializedAfterContentReadyMilliseconds.push(Number.NaN);
 			contentReadyAfterSelectedPathMilliseconds.push(Number.NaN);
-			selectedDemandDurationMilliseconds.push(Number.NaN);
 			selectionCommitMilliseconds.push(Number.NaN);
 			selectedPathStateMilliseconds.push(Number.NaN);
 			readyAfterSelectionMilliseconds.push(Number.NaN);
@@ -450,7 +428,6 @@ export async function collectReviewTreeClickPerformanceSamples(props: {
 		failureDetails,
 		firstVisibleAfterReadyMilliseconds,
 		readyAfterSelectionMilliseconds,
-		selectedDemandDurationMilliseconds,
 		selectionCommitMilliseconds,
 		selectedPathStateMilliseconds,
 		slowSampleDetails,
@@ -462,7 +439,6 @@ export async function collectReviewTreeClickPerformanceSamples(props: {
 export function summarizeReviewClickReadinessBreakdown(clickSamples: {
 	readonly codeViewMaterializedAfterContentReadyMilliseconds: readonly number[];
 	readonly contentReadyAfterSelectedPathMilliseconds: readonly number[];
-	readonly selectedDemandDurationMilliseconds: readonly number[];
 	readonly selectedPathStateMilliseconds: readonly number[];
 	readonly treeSelectionVisibleMilliseconds: readonly number[];
 	readonly visibleContentRenderedAfterMaterializationMilliseconds: readonly number[];
@@ -473,9 +449,6 @@ export function summarizeReviewClickReadinessBreakdown(clickSamples: {
 		),
 		contentReadyAfterSelectedPath: summarizeInteractionSamples(
 			clickSamples.contentReadyAfterSelectedPathMilliseconds,
-		),
-		selectedDemandDuration: summarizeInteractionSamples(
-			clickSamples.selectedDemandDurationMilliseconds,
 		),
 		selectedPathState: summarizeInteractionSamples(clickSamples.selectedPathStateMilliseconds),
 		treeSelectionVisible: summarizeInteractionSamples(
@@ -508,13 +481,6 @@ export async function collectWorktreeFileClickPerformanceSamples(props: {
 	readonly durationMilliseconds: readonly number[];
 	readonly firstVisibleAfterReadyMilliseconds: readonly number[];
 	readonly failureDetails: readonly WorktreeInteractionFailureDetail[];
-	readonly foregroundExecutorInFlightMilliseconds: readonly number[];
-	readonly foregroundExecutorPendingWaitMilliseconds: readonly number[];
-	readonly foregroundQueueWaitMilliseconds: readonly number[];
-	readonly foregroundResourceBodyRegistryCommitMilliseconds: readonly number[];
-	readonly foregroundResourceFetchResponseWaitMilliseconds: readonly number[];
-	readonly foregroundResourceFirstChunkWaitMilliseconds: readonly number[];
-	readonly foregroundResourceStreamReadMilliseconds: readonly number[];
 	readonly openReadyAfterSelectionMilliseconds: readonly number[];
 	readonly selectionCommitMilliseconds: readonly number[];
 	readonly slowSampleDetails: readonly WorktreeInteractionSlowSampleDetail[];
@@ -531,13 +497,6 @@ export async function collectWorktreeFileClickPerformanceSamples(props: {
 	const durationMilliseconds: number[] = [];
 	const failureDetails: WorktreeInteractionFailureDetail[] = [];
 	const firstVisibleAfterReadyMilliseconds: number[] = [];
-	const foregroundExecutorInFlightMilliseconds: number[] = [];
-	const foregroundExecutorPendingWaitMilliseconds: number[] = [];
-	const foregroundQueueWaitMilliseconds: number[] = [];
-	const foregroundResourceBodyRegistryCommitMilliseconds: number[] = [];
-	const foregroundResourceFetchResponseWaitMilliseconds: number[] = [];
-	const foregroundResourceFirstChunkWaitMilliseconds: number[] = [];
-	const foregroundResourceStreamReadMilliseconds: number[] = [];
 	const openReadyAfterSelectionMilliseconds: number[] = [];
 	const selectionCommitMilliseconds: number[] = [];
 	const slowSampleDetails: WorktreeInteractionSlowSampleDetail[] = [];
@@ -568,30 +527,8 @@ export async function collectWorktreeFileClickPerformanceSamples(props: {
 				path: descriptor.path,
 				timeoutMilliseconds: interactionPerformanceSampleTimeoutMilliseconds,
 			});
-			const openLoadTelemetry = await readWorktreeFileOpenLoadTelemetry(props.page);
 			const durationMillisecondsForSample = Math.max(0, performance.now() - startedAt);
 			durationMilliseconds.push(durationMillisecondsForSample);
-			foregroundQueueWaitMilliseconds.push(
-				openLoadTelemetry.schedulerQueueWaitMilliseconds ?? Number.NaN,
-			);
-			foregroundExecutorPendingWaitMilliseconds.push(
-				openLoadTelemetry.executorPendingWaitMilliseconds ?? Number.NaN,
-			);
-			foregroundExecutorInFlightMilliseconds.push(
-				openLoadTelemetry.executorInFlightMilliseconds ?? Number.NaN,
-			);
-			foregroundResourceBodyRegistryCommitMilliseconds.push(
-				openLoadTelemetry.resourceBodyRegistryCommitMilliseconds ?? Number.NaN,
-			);
-			foregroundResourceFetchResponseWaitMilliseconds.push(
-				openLoadTelemetry.resourceFetchResponseWaitMilliseconds ?? Number.NaN,
-			);
-			foregroundResourceFirstChunkWaitMilliseconds.push(
-				openLoadTelemetry.resourceFirstChunkWaitMilliseconds ?? Number.NaN,
-			);
-			foregroundResourceStreamReadMilliseconds.push(
-				openLoadTelemetry.resourceStreamReadMilliseconds ?? Number.NaN,
-			);
 			selectionCommitMilliseconds.push(selectedMilliseconds);
 			openReadyAfterSelectionMilliseconds.push(
 				Math.max(0, readyMilliseconds - selectedMilliseconds),
@@ -613,13 +550,6 @@ export async function collectWorktreeFileClickPerformanceSamples(props: {
 			}
 		} catch {
 			durationMilliseconds.push(Number.NaN);
-			foregroundQueueWaitMilliseconds.push(Number.NaN);
-			foregroundExecutorPendingWaitMilliseconds.push(Number.NaN);
-			foregroundExecutorInFlightMilliseconds.push(Number.NaN);
-			foregroundResourceBodyRegistryCommitMilliseconds.push(Number.NaN);
-			foregroundResourceFetchResponseWaitMilliseconds.push(Number.NaN);
-			foregroundResourceFirstChunkWaitMilliseconds.push(Number.NaN);
-			foregroundResourceStreamReadMilliseconds.push(Number.NaN);
 			failureDetails.push({
 				message: await worktreeFirstVisibleContentWindowDiagnosticMessage(props.page),
 				path: descriptor.path,
@@ -630,13 +560,6 @@ export async function collectWorktreeFileClickPerformanceSamples(props: {
 		durationMilliseconds,
 		failureDetails,
 		firstVisibleAfterReadyMilliseconds,
-		foregroundExecutorInFlightMilliseconds,
-		foregroundExecutorPendingWaitMilliseconds,
-		foregroundQueueWaitMilliseconds,
-		foregroundResourceBodyRegistryCommitMilliseconds,
-		foregroundResourceFetchResponseWaitMilliseconds,
-		foregroundResourceFirstChunkWaitMilliseconds,
-		foregroundResourceStreamReadMilliseconds,
 		openReadyAfterSelectionMilliseconds,
 		selectionCommitMilliseconds,
 		slowSampleDetails,

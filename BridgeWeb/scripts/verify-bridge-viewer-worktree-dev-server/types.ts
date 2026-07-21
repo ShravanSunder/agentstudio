@@ -212,7 +212,6 @@ export interface InPageReviewTreeClickPerformanceSample {
 	readonly clickDispatchMilliseconds: number;
 	readonly durationMilliseconds: number;
 	readonly readyMilliseconds: number;
-	readonly selectedDemandDurationMilliseconds: number | null;
 	readonly selectedMaterializationMilliseconds: number | null;
 	readonly selectedMilliseconds: number;
 	readonly treeSelectionVisibleMilliseconds: number;
@@ -592,6 +591,9 @@ export interface WorktreeBridgeTelemetrySampleProof {
 	readonly slice: string | null;
 	readonly transport: string | null;
 	readonly viewer: string | null;
+	readonly workerCommand?: string | null;
+	readonly workerLane?: string | null;
+	readonly workerTaskKind?: string | null;
 }
 
 export interface ReviewTreeSearchClickProof {

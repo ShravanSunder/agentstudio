@@ -103,8 +103,6 @@ export function worktreeDevServerPerformanceConsoleProof(
 			clickToFirstVisibleContentWindow:
 				result.interactionPerformanceProof.clickToFirstVisibleContentWindow,
 			commitSha: result.interactionPerformanceProof.commitSha,
-			demandQueueWait: result.interactionPerformanceProof.demandQueueWait,
-			foregroundContentLoadTiming: result.interactionPerformanceProof.foregroundContentLoadTiming,
 			fileClickFailureDetails: result.interactionPerformanceProof.fileClickFailureDetails,
 			fileClickSlowSampleDetails: result.interactionPerformanceProof.fileClickSlowSampleDetails,
 			fileClickSampleCount: result.interactionPerformanceProof.fileClickSampleCount,
@@ -142,8 +140,6 @@ export function worktreeDevServerConsoleProof(
 			clickToFirstVisibleContentWindow:
 				result.interactionPerformanceProof.clickToFirstVisibleContentWindow,
 			commitSha: result.interactionPerformanceProof.commitSha,
-			demandQueueWait: result.interactionPerformanceProof.demandQueueWait,
-			foregroundContentLoadTiming: result.interactionPerformanceProof.foregroundContentLoadTiming,
 			fileClickFailureDetails: result.interactionPerformanceProof.fileClickFailureDetails,
 			fileClickSlowSampleDetails: result.interactionPerformanceProof.fileClickSlowSampleDetails,
 			fileClickSampleCount: result.interactionPerformanceProof.fileClickSampleCount,

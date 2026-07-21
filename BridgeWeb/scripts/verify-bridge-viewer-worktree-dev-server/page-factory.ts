@@ -243,6 +243,9 @@ function mapEventSampleToVerifierProof(
 		slice: stringAttribute(stringAttributes, 'agentstudio.bridge.slice'),
 		transport: stringAttribute(stringAttributes, 'agentstudio.bridge.transport'),
 		viewer: stringAttribute(stringAttributes, 'agentstudio.bridge.viewer'),
+		workerCommand: stringAttribute(stringAttributes, 'agentstudio.bridge.worker.command'),
+		workerLane: stringAttribute(stringAttributes, 'agentstudio.bridge.worker.lane'),
+		workerTaskKind: stringAttribute(stringAttributes, 'agentstudio.bridge.worker.task_kind'),
 	};
 }
 

@@ -67,6 +67,9 @@ export function mapBridgeTelemetrySampleToProof(
 		slice: sample.stringAttributes['agentstudio.bridge.slice'] ?? null,
 		transport: sample.stringAttributes['agentstudio.bridge.transport'] ?? null,
 		viewer: sample.stringAttributes['agentstudio.bridge.viewer'] ?? null,
+		workerCommand: sample.stringAttributes['agentstudio.bridge.worker.command'] ?? null,
+		workerLane: sample.stringAttributes['agentstudio.bridge.worker.lane'] ?? null,
+		workerTaskKind: sample.stringAttributes['agentstudio.bridge.worker.task_kind'] ?? null,
 	};
 }
 

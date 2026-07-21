@@ -121,7 +121,6 @@ export async function collectWorktreeTreeScrollPerformanceSamples(page: Page): P
 	readonly blankTreeWindowCount: number;
 	readonly durationMilliseconds: readonly number[];
 	readonly settleFrameCounts: readonly number[];
-	readonly visibleQueueWaitMilliseconds: readonly number[];
 	readonly wrongVisibleRowCount: number;
 }> {
 	const samples = await page.evaluate(
@@ -131,7 +130,6 @@ export async function collectWorktreeTreeScrollPerformanceSamples(page: Page): P
 			readonly blankTreeWindowCount: number;
 			readonly durationMilliseconds: readonly number[];
 			readonly settleFrameCounts: readonly number[];
-			readonly visibleQueueWaitMilliseconds: readonly number[];
 			readonly wrongVisibleRowCount: number;
 		}> => {
 			const helpers = window.bridgeWorktreeVerifier;
@@ -142,7 +140,6 @@ export async function collectWorktreeTreeScrollPerformanceSamples(page: Page): P
 			const maxScrollTop = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight);
 			const durationMilliseconds: number[] = [];
 			const settleFrameCounts: number[] = [];
-			const visibleQueueWaitMilliseconds: number[] = [];
 			let blankTreeWindowCount = 0;
 			let wrongVisibleRowCount = 0;
 			const animationFrame = (): Promise<void> =>
@@ -155,26 +152,6 @@ export async function collectWorktreeTreeScrollPerformanceSamples(page: Page): P
 					.map((candidate): string => candidate.dataset['itemPath'] ?? '')
 					.filter((path): boolean => path.length > 0)
 					.join('\u0000');
-			const readVisibleQueueWaitMilliseconds = (): number | null => {
-				const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
-				if (!(shell instanceof HTMLElement)) {
-					return null;
-				}
-				if (
-					shell.getAttribute('data-last-demand-dispatch-status') !== 'settled' ||
-					shell.getAttribute('data-last-demand-dispatch-origin') !== 'visibleViewport'
-				) {
-					return null;
-				}
-				const attributeValue = shell.getAttribute(
-					'data-last-demand-dispatch-first-scheduler-queue-wait-ms',
-				);
-				if (attributeValue === null) {
-					return null;
-				}
-				const parsedValue = Number(attributeValue);
-				return Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : null;
-			};
 			for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
 				const targetScrollTop =
 					sampleCount <= 1 ? 0 : Math.round((maxScrollTop * sampleIndex) / (sampleCount - 1));
@@ -193,16 +170,6 @@ export async function collectWorktreeTreeScrollPerformanceSamples(page: Page): P
 					}
 					previousSignature = nextSignature;
 				}
-				let visibleQueueWaitMillisecondsForSample = readVisibleQueueWaitMilliseconds();
-				for (
-					let waitFrameIndex = 0;
-					visibleQueueWaitMillisecondsForSample === null && waitFrameIndex < 24;
-					waitFrameIndex += 1
-				) {
-					await animationFrame();
-					visibleQueueWaitMillisecondsForSample = readVisibleQueueWaitMilliseconds();
-				}
-				visibleQueueWaitMilliseconds.push(visibleQueueWaitMillisecondsForSample ?? Number.NaN);
 				settleFrameCounts.push(stableSignature.length === 0 ? Number.NaN : settleFrameCount);
 				durationMilliseconds.push(Math.max(0, performance.now() - startedAt));
 				if (stableSignature.length === 0) {
@@ -218,7 +185,6 @@ export async function collectWorktreeTreeScrollPerformanceSamples(page: Page): P
 				blankTreeWindowCount,
 				durationMilliseconds,
 				settleFrameCounts,
-				visibleQueueWaitMilliseconds,
 				wrongVisibleRowCount,
 			};
 		},

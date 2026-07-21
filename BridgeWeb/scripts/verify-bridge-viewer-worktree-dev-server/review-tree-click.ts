@@ -1,5 +1,6 @@
 import type { Page } from 'playwright';
 
+import { reviewFirstVisibleContentStates } from './performance-correlation.ts';
 import {
 	worktreeFileTreeReachableScanCount,
 	type InPageReviewTreeClickPerformanceSample,
@@ -212,6 +213,7 @@ export async function collectInPageReviewTreeClickPerformanceSample(props: {
 	return await props.page.evaluate(
 		async (expected: {
 			readonly displayPath: string;
+			readonly firstVisibleContentStates: readonly string[];
 			readonly timeoutMilliseconds: number;
 		}): Promise<InPageReviewTreeClickPerformanceSample> => {
 			const animationFrame = (): Promise<void> =>
@@ -230,8 +232,12 @@ export async function collectInPageReviewTreeClickPerformanceSample(props: {
 				if (element === null) {
 					return null;
 				}
-				const value = Number(element.getAttribute(name));
-				return Number.isFinite(value) ? value : null;
+				const attributeValue = element.getAttribute(name);
+				if (attributeValue === null || attributeValue.length === 0) {
+					return null;
+				}
+				const value = Number(attributeValue);
+				return Number.isFinite(value) && value >= 0 ? value : null;
 			};
 			const matchingTreeButton = (): HTMLElement | null => {
 				const treeHost = document.querySelector(
@@ -347,7 +353,8 @@ export async function collectInPageReviewTreeClickPerformanceSample(props: {
 					selectedDisplayPath === expected.displayPath &&
 					selectedContentState === 'ready' &&
 					selectedMaterializedItemType !== null &&
-					(selectedModelContentState === 'ready' || selectedModelContentState === 'hydrated') &&
+					selectedModelContentState !== null &&
+					expected.firstVisibleContentStates.includes(selectedModelContentState) &&
 					hasRenderableLines &&
 					visibleText.length > 0 &&
 					!stillOnlyLoading
@@ -433,10 +440,6 @@ export async function collectInPageReviewTreeClickPerformanceSample(props: {
 				clickDispatchMilliseconds,
 				durationMilliseconds: visibleContentRenderedMilliseconds,
 				readyMilliseconds,
-				selectedDemandDurationMilliseconds: numberAttribute(
-					reviewShell(),
-					'data-review-selected-demand-duration-ms',
-				),
 				selectedMaterializationMilliseconds: numberAttribute(
 					codePanel(),
 					'data-selected-materialized-duration-ms',
@@ -450,6 +453,7 @@ export async function collectInPageReviewTreeClickPerformanceSample(props: {
 		},
 		{
 			displayPath: props.displayPath,
+			firstVisibleContentStates: reviewFirstVisibleContentStates,
 			timeoutMilliseconds: props.timeoutMilliseconds,
 		},
 	);
