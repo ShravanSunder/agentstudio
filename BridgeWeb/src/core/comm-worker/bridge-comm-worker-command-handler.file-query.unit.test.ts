@@ -83,7 +83,54 @@ describe('Bridge comm worker File query command handling', () => {
 		const messages = handler.handleMessage(command);
 
 		// Assert
-		expect(messages).toEqual([]);
+		expect(messages).toEqual([
+			{
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'review-projection-1',
+				status: 'ready',
+				transferDescriptors: [],
+				wireVersion: 1,
+			},
+		]);
 		expect(receivedCommands).toEqual([command]);
+	});
+
+	test('preserves a correlated Review projection failure without publishing ready', () => {
+		// Arrange
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [],
+			scheduleSelectedFileViewContentReadyPreparation: (): void => {},
+			scheduleSelectedReviewContentReadyPreparation: (): void => {},
+			updateReviewDisplayProjection: (command) => [
+				{
+					direction: 'serverWorkerToMain',
+					kind: 'health',
+					message: 'Review projection failed.',
+					requestId: command.requestId,
+					status: 'degraded',
+					transferDescriptors: [],
+					wireVersion: 1,
+				},
+			],
+		});
+		const command = encodeBridgeWorkerReviewProjectionUpdateCommand({
+			epoch: 12,
+			query: { fileClassFilter: 'all', gitStatusFilter: 'all' },
+			requestId: 'review-projection-failure-1',
+		});
+
+		// Act
+		const messages = handler.handleMessage(command);
+
+		// Assert
+		expect(messages).toEqual([
+			expect.objectContaining({
+				kind: 'health',
+				requestId: 'review-projection-failure-1',
+				status: 'degraded',
+			}),
+		]);
 	});
 });

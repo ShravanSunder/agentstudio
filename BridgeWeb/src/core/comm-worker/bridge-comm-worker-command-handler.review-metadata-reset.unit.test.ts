@@ -8,11 +8,69 @@ import {
 	pushScheduledSelectedReviewPreparation,
 	type ScheduledSelectedReviewPreparation,
 } from './bridge-comm-worker-command-handler.test-support.js';
-import { encodeBridgeWorkerSelectCommand } from './bridge-comm-worker-protocol.js';
+import {
+	encodeBridgeWorkerReviewInvalidateCommand,
+	encodeBridgeWorkerSelectCommand,
+} from './bridge-comm-worker-protocol.js';
 import { makeReviewPublication } from './bridge-main-render-fulfillment-coordinator.test-support.js';
 import type { BridgeWorkerReviewContentMetadata } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker Review metadata reset', () => {
+	test('releases a selected render retry with the invalidated demand epoch', () => {
+		// Arrange
+		const itemId = 'item-invalidated-retry';
+		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
+		let nowMilliseconds = 0;
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [makeWorkerReviewContentMetadata(itemId)],
+			now: (): number => nowMilliseconds,
+			renderReceiptLeaseDurationMilliseconds: 10,
+			renderRetryBackoffMilliseconds: 5,
+			rows: [{ id: itemId, parentId: null, index: 0 }],
+			scheduleSelectedReviewContentReadyPreparation:
+				pushScheduledSelectedReviewPreparation(scheduledPreparations),
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 7,
+				requestId: 'request-select-before-invalidated-retry',
+				selectedItemId: itemId,
+				selectedSource: 'user',
+				surface: 'review',
+			}),
+		);
+		const reviewStore = scheduledPreparations[0]?.store;
+		if (reviewStore === undefined) throw new Error('expected selected Review store');
+		reviewStore.renderFulfillmentRegistry.beginPublication({
+			job: makeReviewPublication({ itemId, publicationSequence: 1 }).job,
+			publicationSequence: 1,
+			workerDerivationEpoch: 1,
+		});
+		nowMilliseconds = 10;
+		handler.advanceReviewRenderFulfillmentLifecycle(nowMilliseconds);
+		handler.handleMessage(
+			encodeBridgeWorkerReviewInvalidateCommand({
+				epoch: 8,
+				itemIds: [itemId],
+				pathHints: [],
+				reason: 'watchEvent',
+				requestId: 'request-invalidate-before-retry-release',
+				scope: 'items',
+			}),
+		);
+		expect(reviewStore.getState()).toMatchObject({ selectedEpoch: 7 });
+		expect(reviewStore.getState().demandByKey.get(itemId)).toBe('selected:8');
+
+		// Act
+		nowMilliseconds = 15;
+		handler.advanceReviewRenderFulfillmentLifecycle(nowMilliseconds);
+
+		// Assert
+		expect(scheduledPreparations).toHaveLength(3);
+		expect(scheduledPreparations.at(-1)).toMatchObject({ epoch: 8, itemId });
+	});
+
 	test('requeues active render attempts only after transaction commit', () => {
 		// Arrange
 		const itemId = 'item-generation-refresh';

@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 
+import { createBridgeCommWorkerCommandHandler } from './bridge-comm-worker-command-handler.js';
 import {
 	bridgeWorkerServerToMainMessageSchema,
 	type BridgeWorkerMainToServerMessage,
@@ -245,6 +246,50 @@ describe('Bridge worker RPC client', () => {
 		});
 		fileClient.dispose();
 		reviewClient.dispose();
+	});
+
+	test('settles Review projection lifecycle from the worker acknowledgement', async () => {
+		// Arrange
+		vi.useFakeTimers();
+		try {
+			const { createBridgeWorkerRpcClient } = await loadBridgeWorkerRpcClientModule();
+			const lifecycleStore = createBridgeWorkerRpcLifecycleStore();
+			const dispatched: BridgeWorkerMainToServerMessage[] = [];
+			const client = createBridgeWorkerRpcClient({
+				dispatch: (message): void => {
+					dispatched.push(message);
+				},
+				lifecycleStore,
+				requestIdFactory: (): string => 'review-projection-lifecycle-1',
+				requestTimeoutMilliseconds: 100,
+				surface: 'review',
+			});
+			const handler = createBridgeCommWorkerCommandHandler({
+				contentItems: [],
+				rows: [],
+				scheduleSelectedFileViewContentReadyPreparation: (): void => {},
+				scheduleSelectedReviewContentReadyPreparation: (): void => {},
+				updateReviewDisplayProjection: (): readonly BridgeWorkerServerToMainMessage[] => [],
+			});
+
+			// Act
+			const requestId = client.send(makeReviewProjectionCommandInput());
+			const command = dispatched[0];
+			if (command === undefined)
+				throw new Error('Expected a dispatched Review projection command.');
+			for (const response of handler.handleMessage(command)) client.receive(response);
+			await vi.advanceTimersByTimeAsync(100);
+
+			// Assert
+			expect(lifecycleStore.getSnapshot().requestsById[requestId]).toMatchObject({
+				command: 'reviewProjectionUpdate',
+				state: 'acked',
+			});
+			expect(vi.getTimerCount()).toBe(0);
+			client.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 

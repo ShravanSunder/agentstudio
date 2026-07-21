@@ -37,6 +37,7 @@ import {
 	createBridgeCommWorkerStore,
 	type BridgeCommWorkerRow,
 	type BridgeCommWorkerStore,
+	type BridgeCommWorkerStoreState,
 	type BridgeCommWorkerViewportRange,
 } from './bridge-comm-worker-store.js';
 import {
@@ -74,6 +75,8 @@ export type {
 	BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	CreateBridgeCommWorkerCommandHandlerProps,
 } from './bridge-comm-worker-command-handler-contracts.js';
+
+const bridgeCommWorkerRecentRequestCapacityPerDomain = 4096;
 
 export function createBridgeCommWorkerCommandHandler(
 	props: CreateBridgeCommWorkerCommandHandlerProps,
@@ -113,7 +116,14 @@ export function createBridgeCommWorkerCommandHandler(
 		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 	});
 	const createSequence = props.createSequence ?? createBridgeWorkerSequenceCounter();
-	const seenRequestIds = new Set<string>();
+	const seenRequestIdsByIntentEpochDomain: Record<
+		BridgeCommWorkerIntentEpochDomain,
+		Set<string>
+	> = {
+		fileView: new Set<string>(),
+		pane: new Set<string>(),
+		review: new Set<string>(),
+	};
 	let fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource = {
 		contentItems: [],
 		contentRequests: [],
@@ -226,13 +236,14 @@ export function createBridgeCommWorkerCommandHandler(
 			if (releasedItemIds.length > 0) {
 				const releasedItemIdSet = new Set(releasedItemIds);
 				const reviewState = reviewStore.getState();
+				const selectedDemandEpoch = readSelectedReviewDemandEpoch(reviewState);
 				if (
-					reviewState.selectedDemandEnabled &&
+					selectedDemandEpoch !== null &&
 					reviewState.selectedId !== null &&
 					releasedItemIdSet.has(reviewState.selectedId)
 				) {
 					props.scheduleSelectedReviewContentReadyPreparation({
-						epoch: reviewState.selectedEpoch,
+						epoch: selectedDemandEpoch,
 						itemId: reviewState.selectedId,
 						store: reviewStore,
 					});
@@ -296,6 +307,10 @@ export function createBridgeCommWorkerCommandHandler(
 		handleMessage: (message: BridgeWorkerMainToServerMessage) => {
 			const intentEpochDomain = bridgeCommWorkerIntentEpochDomain(message);
 			const currentIntentEpoch = currentIntentEpochByDomain[intentEpochDomain];
+			const seenRequestIds = seenRequestIdsByIntentEpochDomain[intentEpochDomain];
+			if (message.epoch > currentIntentEpoch) {
+				seenRequestIds.clear();
+			}
 			const commandStore = intentEpochDomain === 'fileView' ? fileViewStore : reviewStore;
 			const rejection = rejectStaleOrReplayedBridgeWorkerCommand({
 				currentEpoch: currentIntentEpoch,
@@ -306,6 +321,12 @@ export function createBridgeCommWorkerCommandHandler(
 				return [rejection];
 			}
 			seenRequestIds.add(message.requestId);
+			if (seenRequestIds.size > bridgeCommWorkerRecentRequestCapacityPerDomain) {
+				const oldestRequestId = seenRequestIds.values().next().value;
+				if (oldestRequestId !== undefined) {
+					seenRequestIds.delete(oldestRequestId);
+				}
+			}
 			currentIntentEpochByDomain[intentEpochDomain] = Math.max(currentIntentEpoch, message.epoch);
 			return handleBridgeWorkerCommand({
 				createSequence,
@@ -426,11 +447,13 @@ function handleBridgeWorkerCommand(
 				]
 			);
 		case 'reviewProjectionUpdate':
-			return (
-				props.updateReviewDisplayProjection?.(props.message) ?? [
-					buildBridgeWorkerUnimplementedHealthEvent(props.message),
-				]
-			);
+			if (props.updateReviewDisplayProjection === undefined) {
+				return [buildBridgeWorkerUnimplementedHealthEvent(props.message)];
+			}
+			return appendBridgeWorkerReadyAcknowledgement({
+				messages: props.updateReviewDisplayProjection(props.message),
+				requestId: props.message.requestId,
+			});
 		case 'fileDisplayResync':
 			return (
 				props.requestFileDisplayResync?.(props.message) ?? [
@@ -463,6 +486,20 @@ function handleBridgeWorkerCommand(
 		default:
 			return assertNeverBridgeWorkerCommand(props.message);
 	}
+}
+
+function appendBridgeWorkerReadyAcknowledgement(props: {
+	readonly messages: readonly BridgeWorkerServerToMainMessage[];
+	readonly requestId: string;
+}): readonly BridgeWorkerServerToMainMessage[] {
+	const alreadySettled = props.messages.some(
+		(message): boolean =>
+			(message.kind === 'health' || message.kind === 'subscription') &&
+			message.requestId === props.requestId,
+	);
+	return alreadySettled
+		? props.messages
+		: [...props.messages, buildBridgeWorkerReadyHealthEvent(props.requestId)];
 }
 
 function applyBridgeWorkerRenderDispositionCommand(props: {
@@ -739,6 +776,15 @@ function isSelectedContentReadyPreparationCurrent(props: {
 		state.selectedId === props.itemId &&
 		state.demandByKey.get(props.itemId) === `selected:${props.epoch}`
 	);
+}
+
+function readSelectedReviewDemandEpoch(state: BridgeCommWorkerStoreState): number | null {
+	if (!state.selectedDemandEnabled || state.selectedId === null) {
+		return null;
+	}
+	const selectedDemandKey = state.demandByKey.get(state.selectedId);
+	const selectedDemandEpochMatch = /^selected:(\d+)$/u.exec(selectedDemandKey ?? '');
+	return selectedDemandEpochMatch === null ? null : Number(selectedDemandEpochMatch[1]);
 }
 
 interface HandleBridgeWorkerReviewInvalidateCommandProps {
