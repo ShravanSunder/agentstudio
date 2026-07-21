@@ -89,14 +89,8 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
             }
             return .available(map(snapshot))
         } catch is CancellationError {
-            // Caller abandoned the wait; the detached read may still be draining. Free the
-            // capacity slot now while the root in-flight marker holds until true completion.
-            activeReadRegistry.releaseCapacity(readKey)
             return .unavailable(GitWorkingTreeStatusUnavailable(reason: .cancelled))
         } catch AgentStudioGitSDKTimeoutError.timedOut {
-            // Caller abandoned the wait; the detached read may still be draining. Free the
-            // capacity slot now while the root in-flight marker holds until true completion.
-            activeReadRegistry.releaseCapacity(readKey)
             logger.error(
                 "AgentStudioGit status timed out for \(rootPath.path, privacy: .public)"
             )
@@ -291,10 +285,9 @@ final class AgentStudioGitActiveStatusReadRegistry: @unchecked Sendable {
     /// Cleared only on true completion of the detached read (`finish`), even after the
     /// caller has abandoned the wait — so an orphaned libgit2 read is never double-started.
     private var activeReadKeys: Set<AgentStudioGitActiveStatusReadKey> = []
-    /// Slot accounting. Bounds the number of reads the caller is still awaiting. Released
-    /// when the caller abandons the read (hard timeout / cancellation) or on true
-    /// completion, whichever comes first, so a slot the scheduler believes is free is not
-    /// held hostage by an orphaned read the caller has already given up on.
+    /// Physical-operation slot accounting. Bounds the number of detached native reads that
+    /// are still running, including reads whose caller timed out or cancelled. Released only
+    /// on true completion of the detached read (`finish`).
     private var capacityHeldKeys: Set<AgentStudioGitActiveStatusReadKey> = []
     private var inactiveWaiters: [AgentStudioGitActiveStatusReadKey: [CheckedContinuation<Void, Never>]] = [:]
 
@@ -317,17 +310,6 @@ final class AgentStudioGitActiveStatusReadRegistry: @unchecked Sendable {
         capacityHeldKeys.insert(key)
         lock.unlock()
         return .started
-    }
-
-    /// Releases the capacity slot for a read whose caller abandoned the wait (hard timeout
-    /// or cancellation) while the detached read is still draining. The root in-flight marker
-    /// is intentionally retained, so a fresh read of the same root is still rejected as
-    /// `.sameRootAlreadyInFlight` until the orphaned read truly finishes. Idempotent: a no-op
-    /// if the slot was already released (e.g. the detached read finished first).
-    func releaseCapacity(_ key: AgentStudioGitActiveStatusReadKey) {
-        lock.lock()
-        capacityHeldKeys.remove(key)
-        lock.unlock()
     }
 
     func finish(_ key: AgentStudioGitActiveStatusReadKey) {

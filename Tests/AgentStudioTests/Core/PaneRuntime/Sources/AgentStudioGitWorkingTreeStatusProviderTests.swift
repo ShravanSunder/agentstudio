@@ -351,11 +351,11 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         #expect(await tracker.startedCount() == 1)
     }
 
-    @Test("timed out reads release capacity for distinct roots while still gating the same root")
-    func timedOutReadsReleaseCapacityForDistinctRootsWhileStillGatingSameRoot() async throws {
+    @Test("timed out reads hold physical capacity until native reads finish")
+    func timedOutReadsHoldPhysicalCapacityUntilNativeReadsFinish() async throws {
         let firstRootPath = URL(fileURLWithPath: "/tmp/noncooperative-slow-repo-1")
         let secondRootPath = URL(fileURLWithPath: "/tmp/noncooperative-slow-repo-2")
-        let recoveredRootPath = URL(fileURLWithPath: "/tmp/recovered-distinct-repo")
+        let distinctRootPath = URL(fileURLWithPath: "/tmp/recovered-distinct-repo")
         let gate = StatusReadGate()
         let tracker = StatusReadTracker()
         let timeoutScheduler = ManualStatusTimeoutScheduler()
@@ -364,9 +364,11 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
             timeout: .seconds(999),
             timeoutScheduler: timeoutScheduler,
             activeReadRegistry: activeReadRegistry
-        ) { _, _ in
+        ) { rootPath, _ in
             await tracker.recordStarted()
-            await gate.waitUntilReleased()
+            if rootPath != distinctRootPath {
+                await gate.waitUntilReleased()
+            }
             await tracker.recordFinished()
             return makeSnapshot()
         }
@@ -384,23 +386,15 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         let firstResult = await firstRead.value
         let secondResult = await secondRead.value
 
-        // Both detached reads are still gated (orphaned, draining). Because the caller
-        // abandoned them on timeout, their capacity slots must be released so a distinct
-        // root is admitted rather than starved by the two-slot cap.
-        let recoveredProvider = AgentStudioGitWorkingTreeStatusProvider(
-            activeReadRegistry: activeReadRegistry
-        ) { _, _ in
-            makeSnapshot()
-        }
-        let recoveredResult = await recoveredProvider.statusResult(for: recoveredRootPath)
-
-        // The root in-flight marker is retained until true completion, so a fresh read of
-        // an abandoned root is still rejected as already-in-flight (not started twice).
+        let distinctResultWhileNativeReadsAreRunning = await blockingProvider.statusResult(for: distinctRootPath)
         let sameRootResult = await blockingProvider.statusResult(for: firstRootPath)
         let startCountWhileDetachedReadsAreGated = await tracker.startedCount()
 
         await gate.release()
         await tracker.waitForFinishedCount(2)
+        await activeReadRegistry.waitUntilInactive(AgentStudioGitActiveStatusReadKey(firstRootPath))
+        await activeReadRegistry.waitUntilInactive(AgentStudioGitActiveStatusReadKey(secondRootPath))
+        let recoveredResult = await blockingProvider.statusResult(for: distinctRootPath)
 
         guard case .unavailable(let firstUnavailable) = firstResult else {
             Issue.record("expected first result to time out, got \(firstResult)")
@@ -410,8 +404,14 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
             Issue.record("expected second result to time out, got \(secondResult)")
             return
         }
+        guard case .unavailable(let distinctUnavailable) = distinctResultWhileNativeReadsAreRunning else {
+            Issue.record(
+                "expected distinct root to remain capacity-gated while native reads run, got \(distinctResultWhileNativeReadsAreRunning)"
+            )
+            return
+        }
         guard case .available = recoveredResult else {
-            Issue.record("expected distinct root to be admitted after abandonment, got \(recoveredResult)")
+            Issue.record("expected distinct root to recover after native reads finish, got \(recoveredResult)")
             return
         }
         guard case .unavailable(let sameRootUnavailable) = sameRootResult else {
@@ -420,14 +420,68 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         }
         #expect(firstUnavailable.reason == .timeout)
         #expect(secondUnavailable.reason == .timeout)
+        #expect(distinctUnavailable.reason == .readCapacityExceeded)
         #expect(sameRootUnavailable.reason == .readAlreadyInFlight)
-        // Only the two blocking reads ran; the same-root retry was gated before starting.
         #expect(startCountWhileDetachedReadsAreGated == 2)
+        #expect(await tracker.startedCount() == 3)
     }
 
-    @Test("registry releases capacity on abandonment yet gates the root until true completion")
-    func registryReleasesCapacityOnAbandonmentYetGatesRootUntilTrueCompletion() {
-        // Arrange: a two-slot registry with both slots held.
+    @Test("cancelled read holds physical capacity until native read finishes")
+    func cancelledReadHoldsPhysicalCapacityUntilNativeReadFinishes() async throws {
+        let blockedRootPath = URL(fileURLWithPath: "/tmp/cancelled-physical-cap-root")
+        let distinctRootPath = URL(fileURLWithPath: "/tmp/cancelled-physical-cap-distinct")
+        let gate = StatusReadGate()
+        let tracker = StatusReadTracker()
+        let activeReadRegistry = AgentStudioGitActiveStatusReadRegistry(maxActiveReadCount: 1)
+        let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
+            activeReadRegistry: activeReadRegistry
+        ) { _, _ in
+            await tracker.recordStarted()
+            await gate.waitUntilReleased()
+            await tracker.recordFinished()
+            return makeSnapshot()
+        }
+        let distinctProvider = AgentStudioGitWorkingTreeStatusProvider(
+            activeReadRegistry: activeReadRegistry
+        ) { _, _ in
+            makeSnapshot()
+        }
+
+        let cancelledRead = Task {
+            await blockingProvider.statusResult(for: blockedRootPath)
+        }
+        await gate.waitUntilStarted()
+        cancelledRead.cancel()
+        let cancelledResult = await cancelledRead.value
+
+        let distinctResultWhileNativeReadIsRunning = await distinctProvider.statusResult(for: distinctRootPath)
+
+        await gate.release()
+        await tracker.waitForFinishedCount(1)
+        await activeReadRegistry.waitUntilInactive(AgentStudioGitActiveStatusReadKey(blockedRootPath))
+        let recoveredResult = await distinctProvider.statusResult(for: distinctRootPath)
+
+        guard case .unavailable(let cancelledUnavailable) = cancelledResult else {
+            Issue.record("expected cancelled result, got \(cancelledResult)")
+            return
+        }
+        guard case .unavailable(let distinctUnavailable) = distinctResultWhileNativeReadIsRunning else {
+            Issue.record(
+                "expected distinct root to remain capacity-gated while native read runs, got \(distinctResultWhileNativeReadIsRunning)"
+            )
+            return
+        }
+        guard case .available = recoveredResult else {
+            Issue.record("expected distinct root to recover after native read finishes, got \(recoveredResult)")
+            return
+        }
+        #expect(cancelledUnavailable.reason == .cancelled)
+        #expect(distinctUnavailable.reason == .readCapacityExceeded)
+        #expect(await tracker.startedCount() == 1)
+    }
+
+    @Test("registry releases physical capacity exactly once on true completion")
+    func registryReleasesPhysicalCapacityExactlyOnceOnTrueCompletion() {
         let registry = AgentStudioGitActiveStatusReadRegistry(maxActiveReadCount: 2)
         let first = AgentStudioGitActiveStatusReadKey(URL(fileURLWithPath: "/tmp/registry-first"))
         let second = AgentStudioGitActiveStatusReadKey(URL(fileURLWithPath: "/tmp/registry-second"))
@@ -438,23 +492,13 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         #expect(registry.start(second) == .started)
         #expect(registry.start(distinct) == .capacityExceeded)
 
-        // Act: the caller abandons the first read; its detached read is still draining.
-        registry.releaseCapacity(first)
-
-        // Assert: the freed slot admits a distinct root, while the abandoned root stays
-        // gated against a duplicate concurrent read.
+        registry.finish(first)
         #expect(registry.start(distinct) == .started)
-        #expect(registry.start(first) == .sameRootAlreadyInFlight)
 
-        // Assert: a redundant release does not over-free — the two awaited slots remain full.
-        registry.releaseCapacity(first)
+        registry.finish(first)
         #expect(registry.start(extra) == .capacityExceeded)
 
-        // Act: the orphaned reads truly finish, clearing their root markers and slots.
-        registry.finish(first)
         registry.finish(distinct)
-
-        // Assert: with the first root's marker cleared and a slot free, it starts fresh.
         #expect(registry.start(first) == .started)
     }
 
