@@ -51,20 +51,7 @@ extension BridgePaneProductContentActivityAdmissionTests {
             lease: lease,
             request: request
         )
-        let (barrierEntryEvents, barrierEntryContinuation) = AsyncStream<Void>.makeStream()
-        let barrierRelease = DispatchSemaphore(value: 0)
-        let barrierTask = Task {
-            try await holdActivityContentSessionQueue(
-                phase: boundaryCase.phase,
-                lease: lease,
-                productAdmission: harness.productAdmission,
-                session: harness.session,
-                barrierEntryContinuation: barrierEntryContinuation,
-                barrierRelease: barrierRelease
-            )
-        }
-        var barrierEntryIterator = barrierEntryEvents.makeAsyncIterator()
-        _ = await barrierEntryIterator.next()
+        let queueMutationGate = ActivityQueueMutationGate()
         let (precheckEvents, precheckContinuation) = AsyncStream<Void>.makeStream()
         let enqueueTask = Task {
             try await enqueueActivityContentFrameAfterLoosePrecheck(
@@ -72,7 +59,8 @@ extension BridgePaneProductContentActivityAdmissionTests {
                 productAdmission: harness.productAdmission,
                 foregroundWorkAdmission: foregroundWorkAdmission,
                 session: harness.session,
-                precheckContinuation: precheckContinuation
+                precheckContinuation: precheckContinuation,
+                queueMutationGate: queueMutationGate
             )
         }
         var precheckIterator = precheckEvents.makeAsyncIterator()
@@ -80,13 +68,7 @@ extension BridgePaneProductContentActivityAdmissionTests {
 
         // Act
         boundaryCase.invalidation.apply(to: activityCoordinator)
-        barrierRelease.signal()
-        do {
-            try await barrierTask.value
-            Issue.record("Expected the queue barrier to exit through its injected error")
-        } catch ActivityContentQueueBoundaryTestError.barrierReleased {
-            // The actor is now free to linearize the content enqueue.
-        }
+        await queueMutationGate.release()
         let enqueueResult = try await enqueueTask.value
 
         // Assert
@@ -121,11 +103,6 @@ enum ActivityContentQueueMutationPhase: String, CaseIterable, Sendable {
     case terminal
 }
 
-private enum ActivityContentQueueBoundaryTestError: Error {
-    case barrierReleased
-    case unexpectedOverflow
-}
-
 private struct ActivityContentQueueMutationTarget: Sendable {
     let phase: ActivityContentQueueMutationPhase
     let lease: BridgeProductProducerLease
@@ -144,51 +121,20 @@ extension ActivityReviewInvalidation {
     }
 }
 
-private func holdActivityContentSessionQueue(
-    phase: ActivityContentQueueMutationPhase,
-    lease: BridgeProductProducerLease,
-    productAdmission: BridgeProductAdmissionContext,
-    session: BridgeProductSession,
-    barrierEntryContinuation: AsyncStream<Void>.Continuation,
-    barrierRelease: DispatchSemaphore
-) async throws {
-    let barrierBuilder: @Sendable (Int) throws -> BridgeProductProducerFrame = { _ in
-        barrierEntryContinuation.yield()
-        barrierEntryContinuation.finish()
-        barrierRelease.wait()
-        throw ActivityContentQueueBoundaryTestError.barrierReleased
-    }
-    switch phase {
-    case .opening:
-        _ = try await session.enqueueRequiredProducerOpeningFrame(
-            for: lease,
-            productAdmission: productAdmission,
-            build: barrierBuilder
-        )
-    case .data, .terminal:
-        _ = try await session.enqueueProducerFrame(
-            for: lease,
-            productAdmission: productAdmission,
-            build: barrierBuilder,
-            overflowReset: { _ in
-                throw ActivityContentQueueBoundaryTestError.unexpectedOverflow
-            }
-        )
-    }
-}
-
 private func enqueueActivityContentFrameAfterLoosePrecheck(
     target: ActivityContentQueueMutationTarget,
     productAdmission: BridgeProductAdmissionContext,
     foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
     session: BridgeProductSession,
-    precheckContinuation: AsyncStream<Void>.Continuation
+    precheckContinuation: AsyncStream<Void>.Continuation,
+    queueMutationGate: ActivityQueueMutationGate
 ) async throws -> BridgeProductProducerEnqueueResult {
     guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
         return .rejected(.lifecycleClosed)
     }
     precheckContinuation.yield()
     precheckContinuation.finish()
+    await queueMutationGate.waitUntilReleased()
     switch target.phase {
     case .opening:
         return try await session.enqueueRequiredContentOpeningFrame(
@@ -223,5 +169,24 @@ private func enqueueActivityContentFrameAfterLoosePrecheck(
                 try producerRegistryContentTerminalFrame(sequence: sequence)
             }
         )
+    }
+}
+
+actor ActivityQueueMutationGate {
+    private var isReleased = false
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitUntilReleased() async {
+        guard !isReleased else { return }
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        isReleased = true
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
     }
 }

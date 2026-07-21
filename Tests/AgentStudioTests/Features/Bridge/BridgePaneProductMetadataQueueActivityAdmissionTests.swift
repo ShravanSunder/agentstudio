@@ -24,42 +24,27 @@ extension BridgePaneProductMetadataActivityAdmissionTests {
         let originalForegroundWorkAdmission = try #require(
             context.activityCoordinator.acquireForegroundWork()
         )
-        let (barrierEntryEvents, barrierEntryContinuation) = AsyncStream<Void>.makeStream()
-        let barrierRelease = DispatchSemaphore(value: 0)
-        let barrierTask = Task {
-            try await context.harness.session.enqueueProducerFrame(
-                for: context.lease,
+        let queueMutationGate = ActivityQueueMutationGate()
+        let (precheckEvents, precheckContinuation) = AsyncStream<Void>.makeStream()
+        let enqueueTask = Task {
+            try await enqueueActivityMetadataResetAfterLoosePrecheck(
+                subscriptionId: fileOpen.subscriptionId,
                 productAdmission: context.harness.productAdmission.context,
-                build: { _ in
-                    barrierEntryContinuation.yield()
-                    barrierEntryContinuation.finish()
-                    barrierRelease.wait()
-                    throw MetadataQueueActivityAdmissionTestError.barrierReleased
-                },
-                overflowReset: { _ in
-                    throw MetadataQueueActivityAdmissionTestError.unexpectedOverflow
-                }
+                foregroundWorkAdmission: originalForegroundWorkAdmission,
+                session: context.harness.session,
+                precheckContinuation: precheckContinuation,
+                queueMutationGate: queueMutationGate
             )
         }
-        var barrierEntryIterator = barrierEntryEvents.makeAsyncIterator()
-        _ = await barrierEntryIterator.next()
-        await context.fileSource.releaseEmission()
-        for _ in 0..<2000 where await context.fileSource.emissionAttemptCount == 0 {
-            await Task.yield()
-        }
-        #expect(await context.fileSource.emissionAttemptCount == 1)
+        var precheckIterator = precheckEvents.makeAsyncIterator()
+        _ = await precheckIterator.next()
 
         // Act
         context.activityCoordinator.applyActivity(.loadedHidden)
-        barrierRelease.signal()
-        _ = await barrierTask.result
+        await queueMutationGate.release()
+        let staleResetResult = try await enqueueTask.value
+        await context.fileSource.releaseEmission()
         await context.fileSource.waitUntilEmissionFinished()
-        let staleResetResult = try await context.harness.session.enqueueSubscriptionReset(
-            subscriptionId: fileOpen.subscriptionId,
-            reason: .staleSource,
-            productAdmission: context.harness.productAdmission.context,
-            foregroundWorkAdmission: originalForegroundWorkAdmission
-        )
         let hiddenSnapshot = await waitForActivityMetadataState(context) { snapshot in
             snapshot.queuedFrameCount == 0
         }
@@ -88,7 +73,24 @@ private func drainQueuedActivityMetadataFrames(
     return frames
 }
 
-private enum MetadataQueueActivityAdmissionTestError: Error {
-    case barrierReleased
-    case unexpectedOverflow
+private func enqueueActivityMetadataResetAfterLoosePrecheck(
+    subscriptionId: String,
+    productAdmission: BridgeProductAdmissionContext,
+    foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+    session: BridgeProductSession,
+    precheckContinuation: AsyncStream<Void>.Continuation,
+    queueMutationGate: ActivityQueueMutationGate
+) async throws -> BridgeProductProducerEnqueueResult {
+    guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
+        return .rejected(.lifecycleClosed)
+    }
+    precheckContinuation.yield()
+    precheckContinuation.finish()
+    await queueMutationGate.waitUntilReleased()
+    return try await session.enqueueSubscriptionReset(
+        subscriptionId: subscriptionId,
+        reason: .staleSource,
+        productAdmission: productAdmission,
+        foregroundWorkAdmission: foregroundWorkAdmission
+    )
 }
