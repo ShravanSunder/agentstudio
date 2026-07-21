@@ -70,7 +70,7 @@ jobs:
       - name: BridgeWeb check, test, and packaged build
         run: |
           mise run bridge-web-check
-          mise run bridge-web-test
+          pnpm -C BridgeWeb exec vitest run --maxWorkers=2
           mise run bridge-web-build
           test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
           ls -la Sources/AgentStudio/Resources/BridgeWeb/app
