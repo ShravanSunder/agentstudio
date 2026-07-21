@@ -200,7 +200,10 @@ struct TerminalActivationSchedulerTests {
 
     @Test("aggregate settlement waits for every member outcome")
     func aggregateSettlementWaitsForEveryMemberOutcome() async throws {
-        let descriptors = makeDescriptors(count: 2, priority: .activeVisible)
+        let descriptors = makeDescriptors(
+            count: AppPolicies.TerminalActivation.maximumConcurrentAdmissions + 1,
+            priority: .activeVisible
+        )
         let port = ControlledTerminalActivationAdmissionPort()
         let completionProbe = TerminalActivationCompletionProbe()
         let scheduler = try makeScheduler(entries: descriptors, port: port)
@@ -210,22 +213,20 @@ struct TerminalActivationSchedulerTests {
             return settlement
         }
 
-        await port.waitUntilStartedCount(2)
-        port.releaseFirstPendingAsReady()
-        await port.waitUntilReleasedCount(1)
-        await waitUntilMemberStates(
-            scheduler: scheduler,
-            terminalPaneID: descriptors[0].paneID,
-            attachingPaneID: descriptors[1].paneID
+        await port.waitUntilStartedCount(AppPolicies.TerminalActivation.maximumConcurrentAdmissions)
+        let releasedAdmission = try #require(port.releaseFirstPendingAsReady())
+        await port.waitUntilStartedCount(
+            AppPolicies.TerminalActivation.maximumConcurrentAdmissions + 1
         )
+        let newlyStartedAdmission = try #require(port.admissions.last)
 
         #expect(!(await completionProbe.isCompleted))
-        #expect(await scheduler.memberState(for: descriptors[0].paneID)?.isTerminal == true)
-        #expect(await scheduler.memberState(for: descriptors[1].paneID) == .attaching)
+        #expect(await scheduler.memberState(for: releasedAdmission.descriptor.paneID)?.isTerminal == true)
+        #expect(await scheduler.memberState(for: newlyStartedAdmission.descriptor.paneID) == .attaching)
 
         port.releaseAllPendingAsReady()
         let settlement = await activation.value
-        #expect(settlement.outcomesByPaneID.count == 2)
+        #expect(settlement.outcomesByPaneID.count == descriptors.count)
         #expect(await completionProbe.isCompleted)
     }
 
@@ -279,23 +280,6 @@ struct TerminalActivationSchedulerTests {
 
     private func nextCompositionGeneration() -> WorkspaceContentMountGeneration {
         WorkspaceContentMountGeneration()
-    }
-
-    private func waitUntilMemberStates(
-        scheduler: TerminalActivationScheduler,
-        terminalPaneID: PaneId,
-        attachingPaneID: PaneId,
-        maximumTurns: Int = 200
-    ) async {
-        for _ in 0..<maximumTurns {
-            let terminalState = await scheduler.memberState(for: terminalPaneID)
-            let attachingState = await scheduler.memberState(for: attachingPaneID)
-            if terminalState?.isTerminal == true, attachingState == .attaching {
-                return
-            }
-            await Task.yield()
-        }
-        Issue.record("terminal activation member states did not settle after one released admission")
     }
 
     private func makeDescriptors(
@@ -365,9 +349,7 @@ private final class ControlledTerminalActivationAdmissionPort: TerminalActivatio
 
     private var pending: [PendingAdmission] = []
     private var startedCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
-    private var releasedCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private(set) var admissions: [TerminalActivationAdmission] = []
-    private var releasedCount = 0
 
     func activate(_ admission: TerminalActivationAdmission) async -> TerminalActivationAttemptResult {
         admissions.append(admission)
@@ -384,43 +366,28 @@ private final class ControlledTerminalActivationAdmissionPort: TerminalActivatio
         }
     }
 
-    func waitUntilReleasedCount(_ count: Int) async {
-        guard releasedCount < count else { return }
-        await withCheckedContinuation { continuation in
-            releasedCountWaiters.append((count, continuation))
-        }
-    }
-
-    func releaseFirstPendingAsReady() {
+    @discardableResult
+    func releaseFirstPendingAsReady() -> TerminalActivationAdmission? {
         guard !pending.isEmpty else {
             Issue.record("Expected a pending terminal activation admission")
-            return
+            return nil
         }
         let pendingAdmission = pending.removeFirst()
-        releasedCount += 1
         pendingAdmission.continuation.resume(returning: .ready(surfaceID: UUIDv7.generate()))
-        resumeSatisfiedReleasedCountWaiters()
+        return pendingAdmission.admission
     }
 
     func releaseAllPendingAsReady() {
         let pendingAdmissions = pending
         pending.removeAll()
-        releasedCount += pendingAdmissions.count
         for pendingAdmission in pendingAdmissions {
             pendingAdmission.continuation.resume(returning: .ready(surfaceID: UUIDv7.generate()))
         }
-        resumeSatisfiedReleasedCountWaiters()
     }
 
     private func resumeSatisfiedStartedCountWaiters() {
         let ready = startedCountWaiters.filter { $0.0 <= admissions.count }
         startedCountWaiters.removeAll { $0.0 <= admissions.count }
-        for waiter in ready { waiter.1.resume() }
-    }
-
-    private func resumeSatisfiedReleasedCountWaiters() {
-        let ready = releasedCountWaiters.filter { $0.0 <= releasedCount }
-        releasedCountWaiters.removeAll { $0.0 <= releasedCount }
         for waiter in ready { waiter.1.resume() }
     }
 }

@@ -282,7 +282,7 @@ describe('Bridge worktree dev provider metadata-first source', () => {
 		);
 	});
 
-	test('bounds post-demand content and provider-state retention under named LRU policies', async () => {
+	test('bounds post-demand content retention under the named body LRU policies', async () => {
 		const repoRoot = await makeLruPressureRepo();
 		const observer = new CountedPortObserver();
 		const provider = await createBridgeWorktreeDevProvider(
@@ -291,7 +291,7 @@ describe('Bridge worktree dev provider metadata-first source', () => {
 		);
 		const surface = await provider.loadWorktreeFileSurface();
 
-		// oxlint-disable no-await-in-loop -- Ordered demand and refresh are the LRU/state policy inputs under test.
+		// oxlint-disable no-await-in-loop -- Ordered demand is the content LRU policy input under test.
 		for (let fileIndex = 0; fileIndex < 9; fileIndex += 1) {
 			const descriptor =
 				// oxlint-disable-next-line no-await-in-loop -- LRU admission order is the behavior under test.
@@ -313,6 +313,45 @@ describe('Bridge worktree dev provider metadata-first source', () => {
 			).resolves.toHaveLength(lruPressureBodyByteCount);
 		}
 
+		// oxlint-enable no-await-in-loop
+		const diagnostics = provider.diagnostics?.();
+
+		expect(diagnostics?.retainedContentBodyCount).toBe(
+			BRIDGE_WORKTREE_DEV_RETAINED_CONTENT_BODY_LIMIT,
+		);
+		expect(diagnostics?.retainedContentByteCount).toBe(
+			BRIDGE_WORKTREE_DEV_RETAINED_CONTENT_BYTE_LIMIT,
+		);
+		expect(observer.metrics.contentBodyReadCount).toBe(9);
+		expect(observer.metrics.contentBodyByteCount).toBe(9 * lruPressureBodyByteCount);
+		expect(observer.metrics.maximumFilesystemConcurrency).toBeLessThanOrEqual(
+			BRIDGE_WORKTREE_DEV_MAXIMUM_FILESYSTEM_CONCURRENCY,
+		);
+	});
+
+	test('bounds provider-state retention under the named state LRU policy', async () => {
+		const repoRoot = await makePublicationIdentityRepo();
+		const provider = await createBridgeWorktreeDevProvider({
+			baseRef: 'HEAD',
+			scenarioName: 'current-worktree',
+			worktreeRoot: repoRoot,
+		});
+		const initialSurface = await provider.loadWorktreeFileSurface();
+		const retainedPath = 'Tracked.txt';
+		const retainedDescriptor = (
+			await provider.loadWorktreeFileDescriptor({
+				maximumBytes: 4_096,
+				path: retainedPath,
+				sourceCursor: initialSurface.source.sourceCursor,
+				subscriptionGeneration: initialSurface.source.subscriptionGeneration,
+			})
+		).descriptor;
+		const retainedContent = await provider.loadWorktreeFileContent({
+			descriptorId: retainedDescriptor.contentHandle,
+			sourceCursor: initialSurface.source.sourceCursor,
+			subscriptionGeneration: initialSurface.source.subscriptionGeneration,
+		});
+
 		for (let refreshIndex = 0; refreshIndex < 6; refreshIndex += 1) {
 			// oxlint-disable-next-line no-await-in-loop -- Each distinct fingerprint must become the next retained state.
 			await writeFile(
@@ -322,19 +361,13 @@ describe('Bridge worktree dev provider metadata-first source', () => {
 			// oxlint-disable-next-line no-await-in-loop -- Refresh state order is the retention policy input.
 			await provider.loadWorktreeFileSurface();
 		}
-		// oxlint-enable no-await-in-loop
-		const diagnostics = provider.diagnostics?.();
 
-		expect(diagnostics).toEqual({
-			retainedContentBodyCount: BRIDGE_WORKTREE_DEV_RETAINED_CONTENT_BODY_LIMIT,
-			retainedContentByteCount: BRIDGE_WORKTREE_DEV_RETAINED_CONTENT_BYTE_LIMIT,
-			retainedProviderStateCount: BRIDGE_WORKTREE_DEV_RETAINED_PROVIDER_STATE_LIMIT,
-		});
-		expect(observer.metrics.contentBodyReadCount).toBe(9);
-		expect(observer.metrics.contentBodyByteCount).toBe(9 * lruPressureBodyByteCount);
-		expect(observer.metrics.maximumFilesystemConcurrency).toBeLessThanOrEqual(
-			BRIDGE_WORKTREE_DEV_MAXIMUM_FILESYSTEM_CONCURRENCY,
+		const diagnostics = provider.diagnostics?.();
+		expect(diagnostics?.retainedProviderStateCount).toBe(
+			BRIDGE_WORKTREE_DEV_RETAINED_PROVIDER_STATE_LIMIT,
 		);
+		expect(diagnostics?.retainedContentBodyCount).toBe(1);
+		expect(diagnostics?.retainedContentByteCount).toBe(Buffer.byteLength(retainedContent));
 	});
 
 	test('records a pathless current-worktree freshness and counted proof receipt', async () => {

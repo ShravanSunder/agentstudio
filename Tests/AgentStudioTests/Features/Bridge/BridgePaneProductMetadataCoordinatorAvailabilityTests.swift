@@ -113,7 +113,6 @@ struct BridgeProductReviewAvailabilityTests {
         await coordinator.uninstall(lease: lease)
         #expect(await pump.cancel())
     }
-
     @Test("producer rejection returns failed without claiming observation")
     func producerRejectionReturnsFailedWithoutObservation() async throws {
         let traceContext = try BridgeTraceContext(
@@ -141,7 +140,6 @@ struct BridgeProductReviewAvailabilityTests {
             ]
         )
     }
-
     @Test("Review event construction failure rejects reservation before delivery")
     func eventConstructionFailureRejectsReservationBeforeDelivery() async throws {
         let traceContext = try BridgeTraceContext(
@@ -258,16 +256,13 @@ struct BridgeProductReviewAvailabilityTests {
             productAdmission: harness.productAdmission.context,
             foregroundWorkAdmission: refreshWorkAdmission.admission
         )
-        let deliveryProbe = CoordinatorReviewDeliveryDispositionProbe()
         let delivery = Task {
-            let disposition = await coordinator.deliverReviewPublication(
+            await coordinator.deliverReviewPublication(
                 predecessor,
                 reservation: reservation,
                 productAdmission: harness.productAdmission.context,
                 foregroundWorkAdmission: refreshWorkAdmission.admission
             )
-            await deliveryProbe.record(disposition)
-            return disposition
         }
         await source.waitUntilDeliveryStarted()
 
@@ -276,14 +271,7 @@ struct BridgeProductReviewAvailabilityTests {
             currentPublication.publicationId = successorPublicationId
         }
         await source.releaseDelivery()
-        for _ in 0..<1000 {
-            let queuedFrameCount = (await harness.session.producerSnapshot()).queuedFrameCount
-            let disposition = await deliveryProbe.disposition
-            if queuedFrameCount > 0 || disposition != nil {
-                break
-            }
-            await Task.yield()
-        }
+        await source.waitUntilDeliveryFinished()
         let queuedFrameCountAfterSuccessorCommit =
             (await harness.session.producerSnapshot()).queuedFrameCount
         if queuedFrameCountAfterSuccessorCommit > 0 {
@@ -441,7 +429,15 @@ struct BridgeProductReviewAvailabilityTests {
         let initialForegroundAdmission = try #require(
             activityCoordinator.acquireForegroundWork()
         )
-        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let (pacingRegistrationEvents, pacingRegistrationContinuation) =
+            AsyncStream<(lease: BridgeProductProducerLease, sequence: Int)>.makeStream()
+        defer { pacingRegistrationContinuation.finish() }
+        var pacingRegistrationIterator = pacingRegistrationEvents.makeAsyncIterator()
+        let harness = try await BridgeProductSessionLifecycleHarness.opened(
+            producerObservationPacingRegistrationObserver: { lease, sequence in
+                pacingRegistrationContinuation.yield((lease, sequence))
+            }
+        )
         let lease = try await harness.admitMetadataFrames(through: 0)
         let pump = BridgeProductSchemeFramePump(
             session: harness.session,
@@ -486,7 +482,6 @@ struct BridgeProductReviewAvailabilityTests {
                 foregroundWorkAdmission: initialForegroundAdmission
             )
         }
-        #expect(await waitForAvailabilityQueuedFrameCount(1, session: harness.session))
         let sourceAccepted = try await pullAvailabilityMetadataFrame(from: pump)
         guard case .subscriptionData(let sourceAcceptedData) = sourceAccepted,
             case .reviewMetadata(.sourceAccepted) = sourceAcceptedData.data
@@ -494,17 +489,21 @@ struct BridgeProductReviewAvailabilityTests {
             Issue.record("Expected initial replay sourceAccepted")
             return
         }
-        #expect(await waitForAvailabilityQueuedFrameCount(1, session: harness.session))
-        guard case .frame(let heldFinalFrame) = await pump.nextFrame() else {
-            Issue.record("Expected initial replay final frame")
-            return
+        var matchingPacingRegistration: (lease: BridgeProductProducerLease, sequence: Int)?
+        while let registration = await pacingRegistrationIterator.next() {
+            if registration.lease == lease {
+                matchingPacingRegistration = registration
+                break
+            }
         }
-        #expect(
-            await waitForAvailabilityProducerPacingWaiterCount(
-                1,
-                session: harness.session
-            )
+        let registeredSequence = try #require(matchingPacingRegistration?.sequence)
+        let initialFinalFrameDeliveries = try await pullAvailabilityMetadataFrames(
+            through: registeredSequence,
+            from: pump
         )
+        let heldFinalFrame = try #require(initialFinalFrameDeliveries.last)
+        #expect(matchingPacingRegistration?.lease == lease)
+        #expect(matchingPacingRegistration?.sequence == heldFinalFrame.receipt.sequence)
 
         // Act
         activityCoordinator.applyActivity(.loadedHidden)
@@ -522,26 +521,31 @@ struct BridgeProductReviewAvailabilityTests {
         let heldFinalAcknowledged = await pump.acknowledgeFrameConsumed(heldFinalFrame.receipt)
         activityCoordinator.applyActivity(.foreground)
         await coordinator.resumeForegroundWork()
-        #expect(await waitForAvailabilityQueuedFrameCount(1, session: harness.session))
-        let replayedSourceAccepted = try await pullAvailabilityMetadataFrame(from: pump)
-        #expect(await waitForAvailabilityQueuedFrameCount(1, session: harness.session))
-        let replayedFinalFrame = try await pullAvailabilityMetadataFrame(from: pump)
-        #expect(await waitForAvailabilityQueuedFrameCount(1, session: harness.session))
-        let replayedPublicationFinalFrame = try await pullAvailabilityMetadataFrame(from: pump)
+        var replayedPacingRegistration: (lease: BridgeProductProducerLease, sequence: Int)?
+        while let registration = await pacingRegistrationIterator.next() {
+            if registration.lease == lease {
+                replayedPacingRegistration = registration
+                break
+            }
+        }
+        let replayedFinalSequence = try #require(replayedPacingRegistration?.sequence)
+        let replayedDeliveries = try await pullAvailabilityMetadataFrames(
+            through: replayedFinalSequence,
+            from: pump
+        )
+        let replayedFinalDelivery = try #require(replayedDeliveries.last)
+        #expect(await pump.acknowledgeFrameConsumed(replayedFinalDelivery.receipt))
         #expect(heldFinalAcknowledged)
         #expect(interruptedDisposition == .deferred)
-        #expect(await waitForAvailabilityPublicationCompletion(traceRecorder))
+        await traceRecorder.waitUntilPublicationCompleted()
         #expect(
-            await waitForAvailabilityProducerPacingWaiterCount(
-                0,
-                session: harness.session
-            )
+            (await harness.session.producerSnapshot())
+                .pendingProducerObservationPacingWaiterCount == 0
         )
 
         // Assert
-        let replayedEvents = availabilityReviewMetadataEvents(
-            in: [replayedSourceAccepted, replayedFinalFrame, replayedPublicationFinalFrame]
-        )
+        let replayedFrames = try replayedDeliveries.map(availabilityMetadataFrame(from:))
+        let replayedEvents = availabilityReviewMetadataEvents(in: replayedFrames)
         #expect(
             replayedEvents.contains {
                 if case .sourceAccepted = $0 { return true }
@@ -674,11 +678,36 @@ private actor AvailabilityReviewPublicationTraceRecorder:
     BridgeProductMetadataLifecycleTraceRecording
 {
     private(set) var publicationEvents: [BridgeProductReviewMetadataPublicationTraceEvent] = []
+    private var publicationCompletionWaiters: [CheckedContinuation<Void, Never>] = []
 
     func record(_: BridgeProductMetadataLifecycleTraceEvent) {}
 
     func record(_ event: BridgeProductReviewMetadataPublicationTraceEvent) {
         publicationEvents.append(event)
+        guard case .completed = event else { return }
+        let waiters = publicationCompletionWaiters
+        publicationCompletionWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    func waitUntilPublicationCompleted() async {
+        if hasCompletedPublication { return }
+        await withCheckedContinuation { continuation in
+            if hasCompletedPublication {
+                continuation.resume()
+            } else {
+                publicationCompletionWaiters.append(continuation)
+            }
+        }
+    }
+
+    private var hasCompletedPublication: Bool {
+        publicationEvents.contains { event in
+            if case .completed = event { return true }
+            return false
+        }
     }
 }
 
@@ -822,48 +851,27 @@ private func pullAvailabilityMetadataFrame(
     let frames = try decoder.append(delivery.frame.data)
     return try #require(frames.first)
 }
-
-private func waitForAvailabilityProducerPacingWaiterCount(
-    _ expectedCount: Int,
-    session: BridgeProductSession
-) async -> Bool {
-    for _ in 0..<1000 {
-        if await session.producerSnapshot().pendingProducerObservationPacingWaiterCount
-            == expectedCount
-        {
-            return true
+private func pullAvailabilityMetadataFrames(
+    through expectedSequence: Int,
+    from pump: BridgeProductSchemeFramePump
+) async throws -> [BridgeProductProducerFrameDelivery] {
+    var deliveries: [BridgeProductProducerFrameDelivery] = []
+    while case .frame(let frame) = await pump.nextFrame() {
+        deliveries.append(frame)
+        if frame.receipt.sequence == expectedSequence {
+            return deliveries
         }
-        await Task.yield()
+        #expect(await pump.acknowledgeFrameConsumed(frame.receipt))
     }
-    return false
+    Issue.record("Expected metadata frame sequence \(expectedSequence)")
+    throw CancellationError()
 }
 
-private func waitForAvailabilityQueuedFrameCount(
-    _ minimumCount: Int,
-    session: BridgeProductSession
-) async -> Bool {
-    for _ in 0..<1000 {
-        if await session.producerSnapshot().queuedFrameCount >= minimumCount {
-            return true
-        }
-        await Task.yield()
-    }
-    return false
-}
-
-private func waitForAvailabilityPublicationCompletion(
-    _ recorder: AvailabilityReviewPublicationTraceRecorder
-) async -> Bool {
-    for _ in 0..<1000 {
-        if await recorder.publicationEvents.contains(where: {
-            if case .completed = $0 { return true }
-            return false
-        }) {
-            return true
-        }
-        await Task.yield()
-    }
-    return false
+private func availabilityMetadataFrame(
+    from delivery: BridgeProductProducerFrameDelivery
+) throws -> BridgeProductMetadataFrame {
+    let decoder = try BridgeProductMetadataFrameDecoder()
+    return try #require(decoder.append(delivery.frame.data).first)
 }
 
 private func exerciseAvailabilityPublicationFailure(

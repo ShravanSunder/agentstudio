@@ -65,7 +65,6 @@ actor BridgePaneProductMetadataCoordinator {
     }
 
     var hasActiveStream: Bool { activeStream != nil }
-
     func install(
         request: BridgeProductMetadataStreamRequest,
         lease: BridgeProductProducerLease,
@@ -89,7 +88,6 @@ actor BridgePaneProductMetadataCoordinator {
         }
         await transition.value
     }
-
     private func performInstall(
         request: BridgeProductMetadataStreamRequest,
         lease: BridgeProductProducerLease,
@@ -139,7 +137,6 @@ actor BridgePaneProductMetadataCoordinator {
         else { return }
         activeStream = nil
     }
-
     func closeAndDrain() async {
         let precedingTransition = lifecycleTransitionTail
         let transition = Task { [self] in
@@ -163,7 +160,6 @@ actor BridgePaneProductMetadataCoordinator {
         await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
         activeStream = nil
     }
-
     func apply(
         _ effect: BridgeProductSessionCompletionEffect,
         productAdmission: BridgeProductAdmissionContext
@@ -871,7 +867,17 @@ extension BridgePaneProductMetadataCoordinator {
                                 sequence: maximumFinalSequence,
                                 productAdmission: productAdmission
                             )
-                        else { return .failed }
+                        else {
+                            guard activeStream?.lease == publishingStream.lease,
+                                foregroundWorkAdmission.withValidAdmission({ true }) == true,
+                                await isReviewPublicationCurrent(
+                                    publication.publicationId,
+                                    productAdmission
+                                ),
+                                (productAdmission.withValidAdmission { true }) == true
+                            else { return .deferred }
+                            return .failed
+                        }
                     }
                     guard activeStream?.lease == publishingStream.lease,
                         foregroundWorkAdmission.withValidAdmission({ true }) == true,
@@ -972,7 +978,6 @@ extension BridgePaneProductMetadataCoordinator {
         deferredUpdateSubscriptionIds.remove(subscriptionId)
         openedSourceSubscriptionIds.remove(subscriptionId)
     }
-
     private var reviewSubscriptionIds: [String] {
         subscriptionKindById.compactMap { subscriptionId, kind in
             kind == .reviewMetadata ? subscriptionId : nil
@@ -992,5 +997,4 @@ extension BridgePaneProductMetadataCoordinator {
             )
         )
     }
-
 }

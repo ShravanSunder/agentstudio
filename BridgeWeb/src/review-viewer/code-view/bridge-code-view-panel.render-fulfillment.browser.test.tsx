@@ -29,6 +29,11 @@ import type { BridgeReviewPackage } from '../../foundation/review-package/bridge
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
 import { BridgeCodeViewPanel } from './bridge-code-view-panel.js';
+import {
+	paintedSourceCorrelations,
+	requireCurrentRenderedReviewRows,
+	requireMountedCodeView,
+} from './bridge-code-view-panel.render-fulfillment.browser.test-support.js';
 
 type ExactReviewPierreDiffItem = Extract<
 	BridgeMainRenderPublicationItem,
@@ -466,23 +471,15 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			firstCodeView.getRenderedItems = originalGetRenderedItems;
 
 			// Only the exact final callback plus connected public readback advances fulfillment.
-			const renderedItemShadowRoot = matchingRenderedItem.element.shadowRoot;
-			if (renderedItemShadowRoot === null) throw new Error('Expected real Pierre shadow root.');
-			const baseLines = renderedItemShadowRoot.querySelectorAll<HTMLElement>(
-				'[data-deletions] [data-line][data-line-index]',
-			);
-			const headLines = renderedItemShadowRoot.querySelectorAll<HTMLElement>(
-				'[data-additions] [data-line][data-line-index]',
-			);
-			if (baseLines.length !== 0 || headLines.length < 2) {
+			const initialRenderedRows = requireCurrentRenderedReviewRows(firstCodeView, firstFinalItem);
+			if (initialRenderedRows.baseLines.length !== 0 || initialRenderedRows.headLines.length < 2) {
 				throw new Error('Expected added-only Pierre head rows and no base rows.');
 			}
-			const originalHeadText = [...headLines].map((line): string => line.textContent ?? '');
+			const originalHeadText = initialRenderedRows.headLines.map(
+				(line): string => line.textContent ?? '',
+			);
 			await invokeCapturedPostRenderWithinAct({
 				invocation: firstPostRender,
-				mutateRenderedContent: (): void => {
-					for (const headLine of headLines) headLine.textContent = '';
-				},
 				phase: 'update',
 			});
 			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied']);
@@ -492,44 +489,80 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			if (pendingPaintFrame === undefined) {
 				throw new Error('Expected matching post-render readback to schedule paint validation.');
 			}
+			requireCurrentRenderedReviewRows(firstCodeView, firstFinalItem).clearHeadText();
 			pendingPaintFrame.callback(nowMilliseconds);
 			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied', 'painted']);
-			expect(paintedSourceCorrelations(matchingRenderedItem.element)).toBeNull();
+			expect(
+				paintedSourceCorrelations(
+					requireCurrentRenderedReviewRows(firstCodeView, firstFinalItem).element,
+				),
+			).toBeNull();
 			await invokeCapturedPostRenderWithinAct({
 				invocation: firstPostRender,
 				mutateRenderedContent: (): void => {
-					for (const headLine of headLines) headLine.textContent = 'unrelated skeletal content';
-				},
-				phase: 'update',
-			});
-			expect(paintedSourceCorrelations(matchingRenderedItem.element)).toBeNull();
-			const nonCanaryHeadLine = headLines.item(headLines.length - 1);
-			if (nonCanaryHeadLine === null) throw new Error('Expected another rendered head row.');
-			await invokeCapturedPostRenderWithinAct({
-				invocation: firstPostRender,
-				mutateRenderedContent: (): void => {
-					nonCanaryHeadLine.textContent = originalHeadText.at(-1) ?? '';
-				},
-				phase: 'update',
-			});
-			expect(paintedSourceCorrelations(matchingRenderedItem.element)).toBeNull();
-			const staleBaseRows = document.createElement('div');
-			staleBaseRows.setAttribute('data-deletions', '');
-			staleBaseRows.innerHTML = '<span data-line="1" data-line-index="0">stale base</span>';
-			renderedItemShadowRoot.append(staleBaseRows);
-			await invokeCapturedPostRenderWithinAct({
-				invocation: firstPostRender,
-				mutateRenderedContent: (): void => {
-					for (const [lineIndex, headLine] of headLines.entries()) {
-						headLine.textContent = originalHeadText[lineIndex] ?? '';
+					const currentRows = requireCurrentRenderedReviewRows(firstCodeView, firstFinalItem);
+					for (const headLine of currentRows.headLines) {
+						headLine.textContent = 'unrelated skeletal content';
 					}
 				},
 				phase: 'update',
 			});
-			expect(paintedSourceCorrelations(matchingRenderedItem.element)).toBeNull();
-			staleBaseRows.remove();
-			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
-			expect(paintedSourceCorrelations(matchingRenderedItem.element)).not.toBeNull();
+			expect(
+				paintedSourceCorrelations(
+					requireCurrentRenderedReviewRows(firstCodeView, firstFinalItem).element,
+				),
+			).toBeNull();
+			await invokeCapturedPostRenderWithinAct({
+				invocation: firstPostRender,
+				mutateRenderedContent: (): void => {
+					const currentRows = requireCurrentRenderedReviewRows(firstCodeView, firstFinalItem);
+					for (const headLine of currentRows.headLines) {
+						headLine.textContent = 'unrelated skeletal content';
+					}
+					const finalHeadLine = currentRows.headLines.at(-1);
+					if (finalHeadLine === undefined) throw new Error('Expected another rendered head row.');
+					finalHeadLine.textContent = originalHeadText.at(-1) ?? '';
+				},
+				phase: 'update',
+			});
+			expect(
+				paintedSourceCorrelations(
+					requireCurrentRenderedReviewRows(firstCodeView, firstFinalItem).element,
+				),
+			).toBeNull();
+			await invokeCapturedPostRenderWithinAct({
+				invocation: firstPostRender,
+				mutateRenderedContent: (): void => {
+					const currentRows = requireCurrentRenderedReviewRows(firstCodeView, firstFinalItem);
+					for (const [lineIndex, headLine] of currentRows.headLines.entries()) {
+						headLine.textContent = originalHeadText[lineIndex] ?? '';
+					}
+					const staleBaseRows = document.createElement('div');
+					staleBaseRows.setAttribute('data-bridge-test-stale-base-rows', '');
+					staleBaseRows.setAttribute('data-deletions', '');
+					staleBaseRows.innerHTML = '<span data-line="1" data-line-index="0">stale base</span>';
+					currentRows.shadowRoot.append(staleBaseRows);
+				},
+				phase: 'update',
+			});
+			expect(
+				paintedSourceCorrelations(
+					requireCurrentRenderedReviewRows(firstCodeView, firstFinalItem).element,
+				),
+			).toBeNull();
+			await invokeCapturedPostRenderWithinAct({
+				invocation: firstPostRender,
+				mutateRenderedContent: (): void => {
+					const currentRows = requireCurrentRenderedReviewRows(firstCodeView, firstFinalItem);
+					currentRows.shadowRoot.querySelector('[data-bridge-test-stale-base-rows]')?.remove();
+				},
+				phase: 'update',
+			});
+			expect(
+				paintedSourceCorrelations(
+					requireCurrentRenderedReviewRows(firstCodeView, firstFinalItem).element,
+				),
+			).not.toBeNull();
 			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied', 'painted']);
 
 			// A real user collapse is local presentation state. A changed same-id publication must
@@ -809,10 +842,6 @@ function dispositionKinds(
 	return dispositions.map((receipt) => receipt.disposition);
 }
 
-function paintedSourceCorrelations(element: Element): string | null {
-	return element.getAttribute('data-bridge-painted-source-correlations');
-}
-
 async function invokeCapturedPostRenderWithinAct(props: {
 	readonly contextItem?: CodeViewItem;
 	readonly invocation: CapturedBridgeCodeViewPostRender;
@@ -827,13 +856,6 @@ async function invokeCapturedPostRenderWithinAct(props: {
 		});
 		await Promise.resolve();
 	});
-}
-
-function requireMountedCodeView(codeView: CodeView | null): CodeView {
-	if (codeView === null) {
-		throw new Error('Expected production BridgeCodeViewPanel to mount a public Pierre CodeView.');
-	}
-	return codeView;
 }
 
 function requirePostRenderForItem(

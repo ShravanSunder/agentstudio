@@ -8,13 +8,18 @@ struct BridgeProductSessionLifecycleHarness {
     let productAdmission: BridgeProductAdmissionTestContext
     let session: BridgeProductSession
 
-    static func opened() async throws -> Self {
+    static func opened(
+        producerObservationPacingRegistrationObserver:
+            BridgeProductSession.ProducerObservationPacingRegistrationObserver? = nil
+    ) async throws -> Self {
         let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes)
         let session = try BridgeProductSession(
             paneSessionId: "pane-session-1",
             workerInstanceId: "worker-instance-1",
-            capabilityBytes: capabilityBytes
+            capabilityBytes: capabilityBytes,
+            producerObservationPacingRegistrationObserver:
+                producerObservationPacingRegistrationObserver
         )
         let harness = try Self(
             capabilityHeader: capabilityHeader,

@@ -185,9 +185,6 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 
 		// Act: Clear is the product reset path, not a test-only state mutation.
 		await actClickAndSettleFileViewerMenu(
-			requireHTMLElement(renderResult.getByTestId('worktree-file-filter-menu').element()),
-		);
-		await actClickAndSettleFileViewerMenu(
 			requireHTMLElement(renderResult.getByTestId('worktree-file-filter-menu-clear').element()),
 		);
 		await settleBridgeFileViewerBrowserUpdates();

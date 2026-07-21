@@ -8,10 +8,13 @@ private struct BridgeProductMetadataFrameAcknowledgementReplay {
 actor BridgeProductSession {
     typealias ProducerLifecycleAcknowledger =
         @Sendable (BridgeProductProducerLifecycleAcknowledgement) async -> Bool
+    typealias ProducerObservationPacingRegistrationObserver =
+        @Sendable (BridgeProductProducerLease, Int) -> Void
 
     nonisolated let capabilityAuthenticator: BridgeProductCapabilityAuthenticator
     private let maximumRequestOrResponseBytes: Int
     private let paneSessionId: String
+    let producerObservationPacingRegistrationObserver: ProducerObservationPacingRegistrationObserver?
     var producerRegistry: BridgeProductProducerRegistry
     private var lastAcceptedContentFrameAcknowledgementByProducerLease:
         [BridgeProductProducerLease: BridgeProductContentFrameAcknowledgement] = [:]
@@ -39,7 +42,9 @@ actor BridgeProductSession {
         paneSessionId: String,
         workerInstanceId: String,
         capabilityBytes: [UInt8],
-        maximumRequestOrResponseBytes: Int = BridgeProductWireContract.maximumRequestBodyBytes
+        maximumRequestOrResponseBytes: Int = BridgeProductWireContract.maximumRequestBodyBytes,
+        producerObservationPacingRegistrationObserver:
+            ProducerObservationPacingRegistrationObserver? = nil
     ) throws {
         guard maximumRequestOrResponseBytes > 0,
             maximumRequestOrResponseBytes <= BridgeProductWireContract.maximumRequestBodyBytes
@@ -55,6 +60,8 @@ actor BridgeProductSession {
             encodedCapability: capabilityHeader
         )
         self.maximumRequestOrResponseBytes = maximumRequestOrResponseBytes
+        self.producerObservationPacingRegistrationObserver =
+            producerObservationPacingRegistrationObserver
         self.lastAcceptedMetadataFrameAcknowledgement = nil
         self.producerRegistry = BridgeProductProducerRegistry()
         self.controlReplay = .init(

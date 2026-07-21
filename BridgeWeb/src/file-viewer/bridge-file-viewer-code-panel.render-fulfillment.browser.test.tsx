@@ -50,7 +50,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 		// Arrange: capture Pierre's public callback while retaining a real mounted CodeView and its
 		// public current-item and rendered-membership readback APIs.
 		const mountedCodeView: { current: CodeView | null } = { current: null };
-		const capturedPostRenders: CapturedBridgeFilePostRender[] = [];
+		const postRenderCapture = new BridgeFilePostRenderCapture();
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
 		const originalSetup = CodeView.prototype.setup;
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
@@ -70,10 +70,9 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			const capturedOptions = {
 				...options,
 				onPostRender: (...callbackArguments: readonly unknown[]): void => {
-					captureBridgeFilePostRender({
+					postRenderCapture.capture({
 						callback: onPostRender,
 						callbackArguments,
-						invocations: capturedPostRenders,
 					});
 				},
 			} satisfies CodeViewOptions<undefined>;
@@ -164,14 +163,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 						),
 				'Expected Pierre rendered membership to carry the exact main-adapted File object.',
 			);
-			await settleBridgeCodeViewState(
-				(): boolean =>
-					capturedPostRenders.some(
-						(invocation): boolean => invocation.contextItem === firstFinalItem,
-					),
-				'Expected Pierre onPostRender callback for the exact main-adapted File object.',
-			);
-			const firstPostRender = requirePostRenderForItem(capturedPostRenders, firstFinalItem);
+			const firstPostRender = await waitForBridgeFilePostRender(postRenderCapture, firstFinalItem);
 
 			expect(firstCodeView.getItem(firstFinalItem.id)).toBe(firstFinalItem);
 			expect(
@@ -325,14 +317,10 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 						),
 				'Expected Pierre rendered membership to carry the exact second main-adapted File object.',
 			);
-			await settleBridgeCodeViewState(
-				(): boolean =>
-					capturedPostRenders.some(
-						(invocation): boolean => invocation.contextItem === secondFinalItem,
-					),
-				'Expected Pierre onPostRender callback for the exact second main-adapted File object.',
+			const secondPostRender = await waitForBridgeFilePostRender(
+				postRenderCapture,
+				secondFinalItem,
 			);
-			const secondPostRender = requirePostRenderForItem(capturedPostRenders, secondFinalItem);
 			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
 			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied', 'painted', 'queued']);
 			await invokeCapturedPostRenderWithinAct({ invocation: secondPostRender, phase: 'update' });
@@ -462,24 +450,12 @@ function requireMountedCodeView(codeView: CodeView | null): CodeView {
 	return codeView;
 }
 
-function requirePostRenderForItem(
-	invocations: readonly CapturedBridgeFilePostRender[],
-	item: CodeViewItem,
-): CapturedBridgeFilePostRender {
-	const invocation = invocations.find((candidate): boolean => candidate.contextItem === item);
-	if (invocation === undefined) {
-		throw new Error(`Expected Pierre onPostRender callback for exact File item ${item.id}.`);
-	}
-	return invocation;
-}
-
 function captureBridgeFilePostRender(props: {
 	readonly callback: NonNullable<CodeViewOptions<undefined>['onPostRender']>;
 	readonly callbackArguments: readonly unknown[];
-	readonly invocations: CapturedBridgeFilePostRender[];
-}): void {
+}): CapturedBridgeFilePostRender {
 	const callbackArguments = requireBridgeFilePostRenderArguments(props.callbackArguments);
-	props.invocations.push({
+	return {
 		contextItem: callbackArguments.context.item,
 		invoke: (invokeProps): void => {
 			Reflect.apply(props.callback, undefined, [
@@ -491,7 +467,51 @@ function captureBridgeFilePostRender(props: {
 					: { ...callbackArguments.context, item: invokeProps.contextItem },
 			]);
 		},
+	};
+}
+
+class BridgeFilePostRenderCapture {
+	private readonly invocationByItem = new Map<CodeViewItem, CapturedBridgeFilePostRender>();
+	private readonly waiterByItem = new Map<
+		CodeViewItem,
+		(invocation: CapturedBridgeFilePostRender) => void
+	>();
+
+	capture(props: {
+		readonly callback: NonNullable<CodeViewOptions<undefined>['onPostRender']>;
+		readonly callbackArguments: readonly unknown[];
+	}): void {
+		const invocation = captureBridgeFilePostRender(props);
+		if (!this.invocationByItem.has(invocation.contextItem)) {
+			this.invocationByItem.set(invocation.contextItem, invocation);
+		}
+		const waiter = this.waiterByItem.get(invocation.contextItem);
+		if (waiter === undefined) return;
+		this.waiterByItem.delete(invocation.contextItem);
+		waiter(invocation);
+	}
+
+	waitForItem(item: CodeViewItem): Promise<CapturedBridgeFilePostRender> {
+		const invocation = this.invocationByItem.get(item);
+		if (invocation !== undefined) return Promise.resolve(invocation);
+		return new Promise((resolve): void => {
+			this.waiterByItem.set(item, resolve);
+		});
+	}
+}
+
+async function waitForBridgeFilePostRender(
+	capture: BridgeFilePostRenderCapture,
+	item: CodeViewItem,
+): Promise<CapturedBridgeFilePostRender> {
+	let invocation: CapturedBridgeFilePostRender | undefined;
+	await act(async (): Promise<void> => {
+		invocation = await capture.waitForItem(item);
 	});
+	if (invocation === undefined) {
+		throw new Error(`Expected Pierre onPostRender callback for exact File item ${item.id}.`);
+	}
+	return invocation;
 }
 
 function requireBridgeFilePostRenderArguments(callbackArguments: readonly unknown[]): {

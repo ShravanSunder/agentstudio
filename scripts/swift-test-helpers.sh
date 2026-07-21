@@ -17,6 +17,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/xcb-helpers.sh"
 large_non_webkit_filter_pattern() {
   local patterns=(
     Script
+    SourceScan
     Smoke
     Integration
     ZmxStartupTraceAnalyzerTests
@@ -157,6 +158,11 @@ WebKitSerializedTests/BridgeProductRealGitFileAndReviewWebKitTests
 WebKitSerializedTests/WorkspaceSurfaceCoordinatorViewFactoryTests
 WebKitSerializedTests/WorkspaceBridgeGitReadActivityOrderingTests
 WebKitSerializedTests/WorkspaceBridgePaneRefreshIntegrationTests
+WebKitSerializedTests/WorkspaceBridgeConstructionIntegrationTests
+WebKitSerializedTests/WorkspaceBridgePaneActivityIntegrationTests
+WebKitSerializedTests/WorkspaceBridgePaneActivityRemediationTests
+WebKitSerializedTests/PaneTabViewControllerBridgeCommandTests
+WebKitSerializedTests/WorkspaceActionExecutorWebKitTests
 WebKitSerializedTests/BridgePaneControllerProductBootstrapDeliveryTests
 WebKitSerializedTests/BridgeTelemetryBootstrapDeliveryTests
 WebKitSerializedTests/BridgeProductReviewIntakeLockOrderTests

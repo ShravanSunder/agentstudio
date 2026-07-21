@@ -164,7 +164,7 @@ struct BridgeFileCompleteContentTests {
             Issue.record("Expected the trusted source to issue a File descriptor")
             return
         }
-        let descriptorRecorder = OpenedFileDescriptorRecorder()
+        let openedDescriptorRecorder = OpenedFileDescriptorIdentityRecorder()
 
         // Act
         var rejected = false
@@ -186,7 +186,7 @@ struct BridgeFileCompleteContentTests {
                     )
                 },
                 afterOpeningFileDescriptor: { fileDescriptor in
-                    descriptorRecorder.record(fileDescriptor)
+                    openedDescriptorRecorder.record(fileDescriptor)
                 }
             )
         } catch {
@@ -200,9 +200,8 @@ struct BridgeFileCompleteContentTests {
                 == externalDirectoryURL.path
         )
         #expect(try Data(contentsOf: trustedDirectoryURL.appending(path: "source.txt")) == externalData)
-        let openedFileDescriptor = try #require(descriptorRecorder.value)
-        #expect(fcntl(openedFileDescriptor, F_GETFD) == -1)
-        #expect(errno == EBADF)
+        let openedDescriptor = try #require(openedDescriptorRecorder.value)
+        expectDescriptorWasClosedOrReassigned(openedDescriptor)
     }
 
     private func makeCompleteFileSourceText() -> String {
@@ -248,15 +247,54 @@ struct BridgeFileCompleteContentTests {
     }
 }
 
-private final class OpenedFileDescriptorRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var recordedValue: Int32?
+private struct OpenedFileDescriptorIdentity {
+    let device: dev_t
+    let fileDescriptor: Int32
+    let inode: ino_t
+}
 
-    var value: Int32? {
+private func expectDescriptorWasClosedOrReassigned(
+    _ openedDescriptor: OpenedFileDescriptorIdentity
+) {
+    var descriptorStatusAfterRejection = stat()
+    let descriptorStatusResult = fstat(
+        openedDescriptor.fileDescriptor,
+        &descriptorStatusAfterRejection
+    )
+    let descriptorStatusErrno = errno
+    if descriptorStatusResult == 0 {
+        #expect(
+            descriptorStatusAfterRejection.st_dev != openedDescriptor.device
+                || descriptorStatusAfterRejection.st_ino != openedDescriptor.inode,
+            "the rejected source descriptor must be closed; a reused descriptor number may remain valid only when it refers to a different file identity"
+        )
+    } else {
+        #expect(descriptorStatusResult == -1)
+        #expect(descriptorStatusErrno == EBADF)
+    }
+}
+
+private final class OpenedFileDescriptorIdentityRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedValue: OpenedFileDescriptorIdentity?
+
+    var value: OpenedFileDescriptorIdentity? {
         lock.withLock { recordedValue }
     }
 
-    func record(_ value: Int32) {
-        lock.withLock { recordedValue = value }
+    func record(_ fileDescriptor: Int32) {
+        var openedDescriptorStatus = stat()
+        let statusResult = fstat(fileDescriptor, &openedDescriptorStatus)
+        lock.withLock {
+            guard statusResult == 0 else {
+                recordedValue = nil
+                return
+            }
+            recordedValue = OpenedFileDescriptorIdentity(
+                device: openedDescriptorStatus.st_dev,
+                fileDescriptor: fileDescriptor,
+                inode: openedDescriptorStatus.st_ino
+            )
+        }
     }
 }

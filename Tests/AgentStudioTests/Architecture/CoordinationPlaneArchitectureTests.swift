@@ -119,12 +119,13 @@ struct CoordinationPlaneArchitectureTests {
         )
     }
 
-    @Test("NotificationCenter stays limited to lifecycle allowlist")
-    func notificationCenterUsage_isLifecycleOnly() throws {
+    @Test("NotificationCenter stays limited to local AppKit observation allowlist")
+    func notificationCenterUsage_isLocalAppKitObservationOnly() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let sourcesRoot = projectRoot.appending(path: "Sources/AgentStudio")
         let allowedFiles: Set<String> = [
-            "Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceScrollView.swift"
+            "Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceScrollView.swift",
+            "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+VisibleRows.swift",
         ]
 
         var notificationCenterFiles: Set<String> = []

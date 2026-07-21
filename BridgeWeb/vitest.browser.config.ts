@@ -11,7 +11,7 @@ const browserConfig = {
 	enabled: true,
 	provider: 'playwright',
 	headless: true,
-	instances: [{ browser: 'chromium', launch: { channel: 'chrome' } }],
+	instances: [{ browser: 'chromium', launch: { channel: 'chrome' }, name: 'integration-chromium' }],
 	api: {
 		host: '127.0.0.1',
 		port: 63325,
@@ -20,7 +20,6 @@ const browserConfig = {
 		width: 1728,
 		height: 972,
 	},
-	fileParallelism: true,
 	screenshotFailures: true,
 	screenshotDirectory: '../tmp/bridgeweb-vitest-screenshots',
 } satisfies NonNullable<NonNullable<UserConfig['test']>['browser']>;
@@ -75,7 +74,9 @@ export default defineConfig({
 							host: '127.0.0.1',
 							port: 63326,
 						},
-						fileParallelism: false,
+						instances: [
+							{ browser: 'chromium', launch: { channel: 'chrome' }, name: 'benchmark-chromium' },
+						],
 					},
 					benchmark: {
 						include: ['src/**/*.browser.benchmark.ts', 'src/**/*.browser.benchmark.tsx'],

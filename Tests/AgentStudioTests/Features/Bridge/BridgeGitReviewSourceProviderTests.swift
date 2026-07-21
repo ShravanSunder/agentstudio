@@ -545,8 +545,8 @@ struct BridgeGitReviewSourceProviderTests {
         )
     }
 
-    @Test("AgentStudioGit adapter prunes stale content locators when review generation advances")
-    func agentStudioGitAdapterPrunesStaleContentLocatorsWhenReviewGenerationAdvances() async throws {
+    @Test("AgentStudioGit adapter retains generation-scoped content locators")
+    func agentStudioGitAdapterRetainsGenerationScopedContentLocators() async throws {
         let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-git-adapter-prune-test")
         let filePath = "Sources/App/View.swift"
         let headContent = "new source"
@@ -601,15 +601,19 @@ struct BridgeGitReviewSourceProviderTests {
         )
         let currentHandle = try #require(generationTwoPackage.itemsById["item-source"]?.contentRoles.head)
 
+        let retainedContent = try await provider.loadContent(
+            BridgeContentLoadRequest(handle: staleHandle, requestedGeneration: 1)
+        )
         await #expect(throws: BridgeProviderFailure.self) {
             try await provider.loadContent(
-                BridgeContentLoadRequest(handle: staleHandle, requestedGeneration: 1)
+                BridgeContentLoadRequest(handle: staleHandle, requestedGeneration: 2)
             )
         }
         let currentContent = try await provider.loadContent(
             BridgeContentLoadRequest(handle: currentHandle, requestedGeneration: 2)
         )
 
+        #expect(retainedContent.data == Data(headContent.utf8))
         #expect(currentContent.data == Data(headContent.utf8))
     }
 

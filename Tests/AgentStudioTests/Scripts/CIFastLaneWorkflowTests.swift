@@ -41,6 +41,7 @@ struct CIFastLaneWorkflowTests {
         #expect(testHelperScript.contains("process tree for timed out"))
         #expect(testHelperScript.contains("sampled stuck Swift test process"))
         #expect(testHelperScript.contains("large_non_webkit_filter_pattern()"))
+        #expect(testHelperScript.contains("SourceScan"))
         #expect(testHelperScript.contains("large_serial_non_webkit_filter_pattern()"))
         #expect(testHelperScript.contains("AgentStudioIPCBridgeServiceTests"))
         #expect(testHelperScript.contains("AgentStudioAppIPCServiceCommandTests"))
@@ -100,9 +101,31 @@ struct CIFastLaneWorkflowTests {
 
         #expect(
             forwardedArgumentsBlock.contains(
-                "swift test --skip-build \"$@\" --skip ZmxE2ETests --build-path \"$BUILD_PATH\""
+                "requested_filter_mentions_suite ZmxE2ETests \"$@\""
             )
         )
+        #expect(forwardedArgumentsBlock.contains("requested_filter_mentions_suite WebKitSerializedTests \"$@\""))
+        #expect(forwardedArgumentsBlock.contains("requested_filter_mentions_suite E2ESerializedTests \"$@\""))
+        #expect(
+            forwardedArgumentsBlock.contains(
+                "if ! requested_filter_mentions_suite WebKitSerializedTests \"$@\"; then\n"
+                    + "    swift_test_args+=(--skip WebKitSerializedTests)"
+            )
+        )
+        #expect(
+            forwardedArgumentsBlock.contains(
+                "if ! requested_filter_mentions_suite E2ESerializedTests \"$@\" &&\n"
+                    + "    ! requested_filter_mentions_suite ZmxE2ETests \"$@\""
+            )
+        )
+        #expect(
+            forwardedArgumentsBlock.contains(
+                "if ! requested_filter_mentions_suite ZmxE2ETests \"$@\"; then\n"
+                    + "    swift_test_args+=(--skip ZmxE2ETests)"
+            )
+        )
+        #expect(forwardedArgumentsBlock.contains("swift test --skip-build \"${swift_test_args[@]}\""))
+        #expect(!forwardedArgumentsBlock.contains("swift test --skip-build \"$@\" --skip ZmxE2ETests"))
         #expect(defaultTestCase.contains("--filter E2ESerializedTests --skip ZmxE2ETests"))
         #expect(!defaultTestCase.contains("SWIFT_TEST_INCLUDE_ZMX_E2E"))
         #expect(coverageTask.contains("--filter E2ESerializedTests --skip ZmxE2ETests"))

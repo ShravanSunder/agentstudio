@@ -38,11 +38,35 @@ else
 fi
 
 if [ "$#" -gt 0 ]; then
-  requested_args_include_serialized_suite_filter() {
+  requested_filter_mentions_suite() {
+    local requested_suite="$1"
+    shift
+
     local argument
+    local filter_pattern
+    local expects_filter_pattern=0
     for argument in "$@"; do
-      case "$argument" in
-        *WebKitSerializedTests*|*E2ESerializedTests*|*ZmxE2ETests*)
+      filter_pattern=""
+      if [ "$expects_filter_pattern" = "1" ]; then
+        filter_pattern="$argument"
+        expects_filter_pattern=0
+      else
+        case "$argument" in
+          --filter)
+            expects_filter_pattern=1
+            continue
+            ;;
+          --filter=*)
+            filter_pattern="${argument#--filter=}"
+            ;;
+          *)
+            continue
+            ;;
+        esac
+      fi
+
+      case "$filter_pattern" in
+        *"$requested_suite"*)
           return 0
           ;;
       esac
@@ -51,12 +75,16 @@ if [ "$#" -gt 0 ]; then
   }
 
   swift_test_args=("$@")
-  if ! requested_args_include_serialized_suite_filter "$@"; then
-    swift_test_args+=(
-      --skip WebKitSerializedTests
-      --skip E2ESerializedTests
-      --skip ZmxE2ETests
-    )
+  if ! requested_filter_mentions_suite WebKitSerializedTests "$@"; then
+    swift_test_args+=(--skip WebKitSerializedTests)
+  fi
+  if ! requested_filter_mentions_suite E2ESerializedTests "$@" &&
+    ! requested_filter_mentions_suite ZmxE2ETests "$@"
+  then
+    swift_test_args+=(--skip E2ESerializedTests)
+  fi
+  if ! requested_filter_mentions_suite ZmxE2ETests "$@"; then
+    swift_test_args+=(--skip ZmxE2ETests)
   fi
 
   run_swift_with_timeout \

@@ -320,8 +320,8 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
                 """
                 #!/bin/bash
                 args="$*"
-                if [[ "$args" == *"app.zmx_startup_reconciliation.completed"* ]]; then
-                  printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                if [[ "$args" == *"app.did_finish_launching.succeeded"* ]]; then
+                  printf '{"_msg":"app.did_finish_launching.succeeded","agentstudio.app.startup.phase":"did_finish_launching","agentstudio.app.startup.outcome":"succeeded"}\\n'
                   exit 0
                 fi
                 if [[ "$args" == *"app.startup_diagnostic_action.command_exercised"* ]]; then
@@ -359,8 +359,8 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
                 #!/bin/bash
                 args="$*"
                 diagnostic='{"_msg":"app.startup_diagnostic_action.completed","agentstudio.startup_diagnostic.action":"bridge-review-observability-smoke","agentstudio.startup_diagnostic.bridge.review_expected_item.count":4,"agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive":"true","agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket":"under_16ms","agentstudio.startup_diagnostic.bridge.bridge_command.count":1,"agentstudio.startup_diagnostic.bridge.review_intake_ready_command.count":1,"agentstudio.startup_diagnostic.bridge.bridge_response.count":1,"agentstudio.startup_diagnostic.bridge.intake_frame.count":1,"agentstudio.startup_diagnostic.bridge.review_intake_snapshot_frame.count":1,"agentstudio.startup_diagnostic.bridge.review_intake_metadata_window_frame.count":1,"agentstudio.startup_diagnostic.bridge.review_intake.last_frame_kind":"review.metadataWindow","agentstudio.startup_diagnostic.bridge.review_intake.last_stream_id_matches":true,"agentstudio.startup_diagnostic.bridge.page_issue.disallowed.count":0,"agentstudio.startup_diagnostic.render_proof.succeeded":true}'
-                if [[ "$args" == *"app.zmx_startup_reconciliation.completed"* ]]; then
-                  printf '%s\n' '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}'
+                if [[ "$args" == *"app.did_finish_launching.succeeded"* ]]; then
+                  printf '%s\n' '{"_msg":"app.did_finish_launching.succeeded","agentstudio.app.startup.phase":"did_finish_launching","agentstudio.app.startup.outcome":"succeeded"}'
                 elif [[ "$args" == *"app.startup_diagnostic_action.command_exercised"* ]]; then
                   printf '%s\n' "${diagnostic/completed/command_exercised}"
                 elif [[ "$args" == *"app.startup_diagnostic_action.completed"* ]]; then

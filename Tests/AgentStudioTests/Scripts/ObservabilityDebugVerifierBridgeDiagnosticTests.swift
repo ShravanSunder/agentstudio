@@ -30,8 +30,8 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
                     "curl-review-diagnostic-without-native-lineage",
                     """
                     #!/bin/bash
-                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
-                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                    if [[ "$*" == *"app.did_finish_launching.succeeded"* ]]; then
+                      printf '{"_msg":"app.did_finish_launching.succeeded","agentstudio.app.startup.phase":"did_finish_launching","agentstudio.app.startup.outcome":"succeeded"}\\n'
                       exit 0
                     fi
                     if [[ "$*" == *"app.startup_diagnostic_action.command_exercised"* ]] || [[ "$*" == *"app.startup_diagnostic_action.completed"* ]]; then
@@ -82,8 +82,8 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
                     #!/bin/bash
                     printf '%s\\n' "$*" >> "\(queryLog.path)"
                     echo called > "\(curlMarker.path)"
-                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
-                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                    if [[ "$*" == *"app.did_finish_launching.succeeded"* ]]; then
+                      printf '{"_msg":"app.did_finish_launching.succeeded","agentstudio.app.startup.phase":"did_finish_launching","agentstudio.app.startup.outcome":"succeeded"}\\n'
                       exit 0
                     fi
                     if [[ "$*" == *"app.startup_diagnostic_action.command_exercised"* ]]; then
@@ -158,8 +158,8 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
                     "curl-skipped-bridge-review-diagnostic",
                     """
                     #!/bin/bash
-                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
-                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                    if [[ "$*" == *"app.did_finish_launching.succeeded"* ]]; then
+                      printf '{"_msg":"app.did_finish_launching.succeeded","agentstudio.app.startup.phase":"did_finish_launching","agentstudio.app.startup.outcome":"succeeded"}\\n'
                       exit 0
                     fi
                     if [[ "$*" == *"app.startup_diagnostic_action.command_exercised"* ]]; then
@@ -216,8 +216,8 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
                     "curl-spoofed-skipped-bridge-review-diagnostic",
                     """
                     #!/bin/bash
-                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
-                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                    if [[ "$*" == *"app.did_finish_launching.succeeded"* ]]; then
+                      printf '{"_msg":"app.did_finish_launching.succeeded","agentstudio.app.startup.phase":"did_finish_launching","agentstudio.app.startup.outcome":"succeeded"}\\n'
                       exit 0
                     fi
                     if [[ "$*" == *"app.startup_diagnostic_action.command_exercised"* ]]; then
@@ -273,8 +273,8 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
                     "curl-delayed-bridge-diagnostic",
                     """
                     #!/bin/bash
-                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
-                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                    if [[ "$*" == *"app.did_finish_launching.succeeded"* ]]; then
+                      printf '{"_msg":"app.did_finish_launching.succeeded","agentstudio.app.startup.phase":"did_finish_launching","agentstudio.app.startup.outcome":"succeeded"}\\n'
                       exit 0
                     fi
                     if [[ "$*" == *"app.startup_diagnostic_action.command_exercised"* ]]; then
@@ -346,8 +346,8 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
                     """
                     #!/bin/bash
                     printf '%s\\n' "$*" >> "\(queryLog.path)"
-                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
-                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                    if [[ "$*" == *"app.did_finish_launching.succeeded"* ]]; then
+                      printf '{"_msg":"app.did_finish_launching.succeeded","agentstudio.app.startup.phase":"did_finish_launching","agentstudio.app.startup.outcome":"succeeded"}\\n'
                       exit 0
                     fi
                     if [[ "$*" == *"app.startup_diagnostic_action.command_exercised"* ]]; then

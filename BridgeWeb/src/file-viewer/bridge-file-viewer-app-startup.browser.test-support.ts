@@ -153,18 +153,18 @@ export async function actClickAndSettleFileViewerMenu(element: {
 	await act(async (): Promise<void> => {
 		element.click();
 		await Promise.resolve();
-		await waitForFileViewerAnimationFrame();
-		await waitForFileViewerAnimationFrame();
+		const menuContent = document.querySelector('[data-slot="dropdown-menu-content"]');
+		if (menuContent instanceof HTMLElement) {
+			await Promise.all(
+				menuContent.getAnimations().map(async (animation): Promise<void> => {
+					try {
+						await animation.finished;
+					} catch {
+						// A replacement menu transition cancels the superseded animation.
+					}
+				}),
+			);
+		}
 		await Promise.resolve();
-	});
-}
-
-function waitForFileViewerAnimationFrame(): Promise<void> {
-	return new Promise<void>((resolve) => {
-		requestAnimationFrame(() => {
-			requestAnimationFrame(() => {
-				resolve();
-			});
-		});
 	});
 }

@@ -115,11 +115,11 @@ final class BridgeBrowserNativeRPCCutoverSourceScanTests {
         )
         let bridgeWebControlSource = try String(
             contentsOf: projectRoot.appending(
-                path: "BridgeWeb/src/app/bridge-app-control-commands.ts"),
+                path: "BridgeWeb/src/app/bridge-app-control-probe.ts"),
             encoding: .utf8
         )
 
-        #expect(bridgeWebControlSource.contains("window.bridgeReviewControlProbe = props.probe"))
+        #expect(bridgeWebControlSource.contains("window.bridgeReviewControlProbe = {"))
         #expect(nativeProjectionSource.contains("window.bridgeReviewControlProbe = undefined"))
         #expect(nativeProjectionSource.contains("const nextProbe = window.bridgeReviewControlProbe || null"))
         #expect(nativeProjectionSource.contains("__bridgeReviewControlProbe") == false)

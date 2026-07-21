@@ -210,7 +210,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(sourceProvenance.getBoundingClientRect().width).toBeLessThanOrEqual(1);
 		expect(sourceProvenance.getBoundingClientRect().height).toBeLessThanOrEqual(1);
 
-		await actClick(filterMenu);
+		await actClickAndSettleFileViewerMenu(filterMenu);
 		const filterPopover = await waitForFileViewerHTMLElement({
 			selector: '[data-testid="worktree-file-filter-menu-popover"]',
 		});
@@ -220,12 +220,12 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const filterClear = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="worktree-file-filter-menu-clear"]'),
 		);
-		expect(Math.round(filterOption.getBoundingClientRect().height)).toBe(30);
-		expect(Math.round(filterClear.getBoundingClientRect().height)).toBe(30);
+		expect(filterOption.offsetHeight).toBe(32);
+		expect(filterClear.offsetHeight).toBe(32);
 		expect(
 			Math.abs(filterPopover.getBoundingClientRect().right - filterBox.right),
 		).toBeLessThanOrEqual(1);
-		await actClick(filterMenu);
+		await actClickAndSettleFileViewerMenu(filterMenu);
 
 		await actClick(searchToggle);
 

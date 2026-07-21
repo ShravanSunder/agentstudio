@@ -65,7 +65,7 @@ struct ObservabilityLaunchScriptsTests {
         #expect(wrapperScript.contains("PREBUILD_TIMEOUT_SECONDS=$PREBUILD_TIMEOUT_SECONDS"))
         #expect(wrapperScript.contains("run_swift_with_timeout"))
         #expect(wrapperScript.contains("requested swift test args: $*"))
-        #expect(wrapperScript.contains("requested_args_include_serialized_suite_filter()"))
+        #expect(wrapperScript.contains("requested_filter_mentions_suite()"))
         #expect(wrapperScript.contains("--skip WebKitSerializedTests"))
         #expect(wrapperScript.contains("--skip E2ESerializedTests"))
         #expect(wrapperScript.contains("--skip ZmxE2ETests"))

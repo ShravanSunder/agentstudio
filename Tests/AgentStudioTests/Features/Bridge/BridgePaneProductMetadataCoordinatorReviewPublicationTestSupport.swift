@@ -117,6 +117,8 @@ actor CoordinatorSupersededDeliveryReviewMetadataSource:
     private var deliveryRelease: CheckedContinuation<Void, Never>?
     private var deliveryStarted = false
     private var deliveryStartedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var deliveryFinished = false
+    private var deliveryFinishedWaiters: [CheckedContinuation<Void, Never>] = []
     private var emit: BridgePaneProductReviewMetadataEventSink?
 
     func open(
@@ -148,6 +150,12 @@ actor CoordinatorSupersededDeliveryReviewMetadataSource:
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
+        defer {
+            deliveryFinished = true
+            let waiters = deliveryFinishedWaiters
+            deliveryFinishedWaiters.removeAll(keepingCapacity: false)
+            for waiter in waiters { waiter.resume() }
+        }
         deliveryStarted = true
         let waiters = deliveryStartedWaiters
         deliveryStartedWaiters.removeAll(keepingCapacity: false)
@@ -190,6 +198,13 @@ actor CoordinatorSupersededDeliveryReviewMetadataSource:
         guard !deliveryStarted else { return }
         await withCheckedContinuation { continuation in
             deliveryStartedWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilDeliveryFinished() async {
+        guard !deliveryFinished else { return }
+        await withCheckedContinuation { continuation in
+            deliveryFinishedWaiters.append(continuation)
         }
     }
 }

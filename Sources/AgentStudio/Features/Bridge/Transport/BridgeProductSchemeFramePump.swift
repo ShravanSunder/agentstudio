@@ -235,11 +235,11 @@ extension BridgeProductSession {
                     continuation.resume(returning: false)
                     return
                 }
-                let admitted =
+                let pacingWaiterRegistration =
                     productAdmission.withValidAdmission {
                         guard producerAdmissionMatches(productAdmission, for: lease) else {
                             continuation.resume(returning: false)
-                            return true
+                            return false
                         }
                         switch producerRegistry.prepareProducerObservationPacing(
                             for: lease,
@@ -257,16 +257,20 @@ extension BridgeProductSession {
                                     waiterToken: waiterToken
                                 )
                                 continuation.resume(returning: false)
-                                return true
+                                return false
                             }
                             producerObservationPacingWaitersByLease[lease] = .init(
                                 continuation: continuation,
                                 token: waiterToken
                             )
+                            return true
                         }
-                        return true
-                    } ?? false
-                if !admitted {
+                        return false
+                    }
+                if pacingWaiterRegistration == true {
+                    producerObservationPacingRegistrationObserver?(lease, sequence)
+                }
+                if pacingWaiterRegistration == nil {
                     continuation.resume(returning: false)
                 }
             }

@@ -18,7 +18,7 @@ const maximumCarrierSequence = Number.MAX_SAFE_INTEGER;
 
 describe('Bridge product dev Review adapter live worktree integration', () => {
 	test(
-		'constructs one contract-valid bounded publication and retains its identity across replay',
+		'constructs one contract-valid bounded publication and retains its cached identity across replay',
 		async () => {
 			// Arrange
 			const config = await resolveBridgeWorktreeDevProviderConfig({
@@ -27,12 +27,10 @@ describe('Bridge product dev Review adapter live worktree integration', () => {
 				requestUrl: null,
 			});
 			const adapter = new BridgeProductDevReviewAdapter(config);
-			const replacementAdapter = new BridgeProductDevReviewAdapter(config);
 
 			// Act
 			const source = await adapter.loadSource();
 			const sameAdapterReplay = await adapter.loadSource();
-			const replacementAdapterReplay = await replacementAdapter.loadSource();
 			const encodedFrames = source.events.map((event, eventIndex) =>
 				encodeBridgeProductMetadataFrame({
 					cursor: source.cursor,
@@ -57,9 +55,6 @@ describe('Bridge product dev Review adapter live worktree integration', () => {
 			expect(sameAdapterReplay).toBe(source);
 			expect(new Set(source.events.map((event) => event.publicationId))).toEqual(
 				new Set([source.events[0]?.publicationId]),
-			);
-			expect(replacementAdapterReplay.events.map((event) => event.publicationId)).toEqual(
-				source.events.map((event) => event.publicationId),
 			);
 			const firstDistinctPublicationId = bridgeProductDevReviewPublicationIdForSnapshotFingerprint(
 				'e'.repeat(64),

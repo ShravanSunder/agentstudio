@@ -1,4 +1,3 @@
-import AppKit
 import GhosttyKit
 import Testing
 
@@ -7,6 +6,12 @@ import Testing
 @MainActor
 @Suite("Ghostty callback router")
 struct GhosttyCallbackRouterTests {
+    private final class RoutedActionCapture {
+        var actionTag: UInt32?
+        var payload: GhosttyAdapter.ActionPayload?
+        var handledResult: Bool?
+    }
+
     @Test("readClipboard returns false when no surface userdata is available")
     func readClipboard_withoutUserdata_returnsFalse() {
         let handled = Ghostty.CallbackRouter.readClipboard(
@@ -28,36 +33,32 @@ struct GhosttyCallbackRouterTests {
         #expect(!handled)
     }
 
-    @Test("runtimeConfig action callback copies borrowed title before returning handled result")
-    func runtimeConfig_actionCallback_copiesBorrowedTitleBeforeReturningHandledResult() throws {
-        let initializationStatus = GhosttyLaunchArguments.withUnsafeArgv(from: ["AgentStudioTests"]) { argc, argv in
-            ghostty_init(argc, argv)
-        }
-        try #require(initializationStatus == GHOSTTY_SUCCESS)
-        _ = NSApplication.shared
-
-        let app = Ghostty.App()
-        let appHandle = try #require(app.app)
-        let surfaceID = UUIDv7.generate()
-        let surfaceView = Ghostty.SurfaceView(
-            app: app,
-            managedSurfaceID: surfaceID,
-            config: Ghostty.SurfaceConfiguration(
-                startupStrategy: .surfaceCommand("/usr/bin/true"),
-                initialFrame: NSRect(x: 0, y: 0, width: 640, height: 480)
-            )
-        )
-        let surfaceHandle = try #require(surfaceView.surface)
-        defer {
-            Ghostty.ActionRouter.retireLocalActions(for: surfaceID)
-        }
-
+    @Test("runtimeConfig action callback copies borrowed title before invoking the typed route")
+    func runtimeConfig_actionCallback_copiesBorrowedTitleBeforeInvokingTypedRoute() throws {
+        let routeCapture = RoutedActionCapture()
+        let appHandle = Unmanaged.passUnretained(routeCapture).toOpaque()
         let runtimeConfig = Ghostty.CallbackRouter.runtimeConfig(
-            userdataPointer: Unmanaged.passUnretained(app).toOpaque()
+            userdataPointer: appHandle,
+            actionCallback: { appPtr, target, action in
+                guard let appPtr else { return false }
+                let routeCapture = Unmanaged<RoutedActionCapture>.fromOpaque(appPtr).takeUnretainedValue()
+                return Ghostty.ActionRouter.handleAction(
+                    appPtr,
+                    target: target,
+                    action: action,
+                    routingLookupProvider: { @MainActor in SurfaceManager.shared },
+                    metadataActionRouter: { actionTag, payload, _, handledResult in
+                        routeCapture.actionTag = actionTag
+                        routeCapture.payload = payload
+                        routeCapture.handledResult = handledResult
+                        return handledResult
+                    }
+                )
+            }
         )
         let target = ghostty_target_s(
-            tag: GHOSTTY_TARGET_SURFACE,
-            target: ghostty_target_u(surface: surfaceHandle)
+            tag: GHOSTTY_TARGET_APP,
+            target: ghostty_target_u(surface: nil)
         )
         let originalTitle = "callback-owned-title"
         var borrowedTitle = Array(originalTitle.utf8CString)
@@ -75,10 +76,8 @@ struct GhosttyCallbackRouterTests {
         }
 
         #expect(handled)
-        let retainedTitle = try #require(
-            Ghostty.ActionRouter.localActionAccumulator.detachTitleBeforeExactBarrier(for: surfaceID)
-        )
-        #expect(retainedTitle.metadata.runtimeTitle == .titleChanged(originalTitle))
-        #expect(retainedTitle.metadata.surfaceTitle == originalTitle)
+        #expect(routeCapture.actionTag == UInt32(GHOSTTY_ACTION_SET_TITLE.rawValue))
+        #expect(try #require(routeCapture.payload) == .titleChanged(originalTitle))
+        #expect(routeCapture.handledResult == true)
     }
 }

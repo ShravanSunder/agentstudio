@@ -36,15 +36,17 @@ struct BridgeMetadataCoordinatorLeaseTests {
         await fileMetadataSource.waitUntilCancellationStarted()
 
         // Act
-        await coordinator.install(
-            request: try leaseOwnershipMetadataStreamRequest(streamId: "metadata-stream-replacement"),
-            lease: replacementLease,
-            productAdmission: replacementHarness.productAdmission.context,
-            session: replacementHarness.session
-        )
-        #expect(await coordinator.hasActiveStream)
+        let replacementInstall = Task {
+            await coordinator.install(
+                request: try leaseOwnershipMetadataStreamRequest(streamId: "metadata-stream-replacement"),
+                lease: replacementLease,
+                productAdmission: replacementHarness.productAdmission.context,
+                session: replacementHarness.session
+            )
+        }
         await fileMetadataSource.releaseCancellation()
         await staleUninstall.value
+        try await replacementInstall.value
 
         // Assert
         #expect(await coordinator.hasActiveStream)

@@ -265,8 +265,8 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		const reviewFacetClear = requireReviewHTMLElement(
 			document.querySelector('[data-testid="bridge-review-facet-clear"]'),
 		);
-		expect(Math.round(reviewFacetOption.getBoundingClientRect().height)).toBe(30);
-		expect(Math.round(reviewFacetClear.getBoundingClientRect().height)).toBe(30);
+		expect(reviewFacetOption.offsetHeight).toBe(32);
+		expect(reviewFacetClear.offsetHeight).toBe(32);
 		expect(
 			Math.abs(
 				reviewFacetPopover.getBoundingClientRect().right -

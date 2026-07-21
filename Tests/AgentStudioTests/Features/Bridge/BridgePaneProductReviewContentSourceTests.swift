@@ -155,7 +155,7 @@ struct BridgePaneProductReviewContentSourceTests {
         }
         await gate.waitForStartedLoadCount(1)
 
-        fixture.coordinator.close()
+        _ = fixture.coordinator.close()
         await gate.releaseAll()
 
         await #expect(throws: BridgePaneProductReviewContentSourceError.unavailablePackage) {
@@ -192,12 +192,23 @@ struct BridgePaneProductReviewContentSourceTests {
         #expect(fixture.coordinator.diagnosticSnapshot.activeContentLeaseCount == 0)
     }
 
-    @Test("no new A lease can start after B commits")
+    @Test("no new A lease can start after B applies")
     @MainActor
-    func noNewALeaseCanStartAfterBCommits() async throws {
+    func noNewALeaseCanStartAfterBApplies() async throws {
         let fixture = try await ReviewProductContentFixture(content: "retired-A")
         let requestA = try fixture.request(startByte: 0, maximumBytes: 4)
         try await fixture.commitReplacementPublication()
+        let committedReplacement = try #require(
+            fixture.coordinator.committedPublicationForReplay(
+                productAdmission: fixture.productAdmission.context
+            )
+        )
+        #expect(
+            fixture.coordinator.recordWorkerApplication(
+                publicationId: committedReplacement.publicationId,
+                productAdmission: fixture.productAdmission.context
+            )
+        )
 
         await #expect(throws: BridgePaneProductReviewContentSourceError.unavailablePackage) {
             try await fixture.source.contentBody(
@@ -232,7 +243,7 @@ struct BridgePaneProductReviewContentSourceTests {
     func closedCoordinatorRefusesContentAuthority() async throws {
         let fixture = try await ReviewProductContentFixture(content: "closed")
         let request = try fixture.request(startByte: 0, maximumBytes: 4)
-        fixture.coordinator.close()
+        _ = fixture.coordinator.close()
 
         await #expect(throws: BridgePaneProductReviewContentSourceError.unavailablePackage) {
             try await fixture.source.contentBody(

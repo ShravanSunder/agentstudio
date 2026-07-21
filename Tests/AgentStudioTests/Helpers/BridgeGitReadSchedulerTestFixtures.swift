@@ -19,7 +19,10 @@ func makeBridgeGitReadContext(rootURL: URL) -> BridgeGitReadContext {
         maximumLogicalWaiterCountPerOperation: 4
     )
     return BridgeGitReadContext(
-        scheduler: BridgeGitReadScheduler(topology: topology),
+        scheduler: BridgeGitReadScheduler(
+            topology: topology,
+            deadlineScheduler: BridgeGitReadManualDeadlineScheduler()
+        ),
         worktreeKey: BridgeGitReadWorktreeKey(token: StableKey.fromPath(rootURL))
     )
 }
