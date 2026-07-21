@@ -96,6 +96,35 @@ struct BridgeProductStrictJSONTests {
         }
     }
 
+    @Test("strict product decoding accepts encoded Review diff-role members")
+    func acceptsEncodedReviewDiffRoleMembers() throws {
+        let descriptorIds = try BridgeProductReviewDescriptorIdsByRole(
+            base: nil,
+            diff: "review-diff-descriptor",
+            file: nil,
+            head: nil
+        )
+        let contentHashes = try BridgeProductReviewContentHashesByRole(
+            base: nil,
+            diff: String(repeating: "a", count: 64),
+            file: nil,
+            head: nil
+        )
+
+        #expect(
+            try BridgeProductStrictJSON.decode(
+                BridgeProductReviewDescriptorIdsByRole.self,
+                from: JSONEncoder().encode(descriptorIds)
+            ) == descriptorIds
+        )
+        #expect(
+            try BridgeProductStrictJSON.decode(
+                BridgeProductReviewContentHashesByRole.self,
+                from: JSONEncoder().encode(contentHashes)
+            ) == contentHashes
+        )
+    }
+
     private func fixtureCorpus() throws -> StrictJSONCorpus {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let fixtureURL = projectRoot.appending(

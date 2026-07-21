@@ -77,6 +77,7 @@ enum BridgeProductStrictJSON {
             "descriptorId",
             "descriptorIds",
             "disposition",
+            "diff",
             "encoding",
             "endOfSource",
             "endsMidLine",

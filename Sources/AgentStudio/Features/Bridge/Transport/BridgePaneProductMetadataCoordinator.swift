@@ -355,11 +355,13 @@ actor BridgePaneProductMetadataCoordinator {
             .sorted()
         for subscriptionId in subscriptionIds {
             guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                self.activeStream?.lease == activeStream.lease,
+                self.activeStream?.lease == activeStream.lease
+            else { return }
+            guard
                 let subscription = await activeStream.session.subscriptionSnapshot(
                     subscriptionId: subscriptionId
                 )
-            else { return }
+            else { continue }
             if openedSourceSubscriptionIds.contains(subscriptionId),
                 !deferredOpenSubscriptionIds.contains(subscriptionId)
             {

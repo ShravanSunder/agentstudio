@@ -542,6 +542,99 @@ struct BridgePaneProductMetadataCoordinatorTests {
         #expect(await pump.cancel())
     }
 
+    @Test("foreground resume skips a missing deferred subscription and replays the next one")
+    @MainActor
+    func foregroundResumeContinuesAfterMissingSubscriptionSnapshot() async throws {
+        // Arrange
+        let activityCoordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .loadedHidden
+        )
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        let pump = BridgeProductSchemeFramePump(
+            session: harness.session,
+            producerLease: lease,
+            productAdmission: harness.productAdmission.context,
+            acknowledgeLifecycle: { _ in true }
+        )
+        let coordinator = BridgePaneProductMetadataCoordinator(
+            fileMetadataSource: CoordinatorFileMetadataSource(),
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            refreshWorkAdmissionSource: activityCoordinator.workAdmissionSource
+        )
+        await coordinator.install(
+            request: try coordinatorMetadataStreamRequest(),
+            lease: lease,
+            productAdmission: harness.productAdmission.context,
+            session: harness.session
+        )
+        let openRequest = try bridgeProductLifecycleControlRequest(
+            bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 1)
+        )
+        let token = try #require(controlExecutionToken(try await harness.begin(openRequest)))
+        #expect(await harness.session.claimControlProviderDispatch(token: token))
+        let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
+            correlating: openRequest,
+            interestSha256:
+                BridgeProductSubscriptionInterestState
+                .fileMetadata(interests: [], pathScope: []).sha256Hex()
+        )
+        let effect = try await harness.session.completeControl(
+            token: token,
+            exactResponseBytes: try JSONEncoder().encode(response)
+        )
+        _ = try await pullMetadataFrame(from: pump)
+        guard case .subscriptionOpened(let activeSubscription) = effect else {
+            Issue.record("Expected an opened File subscription effect")
+            return
+        }
+        let missingSubscription = BridgeProductSubscriptionSnapshot(
+            subscription: activeSubscription.subscription,
+            subscriptionId: "aaa-missing-subscription",
+            subscriptionKind: activeSubscription.subscriptionKind,
+            workerDerivationEpoch: activeSubscription.workerDerivationEpoch,
+            interestRevision: activeSubscription.interestRevision,
+            interestSha256: activeSubscription.interestSha256,
+            interestState: activeSubscription.interestState,
+            hasStagedUpdate: activeSubscription.hasStagedUpdate
+        )
+        await coordinator.apply(
+            .subscriptionOpened(missingSubscription),
+            productAdmission: harness.productAdmission.context
+        )
+        await coordinator.apply(
+            effect,
+            productAdmission: harness.productAdmission.context
+        )
+
+        // Act
+        activityCoordinator.applyActivity(.foreground)
+        await coordinator.resumeForegroundWork()
+        for _ in 0..<1000
+        where (await harness.session.producerSnapshot()).queuedFrameCount == 0 {
+            await Task.yield()
+        }
+
+        // Assert
+        #expect((await harness.session.producerSnapshot()).queuedFrameCount == 1)
+        guard (await harness.session.producerSnapshot()).queuedFrameCount == 1 else {
+            await coordinator.uninstall(lease: lease)
+            #expect(await pump.cancel())
+            return
+        }
+        let dataFrame = try await pullMetadataFrame(from: pump)
+        guard case .subscriptionData(let data) = dataFrame,
+            case .fileMetadata = data.data
+        else {
+            Issue.record("Expected the surviving File subscription to resume")
+            return
+        }
+        #expect(data.subscriptionIdentity.subscriptionId == activeSubscription.subscriptionId)
+        await harness.session.settleControlProviderDispatch(token: token)
+        await coordinator.uninstall(lease: lease)
+        #expect(await pump.cancel())
+    }
+
     @Test("control commit admits one ordered subscription lifecycle before replay")
     func committedSubscriptionLifecycleEmitsOrderedFrames() async throws {
         // Arrange
