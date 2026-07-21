@@ -30,31 +30,35 @@ export function validateBridgeLocalFirstInternalSloBudgets(
 	cohort: BridgeLocalFirstValidatedProofCohort,
 ): void {
 	for (const cell of cohort.cells) {
-		if (cell.identity.telemetryState === 'off') {
-			continue;
-		}
-		const applicability = bridgeLocalFirstProofApplicabilityByCellId.get(cell.identity.cellId);
-		if (applicability === undefined) {
-			throw new Error(`${cell.identity.cellId}: missing internal SLO applicability`);
-		}
-		if (applicability.selectedCommQueue === 'required') {
-			validateInternalSpanBudgets({
-				cell,
-				kind: 'selected_comm_queue',
-				label: 'comm queue',
-				p95BudgetMilliseconds: bridgeLocalFirstProofInternalSlo.commQueueP95Milliseconds,
-				p99BudgetMilliseconds: bridgeLocalFirstProofInternalSlo.commQueueP99Milliseconds,
-			});
-		}
-		if (applicability.pierreSubmission === 'required') {
-			validateInternalSpanBudgets({
-				cell,
-				kind: 'main_to_pierre',
-				label: 'main-to-Pierre',
-				p95BudgetMilliseconds: bridgeLocalFirstProofInternalSlo.mainToPierreP95Milliseconds,
-				p99BudgetMilliseconds: bridgeLocalFirstProofInternalSlo.mainToPierreP99Milliseconds,
-			});
-		}
+		validateBridgeLocalFirstInternalSloCellBudgets(cell);
+	}
+}
+
+export function validateBridgeLocalFirstInternalSloCellBudgets(
+	cell: BridgeLocalFirstValidatedProofCell,
+): void {
+	if (cell.identity.telemetryState === 'off') return;
+	const applicability = bridgeLocalFirstProofApplicabilityByCellId.get(cell.identity.cellId);
+	if (applicability === undefined) {
+		throw new Error(`${cell.identity.cellId}: missing internal SLO applicability`);
+	}
+	if (applicability.selectedCommQueue === 'required') {
+		validateInternalSpanBudgets({
+			cell,
+			kind: 'selected_comm_queue',
+			label: 'comm queue',
+			p95BudgetMilliseconds: bridgeLocalFirstProofInternalSlo.commQueueP95Milliseconds,
+			p99BudgetMilliseconds: bridgeLocalFirstProofInternalSlo.commQueueP99Milliseconds,
+		});
+	}
+	if (applicability.pierreSubmission === 'required') {
+		validateInternalSpanBudgets({
+			cell,
+			kind: 'main_to_pierre',
+			label: 'main-to-Pierre',
+			p95BudgetMilliseconds: bridgeLocalFirstProofInternalSlo.mainToPierreP95Milliseconds,
+			p99BudgetMilliseconds: bridgeLocalFirstProofInternalSlo.mainToPierreP99Milliseconds,
+		});
 	}
 }
 

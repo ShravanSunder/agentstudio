@@ -8,11 +8,14 @@ import {
 	bridgeLocalFirstProofCells,
 	bridgeLocalFirstProofRunIdentityFingerprint,
 	bridgeLocalFirstProofRunManifestHash,
+	parseBridgeLocalFirstProofCohort,
 	type BridgeLocalFirstProofCellContract,
 	type BridgeLocalFirstProofCohortInput,
 	type BridgeLocalFirstProofRunIdentity,
 	type BridgeLocalFirstProofRuntime,
+	type BridgeLocalFirstValidatedProofCohort,
 } from './bridge-local-first-proof-contract.ts';
+import { parseBridgeLocalFirstProofFixtureOracle } from './bridge-local-first-proof-evidence.ts';
 import {
 	makeBridgeLocalFirstTestInteractionEvidence,
 	makeBridgeLocalFirstTestProofFixture,
@@ -23,6 +26,7 @@ import type {
 	BridgeLocalFirstLaunchProvenanceObservation,
 	BridgeLocalFirstVerifiedLaunchProvenance,
 } from './bridge-local-first-proof-provenance.ts';
+import { validateBridgeLocalFirstInternalSloCellBudgets } from './bridge-local-first-proof-reducer.ts';
 import {
 	bridgeLocalFirstProofAggregateManifestFingerprint,
 	parseBridgeLocalFirstPerformanceArguments,
@@ -68,6 +72,15 @@ const aggregateTestFixtureOptions = {
 const aggregateProofFixture = makeBridgeLocalFirstTestProofFixture(aggregateTestFixtureOptions);
 const baseFixtureOracle = aggregateProofFixture.rawFixtureOracle;
 const completeCohort = aggregateProofFixture.cohort;
+const validatedCompleteCohort = parseBridgeLocalFirstProofCohort(
+	completeCohort,
+	runIdentity,
+	parseBridgeLocalFirstProofFixtureOracle({
+		expectedFixtureChecksum: runIdentity.fixtureChecksum,
+		expectedFixtureId: runIdentity.fixtureId,
+		rawOracle: baseFixtureOracle,
+	}),
+);
 const baseBrowserComponent = componentForRuntime('controlled_dev_chromium');
 const baseNativeComponent = componentForRuntime('packaged_wkwebview');
 const canonicalBrowserComponentBytes = encodeJson(JSON.stringify(baseBrowserComponent));
@@ -378,42 +391,34 @@ describe('Bridge local-first validate-only aggregate', () => {
 		await expectValidationFailure(makeFixture({ browserComponent: p99Component }), /p99 32 ms/u);
 	});
 
-	test('derives the strict comm queue p95 stop line from raw timestamps', async () => {
-		const p95Component = cloneNativeComponent();
-		setInternalTimingDuration(p95Component, 'commQueue', 16, 'all');
+	test('derives the strict comm queue p95 stop line from raw timestamps', () => {
+		const p95Cell = internalSloBoundaryCell('commQueue', 16, 'all');
 
-		await expectValidationFailure(
-			makeFixture({ nativeComponent: p95Component }),
+		expect(() => validateBridgeLocalFirstInternalSloCellBudgets(p95Cell)).toThrow(
 			/comm queue p95 16 ms/u,
 		);
 	});
 
-	test('derives the strict comm queue p99 stop line from raw timestamps', async () => {
-		const p99Component = cloneNativeComponent();
-		setInternalTimingDuration(p99Component, 'commQueue', 32, 'last-two');
+	test('derives the strict comm queue p99 stop line from raw timestamps', () => {
+		const p99Cell = internalSloBoundaryCell('commQueue', 32, 'last-two');
 
-		await expectValidationFailure(
-			makeFixture({ nativeComponent: p99Component }),
+		expect(() => validateBridgeLocalFirstInternalSloCellBudgets(p99Cell)).toThrow(
 			/comm queue p99 32 ms/u,
 		);
 	});
 
-	test('derives the strict main-to-Pierre p95 stop line from raw timestamps', async () => {
-		const p95Component = cloneNativeComponent();
-		setInternalTimingDuration(p95Component, 'mainToPierre', 4, 'all');
+	test('derives the strict main-to-Pierre p95 stop line from raw timestamps', () => {
+		const p95Cell = internalSloBoundaryCell('mainToPierre', 4, 'all');
 
-		await expectValidationFailure(
-			makeFixture({ nativeComponent: p95Component }),
+		expect(() => validateBridgeLocalFirstInternalSloCellBudgets(p95Cell)).toThrow(
 			/main-to-Pierre p95 4 ms/u,
 		);
 	});
 
-	test('derives the strict main-to-Pierre p99 stop line from raw timestamps', async () => {
-		const p99Component = cloneNativeComponent();
-		setInternalTimingDuration(p99Component, 'mainToPierre', 8, 'last-two');
+	test('derives the strict main-to-Pierre p99 stop line from raw timestamps', () => {
+		const p99Cell = internalSloBoundaryCell('mainToPierre', 8, 'last-two');
 
-		await expectValidationFailure(
-			makeFixture({ nativeComponent: p99Component }),
+		expect(() => validateBridgeLocalFirstInternalSloCellBudgets(p99Cell)).toThrow(
 			/main-to-Pierre p99 8 ms/u,
 		);
 	});
@@ -685,15 +690,14 @@ function setSuccessfulAttemptDurations(
 	}
 }
 
-function setInternalTimingDuration(
-	component: DeepMutable<BridgeLocalFirstProofCohortInput>,
+function internalSloBoundaryCell(
 	boundary: 'commQueue' | 'mainToPierre',
 	durationMilliseconds: number,
 	selection: 'all' | 'last-two',
-): void {
+): BridgeLocalFirstValidatedProofCohort['cells'][number] {
 	const spanKind = boundary === 'commQueue' ? 'selected_comm_queue' : 'main_to_pierre';
 	const cell = requiredValue(
-		component.cells.find((candidate) => {
+		validatedCompleteCohort.cells.find((candidate) => {
 			if (candidate.identity.telemetryState !== 'on') return false;
 			const applicability = bridgeLocalFirstProofApplicabilityByCellId.get(
 				candidate.identity.cellId,
@@ -708,34 +712,36 @@ function setInternalTimingDuration(
 	const launch = requiredValue(cell.launches[0]);
 	const selectedAttemptIndexes =
 		selection === 'all' ? [...launch.attempts.keys()] : [...launch.attempts.keys()].slice(-2);
-	for (const attemptIndex of selectedAttemptIndexes) {
-		const attempt = requiredValue(launch.attempts[attemptIndex]);
-		if (attempt.outcome === 'succeeded' && attempt.durationMilliseconds <= durationMilliseconds) {
-			setLaunchAttemptDuration(launch, attemptIndex, durationMilliseconds + 1);
-		}
-	}
-	for (const evidence of launch.interactionEvidence) {
-		if (evidence.internal.mode !== 'on') {
-			throw new Error('test fixture expected telemetry-on internal evidence');
-		}
-		const span = requiredValue(
-			evidence.internal.spans.find((candidate) => candidate.kind === spanKind),
-		);
-		span.completedAtMonotonicMilliseconds = span.startedAtMonotonicMilliseconds + 1;
-	}
-	const evidenceToMutate = selectedAttemptIndexes.map((attemptIndex) =>
-		requiredValue(launch.interactionEvidence[attemptIndex]),
-	);
-	for (const evidence of evidenceToMutate) {
-		if (evidence.internal.mode !== 'on') {
-			throw new Error('test fixture expected telemetry-on internal evidence');
-		}
-		const span = requiredValue(
-			evidence.internal.spans.find((candidate) => candidate.kind === spanKind),
-		);
-		span.completedAtMonotonicMilliseconds =
-			span.startedAtMonotonicMilliseconds + durationMilliseconds;
-	}
+	const selectedAttemptIndexSet = new Set(selectedAttemptIndexes);
+	const boundaryLaunch = {
+		...launch,
+		// oxlint-disable-next-line oxc(no-map-spread) -- Preserve the validated fixture while replacing only boundary timestamps.
+		interactionEvidence: launch.interactionEvidence.map((evidence, attemptIndex) => {
+			if (evidence.internal.mode !== 'on') {
+				throw new Error('test fixture expected telemetry-on internal evidence');
+			}
+			return {
+				...evidence,
+				internal: {
+					...evidence.internal,
+					spans: evidence.internal.spans.map((span) =>
+						span.kind === spanKind
+							? {
+									...span,
+									completedAtMonotonicMilliseconds:
+										span.startedAtMonotonicMilliseconds +
+										(selectedAttemptIndexSet.has(attemptIndex) ? durationMilliseconds : 1),
+								}
+							: span,
+					),
+				},
+			};
+		}),
+	};
+	return {
+		...cell,
+		launches: [boundaryLaunch, ...cell.launches.slice(1)],
+	};
 }
 
 function setLaunchAttemptDuration(
