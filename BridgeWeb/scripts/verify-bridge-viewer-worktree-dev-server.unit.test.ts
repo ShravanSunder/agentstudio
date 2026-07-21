@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
 
@@ -45,7 +46,7 @@ const reviewRoutesSourceUrl = new URL(
 
 describe('worktree dev-server verifier Review interaction contract', () => {
 	test('resolves canary fixture paths from the repository root', async () => {
-		expect(basename(repoRootPath)).toBe('agent-studio.bridge-start');
+		expect(repoRootPath).toBe(fileURLToPath(new URL('../..', import.meta.url)));
 
 		await expect(
 			readFile(join(repoRootPath, fileToReviewHandoffFixtureRelativePath), 'utf8'),

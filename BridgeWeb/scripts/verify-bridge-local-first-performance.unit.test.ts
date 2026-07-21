@@ -152,7 +152,7 @@ describe('Bridge local-first validate-only aggregate', () => {
 		);
 	});
 
-	test('rejects mismatched or reused independent launch receipts', async () => {
+	test('rejects a mismatched independent launch receipt', async () => {
 		const mismatched = makeFixture({
 			launchProvenance: (launchId) => {
 				const provenance = verifiedLaunchProvenance(launchId);
@@ -165,6 +165,11 @@ describe('Bridge local-first validate-only aggregate', () => {
 				};
 			},
 		});
+
+		await expectValidationFailure(mismatched, /independent process provenance mismatch/u);
+	});
+
+	test('rejects a reused independent launch receipt', async () => {
 		const reused = makeFixture({
 			launchProvenance: (launchId) => ({
 				...verifiedLaunchProvenance(launchId),
@@ -172,7 +177,6 @@ describe('Bridge local-first validate-only aggregate', () => {
 			}),
 		});
 
-		await expectValidationFailure(mismatched, /independent process provenance mismatch/u);
 		await expectValidationFailure(reused, /reused independent provenance receipt/u);
 	});
 
@@ -347,45 +351,57 @@ describe('Bridge local-first validate-only aggregate', () => {
 		await expectValidationFailure(makeFixture({ browserComponent }), /1 correctness failures/u);
 	});
 
-	test('rejects strict p95 and p99 boundaries for individual, pooled, and worst launches', async () => {
+	test('rejects the strict p95 boundary for individual, pooled, and worst launches', async () => {
 		const p95Component = cloneBrowserComponent();
 		setSuccessfulAttemptDurations(p95Component, 0, 32);
+
+		await expectValidationFailure(makeFixture({ browserComponent: p95Component }), /p95 32 ms/u);
+	});
+
+	test('rejects the strict p99 boundary for individual, pooled, and worst launches', async () => {
 		const p99Component = cloneBrowserComponent();
 		setSuccessfulAttemptDurations(p99Component, 0, 1);
 		const p99Launch = requiredValue(requiredValue(p99Component.cells[0]).launches[0]);
 		setLaunchAttemptDuration(p99Launch, 98, 32);
 		setLaunchAttemptDuration(p99Launch, 99, 32);
 
-		await expectValidationFailure(makeFixture({ browserComponent: p95Component }), /p95 32 ms/u);
 		await expectValidationFailure(makeFixture({ browserComponent: p99Component }), /p99 32 ms/u);
 	});
 
-	test('derives strict comm queue p95 and p99 stop lines from raw timestamps', async () => {
+	test('derives the strict comm queue p95 stop line from raw timestamps', async () => {
 		const p95Component = cloneNativeComponent();
 		setInternalTimingDuration(p95Component, 'commQueue', 16, 'all');
-		const p99Component = cloneNativeComponent();
-		setInternalTimingDuration(p99Component, 'commQueue', 32, 'last-two');
 
 		await expectValidationFailure(
 			makeFixture({ nativeComponent: p95Component }),
 			/comm queue p95 16 ms/u,
 		);
+	});
+
+	test('derives the strict comm queue p99 stop line from raw timestamps', async () => {
+		const p99Component = cloneNativeComponent();
+		setInternalTimingDuration(p99Component, 'commQueue', 32, 'last-two');
+
 		await expectValidationFailure(
 			makeFixture({ nativeComponent: p99Component }),
 			/comm queue p99 32 ms/u,
 		);
 	});
 
-	test('derives strict main-to-Pierre p95 and p99 stop lines from raw timestamps', async () => {
+	test('derives the strict main-to-Pierre p95 stop line from raw timestamps', async () => {
 		const p95Component = cloneNativeComponent();
 		setInternalTimingDuration(p95Component, 'mainToPierre', 4, 'all');
-		const p99Component = cloneNativeComponent();
-		setInternalTimingDuration(p99Component, 'mainToPierre', 8, 'last-two');
 
 		await expectValidationFailure(
 			makeFixture({ nativeComponent: p95Component }),
 			/main-to-Pierre p95 4 ms/u,
 		);
+	});
+
+	test('derives the strict main-to-Pierre p99 stop line from raw timestamps', async () => {
+		const p99Component = cloneNativeComponent();
+		setInternalTimingDuration(p99Component, 'mainToPierre', 8, 'last-two');
+
 		await expectValidationFailure(
 			makeFixture({ nativeComponent: p99Component }),
 			/main-to-Pierre p99 8 ms/u,
@@ -425,8 +441,15 @@ describe('Bridge local-first validate-only aggregate', () => {
 		await expectValidationFailure(fixture, /owned process instance is still live/u);
 	});
 
-	test('allows an exited process or a reused live PID with a different start token', async () => {
+	test('allows an exited process', async () => {
 		const exitedFixture = makeFixture();
+
+		await expect(
+			validateBridgeLocalFirstPerformance({ manifestPath, ports: exitedFixture.ports }),
+		).resolves.toBeDefined();
+	});
+
+	test('allows a reused live PID with a different start token', async () => {
 		const reusedFixture = makeFixture({
 			processObservation: async (evidence) => ({
 				state: 'running',
@@ -436,17 +459,19 @@ describe('Bridge local-first validate-only aggregate', () => {
 		});
 
 		await expect(
-			validateBridgeLocalFirstPerformance({ manifestPath, ports: exitedFixture.ports }),
-		).resolves.toBeDefined();
-		await expect(
 			validateBridgeLocalFirstPerformance({ manifestPath, ports: reusedFixture.ports }),
 		).resolves.toBeDefined();
 	});
 
-	test('rejects indeterminate live identity and same-start executable drift', async () => {
+	test('rejects indeterminate live process identity', async () => {
 		const indeterminateFixture = makeFixture({
 			processObservation: async () => ({ state: 'indeterminate', reason: 'permission denied' }),
 		});
+
+		await expectValidationFailure(indeterminateFixture, /process identity is indeterminate/u);
+	});
+
+	test('rejects same-start executable drift', async () => {
 		const executableDriftFixture = makeFixture({
 			processObservation: async (evidence) => ({
 				state: 'running',
@@ -455,7 +480,6 @@ describe('Bridge local-first validate-only aggregate', () => {
 			}),
 		});
 
-		await expectValidationFailure(indeterminateFixture, /process identity is indeterminate/u);
 		await expectValidationFailure(executableDriftFixture, /indeterminate executable identity/u);
 	});
 });

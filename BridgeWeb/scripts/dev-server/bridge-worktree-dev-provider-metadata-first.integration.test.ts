@@ -21,6 +21,7 @@ import {
 	type BridgeWorktreeDevProviderWorktreeFileSurface,
 	type BridgeWorktreeDevPortObserver,
 } from './bridge-worktree-dev-provider.ts';
+import { resolveDefaultBaseRef } from './bridge-worktree-dev-provider/files.ts';
 
 const execFileAsync = promisify(execFile);
 const fixtureRoots: string[] = [];
@@ -338,7 +339,8 @@ describe('Bridge worktree dev provider metadata-first source', () => {
 
 	test('records a pathless current-worktree freshness and counted proof receipt', async () => {
 		const worktreeRoot = await realpath(resolve(process.cwd(), '..'));
-		const mergeBase = (await gitStdout(worktreeRoot, ['merge-base', 'HEAD', 'main'])).trim();
+		const resolvedBaseRef = await resolveDefaultBaseRef(worktreeRoot);
+		const mergeBase = (await gitStdout(worktreeRoot, ['rev-parse', resolvedBaseRef])).trim();
 		const head = (await gitStdout(worktreeRoot, ['rev-parse', 'HEAD'])).trim();
 		const observer = new CountedPortObserver();
 		const provider = await createBridgeWorktreeDevProvider(
