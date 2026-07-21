@@ -126,6 +126,16 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
 
 @MainActor
 enum BridgeProductWebKitTwoPaneJourneyTestSupport {
+    private struct ControllerInput {
+        let gitReadContext: BridgeGitReadContext
+        let initialActivity: BridgePaneActivity
+        let repoURL: URL
+        let reviewProvider: any BridgeReviewSourceProvider
+        let title: String
+        let traceRecorder: BridgeProductWebKitCarrierTraceRecorder
+        let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator
+    }
+
     private struct JourneyInput {
         let paneOne: BridgePaneController
         let paneOneRepoURL: URL
@@ -166,6 +176,8 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
 
         let paneOneTrace = BridgeProductWebKitCarrierTraceRecorder()
         let paneTwoTrace = BridgeProductWebKitCarrierTraceRecorder()
+        let worktreeProductConstructionCoordinator =
+            BridgeWorktreeProductConstructionCoordinator()
         let paneOneGitReadContext = makeBridgeGitReadContext(rootURL: paneOneRepoURL)
         let paneTwoGitReadContext = makeBridgeGitReadContext(rootURL: paneTwoRepoURL)
         let paneOneReviewProvider = BridgeProductWebKitGatedReviewSourceProvider(
@@ -181,20 +193,26 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             )
         )
         let paneOne = makeController(
-            repoURL: paneOneRepoURL,
-            gitReadContext: paneOneGitReadContext,
-            initialActivity: .foreground,
-            reviewProvider: paneOneReviewProvider,
-            traceRecorder: paneOneTrace,
-            title: "Hosted Pane One"
+            ControllerInput(
+                gitReadContext: paneOneGitReadContext,
+                initialActivity: .foreground,
+                repoURL: paneOneRepoURL,
+                reviewProvider: paneOneReviewProvider,
+                title: "Hosted Pane One",
+                traceRecorder: paneOneTrace,
+                worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator
+            )
         )
         let paneTwo = makeController(
-            repoURL: paneTwoRepoURL,
-            gitReadContext: paneTwoGitReadContext,
-            initialActivity: .dormant,
-            reviewProvider: paneTwoReviewProvider,
-            traceRecorder: paneTwoTrace,
-            title: "Hosted Pane Two"
+            ControllerInput(
+                gitReadContext: paneTwoGitReadContext,
+                initialActivity: .dormant,
+                repoURL: paneTwoRepoURL,
+                reviewProvider: paneTwoReviewProvider,
+                title: "Hosted Pane Two",
+                traceRecorder: paneTwoTrace,
+                worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator
+            )
         )
 
         return try await withHostedControllers([paneOne, paneTwo]) {
@@ -472,42 +490,36 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         retainedPages = controllers.map(\.page)
     }
 
-    private static func makeController(
-        repoURL: URL,
-        gitReadContext: BridgeGitReadContext,
-        initialActivity: BridgePaneActivity,
-        reviewProvider: any BridgeReviewSourceProvider,
-        traceRecorder: BridgeProductWebKitCarrierTraceRecorder,
-        title: String
-    ) -> BridgePaneController {
+    private static func makeController(_ input: ControllerInput) -> BridgePaneController {
         let paneId = UUIDv7.generate()
         return BridgePaneController(
             paneId: paneId,
             state: BridgePaneState(
                 panelKind: .diffViewer,
                 source: .workspace(
-                    rootPath: repoURL.path,
+                    rootPath: input.repoURL.path,
                     baseline: .localDefaultBranch(branchName: "main")
                 )
             ),
             metadata: PaneMetadata(
                 paneId: PaneId(existingUUID: paneId),
                 contentType: .diff,
-                launchDirectory: repoURL,
-                title: title,
+                launchDirectory: input.repoURL,
+                title: input.title,
                 facets: PaneContextFacets(
                     repoId: UUIDv7.generate(),
                     worktreeId: UUIDv7.generate(),
-                    worktreeName: title,
-                    cwd: repoURL
+                    worktreeName: input.title,
+                    cwd: input.repoURL
                 )
             ),
-            reviewSourceProvider: reviewProvider,
-            gitReadContext: gitReadContext,
+            reviewSourceProvider: input.reviewProvider,
+            gitReadContext: input.gitReadContext,
+            worktreeProductConstructionCoordinator: input.worktreeProductConstructionCoordinator,
             telemetryRuntimePolicy: .live,
             telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
-            telemetryRecorder: traceRecorder,
-            initialPaneActivity: initialActivity
+            telemetryRecorder: input.traceRecorder,
+            initialPaneActivity: input.initialActivity
         )
     }
 

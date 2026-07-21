@@ -768,7 +768,6 @@ swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState"
 |---------|---------|---------|
 | `SWIFT_BUILD_DIR` | auto-allocated `.build-agent-{1..4}` via `scripts/swift-build-slot.sh` | Helper claims the first slot whose `.slot-claim` dir doesn't exist (atomic `mkdir`). Pin to a specific slot to override (rare). |
 | `SWIFT_TEST_PARALLEL` | `1` (enabled) | Set to `0` to disable parallel workers |
-| `SWIFT_TEST_WORKERS` | `hw.ncpu / 2` (max 4) | Parallel test worker count |
 
 **Bounded 4-slot pool.** Every swift-running mise task sources `scripts/swift-build-slot.sh`. The helper iterates `.build-agent-{1..4}` and uses an atomic `mkdir <dir>/.slot-claim` to claim a slot; an EXIT trap on the calling shell removes the claim on normal exit. SwiftPM's own kernel-level flock handles serialization within a slot. Slots are reused by the next agent — disk usage is bounded by 4 × build size. Main agents and subagents share the pool; the helper handles allocation.
 

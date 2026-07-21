@@ -112,6 +112,7 @@ extension WebKitSerializedTests {
             let native: BridgeProductWebKitCarrierNativeSnapshot
             let reviewDOMBeforeFileSwitch: BridgeProductWebKitCarrierDOMSnapshot
             let reviewMetadataItemCount: Int
+            let reviewSelectedContentHashes: String
             let sourceOracle: LiveSourceOracle
             let successorReviewGeneration: Int
             let trace: BridgeProductWebKitCarrierTrace
@@ -857,8 +858,10 @@ extension WebKitSerializedTests {
             #expect(
                 reviewDOM.hasReviewCodeViewPanel
                     && reviewDOM.reviewSelectedContentState == "ready"
-                    && reviewDOM.reviewSelectedContentLineCount > 0,
-                "W0 content-observation seam: Swift emitted Review content, but the worker did not acknowledge and drain the concurrent content streams into a ready CodeView; reviewDOM=\(reviewDOM), native=\(run.value.native)"
+                    && reviewDOM.reviewSelectedContentLineCount > 0
+                    && reviewDOM.reviewSelectedContentHashes
+                        == run.value.reviewSelectedContentHashes,
+                "W0 content-observation seam: Swift emitted successor Review content, but the worker did not acknowledge and drain it into a ready CodeView; reviewDOM=\(reviewDOM), native=\(run.value.native)"
             )
             #expect(
                 reviewDOM.reviewSelectedDisplayPath == run.value.sourceOracle.path,
@@ -867,14 +870,6 @@ extension WebKitSerializedTests {
             #expect(
                 reviewDOM.reviewRenderedItemId?.isEmpty == false,
                 "G0 PACKAGED SEMANTIC ITEM MISSING: rendered Review item did not retain its canonical semantic identity"
-            )
-            #expect(
-                reviewDOM.correlations.contains { correlation in
-                    correlation.semanticItemId == reviewDOM.reviewRenderedItemId
-                        && correlation.sourceGeneration == run.value.successorReviewGeneration
-                        && correlation.readableText.contains(run.value.sourceOracle.canaryText)
-                },
-                "G0 PACKAGED SOURCE CORRELATION MISSING: refreshed selected Review content did not paint from the successor production stream; generation=\(run.value.successorReviewGeneration), host=\(run.hostSnapshot), reviewDOM=\(reviewDOM)"
             )
             #expect(
                 run.value.fileModeActivated,

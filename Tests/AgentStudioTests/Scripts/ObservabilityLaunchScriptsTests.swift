@@ -97,7 +97,7 @@ struct ObservabilityLaunchScriptsTests {
         #expect(!testHelperScript.contains("pkill -9 -f"))
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))
-        #expect(ciWorkflow.contains("SWIFT_TEST_WORKERS: \"4\""))
+        #expect(!ciWorkflow.contains("SWIFT_TEST_WORKERS"))
         #expect(ciWorkflow.contains("set -o pipefail\n          mise run test-benchmark 2>&1 | tee benchmark.log"))
     }
 

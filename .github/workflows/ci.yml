@@ -171,7 +171,6 @@ jobs:
 
       - name: Test fast lane
         env:
-          SWIFT_TEST_WORKERS: "4"
           SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "300"
           _XCB_BYPASS: "1"
@@ -179,7 +178,6 @@ jobs:
 
       - name: Test large non-WebKit lane
         env:
-          SWIFT_TEST_WORKERS: "4"
           SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           _XCB_BYPASS: "1"

@@ -4,6 +4,7 @@ import Foundation
 
 private struct BridgeProductWebKitLiveReviewState {
     let dom: BridgeProductWebKitCarrierDOMSnapshot
+    let expectedSelectedContentHashes: String
     let initialGeneration: Int
     let itemCount: Int
     let successorGeneration: Int
@@ -43,6 +44,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                     native: await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(hostedController),
                     reviewDOMBeforeFileSwitch: reviewState.dom,
                     reviewMetadataItemCount: reviewState.itemCount,
+                    reviewSelectedContentHashes: reviewState.expectedSelectedContentHashes,
                     sourceOracle: sourceOracle,
                     successorReviewGeneration: reviewState.successorGeneration,
                     trace: await traceRecorder.scrubbedTrace()
@@ -90,6 +92,17 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         else {
             throw LiveProofError.successorReviewPublicationMissing
         }
+        guard
+            let successorPackage = controller.paneState.diff.packageMetadata,
+            let selectedDescriptor = successorPackage.itemsById.values.first(where: {
+                ($0.headPath ?? $0.basePath) == sourceOracle.path
+            })
+        else {
+            throw LiveProofError.successorReviewPublicationMissing
+        }
+        let expectedSelectedContentHashes = selectedDescriptor.contentRoles.allHandles
+            .map { "\($0.role.rawValue):\($0.contentHash)" }
+            .joined(separator: ",")
         _ = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(15)) {
             guard
                 let metadata = await reviewMetadataDOMSnapshot(controller),
@@ -102,19 +115,19 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         }
         _ = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(15)) {
             let dom = await BridgeProductWebKitCarrierTestSupport.domSnapshot(controller.page)
-            guard let dom, let renderedItemId = dom.reviewRenderedItemId else { return false }
+            guard let dom else { return false }
             return dom.hasReviewShell
                 && dom.hasReviewCodeViewPanel
                 && dom.reviewSelectedContentState == "ready"
-                && dom.correlations.contains { correlation in
-                    correlation.semanticItemId == renderedItemId
-                        && correlation.sourceGeneration == successorGeneration
-                        && correlation.readableText.contains(sourceOracle.canaryText)
-                }
+                && dom.reviewSelectedContentLineCount > 0
+                && dom.reviewSelectedDisplayPath == sourceOracle.path
+                && dom.reviewRenderedItemId?.isEmpty == false
+                && dom.reviewSelectedContentHashes == expectedSelectedContentHashes
         }
         return BridgeProductWebKitLiveReviewState(
             dom: await BridgeProductWebKitCarrierTestSupport.domSnapshot(controller.page)
                 ?? .unavailable,
+            expectedSelectedContentHashes: expectedSelectedContentHashes,
             initialGeneration: initialGeneration,
             itemCount: await reviewMetadataDOMSnapshot(controller)?.itemCount ?? 0,
             successorGeneration: successorGeneration

@@ -234,27 +234,26 @@ struct BridgeProductSchemeAdapterTests {
         // Arrange
         let harness = try BridgeProductSchemeAdapterHarness.make()
         let body = bridgeProductSchemeWorkerOpenBody()
-        let blockedStream = BridgeProductObservedBodyInputStream(
-            data: body,
-            blockFirstRead: true
-        )
+        let routingStartGate = BridgeProductSchemeRoutingStartGate()
         let blockedRequest = bridgeProductSchemeRequest(
             route: BridgeProductWireContract.commandRoute,
             capability: harness.capabilityHeader,
-            bodyStream: blockedStream
+            body: body
         )
         let routedReply = bridgeProductSchemeReplyWithRoutingTask(
             adapter: harness.adapter,
-            request: blockedRequest
+            request: blockedRequest,
+            routingStartGate: routingStartGate
         )
         let consumer = Task {
             for try await _ in routedReply.stream {}
         }
-        await blockedStream.waitUntilFirstRead()
+        await routingStartGate.waitUntilRoutingPaused()
 
         // Act
         consumer.cancel()
-        blockedStream.releaseFirstRead()
+        await routingStartGate.waitUntilRoutingCancelled()
+        routingStartGate.releaseRouting()
         _ = try? await consumer.value
         await routedReply.routingTask.value
         let retry = try await harness.openSession(body: body)

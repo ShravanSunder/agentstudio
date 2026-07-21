@@ -347,7 +347,8 @@ struct BridgeProductSchemeReplyWithRoutingTask {
 
 func bridgeProductSchemeReplyWithRoutingTask(
     adapter: BridgeProductSchemeAdapter,
-    request: URLRequest
+    request: URLRequest,
+    routingStartGate: BridgeProductSchemeRoutingStartGate? = nil
 ) -> BridgeProductSchemeReplyWithRoutingTask {
     let (stream, replyContinuation) =
         AsyncThrowingStream<URLSchemeTaskResult, any Error>.makeStream()
@@ -357,6 +358,9 @@ func bridgeProductSchemeReplyWithRoutingTask(
                 throwing: BridgeProductSchemeAdapterTestSupportError.admissionClosed
             )
             return
+        }
+        if let routingStartGate {
+            await routingStartGate.pauseRoutingUntilReleased()
         }
         await adapter.route(
             request,
@@ -368,6 +372,60 @@ func bridgeProductSchemeReplyWithRoutingTask(
         routingTask.cancel()
     }
     return .init(routingTask: routingTask, stream: stream)
+}
+
+final class BridgeProductSchemeRoutingStartGate: @unchecked Sendable {
+    private let cancellationContinuation: AsyncStream<Void>.Continuation
+    private let cancellationEvents: AsyncStream<Void>
+    private let lock = NSLock()
+    private let routingPauseContinuation: AsyncStream<Void>.Continuation
+    private let routingPauseEvents: AsyncStream<Void>
+    private var isRoutingReleased = false
+    private var routingRelease: CheckedContinuation<Void, Never>?
+
+    init() {
+        let cancellationEvents = AsyncStream<Void>.makeStream()
+        self.cancellationEvents = cancellationEvents.stream
+        self.cancellationContinuation = cancellationEvents.continuation
+        let routingPauseEvents = AsyncStream<Void>.makeStream()
+        self.routingPauseEvents = routingPauseEvents.stream
+        self.routingPauseContinuation = routingPauseEvents.continuation
+    }
+
+    func pauseRoutingUntilReleased() async {
+        routingPauseContinuation.yield()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let shouldResume = lock.withLock {
+                    if isRoutingReleased { return true }
+                    routingRelease = continuation
+                    return false
+                }
+                if shouldResume { continuation.resume() }
+            }
+        } onCancel: {
+            cancellationContinuation.yield()
+        }
+    }
+
+    func waitUntilRoutingPaused() async {
+        var iterator = routingPauseEvents.makeAsyncIterator()
+        _ = await iterator.next()
+    }
+
+    func waitUntilRoutingCancelled() async {
+        var iterator = cancellationEvents.makeAsyncIterator()
+        _ = await iterator.next()
+    }
+
+    func releaseRouting() {
+        let release = lock.withLock {
+            isRoutingReleased = true
+            defer { routingRelease = nil }
+            return routingRelease
+        }
+        release?.resume()
+    }
 }
 
 private enum BridgeProductSchemeAdapterTestSupportError: Error {
@@ -440,20 +498,12 @@ func bridgeProductSchemePaddedBody(_ body: Data, byteCount: Int) -> Data {
 
 final class BridgeProductObservedBodyInputStream: InputStream, @unchecked Sendable {
     private let bytes: [UInt8]
-    private let firstReadContinuation: AsyncStream<Void>.Continuation
-    private let firstReadEvents: AsyncStream<Void>
     private let lock = NSLock()
-    private let releaseSemaphore = DispatchSemaphore(value: 0)
-    private let shouldBlockFirstRead: Bool
     private var offset = 0
     private var readInvocationCountStorage = 0
 
-    init(data: Data, blockFirstRead: Bool = false) {
+    override init(data: Data) {
         self.bytes = Array(data)
-        self.shouldBlockFirstRead = blockFirstRead
-        let pair = AsyncStream<Void>.makeStream()
-        self.firstReadEvents = pair.stream
-        self.firstReadContinuation = pair.continuation
         super.init(data: Data())
     }
 
@@ -464,12 +514,7 @@ final class BridgeProductObservedBodyInputStream: InputStream, @unchecked Sendab
     override func read(_ buffer: UnsafeMutablePointer<UInt8>, maxLength len: Int) -> Int {
         lock.lock()
         readInvocationCountStorage += 1
-        let isFirstRead = readInvocationCountStorage == 1
         lock.unlock()
-        if isFirstRead {
-            firstReadContinuation.yield()
-            if shouldBlockFirstRead { releaseSemaphore.wait() }
-        }
         guard offset < bytes.count else { return 0 }
         let count = min(len, bytes.count - offset)
         for index in 0..<count { buffer[index] = bytes[offset + index] }
@@ -478,15 +523,6 @@ final class BridgeProductObservedBodyInputStream: InputStream, @unchecked Sendab
     }
 
     override var hasBytesAvailable: Bool { offset < bytes.count }
-
-    func waitUntilFirstRead() async {
-        var iterator = firstReadEvents.makeAsyncIterator()
-        _ = await iterator.next()
-    }
-
-    func releaseFirstRead() {
-        releaseSemaphore.signal()
-    }
 
     var readInvocationCount: Int {
         lock.lock()

@@ -9,13 +9,15 @@ struct TopologyEventPipelineIntegrationTests {
     private func withTopologyHarness(
         _ body: @escaping @MainActor (GitTopologyPipelineHarness) async throws -> Void
     ) async rethrows {
-        let harness = await GitTopologyPipelineHarness.make()
-        do {
-            try await body(harness)
-            await harness.shutdown()
-        } catch {
-            await harness.shutdown()
-            throw error
+        try await withAsyncTestAtomRegistry { _ in
+            let harness = await GitTopologyPipelineHarness.make()
+            do {
+                try await body(harness)
+                await harness.shutdown()
+            } catch {
+                await harness.shutdown()
+                throw error
+            }
         }
     }
 

@@ -56,6 +56,7 @@ struct BridgeProductWebKitCarrierDOMSnapshot: Decodable, Equatable, Sendable {
     let paintedElementCount: Int
     let fileReadableText: String
     let hasReviewCodeViewPanel: Bool
+    let reviewSelectedContentHashes: String
     let reviewSelectedContentLineCount: Int
     let reviewSelectedContentState: String?
     let reviewSelectedDisplayPath: String?
@@ -76,6 +77,7 @@ struct BridgeProductWebKitCarrierDOMSnapshot: Decodable, Equatable, Sendable {
         paintedElementCount: 0,
         fileReadableText: "",
         hasReviewCodeViewPanel: false,
+        reviewSelectedContentHashes: "",
         reviewSelectedContentLineCount: 0,
         reviewSelectedContentState: nil,
         reviewSelectedDisplayPath: nil,
@@ -689,6 +691,8 @@ enum BridgeProductWebKitCarrierTestSupport {
                   paintedElementCount: paintedElements.length,
                   fileReadableText: readableTextIncludingOpenShadowRoots(fileModeHost ?? document.createDocumentFragment()),
                   hasReviewCodeViewPanel: codeViewPanel !== null,
+                  reviewSelectedContentHashes: (codeViewPanel?.getAttribute('data-selected-content-cache-keys') ?? '')
+                      .split(',').filter(Boolean).map((entry) => `${entry.split(':')[0] ?? ''}:${entry.split(':').pop() ?? ''}`).join(','),
                   reviewSelectedContentLineCount:
                     Number.isSafeInteger(selectedContentLineCount) && selectedContentLineCount >= 0
                       ? selectedContentLineCount
