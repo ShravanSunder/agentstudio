@@ -246,13 +246,17 @@ The hard cut distinguishes durable/user-visible local data from rebuildable data
 - Legacy workspace cache, UI, sidebar, inbox, and terminal checkpoint JSON files are not migration fallbacks. Their current SQLite data or deterministic defaults are authoritative.
 - Normal GRDB schema migration history remains. Runtime import decisions, replay markers, archive-readiness state, dual writers, compatibility decoders, and custom cutover receipt protocols do not.
 
-Conflicting legacy repository rows representing the same global repository require deterministic identity and metadata rules. Those rules must preserve pane references and must be defined before implementation planning; silent last-writer-wins merging is forbidden.
+The forward core migration preserves each existing topology row, identifier, metadata value, and pane reference as stored. It does not merge topology rows, select winner identities, or synthesize metadata. If removing obsolete workspace ownership exposes an actual uniqueness violation, the migration fails transactionally and leaves the pre-migration database unchanged.
 
-If conflicting user-authored repository metadata cannot be merged without guessing, the core migration fails transactionally and preserves the pre-migration database. It must not partially globalize topology or silently discard notes, tags, favorites, or pane references.
+The one-time settings copy is part of the forward cutover and writes its target rows transactionally. Normal GRDB migration state and the typed target rows are its only durable authority. It must not introduce a permanent import-status table or a second recovery state machine. Once the core hard-cut migration commits, later launches never consult legacy JSON or sidecars to hydrate, merge, repair, or default local state.
 
-Sidecar consolidation uses table-family-specific keys and conflict rules. It must be idempotent while legacy inputs remain available. Rebuildable cache collisions are discarded and rebuilt; user-visible history or preference collisions must never be resolved by arbitrary insertion order.
+Local conversion is best-effort and cannot control the core result:
 
-The one-time settings copy is part of the forward cutover and writes its target rows transactionally. Normal GRDB migration state and the typed target rows are its only durable authority. It must not introduce a permanent import-status table or a second recovery state machine. Once typed preference rows are committed, JSON is never consulted to hydrate, merge, repair, or default those preferences.
+```text
+local conversion succeeds  -> preserve the valid retained local/settings rows
+local conversion fails     -> open the committed core with deterministic local defaults
+                              never replay legacy JSON or sidecars on a later launch
+```
 
 ### R9. Failure containment is observable
 
@@ -377,7 +381,7 @@ The following runtime validity table is removed:
 workspace_sqlite_snapshot_status
 ```
 
-A committed core transaction is complete by definition. No replacement runtime completion-token table is introduced. A one-time schema-migration receipt may exist solely to prevent replay; it cannot participate in normal core loading.
+A committed core transaction is complete by definition. Normal GRDB schema migration state is the only hard-cut marker. No replacement completion token, cutover receipt, or product-level migration state machine is introduced.
 
 #### `local.sqlite`: workspace continuation tables
 
@@ -667,7 +671,7 @@ before successful cutover              after successful cutover
 ──────────────────────────────          ──────────────────────────────
 old core schema is migration input      only target core schema is used
 workspace sidecars are import input     only one local.sqlite is used
-old IDs may need remapping              all live references use selected IDs
+existing IDs remain unchanged          all live references keep those IDs
                                         no old readers, dual writes, or shims
 ```
 
@@ -675,8 +679,8 @@ old IDs may need remapping              all live references use selected IDs
 
 - Workspaces and their pane/tab/arrangement/drawer compositions remain durable.
 - Watched paths, repositories, worktrees, tags, favorite state, notes, and unavailable state move from workspace-owned rows to global rows.
-- Equivalent duplicate topology rows are consolidated by stable identity.
-- Pane `facet_repo_id` and `facet_worktree_id` values are rewritten to selected global IDs.
+- Existing topology rows and IDs are preserved without reconciliation or metadata merging.
+- Pane `facet_repo_id` and `facet_worktree_id` values retain their existing referenced IDs.
 - Workspace selection remains intact.
 - The old `workspace_sqlite_snapshot_status` table is dropped after its schema role ends; it is not copied into a replacement runtime protocol.
 
@@ -684,7 +688,7 @@ The core migration is transactional. Failure leaves the pre-migration core datab
 
 #### Local data that migrates
 
-The one-time consolidation reads the old `<workspace-id>.local.sqlite` files only as migration inputs.
+The one-time conversion reads the old `<workspace-id>.local.sqlite` files only during the first hard-cut launch.
 
 Migrated into the one `local.sqlite`:
 
@@ -709,13 +713,19 @@ Rebuildable cache data starts empty and is repopulated by its existing owners. M
 
 #### Cutover rule
 
-The migration must be retryable without duplicating rows. Old sidecars remain untouched until the unified local database and core reference remapping have both validated successfully. After successful cutover:
+The core migration and local conversion have deliberately different failure behavior:
+
+- Core migration failure rolls back the core transaction and leaves the pre-migration database unchanged.
+- Core migration success is final and independent of local conversion.
+- Successful local conversion preserves the valid retained local/settings rows.
+- Failed or interrupted local conversion uses deterministic local defaults. It does not block core startup and is not retried from legacy inputs on a later launch.
+
+After the core hard cut:
 
 - production opens only the target `core.sqlite` and one `local.sqlite`;
 - old sidecars are no longer read or written;
 - `<workspace-id>.settings.json` and `<workspace-id>.settings.backup.json` are no longer read or written;
 - no compatibility adapter, fallback reader, dual writer, alias table, or feature flag remains;
-- temporary identity maps and staging artifacts are removed once every migrated reference has been rewritten and verified.
 
 Normal GRDB migration identifiers remain the durable migration ledger. Historical migration bodies are not rewritten. Forward migrations rebuild or drop obsolete objects and leave only the target schema. The hard cut introduces no product-level receipt table, archive state machine, or replay policy.
 
@@ -904,7 +914,7 @@ The implementation plan must operationalize proof for these behaviors:
 7. Whole-local failure: missing, corrupt, or migration-failed `local.sqlite` still permits core hydration and usable application startup.
 8. Window ownership: two window IDs can hold different frame/sidebar state without workspace-key collisions.
 9. Single local file: production opens one local database rather than selecting a path by workspace ID.
-10. Data cutover: valid durable data and required user-visible local history survive the hard cut; rebuildable caches regenerate cleanly.
+10. Data cutover: core rows and IDs survive unchanged; a real target-schema uniqueness violation rolls back the core migration without changing the original database; successful local conversion preserves valid retained local history; failed or interrupted local conversion uses defaults without later legacy replay; rebuildable caches regenerate cleanly.
 11. Preference cutover: every current editor, Repo Explorer, and Inbox preference round-trips through its typed table; missing/invalid values default by feature; obsolete checkout colors do not return.
 12. Legacy-source absence: production source contains no workspace settings/cache/UI/sidebar/inbox JSON persistence, `WorkspacePersistor`, legacy import decision, matching completion-token, or surface-checkpoint path. `preferences.global.json` and its validation tests remain.
 13. Atom boundary: persistence and migration logic do not enter atoms or pure derived state.
@@ -944,9 +954,3 @@ Rejected because it would let preferences, caches, and machine-local failures ex
 ### Add local defaults but retain workspace-owned repositories
 
 Rejected because it fixes only the startup symptom while preserving destructive repository ownership and blocking shared repository references.
-
-## Open decision
-
-Legacy databases may contain two workspace-scoped rows with the same stable repository identity but different UUIDs or metadata. The hard cut can deterministically select one identity, rewrite every pane/local reference, union tags, OR favorite/availability flags, and preserve the earliest creation time.
-
-One decision remains before implementation planning: when two non-empty repository notes disagree, should migration stop without changing the database, or preserve both notes in one deterministic combined value? Silent selection of one note is forbidden.
