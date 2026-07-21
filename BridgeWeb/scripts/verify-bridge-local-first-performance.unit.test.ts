@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test } from 'vitest';
 
 import {
 	bridgeLocalFirstProofApplicabilityByCellId,
@@ -70,6 +70,12 @@ const baseFixtureOracle = aggregateProofFixture.rawFixtureOracle;
 const completeCohort = aggregateProofFixture.cohort;
 const baseBrowserComponent = componentForRuntime('controlled_dev_chromium');
 const baseNativeComponent = componentForRuntime('packaged_wkwebview');
+const canonicalBrowserComponentBytes = encodeJson(JSON.stringify(baseBrowserComponent));
+const canonicalNativeComponentBytes = encodeJson(JSON.stringify(baseNativeComponent));
+const canonicalFixtureOracleBytes = encodeJson(JSON.stringify(baseFixtureOracle));
+const canonicalBrowserComponentSha256 = sha256(canonicalBrowserComponentBytes);
+const canonicalNativeComponentSha256 = sha256(canonicalNativeComponentBytes);
+const canonicalFixtureOracleSha256 = sha256(canonicalFixtureOracleBytes);
 const invalidArgumentCases: readonly { readonly argumentsToParse: readonly string[] }[] = [
 	{ argumentsToParse: [] },
 	{ argumentsToParse: ['--manifest', manifestPath] },
@@ -108,6 +114,10 @@ const staleLiveIdentityCases: readonly {
 	},
 	{ field: 'pierreVersion', mutate: (identity) => (identity.pierreVersion = 'pierre:live-other') },
 ];
+
+afterEach(async (): Promise<void> => {
+	await yieldToVitestWorkerRpc();
+});
 
 describe('Bridge local-first validate-only aggregate', () => {
 	test('admits two hashed runtime partitions without launching or signalling anything', async () => {
@@ -520,28 +530,44 @@ interface TestFixture {
 }
 
 function makeFixture(props: MakeFixtureProps = {}): TestFixture {
-	const browserComponent = props.browserComponent ?? cloneBrowserComponent();
-	const nativeComponent = props.nativeComponent ?? cloneNativeComponent();
-	const browserBytes = props.browserComponentBytes ?? encodeJson(JSON.stringify(browserComponent));
-	const nativeBytes = encodeJson(JSON.stringify(nativeComponent));
-	const fixtureOracleBytes =
-		props.fixtureOracleBytes ?? encodeJson(JSON.stringify(baseFixtureOracle));
+	const browserBytes =
+		props.browserComponentBytes ??
+		(props.browserComponent === undefined
+			? canonicalBrowserComponentBytes
+			: encodeJson(JSON.stringify(props.browserComponent)));
+	const nativeBytes =
+		props.nativeComponent === undefined
+			? canonicalNativeComponentBytes
+			: encodeJson(JSON.stringify(props.nativeComponent));
+	const fixtureOracleBytes = props.fixtureOracleBytes ?? canonicalFixtureOracleBytes;
+	const browserSha256 =
+		browserBytes === canonicalBrowserComponentBytes
+			? canonicalBrowserComponentSha256
+			: sha256(browserBytes);
+	const nativeSha256 =
+		nativeBytes === canonicalNativeComponentBytes
+			? canonicalNativeComponentSha256
+			: sha256(nativeBytes);
+	const fixtureOracleSha256 =
+		fixtureOracleBytes === canonicalFixtureOracleBytes
+			? canonicalFixtureOracleSha256
+			: sha256(fixtureOracleBytes);
 	const manifest: TestAggregateManifest = {
 		schemaVersion: 1,
 		runIdentityFingerprint: runIdentity.runIdentityFingerprint,
 		components: {
 			controlled_dev_chromium: {
 				relativePath: 'browser/component.json',
-				sha256: sha256(browserBytes),
+				sha256: browserSha256,
 			},
 			packaged_wkwebview: {
 				relativePath: 'native/component.json',
-				sha256: sha256(nativeBytes),
+				sha256: nativeSha256,
 			},
 		},
 		fixtureOracle: {
 			relativePath: 'fixtures/endpoint-oracle.json',
-			sha256: sha256(fixtureOracleBytes),
+			sha256: fixtureOracleSha256,
 		},
 		aggregateManifestFingerprint: '0'.repeat(64),
 	};
@@ -832,6 +858,12 @@ function sha256(bytes: Uint8Array): string {
 function refreshRunIdentityHashes(identity: DeepMutable<BridgeLocalFirstProofRunIdentity>): void {
 	identity.runManifestHash = bridgeLocalFirstProofRunManifestHash(identity);
 	identity.runIdentityFingerprint = bridgeLocalFirstProofRunIdentityFingerprint(identity);
+}
+
+function yieldToVitestWorkerRpc(): Promise<void> {
+	return new Promise((completeYield): void => {
+		setImmediate(completeYield);
+	});
 }
 
 function requiredValue<TValue>(value: TValue | undefined): TValue {

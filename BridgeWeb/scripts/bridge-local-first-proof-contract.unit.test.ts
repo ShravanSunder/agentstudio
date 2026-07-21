@@ -1,7 +1,8 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test } from 'vitest';
 
 import {
 	bridgeLocalFirstProofCells,
+	bridgeLocalFirstProofAttemptSchema,
 	bridgeLocalFirstProofRunIdentityFingerprint,
 	bridgeLocalFirstProofRunManifestHash,
 	parseBridgeLocalFirstProofCohort as parseBridgeLocalFirstProofCohortWithOracle,
@@ -10,7 +11,10 @@ import {
 	type BridgeLocalFirstProofCohortInput,
 	type BridgeLocalFirstProofRunIdentity,
 } from './bridge-local-first-proof-contract.ts';
-import { parseBridgeLocalFirstProofFixtureOracle } from './bridge-local-first-proof-evidence.ts';
+import {
+	bridgeLocalFirstProofOracleEntryId,
+	parseBridgeLocalFirstProofFixtureOracle,
+} from './bridge-local-first-proof-evidence.ts';
 import {
 	makeBridgeLocalFirstTestFixtureOracle,
 	makeBridgeLocalFirstTestInteractionEvidence,
@@ -47,6 +51,21 @@ const fixtureOracle = parseBridgeLocalFirstProofFixtureOracle({
 	expectedFixtureId: expectedRunIdentity.fixtureId,
 	rawOracle: makeBridgeLocalFirstTestFixtureOracle(expectedRunIdentity, 101),
 });
+const immutableCompleteCohortBaseline = deepFreezeTestFixture(
+	makeBridgeLocalFirstTestProofFixture(contractTestFixtureOptions()).cohort,
+);
+const telemetryOnCellIndex = immutableCompleteCohortBaseline.cells.findIndex(
+	(cell) => cell.identity.telemetryState === 'on',
+);
+const packagedCellIndex = immutableCompleteCohortBaseline.cells.findIndex(
+	(cell) => cell.identity.runtime === 'packaged_wkwebview',
+);
+if (telemetryOnCellIndex < 0) throw new Error('unit-test fixture expected a telemetry-on cell');
+if (packagedCellIndex < 0) throw new Error('unit-test fixture expected a packaged cell');
+
+afterEach(async (): Promise<void> => {
+	await yieldToVitestWorkerRpc();
+});
 
 function parseBridgeLocalFirstProofCohort(
 	rawCohort: unknown,
@@ -72,7 +91,13 @@ function reduceBridgeLocalFirstProofCohort(
 
 describe('bridge local-first proof contract', () => {
 	test('admits a complete fresh cohort and freezes every identity boundary', () => {
-		const cohort = parseBridgeLocalFirstProofCohort(makeCompleteCohort(), expectedRunIdentity);
+		const freshCohort = makeCompleteCohort();
+		expect(freshCohort.cells).toHaveLength(84);
+		expect(freshCohort.cells.flatMap((cell) => cell.launches)).toHaveLength(252);
+		expect(
+			freshCohort.cells.flatMap((cell) => cell.launches.flatMap((launch) => launch.attempts)),
+		).toHaveLength(25_200);
+		const cohort = parseBridgeLocalFirstProofCohort(freshCohort, expectedRunIdentity);
 		const firstCell = requiredValue(cohort.cells[0]);
 		const firstLaunch = requiredValue(firstCell.launches[0]);
 		const firstAttempt = requiredValue(firstLaunch.attempts[0]);
@@ -92,18 +117,17 @@ describe('bridge local-first proof contract', () => {
 			'disappeared',
 			'missing_endpoint',
 		] as const;
-		const cohortInput = makeCompleteCohort({
-			makeAttempt: ({ attemptIndex, defaultAttempt }) => {
-				const failureKind = attemptIndex >= 94 ? failureKinds.at(attemptIndex - 94) : undefined;
-				return failureKind === undefined
-					? defaultAttempt
-					: {
-							identity: defaultAttempt.identity,
-							outcome: 'failed',
-							failureKind,
-							deadlineDurationMilliseconds: 1_000,
-						};
-			},
+		const cohortInput = copyCompleteCohort();
+		rewriteFirstCellAttempts(cohortInput, ({ attemptIndex, defaultAttempt }) => {
+			const failureKind = attemptIndex >= 94 ? failureKinds.at(attemptIndex - 94) : undefined;
+			return failureKind === undefined
+				? defaultAttempt
+				: {
+						identity: defaultAttempt.identity,
+						outcome: 'failed',
+						failureKind,
+						deadlineDurationMilliseconds: 1_000,
+					};
 		});
 		const reduction = reduceBridgeLocalFirstProofCohort(cohortInput, expectedRunIdentity);
 		const firstLaunch = requiredValue(requiredValue(reduction.cells[0]).launches[0]);
@@ -115,17 +139,14 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('uses nearest-rank launch, pooled, and maximum worst-launch percentiles', () => {
-		const reduction = reduceBridgeLocalFirstProofCohort(
-			makeCompleteCohort({
-				makeAttempt: ({ attemptIndex, defaultAttempt, launchIndex }) => ({
-					identity: defaultAttempt.identity,
-					outcome: 'succeeded',
-					durationMilliseconds: launchIndex * 100 + attemptIndex + 1,
-					deadlineDurationMilliseconds: defaultAttempt.deadlineDurationMilliseconds,
-				}),
-			}),
-			expectedRunIdentity,
-		);
+		const cohortInput = copyCompleteCohort();
+		rewriteFirstCellAttempts(cohortInput, ({ attemptIndex, defaultAttempt, launchIndex }) => ({
+			identity: defaultAttempt.identity,
+			outcome: 'succeeded',
+			durationMilliseconds: launchIndex * 100 + attemptIndex + 1,
+			deadlineDurationMilliseconds: defaultAttempt.deadlineDurationMilliseconds,
+		}));
+		const reduction = reduceBridgeLocalFirstProofCohort(cohortInput, expectedRunIdentity);
 		const firstCell = requiredValue(reduction.cells[0]);
 
 		expect(firstCell.launches.map((launch) => launch.p95DurationMilliseconds)).toEqual([
@@ -142,25 +163,24 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects a launch with only 99 attempted measured actions', () => {
-		expect(() =>
-			parseBridgeLocalFirstProofCohort(
-				makeCompleteCohort({ measuredAttemptCount: 99 }),
-				expectedRunIdentity,
-			),
-		).toThrow(/at least 100 measured attempts/u);
+		const cohort = copyCompleteCohort();
+		const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
+		firstLaunch.attemptedActionCount = 99;
+		firstLaunch.attempts.pop();
+		firstLaunch.interactionEvidence.pop();
+		expect(() => parseBridgeLocalFirstProofCohort(cohort, expectedRunIdentity)).toThrow(
+			/at least 100 measured attempts/u,
+		);
 	});
 
 	test('admits more than 100 measured actions without changing the closed launch count', () => {
-		expect(() =>
-			parseBridgeLocalFirstProofCohort(
-				makeCompleteCohort({ measuredAttemptCount: 101 }),
-				expectedRunIdentity,
-			),
-		).not.toThrow();
+		const cohort = copyCompleteCohort();
+		appendFirstLaunchAttempt(cohort);
+		expect(() => parseBridgeLocalFirstProofCohort(cohort, expectedRunIdentity)).not.toThrow();
 	});
 
 	test('rejects sibling expected and observed endpoint values without a fixture oracle', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const evidence = requiredValue(
 			requiredValue(requiredValue(cohort.cells[0]).launches[0]).interactionEvidence[0],
 		);
@@ -173,7 +193,7 @@ describe('bridge local-first proof contract', () => {
 		expect(() => parseBridgeLocalFirstProofCohort(cohort, expectedRunIdentity)).toThrow(
 			/expectedSelectionIdentity|unrecognized/iu,
 		);
-		const observedOnlyCohort = makeCompleteCohort();
+		const observedOnlyCohort = copyCompleteCohort();
 		const observedEvidence = requiredValue(
 			requiredValue(requiredValue(observedOnlyCohort.cells[0]).launches[0]).interactionEvidence[0],
 		);
@@ -187,7 +207,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects non-monotonic internal stages and spans outside the interaction', () => {
-		const stageCohort = makeCompleteCohort();
+		const stageCohort = copyCompleteCohort({ cellIndexes: [telemetryOnCellIndex] });
 		const stageEvidence = firstTelemetryOnInteractionEvidence(stageCohort);
 		if (stageEvidence.internal.mode !== 'on') {
 			throw new Error('test fixture expected telemetry-on evidence');
@@ -195,7 +215,7 @@ describe('bridge local-first proof contract', () => {
 		const firstEvent = requiredValue(stageEvidence.internal.events[0]);
 		requiredValue(stageEvidence.internal.events[1]).observedAtMonotonicMilliseconds =
 			firstEvent.observedAtMonotonicMilliseconds - 1;
-		const spanCohort = makeCompleteCohort();
+		const spanCohort = copyCompleteCohort({ cellIndexes: [telemetryOnCellIndex] });
 		const spanEvidence = firstTelemetryOnInteractionEvidence(spanCohort);
 		if (spanEvidence.internal.mode !== 'on') {
 			throw new Error('test fixture expected telemetry-on evidence');
@@ -213,7 +233,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects empty event-loop arrays without independent callback and rAF coverage', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const evidence = requiredValue(
 			requiredValue(requiredValue(cohort.cells[0]).launches[0]).interactionEvidence[0],
 		);
@@ -223,7 +243,7 @@ describe('bridge local-first proof contract', () => {
 		expect(() => parseBridgeLocalFirstProofCohort(cohort, expectedRunIdentity)).toThrow(
 			/event-loop observer coverage/u,
 		);
-		const endpointBoundCohort = makeCompleteCohort();
+		const endpointBoundCohort = copyCompleteCohort();
 		const endpointBoundEvidence = requiredValue(
 			requiredValue(requiredValue(endpointBoundCohort.cells[0]).launches[0]).interactionEvidence[0],
 		);
@@ -237,13 +257,15 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects fewer than three fresh launches', () => {
-		expect(() =>
-			parseBridgeLocalFirstProofCohort(makeCompleteCohort({ launchCount: 2 }), expectedRunIdentity),
-		).toThrow(/exactly 3 fresh launches/u);
+		const cohort = copyCompleteCohort();
+		requiredValue(cohort.cells[0]).launches.pop();
+		expect(() => parseBridgeLocalFirstProofCohort(cohort, expectedRunIdentity)).toThrow(
+			/exactly 3 fresh launches/u,
+		);
 	});
 
 	test('rejects an omitted terminal attempt from the attempted-action ledger', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		firstLaunch.attempts.pop();
 
@@ -253,7 +275,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects a nonterminal failure outcome', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		const firstAttempt = requiredValue(firstLaunch.attempts[0]);
 		Reflect.set(firstLaunch.attempts, 0, {
@@ -267,41 +289,37 @@ describe('bridge local-first proof contract', () => {
 	test.each([Number.NaN, Number.POSITIVE_INFINITY, -1])(
 		'rejects the invalid success duration %s',
 		(invalidDurationMilliseconds) => {
-			const cohort = makeCompleteCohort();
-			const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
-			const firstAttempt = requiredValue(firstLaunch.attempts[0]);
-			firstLaunch.attempts[0] = {
-				identity: firstAttempt.identity,
-				outcome: 'succeeded',
-				durationMilliseconds: invalidDurationMilliseconds,
-				deadlineDurationMilliseconds: firstAttempt.deadlineDurationMilliseconds,
-			};
-
-			expect(() => parseBridgeLocalFirstProofCohort(cohort, expectedRunIdentity)).toThrow();
+			const baselineAttempt = firstBaselineAttempt();
+			expect(() =>
+				bridgeLocalFirstProofAttemptSchema.parse({
+					identity: baselineAttempt.identity,
+					outcome: 'succeeded',
+					durationMilliseconds: invalidDurationMilliseconds,
+					deadlineDurationMilliseconds: baselineAttempt.deadlineDurationMilliseconds,
+				}),
+			).toThrow();
 		},
 	);
 
 	test.each([Number.NaN, Number.POSITIVE_INFINITY, -1])(
 		'rejects the invalid failure deadline %s',
 		(invalidDeadlineDurationMilliseconds) => {
-			const cohort = makeCompleteCohort();
-			const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
-			const firstAttempt = requiredValue(firstLaunch.attempts[0]);
-			firstLaunch.attempts[0] = {
-				identity: firstAttempt.identity,
-				outcome: 'failed',
-				failureKind: 'timeout',
-				deadlineDurationMilliseconds: invalidDeadlineDurationMilliseconds,
-			};
-
-			expect(() => parseBridgeLocalFirstProofCohort(cohort, expectedRunIdentity)).toThrow();
+			const baselineAttempt = firstBaselineAttempt();
+			expect(() =>
+				bridgeLocalFirstProofAttemptSchema.parse({
+					identity: baselineAttempt.identity,
+					outcome: 'failed',
+					failureKind: 'timeout',
+					deadlineDurationMilliseconds: invalidDeadlineDurationMilliseconds,
+				}),
+			).toThrow();
 		},
 	);
 
 	test.each([0, 999, 1_001])(
 		'rejects the non-prescribed failure deadline %s',
 		(invalidDeadline) => {
-			const cohort = makeCompleteCohort();
+			const cohort = copyCompleteCohort();
 			const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 			const firstAttempt = requiredValue(firstLaunch.attempts[0]);
 			firstLaunch.attempts[0] = {
@@ -316,7 +334,7 @@ describe('bridge local-first proof contract', () => {
 	);
 
 	test('rejects deadline drift within a successful launch ledger', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		const firstAttempt = requiredValue(firstLaunch.attempts[0]);
 		if (firstAttempt.outcome !== 'succeeded') {
@@ -330,7 +348,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects duplicate immutable attempt identities', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		const firstAttempt = requiredValue(firstLaunch.attempts[0]);
 		const secondAttempt = requiredValue(firstLaunch.attempts[1]);
@@ -339,7 +357,7 @@ describe('bridge local-first proof contract', () => {
 		expect(() => parseBridgeLocalFirstProofCohort(cohort, expectedRunIdentity)).toThrow(
 			/duplicate attempt identity/u,
 		);
-		const wrongOracleCohort = makeCompleteCohort();
+		const wrongOracleCohort = copyCompleteCohort();
 		requiredValue(
 			requiredValue(requiredValue(wrongOracleCohort.cells[0]).launches[0]).attempts[0],
 		).identity.oracleEntryId = 'oracle:wrong-action';
@@ -349,7 +367,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects duplicate measured interaction identities within one launch', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		const firstAttempt = requiredValue(firstLaunch.attempts[0]);
 		const secondAttempt = requiredValue(firstLaunch.attempts[1]);
@@ -361,7 +379,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects a measured interaction that reuses the warmup identity', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		const firstAttempt = requiredValue(firstLaunch.attempts[0]);
 		firstAttempt.identity.interactionId = firstLaunch.warmup.interactionId;
@@ -372,7 +390,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects a missing required lifecycle stage', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		firstLaunch.lifecycleStages.splice(2, 1);
 
@@ -382,7 +400,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects a warmup correctness failure before measured actions', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const launch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		const externalEvidence = structuredClone(launch.warmup.externalEvidence);
 		externalEvidence.endpoint = {
@@ -404,7 +422,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects a lifecycle stage that exceeds its contract-owned deadline', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		for (const stage of firstLaunch.lifecycleStages.slice(1)) {
 			stage.completedAtMonotonicMilliseconds += 10_001;
@@ -416,7 +434,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects an action, drain, or exit lifecycle window that does not chain', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const launch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		for (const stage of launch.lifecycleStages.slice(4)) {
 			stage.startedAtMonotonicMilliseconds += 1;
@@ -429,7 +447,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects raw interaction evidence outside the measured action window', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const launch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		const lastEvidence = requiredValue(launch.interactionEvidence.at(-1));
 		const measuredStage = requiredValue(launch.lifecycleStages[3]);
@@ -449,7 +467,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects an omitted correlated interaction lifecycle stage', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort({ cellIndexes: [telemetryOnCellIndex] });
 		const evidence = firstTelemetryOnInteractionEvidence(cohort);
 		if (evidence.internal.mode !== 'on') {
 			throw new Error('test fixture expected telemetry-on evidence');
@@ -462,7 +480,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('admits an exact 8 ms owned synchronous slice and rejects anything above it', () => {
-		const boundaryCohort = makeCompleteCohort();
+		const boundaryCohort = copyCompleteCohort({ cellIndexes: [telemetryOnCellIndex] });
 		const boundaryLaunch = requiredTelemetryOnLaunch(boundaryCohort);
 		const boundaryAttempt = requiredValue(boundaryLaunch.attempts[0]);
 		if (boundaryAttempt.outcome !== 'succeeded') {
@@ -483,7 +501,23 @@ describe('bridge local-first proof contract', () => {
 		const boundarySlice = requiredValue(boundaryEvidence.internal.synchronousSlices[0]);
 		boundarySlice.completedAtMonotonicMilliseconds =
 			boundarySlice.startedAtMonotonicMilliseconds + 8;
-		const overBudgetCohort = structuredClone(boundaryCohort);
+		const overBudgetCohort = copyCompleteCohort({ cellIndexes: [telemetryOnCellIndex] });
+		const overBudgetAttempt = requiredValue(
+			requiredTelemetryOnLaunch(overBudgetCohort).attempts[0],
+		);
+		if (overBudgetAttempt.outcome !== 'succeeded') {
+			throw new Error('test fixture expected successful attempt');
+		}
+		overBudgetAttempt.durationMilliseconds = 9;
+		requiredTelemetryOnLaunch(overBudgetCohort).interactionEvidence[0] = makeInteractionEvidence({
+			attempt: overBudgetAttempt,
+			attemptIndex: 0,
+			cell: requiredValue(
+				bridgeLocalFirstProofCells.find(
+					(cell) => cell.cellId === requiredTelemetryOnLaunch(overBudgetCohort).identity.cellId,
+				),
+			),
+		});
 		const overBudgetEvidence = firstTelemetryOnInteractionEvidence(overBudgetCohort);
 		if (overBudgetEvidence.internal.mode !== 'on') {
 			throw new Error('test fixture expected telemetry-on evidence');
@@ -501,7 +535,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects a main-thread task at the exact 50 ms stop line', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const evidence = requiredValue(
 			requiredValue(requiredValue(cohort.cells[0]).launches[0]).interactionEvidence[0],
 		);
@@ -522,13 +556,17 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects wrong, duplicate, or conflicting correlated lifecycle stages', () => {
-		const wrongInteractionCohort = makeCompleteCohort();
+		const wrongInteractionCohort = copyCompleteCohort({
+			cellIndexes: [telemetryOnCellIndex],
+		});
 		const wrongEvidence = firstTelemetryOnInteractionEvidence(wrongInteractionCohort);
 		if (wrongEvidence.internal.mode !== 'on') {
 			throw new Error('test fixture expected telemetry-on evidence');
 		}
 		requiredValue(wrongEvidence.internal.events[0]).interactionId = 'interaction:wrong';
-		const duplicateStageCohort = makeCompleteCohort();
+		const duplicateStageCohort = copyCompleteCohort({
+			cellIndexes: [telemetryOnCellIndex],
+		});
 		const duplicateEvidence = firstTelemetryOnInteractionEvidence(duplicateStageCohort);
 		if (duplicateEvidence.internal.mode !== 'on') {
 			throw new Error('test fixture expected telemetry-on evidence');
@@ -545,13 +583,13 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects a producer sequence gap and a successful attempt after its deadline', () => {
-		const gapCohort = makeCompleteCohort();
+		const gapCohort = copyCompleteCohort({ cellIndexes: [telemetryOnCellIndex] });
 		const gapEvidence = firstTelemetryOnInteractionEvidence(gapCohort);
 		if (gapEvidence.internal.mode !== 'on') {
 			throw new Error('test fixture expected telemetry-on evidence');
 		}
 		requiredValue(gapEvidence.internal.events[0]).producerSequence += 1;
-		const lateCohort = makeCompleteCohort();
+		const lateCohort = copyCompleteCohort();
 		const lateLaunch = requiredValue(requiredValue(lateCohort.cells[0]).launches[0]);
 		const lateAttempt = requiredValue(lateLaunch.attempts[0]);
 		if (lateAttempt.outcome !== 'succeeded') {
@@ -573,7 +611,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects a missing telemetry drain record', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		Reflect.deleteProperty(firstLaunch, 'telemetryProof');
 
@@ -581,7 +619,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects a required telemetry loss range', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort({ cellIndexes: [telemetryOnCellIndex] });
 		const firstLaunch = requiredTelemetryOnLaunch(cohort);
 		const telemetryProof = firstLaunch.telemetryProof;
 		if (telemetryProof.mode !== 'on') {
@@ -600,7 +638,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects telemetry-on proof when an interaction omits its internal lifecycle', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort({ cellIndexes: [telemetryOnCellIndex] });
 		const evidence = firstTelemetryOnInteractionEvidence(cohort);
 		if (evidence.internal.mode !== 'on') {
 			throw new Error('test fixture expected telemetry-on evidence');
@@ -613,7 +651,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects telemetry-on proof when a producer drain high-watermark is missing', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort({ cellIndexes: [telemetryOnCellIndex] });
 		const telemetryOnLaunch = requiredTelemetryOnLaunch(cohort);
 		const telemetryProof = telemetryOnLaunch.telemetryProof;
 		if (telemetryProof.mode !== 'on') {
@@ -624,7 +662,7 @@ describe('bridge local-first proof contract', () => {
 		expect(() => parseBridgeLocalFirstProofCohort(cohort, expectedRunIdentity)).toThrow(
 			/requires both drain receipts/u,
 		);
-		const lateDrainCohort = makeCompleteCohort();
+		const lateDrainCohort = copyCompleteCohort({ cellIndexes: [telemetryOnCellIndex] });
 		const lateDrainLaunch = requiredTelemetryOnLaunch(lateDrainCohort);
 		if (lateDrainLaunch.telemetryProof.mode !== 'on') {
 			throw new Error('test fixture expected telemetry-on proof');
@@ -637,7 +675,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects telemetry worker or drain proof in a telemetry-off cell', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const telemetryOffLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		telemetryOffLaunch.telemetryProof = structuredClone(
 			requiredTelemetryOnLaunch(cohort).telemetryProof,
@@ -654,7 +692,7 @@ describe('bridge local-first proof contract', () => {
 		['fixtureChecksum', '5'.repeat(64)],
 		['pierreVersion', '@pierre/diffs@stale'],
 	] as const)('rejects stale run identity field %s', (identityField, staleValue) => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort({ cellIndexes: [], cloneRunIdentity: true });
 		cohort.runIdentity[identityField] = staleValue;
 		cohort.runIdentity.runManifestHash = bridgeLocalFirstProofRunManifestHash(cohort.runIdentity);
 		cohort.runIdentity.runIdentityFingerprint = bridgeLocalFirstProofRunIdentityFingerprint(
@@ -667,7 +705,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects an incomplete closed cell manifest', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort({ cellIndexes: [] });
 		cohort.cells.pop();
 
 		expect(() => parseBridgeLocalFirstProofCohort(cohort, expectedRunIdentity)).toThrow(
@@ -676,7 +714,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects parent identity drift inside a launch artifact', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		firstLaunch.identity.cellId = 'stale-cell-id';
 
@@ -686,7 +724,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects resumed launch provenance from another run identity', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const firstLaunch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		firstLaunch.identity.runIdentityFingerprint = '7'.repeat(64);
 
@@ -696,7 +734,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects a packaged launch whose bundle hash does not match the run identity', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort({ cellIndexes: [packagedCellIndex] });
 		const packagedCell = requiredValue(
 			cohort.cells.find((cell) => cell.identity.runtime === 'packaged_wkwebview'),
 		);
@@ -712,7 +750,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects a launch whose hashed process start token was tampered independently', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort();
 		const launch = requiredValue(requiredValue(cohort.cells[0]).launches[0]);
 		launch.identity.processStartToken = `${launch.identity.processStartToken}:tampered`;
 
@@ -722,7 +760,7 @@ describe('bridge local-first proof contract', () => {
 	});
 
 	test('rejects one concrete OS process instance reused across runtime partitions', () => {
-		const cohort = makeCompleteCohort();
+		const cohort = copyCompleteCohort({ cellIndexes: [0, packagedCellIndex] });
 		const browserLaunch = requiredValue(
 			requiredValue(
 				cohort.cells.find((cell) => cell.identity.runtime === 'controlled_dev_chromium'),
@@ -780,6 +818,120 @@ function makeCompleteCohort(
 	props: MakeCompleteCohortProps = {},
 ): DeepMutable<BridgeLocalFirstProofCohortInput> {
 	return makeBridgeLocalFirstTestProofFixture(contractTestFixtureOptions(props)).cohort;
+}
+
+interface CopyCompleteCohortProps {
+	readonly cellIndexes?: readonly number[];
+	readonly cloneRunIdentity?: boolean;
+}
+
+function copyCompleteCohort(
+	props: CopyCompleteCohortProps = {},
+): DeepMutable<BridgeLocalFirstProofCohortInput> {
+	const cells = [...immutableCompleteCohortBaseline.cells];
+	for (const cellIndex of props.cellIndexes ?? [0]) {
+		if (cellIndex < 0 || cellIndex >= cells.length) {
+			throw new Error('unit-test fixture expected a matching baseline cell');
+		}
+		cells[cellIndex] = structuredClone(requiredValue(cells[cellIndex]));
+	}
+	return {
+		schemaVersion: immutableCompleteCohortBaseline.schemaVersion,
+		runIdentity:
+			props.cloneRunIdentity === true
+				? structuredClone(immutableCompleteCohortBaseline.runIdentity)
+				: immutableCompleteCohortBaseline.runIdentity,
+		cells,
+	};
+}
+
+function rewriteFirstCellAttempts(
+	cohort: DeepMutable<BridgeLocalFirstProofCohortInput>,
+	makeAttempt: NonNullable<MakeCompleteCohortProps['makeAttempt']>,
+): void {
+	const firstCell = requiredValue(cohort.cells[0]);
+	const cellContract = requiredValue(
+		bridgeLocalFirstProofCells.find((cell) => cell.cellId === firstCell.identity.cellId),
+	);
+	for (const [launchIndex, launch] of firstCell.launches.entries()) {
+		launch.attempts = launch.attempts.map((defaultAttempt, attemptIndex) =>
+			makeAttempt({ attemptIndex, defaultAttempt, launchIndex }),
+		);
+		launch.interactionEvidence = launch.attempts.map((attempt, attemptIndex) =>
+			makeInteractionEvidence({ attempt, attemptIndex, cell: cellContract }),
+		);
+		refreshLaunchLifecycleCompletion(launch);
+	}
+}
+
+function appendFirstLaunchAttempt(cohort: DeepMutable<BridgeLocalFirstProofCohortInput>): void {
+	const firstCell = requiredValue(cohort.cells[0]);
+	const firstLaunch = requiredValue(firstCell.launches[0]);
+	const cellContract = requiredValue(
+		bridgeLocalFirstProofCells.find((cell) => cell.cellId === firstCell.identity.cellId),
+	);
+	const attemptIndex = firstLaunch.attempts.length;
+	const launchId = firstLaunch.identity.launchId;
+	const attempt: DeepMutable<BridgeLocalFirstProofAttemptInput> = {
+		identity: {
+			runId: expectedRunIdentity.runId,
+			cellId: firstCell.identity.cellId,
+			launchId,
+			attemptId: `${launchId}--attempt-${attemptIndex}`,
+			attemptIndex,
+			interactionId: `${launchId}--interaction-${attemptIndex}`,
+			oracleEntryId: bridgeLocalFirstProofOracleEntryId({
+				actionDescriptor: { actionIndex: attemptIndex, manifestRowId: cellContract.manifestRowId },
+				fixtureChecksum: expectedRunIdentity.fixtureChecksum,
+			}),
+		},
+		outcome: 'succeeded',
+		durationMilliseconds: attemptIndex + 1,
+		deadlineDurationMilliseconds: cellContract.attemptDeadlineMilliseconds,
+	};
+	firstLaunch.attempts.push(attempt);
+	firstLaunch.interactionEvidence.push(
+		makeInteractionEvidence({ attempt, attemptIndex, cell: cellContract }),
+	);
+	firstLaunch.attemptedActionCount = firstLaunch.attempts.length;
+	refreshLaunchLifecycleCompletion(firstLaunch);
+}
+
+function refreshLaunchLifecycleCompletion(
+	launch: DeepMutable<BridgeLocalFirstProofCohortInput>['cells'][number]['launches'][number],
+): void {
+	const measuredActionsCompletedAt =
+		Math.max(
+			...launch.interactionEvidence.map(
+				(evidence) => evidence.external.runtimeTiming.endpointObservedAtMonotonicMilliseconds,
+			),
+		) + 1;
+	const measuredActionsStage = requiredValue(launch.lifecycleStages[3]);
+	const telemetrySettledStage = requiredValue(launch.lifecycleStages[4]);
+	const processExitedStage = requiredValue(launch.lifecycleStages[5]);
+	measuredActionsStage.completedAtMonotonicMilliseconds = measuredActionsCompletedAt;
+	telemetrySettledStage.startedAtMonotonicMilliseconds = measuredActionsCompletedAt;
+	telemetrySettledStage.completedAtMonotonicMilliseconds = measuredActionsCompletedAt + 1;
+	processExitedStage.startedAtMonotonicMilliseconds = measuredActionsCompletedAt + 1;
+	processExitedStage.completedAtMonotonicMilliseconds = measuredActionsCompletedAt + 2;
+}
+
+function firstBaselineAttempt(): DeepMutable<BridgeLocalFirstProofAttemptInput> {
+	return requiredValue(
+		requiredValue(requiredValue(immutableCompleteCohortBaseline.cells[0]).launches[0]).attempts[0],
+	);
+}
+
+function deepFreezeTestFixture<TValue>(value: TValue): TValue {
+	if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value;
+	for (const nestedValue of Object.values(value)) deepFreezeTestFixture(nestedValue);
+	return Object.freeze(value);
+}
+
+function yieldToVitestWorkerRpc(): Promise<void> {
+	return new Promise((resolve): void => {
+		setImmediate(resolve);
+	});
 }
 
 function makeInteractionEvidence(props: {
