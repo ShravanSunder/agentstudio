@@ -84,10 +84,10 @@ Observed current state before implementation:
   request URL `worktree`, `repo`, and `base` style overrides. The accepted
   contract requires named, allowlisted local scenarios for reproducible
   real-worktree proof.
-- The current architecture doc
-  `docs/architecture/swift_react_bridge_design.md` still describes a mostly
-  content-only resource URL model and must be updated after the implementation
-  moves to package/item/tree resource windows and feature-owned registries.
+- The current [Bridge Viewer](../architecture/bridge_viewer_architecture.md),
+  [native runtime](../architecture/bridge_native_runtime_architecture.md), and
+  [web runtime](../architecture/bridge_web_runtime_architecture.md) architecture
+  docs must stay aligned as resource windows and feature-owned registries evolve.
 - Current IPC surfaces still include older or transitional Bridge content body
   methods such as `bridge.fileView.getContent` and markdown body helpers. The
   Review viewer must not expand those as a hot body path. This PR removes that
@@ -1000,9 +1000,10 @@ Docs/proof:
 - update this plan if implementation reality changes the model
 - update the source specs only for accepted spec-level changes, not ordinary
   task progress
-- update `docs/architecture/swift_react_bridge_design.md` after resource
-  windows and registries are implemented so the architecture index does not
-  preserve the old content-only model
+- update the [Bridge Viewer](../architecture/bridge_viewer_architecture.md),
+  [native runtime](../architecture/bridge_native_runtime_architecture.md), and
+  [web runtime](../architecture/bridge_web_runtime_architecture.md) docs after
+  resource windows and registries change
 - proof artifacts under `tmp/` or `docs/wip/` per repo convention
 
 ## Validation Gates By Layer

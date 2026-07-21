@@ -457,7 +457,7 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 | [Directory Structure](docs/architecture/directory_structure.md) | Module boundaries, Core vs Features, import rule, component placement |
 | [Architecture Lint Inventory](docs/architecture/architecture_lint_inventory.md) | SwiftLint rule IDs, former shell-script coverage, and blocking/report-only/test/review classifications |
 | [AgentStudio IPC Architecture](docs/architecture/agentstudio_ipc_architecture.md) | App-level programmatic-control contract, AppIPC port, composition, and zmx separation boundaries |
-| [Swift-React Bridge](docs/architecture/swift_react_bridge_design.md) | Bridge architecture, content-delivery status, JSON-RPC/push contracts, read-only CodeView/Shiki review surface, and LUNA-337 completion boundary |
+| [Bridge Viewer Architecture](docs/architecture/bridge_viewer_architecture.md) | End-to-end Bridge Viewer ownership and flow; routes to the [native runtime](docs/architecture/bridge_native_runtime_architecture.md) and [web runtime](docs/architecture/bridge_web_runtime_architecture.md) source documents |
 | [Style Guide](docs/guides/style_guide.md) | macOS design conventions and visual standards |
 | [Agent Resources](docs/guides/agent_resources.md) | Bootstrap, official Swift/macOS docs, DeepWiki sources, and research guidance |
 

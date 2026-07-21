@@ -3,7 +3,7 @@
 > Status: design source for `LUNA-338` before implementation planning.
 > Created: 2026-06-15
 > Foundation: [Bridge Review Foundation Spec](2026-06-10-bridge-review-foundation.md)
-> Architecture companion: [Swift-React Bridge Architecture](../../architecture/swift_react_bridge_design.md)
+> Architecture companions: [Bridge Viewer Architecture](../../architecture/bridge_viewer_architecture.md) and [Bridge Web Runtime Architecture](../../architecture/bridge_web_runtime_architecture.md)
 > Data-plane amendment: [Bridge Resource Data Plane Spec](2026-06-20-bridge-resource-data-plane.md)
 > Linear: `LUNA-338` Pierre/Shiki/Trees review viewer
 

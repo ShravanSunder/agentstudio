@@ -6,8 +6,8 @@ Status: proposed
 
 ## Problem
 
-The master plan's Task 0 promised "Update docs:
-`docs/architecture/swift_react_bridge_design.md`" alongside the vocabulary
+The master plan's Task 0 promised an update to the then-current monolithic
+Bridge architecture document alongside the vocabulary
 cutover. The code cutover is complete — zero `DiffManifest` references in
 Sources/ (parent-verified) — but the architecture doc still teaches the
 retired model in **11 places**, including the foundational State Ownership
@@ -24,7 +24,7 @@ defined there). This is a single-document debt.
 
 ## Current Evidence
 
-- `grep -c "DiffManifest" docs/architecture/swift_react_bridge_design.md` →
+- `grep -c "DiffManifest" <then-current-monolithic-bridge-architecture-doc>` →
   11 (parent-verified); `grep -rn "DiffManifest" Sources/` → 0.
 - Stale locations (audit lane, line-cited): §3.1 tier table (~line 74:
   "DiffManifest: file metadata as keyed collection"), tier-2 mirror (~line
@@ -52,7 +52,7 @@ defined there). This is a single-document debt.
 ## Scope
 
 Write surfaces:
-- `docs/architecture/swift_react_bridge_design.md` — the 11 stale references
+- the then-current monolithic Bridge architecture document — the 11 stale references
   across §3.1, §3 latency table, §8.2, §8.3, §10.1; section titles where they
   name "Manifest".
 
@@ -84,15 +84,16 @@ Read-only context:
    fetch — consistent with the spec's Delivery Pipeline diagram and the
    lazy-content plan's end state (write it lazy; that is the contract even
    while the implementation gap is open).
-5. **Sweep + verify.** `grep -n "DiffManifest\|resource/file/\|fileId.*epoch"
-   docs/architecture/swift_react_bridge_design.md` → zero matches; re-read the
+5. **Sweep + verify.** Search the then-current monolithic Bridge architecture
+   document for `DiffManifest`, `resource/file/`, and `fileId.*epoch` and require
+   zero matches; re-read the
    "Current Implementation Reality" header section and refresh its status
    lines to point at the master plan's task state instead of stale claims.
 
 ## Proof Gates
 
-- `grep -c "DiffManifest" docs/architecture/swift_react_bridge_design.md`
-  returns 0.
+- `DiffManifest` has zero matches in the then-current monolithic Bridge
+  architecture document.
 - Every code sample edited in §8/§10 names only types that exist in
   `Sources/AgentStudio/Features/Bridge/Models/ReviewFoundation/` (spot-check
   by grep per type name).

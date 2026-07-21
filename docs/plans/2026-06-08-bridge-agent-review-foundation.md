@@ -707,7 +707,9 @@ Naming rules:
   - `bridge-diff-package-missing-epoch.json` -> `bridge-review-package-missing-generation.json`
   - Add `bridge-review-delta.json`.
 - Update docs:
-  - `docs/architecture/swift_react_bridge_design.md`
+  - `docs/architecture/bridge_viewer_architecture.md`
+  - `docs/architecture/bridge_native_runtime_architecture.md`
+  - `docs/architecture/bridge_web_runtime_architecture.md`
   - Verify `docs/superpowers/plans/2026-06-08-agentstudio-git-bridge-foundation.md` remains scoped to Git Tasks 1-8 and does not own Bridge contracts.
 
 - [x] Replace raw review-contract `epoch` fields with `BridgeReviewGeneration` / `reviewGeneration`; leave existing push-envelope `__epoch` terminology alone unless a separate push-transport task changes it.

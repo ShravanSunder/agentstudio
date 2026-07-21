@@ -3,6 +3,16 @@
 BridgeWeb is the React app embedded by Agent Studio Bridge. Follow the root
 `AGENTS.md` first, then these BridgeWeb-specific rules.
 
+## Architecture Sources
+
+- Start with [Bridge Viewer Architecture](../docs/architecture/bridge_viewer_architecture.md)
+  for the end-to-end ownership and data-flow map.
+- [Bridge Web Runtime Architecture](../docs/architecture/bridge_web_runtime_architecture.md)
+  is the source of truth for BridgeWeb workers, stores, demand, rendering, and
+  browser proof.
+- Use [Bridge Native Runtime Architecture](../docs/architecture/bridge_native_runtime_architecture.md)
+  when changing the WebKit, scheme, session, or protocol boundary.
+
 ## UI Components
 
 - Use owned shadcn-style primitives from `src/components/ui/` for React controls.
