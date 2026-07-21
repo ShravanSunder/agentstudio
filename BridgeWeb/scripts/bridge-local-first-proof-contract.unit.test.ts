@@ -134,6 +134,7 @@ describe('bridge local-first proof contract', () => {
 
 		expect(firstLaunch.sampleCount).toBe(100);
 		expect(firstLaunch.failureCount).toBe(6);
+		expect(reduction.totals.failureCount).toBe(18);
 		expect(firstLaunch.p95DurationMilliseconds).toBe(1_000);
 		expect(firstLaunch.p99DurationMilliseconds).toBe(1_000);
 	});

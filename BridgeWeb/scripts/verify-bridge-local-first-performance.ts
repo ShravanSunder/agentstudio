@@ -270,7 +270,7 @@ export async function validateBridgeLocalFirstPerformance(
 		fixtureOracle.oracle,
 	);
 	const reduction = reduceBridgeLocalFirstValidatedProofCohort(cohort);
-	validateReductionBudgets(reduction);
+	validateBridgeLocalFirstReductionBudgets(reduction);
 	validateBridgeLocalFirstInternalSloBudgets(cohort);
 	const seenProvenanceReceiptIds = new Set<string>();
 	await Promise.all(
@@ -385,7 +385,9 @@ function validateMatchingRunIdentities(left: ComponentEnvelope, right: Component
 	}
 }
 
-function validateReductionBudgets(reduction: BridgeLocalFirstProofCohortReduction): void {
+export function validateBridgeLocalFirstReductionBudgets(
+	reduction: BridgeLocalFirstProofCohortReduction,
+): void {
 	if (
 		reduction.totals.cellCount !== bridgeLocalFirstProofRequiredCellCount ||
 		reduction.totals.launchCount !== bridgeLocalFirstProofRequiredLaunchCount ||
@@ -509,7 +511,7 @@ async function validateLaunchProcessInstances(props: {
 		telemetryState: launch.telemetryState,
 	});
 	const observation = await props.processes.inspectProcessIdentity(evidence);
-	validateProcessObservation(evidence, observation);
+	validateBridgeLocalFirstProcessObservation(evidence, observation);
 	await validateLaunchProcessInstances({ ...props, launchIndex: props.launchIndex + 1 });
 }
 
@@ -642,7 +644,7 @@ async function readProvenanceJournalFromEnvironment(): Promise<BridgeLocalFirstP
 	);
 }
 
-function validateProcessObservation(
+export function validateBridgeLocalFirstProcessObservation(
 	evidence: BridgeLocalFirstProcessInstanceEvidence,
 	observation: BridgeLocalFirstProcessIdentityObservation,
 ): void {

@@ -5,11 +5,9 @@ import { afterEach, describe, expect, test } from 'vitest';
 
 import {
 	bridgeLocalFirstProofApplicabilityByCellId,
-	bridgeLocalFirstProofCells,
 	bridgeLocalFirstProofRunIdentityFingerprint,
 	bridgeLocalFirstProofRunManifestHash,
 	parseBridgeLocalFirstProofCohort,
-	type BridgeLocalFirstProofCellContract,
 	type BridgeLocalFirstProofCohortInput,
 	type BridgeLocalFirstProofRunIdentity,
 	type BridgeLocalFirstProofRuntime,
@@ -17,7 +15,6 @@ import {
 } from './bridge-local-first-proof-contract.ts';
 import { parseBridgeLocalFirstProofFixtureOracle } from './bridge-local-first-proof-evidence.ts';
 import {
-	makeBridgeLocalFirstTestInteractionEvidence,
 	makeBridgeLocalFirstTestProofFixture,
 	type BridgeLocalFirstTestDeepMutable,
 	type BridgeLocalFirstTestProofFixtureOptions,
@@ -26,10 +23,15 @@ import type {
 	BridgeLocalFirstLaunchProvenanceObservation,
 	BridgeLocalFirstVerifiedLaunchProvenance,
 } from './bridge-local-first-proof-provenance.ts';
-import { validateBridgeLocalFirstInternalSloCellBudgets } from './bridge-local-first-proof-reducer.ts';
+import {
+	reduceBridgeLocalFirstValidatedProofCohort,
+	validateBridgeLocalFirstInternalSloCellBudgets,
+} from './bridge-local-first-proof-reducer.ts';
 import {
 	bridgeLocalFirstProofAggregateManifestFingerprint,
 	parseBridgeLocalFirstPerformanceArguments,
+	validateBridgeLocalFirstProcessObservation,
+	validateBridgeLocalFirstReductionBudgets,
 	validateBridgeLocalFirstPerformance,
 	type BridgeLocalFirstPerformanceValidationPorts,
 	type BridgeLocalFirstProcessIdentityObservation,
@@ -81,6 +83,11 @@ const validatedCompleteCohort = parseBridgeLocalFirstProofCohort(
 		rawOracle: baseFixtureOracle,
 	}),
 );
+const validatedCompleteReduction =
+	reduceBridgeLocalFirstValidatedProofCohort(validatedCompleteCohort);
+const validatedProcessEvidence = requiredValue(
+	requiredValue(validatedCompleteCohort.cells[0]).launches[0],
+).identity;
 const baseBrowserComponent = componentForRuntime('controlled_dev_chromium');
 const baseNativeComponent = componentForRuntime('packaged_wkwebview');
 const canonicalBrowserComponentBytes = encodeJson(JSON.stringify(baseBrowserComponent));
@@ -356,39 +363,32 @@ describe('Bridge local-first validate-only aggregate', () => {
 		);
 	});
 
-	test('rejects every correctness failure after failure-preserving reduction', async () => {
-		const browserComponent = cloneBrowserComponent();
-		const launch = requiredValue(requiredValue(browserComponent.cells[0]).launches[0]);
-		const attempt = requiredValue(launch.attempts[0]);
-		launch.attempts[0] = {
-			identity: attempt.identity,
-			outcome: 'failed',
-			failureKind: 'wrong',
-			deadlineDurationMilliseconds: 1_000,
-		};
-		requiredValue(launch.interactionEvidence[0]).external.endpoint = {
-			kind: 'failure',
-			failureKind: 'wrong',
+	test('rejects every nonzero correctness failure count', () => {
+		const reduction = {
+			...validatedCompleteReduction,
+			totals: { ...validatedCompleteReduction.totals, failureCount: 1 },
 		};
 
-		await expectValidationFailure(makeFixture({ browserComponent }), /1 correctness failures/u);
+		expect(() => validateBridgeLocalFirstReductionBudgets(reduction)).toThrow(
+			/1 correctness failures/u,
+		);
 	});
 
-	test('rejects the strict p95 boundary for individual, pooled, and worst launches', async () => {
-		const p95Component = cloneBrowserComponent();
-		setSuccessfulAttemptDurations(p95Component, 0, 32);
+	test.each([
+		{ percentile: 'p95', scope: 'launch' },
+		{ percentile: 'p95', scope: 'pooled' },
+		{ percentile: 'p95', scope: 'worst-launch' },
+		{ percentile: 'p99', scope: 'launch' },
+		{ percentile: 'p99', scope: 'pooled' },
+		{ percentile: 'p99', scope: 'worst-launch' },
+	] as const)('rejects the strict $percentile boundary for $scope', ({ percentile, scope }) => {
+		const durationField =
+			percentile === 'p95' ? 'p95DurationMilliseconds' : 'p99DurationMilliseconds';
+		const reduction = reductionWithBoundaryDuration(scope, durationField, 32);
 
-		await expectValidationFailure(makeFixture({ browserComponent: p95Component }), /p95 32 ms/u);
-	});
-
-	test('rejects the strict p99 boundary for individual, pooled, and worst launches', async () => {
-		const p99Component = cloneBrowserComponent();
-		setSuccessfulAttemptDurations(p99Component, 0, 1);
-		const p99Launch = requiredValue(requiredValue(p99Component.cells[0]).launches[0]);
-		setLaunchAttemptDuration(p99Launch, 98, 32);
-		setLaunchAttemptDuration(p99Launch, 99, 32);
-
-		await expectValidationFailure(makeFixture({ browserComponent: p99Component }), /p99 32 ms/u);
+		expect(() => validateBridgeLocalFirstReductionBudgets(reduction)).toThrow(
+			new RegExp(`${scope === 'launch' ? 'launch' : scope}.*${percentile} 32 ms`, 'u'),
+		);
 	});
 
 	test('derives the strict comm queue p95 stop line from raw timestamps', () => {
@@ -444,58 +444,49 @@ describe('Bridge local-first validate-only aggregate', () => {
 		);
 	});
 
-	test('rejects a live matching process instance as an orphan', async () => {
-		const fixture = makeFixture({
-			processObservation: async (evidence) => ({
+	test('rejects a live matching process instance as an orphan', () => {
+		expect(() =>
+			validateBridgeLocalFirstProcessObservation(validatedProcessEvidence, {
 				state: 'running',
-				processStartToken: evidence.processStartToken,
-				executableSha256: evidence.executableSha256,
+				processStartToken: validatedProcessEvidence.processStartToken,
+				executableSha256: validatedProcessEvidence.executableSha256,
 			}),
-		});
-
-		await expectValidationFailure(fixture, /owned process instance is still live/u);
+		).toThrow(/owned process instance is still live/u);
 	});
 
-	test('allows an exited process', async () => {
-		const exitedFixture = makeFixture();
-
-		await expect(
-			validateBridgeLocalFirstPerformance({ manifestPath, ports: exitedFixture.ports }),
-		).resolves.toBeDefined();
+	test('allows an exited process', () => {
+		expect(() =>
+			validateBridgeLocalFirstProcessObservation(validatedProcessEvidence, { state: 'exited' }),
+		).not.toThrow();
 	});
 
-	test('allows a reused live PID with a different start token', async () => {
-		const reusedFixture = makeFixture({
-			processObservation: async (evidence) => ({
+	test('allows a reused live PID with a different start token', () => {
+		expect(() =>
+			validateBridgeLocalFirstProcessObservation(validatedProcessEvidence, {
 				state: 'running',
-				processStartToken: `${evidence.processStartToken}:reused`,
-				executableSha256: evidence.executableSha256,
+				processStartToken: `${validatedProcessEvidence.processStartToken}:reused`,
+				executableSha256: validatedProcessEvidence.executableSha256,
 			}),
-		});
-
-		await expect(
-			validateBridgeLocalFirstPerformance({ manifestPath, ports: reusedFixture.ports }),
-		).resolves.toBeDefined();
+		).not.toThrow();
 	});
 
-	test('rejects indeterminate live process identity', async () => {
-		const indeterminateFixture = makeFixture({
-			processObservation: async () => ({ state: 'indeterminate', reason: 'permission denied' }),
-		});
-
-		await expectValidationFailure(indeterminateFixture, /process identity is indeterminate/u);
+	test('rejects indeterminate live process identity', () => {
+		expect(() =>
+			validateBridgeLocalFirstProcessObservation(validatedProcessEvidence, {
+				state: 'indeterminate',
+				reason: 'permission denied',
+			}),
+		).toThrow(/process identity is indeterminate/u);
 	});
 
-	test('rejects same-start executable drift', async () => {
-		const executableDriftFixture = makeFixture({
-			processObservation: async (evidence) => ({
+	test('rejects same-start executable drift', () => {
+		expect(() =>
+			validateBridgeLocalFirstProcessObservation(validatedProcessEvidence, {
 				state: 'running',
-				processStartToken: evidence.processStartToken,
+				processStartToken: validatedProcessEvidence.processStartToken,
 				executableSha256: 'b'.repeat(64),
 			}),
-		});
-
-		await expectValidationFailure(executableDriftFixture, /indeterminate executable identity/u);
+		).toThrow(/indeterminate executable identity/u);
 	});
 });
 
@@ -679,15 +670,40 @@ function cloneNativeComponent(): DeepMutable<BridgeLocalFirstProofCohortInput> {
 	return structuredClone(baseNativeComponent);
 }
 
-function setSuccessfulAttemptDurations(
-	component: DeepMutable<BridgeLocalFirstProofCohortInput>,
-	cellIndex: number,
+function reductionWithBoundaryDuration(
+	scope: 'launch' | 'pooled' | 'worst-launch',
+	durationField: 'p95DurationMilliseconds' | 'p99DurationMilliseconds',
 	durationMilliseconds: number,
-): void {
-	const launch = requiredValue(requiredValue(component.cells[cellIndex]).launches[0]);
-	for (const attemptIndex of launch.attempts.keys()) {
-		setLaunchAttemptDuration(launch, attemptIndex, durationMilliseconds);
-	}
+): typeof validatedCompleteReduction {
+	const baseCell = requiredValue(validatedCompleteReduction.cells[0]);
+	const boundaryCell =
+		scope === 'launch'
+			? {
+					...baseCell,
+					launches: [
+						{
+							...requiredValue(baseCell.launches[0]),
+							[durationField]: durationMilliseconds,
+						},
+						...baseCell.launches.slice(1),
+					],
+				}
+			: scope === 'pooled'
+				? {
+						...baseCell,
+						pooled: { ...baseCell.pooled, [durationField]: durationMilliseconds },
+					}
+				: {
+						...baseCell,
+						worstLaunch: {
+							...baseCell.worstLaunch,
+							[durationField]: durationMilliseconds,
+						},
+					};
+	return {
+		...validatedCompleteReduction,
+		cells: [boundaryCell, ...validatedCompleteReduction.cells.slice(1)],
+	};
 }
 
 function internalSloBoundaryCell(
@@ -742,66 +758,6 @@ function internalSloBoundaryCell(
 		...cell,
 		launches: [boundaryLaunch, ...cell.launches.slice(1)],
 	};
-}
-
-function setLaunchAttemptDuration(
-	launch: DeepMutable<BridgeLocalFirstProofCohortInput>['cells'][number]['launches'][number],
-	attemptIndex: number,
-	durationMilliseconds: number,
-): void {
-	const attempt = requiredValue(launch.attempts[attemptIndex]);
-	if (attempt.outcome !== 'succeeded') {
-		throw new Error('test fixture expected successful attempt');
-	}
-	attempt.durationMilliseconds = durationMilliseconds;
-	const cell = requiredValue(
-		bridgeLocalFirstProofCells.find((candidate) => candidate.cellId === launch.identity.cellId),
-	);
-	launch.interactionEvidence[attemptIndex] = makeInteractionEvidence({
-		attempt,
-		attemptIndex,
-		cell,
-	});
-	refreshLaunchLifecycleWindow(launch);
-}
-
-function refreshLaunchLifecycleWindow(
-	launch: DeepMutable<BridgeLocalFirstProofCohortInput>['cells'][number]['launches'][number],
-): void {
-	const measuredStage = requiredValue(launch.lifecycleStages[3]);
-	const telemetryStage = requiredValue(launch.lifecycleStages[4]);
-	const exitStage = requiredValue(launch.lifecycleStages[5]);
-	measuredStage.completedAtMonotonicMilliseconds =
-		Math.max(
-			...launch.interactionEvidence.map(
-				(evidence) => evidence.external.runtimeTiming.endpointObservedAtMonotonicMilliseconds,
-			),
-		) + 1;
-	telemetryStage.startedAtMonotonicMilliseconds = measuredStage.completedAtMonotonicMilliseconds;
-	telemetryStage.completedAtMonotonicMilliseconds =
-		telemetryStage.startedAtMonotonicMilliseconds + 1;
-	if (launch.telemetryProof.mode === 'on') {
-		for (const receipt of launch.telemetryProof.drainReceipts) {
-			receipt.drainedAtMonotonicMilliseconds = telemetryStage.startedAtMonotonicMilliseconds;
-		}
-	}
-	exitStage.startedAtMonotonicMilliseconds = telemetryStage.completedAtMonotonicMilliseconds;
-	exitStage.completedAtMonotonicMilliseconds = exitStage.startedAtMonotonicMilliseconds + 1;
-}
-
-function makeInteractionEvidence(props: {
-	readonly attempt: DeepMutable<
-		BridgeLocalFirstProofCohortInput['cells'][number]['launches'][number]['attempts'][number]
-	>;
-	readonly attemptIndex: number;
-	readonly cell: BridgeLocalFirstProofCellContract;
-}): DeepMutable<
-	BridgeLocalFirstProofCohortInput['cells'][number]['launches'][number]['interactionEvidence'][number]
-> {
-	return makeBridgeLocalFirstTestInteractionEvidence({
-		...props,
-		options: aggregateTestFixtureOptions,
-	});
 }
 
 function verifiedLaunchProvenance(launchId: string): BridgeLocalFirstVerifiedLaunchProvenance {
