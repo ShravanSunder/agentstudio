@@ -976,9 +976,6 @@ function resolveReviewInvalidationAffectedItemIds(props: {
 	})) {
 		itemIds.add(itemId);
 	}
-	if (props.message.scope === 'items') {
-		return Array.from(itemIds);
-	}
 	return Array.from(itemIds);
 }
 

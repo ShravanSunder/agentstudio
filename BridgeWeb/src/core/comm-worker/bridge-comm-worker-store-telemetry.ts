@@ -104,7 +104,6 @@ export function instrumentBridgeCommWorkerStoreActions(
 				...telemetryProps,
 			}),
 		takePendingSlicePatchEvent: props.actions.takePendingSlicePatchEvent,
-		buildRootSnapshotPayload: props.actions.buildRootSnapshotPayload,
 	};
 }
 

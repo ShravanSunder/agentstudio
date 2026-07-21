@@ -753,7 +753,7 @@ function visibleReviewDemandMembersNeedingExecutionFromState(props: {
 	for (const itemId of visibleReviewDemandItemIdsFromState(state)) {
 		if (
 			!props.forceExecutionItemIds.has(itemId) &&
-			!doesVisibleReviewDemandNeedExecution(props.store, itemId)
+			!doesReviewDemandNeedExecution(props.store, itemId)
 		) {
 			continue;
 		}
@@ -775,22 +775,6 @@ function visibleReviewDemandItemIdsFromState(state: BridgeCommWorkerStoreState):
 		itemIds.push(itemId);
 	}
 	return itemIds;
-}
-
-function doesVisibleReviewDemandNeedExecution(
-	store: BridgeCommWorkerStore,
-	itemId: string,
-): boolean {
-	const state = store.getState();
-	const availability = state.availabilityByItemId.get(itemId);
-	if (availability === 'failed' || availability === 'unavailable') {
-		return false;
-	}
-	const fulfillment = store.renderFulfillmentRegistry.getItemState(itemId);
-	if (fulfillment === null) {
-		return true;
-	}
-	return fulfillment.stage === 'desired' || fulfillment.stage === 'retry_wait';
 }
 
 function doesReviewDemandNeedExecution(store: BridgeCommWorkerStore, itemId: string): boolean {

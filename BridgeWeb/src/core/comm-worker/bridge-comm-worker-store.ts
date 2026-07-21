@@ -207,7 +207,6 @@ export interface BridgeCommWorkerStore {
 		readonly takePendingSlicePatchEvent: (
 			props: TakePendingBridgeCommWorkerSlicePatchEventProps,
 		) => BridgeWorkerSlicePatchEvent | null;
-		readonly buildRootSnapshotPayload: () => never;
 	};
 }
 
@@ -650,9 +649,6 @@ export function createBridgeCommWorkerStore(
 					sequence: eventProps.sequence,
 					patches,
 				});
-			},
-			buildRootSnapshotPayload: (): never => {
-				throw new Error('Bridge comm worker root snapshots are forbidden across the boundary.');
 			},
 		},
 	};

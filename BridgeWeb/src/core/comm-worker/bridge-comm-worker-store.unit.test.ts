@@ -142,7 +142,6 @@ describe('Bridge comm worker store', () => {
 		]);
 		expect(store.actions.takePendingSlicePatchEvent({ epoch: 4, sequence: 10 })).toBeNull();
 		expect(JSON.stringify(patchEvent)).not.toMatch(/rowById|orderedIds|rootSnapshot|allRows/i);
-		expect(() => store.actions.buildRootSnapshotPayload()).toThrow(/root snapshots are forbidden/i);
 	});
 
 	test('keeps raw ids distinct and retires stale selected and viewport demand entries', () => {
