@@ -349,12 +349,9 @@ func bridgeProductSchemeReplyWithRoutingTask(
     adapter: BridgeProductSchemeAdapter,
     request: URLRequest
 ) -> BridgeProductSchemeReplyWithRoutingTask {
-    var replyContinuation: BridgeProductSchemeReplyContinuation?
-    let stream = AsyncThrowingStream<URLSchemeTaskResult, any Error> { continuation in
-        replyContinuation = continuation
-    }
+    let (stream, replyContinuation) =
+        AsyncThrowingStream<URLSchemeTaskResult, any Error>.makeStream()
     let routingTask = Task {
-        guard let replyContinuation else { return }
         guard let productAdmission = adapter.productAdmissionGate.acquire() else {
             replyContinuation.finish(
                 throwing: BridgeProductSchemeAdapterTestSupportError.admissionClosed
@@ -367,7 +364,7 @@ func bridgeProductSchemeReplyWithRoutingTask(
             continuation: replyContinuation
         )
     }
-    replyContinuation?.onTermination = { _ in
+    replyContinuation.onTermination = { _ in
         routingTask.cancel()
     }
     return .init(routingTask: routingTask, stream: stream)
