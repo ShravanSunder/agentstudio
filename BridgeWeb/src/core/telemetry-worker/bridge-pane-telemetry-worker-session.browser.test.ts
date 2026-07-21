@@ -1,6 +1,7 @@
 // oxlint-disable unicorn/require-post-message-target-origin -- MessagePort.postMessage does not accept targetOrigin.
 import { describe, expect, it, vi } from 'vitest';
 
+import { createBridgePaneTelemetryWorkerFactory } from './bridge-pane-telemetry-worker-factory.js';
 import {
 	createBridgePaneTelemetryWorkerSession,
 	type BridgeTelemetryWorkerLike,
@@ -73,6 +74,26 @@ describe('pane telemetry worker browser lifecycle', () => {
 		expect(session).toBeNull();
 		expect(createWorker).not.toHaveBeenCalled();
 		expect(createMessageChannel).not.toHaveBeenCalled();
+	});
+
+	it('starts the default telemetry worker factory in the browser runtime', async () => {
+		const worker = await createBridgePaneTelemetryWorkerFactory()();
+		const workerFailed = new Promise<'error'>((resolve) => {
+			worker.addEventListener?.('error', (): void => resolve('error'));
+			worker.addEventListener?.('messageerror', (): void => resolve('error'));
+		});
+		const session = createBridgePaneTelemetryWorkerSession({
+			bootstrap: makeBrowserBootstrap(),
+			createWorker: () => worker,
+		});
+		if (session === null) throw new Error('Expected enabled telemetry session');
+		attachProducer(session.commProducerPort);
+
+		const firstResult = await Promise.race([nextPortReply(session.commProducerPort), workerFailed]);
+
+		expect(firstResult).toMatchObject({ type: 'producer.ready' });
+		session.dispose();
+		session.commProducerPort.close();
 	});
 
 	it('keeps one real worker session across comm rotation and terminates after the drain ack', async () => {

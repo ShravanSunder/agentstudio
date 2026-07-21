@@ -13,14 +13,18 @@ export function createBridgePaneTelemetryWorkerFactory(
 	const createObjectURL = props.createObjectURL ?? URL.createObjectURL.bind(URL);
 	const fetchWorker = props.fetch ?? globalThis.fetch.bind(globalThis);
 	const revokeObjectURL = props.revokeObjectURL ?? URL.revokeObjectURL.bind(URL);
+	const isHTTPRuntime =
+		globalThis.location?.protocol === 'http:' || globalThis.location?.protocol === 'https:';
 	const workerScriptUrl =
-		props.workerScriptUrl ??
-		(globalThis.location?.protocol === 'http:' || globalThis.location?.protocol === 'https:'
-			? '/src/core/telemetry-worker/bridge-telemetry-worker-entry.ts'
-			: 'agentstudio://app/assets/bridge-telemetry-worker.js');
+		props.workerScriptUrl ?? 'agentstudio://app/assets/bridge-telemetry-worker.js';
 	let workerScriptBlobUrl: string | null = null;
 
 	return async (): Promise<BridgeTelemetryWorkerLike> => {
+		if (isHTTPRuntime && props.workerScriptUrl === undefined) {
+			return new Worker(new URL('./bridge-telemetry-worker-entry.ts', import.meta.url), {
+				type: 'module',
+			});
+		}
 		if (workerScriptBlobUrl === null) {
 			const response = await fetchWorker(workerScriptUrl);
 			if (!response.ok) {
