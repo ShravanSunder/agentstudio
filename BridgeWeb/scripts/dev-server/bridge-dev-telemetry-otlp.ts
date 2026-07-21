@@ -97,6 +97,7 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.content.role',
 	'agentstudio.bridge.content_bytes_bucket',
 	'agentstudio.bridge.demand.lane',
+	'agentstudio.bridge.drop_reason',
 	'agentstudio.bridge.file_size_bucket',
 	'agentstudio.bridge.fixture_class',
 	'agentstudio.bridge.generation_relation',
@@ -121,8 +122,12 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.telemetry.drop_reason',
 	'agentstudio.bridge.transport',
 	'agentstudio.bridge.viewer',
+	'agentstudio.bridge.worker.action',
+	'agentstudio.bridge.worker.command',
 	'agentstudio.bridge.worker.lane',
+	'agentstudio.bridge.worker.payload_class',
 	'agentstudio.bridge.worker.task_kind',
+	'agentstudio.bridge.worker.work_kind',
 ]);
 
 const bridgeDevNumericAttributeKeys = new Set<string>([
@@ -145,6 +150,11 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.review.item_count',
 	'agentstudio.bridge.telemetry.dropped_count',
 	'agentstudio.bridge.telemetry.value',
+	'agentstudio.bridge.worker.handler_duration_ms',
+	'agentstudio.bridge.worker.patch_count',
+	'agentstudio.bridge.worker.queue_wait_ms',
+	'agentstudio.bridge.worker.source_epoch',
+	'agentstudio.bridge.worker.touched_key_count',
 	'agentstudio.bridge.worktree.content_height_delta_px',
 	'agentstudio.bridge.worktree.content_total_size_px',
 	'agentstudio.bridge.worktree.descriptor_count',
@@ -156,6 +166,7 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 const bridgeDevBooleanAttributeKeys = new Set<string>([
 	'agentstudio.bridge.header_missing',
 	'agentstudio.bridge.header_supported',
+	'agentstudio.bridge.worker.file_metadata_selected_path_resolved',
 ]);
 
 const bridgeDevTelemetryUnsafeValuePatterns = [

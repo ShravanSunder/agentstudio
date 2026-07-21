@@ -238,6 +238,59 @@ describe('Bridge dev telemetry sink', () => {
 		});
 	});
 
+	test('accepts the scrubbed comm-worker task telemetry contract', async () => {
+		const fetchImpl = vi.fn(async (): Promise<Response> => new Response('', { status: 200 }));
+		const sink = createBridgeDevTelemetrySink({
+			fetchImpl,
+			marker: 'vite-dev-proof-1',
+			nowUnixNano: () => '1782218790000000000',
+			serviceVersion: 'vite-dev',
+			worktreeHash: 'wt-hash',
+		});
+		const workerTaskBatch = makeTelemetryBatch({
+			scope: 'web',
+			name: 'performance.bridge.worker.task',
+			durationMilliseconds: 4,
+			traceContext: null,
+			stringAttributes: {
+				'agentstudio.bridge.phase': 'worker_task',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.result': 'success',
+				'agentstudio.bridge.slice': 'worker_task',
+				'agentstudio.bridge.transport': 'worker',
+				'agentstudio.bridge.worker.action': 'applySelectedFact',
+				'agentstudio.bridge.worker.command': 'select',
+				'agentstudio.bridge.worker.lane': 'selected',
+				'agentstudio.bridge.worker.payload_class': 'control',
+				'agentstudio.bridge.worker.task_kind': 'message_handler',
+				'agentstudio.bridge.worker.work_kind': 'command',
+			},
+			numericAttributes: {
+				'agentstudio.bridge.worker.handler_duration_ms': 4,
+				'agentstudio.bridge.worker.patch_count': 1,
+				'agentstudio.bridge.worker.queue_wait_ms': 2,
+				'agentstudio.bridge.worker.source_epoch': 3,
+				'agentstudio.bridge.worker.touched_key_count': 1,
+			},
+			booleanAttributes: {
+				'agentstudio.bridge.worker.file_metadata_selected_path_resolved': true,
+			},
+		});
+
+		await expect(sink.ingestWorkerBatch(workerTaskBatch)).resolves.toMatchObject({
+			type: 'accepted',
+		});
+
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(sink.snapshot()).toMatchObject({
+			acceptedBatchCount: 1,
+			acceptedSampleCount: 1,
+			failedBatchCount: 0,
+			lastError: null,
+		});
+	});
+
 	test('keeps safe recent samples available when collector export fails', async () => {
 		const fetchImpl = vi.fn(async (): Promise<Response> => new Response('', { status: 503 }));
 		const sink = createBridgeDevTelemetrySink({
