@@ -120,6 +120,8 @@ export function createBridgeTelemetryWorkerProducer(
 	assertCreditCount(props.initialControlCredits);
 	const preReadyRequiredSampleCapacity = props.preReadyRequiredSampleCapacity ?? 0;
 	const preReadyRequiredSampleMaxEncodedBytes = props.preReadyRequiredSampleMaxEncodedBytes ?? 0;
+	const boundedRequiredRetentionEnabled =
+		preReadyRequiredSampleCapacity > 0 && preReadyRequiredSampleMaxEncodedBytes > 0;
 	assertCreditCount(preReadyRequiredSampleCapacity);
 	assertCreditCount(preReadyRequiredSampleMaxEncodedBytes);
 	let state: BridgeTelemetryWorkerProducerSnapshot['state'] = 'active';
@@ -146,6 +148,35 @@ export function createBridgeTelemetryWorkerProducer(
 			return;
 		}
 		preReadyEntries.push({ kind: 'loss', range: appendLoss(null, sequence, required), reason });
+	};
+
+	const retainRequiredSampleOrRecordLoss = (
+		sample: BridgeTelemetryCompactSample,
+		sequence: number,
+		optionalLossReason: BridgeTelemetryLossReason,
+	): BridgeTelemetryWorkerProducerRecordResult => {
+		const required = isRequiredBridgeTelemetrySample(sample);
+		if (!required) {
+			appendPreReadyLoss(sequence, false, optionalLossReason);
+			return { disposition: 'loss_recorded', sequence };
+		}
+		const encodedBytes = encodedTelemetrySampleBytes(sample);
+		if (encodedBytes === null || encodedBytes > preReadyRequiredSampleMaxEncodedBytes) {
+			appendPreReadyLoss(sequence, true, 'encoded_byte_cap');
+			return { disposition: 'loss_recorded', sequence };
+		}
+		if (
+			retainedPreReadyRequiredSampleCount >= preReadyRequiredSampleCapacity ||
+			retainedPreReadyRequiredSampleEncodedBytes + encodedBytes >
+				preReadyRequiredSampleMaxEncodedBytes
+		) {
+			appendPreReadyLoss(sequence, true, 'queue_saturated');
+			return { disposition: 'loss_recorded', sequence };
+		}
+		preReadyEntries.push({ encodedBytes, kind: 'sample', sample, sequence });
+		retainedPreReadyRequiredSampleCount += 1;
+		retainedPreReadyRequiredSampleEncodedBytes += encodedBytes;
+		return { disposition: 'retained', sequence };
 	};
 
 	const drainPreReadyEntries = (): void => {
@@ -223,39 +254,15 @@ export function createBridgeTelemetryWorkerProducer(
 				);
 				return { disposition: 'loss_recorded', sequence };
 			}
-			if (
-				generation === null &&
-				preReadyRequiredSampleCapacity > 0 &&
-				preReadyRequiredSampleMaxEncodedBytes > 0
-			) {
-				const required = isRequiredBridgeTelemetrySample(sample);
-				const encodedBytes = required ? encodedTelemetrySampleBytes(sample) : null;
-				if (
-					required &&
-					(encodedBytes === null || encodedBytes > preReadyRequiredSampleMaxEncodedBytes)
-				) {
-					appendPreReadyLoss(sequence, true, 'encoded_byte_cap');
-					return { disposition: 'loss_recorded', sequence };
-				}
-				if (
-					required &&
-					encodedBytes !== null &&
-					retainedPreReadyRequiredSampleCount < preReadyRequiredSampleCapacity &&
-					retainedPreReadyRequiredSampleEncodedBytes + encodedBytes <=
-						preReadyRequiredSampleMaxEncodedBytes
-				) {
-					preReadyEntries.push({ encodedBytes, kind: 'sample', sample, sequence });
-					retainedPreReadyRequiredSampleCount += 1;
-					retainedPreReadyRequiredSampleEncodedBytes += encodedBytes;
-					return { disposition: 'retained', sequence };
-				}
-				appendPreReadyLoss(sequence, required, 'queue_saturated');
-				return { disposition: 'loss_recorded', sequence };
+			if (generation === null && boundedRequiredRetentionEnabled) {
+				return retainRequiredSampleOrRecordLoss(sample, sequence, 'queue_saturated');
 			}
 			drainPreReadyEntries();
-			if (preReadyEntries.length > 0) {
-				appendPreReadyLoss(sequence, isRequiredBridgeTelemetrySample(sample), 'credit_exhausted');
-				return { disposition: 'loss_recorded', sequence };
+			if (
+				boundedRequiredRetentionEnabled &&
+				(preReadyEntries.length > 0 || availableSampleCredits === 0)
+			) {
+				return retainRequiredSampleOrRecordLoss(sample, sequence, 'credit_exhausted');
 			}
 			if (pendingLossRange !== null && !producer.flushLossSummary()) {
 				pendingLossRange = appendLoss(

@@ -1727,8 +1727,8 @@ constructors cannot pre-grant authority. The telemetry worker installs the
 port-bound runtime generation before sending the first matching
 `producer.ready`, and replacement repeats that order on the new comm port.
 
-Before that first matching ready only, each producer owns a bounded FIFO spool
-for required compact-sample bodies. Native bootstrap fixes the per-producer
+Each producer owns one bounded FIFO spool for required compact-sample bodies.
+Native bootstrap fixes the per-producer
 limits at `producerPreReadyBufferMaxSamples = 128` and
 `producerPreReadyBufferMaxBytes = 64 KiB`. Every attempted event still advances
 the producer sequence. Required samples that fit retain their original sequence
@@ -1742,10 +1742,11 @@ The first matching `producer.ready` supplies the first real credits and
 immediately drains the spool in sequence order. A returned sample or control
 credit resumes any blocked drain without an interactive await or flush. A
 barrier or close clears every retained body; a barrier accounts any unposted
-required entry in its exact pre-seal loss range. The spool cannot reopen after
-ready. From that point onward, the existing rule is unchanged: with no sample
-credit a producer retains no body and increments bounded aggregate
-counters/ranges using `credit_exhausted`.
+required entry in its exact pre-seal loss range. After ready, temporary sample-
+credit exhaustion reuses the same bounded FIFO: required bodies retain their
+sequence while capacity remains, optional samples remain bodyless
+`credit_exhausted` loss, and required overflow remains bodyless
+`queue_saturated` loss. No later event bypasses retained work.
 
 One sample credit represents one pipeline slot capped by
 `compactSampleMaxEncodedBytes`; it is consumed before post and refilled only
@@ -1765,8 +1766,8 @@ Native bootstrap supplies this initial policy inventory:
 | --- | --- | --- |
 | `initialSampleCredits` | 128 per producer | usable only after the matching ready or an explicit later grant |
 | `initialControlCredits` | 4 per producer | reserved for ordered loss/control messages |
-| `producerPreReadyBufferMaxSamples` | 128 per producer | required bodies only before first matching ready |
-| `producerPreReadyBufferMaxBytes` | 64 KiB per producer | encoded bytes retained by that same startup-only spool |
+| `producerPreReadyBufferMaxSamples` | 128 per producer | required bodies retained before ready or during temporary active credit exhaustion |
+| `producerPreReadyBufferMaxBytes` | 64 KiB per producer | encoded bytes retained by that same bounded producer spool |
 | `compactSampleMaxEncodedBytes` | 16 KiB | worker admission ceiling for one compact sample |
 | `producerLossKeyCap` | 64 | bounded producer loss aggregation |
 | `workerBufferMaxSamples` | 256 | telemetry-worker shared admitted-sample buffer |

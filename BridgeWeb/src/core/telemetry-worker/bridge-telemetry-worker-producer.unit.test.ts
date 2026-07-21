@@ -106,6 +106,90 @@ describe('BridgeTelemetryWorkerProducer', () => {
 		]);
 	});
 
+	it('retains a synchronous required burst until installed credits recycle in exact order', () => {
+		const send = vi.fn();
+		const producer = createBridgeTelemetryWorkerProducer({
+			initialControlCredits: 0,
+			initialSampleCredits: 0,
+			preReadyRequiredSampleCapacity: 128,
+			preReadyRequiredSampleMaxEncodedBytes: 64 * 1024,
+			send,
+		});
+		producer.acceptWorkerCommand({
+			type: 'producer.ready',
+			generation: 1,
+			initialSampleCredits: 128,
+			initialControlCredits: 4,
+		});
+
+		const postedResults = Array.from({ length: 128 }, () => producer.record(lifecycleSample));
+		const retainedResults = Array.from({ length: 93 }, () => producer.record(lifecycleSample));
+
+		expect(postedResults.every((result) => result.disposition === 'posted')).toBe(true);
+		expect(retainedResults.every((result) => result.disposition === 'retained')).toBe(true);
+		expect(producer.snapshot()).toMatchObject({
+			availableSampleCredits: 0,
+			retainedPreReadyRequiredSampleCount: 93,
+			pendingLossRange: null,
+		});
+
+		producer.grantSampleCredits(93);
+
+		const messages = send.mock.calls.map(([message]) => message);
+		expect(messages).toHaveLength(221);
+		expect(messages.every((message) => message.type === 'sample')).toBe(true);
+		expect(messages.map((message) => ('sequence' in message ? message.sequence : null))).toEqual(
+			Array.from({ length: 221 }, (_, index) => index + 1),
+		);
+		expect(producer.snapshot()).toMatchObject({
+			availableSampleCredits: 0,
+			retainedPreReadyRequiredSampleCount: 0,
+			retainedPreReadyRequiredSampleEncodedBytes: 0,
+			pendingLossRange: null,
+		});
+		expect(producer.flushLossSummary()).toBe(true);
+	});
+
+	it('keeps optional loss bodyless and ordered behind retained required work', () => {
+		const send = vi.fn();
+		const producer = createBridgeTelemetryWorkerProducer({
+			initialControlCredits: 0,
+			initialSampleCredits: 0,
+			preReadyRequiredSampleCapacity: 2,
+			preReadyRequiredSampleMaxEncodedBytes: 16 * 1024,
+			send,
+		});
+		producer.acceptWorkerCommand({
+			type: 'producer.ready',
+			generation: 1,
+			initialSampleCredits: 0,
+			initialControlCredits: 1,
+		});
+
+		expect(producer.record(lifecycleSample)).toEqual({ disposition: 'retained', sequence: 1 });
+		expect(producer.record(diagnosticSample)).toEqual({
+			disposition: 'loss_recorded',
+			sequence: 2,
+		});
+		expect(send).not.toHaveBeenCalled();
+
+		producer.grantSampleCredits(1);
+
+		expect(send.mock.calls.map(([message]) => message)).toEqual([
+			{ type: 'sample', sequence: 1, sample: lifecycleSample },
+			{
+				type: 'loss.summary',
+				controlSequence: 1,
+				lostSequenceStart: 2,
+				lostSequenceEnd: 2,
+				requiredCount: 0,
+				optionalCount: 1,
+				reason: 'credit_exhausted',
+			},
+		]);
+		expect(JSON.stringify(send.mock.calls)).not.toContain('buffer_bytes');
+	});
+
 	it('accounts exact required pre-ready overflow after retained startup samples drain', () => {
 		const send = vi.fn();
 		const producer = createBridgeTelemetryWorkerProducer({
@@ -335,7 +419,7 @@ describe('BridgeTelemetryWorkerProducer', () => {
 		]);
 	});
 
-	it('accounts new records bodylessly behind retained startup samples awaiting sample credit', () => {
+	it('accounts required overflow bodylessly behind a full retained queue', () => {
 		const send = vi.fn();
 		const laterRequiredSample = {
 			...lifecycleSample,
@@ -375,7 +459,7 @@ describe('BridgeTelemetryWorkerProducer', () => {
 				lostSequenceEnd: 2,
 				requiredCount: 1,
 				optionalCount: 0,
-				reason: 'credit_exhausted',
+				reason: 'queue_saturated',
 			},
 		]);
 		expect(JSON.stringify(send.mock.calls)).not.toContain('attempt-later');
@@ -470,6 +554,8 @@ describe('BridgeTelemetryWorkerProducer', () => {
 		const producer = createBridgeTelemetryWorkerProducer({
 			initialControlCredits: 0,
 			initialSampleCredits: 0,
+			preReadyRequiredSampleCapacity: 1,
+			preReadyRequiredSampleMaxEncodedBytes: 16 * 1024,
 			send,
 		});
 		producer.acceptWorkerCommand({

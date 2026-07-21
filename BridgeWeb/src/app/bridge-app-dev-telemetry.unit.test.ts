@@ -47,7 +47,7 @@ describe('Bridge app dev telemetry host', () => {
 							initialSampleCredits: 128,
 							batchMaxBytes: 64 * 1024,
 							batchMaxSamples: 128,
-							minimumFlushIntervalMilliseconds: 0,
+							minimumFlushIntervalMilliseconds: 250,
 						},
 					},
 				},
@@ -57,7 +57,7 @@ describe('Bridge app dev telemetry host', () => {
 		host.dispose();
 	});
 
-	test('recycles credits before the required Review reset footprint is emitted', async () => {
+	test('retains the required Review reset footprint until credits recycle', async () => {
 		const bootstrap = bridgeTelemetryWorkerBootstrapSchema.parse(
 			createBridgeAppDevTelemetryBootstrapConfig(
 				'vite-dev-current-worktree',
@@ -72,8 +72,10 @@ describe('Bridge app dev telemetry host', () => {
 			readonly delayMilliseconds: number;
 		}> = [];
 		const commProducer = createBridgeTelemetryWorkerProducer({
-			initialSampleCredits: bootstrap.policy.initialSampleCredits,
-			initialControlCredits: bootstrap.policy.initialControlCredits,
+			initialSampleCredits: 0,
+			initialControlCredits: 0,
+			preReadyRequiredSampleCapacity: bootstrap.policy.producerPreReadyBufferMaxSamples,
+			preReadyRequiredSampleMaxEncodedBytes: bootstrap.policy.producerPreReadyBufferMaxBytes,
 			send: (message): void => commChannel.port2.postMessage(message),
 		});
 		commChannel.port2.addEventListener('message', (event: MessageEvent<unknown>): void => {
@@ -88,6 +90,12 @@ describe('Bridge app dev telemetry host', () => {
 			scheduleFlush: (callback, delayMilliseconds): void => {
 				scheduledFlushes.push({ callback, delayMilliseconds });
 			},
+		});
+		commProducer.acceptWorkerCommand({
+			type: 'producer.ready',
+			generation: 1,
+			initialSampleCredits: bootstrap.policy.initialSampleCredits,
+			initialControlCredits: bootstrap.policy.initialControlCredits,
 		});
 
 		const initialSamplesAccepted = nextAcceptedProducerSequence(
@@ -104,14 +112,6 @@ describe('Bridge app dev telemetry host', () => {
 				}),
 			).toMatchObject({ disposition: 'posted' });
 		}
-		await initialSamplesAccepted;
-		expect(scheduledFlushes).toHaveLength(1);
-		if (scheduledFlushes[0]?.delayMilliseconds === 0) {
-			const initialCreditsReturned = nextSampleCreditGrant(commChannel.port2);
-			await scheduledFlushes.shift()?.callback();
-			expect(await initialCreditsReturned).toBe(bootstrap.policy.initialSampleCredits);
-		}
-
 		const requiredReviewResetSamples: BridgeTelemetryCompactSample[] = [
 			makeRequiredReviewResetSample('source_update', 1),
 		];
@@ -121,31 +121,36 @@ describe('Bridge app dev telemetry host', () => {
 				makeRequiredReviewResetSample('content_preparation', slice + 35),
 			);
 		}
-		const resetResults = [];
-		for (const sample of requiredReviewResetSamples) {
-			const expectedSequence = bootstrap.policy.initialSampleCredits + resetResults.length + 1;
-			const sampleAccepted = nextAcceptedProducerSequence(commChannel.port2, expectedSequence);
-			resetResults.push(commProducer.record(sample));
-			commProducer.flushLossSummary();
-			// oxlint-disable-next-line eslint/no-await-in-loop -- Producer sequence is an ordered wire contract.
-			await sampleAccepted;
-		}
-		const remainingCreditsReturned = nextSampleCreditGrant(commChannel.port2);
-		while (scheduledFlushes.length > 0) {
-			// oxlint-disable-next-line eslint/no-await-in-loop -- Flush completion releases the next scheduled batch.
-			await scheduledFlushes.shift()?.callback();
-		}
-		expect(await remainingCreditsReturned).toBe(
-			bootstrap.policy.minimumFlushIntervalMilliseconds === 0
-				? requiredReviewResetSamples.length
-				: bootstrap.policy.initialSampleCredits,
+		const resetResults = requiredReviewResetSamples.map((sample) => commProducer.record(sample));
+
+		expect(resetResults.every((result) => result.disposition === 'retained')).toBe(true);
+		expect(commProducer.snapshot()).toMatchObject({
+			availableSampleCredits: 0,
+			retainedPreReadyRequiredSampleCount: 67,
+			pendingLossRange: null,
+		});
+		await initialSamplesAccepted;
+		expect(scheduledFlushes).toHaveLength(1);
+		expect(scheduledFlushes[0]?.delayMilliseconds).toBe(250);
+
+		const retainedSamplesAccepted = nextAcceptedProducerSequence(
+			commChannel.port2,
+			bootstrap.policy.initialSampleCredits + requiredReviewResetSamples.length,
 		);
+		const initialCreditsReturned = nextSampleCreditGrant(commChannel.port2);
+		await scheduledFlushes.shift()?.callback();
+		expect(await initialCreditsReturned).toBe(bootstrap.policy.initialSampleCredits);
+		await retainedSamplesAccepted;
+		expect(scheduledFlushes).toHaveLength(1);
+		const remainingCreditsReturned = nextSampleCreditGrant(commChannel.port2);
+		await scheduledFlushes.shift()?.callback();
+		expect(await remainingCreditsReturned).toBe(requiredReviewResetSamples.length);
 
 		expect(host.runtime.snapshot().requiredLossCount).toBe(0);
 		expect(resetResults).toHaveLength(67);
-		expect(resetResults.every((result) => result.disposition === 'posted')).toBe(true);
-		expect(bootstrap.policy.minimumFlushIntervalMilliseconds).toBe(0);
+		expect(bootstrap.policy.minimumFlushIntervalMilliseconds).toBe(250);
 		expect(capturedBatches).toHaveLength(2);
+		expect(capturedBatches.map((batch) => batch.samples.length)).toEqual([128, 67]);
 		expect(capturedBatches.flatMap((batch) => batch.samples)).toHaveLength(
 			bootstrap.policy.initialSampleCredits + requiredReviewResetSamples.length,
 		);
@@ -155,6 +160,12 @@ describe('Bridge app dev telemetry host', () => {
 			bufferedSampleCount: 0,
 			outboxCount: 0,
 			producers: { comm: { availableSampleCredits: bootstrap.policy.initialSampleCredits } },
+		});
+		expect(commProducer.snapshot()).toMatchObject({
+			availableSampleCredits: bootstrap.policy.initialSampleCredits,
+			retainedPreReadyRequiredSampleCount: 0,
+			retainedPreReadyRequiredSampleEncodedBytes: 0,
+			pendingLossRange: null,
 		});
 
 		host.dispose();
