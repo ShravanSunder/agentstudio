@@ -96,15 +96,18 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.content.priority',
 	'agentstudio.bridge.content.role',
 	'agentstudio.bridge.content_bytes_bucket',
+	'agentstudio.bridge.demand.disposition',
 	'agentstudio.bridge.demand.lane',
 	'agentstudio.bridge.drop_reason',
 	'agentstudio.bridge.file_size_bucket',
 	'agentstudio.bridge.fixture_class',
+	'agentstudio.bridge.frame_jank.kind',
 	'agentstudio.bridge.generation_relation',
 	'agentstudio.bridge.header_missing',
 	'agentstudio.bridge.header_supported',
 	'agentstudio.bridge.item_count_bucket',
 	'agentstudio.bridge.item_update.kind',
+	'agentstudio.bridge.input.source',
 	'agentstudio.bridge.interaction.attempt_id',
 	'agentstudio.bridge.language_class',
 	'agentstudio.bridge.markdown.fallback_reason',
@@ -122,12 +125,34 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.telemetry.drop_reason',
 	'agentstudio.bridge.transport',
 	'agentstudio.bridge.viewer',
+	'agentstudio.bridge.viewer.ttfi_variant',
 	'agentstudio.bridge.worker.action',
 	'agentstudio.bridge.worker.command',
 	'agentstudio.bridge.worker.lane',
 	'agentstudio.bridge.worker.payload_class',
 	'agentstudio.bridge.worker.task_kind',
 	'agentstudio.bridge.worker.work_kind',
+]);
+
+const bridgeDevRestrictedStringAttributeValuesByKey = new Map<string, ReadonlySet<string>>([
+	[
+		'agentstudio.bridge.demand.disposition',
+		new Set([
+			'active-preloaded',
+			'cache-hit',
+			'cold-loaded',
+			'idle-preloaded',
+			'nearby-preloaded',
+			'none',
+			'published',
+			'refreshed',
+			'speculative-preloaded',
+			'visible-preloaded',
+		]),
+	],
+	['agentstudio.bridge.frame_jank.kind', new Set(['dropped_frame', 'long_task'])],
+	['agentstudio.bridge.input.source', new Set(['keyboard', 'mouse', 'programmatic'])],
+	['agentstudio.bridge.viewer.ttfi_variant', new Set(['cold', 'warm'])],
 ]);
 
 const bridgeDevNumericAttributeKeys = new Set<string>([
@@ -144,12 +169,29 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.dev_server.get_provider_ms',
 	'agentstudio.bridge.dev_server.provider_load_ms',
 	'agentstudio.bridge.dev_server.response_total_ms',
+	'agentstudio.bridge.frame_jank.dropped_frame.count',
+	'agentstudio.bridge.frame_jank.dropped_frame.worst_gap_ms',
+	'agentstudio.bridge.frame_jank.long_task.count',
+	'agentstudio.bridge.frame_jank.long_task.max_ms',
+	'agentstudio.bridge.frame_jank.long_task.total_ms',
 	'agentstudio.bridge.markdown.input_bytes',
 	'agentstudio.bridge.markdown.output_bytes',
 	'agentstudio.bridge.interaction.sequence',
 	'agentstudio.bridge.review.item_count',
+	'agentstudio.bridge.scroll.frame_gap.max_ms',
+	'agentstudio.bridge.scroll.frame_gap.over_16ms.count',
+	'agentstudio.bridge.scroll.frame_gap.over_33ms.count',
+	'agentstudio.bridge.scroll.frame_gap.over_50ms.count',
+	'agentstudio.bridge.scroll.frame_gap.p95_ms',
+	'agentstudio.bridge.selected_content.click_to_paint_ms',
+	'agentstudio.bridge.selected_content.frame_wait_ms',
+	'agentstudio.bridge.selected_content.materialize_ms',
 	'agentstudio.bridge.telemetry.dropped_count',
 	'agentstudio.bridge.telemetry.value',
+	'agentstudio.bridge.visible_descriptor.count',
+	'agentstudio.bridge.visible_item.count',
+	'agentstudio.bridge.visible_publisher.skipped.count',
+	'agentstudio.bridge.visible_row.count',
 	'agentstudio.bridge.worker.handler_duration_ms',
 	'agentstudio.bridge.worker.patch_count',
 	'agentstudio.bridge.worker.queue_wait_ms',
@@ -164,8 +206,12 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 ]);
 
 const bridgeDevBooleanAttributeKeys = new Set<string>([
+	'agentstudio.bridge.already_selected',
 	'agentstudio.bridge.header_missing',
 	'agentstudio.bridge.header_supported',
+	'agentstudio.bridge.scroll.active',
+	'agentstudio.bridge.selected',
+	'agentstudio.bridge.viewer.active',
 	'agentstudio.bridge.worker.file_metadata_selected_path_resolved',
 ]);
 
@@ -497,7 +543,11 @@ function resourceAttributesForBridgeDevTelemetry(props: {
 }
 
 function bridgeDevStringAttributeIsSafe(key: string, value: string): boolean {
-	return bridgeDevStringAttributeKeys.has(key) && bridgeDevTelemetryStringValueIsSafe(value);
+	if (!bridgeDevStringAttributeKeys.has(key) || !bridgeDevTelemetryStringValueIsSafe(value)) {
+		return false;
+	}
+	const restrictedValues = bridgeDevRestrictedStringAttributeValuesByKey.get(key);
+	return restrictedValues === undefined || restrictedValues.has(value);
 }
 
 function bridgeDevTelemetryStringValueIsSafe(value: string): boolean {

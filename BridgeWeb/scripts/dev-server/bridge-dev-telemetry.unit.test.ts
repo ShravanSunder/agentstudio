@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 
 import type { BridgeTelemetryWorkerBatchRequest } from '../../src/core/telemetry-worker/bridge-telemetry-worker-contracts.js';
 import type { BridgeTelemetrySample } from '../../src/foundation/telemetry/bridge-telemetry-event.js';
+import { bridgeDevTelemetryObservationIsSafe } from './bridge-dev-telemetry-otlp.js';
 import {
 	buildBridgeDevContentResponseTelemetryObservation,
 	buildBridgeDevTelemetryLogRecord,
@@ -238,6 +239,62 @@ describe('Bridge dev telemetry sink', () => {
 		});
 	});
 
+	test('rejects unrestricted values for bounded telemetry enum attributes', () => {
+		const unsafeDemandDispositionSample: BridgeTelemetrySample = {
+			...makeTelemetrySample(),
+			stringAttributes: {
+				...makeTelemetrySample().stringAttributes,
+				'agentstudio.bridge.demand.disposition': 'raw-source-content',
+			},
+		};
+		const unsafeTimeToFirstInteractionVariantSample: BridgeTelemetrySample = {
+			...makeTelemetrySample(),
+			stringAttributes: {
+				...makeTelemetrySample().stringAttributes,
+				'agentstudio.bridge.viewer.ttfi_variant': 'arbitrary-value',
+			},
+		};
+		const unsafeInputSourceSample: BridgeTelemetrySample = {
+			...makeTelemetrySample(),
+			stringAttributes: {
+				...makeTelemetrySample().stringAttributes,
+				'agentstudio.bridge.input.source': 'raw-source-content',
+			},
+		};
+		const unsafeFrameJankKindSample: BridgeTelemetrySample = {
+			...makeTelemetrySample(),
+			stringAttributes: {
+				...makeTelemetrySample().stringAttributes,
+				'agentstudio.bridge.frame_jank.kind': 'arbitrary-value',
+			},
+		};
+
+		expect(
+			bridgeDevTelemetryObservationIsSafe({
+				scenario: 'bridge-worker-v2',
+				samples: [unsafeDemandDispositionSample],
+			}),
+		).toBe(false);
+		expect(
+			bridgeDevTelemetryObservationIsSafe({
+				scenario: 'bridge-worker-v2',
+				samples: [unsafeTimeToFirstInteractionVariantSample],
+			}),
+		).toBe(false);
+		expect(
+			bridgeDevTelemetryObservationIsSafe({
+				scenario: 'bridge-worker-v2',
+				samples: [unsafeInputSourceSample],
+			}),
+		).toBe(false);
+		expect(
+			bridgeDevTelemetryObservationIsSafe({
+				scenario: 'bridge-worker-v2',
+				samples: [unsafeFrameJankKindSample],
+			}),
+		).toBe(false);
+	});
+
 	test('accepts the scrubbed comm-worker task telemetry contract', async () => {
 		const fetchImpl = vi.fn(async (): Promise<Response> => new Response('', { status: 200 }));
 		const sink = createBridgeDevTelemetrySink({
@@ -286,6 +343,231 @@ describe('Bridge dev telemetry sink', () => {
 		expect(sink.snapshot()).toMatchObject({
 			acceptedBatchCount: 1,
 			acceptedSampleCount: 1,
+			failedBatchCount: 0,
+			lastError: null,
+		});
+	});
+
+	test('accepts the Review startup visible-count and first-interaction telemetry batch', async () => {
+		const fetchImpl = vi.fn(async (): Promise<Response> => new Response('', { status: 200 }));
+		const sink = createBridgeDevTelemetrySink({
+			fetchImpl,
+			marker: 'vite-dev-proof-1',
+			nowUnixNano: () => '1782218790000000000',
+			serviceVersion: 'vite-dev',
+			worktreeHash: 'wt-hash',
+		});
+		const startupBatch: BridgeTelemetryWorkerBatchRequest = {
+			type: 'telemetry.batch',
+			schemaVersion: 2,
+			telemetrySessionId: 'vite-dev-session-1',
+			batchSequence: 1,
+			samples: [
+				{
+					producerId: 'main',
+					producerSequence: 1,
+					sample: {
+						type: 'event.required',
+						timestampMilliseconds: 1,
+						sample: {
+							scope: 'web',
+							name: 'performance.bridge.trees.visible_ids_capture',
+							durationMilliseconds: 1,
+							traceContext: null,
+							stringAttributes: {
+								'agentstudio.bridge.phase': 'visible_ids_capture',
+								'agentstudio.bridge.plane': 'data',
+								'agentstudio.bridge.priority': 'hot',
+								'agentstudio.bridge.result': 'success',
+								'agentstudio.bridge.slice': 'tree_prepare_input',
+								'agentstudio.bridge.transport': 'worker',
+								'agentstudio.bridge.viewer': 'review',
+							},
+							numericAttributes: {
+								'agentstudio.bridge.visible_descriptor.count': 0,
+								'agentstudio.bridge.visible_item.count': 12,
+								'agentstudio.bridge.visible_row.count': 12,
+							},
+							booleanAttributes: {},
+						},
+					},
+				},
+				{
+					producerId: 'main',
+					producerSequence: 2,
+					sample: {
+						type: 'event.required',
+						timestampMilliseconds: 2,
+						sample: {
+							scope: 'web',
+							name: 'performance.bridge.viewer.time_to_first_interaction',
+							durationMilliseconds: 2,
+							traceContext: null,
+							stringAttributes: {
+								'agentstudio.bridge.phase': 'time_to_first_interaction',
+								'agentstudio.bridge.plane': 'data',
+								'agentstudio.bridge.priority': 'hot',
+								'agentstudio.bridge.result': 'success',
+								'agentstudio.bridge.slice': 'content_fetch',
+								'agentstudio.bridge.transport': 'content',
+								'agentstudio.bridge.viewer': 'review',
+								'agentstudio.bridge.viewer.ttfi_variant': 'warm',
+							},
+							numericAttributes: {
+								'agentstudio.bridge.visible_item.count': 12,
+							},
+							booleanAttributes: {},
+						},
+					},
+				},
+			],
+			lossSummaries: [],
+		};
+
+		await expect(sink.ingestWorkerBatch(startupBatch)).resolves.toMatchObject({
+			type: 'accepted',
+		});
+
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(sink.snapshot()).toMatchObject({
+			acceptedBatchCount: 1,
+			acceptedSampleCount: 2,
+			failedBatchCount: 0,
+			lastError: null,
+		});
+	});
+
+	test('accepts Review scroll-frame telemetry co-batched with selection commit', async () => {
+		const fetchImpl = vi.fn(async (): Promise<Response> => new Response('', { status: 200 }));
+		const sink = createBridgeDevTelemetrySink({
+			fetchImpl,
+			marker: 'vite-dev-proof-1',
+			nowUnixNano: () => '1782218790000000000',
+			serviceVersion: 'vite-dev',
+			worktreeHash: 'wt-hash',
+		});
+		const scrollAndSelectionBatch = makeTelemetryBatchFromSamples([
+			{
+				scope: 'web',
+				name: 'performance.bridge.trees.scroll_frame_gap',
+				durationMilliseconds: 32,
+				traceContext: null,
+				stringAttributes: {
+					'agentstudio.bridge.phase': 'scroll_frame_gap',
+					'agentstudio.bridge.plane': 'data',
+					'agentstudio.bridge.priority': 'hot',
+					'agentstudio.bridge.result': 'success',
+					'agentstudio.bridge.slice': 'tree_prepare_input',
+					'agentstudio.bridge.transport': 'worker',
+					'agentstudio.bridge.viewer': 'review',
+				},
+				numericAttributes: {
+					'agentstudio.bridge.scroll.frame_gap.max_ms': 18,
+					'agentstudio.bridge.scroll.frame_gap.over_16ms.count': 2,
+					'agentstudio.bridge.scroll.frame_gap.over_33ms.count': 0,
+					'agentstudio.bridge.scroll.frame_gap.over_50ms.count': 0,
+					'agentstudio.bridge.scroll.frame_gap.p95_ms': 17,
+					'agentstudio.bridge.visible_publisher.skipped.count': 1,
+					'agentstudio.bridge.visible_row.count': 12,
+				},
+				booleanAttributes: {},
+			},
+			{
+				scope: 'web',
+				name: 'performance.bridge.web.selection_commit',
+				durationMilliseconds: null,
+				traceContext: null,
+				stringAttributes: {
+					'agentstudio.bridge.phase': 'selection_commit',
+					'agentstudio.bridge.plane': 'data',
+					'agentstudio.bridge.priority': 'warm',
+					'agentstudio.bridge.result': 'success',
+					'agentstudio.bridge.result_reason': 'none',
+					'agentstudio.bridge.slice': 'review_projection',
+					'agentstudio.bridge.transport': 'local',
+					'agentstudio.bridge.viewer': 'review',
+				},
+				numericAttributes: {},
+				booleanAttributes: {},
+			},
+		]);
+
+		await expect(sink.ingestWorkerBatch(scrollAndSelectionBatch)).resolves.toMatchObject({
+			type: 'accepted',
+		});
+
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(sink.snapshot()).toMatchObject({
+			acceptedBatchCount: 1,
+			acceptedSampleCount: 2,
+			failedBatchCount: 0,
+			lastError: null,
+		});
+	});
+
+	test('accepts File visible capture co-batched with published visible demand', async () => {
+		const fetchImpl = vi.fn(async (): Promise<Response> => new Response('', { status: 200 }));
+		const sink = createBridgeDevTelemetrySink({
+			fetchImpl,
+			marker: 'vite-dev-proof-1',
+			nowUnixNano: () => '1782218790000000000',
+			serviceVersion: 'vite-dev',
+			worktreeHash: 'wt-hash',
+		});
+		const fileVisibleDemandBatch = makeTelemetryBatchFromSamples([
+			{
+				scope: 'web',
+				name: 'performance.bridge.trees.visible_ids_capture',
+				durationMilliseconds: 1,
+				traceContext: null,
+				stringAttributes: {
+					'agentstudio.bridge.phase': 'visible_ids_capture',
+					'agentstudio.bridge.plane': 'data',
+					'agentstudio.bridge.priority': 'hot',
+					'agentstudio.bridge.result': 'success',
+					'agentstudio.bridge.slice': 'tree_prepare_input',
+					'agentstudio.bridge.transport': 'worker',
+					'agentstudio.bridge.viewer': 'file',
+				},
+				numericAttributes: {
+					'agentstudio.bridge.visible_descriptor.count': 0,
+					'agentstudio.bridge.visible_item.count': 12,
+					'agentstudio.bridge.visible_row.count': 12,
+				},
+				booleanAttributes: {},
+			},
+			{
+				scope: 'web',
+				name: 'performance.bridge.trees.scroll_visible_demand',
+				durationMilliseconds: 1,
+				traceContext: null,
+				stringAttributes: {
+					'agentstudio.bridge.demand.disposition': 'published',
+					'agentstudio.bridge.demand.lane': 'visible',
+					'agentstudio.bridge.phase': 'scroll_visible_demand',
+					'agentstudio.bridge.plane': 'data',
+					'agentstudio.bridge.priority': 'hot',
+					'agentstudio.bridge.result': 'success',
+					'agentstudio.bridge.result_reason': 'none',
+					'agentstudio.bridge.slice': 'tree_prepare_input',
+					'agentstudio.bridge.transport': 'worker',
+					'agentstudio.bridge.viewer': 'file',
+				},
+				numericAttributes: {
+					'agentstudio.bridge.visible_item.count': 12,
+				},
+				booleanAttributes: {},
+			},
+		]);
+
+		await expect(sink.ingestWorkerBatch(fileVisibleDemandBatch)).resolves.toMatchObject({
+			type: 'accepted',
+		});
+
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(sink.snapshot()).toMatchObject({
+			acceptedBatchCount: 1,
+			acceptedSampleCount: 2,
 			failedBatchCount: 0,
 			lastError: null,
 		});
@@ -649,26 +931,36 @@ function makeTelemetryBatch(
 	sample: BridgeTelemetrySample = makeTelemetrySample(),
 	batchSequence = 1,
 ): BridgeTelemetryWorkerBatchRequest {
-	const type =
-		sample.stringAttributes['agentstudio.bridge.priority'] === 'best_effort'
-			? 'event.optional'
-			: 'event.required';
+	return makeTelemetryBatchFromSamples([sample], batchSequence);
+}
+
+function makeTelemetryBatchFromSamples(
+	samples: readonly BridgeTelemetrySample[],
+	batchSequence = 1,
+): BridgeTelemetryWorkerBatchRequest {
+	let producerSequence = 0;
+	const stampedSamples = samples.map((sample) => {
+		producerSequence += 1;
+		const type: 'event.optional' | 'event.required' =
+			sample.stringAttributes['agentstudio.bridge.priority'] === 'best_effort'
+				? 'event.optional'
+				: 'event.required';
+		return {
+			producerId: 'main' as const,
+			producerSequence,
+			sample: {
+				type,
+				timestampMilliseconds: producerSequence,
+				sample,
+			},
+		};
+	});
 	return {
 		type: 'telemetry.batch',
 		schemaVersion: 2,
 		telemetrySessionId: 'vite-dev-session-1',
 		batchSequence,
-		samples: [
-			{
-				producerId: 'main',
-				producerSequence: 1,
-				sample: {
-					type,
-					timestampMilliseconds: 1,
-					sample,
-				},
-			},
-		],
+		samples: stampedSamples,
 		lossSummaries: [],
 	};
 }

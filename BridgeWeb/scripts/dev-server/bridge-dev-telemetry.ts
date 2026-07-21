@@ -64,7 +64,9 @@ export interface BridgeDevContentResponseTelemetryObservationProps {
 const defaultCollectorLogsUrl = 'http://127.0.0.1:4318/v1/logs';
 const defaultCollectorMetricsUrl = 'http://127.0.0.1:4318/v1/metrics';
 const bridgeDevRuntimeFlavor = 'vite-dev';
-const recentTelemetrySampleLimit = 1_000;
+// Retain the bounded 100 File click + 100 Review click + 100 scroll proof and its
+// startup/lifecycle observations until each phase reads the dev status snapshot.
+const authoritativePerformanceWorkloadTelemetrySampleCapacity = 8_192;
 
 export function buildBridgeDevContentResponseTelemetryObservation(
 	props: BridgeDevContentResponseTelemetryObservationProps,
@@ -151,7 +153,9 @@ export function createBridgeDevTelemetrySink(
 			serviceVersion,
 			worktreeHash,
 		});
-		recentSamples = [...recentSamples, ...observation.samples].slice(-recentTelemetrySampleLimit);
+		recentSamples = [...recentSamples, ...observation.samples].slice(
+			-authoritativePerformanceWorkloadTelemetrySampleCapacity,
+		);
 		try {
 			const response = await fetchImpl(collectorLogsUrl, {
 				body: JSON.stringify(body),
