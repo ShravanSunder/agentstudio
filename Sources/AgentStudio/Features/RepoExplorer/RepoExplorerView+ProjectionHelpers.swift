@@ -1,6 +1,71 @@
 import Foundation
 
 extension RepoExplorerView {
+    func makeSidebarSnapshot(
+        repos: [RepoPresentationItem],
+        repoEnrichmentByRepoId: [UUID: RepoEnrichment],
+        groupingMode: RepoExplorerGroupingMode,
+        sortOrder: RepoExplorerSortOrder,
+        visibilityMode: RepoExplorerVisibilityMode,
+        query: String
+    ) -> RepoExplorerSnapshot {
+        let workspaceTab = WorkspaceTabLayoutDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        let paneLocationsByWorktreeId = atom(\.workspaceLookup).paneLocationsByWorktreeId(
+            workspacePane: store.paneAtom,
+            workspaceTab: workspaceTab
+        )
+        return RepoExplorerSnapshot(
+            repos: repos,
+            repoEnrichmentByRepoId: repoEnrichmentByRepoId,
+            groupingMode: groupingMode,
+            sortOrder: sortOrder,
+            visibilityMode: visibilityMode,
+            query: query,
+            paneLocationsByWorktreeId: paneLocationsByWorktreeId,
+            bridgePaneCommandCandidatesByWorktreeId: bridgePaneCommandCandidatesByWorktreeId(
+                paneLocationsByWorktreeId: paneLocationsByWorktreeId
+            )
+        )
+    }
+
+    func bridgePaneCommandCandidatesByWorktreeId(
+        paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]]
+    ) -> [UUID: [BridgePaneCommandCandidate]] {
+        let panesByPaneId = store.paneAtom.panes
+        let activeTabId = store.tabLayoutAtom.activeTabId
+        let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
+        let attendanceAtom = atom(\.bridgePaneAttendance)
+        var candidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]] = [:]
+        candidatesByWorktreeId.reserveCapacity(paneLocationsByWorktreeId.count)
+
+        for (worktreeId, paneLocations) in paneLocationsByWorktreeId {
+            candidatesByWorktreeId[worktreeId] = paneLocations.compactMap { location in
+                guard let pane = panesByPaneId[location.paneId] else { return nil }
+                let isBridgePane: Bool
+                if case .bridgePanel = pane.content {
+                    isBridgePane = true
+                } else {
+                    isBridgePane = false
+                }
+                return BridgePaneCommandCandidate(
+                    paneId: pane.id,
+                    worktreeId: worktreeId,
+                    isBridgePane: isBridgePane,
+                    isPaneActive: pane.residency == .active,
+                    isCurrentActivePane: activeTabId == location.tabId && activePaneId == pane.id,
+                    attendanceOrdinal: attendanceAtom.ordinal(for: pane.id),
+                    tabIndex: location.tabIndex,
+                    paneIndexInTab: location.paneIndexInTab
+                )
+            }
+        }
+
+        return candidatesByWorktreeId
+    }
+
     static func checkoutColorHex(
         for repo: RepoPresentationItem,
         in group: RepoPresentationGroup

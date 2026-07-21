@@ -86,20 +86,13 @@ struct RepoExplorerView: View {
     }
 
     private var sidebarSnapshot: RepoExplorerSnapshot {
-        RepoExplorerSnapshot(
+        makeSidebarSnapshot(
             repos: sidebarRepos,
             repoEnrichmentByRepoId: sidebarRepoEnrichmentByRepoId,
             groupingMode: repoExplorerPrefs.groupingMode,
             sortOrder: repoExplorerPrefs.sortOrder,
             visibilityMode: repoExplorerPrefs.repoVisibilityMode,
-            query: debouncedQuery,
-            paneLocationsByWorktreeId: atom(\.workspaceLookup).paneLocationsByWorktreeId(
-                workspacePane: store.paneAtom,
-                workspaceTab: WorkspaceTabLayoutDerived(
-                    shellAtom: store.tabShellAtom,
-                    arrangementAtom: store.tabArrangementAtom
-                )
-            )
+            query: debouncedQuery
         )
     }
 
@@ -443,10 +436,10 @@ struct RepoExplorerView: View {
                                 resolvedWorktreeContext.worktree.id
                             ] ?? .unknown,
                             unreadCount: unreadCount(resolvedWorktreeContext.worktree),
-                            bridgeCommandResolution: AppCommandDispatcher.shared
-                                .bridgePaneCommandTarget(
-                                    worktreeId: resolvedWorktreeContext.worktree.id
-                                )?.resolution ?? .create,
+                            bridgeCommandResolution: cachedProjectionResult.snapshot
+                                .bridgeCommandResolutionByWorktreeId[
+                                    resolvedWorktreeContext.worktree.id
+                                ] ?? .create,
                             isFavorite: currentRepoFavoriteState(
                                 repoId: resolvedWorktreeContext.repo.id,
                                 projectedFallback: resolvedWorktreeContext.repo.isFavorite
