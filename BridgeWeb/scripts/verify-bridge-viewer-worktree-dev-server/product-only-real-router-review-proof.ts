@@ -91,7 +91,6 @@ export async function proveFreshReviewRoute(props: {
 		observedItemIds: observedHeaderItemIds,
 		observedItemIdSet: observedHeaderItemIdSet,
 	});
-	const initialVisibleItemIds = viewportState.visibleItems.map((item): string => item.itemId);
 	const hydrationMilestones: BridgeViewerReviewHydrationMilestone[] = [];
 	const hydrationCoverageAccumulator = createFreshReviewHydrationCoverageAccumulator();
 	const initialHydrationWindow = await captureFreshReviewHydrationWindow({
@@ -99,6 +98,8 @@ export async function proveFreshReviewRoute(props: {
 		page: props.page,
 		selectedItemId: selectedItemIdAtStart,
 	});
+	viewportState = await readFreshReviewViewportState(props.page);
+	const initialVisibleItemIds = viewportState.visibleItems.map((item): string => item.itemId);
 	recordFreshReviewHydrationCoverageWindow({
 		accumulator: hydrationCoverageAccumulator,
 		window: initialHydrationWindow,

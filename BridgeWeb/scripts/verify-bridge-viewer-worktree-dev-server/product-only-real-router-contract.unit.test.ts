@@ -619,11 +619,19 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 			'waitForFreshReviewFrameSettlement',
 		);
 		const journeyOwnsDeadlineCleanup = journeySource.includes('createOwnedProductJourneyDeadline');
+		const initialHydrationSettlementIndex = reviewProofSource.indexOf(
+			'const initialHydrationWindow = await captureFreshReviewHydrationWindow',
+		);
+		const initialVisibleExclusionSnapshotIndex = reviewProofSource.indexOf(
+			'const initialVisibleItemIds = viewportState.visibleItems.map',
+		);
 
 		// Assert
 		expect(hydrationTimeoutIsTerminal).toBe(true);
 		expect(frameSettlementIsBounded).toBe(true);
 		expect(journeyOwnsDeadlineCleanup).toBe(true);
+		expect(initialHydrationSettlementIndex).toBeGreaterThan(0);
+		expect(initialVisibleExclusionSnapshotIndex).toBeGreaterThan(initialHydrationSettlementIndex);
 		expect(journeySource).toContain('BRIDGE_PRODUCT_JOURNEY_DEADLINE_EXCEEDED');
 		expect(journeySource).not.toContain('requestAnimationFrame');
 		expect(reviewProofSource).not.toContain('requestAnimationFrame');
