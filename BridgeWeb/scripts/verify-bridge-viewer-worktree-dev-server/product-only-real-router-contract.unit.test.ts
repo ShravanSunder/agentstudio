@@ -77,7 +77,13 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 			],
 			consoleErrors: ['Failed to load resource'],
 			failedResponses: [
-				{ method: 'GET', path: '/favicon.ico', resourceType: 'image', status: 404 },
+				{
+					documentGeneration: 1,
+					method: 'GET',
+					path: '/favicon.ico',
+					resourceType: 'image',
+					status: 404,
+				},
 			],
 		};
 
@@ -89,6 +95,47 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		// Assert
 		expect(violationCodes).toContain('browser.console-clean');
 		expect(violationCodes).toContain('browser.failed-responses-absent');
+	});
+
+	test('attributes failed responses to the measured document generation', () => {
+		// Arrange
+		const passingProof = makePassingProductOnlyProof();
+		const retiredDocumentProof: BridgeViewerProductOnlyJourneyProof = {
+			...passingProof,
+			failedResponses: [
+				{
+					documentGeneration: passingProof.documentGeneration.atJourneyStart - 1,
+					method: 'POST',
+					path: '/__bridge-product/command',
+					resourceType: 'fetch',
+					status: 409,
+				},
+			],
+		};
+		const measuredDocumentProof: BridgeViewerProductOnlyJourneyProof = {
+			...passingProof,
+			failedResponses: [
+				{
+					documentGeneration: passingProof.documentGeneration.atJourneyStart,
+					method: 'POST',
+					path: '/__bridge-product/command',
+					resourceType: 'fetch',
+					status: 409,
+				},
+			],
+		};
+
+		// Act
+		const retiredDocumentViolationCodes = collectBridgeViewerProductOnlyContractViolations(
+			retiredDocumentProof,
+		).map((violation) => violation.code);
+		const measuredDocumentViolationCodes = collectBridgeViewerProductOnlyContractViolations(
+			measuredDocumentProof,
+		).map((violation) => violation.code);
+
+		// Assert
+		expect(retiredDocumentViolationCodes).not.toContain('browser.failed-responses-absent');
+		expect(measuredDocumentViolationCodes).toContain('browser.failed-responses-absent');
 	});
 
 	test('separates a completed File content response from unclosed teardown residue', () => {

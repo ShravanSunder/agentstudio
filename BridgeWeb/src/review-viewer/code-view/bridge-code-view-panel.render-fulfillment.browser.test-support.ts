@@ -8,6 +8,39 @@ export interface CurrentRenderedReviewRows {
 	readonly shadowRoot: ShadowRoot;
 }
 
+export interface ExactItemReceiptLog<TItem, TReceipt extends { readonly contextItem: TItem }> {
+	readonly receipts: TReceipt[];
+	readonly record: (receipt: TReceipt) => void;
+	readonly waitForItem: (item: TItem) => Promise<void>;
+}
+
+export function createExactItemReceiptLog<
+	TItem,
+	TReceipt extends { readonly contextItem: TItem },
+>(): ExactItemReceiptLog<TItem, TReceipt> {
+	const receipts: TReceipt[] = [];
+	const waiters = new Map<TItem, Set<() => void>>();
+	return {
+		receipts,
+		record: (receipt): void => {
+			receipts.push(receipt);
+			const matchingWaiters = waiters.get(receipt.contextItem);
+			if (matchingWaiters === undefined) return;
+			waiters.delete(receipt.contextItem);
+			for (const resolve of matchingWaiters) resolve();
+		},
+		waitForItem: (item): Promise<void> => {
+			if (receipts.some((receipt): boolean => receipt.contextItem === item))
+				return Promise.resolve();
+			return new Promise<void>((resolve): void => {
+				const matchingWaiters = waiters.get(item) ?? new Set<() => void>();
+				matchingWaiters.add(resolve);
+				waiters.set(item, matchingWaiters);
+			});
+		},
+	};
+}
+
 export function paintedSourceCorrelations(element: Element): string | null {
 	return element.getAttribute('data-bridge-painted-source-correlations');
 }

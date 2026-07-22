@@ -142,6 +142,7 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 		if (response.status() < 400) return;
 		const request = response.request();
 		failedResponses.push({
+			documentGeneration: mainFrameDocumentGeneration,
 			method: request.method(),
 			path: new URL(response.url()).pathname,
 			resourceType: request.resourceType(),

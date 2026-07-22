@@ -111,6 +111,7 @@ export interface BridgeViewerProductOnlyJourneyFailureCheckpoint {
 }
 
 export interface BridgeViewerFailedResponse {
+	readonly documentGeneration: number;
 	readonly method: string;
 	readonly path: string;
 	readonly resourceType: string;
@@ -398,11 +399,14 @@ export function collectBridgeViewerProductOnlyContractViolations(
 			expected: 'zero browser console warnings or errors',
 		});
 	}
-	if (proof.failedResponses.length > 0) {
+	const measuredFailedResponses = proof.failedResponses.filter(
+		(response): boolean => response.documentGeneration === proof.documentGeneration.atJourneyStart,
+	);
+	if (measuredFailedResponses.length > 0) {
 		violations.push({
-			actual: proof.failedResponses,
+			actual: measuredFailedResponses,
 			code: 'browser.failed-responses-absent',
-			expected: 'zero browser responses with HTTP status >= 400',
+			expected: 'zero measured-document browser responses with HTTP status >= 400',
 		});
 	}
 

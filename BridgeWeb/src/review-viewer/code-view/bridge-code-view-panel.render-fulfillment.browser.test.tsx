@@ -31,9 +31,11 @@ import { waitForBridgeViewerCodeHeaderCollapseButton } from '../test-support/bri
 import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
 import { BridgeCodeViewPanel } from './bridge-code-view-panel.js';
 import {
+	createExactItemReceiptLog,
 	paintedSourceCorrelations,
 	requireCurrentRenderedReviewRows,
 	requireMountedCodeView,
+	type ExactItemReceiptLog,
 } from './bridge-code-view-panel.render-fulfillment.browser.test-support.js';
 
 type ExactReviewPierreDiffItem = Extract<
@@ -49,12 +51,10 @@ interface CapturedBridgeCodeViewPostRender {
 		readonly phase: PostRenderPhase;
 	}) => void;
 }
-
 interface PendingAnimationFrame {
 	readonly callback: FrameRequestCallback;
 	readonly frameHandle: number;
 }
-
 describe('BridgeCodeViewPanel render fulfillment', () => {
 	test('keeps Pierre-retained readable content when the same semantic item is selected without a keyed frontend copy', async () => {
 		// Arrange: Pierre already owns a hydrated visible item, while the controller-facing keyed
@@ -198,7 +198,11 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 		// Arrange: hold Pierre's public post-render callback so every fulfillment transition is
 		// deterministic, while retaining a real mounted CodeView and its public readback APIs.
 		const mountedCodeView: { current: CodeView | null } = { current: null };
-		const capturedPostRenders: CapturedBridgeCodeViewPostRender[] = [];
+		const capturedPostRenderLog = createExactItemReceiptLog<
+			CodeViewItem,
+			CapturedBridgeCodeViewPostRender
+		>();
+		const capturedPostRenders = capturedPostRenderLog.receipts;
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
 		const originalSetup = CodeView.prototype.setup;
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
@@ -221,7 +225,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 					captureBridgeCodeViewPostRender({
 						callback: onPostRender,
 						callbackArguments,
-						invocations: capturedPostRenders,
+						log: capturedPostRenderLog,
 					});
 				},
 			} satisfies CodeViewOptions<undefined>;
@@ -337,10 +341,9 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 						),
 				'Expected Pierre rendered membership to carry the exact first final Review object.',
 			);
-			await settleBridgeCodeViewState(
-				(): boolean => hasPostRenderForItem(capturedPostRenders, firstFinalItem),
-				'Expected Pierre onPostRender callback for the exact first final Review object.',
-			);
+			await act(async (): Promise<void> => {
+				await capturedPostRenderLog.waitForItem(firstFinalItem);
+			});
 			await settleBridgeCodeViewState(
 				(): boolean =>
 					document.querySelector('[data-testid="bridge-code-view-header-metadata"]') !== null,
@@ -640,10 +643,9 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 						),
 				'Expected Pierre rendered membership to carry the exact second final Review object.',
 			);
-			await settleBridgeCodeViewState(
-				(): boolean => hasPostRenderForItem(capturedPostRenders, secondFinalItem),
-				'Expected Pierre onPostRender callback for the exact second final Review object.',
-			);
+			await act(async (): Promise<void> => {
+				await capturedPostRenderLog.waitForItem(secondFinalItem);
+			});
 			const secondPostRender = requirePostRenderForItem(capturedPostRenders, secondFinalItem);
 			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied', 'painted', 'queued']);
 
@@ -871,13 +873,6 @@ function requirePostRenderForItem(
 	return invocation;
 }
 
-function hasPostRenderForItem(
-	invocations: readonly CapturedBridgeCodeViewPostRender[],
-	item: CodeViewItem,
-): boolean {
-	return invocations.some((candidate): boolean => candidate.contextItem === item);
-}
-
 function postRenderCountForItem(
 	invocations: readonly CapturedBridgeCodeViewPostRender[],
 	item: CodeViewItem,
@@ -888,12 +883,12 @@ function postRenderCountForItem(
 function captureBridgeCodeViewPostRender(props: {
 	readonly callback: NonNullable<CodeViewOptions<undefined>['onPostRender']>;
 	readonly callbackArguments: readonly unknown[];
-	readonly invocations: CapturedBridgeCodeViewPostRender[];
+	readonly log: ExactItemReceiptLog<CodeViewItem, CapturedBridgeCodeViewPostRender>;
 }): void {
 	const callbackArguments = requireBridgeCodeViewPostRenderArguments(props.callbackArguments);
 	const capturedContextItem = callbackArguments.context.item;
 	const capturedContext = { ...callbackArguments.context, item: capturedContextItem };
-	props.invocations.push({
+	props.log.record({
 		contextItem: capturedContextItem,
 		invoke: (invokeProps): void => {
 			Reflect.apply(props.callback, undefined, [
