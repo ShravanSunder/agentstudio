@@ -522,9 +522,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
             return
         }
         guard
-            case .loaded(let loadedTopology) = await datastore.loadRepositoryTopologySnapshot(
-                workspaceId: fixture.id
-            )
+            case .loaded(let loadedTopology) = await datastore.loadRepositoryTopologySnapshot()
         else {
             Issue.record("Strict SQLite topology reload did not return the materialized fixture")
             return

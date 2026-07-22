@@ -987,10 +987,15 @@ final class WorkspaceStoreTests {
     }
 
     @Test
-    func test_repositoryTopologyStore_isDirty_setOnAcceptedTopologyReplacement() async {
+    func repositoryTopologyStoreAutosavesWithoutWorkspaceActivation() async {
         let topologyAtom = RepositoryTopologyAtom()
-        let topologyStore = RepositoryTopologyStore(atom: topologyAtom)
-        await topologyStore.restoreAsync(for: UUID())
+        let clock = TestPushClock()
+        let topologyStore = RepositoryTopologyStore(
+            atom: topologyAtom,
+            sqliteDatastore: sqliteDatastore,
+            persistDebounceDuration: .milliseconds(10),
+            clock: clock
+        )
         topologyStore.startObserving()
         #expect(!topologyStore.isDirty)
 
@@ -1020,13 +1025,29 @@ final class WorkspaceStoreTests {
             Issue.record("expected valid repository topology fixture")
             return
         }
+        let nextSleepGeneration = clock.scheduledSleepGeneration
         topologyAtom.replaceTopology(replacement)
+        await clock.waitForPendingSleepGeneration(nextSleepGeneration)
 
         for _ in 0..<10 where !topologyStore.isDirty {
             await Task.yield()
         }
 
         #expect(topologyStore.isDirty)
+        clock.advance(by: .milliseconds(10))
+
+        var restoredRepositoryIds: [UUID] = []
+        for _ in 0..<80 where restoredRepositoryIds != [repositoryID] {
+            if case .loaded(let snapshot) = await sqliteDatastore.loadRepositoryTopologySnapshot() {
+                restoredRepositoryIds = snapshot.repos.map(\.id)
+            }
+            if restoredRepositoryIds != [repositoryID] {
+                await Task.yield()
+            }
+        }
+
+        #expect(restoredRepositoryIds == [repositoryID])
+        #expect(!topologyStore.isDirty)
     }
 
     @Test

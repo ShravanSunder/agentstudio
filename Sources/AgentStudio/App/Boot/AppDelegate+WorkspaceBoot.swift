@@ -149,10 +149,7 @@ extension AppDelegate {
         )
         let topologyStore = RepositoryTopologyStore(
             atom: atomStore.workspaceRepositoryTopology,
-            sqliteDatastore: sqliteDatastore,
-            recoveryReporter: { [weak self] event in
-                self?.recordPersistenceRecovery(event)
-            }
+            sqliteDatastore: sqliteDatastore
         )
         repositoryTopologyStore = topologyStore
         store = WorkspaceStore(

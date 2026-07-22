@@ -263,8 +263,7 @@ actor WorkspaceSQLiteDatastore {
         }
     }
 
-    func loadRepositoryTopologySnapshot(workspaceId: UUID) async -> RepositoryTopologyLoadResult {
-        _ = workspaceId
+    func loadRepositoryTopologySnapshot() async -> RepositoryTopologyLoadResult {
         do {
             let backend = try resolvedBackend()
             return .loaded(try backend.fetchRepositoryTopologySnapshot())

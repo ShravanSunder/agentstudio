@@ -10,11 +10,8 @@ final class RepositoryTopologyStore {
     private let sqliteDatastore: WorkspaceSQLiteDatastore?
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
-    private let recoveryReporter: PersistenceRecoveryReporter?
     private var debouncedSaveTask: Task<Void, Never>?
     private var isObservingTopology = false
-    private var isRestoringState = false
-    private var activeWorkspaceId: UUID?
     private(set) var isDirty = false
 
     var isAutosaveObservationActive: Bool {
@@ -25,42 +22,19 @@ final class RepositoryTopologyStore {
         atom: RepositoryTopologyAtom,
         sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
-        clock: (any Clock<Duration> & Sendable)? = nil,
-        recoveryReporter: PersistenceRecoveryReporter? = nil
+        clock: (any Clock<Duration> & Sendable)? = nil
     ) {
         self.atom = atom
         self.sqliteDatastore = sqliteDatastore
         self.persistDebounceDuration = persistDebounceDuration
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
-        self.recoveryReporter = recoveryReporter
     }
 
     func startObserving() {
         observeTopology()
     }
 
-    func restoreAsync(for workspaceId: UUID) async {
-        debouncedSaveTask?.cancel()
-        debouncedSaveTask = nil
-        activeWorkspaceId = workspaceId
-        guard let sqliteDatastore else { return }
-        switch await sqliteDatastore.loadRepositoryTopologySnapshot(workspaceId: workspaceId) {
-        case .loaded(let snapshot):
-            isRestoringState = true
-            WorkspacePersistenceTransformer.hydrateRepositoryTopology(snapshot, repositoryTopologyAtom: atom)
-            isRestoringState = false
-        case .uninitialized:
-            break
-        case .unavailable(let failure):
-            repositoryTopologyStoreLogger.error(
-                "Failed to restore repository topology: \(failure.description, privacy: .public)"
-            )
-            recoveryReporter?(.init(store: .workspace, workspaceId: workspaceId, recovery: .resetToDefaults))
-        }
-    }
-
-    func flushAsync(for workspaceId: UUID) async throws {
-        activeWorkspaceId = workspaceId
+    func flushAsync() async throws {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         try await persistNow()
@@ -76,17 +50,14 @@ final class RepositoryTopologyStore {
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                let shouldIgnore = self.isRestoringState
                 self.isObservingTopology = false
                 self.observeTopology()
-                guard !shouldIgnore else { return }
                 self.schedulePersist()
             }
         }
     }
 
     private func schedulePersist() {
-        guard activeWorkspaceId != nil else { return }
         isDirty = true
         debouncedSaveTask?.cancel()
         let delay = self.delay

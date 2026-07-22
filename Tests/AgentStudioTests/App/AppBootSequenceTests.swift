@@ -94,7 +94,9 @@ struct AppBootSequenceTests {
         )
 
         #expect(appDelegateSource.contains("workspaceSettingsStore = WorkspaceSettingsStore("))
-        #expect(appDelegateSource.contains("workspaceSettingsStore.restore(for: store.identityAtom.workspaceId)"))
+        #expect(
+            appDelegateSource.contains("await workspaceSettingsStore.restoreAsync(for: store.identityAtom.workspaceId)")
+        )
     }
 
     @Test("boot injects SQLite datastore into canonical stores")
@@ -113,7 +115,8 @@ struct AppBootSequenceTests {
 
         #expect(!appDelegateSource.contains("traceRuntime = .fromEnvironment()"))
         #expect(appDelegateSource.contains("makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)"))
-        #expect(appDelegateSource.contains("sqliteDatastore: workspaceSQLiteDatastore"))
+        #expect(appDelegateSource.contains("workspaceSQLiteDatastore = sqliteDatastore"))
+        #expect(appDelegateSource.contains("sqliteDatastore: sqliteDatastore"))
         #expect(appDelegateSource.contains("await store.loadCanonicalComposition()"))
         #expect(appDelegateSource.contains("await repoCacheStore.restoreAsync("))
         #expect(appDelegateSource.contains("await sidebarCacheStore.restoreAsync("))
@@ -191,26 +194,34 @@ struct AppBootSequenceTests {
         #expect(!workspaceBootSource.contains("WorkspaceLegacyArchiveCoordinator"))
     }
 
-    @Test("repository topology restore is independent until initial topology replay")
-    func repositoryTopologyRestoreIsIndependentUntilInitialTopologyReplay() throws {
+    @Test("authoritative core load installs topology before deferred topology replay")
+    func authoritativeCoreLoadInstallsTopologyBeforeDeferredTopologyReplay() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let workspaceBootSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
             encoding: .utf8
         )
-        let topologyTaskCreation = try #require(
-            workspaceBootSource.range(of: "repositoryTopologyLoadTask = Task { @MainActor in")
+        let workspaceStoreSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift"
+            ),
+            encoding: .utf8
         )
-        let topologyTaskAwait = try #require(
-            workspaceBootSource.range(of: "await repositoryTopologyLoadTask.value")
+        let canonicalLoad = try #require(
+            workspaceBootSource.range(of: "switch await store.loadCanonicalComposition()")
+        )
+        let deferredTopologyTask = try #require(
+            workspaceBootSource.range(of: "initialTopologySyncTask = Task { @MainActor [weak self] in")
         )
         let initialReplay = try #require(
             workspaceBootSource.range(of: "await self.replayBootTopology(")
         )
 
-        #expect(topologyTaskCreation.lowerBound < topologyTaskAwait.lowerBound)
-        #expect(topologyTaskAwait.lowerBound < initialReplay.lowerBound)
-        #expect(workspaceBootSource.components(separatedBy: "await repositoryTopologyLoadTask.value").count == 2)
+        #expect(workspaceStoreSource.contains("loadAuthoritativeCoreSnapshot()"))
+        #expect(workspaceStoreSource.contains("applyPreparedRepositoryTopology("))
+        #expect(canonicalLoad.lowerBound < deferredTopologyTask.lowerBound)
+        #expect(deferredTopologyTask.lowerBound < initialReplay.lowerBound)
+        #expect(!workspaceBootSource.contains("repositoryTopologyLoadTask"))
     }
 
     @Test("initial topology trigger starts the persistence observation barrier")

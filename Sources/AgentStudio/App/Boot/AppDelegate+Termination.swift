@@ -27,7 +27,7 @@ extension AppDelegate {
         }
 
         do {
-            try await repositoryTopologyStore.flushAsync(for: store.identityAtom.workspaceId)
+            try await repositoryTopologyStore.flushAsync()
         } catch {
             appLogger.warning("Repository topology flush failed at termination: \(error.localizedDescription)")
         }
