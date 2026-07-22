@@ -4,9 +4,9 @@ Status: reviewed and ready for `implementation-execute-plan`
 
 Accepted source: `../2026-07-21-persistence-ownership-hard-cut.md`
 
-Accepted source SHA-256: `ab9d72bade8f5d5fbbb0ea5d55321c93f99bb60cbbc85347fa6b77a3e07b6204`
+Accepted source SHA-256: `41d430167881afc7b7217397de6323244fc54907ef832613548e411e3eec75c7`
 
-Source coverage: `912/912` lines
+Source coverage: `937/937` lines
 
 ## Worker contract
 

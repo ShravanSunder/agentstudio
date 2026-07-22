@@ -29,17 +29,63 @@ struct WorkspaceLocalSchemaContractTests {
         )
 
         #expect(claimLaneStorageValues == SQLiteInboxNotificationClaimStorage.allLaneStorageValues)
-        #expect(
-            SQLiteInboxNotificationClaimStorage.allLaneSQLValues
-                == "'activity', 'actionNeeded', 'safety', 'settledAgent'")
         #expect(mergeableLaneStorageValues == SQLiteInboxNotificationClaimStorage.mergeableLaneStorageValues)
-        #expect(
-            SQLiteInboxNotificationClaimStorage.mergeableLaneSQLValues
-                == "'activity', 'actionNeeded', 'settledAgent'")
     }
 
-    @Test("local lookup indexes are present")
-    func localLookupIndexesArePresent() throws {
+    @Test("malformed recent targets disappear and valid typed targets survive")
+    func malformedRecentTargetsDisappearAndValidTypedTargetsSurvive() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+        let workspaceId = UUID()
+        let repository = WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: databaseQueue)
+        let validTarget = RecentWorkspaceTarget.forCwd(
+            URL(fileURLWithPath: "/tmp/valid"),
+            lastOpenedAt: Date(timeIntervalSince1970: 2)
+        )
+        try repository.replaceRecentTargets([validTarget], updatedAt: Date(timeIntervalSince1970: 2))
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO local_recent_workspace_target(
+                        workspace_id, id, path, display_title, subtitle, repo_id, worktree_id, kind, last_opened_at
+                    ) VALUES (?, 'malformed', '/tmp/malformed', 'Malformed', '', NULL, NULL, 'worktree', 1)
+                    """,
+                arguments: [workspaceId.uuidString]
+            )
+        }
+
+        #expect(try repository.fetchRecentTargets() == [validTarget])
+    }
+
+    @Test("typed preferences round trip and malformed rows use defaults")
+    func typedPreferencesRoundTripAndMalformedRowsUseDefaults() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+        let workspaceId = UUID()
+        let repository = WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: databaseQueue)
+        let repoPreferences = WorkspaceLocalRepository.RepoExplorerPreferencesRecord(
+            groupingMode: .pane,
+            sortOrder: .descending,
+            visibilityMode: .favoritesOnly
+        )
+        try repository.replaceRepoExplorerPreferences(repoPreferences, updatedAt: Date(timeIntervalSince1970: 1))
+        #expect(try repository.fetchRepoExplorerPreferences() == repoPreferences)
+
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    UPDATE local_repo_explorer_preferences
+                    SET grouping_mode = 'unsupported'
+                    WHERE workspace_id = ?
+                    """,
+                arguments: [workspaceId.uuidString]
+            )
+        }
+        #expect(try repository.fetchRepoExplorerPreferences() == .default)
+    }
+
+    @Test("local lookup indexes exactly match the target contract")
+    func localLookupIndexesExactlyMatchTheTargetContract() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrate(databaseQueue)
 
@@ -57,32 +103,25 @@ struct WorkspaceLocalSchemaContractTests {
         }
 
         let expectedIndexNames: Set<String> = [
-            "idx_local_tab_cursor_workspace_id",
-            "idx_local_arrangement_cursor_workspace_id",
-            "idx_local_drawer_cursor_workspace_id",
-            "idx_local_drawer_cursor_one_expanded_per_workspace",
-            "idx_local_arrangement_drawer_cursor_workspace_id",
-            "idx_local_arrangement_drawer_cursor_drawer_id",
-            "idx_local_recent_workspace_target_workspace_id",
-            "idx_local_persistence_lane_marker_workspace_id",
-            "idx_local_notification_inbox_item_workspace_timestamp",
-            "idx_local_notification_inbox_item_pane_id",
-            "idx_local_notification_inbox_item_tab_id",
-            "idx_local_notification_inbox_item_repo_id",
-            "idx_local_notification_inbox_item_worktree_id",
-            "idx_local_notification_inbox_item_claim_exact",
-            "idx_local_notification_inbox_item_claim_session",
-            "idx_cache_repo_enrichment_workspace_id",
-            "idx_cache_worktree_enrichment_workspace_id",
-            "idx_cache_worktree_enrichment_repo_id",
-            "idx_cache_pull_request_count_workspace_id",
-            "idx_cache_pull_request_count_repo_id",
-            "idx_cache_notification_count_workspace_id",
-            "idx_cache_notification_count_repo_id",
+            "idx_local_tab_cursor_workspace",
+            "idx_local_arrangement_cursor_workspace",
+            "idx_local_drawer_cursor_workspace",
+            "idx_local_drawer_one_expanded_per_workspace",
+            "idx_local_arrangement_drawer_cursor_workspace",
+            "idx_local_recent_target_workspace_time",
+            "idx_notification_workspace_timestamp",
+            "idx_notification_workspace_pane",
+            "idx_notification_workspace_tab",
+            "idx_notification_workspace_repo",
+            "idx_notification_workspace_worktree",
+            "idx_notification_claim_exact",
+            "idx_notification_claim_session",
+            "idx_cache_worktree_repo",
+            "idx_cache_pull_request_repo",
         ]
 
-        #expect(expectedIndexNames.isSubset(of: indexNames))
-        #expect(!indexNames.contains("idx_local_notification_inbox_item_claim_key"))
+        let productIndexNames = Set(indexNames.filter { !$0.hasPrefix("sqlite_autoindex_") })
+        #expect(productIndexNames == expectedIndexNames)
     }
 
     @Test("drawer expansion switch must collapse before expanding replacement")

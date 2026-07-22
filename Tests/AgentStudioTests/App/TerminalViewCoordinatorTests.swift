@@ -21,7 +21,6 @@ struct WorkspaceSurfaceCoordinatorViewFactoryTests {
     private func makeHarness() -> WorkspaceSurfaceCoordinatorHarness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-coordinator-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)

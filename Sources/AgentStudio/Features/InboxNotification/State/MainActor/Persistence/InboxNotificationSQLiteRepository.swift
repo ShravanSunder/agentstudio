@@ -22,29 +22,6 @@ struct InboxNotificationSQLiteRepository {
         notifications: [InboxNotification],
         collapsedGroups: Set<InboxNotificationGroupKey>
     ) throws {
-        try replaceSnapshot(
-            notifications: notifications,
-            collapsedGroups: collapsedGroups,
-            markLegacyImport: false
-        )
-    }
-
-    func replaceLegacyImportSnapshot(
-        notifications: [InboxNotification],
-        collapsedGroups: Set<InboxNotificationGroupKey>
-    ) throws {
-        try replaceSnapshot(
-            notifications: notifications,
-            collapsedGroups: collapsedGroups,
-            markLegacyImport: true
-        )
-    }
-
-    private func replaceSnapshot(
-        notifications: [InboxNotification],
-        collapsedGroups: Set<InboxNotificationGroupKey>,
-        markLegacyImport: Bool
-    ) throws {
         try databaseWriter.write { database in
             try deleteNotificationRows(database)
             for notification in notifications {
@@ -52,10 +29,6 @@ struct InboxNotificationSQLiteRepository {
             }
             _ = try enforceRetentionCap(database)
             try replaceCollapsedGroupRows(database, groups: collapsedGroups)
-            try markPersistedState(database)
-            if markLegacyImport {
-                try markLegacyImportMaterialized(database)
-            }
         }
     }
 
@@ -66,20 +39,18 @@ struct InboxNotificationSQLiteRepository {
                 try upsertNotificationRow(database, notification: notification)
             }
             _ = try enforceRetentionCap(database)
-            try markPersistedState(database)
         }
     }
 
     func fetchNotifications() throws -> [InboxNotification] {
         try databaseWriter.read { database in
-            try fetchNotificationRows(database).map(InboxNotificationSQLiteCodecs.notification(from:))
+            try fetchNotificationRows(database).compactMap { try? InboxNotificationSQLiteCodecs.notification(from: $0) }
         }
     }
 
     func append(_ notification: InboxNotification) throws -> RetentionOutcome {
         try databaseWriter.write { database in
             try upsertNotificationRow(database, notification: notification)
-            try markPersistedState(database)
             return try enforceRetentionCap(database)
         }
     }
@@ -92,7 +63,6 @@ struct InboxNotificationSQLiteRepository {
             if let existing = try coalescenceCandidate(database, for: notification) {
                 let replacement = merge(existing, notification)
                 try upsertNotificationRow(database, notification: replacement)
-                try markPersistedState(database)
                 return MutationOutcome(
                     notificationId: replacement.id,
                     didCoalesce: true,
@@ -101,7 +71,6 @@ struct InboxNotificationSQLiteRepository {
             }
 
             try upsertNotificationRow(database, notification: notification)
-            try markPersistedState(database)
             return MutationOutcome(
                 notificationId: notification.id,
                 didCoalesce: false,
@@ -225,21 +194,18 @@ struct InboxNotificationSQLiteRepository {
                     """,
                 arguments: [workspaceId.uuidString]
             )
-            try markPersistedState(database)
         }
     }
 
     func clearAll() throws {
         try databaseWriter.write { database in
             try deleteNotificationRows(database)
-            try markPersistedState(database)
         }
     }
 
     func replaceCollapsedGroups(_ groups: Set<InboxNotificationGroupKey>) throws {
         try databaseWriter.write { database in
             try replaceCollapsedGroupRows(database, groups: groups)
-            try markPersistedState(database)
         }
     }
 
@@ -259,20 +225,6 @@ struct InboxNotificationSQLiteRepository {
             groupKeys.map { rawValue in InboxNotificationGroupKey(rawValue) }
         )
         return collapsedGroups
-    }
-
-    func hasPersistedState() throws -> Bool {
-        try databaseWriter.read { database in
-            if try persistenceLaneExists(database) { return true }
-            if try rowExists(database, table: "local_notification_inbox_item") { return true }
-            return try rowExists(database, table: "local_notification_inbox_collapsed_group")
-        }
-    }
-
-    func hasMaterializedLegacyImport() throws -> Bool {
-        try databaseWriter.read { database in
-            try persistenceLaneExists(database, lane: Self.legacyImportPersistenceLane)
-        }
     }
 
     private func updateNotification(id: UUID, setClause: String) throws -> Bool {
@@ -353,7 +305,7 @@ struct InboxNotificationSQLiteRepository {
                 claimKey.sessionId?.uuidString,
             ]
         )
-        let candidates = try rows.map(InboxNotificationSQLiteCodecs.notification(from:))
+        let candidates = rows.compactMap { try? InboxNotificationSQLiteCodecs.notification(from: $0) }
         return candidates.first { existing in
             existing.claimKey == claimKey
                 && canCoalesceClaim(existing: existing, incoming: incoming)
@@ -374,7 +326,6 @@ struct InboxNotificationSQLiteRepository {
                 WHERE workspace_id = ?
                     AND claim_pane_id = ?
                     AND claim_session_id = ?
-                    AND claim_lane IN (\(SQLiteInboxNotificationClaimStorage.mergeableLaneSQLValues))
                 ORDER BY rowid
                 """,
             arguments: [
@@ -383,7 +334,7 @@ struct InboxNotificationSQLiteRepository {
                 sessionId.uuidString,
             ]
         )
-        let candidates = try rows.map(InboxNotificationSQLiteCodecs.notification(from:))
+        let candidates = rows.compactMap { try? InboxNotificationSQLiteCodecs.notification(from: $0) }
         return candidates.first { existing in
             guard let existingClaimKey = existing.claimKey else { return false }
             return existingClaimKey.paneId == claimKey.paneId
@@ -493,7 +444,7 @@ struct InboxNotificationSQLiteRepository {
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
-                ON CONFLICT(id) DO UPDATE SET
+                ON CONFLICT(workspace_id, id) DO UPDATE SET
                     workspace_id = excluded.workspace_id,
                     timestamp = excluded.timestamp,
                     kind = excluded.kind,
@@ -552,7 +503,7 @@ struct InboxNotificationSQLiteRepository {
         guard overflow > 0 else { return .empty }
 
         let notifications = try fetchNotificationRows(database)
-            .map(InboxNotificationSQLiteCodecs.notification(from:))
+            .compactMap { try? InboxNotificationSQLiteCodecs.notification(from: $0) }
         let droppedNotificationIds = InboxNotificationRetentionPolicy.droppedNotificationIds(
             from: notifications,
             overflow: overflow
@@ -575,60 +526,6 @@ struct InboxNotificationSQLiteRepository {
         )
     }
 
-    private func markPersistedState(_ database: Database) throws {
-        try markPersistenceLane(database, lane: Self.persistenceLane)
-    }
-
-    private func markLegacyImportMaterialized(_ database: Database) throws {
-        try markPersistenceLane(database, lane: Self.legacyImportPersistenceLane)
-    }
-
-    private func markPersistenceLane(_ database: Database, lane: String) throws {
-        try database.execute(
-            sql: """
-                INSERT INTO local_persistence_lane_marker(workspace_id, lane, updated_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(workspace_id, lane) DO UPDATE SET
-                    updated_at = excluded.updated_at
-                """,
-            arguments: [
-                workspaceId.uuidString,
-                lane,
-                Date().timeIntervalSince1970,
-            ]
-        )
-    }
-
-    private func persistenceLaneExists(_ database: Database) throws -> Bool {
-        try persistenceLaneExists(database, lane: Self.persistenceLane)
-    }
-
-    private func persistenceLaneExists(_ database: Database, lane: String) throws -> Bool {
-        let count =
-            try Int.fetchOne(
-                database,
-                sql: """
-                    SELECT count(*)
-                    FROM local_persistence_lane_marker
-                    WHERE workspace_id = ? AND lane = ?
-                    """,
-                arguments: [workspaceId.uuidString, lane]
-            ) ?? 0
-        return count > 0
-    }
-
-    private func rowExists(_ database: Database, table: String) throws -> Bool {
-        let count =
-            try Int.fetchOne(
-                database,
-                sql: "SELECT count(*) FROM \(table) WHERE workspace_id = ? LIMIT 1",
-                arguments: [workspaceId.uuidString]
-            ) ?? 0
-        return count > 0
-    }
-
-    private static let persistenceLane = "notification_inbox"
-    private static let legacyImportPersistenceLane = "notification_inbox_legacy_import"
 }
 
 enum InboxNotificationSQLiteRepositoryError: Error, Equatable {

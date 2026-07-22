@@ -89,53 +89,37 @@ extension WorkspaceCoreRepository {
         }
     }
 
-    func replaceRepositoryTopology(
-        workspaceId: UUID,
-        topology: RepositoryTopologyRecord
-    ) throws {
+    func replaceRepositoryTopology(_ topology: RepositoryTopologyRecord) throws {
         try databaseWriter.write { database in
-            try requireWorkspaceExists(database, id: workspaceId)
-            try validateTopology(topology, for: workspaceId)
-            try replaceRepositoryTopologyRows(database, workspaceId: workspaceId, topology: topology)
+            try validateTopology(topology)
+            try replaceRepositoryTopologyRows(database, topology: topology)
         }
     }
 
-    func fetchRepositoryTopology(workspaceId: UUID) throws -> RepositoryTopologyRecord {
+    func fetchRepositoryTopology() throws -> RepositoryTopologyRecord {
         try databaseWriter.read { database in
-            try requireWorkspaceExists(database, id: workspaceId)
-            let watchedPaths = try fetchWatchedPathRecords(database, workspaceId: workspaceId)
-            let repos = try fetchRepoRecords(database, workspaceId: workspaceId)
-            let unavailableRepoIds = try fetchUnavailableRepoIds(database, workspaceId: workspaceId)
-            return .init(
-                watchedPaths: watchedPaths,
-                repos: repos,
-                unavailableRepoIds: unavailableRepoIds
-            )
+            try readRepositoryTopology(database)
         }
     }
 
-    func setUnavailableRepoIds(_ repoIds: Set<UUID>, workspaceId: UUID) throws {
+    func setUnavailableRepoIds(_ repoIds: Set<UUID>) throws {
         try databaseWriter.write { database in
-            try requireWorkspaceExists(database, id: workspaceId)
             for repoId in repoIds {
-                try requireRepoExists(database, repoId: repoId, workspaceId: workspaceId)
+                try requireRepoExists(database, repoId: repoId)
             }
-            try replaceUnavailableRepoRows(database, workspaceId: workspaceId, repoIds: repoIds)
+            try replaceUnavailableRepoRows(database, repoIds: repoIds)
         }
     }
 
     func reconcileRepoWorktrees(
-        workspaceId: UUID,
         repoId: UUID,
         worktrees: [WorktreeRecord]
     ) throws {
         try databaseWriter.write { database in
-            try requireWorkspaceExists(database, id: workspaceId)
-            try requireRepoExists(database, repoId: repoId, workspaceId: workspaceId)
+            try requireRepoExists(database, repoId: repoId)
             try validateWorktrees(worktrees, repoId: repoId)
             try reconcileRepoWorktreeRows(
                 database,
-                workspaceId: workspaceId,
                 repoId: repoId,
                 worktrees: worktrees
             )
@@ -143,9 +127,21 @@ extension WorkspaceCoreRepository {
     }
 }
 
+func readRepositoryTopology(
+    _ database: Database
+) throws -> WorkspaceCoreRepository.RepositoryTopologyRecord {
+    let watchedPaths = try fetchWatchedPathRecords(database)
+    let repos = try fetchRepoRecords(database)
+    let unavailableRepoIds = try fetchUnavailableRepoIds(database)
+    return .init(
+        watchedPaths: watchedPaths,
+        repos: repos,
+        unavailableRepoIds: unavailableRepoIds
+    )
+}
+
 func validateTopology(
-    _ topology: WorkspaceCoreRepository.RepositoryTopologyRecord,
-    for _: UUID
+    _ topology: WorkspaceCoreRepository.RepositoryTopologyRecord
 ) throws {
     let repoIds = Set(topology.repos.map(\.id))
     try validateUniqueStableKeys(
@@ -228,41 +224,31 @@ private func validateUniqueStableKeys(
     }
 }
 
-private func fetchWatchedPathRecords(
-    _ database: Database,
-    workspaceId: UUID
-) throws -> [WorkspaceCoreRepository.WatchedPathRecord] {
+private func fetchWatchedPathRecords(_ database: Database) throws -> [WorkspaceCoreRepository.WatchedPathRecord] {
     let rows = try Row.fetchAll(
         database,
         sql: """
             SELECT id, path, stable_key, added_at
             FROM watched_path
-            WHERE workspace_id = ?
             ORDER BY added_at ASC, id ASC
-            """,
-        arguments: [workspaceId.uuidString]
+            """
     )
     return try rows.map(decodeWatchedPathRecord)
 }
 
-private func fetchRepoRecords(
-    _ database: Database,
-    workspaceId: UUID
-) throws -> [WorkspaceCoreRepository.RepoRecord] {
+private func fetchRepoRecords(_ database: Database) throws -> [WorkspaceCoreRepository.RepoRecord] {
     let rows = try Row.fetchAll(
         database,
         sql: """
             SELECT id, name, repo_path, stable_key, created_at, is_favorite, note
             FROM repo
-            WHERE workspace_id = ?
             ORDER BY created_at ASC, id ASC
-            """,
-        arguments: [workspaceId.uuidString]
+            """
     )
     return try rows.map { row in
         let repo = try decodeRepoRecord(row, worktrees: [])
-        let worktrees = try fetchWorktreeRecords(database, workspaceId: workspaceId, repoId: repo.id)
-        let tags = try fetchRepoTags(database, workspaceId: workspaceId, repoId: repo.id)
+        let worktrees = try fetchWorktreeRecords(database, repoId: repo.id)
+        let tags = try fetchRepoTags(database, repoId: repo.id)
         return .init(
             id: repo.id,
             name: repo.name,
@@ -279,7 +265,6 @@ private func fetchRepoRecords(
 
 private func fetchWorktreeRecords(
     _ database: Database,
-    workspaceId: UUID,
     repoId: UUID
 ) throws -> [WorkspaceCoreRepository.WorktreeRecord] {
     let rows = try Row.fetchAll(
@@ -287,42 +272,35 @@ private func fetchWorktreeRecords(
         sql: """
             SELECT id, repo_id, name, path, stable_key, is_main_worktree, note
             FROM worktree
-            WHERE workspace_id = ?
-            AND repo_id = ?
+            WHERE repo_id = ?
             ORDER BY is_main_worktree DESC, name ASC, id ASC
             """,
-        arguments: [
-            workspaceId.uuidString,
-            repoId.uuidString,
-        ]
+        arguments: [repoId.uuidString]
     )
     return try rows.map(decodeWorktreeRecord)
 }
 
-private func fetchRepoTags(_ database: Database, workspaceId: UUID, repoId: UUID) throws -> [String] {
+private func fetchRepoTags(_ database: Database, repoId: UUID) throws -> [String] {
     try String.fetchAll(
         database,
         sql: """
             SELECT tag
             FROM repo_tag
-            WHERE workspace_id = ?
-            AND repo_id = ?
+            WHERE repo_id = ?
             ORDER BY tag ASC
             """,
-        arguments: [workspaceId.uuidString, repoId.uuidString]
+        arguments: [repoId.uuidString]
     )
 }
 
-private func fetchUnavailableRepoIds(_ database: Database, workspaceId: UUID) throws -> Set<UUID> {
+private func fetchUnavailableRepoIds(_ database: Database) throws -> Set<UUID> {
     let idStrings = try String.fetchAll(
         database,
         sql: """
             SELECT repo_id
             FROM unavailable_repo
-            WHERE workspace_id = ?
             ORDER BY repo_id ASC
-            """,
-        arguments: [workspaceId.uuidString]
+            """
     )
     return try Set(
         idStrings.map { idString in
@@ -402,27 +380,22 @@ private func decodeWorktreeRecord(_ row: Row) throws -> WorkspaceCoreRepository.
 
 func requireRepoExists(
     _ database: Database,
-    repoId: UUID,
-    workspaceId: UUID
+    repoId: UUID
 ) throws {
-    guard try repoExists(database, repoId: repoId, workspaceId: workspaceId) else {
-        throw WorkspaceCoreRepositoryError.repoNotFoundInWorkspace(repoId, workspaceId)
+    guard try repoExists(database, repoId: repoId) else {
+        throw WorkspaceCoreRepositoryError.repoNotFound(repoId)
     }
 }
 
-private func repoExists(_ database: Database, repoId: UUID, workspaceId: UUID) throws -> Bool {
+private func repoExists(_ database: Database, repoId: UUID) throws -> Bool {
     let matchingCount = try Int.fetchOne(
         database,
         sql: """
             SELECT count(*)
             FROM repo
             WHERE id = ?
-            AND workspace_id = ?
             """,
-        arguments: [
-            repoId.uuidString,
-            workspaceId.uuidString,
-        ]
+        arguments: [repoId.uuidString]
     )
     return matchingCount == 1
 }

@@ -7,8 +7,8 @@ import Testing
 @MainActor
 @Suite("Workspace SQLite save coordinator", .serialized)
 struct WorkspaceSQLiteSaveCoordinatorTests {
-    @Test("valid save writes the exact current bundle")
-    func validSaveWritesExactCurrentBundle() async throws {
+    @Test("valid save writes the exact current composition bundle")
+    func validSaveWritesExactCurrentCompositionBundle() async throws {
         // Arrange
         let fixture = try makeFixture()
         let persistedAt = Date(timeIntervalSince1970: 1_784_000_000)
@@ -17,9 +17,6 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
         // Act
         let saved = try await fixture.coordinator.save(persistedAt: persistedAt)
         let loadedWorkspace = await fixture.datastore.loadWorkspaceSnapshot()
-        let loadedTopology = await fixture.datastore.loadRepositoryTopologySnapshot(
-            workspaceId: fixture.workspaceID
-        )
 
         // Assert
         #expect(saved == expected)
@@ -27,13 +24,41 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
             Issue.record("Expected saved workspace to load")
             return
         }
-        guard case .loaded(let topology) = loadedTopology else {
-            Issue.record("Expected saved repository topology to load")
+        #expect(workspace == expected.workspace)
+        #expect(await fixture.probe.events.contains(.saveWorkspaceSnapshot))
+    }
+
+    @Test("topology changes cannot change captured composition")
+    func topologyChangesCannotChangeCapturedComposition() throws {
+        // Arrange
+        let fixture = try makeFixture()
+        let persistedAt = Date(timeIntervalSince1970: 1_784_000_003)
+        let beforeTopologyChange = fixture.coordinator.captureCurrentSaveBundle(
+            persistedAt: persistedAt
+        )
+
+        // Act
+        let preparation = RepositoryTopologyReplacement.prepare(
+            repositories: [],
+            watchedPaths: [
+                WatchedPath(
+                    id: UUIDv7.generate(),
+                    path: URL(filePath: "/tmp/topology-only-change")
+                )
+            ],
+            unavailableRepositoryIDs: []
+        )
+        guard case .prepared(let replacement) = preparation else {
+            Issue.record("Expected valid topology-only replacement")
             return
         }
-        #expect(workspace == expected.workspace)
-        #expect(topology == expected.repositoryTopology)
-        #expect(await fixture.probe.events.contains(.saveWorkspaceSnapshot))
+        fixture.repositoryTopologyAtom.replaceTopology(replacement)
+        let afterTopologyChange = fixture.coordinator.captureCurrentSaveBundle(
+            persistedAt: persistedAt
+        )
+
+        // Assert
+        #expect(afterTopologyChange == beforeTopologyChange)
     }
 
     @Test("invalid current composition is rejected before datastore write")
@@ -75,7 +100,7 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
 
 @MainActor
 private struct WorkspaceSQLiteSaveCoordinatorFixture {
-    let workspaceID: UUID
+    let repositoryTopologyAtom: RepositoryTopologyAtom
     let tabLayoutAtom: WorkspaceTabLayoutAtom
     let datastore: WorkspaceSQLiteDatastore
     let coordinator: WorkspaceSQLiteSaveCoordinator
@@ -149,13 +174,12 @@ private func makeFixture() throws -> WorkspaceSQLiteSaveCoordinatorFixture {
         probe: { event in await probe.record(event) }
     )
     return WorkspaceSQLiteSaveCoordinatorFixture(
-        workspaceID: workspaceID,
+        repositoryTopologyAtom: repositoryTopologyAtom,
         tabLayoutAtom: tabLayoutAtom,
         datastore: datastore,
         coordinator: WorkspaceSQLiteSaveCoordinator(
             identityAtom: identityAtom,
             windowMemoryAtom: windowMemoryAtom,
-            repositoryTopologyAtom: repositoryTopologyAtom,
             workspacePaneAtom: workspacePaneAtom,
             workspaceTabLayoutAtom: tabLayoutAtom,
             sqliteDatastore: datastore

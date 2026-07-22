@@ -25,8 +25,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -249,8 +248,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -319,8 +317,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -363,8 +360,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
         )
 
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(watchedPaths: [], repos: [], unavailableRepoIds: [])
+            .init(watchedPaths: [], repos: [], unavailableRepoIds: [])
         )
         let restoredGraph = try repository.fetchPaneGraph(workspaceId: workspaceId)
 

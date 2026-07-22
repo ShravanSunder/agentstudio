@@ -51,6 +51,40 @@ struct WorkspaceLocalRepository: Sendable {
         )
     }
 
+    struct EditorPreferencesRecord: Equatable, Sendable {
+        var bookmarkedEditorId: String?
+
+        static let `default` = Self(bookmarkedEditorId: nil)
+    }
+
+    struct RepoExplorerPreferencesRecord: Equatable, Sendable {
+        var groupingMode: RepoExplorerGroupingMode
+        var sortOrder: RepoExplorerSortOrder
+        var visibilityMode: RepoExplorerVisibilityMode
+
+        static let `default` = Self(groupingMode: .repo, sortOrder: .default, visibilityMode: .all)
+    }
+
+    struct InboxNotificationPreferencesRecord: Equatable, Sendable {
+        var grouping: InboxNotificationGrouping
+        var sortOrder: InboxNotificationSort
+        var bellEnabled: Bool
+        var globalContentMode: InboxNotificationContentMode
+        var globalRowStateFilter: InboxNotificationRowStateFilter
+        var paneContentMode: InboxNotificationContentMode
+        var paneRowStateFilter: InboxNotificationRowStateFilter
+
+        static let `default` = Self(
+            grouping: .byTab,
+            sortOrder: .newestFirst,
+            bellEnabled: false,
+            globalContentMode: .rollUpAlerts,
+            globalRowStateFilter: .unreadOnly,
+            paneContentMode: .rollUpAlerts,
+            paneRowStateFilter: .unreadOnly
+        )
+    }
+
     let workspaceId: UUID
     let databaseWriter: any DatabaseWriter
 
@@ -87,38 +121,6 @@ struct WorkspaceLocalRepository: Sendable {
                 cursorState: cursorState,
                 updatedAt: completedAt
             )
-            try database.execute(
-                sql: """
-                    INSERT INTO local_workspace_sqlite_snapshot_status(workspace_id, completed_at)
-                    VALUES (?, ?)
-                    ON CONFLICT(workspace_id) DO UPDATE SET
-                        completed_at = excluded.completed_at
-                    """,
-                arguments: [
-                    workspaceId.uuidString,
-                    completedAt.timeIntervalSince1970,
-                ]
-            )
-        }
-    }
-
-    func fetchCompletedWorkspaceSQLiteSnapshotAt() throws -> Date? {
-        try databaseWriter.read { database in
-            guard
-                let completedAt = try Double.fetchOne(
-                    database,
-                    sql: """
-                        SELECT completed_at
-                        FROM local_workspace_sqlite_snapshot_status
-                        WHERE workspace_id = ?
-                          AND completed_at IS NOT NULL
-                        """,
-                    arguments: [workspaceId.uuidString]
-                )
-            else {
-                return nil
-            }
-            return Date(timeIntervalSince1970: completedAt)
         }
     }
 
@@ -152,8 +154,7 @@ struct WorkspaceLocalRepository: Sendable {
                 sql: """
                     INSERT INTO local_drawer_cursor(drawer_id, workspace_id, is_expanded, updated_at)
                     VALUES (?, ?, ?, ?)
-                    ON CONFLICT(drawer_id) DO UPDATE SET
-                        workspace_id = excluded.workspace_id,
+                    ON CONFLICT(workspace_id, drawer_id) DO UPDATE SET
                         is_expanded = excluded.is_expanded,
                         updated_at = excluded.updated_at
                     """,
@@ -280,6 +281,63 @@ struct WorkspaceLocalRepository: Sendable {
     func resetCacheRows() throws {
         try databaseWriter.write { database in
             try WorkspaceLocalRepositoryStorage.deleteCacheRows(database, workspaceId: workspaceId)
+        }
+    }
+
+    func replaceEditorPreferences(_ preferences: EditorPreferencesRecord, updatedAt: Date) throws {
+        try databaseWriter.write { database in
+            try WorkspaceLocalRepositoryStorage.replaceEditorPreferencesRows(
+                database,
+                workspaceId: workspaceId,
+                preferences: preferences,
+                updatedAt: updatedAt
+            )
+        }
+    }
+
+    func fetchEditorPreferences() throws -> EditorPreferencesRecord {
+        try databaseWriter.read { database in
+            try WorkspaceLocalRepositoryStorage.fetchEditorPreferencesRows(database, workspaceId: workspaceId)
+        }
+    }
+
+    func replaceRepoExplorerPreferences(_ preferences: RepoExplorerPreferencesRecord, updatedAt: Date) throws {
+        try databaseWriter.write { database in
+            try WorkspaceLocalRepositoryStorage.replaceRepoExplorerPreferencesRows(
+                database,
+                workspaceId: workspaceId,
+                preferences: preferences,
+                updatedAt: updatedAt
+            )
+        }
+    }
+
+    func fetchRepoExplorerPreferences() throws -> RepoExplorerPreferencesRecord {
+        try databaseWriter.read { database in
+            try WorkspaceLocalRepositoryStorage.fetchRepoExplorerPreferencesRows(database, workspaceId: workspaceId)
+        }
+    }
+
+    func replaceInboxNotificationPreferences(
+        _ preferences: InboxNotificationPreferencesRecord,
+        updatedAt: Date
+    ) throws {
+        try databaseWriter.write { database in
+            try WorkspaceLocalRepositoryStorage.replaceInboxNotificationPreferencesRows(
+                database,
+                workspaceId: workspaceId,
+                preferences: preferences,
+                updatedAt: updatedAt
+            )
+        }
+    }
+
+    func fetchInboxNotificationPreferences() throws -> InboxNotificationPreferencesRecord {
+        try databaseWriter.read { database in
+            try WorkspaceLocalRepositoryStorage.fetchInboxNotificationPreferencesRows(
+                database,
+                workspaceId: workspaceId
+            )
         }
     }
 }

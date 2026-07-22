@@ -8,11 +8,7 @@ import Testing
 final class WorkspaceCacheCoordinatorTests {
 
     private func makeWorkspaceStore() -> WorkspaceStore {
-        let tempDir = FileManager.default.temporaryDirectory.appending(
-            path: "workspace-cache-coordinator-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        persistor.ensureDirectory()
-        return WorkspaceStore()
+        WorkspaceStore()
     }
 
     private func makeCoordinator(

@@ -13,11 +13,6 @@ struct PaneManagementContextTests {
     @Test
     func targetPath_prefersLiveCwd_thenFallsBackToWorktreeRoot() {
         withTestAtomRegistry { atoms in
-            let persistor = WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(
-                    path: "pane-management-context-\(UUID().uuidString)")
-            )
-            persistor.ensureDirectory()
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -71,11 +66,6 @@ struct PaneManagementContextTests {
     @Test
     func targetPath_fallsBackToWorktreeRoot_whenCwdMissing() {
         withTestAtomRegistry { atoms in
-            let persistor = WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(
-                    path: "pane-management-context-\(UUID().uuidString)")
-            )
-            persistor.ensureDirectory()
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -104,11 +94,6 @@ struct PaneManagementContextTests {
     @Test
     func targetPath_isNil_whenNeitherCwdNorWorktreeExists() {
         withTestAtomRegistry { atoms in
-            let persistor = WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(
-                    path: "pane-management-context-\(UUID().uuidString)")
-            )
-            persistor.ensureDirectory()
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -130,11 +115,6 @@ struct PaneManagementContextTests {
     @Test
     func standaloneCwdUsesAbsolutePathWhenNoWorktreeContextExists() {
         withTestAtomRegistry { atoms in
-            let persistor = WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(
-                    path: "pane-management-context-\(UUID().uuidString)")
-            )
-            persistor.ensureDirectory()
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -161,11 +141,6 @@ struct PaneManagementContextTests {
     @Test
     func genericBrowserPane_hidesIdentityBlock_whenNoWorkspaceAssociationExists() {
         withTestAtomRegistry { atoms in
-            let persistor = WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(
-                    path: "pane-management-context-\(UUID().uuidString)")
-            )
-            persistor.ensureDirectory()
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -188,11 +163,6 @@ struct PaneManagementContextTests {
     @Test
     func contextualBrowserPane_showsIdentityBlock_whenWorkspaceAssociationExists() {
         withTestAtomRegistry { atoms in
-            let persistor = WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(
-                    path: "pane-management-context-\(UUID().uuidString)")
-            )
-            persistor.ensureDirectory()
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,

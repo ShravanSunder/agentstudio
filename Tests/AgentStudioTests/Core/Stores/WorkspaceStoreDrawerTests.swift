@@ -41,7 +41,6 @@ final class WorkspaceStoreDrawerTests {
         let saveCoordinator = WorkspaceSQLiteSaveCoordinator(
             identityAtom: store.identityAtom,
             windowMemoryAtom: store.windowMemoryAtom,
-            repositoryTopologyAtom: store.repositoryTopologyAtom,
             workspacePaneAtom: store.paneAtom,
             workspaceTabLayoutAtom: store.tabLayoutAtom,
             sqliteDatastore: datastore

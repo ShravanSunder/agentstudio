@@ -8,14 +8,15 @@ import Testing
 @MainActor
 @Suite("WorkspaceSQLiteStoreBridgeTests", .serialized)
 struct WorkspaceSQLiteStoreBridgeTests {
-    @Test("SQLite materialization rejects missing required window state")
-    func sqliteMaterializationRejectsMissingWindowState() throws {
+    @Test("SQLite composition defaults missing local window state")
+    func sqliteCompositionDefaultsMissingWindowState() throws {
         var snapshot = try makeStrictWorkspaceSQLiteStateBridgeSnapshot()
         snapshot.windowState = nil
 
-        #expect(throws: WorkspaceSQLiteStateBridgeError.missingWindowState) {
-            try WorkspaceSQLiteStateBridge.persistableState(from: snapshot)
-        }
+        let composition = try WorkspaceSQLiteStateBridge.workspaceSnapshot(from: snapshot)
+
+        #expect(composition.sidebarWidth == 250)
+        #expect(composition.windowFrame == nil)
     }
 
     @Test("SQLite materialization rejects missing required drawer expansion state")
@@ -24,7 +25,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         snapshot.cursorState.drawerExpansionByDrawerId = [:]
 
         #expect(throws: WorkspaceSQLiteStateBridgeError.missingDrawerExpansionState) {
-            try WorkspaceSQLiteStateBridge.persistableState(from: snapshot)
+            try WorkspaceSQLiteStateBridge.workspaceSnapshot(from: snapshot)
         }
     }
 
@@ -34,7 +35,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         snapshot.cursorState.activeArrangementIdsByTabId = [:]
 
         #expect(throws: WorkspaceSQLiteStateBridgeError.missingActiveArrangementState) {
-            try WorkspaceSQLiteStateBridge.persistableState(from: snapshot)
+            try WorkspaceSQLiteStateBridge.workspaceSnapshot(from: snapshot)
         }
     }
 
@@ -44,7 +45,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         snapshot.tabShells = []
 
         #expect(throws: WorkspaceSQLiteStateBridgeError.missingTabShell) {
-            try WorkspaceSQLiteStateBridge.persistableState(from: snapshot)
+            try WorkspaceSQLiteStateBridge.workspaceSnapshot(from: snapshot)
         }
     }
 
@@ -59,7 +60,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         paneRecord.metadata.durableFacets.cwd = nil
         snapshot.paneGraph.panes = [paneRecord]
 
-        let state = try WorkspaceSQLiteStateBridge.persistableState(from: snapshot)
+        let state = try WorkspaceSQLiteStateBridge.workspaceSnapshot(from: snapshot)
         let pane = try #require(state.panes.single)
 
         #expect(pane.metadata.note == "  exact note with surrounding whitespace  \n")
@@ -114,12 +115,12 @@ struct WorkspaceSQLiteStoreBridgeTests {
         )
 
         #expect(throws: WorkspaceSQLiteStateBridgeError.layoutPaneMissingDrawer(paneId)) {
-            try WorkspaceSQLiteStateBridge.persistableState(from: snapshot)
+            try WorkspaceSQLiteStateBridge.workspaceSnapshot(from: snapshot)
         }
     }
 
-    @Test("flush writes workspace graph lanes to core and cursor/window lanes to local SQLite")
-    func flushWritesSplitWorkspaceLanesToSQLite() async throws {
+    @Test("flush writes composition lanes without replacing global topology")
+    func flushWritesCompositionWithoutReplacingGlobalTopology() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
@@ -143,6 +144,32 @@ struct WorkspaceSQLiteStoreBridgeTests {
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [discoveredWorktree])
         let worktree = try #require(store.repositoryTopologyAtom.repo(repo.id)?.worktrees.single)
+        let expectedTopology = WorkspaceCoreRepository.RepositoryTopologyRecord(
+            watchedPaths: [],
+            repos: [
+                .init(
+                    id: repo.id,
+                    name: repo.name,
+                    repoPath: repo.repoPath,
+                    createdAt: repo.createdAt,
+                    isFavorite: repo.isFavorite,
+                    note: repo.note,
+                    worktrees: [
+                        .init(
+                            id: worktree.id,
+                            repoId: worktree.repoId,
+                            name: worktree.name,
+                            path: worktree.path,
+                            isMainWorktree: worktree.isMainWorktree,
+                            note: worktree.note
+                        )
+                    ],
+                    tags: repo.tags
+                )
+            ],
+            unavailableRepoIds: []
+        )
+        try fixture.coreRepository.replaceRepositoryTopology(expectedTopology)
         store.windowMemoryAtom.setSidebarWidth(321)
         store.windowMemoryAtom.setWindowFrame(CGRect(x: 10, y: 20, width: 900, height: 700))
         let pane = store.createPane(
@@ -175,9 +202,8 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(workspace.name == "SQLite Workspace")
         #expect(workspace.createdAt == createdAt)
 
-        let topology = try fixture.coreRepository.fetchRepositoryTopology(workspaceId: workspaceId)
-        #expect(topology.repos.map(\.id) == [repo.id])
-        #expect(topology.repos.single?.worktrees.map(\.id) == [worktree.id])
+        let topology = try fixture.coreRepository.fetchRepositoryTopology()
+        #expect(topology == expectedTopology)
 
         let paneGraph = try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceId)
         let paneRecord = try #require(paneGraph.panes.single)
@@ -294,24 +320,31 @@ struct WorkspaceSQLiteStoreBridgeTests {
             createdAt: createdAt,
             updatedAt: Date(timeIntervalSince1970: 1_700_000_200)
         )
-        try fixture.backend.save(
-            WorkspaceSQLiteSaveBundle(
-                workspace: workspaceSnapshot,
-                repositoryTopology: RepositoryTopologySQLiteSnapshot(
-                    id: workspaceId,
-                    repos: [.init(id: repoId, name: "restore-repo", repoPath: repoPath, createdAt: createdAt)],
-                    worktrees: [
-                        .init(
-                            id: worktreeId,
-                            repoId: repoId,
-                            name: "main",
-                            path: repoPath,
-                            isMainWorktree: true
-                        )
-                    ],
-                    updatedAt: workspaceSnapshot.updatedAt
-                )
+        try fixture.coreRepository.replaceRepositoryTopology(
+            .init(
+                watchedPaths: [],
+                repos: [
+                    .init(
+                        id: repoId,
+                        name: "restore-repo",
+                        repoPath: repoPath,
+                        createdAt: createdAt,
+                        worktrees: [
+                            .init(
+                                id: worktreeId,
+                                repoId: repoId,
+                                name: "main",
+                                path: repoPath,
+                                isMainWorktree: true
+                            )
+                        ]
+                    )
+                ],
+                unavailableRepoIds: []
             )
+        )
+        try fixture.backend.save(
+            WorkspaceSQLiteSaveBundle(workspace: workspaceSnapshot)
         )
 
         let restoredStore = restoredWorkspaceStore(from: fixture.backend)
@@ -339,7 +372,6 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let saveCoordinator = WorkspaceSQLiteSaveCoordinator(
             identityAtom: atomRegistry.workspaceIdentity,
             windowMemoryAtom: atomRegistry.workspaceWindowMemory,
-            repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,
             workspacePaneAtom: atomRegistry.workspacePane,
             workspaceTabLayoutAtom: atomRegistry.workspaceTabLayout,
             sqliteDatastore: datastore
@@ -411,14 +443,13 @@ private func makeStrictWorkspaceSQLiteStateBridgeSnapshot() throws -> WorkspaceS
         createdAt: timestamp,
         updatedAt: timestamp
     )
-    let state = WorkspacePersistenceTransformer.persistableState(from: liveSnapshot)
     return WorkspaceSQLiteStateBridge.Snapshot(
-        workspace: WorkspaceSQLiteStateBridge.workspaceRecord(from: state),
-        paneGraph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: state),
-        tabShells: WorkspaceSQLiteStateBridge.tabShellRecords(from: state),
-        tabGraph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: state),
-        cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
-        windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state)
+        workspace: WorkspaceSQLiteStateBridge.workspaceRecord(from: liveSnapshot),
+        paneGraph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: liveSnapshot),
+        tabShells: WorkspaceSQLiteStateBridge.tabShellRecords(from: liveSnapshot),
+        tabGraph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: liveSnapshot),
+        cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: liveSnapshot),
+        windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: liveSnapshot)
     )
 }
 

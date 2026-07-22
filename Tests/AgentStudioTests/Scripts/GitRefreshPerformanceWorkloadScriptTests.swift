@@ -489,10 +489,10 @@ struct GitRefreshPerformanceWorkloadScriptTests {
             }
         }
 
-        let state = try JSONDecoder().decode(WorkspacePersistor.PersistableState.self, from: input.fixtureData)
-        Self.expectFixtureCounts(state, expected: input.expectedCounts)
-        Self.expectGeneratedDurableIdentitiesAreUUIDv7(state)
-        let saveBundle = WorkspacePersistenceTransformer.sqliteSaveBundle(from: state)
+        let fixture = try JSONDecoder().decode(PerformanceWorkloadSQLiteFixture.self, from: input.fixtureData)
+        Self.expectFixtureCounts(fixture, expected: input.expectedCounts)
+        Self.expectGeneratedDurableIdentitiesAreUUIDv7(fixture)
+        let saveBundle = WorkspaceSQLiteSaveBundle(workspace: fixture.workspaceSnapshot)
         guard case .prepared = await WorkspaceCompositionPreparer.prepareOffMain(saveBundle.workspace) else {
             Issue.record("Generated workload fixture was rejected before strict SQLite materialization")
             return
@@ -509,15 +509,13 @@ struct GitRefreshPerformanceWorkloadScriptTests {
                 environment: dataEnvironment,
                 isDebugBuild: true
             ),
-            localDatabaseURL: { workspaceID in
-                AppDataPaths.workspaceLocalSQLiteURL(
-                    workspaceId: workspaceID,
-                    environment: dataEnvironment,
-                    isDebugBuild: true
-                )
-            }
+            localDatabaseURL: AppDataPaths.localSQLiteURL(
+                environment: dataEnvironment,
+                isDebugBuild: true
+            )
         ).makeDatastore()
 
+        try await datastore.saveRepositoryTopologySnapshot(fixture.repositoryTopologySnapshot)
         try await datastore.saveWorkspaceSnapshotBundle(saveBundle)
         guard case .loaded(let loadedWorkspace) = await datastore.loadWorkspaceSnapshot() else {
             Issue.record("Strict SQLite workspace reload did not return the materialized fixture")
@@ -525,7 +523,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         }
         guard
             case .loaded(let loadedTopology) = await datastore.loadRepositoryTopologySnapshot(
-                workspaceId: state.id
+                workspaceId: fixture.id
             )
         else {
             Issue.record("Strict SQLite topology reload did not return the materialized fixture")
@@ -536,12 +534,12 @@ struct GitRefreshPerformanceWorkloadScriptTests {
             return
         }
 
-        #expect(loadedWorkspace.id == state.id)
-        #expect(loadedWorkspace.activeTabId == state.activeTabId)
-        #expect(Set(loadedTopology.repos.map(\.id)) == Set(state.repos.map(\.id)))
-        #expect(Set(loadedTopology.worktrees.map(\.id)) == Set(state.worktrees.map(\.id)))
-        #expect(Set(loadedWorkspace.panes.map(\.id)) == Set(state.panes.map(\.id)))
-        #expect(Set(loadedWorkspace.tabs.map(\.id)) == Set(state.tabs.map(\.id)))
+        #expect(loadedWorkspace.id == fixture.id)
+        #expect(loadedWorkspace.activeTabId == fixture.activeTabId)
+        #expect(Set(loadedTopology.repos.map(\.id)) == Set(fixture.repos.map(\.id)))
+        #expect(Set(loadedTopology.worktrees.map(\.id)) == Set(fixture.worktrees.map(\.id)))
+        #expect(Set(loadedWorkspace.panes.map(\.id)) == Set(fixture.panes.map(\.id)))
+        #expect(Set(loadedWorkspace.tabs.map(\.id)) == Set(fixture.tabs.map(\.id)))
         #expect(loadedTopology.repos.count == input.expectedCounts.repos)
         #expect(loadedTopology.worktrees.count == input.expectedCounts.worktrees)
         #expect(loadedWorkspace.panes.count == input.expectedCounts.panes)
@@ -866,37 +864,77 @@ extension GitRefreshPerformanceWorkloadScriptTests {
     }
 
     fileprivate static func expectFixtureCounts(
-        _ state: WorkspacePersistor.PersistableState,
+        _ fixture: PerformanceWorkloadSQLiteFixture,
         expected: FixtureCounts
     ) {
-        #expect(state.repos.count == expected.repos)
-        #expect(state.worktrees.count == expected.worktrees)
-        #expect(state.panes.count == expected.panes)
-        #expect(state.tabs.count == expected.tabs)
-        #expect(Set(state.repos.map(\.id)).count == expected.repos)
-        #expect(Set(state.worktrees.map(\.id)).count == expected.worktrees)
-        #expect(Set(state.panes.map(\.id)).count == expected.panes)
-        #expect(Set(state.tabs.map(\.id)).count == expected.tabs)
+        #expect(fixture.repos.count == expected.repos)
+        #expect(fixture.worktrees.count == expected.worktrees)
+        #expect(fixture.panes.count == expected.panes)
+        #expect(fixture.tabs.count == expected.tabs)
+        #expect(Set(fixture.repos.map(\.id)).count == expected.repos)
+        #expect(Set(fixture.worktrees.map(\.id)).count == expected.worktrees)
+        #expect(Set(fixture.panes.map(\.id)).count == expected.panes)
+        #expect(Set(fixture.tabs.map(\.id)).count == expected.tabs)
     }
 
     fileprivate static func expectGeneratedDurableIdentitiesAreUUIDv7(
-        _ state: WorkspacePersistor.PersistableState
+        _ fixture: PerformanceWorkloadSQLiteFixture
     ) {
         let durableUUIDs =
-            [state.id]
-            + state.repos.map(\.id)
-            + state.worktrees.map(\.id)
-            + state.panes.map(\.id)
-            + state.panes.compactMap { $0.drawer?.drawerId }
-            + state.tabs.map(\.id)
-            + state.tabs.flatMap { $0.arrangements.map(\.id) }
-            + state.tabs.flatMap { $0.arrangements.flatMap(\.layout.dividerIds) }
+            [fixture.id]
+            + fixture.repos.map(\.id)
+            + fixture.worktrees.map(\.id)
+            + fixture.panes.map(\.id)
+            + fixture.panes.compactMap { $0.drawer?.drawerId }
+            + fixture.tabs.map(\.id)
+            + fixture.tabs.flatMap { $0.arrangements.map(\.id) }
+            + fixture.tabs.flatMap { $0.arrangements.flatMap(\.layout.dividerIds) }
         #expect(durableUUIDs.allSatisfy(UUIDv7.isV7))
-        let terminalSessionUUIDs = state.panes.compactMap {
+        let terminalSessionUUIDs = fixture.panes.compactMap {
             $0.terminalState.flatMap { UUID(uuidString: $0.zmxSessionID.rawValue) }
         }
-        #expect(terminalSessionUUIDs.count == state.panes.count)
+        #expect(terminalSessionUUIDs.count == fixture.panes.count)
         #expect(terminalSessionUUIDs.allSatisfy(UUIDv7.isV7))
+    }
+}
+
+private struct PerformanceWorkloadSQLiteFixture: Decodable {
+    let id: UUID
+    let name: String
+    let repos: [CanonicalRepo]
+    let worktrees: [CanonicalWorktree]
+    let unavailableRepoIds: Set<UUID>
+    let panes: [Pane]
+    let tabs: [Tab]
+    let activeTabId: UUID?
+    let sidebarWidth: CGFloat
+    let windowFrame: CGRect?
+    let watchedPaths: [WatchedPath]
+    let createdAt: Date
+    let updatedAt: Date
+
+    var workspaceSnapshot: WorkspaceSQLiteSnapshot {
+        WorkspaceSQLiteSnapshot(
+            id: id,
+            name: name,
+            panes: panes,
+            tabs: tabs,
+            activeTabId: activeTabId,
+            sidebarWidth: sidebarWidth,
+            windowFrame: windowFrame,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+
+    var repositoryTopologySnapshot: RepositoryTopologySQLiteSnapshot {
+        RepositoryTopologySQLiteSnapshot(
+            repos: repos,
+            worktrees: worktrees,
+            unavailableRepoIds: unavailableRepoIds,
+            watchedPaths: watchedPaths,
+            updatedAt: updatedAt
+        )
     }
 }
 

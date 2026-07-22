@@ -15,6 +15,7 @@ enum WorkspaceStoreLoadFailure: Error, Equatable, Sendable {
     case defaultWorkspacePersistenceMismatch
     case compositionRejected(WorkspaceCompositionPreparationRejection)
     case compositionApplyFailed(WorkspacePreparedCompositionApplyFailure)
+    case topologyRejected(RepositoryTopologyIdentityRejection)
 
     var diagnosticCode: WorkspaceStartupFailureDiagnosticCode {
         switch self {
@@ -30,6 +31,8 @@ enum WorkspaceStoreLoadFailure: Error, Equatable, Sendable {
             .compositionRejected
         case .compositionApplyFailed:
             .compositionApplyFailed
+        case .topologyRejected:
+            .topologyRejected
         }
     }
 }
@@ -41,6 +44,7 @@ enum WorkspaceStartupFailureDiagnosticCode: String, Equatable, Sendable {
     case defaultWorkspacePersistenceMismatch = "default_workspace_persistence_mismatch"
     case compositionRejected = "composition_rejected"
     case compositionApplyFailed = "composition_apply_failed"
+    case topologyRejected = "topology_rejected"
 }
 
 enum WorkspaceStoreLoadResult: Equatable, Sendable {
@@ -135,7 +139,6 @@ final class WorkspaceStore {
                 WorkspaceSQLiteSaveCoordinator(
                     identityAtom: identityAtom,
                     windowMemoryAtom: windowMemoryAtom,
-                    repositoryTopologyAtom: repositoryTopologyAtom,
                     workspacePaneAtom: resolvedPaneAtom,
                     workspaceTabLayoutAtom: tabLayoutAtom,
                     sqliteDatastore: datastore
@@ -160,9 +163,9 @@ final class WorkspaceStore {
             return .failed(.missingSQLiteDatastore)
         }
 
-        switch await sqliteDatastore.loadWorkspaceSnapshot() {
+        switch await sqliteDatastore.loadAuthoritativeCoreSnapshot() {
         case .loaded(let snapshot):
-            switch await prepareAndApplyComposition(snapshot) {
+            switch await prepareAndApplyAuthoritativeSnapshot(snapshot) {
             case .success(let acceptance):
                 return .loaded(acceptance)
             case .failure(let failure):
@@ -190,23 +193,17 @@ final class WorkspaceStore {
             createdAt: persistedAt,
             updatedAt: persistedAt
         )
-        let saveBundle = WorkspaceSQLiteSaveBundle(
-            workspace: workspaceSnapshot,
-            repositoryTopology: RepositoryTopologySQLiteSnapshot(
-                id: workspaceSnapshot.id,
-                updatedAt: persistedAt
-            )
-        )
+        let saveBundle = WorkspaceSQLiteSaveBundle(workspace: workspaceSnapshot)
         do {
             try await sqliteDatastore.saveWorkspaceSnapshotBundle(saveBundle)
         } catch {
             return .failed(.defaultWorkspaceInitializationFailed(.init(error)))
         }
 
-        let persistedSnapshot: WorkspaceSQLiteSnapshot
-        switch await sqliteDatastore.loadWorkspaceSnapshot() {
+        let persistedSnapshot: WorkspaceCoreLoadSnapshot
+        switch await sqliteDatastore.loadAuthoritativeCoreSnapshot() {
         case .loaded(let snapshot):
-            guard snapshot.hasSameSQLiteRepresentation(as: workspaceSnapshot) else {
+            guard snapshot.workspace.hasSameSQLiteRepresentation(as: workspaceSnapshot) else {
                 return .failed(.defaultWorkspacePersistenceMismatch)
             }
             persistedSnapshot = snapshot
@@ -216,7 +213,7 @@ final class WorkspaceStore {
             return .failed(.defaultWorkspaceInitializationFailed(failure))
         }
 
-        switch await prepareAndApplyComposition(persistedSnapshot) {
+        switch await prepareAndApplyAuthoritativeSnapshot(persistedSnapshot) {
         case .success(let acceptance):
             return .initializedDefaultWorkspace(acceptance)
         case .failure(let failure):
@@ -224,22 +221,39 @@ final class WorkspaceStore {
         }
     }
 
-    private func prepareAndApplyComposition(
-        _ snapshot: WorkspaceSQLiteSnapshot
+    private func prepareAndApplyAuthoritativeSnapshot(
+        _ snapshot: WorkspaceCoreLoadSnapshot
     ) async -> Result<WorkspacePreparedCompositionAcceptance, WorkspaceStoreLoadFailure> {
-        let preparation = await WorkspaceCompositionPreparer.prepareOffMain(snapshot)
+        async let compositionPreparation = WorkspaceCompositionPreparer.prepareOffMain(snapshot.workspace)
+        async let topologyPreparation = WorkspacePersistenceTransformer.prepareRepositoryTopologyOffMain(
+            snapshot.repositoryTopology
+        )
+
         let preparedComposition: PreparedWorkspaceComposition
-        switch preparation {
+        switch await compositionPreparation {
         case .prepared(let prepared):
             preparedComposition = prepared
         case .rejected(let rejection):
             return .failure(.compositionRejected(rejection))
         }
 
+        let preparedTopology: RepositoryTopologyReplacement
+        switch await topologyPreparation {
+        case .prepared(let replacement):
+            preparedTopology = replacement
+        case .rejected(let rejection):
+            return .failure(.topologyRejected(rejection))
+        }
+
         isApplyingInitialComposition = true
         defer { isApplyingInitialComposition = false }
         switch preparedCompositionApplier.apply(preparedComposition) {
         case .accepted(let acceptance):
+            WorkspacePersistenceTransformer.applyPreparedRepositoryTopology(
+                preparedTopology,
+                repositoryTopologyAtom: repositoryTopologyAtom
+            )
+            isDirty = false
             workspaceStoreLogger.info(
                 "Installed SQLite workspace '\(preparedComposition.identity.workspaceName)' with \(preparedComposition.panes.count) pane(s), \(preparedComposition.tabs.count) tab(s)"
             )

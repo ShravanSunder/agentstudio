@@ -234,6 +234,41 @@ as a boot dependency.
   SQLite cannot enforce foreign keys across separate files. Stale local rows
   default or disappear without changing core.
 
+### R5a. Swift owns product-value validation
+
+- Closed product vocabularies and cross-field product semantics are validated
+  by typed Swift domain models and throwing repository codecs, not duplicated
+  as SQLite `CHECK (... IN (...))` lists.
+- Local repository write APIs accept typed values rather than arbitrary storage
+  strings. Exhaustive Swift switches encode values at the SQLite boundary.
+- Local repository reads decode untrusted row values into typed product values
+  or return a typed validation error. An invalid non-authoritative row defaults
+  or disappears without changing core or blocking startup.
+- `RecentWorkspaceTarget` restoration validates the complete discriminator and
+  optional-ID tuple in one product-owned operation:
+  - `worktree` requires both `repo_id` and `worktree_id`;
+  - `cwdOnly` requires both identifiers to be absent;
+  - every other tuple is invalid and the recent-target row disappears.
+- Notification claim restoration examines all four flattened columns together:
+  - four `NULL` values decode to no claim;
+  - non-`NULL` pane, lane, and semantic values decode to one typed claim, with
+    an optional session identifier;
+  - every partial tuple, including a session-only tuple, is invalid and the
+    notification row disappears rather than silently losing claim semantics.
+- Repo Explorer and inbox preference strings decode through their existing
+  Swift enums. Unsupported local values use the owning atom's deterministic
+  typed default.
+- SQLite continues to enforce storage integrity: primary and foreign keys,
+  uniqueness, required columns, boolean representation, scalar ranges, and
+  singleton-row constraints. The single-window `window_role = 'main'` check is
+  a singleton schema invariant, not a product enum list, and remains.
+
+The existing deployed `pane.content_type` check is not changed by this hard
+cut. Removing it would require rebuilding the heavily referenced `pane` table;
+this spec does not expand the core migration for that unrelated cleanup. Swift
+remains the reader/writer authority for `PaneContentType`, and no new product
+enum checks are introduced.
+
 ### R6. Failure containment and observability
 
 Existing diagnostics must distinguish:
@@ -498,7 +533,7 @@ CREATE TABLE local_window_state (
     filter_text       TEXT NOT NULL,
     is_filter_visible INTEGER NOT NULL CHECK (is_filter_visible IN (0, 1)),
     sidebar_collapsed INTEGER NOT NULL CHECK (sidebar_collapsed IN (0, 1)),
-    sidebar_surface   TEXT NOT NULL CHECK (sidebar_surface IN ('repos', 'inbox')),
+    sidebar_surface   TEXT NOT NULL,
     updated_at        REAL NOT NULL
 );
 
@@ -521,21 +556,9 @@ CREATE TABLE local_recent_workspace_target (
     subtitle      TEXT NOT NULL,
     repo_id       TEXT,
     worktree_id   TEXT,
-    kind          TEXT NOT NULL CHECK (kind IN ('worktree', 'cwdOnly')),
+    kind          TEXT NOT NULL,
     last_opened_at REAL NOT NULL,
-    PRIMARY KEY (workspace_id, id),
-    CHECK (
-        (
-            kind = 'worktree'
-            AND repo_id IS NOT NULL
-            AND worktree_id IS NOT NULL
-        )
-        OR (
-            kind = 'cwdOnly'
-            AND repo_id IS NULL
-            AND worktree_id IS NULL
-        )
-    )
+    PRIMARY KEY (workspace_id, id)
 );
 
 CREATE INDEX idx_local_recent_target_workspace_time
@@ -590,20 +613,7 @@ CREATE TABLE local_notification_inbox_item (
                                     CHECK (is_read IN (0, 1)),
     is_dismissed_from_pane_inbox    INTEGER NOT NULL
                                     CHECK (is_dismissed_from_pane_inbox IN (0, 1)),
-    PRIMARY KEY (workspace_id, id),
-    CHECK (
-        (
-            claim_pane_id IS NULL
-            AND claim_lane IS NULL
-            AND claim_semantic IS NULL
-            AND claim_session_id IS NULL
-        )
-        OR (
-            claim_pane_id IS NOT NULL
-            AND claim_lane IN ('activity', 'actionNeeded', 'safety')
-            AND claim_semantic IS NOT NULL
-        )
-    )
+    PRIMARY KEY (workspace_id, id)
 );
 
 CREATE INDEX idx_notification_workspace_timestamp
@@ -640,12 +650,14 @@ ON local_notification_inbox_item(
     claim_session_id
 )
 WHERE claim_pane_id IS NOT NULL
-  AND claim_session_id IS NOT NULL
-  AND claim_lane IN ('activity', 'actionNeeded');
+  AND claim_session_id IS NOT NULL;
 ```
 
 Notification meaning, coalescence, retention, and presentation are unchanged.
-Only the shared-file key shape changes.
+Only the shared-file key shape changes. The general session-claim index does
+not encode which claim lanes are mergeable; the exhaustive Swift
+`InboxNotificationClaimLane.canMergeWithinActivitySession` policy owns that
+decision.
 
 #### Typed workspace preferences
 
@@ -658,31 +670,22 @@ CREATE TABLE local_editor_preferences (
 
 CREATE TABLE local_repo_explorer_preferences (
     workspace_id    TEXT PRIMARY KEY,
-    grouping_mode   TEXT NOT NULL
-                    CHECK (grouping_mode IN ('repo', 'pane', 'tab')),
-    sort_order      TEXT NOT NULL
-                    CHECK (sort_order IN ('ascending', 'descending')),
-    visibility_mode TEXT NOT NULL
-                    CHECK (visibility_mode IN ('all', 'favoritesOnly')),
+    grouping_mode   TEXT NOT NULL,
+    sort_order      TEXT NOT NULL,
+    visibility_mode TEXT NOT NULL,
     updated_at      REAL NOT NULL
 );
 
 CREATE TABLE local_inbox_notification_preferences (
     workspace_id            TEXT PRIMARY KEY,
-    grouping                 TEXT NOT NULL
-                             CHECK (grouping IN ('byTab', 'byRepo', 'byPane', 'none')),
-    sort_order               TEXT NOT NULL
-                             CHECK (sort_order IN ('newestFirst', 'oldestFirst')),
+    grouping                 TEXT NOT NULL,
+    sort_order               TEXT NOT NULL,
     bell_enabled             INTEGER NOT NULL
                              CHECK (bell_enabled IN (0, 1)),
-    global_content_mode      TEXT NOT NULL
-                             CHECK (global_content_mode IN ('rollUpAlerts', 'activity', 'all')),
-    global_row_state_filter  TEXT NOT NULL
-                             CHECK (global_row_state_filter IN ('unreadOnly', 'all')),
-    pane_content_mode        TEXT NOT NULL
-                             CHECK (pane_content_mode IN ('rollUpAlerts', 'activity', 'all')),
-    pane_row_state_filter    TEXT NOT NULL
-                             CHECK (pane_row_state_filter IN ('unreadOnly', 'all')),
+    global_content_mode      TEXT NOT NULL,
+    global_row_state_filter  TEXT NOT NULL,
+    pane_content_mode        TEXT NOT NULL,
+    pane_row_state_filter    TEXT NOT NULL,
     updated_at               REAL NOT NULL
 );
 ```
@@ -832,6 +835,23 @@ Cost:
 - file-level corruption can reset every local lane at once, although each lane
   remains logically independent when the database is readable.
 
+### Product validation moves out of schema DDL
+
+Gain:
+
+- Swift enums and discriminated product values are the single semantic source
+  of truth;
+- adding a product enum case does not require a `local.sqlite` schema migration;
+- exhaustive encoders and throwing decoders keep malformed row handling close
+  to the owning model.
+
+Cost:
+
+- every local row codec must validate untrusted SQLite values before exposing a
+  product value;
+- tests must cover every valid variant and malformed cross-field tuple because
+  SQLite no longer rejects those product-semantic combinations first.
+
 ## Proof expectations
 
 The implementation plan must turn these into permanent tests and product proof:
@@ -853,8 +873,12 @@ The implementation plan must turn these into permanent tests and product proof:
    usable deterministic tab/pane/sidebar defaults.
 9. Production opens exactly one local database and never reads old local
    sidecars or workspace JSON persistence.
-10. Every new local table round-trips its typed values and rejects invalid enum,
-   boolean, claim, and key shapes.
+10. Every new local table round-trips its typed values. Typed Swift codecs reject
+   unsupported enum strings, invalid recent-target discriminator/ID tuples, and
+   every partial notification-claim tuple, including session-only claims.
+   Malformed non-authoritative rows default or disappear without blocking valid
+   core startup. SQLite schema tests separately prove boolean, scalar-range,
+   singleton, key, and relationship constraints.
 11. Removing a repo/worktree clears pane facets but leaves the pane, CWD,
     surface, and ZMX session alive.
 12. Atoms contain no persistence or persistence-coordination logic.
@@ -896,7 +920,8 @@ Workspace composition repository
 
 Local persistence repository
   owns: one local.sqlite and typed non-authoritative lanes
-  exposes: loaded value or deterministic default
+  owns: product-value encoding and validated restoration from untrusted rows
+  exposes: loaded typed value, deterministic default, or row disappearance
 
 Atoms
   own: live canonical state and pure derived projections

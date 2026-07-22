@@ -9,7 +9,7 @@ import Testing
 struct WorkspaceSQLiteDatastoreActorTests {
     @Test("workspace save runs through datastore actor probe")
     func workspaceSaveRunsThroughDatastoreActorProbe() async throws {
-        let workspaceId = UUID()
+        let workspaceId = UUIDv7.generate()
         let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.datastore.core")
         let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.datastore.local")
         try WorkspaceCoreMigrations.migrate(coreQueue)
@@ -57,7 +57,6 @@ struct WorkspaceSQLiteDatastoreActorTests {
         let contents = try persistenceTraceContents(from: traceRuntime)
         #expect(contents.contains("\"agentstudio.trace.tag\":\"persistence.operation\""))
         #expect(contents.contains("\"agentstudio.persistence.operation\":\"workspace.save\""))
-        #expect(contents.contains("\"agentstudio.persistence.phase\":\"stage_core\""))
         #expect(contents.contains("\"agentstudio.persistence.phase\":\"write_local\""))
         #expect(contents.contains("\"agentstudio.persistence.phase\":\"commit_core\""))
         #expect(contents.contains("\"agentstudio.persistence.outcome\":\"succeeded\""))
@@ -99,7 +98,7 @@ struct WorkspaceSQLiteDatastoreActorTests {
         #expect(contents.contains("\"body\":\"persistence.snapshot.failed\""))
         #expect(contents.contains("\"agentstudio.trace.tag\":\"persistence.snapshot\""))
         #expect(contents.contains("\"agentstudio.persistence.operation\":\"workspace.save\""))
-        #expect(contents.contains("\"agentstudio.persistence.phase\":\"stage_core\""))
+        #expect(contents.contains("\"agentstudio.persistence.phase\":\"commit_core\""))
         #expect(contents.contains("\"agentstudio.persistence.outcome\":\"failed\""))
         #expect(contents.contains("\"agentstudio.persistence.recovery.kind\":\"save_failed\""))
         #expect(contents.contains("\"agentstudio.workspace.snapshot.has_tab_membership_mismatch\":true"))
@@ -165,7 +164,7 @@ struct WorkspaceSQLiteDatastoreActorTests {
                 sidebarCollapsed: false,
                 sidebarSurface: .repos
             ),
-            workspaceId: workspaceId
+            workspaceContextId: workspaceId
         )
         try await traceRuntime.flush()
 
@@ -342,17 +341,32 @@ struct WorkspaceSQLiteDatastoreActorTests {
 
     @Test("production datastore quarantines corrupt local SQLite before save")
     func productionDatastoreQuarantinesCorruptLocalSQLiteBeforeSave() async throws {
-        let workspaceId = UUID()
+        let workspaceId = UUIDv7.generate()
         let rootDirectory = try makeDatastoreActorTemporaryDirectory(prefix: "local-save-quarantine")
         let coreSQLiteURL = rootDirectory.appending(path: "core.sqlite")
-        let localSQLiteURL = rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
+        let localSQLiteURL = rootDirectory.appending(path: "local.sqlite")
         let factory = WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: coreSQLiteURL,
-            localDatabaseURL: { _ in localSQLiteURL }
+            localDatabaseURL: localSQLiteURL
         )
-        try await factory.makeDatastore().saveWorkspaceSnapshotBundle(
-            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Before Corruption"))
+        let corePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: coreSQLiteURL,
+            label: "AgentStudio.sqlite.datastore.local-save-quarantine.core-seed"
         )
+        let localPool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: localSQLiteURL,
+            label: "AgentStudio.sqlite.datastore.local-save-quarantine.local-seed"
+        )
+        try WorkspaceCoreMigrations.migrate(corePool)
+        try WorkspaceLocalMigrations.migrate(localPool)
+        try WorkspaceSQLiteStoreBackend(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: corePool),
+            makeLocalRepository: { workspaceId in
+                WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localPool)
+            }
+        ).save(.emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Before Corruption")))
+        try corePool.close()
+        try localPool.close()
         try Data("not a sqlite database".utf8).write(to: localSQLiteURL)
         let saveDatastore = factory.makeDatastore()
 
@@ -369,59 +383,10 @@ struct WorkspaceSQLiteDatastoreActorTests {
         let quarantineArtifacts = try FileManager.default.contentsOfDirectory(
             at: rootDirectory,
             includingPropertiesForKeys: nil
-        ).filter { $0.lastPathComponent.contains(".local.sqlite.corrupt-") }
+        ).filter { $0.lastPathComponent.contains("local.sqlite.corrupt-") }
         #expect(quarantineArtifacts.count == 1)
     }
 
-    @Test("production datastore legacy lane decisions honor completed companion import status")
-    func productionDatastoreLegacyLaneDecisionsHonorCompletedCompanionImportStatus() async throws {
-        let workspaceId = UUID()
-        let rootDirectory = try makeDatastoreActorTemporaryDirectory(prefix: "legacy-decision")
-        let coreDatabaseURL = rootDirectory.appending(path: "core.sqlite")
-        let coreDatabasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
-            at: coreDatabaseURL,
-            label: "AgentStudio.sqlite.datastore.legacy-decision"
-        )
-        try WorkspaceCoreMigrations.migrate(coreDatabasePool)
-        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabasePool)
-        try coreRepository.upsertWorkspace(
-            .init(
-                id: workspaceId,
-                name: "Imported",
-                createdAt: Date(timeIntervalSince1970: 1),
-                updatedAt: Date(timeIntervalSince1970: 2)
-            )
-        )
-        try await coreDatabasePool.write { database in
-            try database.execute(
-                sql: """
-                    INSERT INTO legacy_workspace_import_status(
-                        workspace_id,
-                        source_state_path,
-                        local_imported_at,
-                        cache_imported_at
-                    )
-                    VALUES (?, ?, ?, ?)
-                    """,
-                arguments: [workspaceId.uuidString, "legacy/workspace.state.json", 3.0, 3.0]
-            )
-        }
-        let datastore = WorkspaceSQLiteDatastoreFactory(
-            coreDatabaseURL: coreDatabaseURL,
-            localDatabaseURL: { workspaceId in
-                rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
-            }
-        ).makeDatastore()
-
-        #expect(
-            await datastore.localLegacyImportDecision(workspaceId: workspaceId, lane: .local)
-                == .found(.blockReplayAllowArchive)
-        )
-        #expect(
-            await datastore.localLegacyImportDecision(workspaceId: workspaceId, lane: .cache)
-                == .found(.blockReplayAllowArchive)
-        )
-    }
 }
 
 private final class FailableDatastoreLocalRepositoryFactory: @unchecked Sendable {

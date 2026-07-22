@@ -44,8 +44,8 @@ enum InboxNotificationSQLiteCodecs {
             activityContext?.thresholdRows,
             activityContext?.latestRows,
             claimKey?.paneId.uuidString,
-            claimKey?.lane.rawValue,
-            claimKey?.semantic.rawValue,
+            claimKey.map { SQLiteInboxNotificationClaimStorage.storageValue(for: $0.lane) },
+            claimKey.map { claimSemanticStorageValue(for: $0.semantic) },
             claimKey?.sessionId?.uuidString,
             notification.isRead ? 1 : 0,
             notification.isDismissedFromPaneInbox ? 1 : 0,
@@ -87,7 +87,7 @@ enum InboxNotificationSQLiteCodecs {
         switch sourceKind {
         case globalSourceKind:
             return .global
-        case paneSourceKind, "terminal", "agent":
+        case paneSourceKind:
             guard let paneIdString: String = row["pane_id"] else {
                 throw InboxNotificationSQLiteRepositoryError.missingPaneId(notificationId)
             }
@@ -127,30 +127,18 @@ enum InboxNotificationSQLiteCodecs {
     }
 
     private static func notificationKind(from rawValue: String) throws -> InboxNotificationKind {
-        switch rawValue {
-        case "activity":
-            return .unseenActivity
-        case "action":
-            return .approvalRequested
-        default:
-            guard let kind = InboxNotificationKind(rawValue: rawValue) else {
-                throw InboxNotificationSQLiteRepositoryError.unsupportedNotificationKind(rawValue)
-            }
-            return kind
+        guard let kind = InboxNotificationKind(rawValue: rawValue) else {
+            throw InboxNotificationSQLiteRepositoryError.unsupportedNotificationKind(rawValue)
         }
+        return kind
     }
 
     private static func paneRole(from rawValue: String?) throws -> InboxNotification.PaneSource.PaneRole {
         guard let rawValue else { return .main }
-        switch rawValue {
-        case "terminal":
-            return .main
-        default:
-            guard let paneRole = InboxNotification.PaneSource.PaneRole(rawValue: rawValue) else {
-                throw InboxNotificationSQLiteRepositoryError.unsupportedPaneRole(rawValue)
-            }
-            return paneRole
+        guard let paneRole = InboxNotification.PaneSource.PaneRole(rawValue: rawValue) else {
+            throw InboxNotificationSQLiteRepositoryError.unsupportedPaneRole(rawValue)
         }
+        return paneRole
     }
 
     private static func activityContext(
@@ -191,7 +179,10 @@ enum InboxNotificationSQLiteCodecs {
         let paneIdString: String? = row["claim_pane_id"]
         let laneRawValue: String? = row["claim_lane"]
         let semanticRawValue: String? = row["claim_semantic"]
-        guard paneIdString != nil || laneRawValue != nil || semanticRawValue != nil else { return nil }
+        let sessionIdString: String? = row["claim_session_id"]
+        guard paneIdString != nil || laneRawValue != nil || semanticRawValue != nil || sessionIdString != nil else {
+            return nil
+        }
         guard
             let paneIdString,
             let laneRawValue,
@@ -210,11 +201,25 @@ enum InboxNotificationSQLiteCodecs {
             paneId: try uuid(paneIdString, InboxNotificationSQLiteRepositoryError.malformedPaneId),
             lane: lane,
             semantic: semantic,
-            sessionId: try optionalUUID(
-                row["claim_session_id"],
-                InboxNotificationSQLiteRepositoryError.malformedClaimSessionId
-            )
+            sessionId: try optionalUUID(sessionIdString, InboxNotificationSQLiteRepositoryError.malformedClaimSessionId)
         )
+    }
+
+    private static func claimSemanticStorageValue(for semantic: InboxNotificationClaimSemantic) -> String {
+        switch semantic {
+        case .approvalRequested: "approvalRequested"
+        case .unseenActivity: "unseenActivity"
+        case .commandFinished: "commandFinished"
+        case .bell: "bell"
+        case .desktopNotification: "desktopNotification"
+        case .agentRpc: "agentRpc"
+        case .agentSettled: "agentSettled"
+        case .secureInput: "secureInput"
+        case .progressError: "progressError"
+        case .rendererUnhealthy: "rendererUnhealthy"
+        case .persistenceRecovery: "persistenceRecovery"
+        case .securityEvent: "securityEvent"
+        }
     }
 
     private static func sourceKind(for source: InboxNotification.Source) -> String {

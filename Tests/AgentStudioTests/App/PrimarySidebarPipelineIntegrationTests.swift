@@ -318,11 +318,7 @@ struct PrimarySidebarPipelineIntegrationTests {
     }
 
     private func makeWorkspaceStore() -> WorkspaceStore {
-        let tempDir = FileManager.default.temporaryDirectory.appending(
-            path: "primary-sidebar-pipeline-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        persistor.ensureDirectory()
-        return WorkspaceStore()
+        WorkspaceStore()
     }
 
     private func makePipelineActors(

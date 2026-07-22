@@ -9,7 +9,6 @@ enum WorkspaceSQLiteSaveCoordinatorFailure: Error, Equatable, Sendable {
 final class WorkspaceSQLiteSaveCoordinator {
     private let identityAtom: WorkspaceIdentityAtom
     private let windowMemoryAtom: WorkspaceWindowMemoryAtom
-    private let repositoryTopologyAtom: RepositoryTopologyAtom
     private let workspacePaneAtom: WorkspacePaneAtom
     private let workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
     private let sqliteDatastore: WorkspaceSQLiteDatastore
@@ -17,14 +16,12 @@ final class WorkspaceSQLiteSaveCoordinator {
     init(
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
-        repositoryTopologyAtom: RepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
         sqliteDatastore: WorkspaceSQLiteDatastore
     ) {
         self.identityAtom = identityAtom
         self.windowMemoryAtom = windowMemoryAtom
-        self.repositoryTopologyAtom = repositoryTopologyAtom
         self.workspacePaneAtom = workspacePaneAtom
         self.workspaceTabLayoutAtom = workspaceTabLayoutAtom
         self.sqliteDatastore = sqliteDatastore
@@ -40,7 +37,7 @@ final class WorkspaceSQLiteSaveCoordinator {
             )
         }
         return WorkspaceSQLiteSaveBundle(
-            workspace: WorkspaceSQLiteSnapshot(
+            workspace: .init(
                 id: identityAtom.workspaceId,
                 name: identityAtom.workspaceName,
                 panes: panes,
@@ -50,11 +47,6 @@ final class WorkspaceSQLiteSaveCoordinator {
                 windowFrame: windowMemoryAtom.windowFrame,
                 createdAt: identityAtom.createdAt,
                 updatedAt: persistedAt
-            ),
-            repositoryTopology: WorkspacePersistenceTransformer.makeRepositoryTopologySQLiteSnapshot(
-                identityAtom: identityAtom,
-                repositoryTopologyAtom: repositoryTopologyAtom,
-                persistedAt: persistedAt
             )
         )
     }

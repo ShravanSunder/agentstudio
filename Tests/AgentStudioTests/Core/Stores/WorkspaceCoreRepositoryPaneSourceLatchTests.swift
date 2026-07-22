@@ -29,8 +29,7 @@ struct WorkspaceCoreRepositoryPaneSourceLatchTests {
             )
         )
         try fixture.repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(

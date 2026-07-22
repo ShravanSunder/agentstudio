@@ -88,13 +88,12 @@ enum AppDataPaths {
             .standardizedFileURL
     }
 
-    static func workspaceLocalSQLiteURL(
-        workspaceId: UUID,
+    static func localSQLiteURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         isDebugBuild: Bool = Self.isDebugBuild
     ) -> URL {
-        workspacesDirectory(environment: environment, isDebugBuild: isDebugBuild)
-            .appending(path: "\(workspaceId.uuidString).local.sqlite")
+        rootDirectory(environment: environment, isDebugBuild: isDebugBuild)
+            .appending(path: "local.sqlite")
             .standardizedFileURL
     }
 

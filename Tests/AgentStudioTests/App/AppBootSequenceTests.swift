@@ -144,73 +144,13 @@ struct AppBootSequenceTests {
         #expect(appDelegateSource.contains("var workspaceSQLiteDatastore: WorkspaceSQLiteDatastore?"))
         #expect(!appDelegateSource.contains("var workspaceLocalSQLiteStoreBackend"))
         #expect(!appDelegateSource.contains("var workspaceSQLiteStoreBackend"))
-        #expect(appDelegateSource.contains("var canArchiveLegacyInboxFile = true"))
         #expect(inboxBootSource.contains("InboxNotificationSQLiteDatastoreAdapter("))
         #expect(inboxBootSource.contains("workspaceId: workspaceId"))
         #expect(inboxBootSource.contains("sqliteAdapter: sqliteAdapter"))
-        #expect(inboxBootSource.contains("allowLegacyFilePersistence: sqliteBootDecision.allowLegacyFilePersistence"))
-        #expect(inboxBootSource.contains("allowLegacyFileImport: sqliteBootDecision.allowLegacyFileImport"))
         #expect(!inboxBootSource.contains("workspaceLocalSQLiteStoreBackend"))
-        #expect(inboxBootSource.contains("canArchiveLegacyInboxFileAfterBlockedImport"))
-        #expect(inboxBootSource.contains("await adapter.bootDecision()"))
-        #expect(inboxBootSource.contains("InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile("))
         #expect(!inboxBootSource.contains("InboxNotificationSQLiteRepository("))
-        #expect(inboxBootSource.contains("hadLegacyInboxFile"))
-        #expect(inboxBootSource.contains("canArchiveLegacyInboxFile"))
-    }
-
-    @Test("legacy inbox archive readiness requires actual materialization proof")
-    func legacyInboxArchiveReadinessRequiresActualMaterializationProof() {
-        #expect(
-            !InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
-                hadLegacyFile: true,
-                didLoadStore: true,
-                hasSQLiteRepository: true,
-                hasWorkspaceLocalSQLiteBackend: true,
-                loadOutcome: .sqliteSnapshot,
-                canArchiveAfterBlockedImport: false
-            )
-        )
-        #expect(
-            InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
-                hadLegacyFile: true,
-                didLoadStore: true,
-                hasSQLiteRepository: true,
-                hasWorkspaceLocalSQLiteBackend: true,
-                loadOutcome: .legacyFileImportedIntoSQLite,
-                canArchiveAfterBlockedImport: false
-            )
-        )
-        #expect(
-            InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
-                hadLegacyFile: true,
-                didLoadStore: true,
-                hasSQLiteRepository: true,
-                hasWorkspaceLocalSQLiteBackend: true,
-                loadOutcome: .materializedLegacySQLiteSnapshot,
-                canArchiveAfterBlockedImport: false
-            )
-        )
-        #expect(
-            InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
-                hadLegacyFile: true,
-                didLoadStore: true,
-                hasSQLiteRepository: true,
-                hasWorkspaceLocalSQLiteBackend: true,
-                loadOutcome: .sqliteSnapshot,
-                canArchiveAfterBlockedImport: true
-            )
-        )
-        #expect(
-            InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
-                hadLegacyFile: false,
-                didLoadStore: false,
-                hasSQLiteRepository: false,
-                hasWorkspaceLocalSQLiteBackend: true,
-                loadOutcome: nil,
-                canArchiveAfterBlockedImport: false
-            )
-        )
+        #expect(!inboxBootSource.contains("Legacy"))
+        #expect(!inboxBootSource.contains("legacy"))
     }
 
     @Test("canonical boot exhaustively handles strict SQLite load results")

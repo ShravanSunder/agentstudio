@@ -8,7 +8,6 @@ private let repositoryTopologyStoreLogger = Logger(subsystem: "com.agentstudio",
 final class RepositoryTopologyStore {
     private let atom: RepositoryTopologyAtom
     private let sqliteDatastore: WorkspaceSQLiteDatastore?
-    private let saveCoordinator: WorkspaceSQLiteSaveCoordinator?
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
     private let recoveryReporter: PersistenceRecoveryReporter?
@@ -25,14 +24,12 @@ final class RepositoryTopologyStore {
     init(
         atom: RepositoryTopologyAtom,
         sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
-        saveCoordinator: WorkspaceSQLiteSaveCoordinator? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
         self.sqliteDatastore = sqliteDatastore
-        self.saveCoordinator = saveCoordinator
         self.persistDebounceDuration = persistDebounceDuration
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.recoveryReporter = recoveryReporter
@@ -109,8 +106,12 @@ final class RepositoryTopologyStore {
     }
 
     private func persistNow() async throws {
-        guard let saveCoordinator else { return }
-        _ = try await saveCoordinator.save(persistedAt: Date())
+        guard let sqliteDatastore else { return }
+        let snapshot = WorkspacePersistenceTransformer.makeRepositoryTopologySQLiteSnapshot(
+            repositoryTopologyAtom: atom,
+            persistedAt: Date()
+        )
+        try await sqliteDatastore.saveRepositoryTopologySnapshot(snapshot)
         isDirty = false
     }
 }

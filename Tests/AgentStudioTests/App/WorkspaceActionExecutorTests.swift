@@ -18,7 +18,6 @@ final class WorkspaceActionExecutorTests {
         installTestAtomRegistryIfNeeded()
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "executor-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
         store = WorkspaceStore()
         viewRegistry = ViewRegistry()
         runtime = SessionRuntime(store: store)

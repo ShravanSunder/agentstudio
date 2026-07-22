@@ -4,9 +4,9 @@ Status: reviewed and ready for `implementation-execute-plan`
 
 Accepted source: `../2026-07-21-persistence-ownership-hard-cut.md`
 
-Accepted source SHA-256: `ab9d72bade8f5d5fbbb0ea5d55321c93f99bb60cbbc85347fa6b77a3e07b6204`
+Accepted source SHA-256: `41d430167881afc7b7217397de6323244fc54907ef832613548e411e3eec75c7`
 
-Source coverage: `912/912` lines
+Source coverage: `937/937` lines
 
 ## Worker contract
 
@@ -33,7 +33,7 @@ preserving `preferences.global.json`.
 
 In scope:
 
-- One clean `local.sqlite` with exactly the target DDL in spec R4-R5.
+- One clean `local.sqlite` with exactly the target DDL in spec R4-R5a.
 - Typed repositories for workspace continuation, window/sidebar presentation,
   recent targets, notification inbox, workspace preferences, and global caches.
 - Deterministic defaults per invalid or unavailable local lane.
@@ -53,8 +53,8 @@ Out of scope:
 
 ## B0 — Install fresh-schema and no-legacy failing proof
 
-1. Re-read spec R4-R7, target local DDL, startup/save contracts, and proof rows
-   8-10 plus 12-13.
+1. Re-read spec R4-R7, including R5a, target local DDL, startup/save
+   contracts, and proof rows 8-10 plus 12-13.
 2. Inventory every production reference to `WorkspacePersistor`, legacy import
    decisions/markers, local completion tokens, per-workspace local paths, and
    standalone JSON app-state paths.
@@ -86,13 +86,26 @@ Actions:
 3. Key rows exactly by accepted ownership: workspace rows by `workspace_id`,
    window presentation by stable `window_id`, and truly shared caches globally.
 4. Remove local completion/import/marker tables from the target schema.
-5. Preserve foreign-key and validation constraints in the accepted DDL without
-   adding speculative per-field policy tables or UUID-repair rules.
+5. Preserve the accepted SQLite storage constraints: keys, relationships,
+   uniqueness, required columns, boolean representation, scalar ranges, and
+   singleton rows. Do not add product enum lists or cross-field product
+   semantics as SQL `CHECK` predicates.
+6. Implement typed Swift restoration codecs for product values. Recent-target
+   restoration validates `kind`, `repo_id`, and `worktree_id` together.
+   Notification-claim restoration validates all four flattened claim columns,
+   including the session-only invalid case. Preference codecs decode through
+   their existing Swift enums and deterministic defaults.
+7. Keep the session-claim index general. Mergeable-lane policy remains in the
+   exhaustive Swift `canMergeWithinActivitySession` switch rather than schema
+   literals.
 
 Local proof:
 
-- exact tables, columns, indexes, CHECKs, and FKs;
-- every typed table round-trips valid values and rejects invalid shapes;
+- exact tables, columns, indexes, storage-integrity CHECKs, and FKs, with no
+  product enum list or cross-field product-semantic CHECK;
+- every typed table round-trips valid values; Swift codecs reject unsupported
+  enum strings, invalid recent-target discriminator/ID tuples, and all partial
+  notification-claim tuples;
 - two workspace-owned row sets remain isolated in the same file;
 - first use creates the one `window_role = 'main'` row with a UUIDv7
   `window_id`; reopening resolves the same ID by role, sidebar child rows remain
@@ -126,11 +139,14 @@ Actions:
 2. Make each store load only its typed local lane.
 3. Default a missing, corrupt, unavailable, or invalid lane independently;
    local state never validates or blocks core composition.
-4. Persist settled UI/store values through the existing persistence wrappers;
+4. Discard a malformed recent-target or notification row rather than exposing
+   a partially valid product value. Never silently strip an invalid notification
+   claim into `claimKey = nil`.
+5. Persist settled UI/store values through the existing persistence wrappers;
    atoms remain canonical state or pure derived state, never I/O owners.
-5. Keep database I/O, row mapping, and validation off-main. MainActor captures
+6. Keep database I/O, row mapping, and validation off-main. MainActor captures
    or applies only bounded immutable values.
-6. Emit typed diagnostics that name lane/outcome. Existing OTLP projection
+7. Emit typed diagnostics that name lane/outcome. Existing OTLP projection
    tests must prove raw paths, UUIDs, pane contents, payloads, and raw errors
    are not exported; do not redesign local/JSONL diagnostics.
 
@@ -202,6 +218,7 @@ Testing discovery names; do not invent a harness or omit an affected owner.
 | --- | --- | --- | --- | --- |
 | R4 one clean local DB | B1 | exact schema, one URL/open, multi-owner isolation | SQLite integration | fresh app-root database |
 | R5 explicit local ownership | B1-B2 | typed round-trips and independent defaults | unit + integration | candidate schema and repositories |
+| R5a Swift product validation | B1-B2 | exhaustive codecs; malformed enum/discriminator/claim rows disappear or default | unit + SQLite integration | candidate schema and typed repository APIs |
 | R6 failure containment | B2 | missing/corrupt/unavailable/default tests; core unchanged | integration | fresh failure fixture |
 | R7 bounded MainActor | B2 | actor annotations and size-independent capture/apply | unit + integration | current executor annotations |
 | Hard cut | B3 | source scan plus sentinel no-read/no-write boot proof | static + smoke | final candidate HEAD and fresh sentinels |

@@ -45,7 +45,7 @@ extension AppDelegate {
         }
 
         do {
-            try workspaceSettingsStore.flush(for: store.identityAtom.workspaceId)
+            try await workspaceSettingsStore.flush(for: store.identityAtom.workspaceId)
         } catch {
             appLogger.warning("Workspace settings flush failed at termination: \(error.localizedDescription)")
         }

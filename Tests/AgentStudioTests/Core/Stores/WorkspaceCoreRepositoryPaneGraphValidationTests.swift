@@ -64,8 +64,8 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
         }
     }
 
-    @Test("pane graph replace nulls source repo outside workspace")
-    func paneGraphReplaceNullsSourceRepoOutsideWorkspace() throws {
+    @Test("pane graph replace preserves valid global topology facets")
+    func paneGraphReplacePreservesValidGlobalTopologyFacets() throws {
         let fixture = try makeWorkspaceCoreRepositoryFixture()
         let repository = fixture.repository
         let firstWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000002002")!
@@ -89,8 +89,7 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: secondWorkspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -127,8 +126,8 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
 
         let storedSource = try fixture.fetchPaneSource(paneId: paneId)
         let requiredSource = try #require(storedSource)
-        #expect(requiredSource.repoId == nil)
-        #expect(requiredSource.worktreeId == nil)
+        #expect(requiredSource.repoId == foreignRepoId)
+        #expect(requiredSource.worktreeId == foreignWorktreeId)
     }
 
     @Test("pane graph replace rejects drawer child outside incoming graph")
@@ -380,8 +379,7 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
         let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000002113")!
         try upsertWorkspace(repository, workspaceId: workspaceId, name: "Facet Repo")
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: makeTopology(
+            makeTopology(
                 repos: [
                     (repoId: sourceRepoId, worktreeId: worktreeId, path: "/tmp/agentstudio/source-repo"),
                     (repoId: facetRepoId, worktreeId: nil, path: "/tmp/agentstudio/facet-repo"),
@@ -446,8 +444,7 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
         let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000002130")!
         try upsertWorkspace(repository, workspaceId: workspaceId, name: "Missing Worktree")
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: makeTopology(repos: [(repoId: repoId, worktreeId: nil, path: "/tmp/agentstudio/no-worktree")])
+            makeTopology(repos: [(repoId: repoId, worktreeId: nil, path: "/tmp/agentstudio/no-worktree")])
         )
 
         try repository.replacePaneGraph(
@@ -474,8 +471,7 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
         let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000002114")!
         try upsertWorkspace(repository, workspaceId: workspaceId, name: "Worktree Repo")
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: makeTopology(
+            makeTopology(
                 repos: [
                     (repoId: sourceRepoId, worktreeId: nil, path: "/tmp/agentstudio/source-repo-empty"),
                     (repoId: actualRepoId, worktreeId: worktreeId, path: "/tmp/agentstudio/actual-repo"),

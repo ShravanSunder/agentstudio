@@ -112,10 +112,7 @@ extension WorkspaceSQLiteSnapshot {
 
 extension WorkspaceSQLiteSaveBundle {
     static func emptyTopologyFixture(workspace: WorkspaceSQLiteSnapshot) -> Self {
-        Self(
-            workspace: workspace,
-            repositoryTopology: .init(id: workspace.id, updatedAt: workspace.updatedAt)
-        )
+        Self(workspace: workspace)
     }
 
     static func emptyFixture(

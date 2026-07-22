@@ -16,7 +16,7 @@ struct WorkspaceSQLiteTraceRecorderTests {
 
         await recorder.recordOperation(
             .workspaceSave,
-            phase: .stageCore,
+            phase: .commitCore,
             lane: .workspace,
             outcome: .started,
             workspaceId: workspaceId,
@@ -30,7 +30,7 @@ struct WorkspaceSQLiteTraceRecorderTests {
         #expect(contents.contains("\"agentstudio.trace.tag\":\"persistence.operation\""))
         #expect(contents.contains("\"agentstudio.persistence.backend\":\"sqlite\""))
         #expect(contents.contains("\"agentstudio.persistence.operation\":\"workspace.save\""))
-        #expect(contents.contains("\"agentstudio.persistence.phase\":\"stage_core\""))
+        #expect(contents.contains("\"agentstudio.persistence.phase\":\"commit_core\""))
         #expect(contents.contains("\"agentstudio.persistence.lane\":\"workspace\""))
         #expect(contents.contains("\"agentstudio.persistence.outcome\":\"started\""))
         #expect(contents.contains("\"agentstudio.workspace.id\":\"\(workspaceId.uuidString)\""))
@@ -154,7 +154,7 @@ struct WorkspaceSQLiteTraceRecorderTests {
             .init(
                 snapshot: .snapshotWithArrangementPaneMissingFromTab(),
                 operation: .workspaceSave,
-                phase: .stageCore,
+                phase: .commitCore,
                 outcome: .started,
                 error: nil
             )

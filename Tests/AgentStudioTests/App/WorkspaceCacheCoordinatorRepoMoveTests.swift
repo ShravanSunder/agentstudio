@@ -7,11 +7,7 @@ import Testing
 @MainActor
 struct WorkspaceCacheCoordinatorRepoMoveTests {
     private func makeWorkspaceStore() -> WorkspaceStore {
-        let tempDir = FileManager.default.temporaryDirectory.appending(
-            path: "workspace-cache-coordinator-repo-move-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        persistor.ensureDirectory()
-        return WorkspaceStore()
+        WorkspaceStore()
     }
 
     @Test("repoRemoved marks panes orphaned and prunes cache while preserving canonical identities")

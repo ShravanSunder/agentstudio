@@ -16,8 +16,6 @@ struct WorkspaceSQLiteStoreBackend {
     enum BackendError: Error, Equatable, Sendable {
         case preexistingDatabaseHasNoWorkspaceRows
         case missingActiveWorkspaceSelection
-        case incompleteWorkspaceSnapshot(UUID)
-        case localWorkspaceSnapshotNotCompleted(UUID)
     }
 
     let coreRepository: WorkspaceCoreRepository
@@ -38,20 +36,13 @@ struct WorkspaceSQLiteStoreBackend {
         coreRepository: WorkspaceCoreRepository,
         makeLocalRepository: @escaping @Sendable (UUID) throws -> WorkspaceLocalRepository,
         makeLocalRestoreRepository: (@Sendable (UUID) throws -> WorkspaceLocalRepository)? = nil,
-        coreDatabaseStartupProvenance: CoreDatabaseStartupProvenance = .preexisting,
-        legacyImportDecision:
-            @escaping @Sendable (
-                UUID,
-                WorkspaceLocalSQLiteLegacyLane
-            ) throws -> WorkspaceLocalSQLiteLegacyImportDecision = { _, _ in .allowImport
-            }
+        coreDatabaseStartupProvenance: CoreDatabaseStartupProvenance = .preexisting
     ) {
         self.coreRepository = coreRepository
         self.coreDatabaseStartupProvenance = coreDatabaseStartupProvenance
         self.localBackend = WorkspaceLocalSQLiteStoreBackend(
             makeLocalRepository: makeLocalRepository,
-            makeLocalRestoreRepository: makeLocalRestoreRepository,
-            legacyImportDecision: legacyImportDecision
+            makeLocalRestoreRepository: makeLocalRestoreRepository
         )
     }
 
@@ -77,116 +68,83 @@ struct WorkspaceSQLiteStoreBackend {
     }
 
     private func loadCompletedSnapshot() throws -> WorkspaceSQLiteSnapshot {
-        let workspace = try strictlySelectedCompletedWorkspace()
-        guard
-            let snapshotToken = try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(
-                workspaceId: workspace.id
-            )
-        else {
-            throw BackendError.incompleteWorkspaceSnapshot(workspace.id)
-        }
-
-        let paneGraph = try coreRepository.fetchPaneGraph(workspaceId: workspace.id)
-        let tabShells = try coreRepository.fetchTabShells(workspaceId: workspace.id)
-        let tabGraph = try coreRepository.fetchTabGraph(workspaceId: workspace.id)
-        let localRepository = try localBackend.restoreRepository(for: workspace.id)
-        let cursorState: WorkspaceLocalRepository.CursorStateRecord
-        let windowState: WorkspaceLocalRepository.WindowStateRecord?
-        switch readLocalSnapshot(localRepository, matching: snapshotToken) {
-        case .matched(let restoredCursorState, let restoredWindowState):
-            cursorState = restoredCursorState
-            windowState = restoredWindowState
-        case .notCompletedAtCoreToken:
-            throw BackendError.localWorkspaceSnapshotNotCompleted(workspace.id)
-        case .unavailable(let error):
-            throw error
-        }
-
+        let authoritativeSnapshot = try strictlySelectedAuthoritativeSnapshot()
+        let localState:
+            (
+                cursor: WorkspaceLocalRepository.CursorStateRecord,
+                window: WorkspaceLocalRepository.WindowStateRecord?
+            )? = try? {
+                let localRepository = try localBackend.restoreRepository(for: authoritativeSnapshot.workspace.id)
+                return (
+                    cursor: try localRepository.fetchCursorState(),
+                    window: try localRepository.fetchWindowState()
+                )
+            }()
         return try WorkspaceSQLiteStateBridge.workspaceSnapshot(
             from: .init(
-                workspace: workspace,
-                paneGraph: paneGraph,
-                tabShells: tabShells,
-                tabGraph: tabGraph,
-                cursorState: cursorState,
-                windowState: windowState
+                workspace: authoritativeSnapshot.workspace,
+                paneGraph: authoritativeSnapshot.paneGraph,
+                tabShells: authoritativeSnapshot.tabShells,
+                tabGraph: authoritativeSnapshot.tabGraph,
+                cursorState: WorkspaceSQLiteStateBridge.localCursorStateForComposition(
+                    persisted: localState?.cursor,
+                    paneGraph: authoritativeSnapshot.paneGraph,
+                    tabGraph: authoritativeSnapshot.tabGraph
+                ),
+                windowState: localState?.window
             )
         )
     }
 
-    func readLocalSnapshot(
-        _ localRepository: WorkspaceLocalRepository,
-        matching coreCompletedAt: Date
-    ) -> WorkspaceLocalSnapshotRead {
-        do {
-            guard try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == coreCompletedAt else {
-                return .notCompletedAtCoreToken
-            }
-            return .matched(
-                cursorState: try localRepository.fetchCursorState(),
-                windowState: try localRepository.fetchWindowState()
-            )
-        } catch {
-            return .unavailable(error)
-        }
-    }
-
     func save(_ bundle: WorkspaceSQLiteSaveBundle) throws {
-        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: true)
+        try replaceWorkspaceSnapshot(bundle, updatesActiveSelection: true)
         let localRepository = try localBackend.repository(for: bundle.id)
-        try writeLocalSnapshotAndCommit(
+        try writeLocalSnapshot(
             bundle.workspace,
-            state: WorkspacePersistenceTransformer.persistableState(from: bundle),
             localRepository: localRepository
         )
     }
 
     func save(_ bundle: WorkspaceSQLiteSaveBundle, localRepository: WorkspaceLocalRepository) throws {
-        let state = WorkspacePersistenceTransformer.persistableState(from: bundle)
-        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: true)
-        try writeLocalSnapshotAndCommit(bundle.workspace, state: state, localRepository: localRepository)
+        try replaceWorkspaceSnapshot(bundle, updatesActiveSelection: true)
+        try writeLocalSnapshot(bundle.workspace, localRepository: localRepository)
     }
 
-    func writeLocalSnapshotAndCommit(
+    func writeLocalSnapshot(
         _ snapshot: WorkspaceSQLiteSnapshot,
-        state: WorkspacePersistor.PersistableState,
         localRepository: WorkspaceLocalRepository
     ) throws {
-        // Commit order is core staged -> local completed -> core completed.
-        // Restore only trusts a core completion token that the local sidecar can match.
         try localRepository.replaceWorkspaceSnapshotLocalState(
-            cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
-            windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
+            cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: snapshot),
+            windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: snapshot),
             completedAt: snapshot.updatedAt
         )
-        try markWorkspaceSnapshotCommitted(workspaceId: snapshot.id, committedAt: snapshot.updatedAt)
     }
 
-    func replaceWorkspaceSnapshotStaged(
+    func replaceWorkspaceSnapshot(
         _ bundle: WorkspaceSQLiteSaveBundle,
         updatesActiveSelection: Bool
     ) throws {
-        let state = WorkspacePersistenceTransformer.persistableState(from: bundle)
-        try coreRepository.replaceWorkspaceSnapshotStaged(
-            workspace: WorkspaceSQLiteStateBridge.workspaceRecord(from: state),
-            topology: WorkspaceSQLiteStateBridge.repositoryTopologyRecord(from: state),
-            paneGraph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: state),
-            tabShells: WorkspaceSQLiteStateBridge.tabShellRecords(from: state),
-            tabGraph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: state),
-            stagedAt: bundle.updatedAt,
+        let snapshot = bundle.workspace
+        try coreRepository.replaceWorkspaceSnapshot(
+            workspace: WorkspaceSQLiteStateBridge.workspaceRecord(from: snapshot),
+            paneGraph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: snapshot),
+            tabShells: WorkspaceSQLiteStateBridge.tabShellRecords(from: snapshot),
+            tabGraph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: snapshot),
             updatesActiveSelection: updatesActiveSelection
         )
     }
 
-    func markWorkspaceSnapshotCommitted(workspaceId: UUID, committedAt: Date) throws {
-        try coreRepository.markWorkspaceSQLiteSnapshotCommitted(workspaceId: workspaceId, committedAt: committedAt)
+    func fetchRepositoryTopologySnapshot() throws -> RepositoryTopologySQLiteSnapshot {
+        try WorkspaceSQLiteStateBridge.repositoryTopologySnapshot(
+            topology: coreRepository.fetchRepositoryTopology(),
+            updatedAt: Date()
+        )
     }
 
-    func fetchRepositoryTopologySnapshot(workspaceId: UUID) throws -> RepositoryTopologySQLiteSnapshot {
-        try WorkspaceSQLiteStateBridge.repositoryTopologySnapshot(
-            workspaceId: workspaceId,
-            topology: coreRepository.fetchRepositoryTopology(workspaceId: workspaceId),
-            updatedAt: coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) ?? Date()
+    func replaceRepositoryTopologySnapshot(_ snapshot: RepositoryTopologySQLiteSnapshot) throws {
+        try coreRepository.replaceRepositoryTopology(
+            WorkspaceSQLiteStateBridge.repositoryTopologyRecord(from: snapshot)
         )
     }
 
@@ -194,83 +152,31 @@ struct WorkspaceSQLiteStoreBackend {
         try coreRepository.selectActiveWorkspace(workspaceId, updatedAt: updatedAt)
     }
 
-    func strictlySelectedCompletedWorkspace() throws -> WorkspaceCoreRepository.WorkspaceRecord {
-        guard try !coreRepository.fetchWorkspaces().isEmpty else {
+    func strictlySelectedAuthoritativeSnapshot() throws -> WorkspaceCoreRepository.AuthoritativeSnapshot {
+        switch try coreRepository.fetchAuthoritativeSnapshot() {
+        case .noWorkspaces:
             switch coreDatabaseStartupProvenance {
             case .createdDuringCurrentStartup:
                 throw BackendUninitializedError()
             case .preexisting:
                 throw BackendError.preexistingDatabaseHasNoWorkspaceRows
             }
-        }
-        guard let activeWorkspaceId = try coreRepository.fetchActiveWorkspaceId() else {
+        case .missingActiveSelection:
             throw BackendError.missingActiveWorkspaceSelection
+        case .loaded(let snapshot):
+            return snapshot
         }
-        guard let workspace = try coreRepository.fetchWorkspace(id: activeWorkspaceId) else {
-            throw WorkspaceCoreRepositoryError.activeWorkspaceSelectionDangling(activeWorkspaceId)
-        }
-        return workspace
     }
-}
-
-enum WorkspaceLocalSnapshotRead {
-    case matched(
-        cursorState: WorkspaceLocalRepository.CursorStateRecord,
-        windowState: WorkspaceLocalRepository.WindowStateRecord?
-    )
-    case notCompletedAtCoreToken
-    case unavailable(any Error)
 }
 
 struct BackendUninitializedError: Error {}
 
-enum WorkspaceLocalSQLiteLegacyLane: Sendable {
-    case local
-    case cache
-}
-
-enum WorkspaceLocalSQLiteLegacyImportDecision: Equatable, Sendable {
-    case allowImport
-    case blockReplayAllowArchive
-    case blockReplayBlockArchive
-
-    var allowsLegacyImport: Bool {
-        switch self {
-        case .allowImport:
-            return true
-        case .blockReplayAllowArchive, .blockReplayBlockArchive:
-            return false
-        }
-    }
-
-    var canArchiveLegacyFile: Bool {
-        switch self {
-        case .blockReplayAllowArchive:
-            return true
-        case .allowImport, .blockReplayBlockArchive:
-            return false
-        }
-    }
-}
-
 struct WorkspaceLocalSQLiteStoreBackend: Sendable {
     private let makeLocalRepository: @Sendable (UUID) throws -> WorkspaceLocalRepository
     private let makeLocalRestoreRepository: @Sendable (UUID) throws -> WorkspaceLocalRepository
-    private let makeLegacyImportDecision:
-        @Sendable (
-            UUID,
-            WorkspaceLocalSQLiteLegacyLane
-        ) throws -> WorkspaceLocalSQLiteLegacyImportDecision
-
     init(
         makeLocalRepository: @escaping @Sendable (UUID) throws -> WorkspaceLocalRepository,
-        makeLocalRestoreRepository: (@Sendable (UUID) throws -> WorkspaceLocalRepository)? = nil,
-        legacyImportDecision:
-            @escaping @Sendable (
-                UUID,
-                WorkspaceLocalSQLiteLegacyLane
-            ) throws -> WorkspaceLocalSQLiteLegacyImportDecision = { _, _ in .allowImport
-            }
+        makeLocalRestoreRepository: (@Sendable (UUID) throws -> WorkspaceLocalRepository)? = nil
     ) {
         self.makeLocalRepository = makeLocalRepository
         if let makeLocalRestoreRepository {
@@ -280,7 +186,6 @@ struct WorkspaceLocalSQLiteStoreBackend: Sendable {
                 try makeLocalRepository(workspaceId)
             }
         }
-        self.makeLegacyImportDecision = legacyImportDecision
     }
 
     func repository(for workspaceId: UUID) throws -> WorkspaceLocalRepository {
@@ -291,12 +196,6 @@ struct WorkspaceLocalSQLiteStoreBackend: Sendable {
         try makeLocalRestoreRepository(workspaceId)
     }
 
-    func legacyImportDecision(
-        for workspaceId: UUID,
-        lane: WorkspaceLocalSQLiteLegacyLane
-    ) throws -> WorkspaceLocalSQLiteLegacyImportDecision {
-        try makeLegacyImportDecision(workspaceId, lane)
-    }
 }
 
 enum WorkspaceLocalSQLiteStoreBackendError: Error {
@@ -315,7 +214,7 @@ enum WorkspaceSQLiteStateBridge {
     }
 
     static func workspaceRecord(
-        from state: WorkspacePersistor.PersistableState
+        from state: WorkspaceSQLiteSnapshot
     ) -> WorkspaceCoreRepository.WorkspaceRecord {
         .init(
             id: state.id,
@@ -326,51 +225,50 @@ enum WorkspaceSQLiteStateBridge {
     }
 
     static func repositoryTopologyRecord(
-        from state: WorkspacePersistor.PersistableState
+        from snapshot: RepositoryTopologySQLiteSnapshot
     ) -> WorkspaceCoreRepository.RepositoryTopologyRecord {
-        let worktreesByRepoId = Dictionary(grouping: state.worktrees, by: \.repoId)
-        let repos = state.repos.map { repo in
-            WorkspaceCoreRepository.RepoRecord(
-                id: repo.id,
-                name: repo.name,
-                repoPath: repo.repoPath,
-                createdAt: repo.createdAt,
-                isFavorite: repo.isFavorite,
-                note: repo.note,
-                worktrees: (worktreesByRepoId[repo.id] ?? []).map { worktree in
-                    WorkspaceCoreRepository.WorktreeRecord(
-                        id: worktree.id,
-                        repoId: worktree.repoId,
-                        name: worktree.name,
-                        path: worktree.path,
-                        isMainWorktree: worktree.isMainWorktree,
-                        note: worktree.note
-                    )
-                },
-                tags: repo.tags
-            )
-        }
+        let worktreesByRepoId = Dictionary(grouping: snapshot.worktrees, by: \.repoId)
         return .init(
-            watchedPaths: state.watchedPaths.map { watchedPath in
-                WorkspaceCoreRepository.WatchedPathRecord(
+            watchedPaths: snapshot.watchedPaths.map { watchedPath in
+                .init(
                     id: watchedPath.id,
                     path: watchedPath.path,
                     addedAt: watchedPath.addedAt
                 )
             },
-            repos: repos,
-            unavailableRepoIds: state.unavailableRepoIds
+            repos: snapshot.repos.map { repo in
+                .init(
+                    id: repo.id,
+                    name: repo.name,
+                    repoPath: repo.repoPath,
+                    createdAt: repo.createdAt,
+                    isFavorite: repo.isFavorite,
+                    note: repo.note,
+                    worktrees: (worktreesByRepoId[repo.id] ?? []).map { worktree in
+                        .init(
+                            id: worktree.id,
+                            repoId: worktree.repoId,
+                            name: worktree.name,
+                            path: worktree.path,
+                            isMainWorktree: worktree.isMainWorktree,
+                            note: worktree.note
+                        )
+                    },
+                    tags: repo.tags
+                )
+            },
+            unavailableRepoIds: snapshot.unavailableRepoIds
         )
     }
 
     static func paneGraphRecord(
-        from state: WorkspacePersistor.PersistableState
+        from state: WorkspaceSQLiteSnapshot
     ) throws -> WorkspaceCoreRepository.PaneGraphRecord {
         .init(panes: try state.panes.map { try paneRecord(from: $0, updatedAt: state.updatedAt) })
     }
 
     static func tabShellRecords(
-        from state: WorkspacePersistor.PersistableState
+        from state: WorkspaceSQLiteSnapshot
     ) -> [WorkspaceCoreRepository.TabShellRecord] {
         state.tabs.map { tab in
             .init(id: tab.id, name: tab.name, colorHex: tab.colorHex)
@@ -378,7 +276,7 @@ enum WorkspaceSQLiteStateBridge {
     }
 
     static func tabGraphRecord(
-        from state: WorkspacePersistor.PersistableState
+        from state: WorkspaceSQLiteSnapshot
     ) -> WorkspaceCoreRepository.TabGraphRecord {
         .init(
             tabs: state.tabs.map { tab in
@@ -392,7 +290,7 @@ enum WorkspaceSQLiteStateBridge {
     }
 
     static func windowStateRecord(
-        from state: WorkspacePersistor.PersistableState
+        from state: WorkspaceSQLiteSnapshot
     ) -> WorkspaceLocalRepository.WindowStateRecord {
         .init(
             sidebarWidth: Double(state.sidebarWidth),
@@ -401,7 +299,7 @@ enum WorkspaceSQLiteStateBridge {
     }
 
     static func cursorStateRecord(
-        from state: WorkspacePersistor.PersistableState
+        from state: WorkspaceSQLiteSnapshot
     ) -> WorkspaceLocalRepository.CursorStateRecord {
         let drawers = state.panes.compactMap(\.drawer)
         let arrangementCursorPairs = state.tabs.map { tab in
@@ -436,19 +334,85 @@ enum WorkspaceSQLiteStateBridge {
         )
     }
 
-    static func persistableState(
-        from snapshot: Snapshot
-    ) throws -> WorkspacePersistor.PersistableState {
-        let tabShellsById = Dictionary(uniqueKeysWithValues: snapshot.tabShells.map { ($0.id, $0) })
-        guard let windowState = snapshot.windowState else {
-            throw WorkspaceSQLiteStateBridgeError.missingWindowState
+    /// Local cursor rows are advisory presentation memory. Missing or stale values
+    /// fall back in memory to deterministic choices from the authoritative core
+    /// graph; this projection never writes those defaults back to SQLite.
+    static func localCursorStateForComposition(
+        persisted: WorkspaceLocalRepository.CursorStateRecord?,
+        paneGraph: WorkspaceCoreRepository.PaneGraphRecord,
+        tabGraph: WorkspaceCoreRepository.TabGraphRecord
+    ) -> WorkspaceLocalRepository.CursorStateRecord {
+        let tabIds = Set(tabGraph.tabs.map(\.tabId))
+        let activeTabId =
+            persisted?.activeTabId.flatMap { tabIds.contains($0) ? $0 : nil }
+            ?? tabGraph.tabs.first?.tabId
+
+        var activeArrangementIdsByTabId: [UUID: UUID] = [:]
+        var activePaneIdsByArrangementId: [UUID: UUID] = [:]
+        for tab in tabGraph.tabs {
+            let arrangementIds = Set(tab.arrangements.map(\.id))
+            if let persistedId = persisted?.activeArrangementIdsByTabId[tab.tabId],
+                arrangementIds.contains(persistedId)
+            {
+                activeArrangementIdsByTabId[tab.tabId] = persistedId
+            } else if let defaultArrangementId = tab.arrangements.first(where: \.isDefault)?.id {
+                activeArrangementIdsByTabId[tab.tabId] = defaultArrangementId
+            }
+            for arrangement in tab.arrangements {
+                guard let persistedPaneId = persisted?.activePaneIdsByArrangementId[arrangement.id],
+                    arrangement.layout.paneIds.contains(persistedPaneId)
+                else {
+                    continue
+                }
+                activePaneIdsByArrangementId[arrangement.id] = persistedPaneId
+            }
         }
+
+        let drawersById = Dictionary(
+            uniqueKeysWithValues: paneGraph.panes.compactMap { pane in
+                pane.drawer.map { ($0.drawerId, $0) }
+            }
+        )
+        var drawerExpansionByDrawerId = Dictionary(
+            uniqueKeysWithValues: drawersById.keys.map { ($0, false) }
+        )
+        for (drawerId, isExpanded) in persisted?.drawerExpansionByDrawerId ?? [:]
+        where drawersById[drawerId] != nil {
+            drawerExpansionByDrawerId[drawerId] = isExpanded
+        }
+
+        var activeChildIdsByArrangementDrawer: [WorkspaceLocalRepository.ArrangementDrawerCursorKey: UUID] = [:]
+        for (key, childPaneId) in persisted?.activeChildIdsByArrangementDrawer ?? [:] {
+            guard
+                let tab = tabGraph.tabs.first(where: { tab in
+                    tab.arrangements.contains(where: { $0.id == key.arrangementId })
+                }),
+                let arrangement = tab.arrangements.first(where: { $0.id == key.arrangementId }),
+                arrangement.drawerViews[key.drawerId] != nil,
+                drawersById[key.drawerId]?.childPaneIds.contains(childPaneId) == true
+            else {
+                continue
+            }
+            activeChildIdsByArrangementDrawer[key] = childPaneId
+        }
+
+        return .init(
+            activeTabId: activeTabId,
+            activeArrangementIdsByTabId: activeArrangementIdsByTabId,
+            activePaneIdsByArrangementId: activePaneIdsByArrangementId,
+            drawerExpansionByDrawerId: drawerExpansionByDrawerId,
+            activeChildIdsByArrangementDrawer: activeChildIdsByArrangementDrawer
+        )
+    }
+
+    static func workspaceSnapshot(
+        from snapshot: Snapshot
+    ) throws -> WorkspaceSQLiteSnapshot {
+        let tabShellsById = Dictionary(uniqueKeysWithValues: snapshot.tabShells.map { ($0.id, $0) })
+        let windowState = snapshot.windowState ?? .init(sidebarWidth: 250, windowFrame: nil)
         return .init(
             id: snapshot.workspace.id,
             name: snapshot.workspace.name,
-            repos: [],
-            worktrees: [],
-            unavailableRepoIds: [],
             panes: try snapshot.paneGraph.panes.map { try pane(from: $0, cursorState: snapshot.cursorState) },
             tabs: try snapshot.tabGraph.tabs.map { tabState in
                 try tab(
@@ -460,25 +424,16 @@ enum WorkspaceSQLiteStateBridge {
             activeTabId: snapshot.cursorState.activeTabId,
             sidebarWidth: CGFloat(windowState.sidebarWidth),
             windowFrame: windowState.windowFrame,
-            watchedPaths: [],
             createdAt: snapshot.workspace.createdAt,
             updatedAt: snapshot.workspace.updatedAt
         )
     }
 
-    static func workspaceSnapshot(
-        from snapshot: Snapshot
-    ) throws -> WorkspaceSQLiteSnapshot {
-        WorkspacePersistenceTransformer.sqliteSnapshot(from: try persistableState(from: snapshot))
-    }
-
     static func repositoryTopologySnapshot(
-        workspaceId: UUID,
         topology: WorkspaceCoreRepository.RepositoryTopologyRecord,
         updatedAt: Date
     ) -> RepositoryTopologySQLiteSnapshot {
         RepositoryTopologySQLiteSnapshot(
-            id: workspaceId,
             repos: topology.repos.map(canonicalRepo),
             worktrees: topology.repos.flatMap { $0.worktrees.map(canonicalWorktree) },
             unavailableRepoIds: topology.unavailableRepoIds,

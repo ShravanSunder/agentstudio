@@ -22,7 +22,6 @@ struct WorkspaceActionExecutorTestsQuick {
     private func makeHarness() -> WorkspaceActionExecutorHarness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-action-executor-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
