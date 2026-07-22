@@ -41,13 +41,24 @@ export async function settleCompleteFilePierreWorkerPoolInitialization(
 	await actUpdate(async (): Promise<void> => {
 		managerState = (await initializeBridgePierreWorkerPoolSingletonForTest(workerFactory))
 			.managerState;
-		await new Promise<void>((resolve): void => {
-			requestAnimationFrame((): void => {
-				resolve();
-			});
-		});
 	});
 	expect(managerState).toBe('initialized');
+	await waitForCompleteFilePierreWorkerPoolReady(0);
+}
+
+async function waitForCompleteFilePierreWorkerPoolReady(attempt: number): Promise<void> {
+	const managerState = document.documentElement.dataset['bridgePierreWorkerPoolManagerState'];
+	const loadingStatus = document.querySelector('[data-testid="bridge-pierre-worker-pool-loading"]');
+	if (managerState === 'initialized' && loadingStatus === null) {
+		return;
+	}
+	if (attempt >= 120) {
+		throw new Error(
+			`Complete File Pierre worker pool did not reach rendered readiness; manager=${managerState ?? 'missing'} loading=${loadingStatus === null ? 'absent' : 'present'}.`,
+		);
+	}
+	await actFrame();
+	await waitForCompleteFilePierreWorkerPoolReady(attempt + 1);
 }
 
 export async function assertCompleteFilePositionSurvivesModeSwitch(props: {

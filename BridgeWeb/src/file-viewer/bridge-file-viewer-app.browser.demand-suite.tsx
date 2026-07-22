@@ -156,6 +156,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		if (treeScrollOwner === null) {
 			throw new Error('Expected File View tree scroll owner for scrolled worker viewport demand.');
 		}
+		await waitForViewportMessageWithFirstVisibleIndex({
+			dispatchedMessages,
+			minimumFirstVisibleIndex: 0,
+		});
 
 		await actUpdate((): void => {
 			treeScrollOwner.scrollTop = 24 * 30;
