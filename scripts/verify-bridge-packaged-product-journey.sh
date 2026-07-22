@@ -616,9 +616,8 @@ try:
         and (value.get("summary", {}).get("worktreeCodeTextLength") or 0) > 0,
     )
 
-    focus_foreground_pane(review_handle, "Review pane telemetry foreground")
-    focus_foreground_pane(file_handle, "File pane telemetry foreground")
-    for handle in (review_handle, file_handle):
+    for label, handle in (("Review", review_handle), ("File", file_handle)):
+        focus_foreground_pane(handle, f"{label} pane telemetry foreground")
         snapshot = session.request("bridge.telemetry.snapshot", {"handle": handle})
         if snapshot.get("kind") != "report":
             fail(f"Bridge telemetry snapshot unavailable for {handle}: {snapshot}")

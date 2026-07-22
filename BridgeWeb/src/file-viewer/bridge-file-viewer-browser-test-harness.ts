@@ -258,6 +258,17 @@ export async function waitForFileCodeViewScrollable(scrollOwner: HTMLElement): P
 	await waitForFileCodeViewScrollableAttempt({ attempt: 0, scrollOwner });
 }
 
+export async function waitForFileCodeViewScrollTopAtLeast(props: {
+	readonly minimumScrollTop: number;
+	readonly scrollOwner: HTMLElement;
+}): Promise<void> {
+	await waitForFileCodeViewScrollTopAtLeastAttempt({
+		attempt: 0,
+		minimumScrollTop: props.minimumScrollTop,
+		scrollOwner: props.scrollOwner,
+	});
+}
+
 export async function waitForOpenFileStateAttempt(props: {
 	readonly attempt: number;
 	readonly expectedState: string;
@@ -358,6 +369,26 @@ export async function waitForFileCodeViewScrollableAttempt(props: {
 	await waitForFileCodeViewScrollableAttempt({
 		attempt: props.attempt + 1,
 		scrollOwner: props.scrollOwner,
+	});
+}
+
+async function waitForFileCodeViewScrollTopAtLeastAttempt(props: {
+	readonly attempt: number;
+	readonly minimumScrollTop: number;
+	readonly scrollOwner: HTMLElement;
+}): Promise<void> {
+	if (props.scrollOwner.scrollTop >= props.minimumScrollTop) {
+		return;
+	}
+	if (props.attempt >= 60) {
+		throw new Error(
+			`Expected File CodeView scrollTop >= ${props.minimumScrollTop}; actual=${props.scrollOwner.scrollTop}`,
+		);
+	}
+	await actFrame();
+	await waitForFileCodeViewScrollTopAtLeastAttempt({
+		...props,
+		attempt: props.attempt + 1,
 	});
 }
 

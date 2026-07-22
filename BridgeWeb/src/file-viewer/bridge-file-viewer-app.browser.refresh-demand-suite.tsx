@@ -38,6 +38,7 @@ import {
 	settleBridgeFileViewerBrowserUpdates,
 	waitForFileCodeViewScrollable,
 	waitForFileCodeViewScrollOwner,
+	waitForFileCodeViewScrollTopAtLeast,
 	requireMetadataPublisher,
 	visibleCodeText,
 	waitForFileViewerActiveState,
@@ -390,6 +391,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		await waitForBridgeFileViewerWorkerMessageDrain();
 		const refreshedScrollOwner = await waitForFileCodeViewScrollOwner();
+		await waitForFileCodeViewScrollTopAtLeast({
+			minimumScrollTop: scrollTopBeforeRefresh - 1,
+			scrollOwner: refreshedScrollOwner,
+		});
 
 		expect(openFileBodyPreview()).toContain('export const refreshedScrollLine001 = true;');
 		expect(refreshedScrollOwner.scrollTop).toBeGreaterThanOrEqual(scrollTopBeforeRefresh - 1);

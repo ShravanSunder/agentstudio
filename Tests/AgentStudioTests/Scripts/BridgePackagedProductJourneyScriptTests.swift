@@ -160,6 +160,16 @@ struct BridgePackagedProductJourneyScriptTests {
             source.contains(#"focus_foreground_pane(review_handle, "Review pane foreground")"#)
         )
         #expect(source.contains(#"focus_foreground_pane(file_handle, "File pane foreground")"#))
+        #expect(
+            source.contains(
+                #"for label, handle in (("Review", review_handle), ("File", file_handle)):"#
+            )
+        )
+        #expect(
+            source.contains(
+                #"focus_foreground_pane(handle, f"{label} pane telemetry foreground")"#
+            )
+        )
         #expect(source.contains(#"value.get("summary", {}).get("worktreeDescriptorCount")"#))
         #expect(source.contains(#"value.get("summary", {}).get("worktreeOpenFileState") == "ready""#))
     }
