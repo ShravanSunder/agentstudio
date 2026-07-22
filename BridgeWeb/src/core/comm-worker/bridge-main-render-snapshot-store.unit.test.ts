@@ -228,6 +228,69 @@ describe('Bridge main render snapshot store', () => {
 		expect(store.getSnapshot().codeViewItemsById['item-1']).toBeUndefined();
 	});
 
+	test('applies batched record patches without mutating previous snapshots', () => {
+		const store = createBridgeMainRenderSnapshotStore();
+		const firstItem = makeBridgeMainCodeViewItem('item-1');
+		const secondItem = makeBridgeMainCodeViewItem('item-2');
+		store.applySnapshotUpdate({
+			codeViewItemPatches: [{ operation: 'upsert', itemId: 'item-1', item: firstItem }],
+			workerPatches: [
+				{
+					slice: 'rowPaint',
+					operation: 'upsert',
+					itemId: 'item-1',
+					payload: { contentCacheKey: 'paint:item-1', status: 'ready' },
+				},
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'item-1',
+					payload: { state: 'ready' },
+				},
+			],
+		});
+		const previousSnapshot = store.getSnapshot();
+
+		store.applySnapshotUpdate({
+			codeViewItemPatches: [
+				{ operation: 'upsert', itemId: 'item-2', item: secondItem },
+				{ operation: 'delete', itemId: 'item-1' },
+			],
+			workerPatches: [
+				{
+					slice: 'rowPaint',
+					operation: 'upsert',
+					itemId: 'item-2',
+					payload: { contentCacheKey: 'paint:item-2', status: 'ready' },
+				},
+				{ slice: 'rowPaint', operation: 'delete', itemId: 'item-1' },
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'item-2',
+					payload: { state: 'ready' },
+				},
+				{ slice: 'contentAvailability', operation: 'delete', itemId: 'item-1' },
+			],
+		});
+
+		expect(previousSnapshot.codeViewItemsById).toEqual({ 'item-1': firstItem });
+		expect(previousSnapshot.rowPaintById).toEqual({
+			'item-1': { contentCacheKey: 'paint:item-1', status: 'ready' },
+		});
+		expect(previousSnapshot.contentAvailabilityById).toEqual({
+			'item-1': { state: 'ready' },
+		});
+		const nextSnapshot = store.getSnapshot();
+		expect(nextSnapshot.codeViewItemsById).toEqual({ 'item-2': secondItem });
+		expect(nextSnapshot.rowPaintById).toEqual({
+			'item-2': { contentCacheKey: 'paint:item-2', status: 'ready' },
+		});
+		expect(nextSnapshot.contentAvailabilityById).toEqual({
+			'item-2': { state: 'ready' },
+		});
+	});
+
 	test('batches local selection, CodeView item, and worker patches into one publish', () => {
 		const store = createBridgeMainRenderSnapshotStore();
 		const item = makeBridgeMainCodeViewItem('item-1');

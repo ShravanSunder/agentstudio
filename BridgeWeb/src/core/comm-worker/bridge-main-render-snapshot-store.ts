@@ -625,80 +625,123 @@ function buildSnapshotFromUpdate(
 	snapshot: MutableBridgeMainRenderSnapshot,
 	update: BridgeMainRenderSnapshotUpdate,
 ): MutableBridgeMainRenderSnapshot {
-	let nextSnapshot = snapshot;
+	let selectionSlice = snapshot.selectionSlice;
+	let viewportSlice = snapshot.viewportSlice;
+	let panelChromeSlice = snapshot.panelChromeSlice;
+	let codeViewItemsById = snapshot.codeViewItemsById;
+	let rowPaintById = snapshot.rowPaintById;
+	let contentAvailabilityById = snapshot.contentAvailabilityById;
+	let mutableCodeViewItems: Record<string, BridgeMainCodeViewItem> | undefined;
+	let mutableRowPaint: Record<string, BridgeWorkerRowPaintPatchPayload> | undefined;
+	let mutableContentAvailability:
+		| Record<string, BridgeWorkerContentAvailabilityPatchPayload>
+		| undefined;
+	let didChange = false;
+
+	const ensureMutableCodeViewItems = (): Record<string, BridgeMainCodeViewItem> => {
+		if (mutableCodeViewItems !== undefined) return mutableCodeViewItems;
+		mutableCodeViewItems = { ...codeViewItemsById };
+		codeViewItemsById = mutableCodeViewItems;
+		return mutableCodeViewItems;
+	};
+	const ensureMutableRowPaint = (): Record<string, BridgeWorkerRowPaintPatchPayload> => {
+		if (mutableRowPaint !== undefined) return mutableRowPaint;
+		mutableRowPaint = { ...rowPaintById };
+		rowPaintById = mutableRowPaint;
+		return mutableRowPaint;
+	};
+	const ensureMutableContentAvailability = (): Record<
+		string,
+		BridgeWorkerContentAvailabilityPatchPayload
+	> => {
+		if (mutableContentAvailability !== undefined) return mutableContentAvailability;
+		mutableContentAvailability = { ...contentAvailabilityById };
+		contentAvailabilityById = mutableContentAvailability;
+		return mutableContentAvailability;
+	};
+
 	if (update.localSelection !== undefined) {
-		nextSnapshot = {
-			...nextSnapshot,
-			selectionSlice: update.localSelection,
-		};
+		selectionSlice = update.localSelection;
+		didChange = true;
 	}
 	if (update.localViewport !== undefined) {
-		nextSnapshot = {
-			...nextSnapshot,
-			viewportSlice: {
-				firstVisibleIndex: update.localViewport.firstVisibleIndex,
-				lastVisibleIndex: update.localViewport.lastVisibleIndex,
-				visibleItemIds: [...update.localViewport.visibleItemIds],
-			},
+		viewportSlice = {
+			firstVisibleIndex: update.localViewport.firstVisibleIndex,
+			lastVisibleIndex: update.localViewport.lastVisibleIndex,
+			visibleItemIds: [...update.localViewport.visibleItemIds],
 		};
+		didChange = true;
 	}
 	for (const patch of update.codeViewItemPatches ?? []) {
-		nextSnapshot = buildCodeViewItemPatchSnapshot(nextSnapshot, patch);
+		didChange = true;
+		if (patch.operation === 'reset') {
+			mutableCodeViewItems = {};
+			codeViewItemsById = mutableCodeViewItems;
+			continue;
+		}
+		const nextCodeViewItems = ensureMutableCodeViewItems();
+		if (patch.operation === 'delete') {
+			delete nextCodeViewItems[patch.itemId];
+		} else {
+			nextCodeViewItems[patch.itemId] = patch.item;
+		}
 	}
 	for (const patch of update.workerPatches ?? []) {
-		nextSnapshot = buildWorkerPatchSnapshot(nextSnapshot, patch);
+		didChange = true;
+		switch (patch.slice) {
+			case 'selection':
+				selectionSlice = buildSelectionSliceFromPatch(patch);
+				break;
+			case 'viewport':
+				viewportSlice = buildViewportSliceFromPatch(patch);
+				break;
+			case 'rowPaint':
+				if (patch.operation === 'reset') {
+					mutableRowPaint = {};
+					rowPaintById = mutableRowPaint;
+					mutableCodeViewItems = {};
+					codeViewItemsById = mutableCodeViewItems;
+					break;
+				}
+				const nextRowPaint = ensureMutableRowPaint();
+				if (patch.operation === 'delete') {
+					const nextCodeViewItems = ensureMutableCodeViewItems();
+					delete nextRowPaint[patch.itemId];
+					delete nextCodeViewItems[patch.itemId];
+				} else {
+					nextRowPaint[patch.itemId] = patch.payload;
+				}
+				break;
+			case 'contentAvailability':
+				if (patch.operation === 'reset') {
+					mutableContentAvailability = {};
+					contentAvailabilityById = mutableContentAvailability;
+					break;
+				}
+				const nextContentAvailability = ensureMutableContentAvailability();
+				if (patch.operation === 'delete') {
+					delete nextContentAvailability[patch.itemId];
+				} else {
+					nextContentAvailability[patch.itemId] = patch.payload;
+				}
+				break;
+			case 'panelChrome':
+				panelChromeSlice = patch.operation === 'upsert' ? patch.payload : {};
+				break;
+			default:
+				assertNeverBridgeWorkerSlicePatch(patch);
+		}
 	}
-	return nextSnapshot;
-}
-
-function buildCodeViewItemPatchSnapshot(
-	snapshot: MutableBridgeMainRenderSnapshot,
-	patch: BridgeMainCodeViewItemPatch,
-): MutableBridgeMainRenderSnapshot {
-	if (patch.operation === 'reset') {
-		return {
-			...snapshot,
-			codeViewItemsById: {},
-		};
-	}
-	const nextCodeViewItemsById = { ...snapshot.codeViewItemsById };
-	if (patch.operation === 'delete') {
-		delete nextCodeViewItemsById[patch.itemId];
-	} else {
-		nextCodeViewItemsById[patch.itemId] = patch.item;
-	}
+	if (!didChange) return snapshot;
 	return {
 		...snapshot,
-		codeViewItemsById: nextCodeViewItemsById,
+		selectionSlice,
+		viewportSlice,
+		panelChromeSlice,
+		codeViewItemsById,
+		rowPaintById,
+		contentAvailabilityById,
 	};
-}
-
-function buildWorkerPatchSnapshot(
-	snapshot: MutableBridgeMainRenderSnapshot,
-	patch: BridgeWorkerSlicePatch,
-): MutableBridgeMainRenderSnapshot {
-	switch (patch.slice) {
-		case 'selection':
-			return {
-				...snapshot,
-				selectionSlice: buildSelectionSliceFromPatch(patch),
-			};
-		case 'viewport':
-			return {
-				...snapshot,
-				viewportSlice: buildViewportSliceFromPatch(patch),
-			};
-		case 'rowPaint':
-			return buildRowPaintPatchSnapshot(snapshot, patch);
-		case 'contentAvailability':
-			return buildContentAvailabilityPatchSnapshot(snapshot, patch);
-		case 'panelChrome':
-			return {
-				...snapshot,
-				panelChromeSlice: patch.operation === 'upsert' ? patch.payload : {},
-			};
-	}
-	return assertNeverBridgeWorkerSlicePatch(patch);
 }
 
 function assertNeverBridgeWorkerSlicePatch(patch: never): never {
@@ -734,57 +777,5 @@ function buildViewportSliceFromPatch(
 		firstVisibleIndex: patch.payload.firstVisibleIndex,
 		lastVisibleIndex: patch.payload.lastVisibleIndex,
 		visibleItemIds: [...patch.payload.visibleItemIds],
-	};
-}
-
-function buildRowPaintPatchSnapshot(
-	snapshot: MutableBridgeMainRenderSnapshot,
-	patch: Extract<BridgeWorkerSlicePatch, { slice: 'rowPaint' }>,
-): MutableBridgeMainRenderSnapshot {
-	if (patch.operation === 'reset') {
-		return {
-			...snapshot,
-			rowPaintById: {},
-			codeViewItemsById: {},
-		};
-	}
-	const nextEntries = { ...snapshot.rowPaintById };
-	if (patch.operation === 'delete') {
-		const nextCodeViewItemsById = { ...snapshot.codeViewItemsById };
-		delete nextEntries[patch.itemId];
-		delete nextCodeViewItemsById[patch.itemId];
-		return {
-			...snapshot,
-			rowPaintById: nextEntries,
-			codeViewItemsById: nextCodeViewItemsById,
-		};
-	} else {
-		nextEntries[patch.itemId] = patch.payload;
-	}
-	return {
-		...snapshot,
-		rowPaintById: nextEntries,
-	};
-}
-
-function buildContentAvailabilityPatchSnapshot(
-	snapshot: MutableBridgeMainRenderSnapshot,
-	patch: Extract<BridgeWorkerSlicePatch, { slice: 'contentAvailability' }>,
-): MutableBridgeMainRenderSnapshot {
-	if (patch.operation === 'reset') {
-		return {
-			...snapshot,
-			contentAvailabilityById: {},
-		};
-	}
-	const nextEntries = { ...snapshot.contentAvailabilityById };
-	if (patch.operation === 'delete') {
-		delete nextEntries[patch.itemId];
-	} else {
-		nextEntries[patch.itemId] = patch.payload;
-	}
-	return {
-		...snapshot,
-		contentAvailabilityById: nextEntries,
 	};
 }
