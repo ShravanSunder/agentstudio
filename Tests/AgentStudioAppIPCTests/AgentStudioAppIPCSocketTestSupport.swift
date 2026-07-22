@@ -53,8 +53,8 @@ func login(
         )
     )
     let response = try reader.receiveResponse(connection: connection)
-    #expect(response.id == .number(requestId))
-    #expect(response.error == nil)
+    try #require(response.id == .number(requestId))
+    try #require(response.error == nil)
 }
 
 func loginWithoutBlockingMainActor(
@@ -72,8 +72,36 @@ func loginWithoutBlockingMainActor(
         )
     )
     let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
-    #expect(response.id == .number(requestId))
-    #expect(response.error == nil)
+    try #require(response.id == .number(requestId))
+
+    var rejectionContext = "auth.login rejection was not observed"
+    if response.error != nil {
+        do {
+            try sendRequest(
+                connection: connection,
+                request: JSONRPCClientRequest(
+                    id: .number(requestId + 1_000_000),
+                    method: "auth.status",
+                    params: .object([:])
+                )
+            )
+            let status = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
+            let authenticated: Bool?
+            if case .object(let result)? = status.result,
+                case .bool(let value)? = result["authenticated"]
+            {
+                authenticated = value
+            } else {
+                authenticated = nil
+            }
+            rejectionContext =
+                "post-rejection auth.status error code: \(status.error?.code.description ?? "none"); "
+                + "authenticated: \(authenticated?.description ?? "unknown")"
+        } catch {
+            rejectionContext = "post-rejection auth.status transport failed"
+        }
+    }
+    try #require(response.error == nil, Comment(rawValue: rejectionContext))
 }
 
 func decodeResponseResult<T: Decodable>(
