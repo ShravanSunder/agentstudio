@@ -153,6 +153,32 @@ export async function scanBridgeReviewRecoveryWitnessDocument(props: {
 			if (observedMarkers.has(marker) && stableTargetSampleCount >= 2) {
 				break;
 			}
+			const targetItemId = props.markerItemIds?.[markerIndex];
+			if (
+				!observedMarkers.has(marker) &&
+				targetItemId !== undefined &&
+				visibleItemIds.includes(targetItemId)
+			) {
+				for (
+					let stationarySampleIndex = 0;
+					stationarySampleIndex < maximumConvergenceSamplesPerMarker;
+					stationarySampleIndex += 1
+				) {
+					if (props.publishDemandedContent !== undefined) {
+						// oxlint-disable-next-line no-await-in-loop -- The stationary viewport owns each demand/apply turn.
+						await props.publishDemandedContent();
+					}
+					// oxlint-disable-next-line no-await-in-loop -- Each turn advances one real apply/paint boundary without another scroll event.
+					await advanceBridgeReviewRecoveryWitnessFrames(1);
+					const renderedText = props.visibleCodeText(props.scrollOwner);
+					scrollTopSamples.push(props.scrollOwner.scrollTop);
+					if (renderedText.trim().length === 0) blankPaintSampleCount += 1;
+					if (renderedText.includes(marker)) {
+						observedMarkers.add(marker);
+						break;
+					}
+				}
+			}
 		}
 	}
 	return {

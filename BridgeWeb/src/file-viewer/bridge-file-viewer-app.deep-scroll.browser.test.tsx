@@ -64,6 +64,7 @@ import {
 	makeCorruptedCompleteFileDeepScrollContent,
 	settleCompleteFilePierreWorkerPoolInitialization,
 	type DeepScrollSurfacePaintSnapshot,
+	waitForCompleteFileInitialPaintReady,
 	waitForCompleteFileDeepScrollTerminalState,
 	waitForDeepScrollRouteElement,
 } from './bridge-file-viewer-deep-scroll-test-support.js';
@@ -189,6 +190,7 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 		});
 		const owners = await requireDeepScrollOwners();
 		await waitForFileCodeViewScrollable(owners.codeScrollOwner);
+		await waitForCompleteFileInitialPaintReady();
 		assertDeepScrollSurfaceInvariant({ owners, step: 'initial' });
 
 		await runDeepScrollSequence({
@@ -272,6 +274,7 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 			},
 		});
 		await waitForFileCodeViewScrollable(owners.codeScrollOwner);
+		await waitForCompleteFileInitialPaintReady();
 		assertDeepScrollSurfaceInvariant({ owners, step: 'route-initial' });
 
 		await runDeepScrollSequence({
@@ -392,6 +395,7 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 				},
 			});
 			await waitForTreeScrollHeightAtLeast(metadataState.treeRowCount * 20);
+			await waitForCompleteFileInitialPaintReady();
 			assertDeepScrollSurfaceInvariant({ owners, step: 'real-vite-initial' });
 
 			await runDeepScrollSequence({

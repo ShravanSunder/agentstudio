@@ -48,6 +48,7 @@ import {
 	waitForBridgeFileViewerWorkerMessageDrain,
 	selectedDisplayPath,
 	waitForMetadataInterestUpdateCount,
+	waitForMetadataPublisher,
 	waitForMetadataTreeRowCount,
 	waitForOpenFileState,
 	waitForSelectedDisplayPath,
@@ -776,10 +777,12 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 
+		await waitForMetadataPublisher(() => publishMetadataEvents);
 		const fileButton = await waitForBridgeViewerTreeItemButton(
 			'Sources/AgentStudio/App/AppDelegate.swift',
 		);
 		await actClick(fileButton);
+		await waitForBridgeFileViewerWorkerMessageDrain();
 
 		await waitForMetadataInterestUpdateCount({
 			expectedCount: 1,

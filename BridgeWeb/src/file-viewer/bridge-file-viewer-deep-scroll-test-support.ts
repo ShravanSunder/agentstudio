@@ -43,22 +43,42 @@ export async function settleCompleteFilePierreWorkerPoolInitialization(
 			.managerState;
 	});
 	expect(managerState).toBe('initialized');
-	await waitForCompleteFilePierreWorkerPoolReady(0);
+	await waitForCompleteFilePierreWorkerPoolReady({ attempt: 0, requirePaintedPublication: false });
 }
 
-async function waitForCompleteFilePierreWorkerPoolReady(attempt: number): Promise<void> {
+export async function waitForCompleteFileInitialPaintReady(): Promise<void> {
+	await waitForCompleteFilePierreWorkerPoolReady({ attempt: 0, requirePaintedPublication: true });
+}
+
+async function waitForCompleteFilePierreWorkerPoolReady(props: {
+	readonly attempt: number;
+	readonly requirePaintedPublication: boolean;
+}): Promise<void> {
 	const managerState = document.documentElement.dataset['bridgePierreWorkerPoolManagerState'];
+	const busyWorkerCount = document.documentElement.dataset['bridgePierreWorkerPoolBusyWorkers'];
+	const queuedTaskCount = document.documentElement.dataset['bridgePierreWorkerPoolQueuedTasks'];
+	const activeTaskCount = document.documentElement.dataset['bridgePierreWorkerPoolActiveTasks'];
 	const loadingStatus = document.querySelector('[data-testid="bridge-pierre-worker-pool-loading"]');
-	if (managerState === 'initialized' && loadingStatus === null) {
+	const paintedPublication = document.querySelector(
+		'diffs-container[data-bridge-painted-publication-id]',
+	);
+	if (
+		managerState === 'initialized' &&
+		loadingStatus === null &&
+		(!props.requirePaintedPublication || paintedPublication !== null)
+	) {
 		return;
 	}
-	if (attempt >= 120) {
+	if (props.attempt >= 120) {
 		throw new Error(
-			`Complete File Pierre worker pool did not reach rendered readiness; manager=${managerState ?? 'missing'} loading=${loadingStatus === null ? 'absent' : 'present'}.`,
+			`Complete File Pierre worker pool did not reach rendered readiness; manager=${managerState ?? 'missing'} busy=${busyWorkerCount ?? 'missing'} queued=${queuedTaskCount ?? 'missing'} active=${activeTaskCount ?? 'missing'} loading=${loadingStatus === null ? 'absent' : 'present'} paintedPublication=${paintedPublication === null ? 'missing' : 'present'}.`,
 		);
 	}
 	await actFrame();
-	await waitForCompleteFilePierreWorkerPoolReady(attempt + 1);
+	await waitForCompleteFilePierreWorkerPoolReady({
+		attempt: props.attempt + 1,
+		requirePaintedPublication: props.requirePaintedPublication,
+	});
 }
 
 export async function assertCompleteFilePositionSurvivesModeSwitch(props: {
