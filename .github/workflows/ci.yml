@@ -52,15 +52,15 @@ jobs:
 
       # --- BridgeWeb check/build before Swift WebKit lanes ---
 
-      - name: Enable pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.33.0 --activate
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.14.0
 
       - name: Setup Node for BridgeWeb
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "26.5.0"
           cache: pnpm
           cache-dependency-path: BridgeWeb/pnpm-lock.yaml
 

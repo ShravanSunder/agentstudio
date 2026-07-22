@@ -40,7 +40,6 @@ export type {
 	BridgeReviewRecoveryMarkerConvergenceSample,
 	BridgeReviewRecoveryScrollScan,
 } from './bridge-viewer-browser.recovery-witness-scroll.test-support.js';
-
 export interface BridgeReviewRecoveryWitnessFile {
 	readonly changeKind?: BridgeFileChangeKind;
 	readonly contentMarker: string;

@@ -1,4 +1,6 @@
 [tools]
+node = "26.5.0"
+pnpm = "11.14.0"
 zig = "0.15.2"
 
 [env]
@@ -116,7 +118,7 @@ run = """
 set -euo pipefail
 if command -v corepack >/dev/null 2>&1; then
   corepack enable
-  corepack prepare pnpm@10.33.0 --activate
+  corepack prepare pnpm@11.14.0 --activate
 elif ! command -v pnpm >/dev/null 2>&1; then
   echo "BridgeWeb install requires corepack or pnpm on PATH" >&2
   exit 127
