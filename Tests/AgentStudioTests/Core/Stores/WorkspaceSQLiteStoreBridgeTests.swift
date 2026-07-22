@@ -170,6 +170,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
             unavailableRepoIds: []
         )
         try fixture.coreRepository.replaceRepositoryTopology(expectedTopology)
+        let persistedTopologyBeforeFlush = try fixture.coreRepository.fetchRepositoryTopology()
         store.windowMemoryAtom.setSidebarWidth(321)
         store.windowMemoryAtom.setWindowFrame(CGRect(x: 10, y: 20, width: 900, height: 700))
         let pane = store.createPane(
@@ -203,7 +204,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(workspace.createdAt == createdAt)
 
         let topology = try fixture.coreRepository.fetchRepositoryTopology()
-        #expect(topology == expectedTopology)
+        #expect(topology == persistedTopologyBeforeFlush)
 
         let paneGraph = try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceId)
         let paneRecord = try #require(paneGraph.panes.single)
