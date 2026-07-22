@@ -1,30 +1,24 @@
-# Persistence Ownership and Pane Lifecycle Hard Cut
+# Persistence Ownership Hard Cut
 
 Date: 2026-07-21
-Status: Draft — persistence hard-cut scope active; pane cleanup deferred
+Status: Accepted — persistence hard-cut only
 
 > Scope note (2026-07-22): pane retention, undo expiry, and resource
 > finalization are being split into
 > [`2026-07-22-pane-retention-and-safe-cleanup`](../2026-07-22-pane-retention-and-safe-cleanup/2026-07-22-pane-retention-and-safe-cleanup.md).
-> Do not implement R6, R7, or the pane-lifecycle plan from this artifact until
-> that follow-up design is accepted and this combined draft is surgically
-> narrowed. Current implementation focus is the persistence ownership hard cut:
-> R1-R5, R8-R9 as they apply to core/local persistence, and complete removal of
-> legacy JSON-to-SQLite and per-workspace-local compatibility code.
+> That follow-up is independent. This spec owns only core/global persistence,
+> one clean application `local.sqlite`, and complete removal of legacy
+> JSON-to-SQLite and per-workspace-local compatibility code.
 
 ## Read this first
 
-This change fixes three customer-impacting problems:
+This change fixes two customer-impacting problems:
 
 1. Deleting a workspace can currently delete application-level repositories,
    worktrees, watched paths, tags, and availability rows because the SQLite
    schema incorrectly makes them children of the workspace.
 2. A local preference/cache write can currently make a valid core snapshot look
    incomplete and prevent AgentStudio from opening.
-3. Closing panes and tabs does not implement one coherent 15-minute undo
-   lifecycle. Pane records, Ghostty surfaces, runtime state, and ZMX sessions can
-   outlive one another, and worktree disappearance incorrectly marks live panes
-   as orphaned.
 
 The target ownership is intentionally small:
 
@@ -32,7 +26,6 @@ The target ownership is intentionally small:
 core.sqlite
   authoritative global repository topology
   authoritative workspace composition
-  pane close state during the 15-minute undo window
 
 local.sqlite
   one clean application-level database
@@ -79,29 +72,6 @@ Required outcome:
   sidecars;
 - missing, corrupt, or unavailable local state never blocks valid core startup.
 
-### 3. Closed and orphaned panes accumulate
-
-The model contains `pendingUndo`, but production close paths do not consistently
-set it. The coordinator keeps an in-memory stack capped by entry count rather
-than a 15-minute deadline. `SurfaceManager` separately uses a five-minute TTL
-and destroys only its Ghostty surface. The ZMX destroy API has no production
-expiry caller. Worktree removal also changes pane residency even though pane
-runtime is CWD-backed and does not belong to a worktree.
-
-Required outcome:
-
-- closing a pane or tab starts one 15-minute undo deadline;
-- during that window, the pane record, terminal identity, and runtime resources
-  remain available for undo;
-- expiry removes the pane and all owned content from core, retires the Ghostty
-  surface and runtime state, and destroys the stored ZMX session;
-- worktree/repository disappearance clears optional topology facets only; it
-  does not close the pane or change pane residency;
-- the obsolete worktree-derived `orphaned` residency is removed;
-- a pane outside tab/drawer membership is valid only when deliberately
-  `backgrounded` or `pendingUndo`; any other membership orphan is rejected or
-  removed by the defined cutover, not silently retained forever.
-
 ## Current evidence
 
 The design is grounded in these current source boundaries:
@@ -119,38 +89,6 @@ The design is grounded in these current source boundaries:
   therefore replace newer accepted topology.
 - `WorkspaceLocalMigrations.swift` defines one schema per workspace-local
   sidecar and repeats `workspace_id` on global cache rows.
-- `WorkspaceSurfaceCoordinator+ActionExecution.swift` closes tabs/panes through
-  an in-memory undo stack and has no working time-based `expireUndoEntry` path.
-- `WorkspaceCompositionPreparation.swift` rejects every pane outside tab
-  membership, while the product intentionally retains `backgrounded` panes and
-  must retain `pendingUndo` panes. Direct tab close therefore creates a state
-  that current autosave cannot commit.
-- `SurfaceManager.swift` has an independent five-minute surface-only undo TTL.
-- `WorkspacePaneGraphAtom.purgeOrphanedPane` accepts only `backgrounded` even
-  though its facade also routes worktree-derived `orphaned` panes there.
-- `ZmxBackend.destroySessionByID` exists, but pane/tab expiry does not call it.
-
-A read-only production aggregate check on 2026-07-21 found:
-
-```text
-core quick_check             ok
-foreign-key violations       0
-workspaces                    1
-repositories                 157
-worktrees                    244
-panes                         47
-tabs                          8
-
-pane residency
-  active                     14  (14 in composition)
-  backgrounded                4  (4 outside composition, intentional pool)
-  orphaned                   29  (25 in composition, 4 outside composition)
-  pendingUndo                 0
-```
-
-No IDs, paths, titles, notes, terminal content, or notification content were
-read. The result demonstrates that `orphaned` is not a reliable synonym for
-"closed pane": most such panes are still members of live compositions.
 
 ## Ownership boundaries
 
@@ -193,19 +131,16 @@ flowchart LR
     Core["core.sqlite<br/>authoritative"]
     Local["local.sqlite<br/>non-authoritative"]
     Atoms["MainActor live atoms"]
-    Runtime["Ghostty / runtime / ZMX"]
-
     Core -->|"strict atomic load"| Atoms
     Local -->|"typed values or defaults"| Atoms
-    Atoms -->|"coordinator commands"| Runtime
     Atoms -->|"atomic core save"| Core
     Atoms -->|"independent lane writes"| Local
 
     Local -. "never validates or completes" .-> Core
 ```
 
-Atoms remain state owners and pure derived-state owners. Persistence and
-subprocess cleanup remain in repositories, stores, and coordinators.
+Atoms remain state owners and pure derived-state owners. Persistence remains in
+repositories, stores, and the datastore actor.
 
 ## Requirements
 
@@ -299,93 +234,22 @@ as a boot dependency.
   SQLite cannot enforce foreign keys across separate files. Stale local rows
   default or disappear without changing core.
 
-### R6. Pane and tab close lifecycle
-
-Close undo is process-local. The durable pane row records the deadline so a
-crash cannot turn a closed pane into an immortal one; the layout restoration
-snapshot remains in memory and is not promoted into a new persistence system.
-
-```mermaid
-stateDiagram-v2
-    [*] --> Active
-    Active --> Backgrounded: explicit remove-from-layout without close
-    Backgrounded --> Active: explicit reactivate
-    Active --> PendingUndo: close pane or tab
-    Backgrounded --> PendingUndo: close backgrounded pane
-    PendingUndo --> Active: undo before deadline in same process
-    PendingUndo --> Destroyed: 15-minute deadline
-    PendingUndo --> Destroyed: next startup after process ended
-    Destroyed --> [*]
-```
-
-Normative behavior:
-
-- The TTL is one compile-time product policy: 15 minutes. The coordinator and
-  `SurfaceManager` do not own different deadlines.
-- Closing a tab gives every pane and owned drawer child in that tab the same
-  deadline.
-- Closing a pane gives that pane and its owned drawer children the same
-  deadline.
-- Closing removes layout membership immediately but keeps the pane record and
-  terminal ZMX identity while undo remains possible.
-- Core persistence treats `backgrounded` and `pendingUndo` panes as an explicit
-  off-layout pane pool. Composition validation permits those two residencies
-  outside tab/drawer membership and rejects `active` panes outside membership.
-  A close and its resulting pool membership persist atomically, so restart can
-  never resurrect the pre-close tab merely because autosave rejected the pane.
-- Undo before the deadline cancels finalization, restores composition from the
-  process-local close snapshot, and returns the pane to `active`.
-- Expiry is one coordinator-owned finalization command. It removes the undo
-  entry, destroys/retire the Ghostty surface, clears runtime state, invokes
-  `ZmxBackend.destroySessionByID` for terminal panes, removes the pane plus owned
-  content/drawer rows from live state, and commits the resulting core deletion.
-- ZMX "already absent" is successful idempotent cleanup. Other backend failures
-  are diagnosed; they do not resurrect the pane or invalidate core.
-- On next startup, any persisted `pendingUndo` pane is finalized immediately
-  because the process-local layout snapshot no longer exists.
-- Capacity limits may evict the oldest undo entry early only if eviction runs
-  the same complete finalization path. Capacity eviction must never discard only
-  the snapshot while retaining the pane/session.
-- Every other permanent pane deletion, including explicit purge of a
-  `backgrounded` pane, uses the same subtree finalizer. Parent panes and all
-  owned drawer children retire their model, view slot, surface, runtime state,
-  and terminal ZMX session together.
-
-### R7. Orphan semantics are narrow
-
-The target pane lifecycle has no worktree-derived `orphaned` residency.
-
-- A pane in a tab/drawer remains active when its repo/worktree disappears. Its
-  optional facet clears; its CWD and terminal continue.
-- `backgrounded` means an intentional recoverable pane outside layout
-  membership. It is not an error and is not subject to the close TTL.
-- `pendingUndo` means an intentional close outside layout membership and is
-  subject to the 15-minute deadline.
-- An `active` pane outside tab/drawer membership is invalid.
-- A pane with a worktree-derived `orphaned` value is converted once during the
-  core schema cutover:
-  - if it still has tab/drawer membership, it becomes `active` and remains open;
-  - if it has no membership, its pane/content rows are deleted as stale state.
-- No ongoing startup repair engine, orphan receipt, or topology-driven pane
-  collector is introduced.
-
-### R8. Failure containment and observability
+### R6. Failure containment and observability
 
 Existing diagnostics must distinguish:
 
 - core open/migration/validation/commit failure;
 - local database unavailable and local lane read/write failure;
-- local stale-reference defaulting;
-- pane undo started, undone, expired, finalized, and backend cleanup failed.
+- local stale-reference defaulting.
 
 OTLP output must not include raw paths, pane titles, notes, notification bodies,
 terminal content, or session IDs.
 
-### R9. MainActor remains a bounded UI-state boundary
+### R7. MainActor remains a bounded UI-state boundary
 
 This persistence correction must reduce or preserve MainActor work. It must not
-move database, lifecycle, or collection computation onto MainActor merely
-because a coordinator or atom is MainActor-isolated.
+move database or collection computation onto MainActor merely because a
+coordinator or atom is MainActor-isolated.
 
 MainActor may perform only:
 
@@ -399,18 +263,18 @@ MainActor may perform only:
 MainActor must not perform:
 
 - SQLite open, migration, query, encoding, transaction, or quarantine work;
-- filesystem, repository, subprocess, or ZMX operations;
+- filesystem or repository operations;
 - composition preparation or schema validation;
 - collection-wide sorting, filtering, grouping, diffing, reconciliation,
   aggregation, or cache rebuilding;
-- timer waiting, retry loops, or cleanup polling;
+- timer waiting or retry loops;
 - rebuilding large persistence payloads from observable state on every save.
 
 An `@MainActor` coordinator owns sequencing, not computation. It captures a
 small typed request, calls an actor or `@concurrent nonisolated` worker, and
 applies the prepared result. Atoms remain canonical state or pure derived state
-with small selector-style transforms; they do not become persistence planners,
-cleanup engines, or background-work substitutes.
+with small selector-style transforms; they do not become persistence planners
+or background-work substitutes.
 
 For persistence, capture uses shallow value/COW snapshots or incrementally
 maintained changed-row inputs. Mapping those values into SQL rows, validating
@@ -441,18 +305,19 @@ flowchart LR
 | `worktree` | composite repo/workspace FK | global; owned only by `repo_id` |
 | `repo_tag` | workspace-qualified key/FK | `(repo_id, tag)` |
 | `unavailable_repo` | workspace-qualified key/FK | one row per global `repo_id` |
-| `pane` | topology facets must share workspace; supports worktree-derived orphan fields | global optional facets; no orphan fields; checked close residency |
+| `pane` facet triggers | topology facets must share pane workspace | dropped; facets reference global topology |
 | `workspace_sqlite_snapshot_status` | cross-database completion state | dropped |
 | `legacy_workspace_import_status` | legacy import/replay state | dropped |
 
 This is not a rebuild of all domain data. SQLite cannot alter the existing
 topology foreign keys, primary keys, or uniqueness constraints in place, so the
-five topology tables require replacement. AgentStudio uses system SQLite and
-cannot assume SQLite 3.53; the current linked runtime is 3.51, which cannot add
-the pane residency `CHECK` in place. The forward GRDB migration therefore
-rebuilds those five topology tables and `pane` in one transaction.
-Rows and identifiers are copied 1:1 except for the explicitly defined obsolete
-orphan-state cutover above.
+five topology tables require replacement in one transaction. `pane` is not
+rebuilt by this hard cut. Its existing optional facet columns already reference
+the global `repo(id)` and `worktree(id)` identities with `ON DELETE SET NULL`;
+the migration only drops the obsolete workspace-matching facet triggers.
+Existing pane residency and lifecycle columns remain unchanged.
+
+Topology rows and identifiers are copied 1:1.
 
 Previously shipped GRDB migration bodies and identifiers remain unchanged. One
 new forward migration produces the target schema; this preserves upgradeability
@@ -512,92 +377,11 @@ CREATE TABLE unavailable_repo (
 );
 ```
 
-### Target `core.sqlite` DDL: touched pane table
+### Existing `pane` table: topology-trigger cut
 
-The composition graph tables remain unchanged. The `pane` table is shown in
-full because its topology references and lifecycle columns change.
-
-```sql
-CREATE TABLE pane (
-    id                      TEXT PRIMARY KEY,
-    workspace_id            TEXT NOT NULL
-                            REFERENCES workspace(id) ON DELETE CASCADE,
-    content_type            TEXT NOT NULL CHECK (
-        content_type IN (
-            'terminal', 'browser', 'diff', 'editor',
-            'review', 'agent', 'codeViewer'
-        )
-        OR content_type GLOB 'plugin:?*'
-    ),
-    execution_backend       TEXT NOT NULL,
-    facet_repo_id           TEXT REFERENCES repo(id) ON DELETE SET NULL,
-    facet_worktree_id       TEXT REFERENCES worktree(id) ON DELETE SET NULL,
-    launch_directory        TEXT,
-    title                   TEXT NOT NULL,
-    note                    TEXT,
-    cwd                     TEXT,
-    checkout_ref            TEXT,
-    residency_kind          TEXT NOT NULL,
-    pending_undo_expires_at REAL,
-    kind                    TEXT NOT NULL,
-    parent_pane_id          TEXT REFERENCES pane(id) ON DELETE CASCADE,
-    created_at              REAL NOT NULL,
-    updated_at              REAL NOT NULL,
-    CHECK (
-        (
-            residency_kind = 'pendingUndo'
-            AND pending_undo_expires_at IS NOT NULL
-        )
-        OR (
-            residency_kind IN ('active', 'backgrounded')
-            AND pending_undo_expires_at IS NULL
-        )
-    )
-);
-
-CREATE INDEX idx_pane_workspace_id ON pane(workspace_id);
-
-CREATE TRIGGER pane_parent_matches_workspace
-BEFORE INSERT ON pane
-WHEN NEW.parent_pane_id IS NOT NULL
-AND (SELECT workspace_id FROM pane WHERE id = NEW.parent_pane_id)
-    != NEW.workspace_id
-BEGIN
-    SELECT RAISE(ABORT, 'pane parent_pane_id must belong to pane workspace');
-END;
-
-CREATE TRIGGER pane_parent_update_matches_workspace
-BEFORE UPDATE OF parent_pane_id, workspace_id ON pane
-WHEN NEW.parent_pane_id IS NOT NULL
-AND (SELECT workspace_id FROM pane WHERE id = NEW.parent_pane_id)
-    != NEW.workspace_id
-BEGIN
-    SELECT RAISE(ABORT, 'pane parent_pane_id must belong to pane workspace');
-END;
-
-CREATE TRIGGER pane_facets_match_repository_insert
-BEFORE INSERT ON pane
-WHEN NEW.facet_repo_id IS NOT NULL
-AND NEW.facet_worktree_id IS NOT NULL
-AND (SELECT repo_id FROM worktree WHERE id = NEW.facet_worktree_id)
-    != NEW.facet_repo_id
-BEGIN
-    SELECT RAISE(ABORT, 'pane worktree facet must belong to repo facet');
-END;
-
-CREATE TRIGGER pane_facets_match_repository_update
-BEFORE UPDATE OF facet_repo_id, facet_worktree_id ON pane
-WHEN NEW.facet_repo_id IS NOT NULL
-AND NEW.facet_worktree_id IS NOT NULL
-AND (SELECT repo_id FROM worktree WHERE id = NEW.facet_worktree_id)
-    != NEW.facet_repo_id
-BEGIN
-    SELECT RAISE(ABORT, 'pane worktree facet must belong to repo facet');
-END;
-```
-
-The existing content-type immutability and pane-content-family triggers remain
-unchanged. These obsolete triggers are dropped:
+The `pane` table, its rows, lifecycle columns, parent trigger, content-type
+checks, and pane-content-family triggers remain unchanged. These obsolete
+workspace-matching topology triggers are dropped:
 
 ```sql
 DROP TRIGGER IF EXISTS pane_facet_repo_matches_workspace;
@@ -955,8 +739,6 @@ core.sqlite
   legacy_workspace_import_status
   workspace_sqlite_snapshot_status
   topology workspace_id columns and workspace cascades
-  pane orphan_reason_kind
-  pane orphan_worktree_path
   pane/worktree same-workspace triggers
 
 local.sqlite
@@ -969,7 +751,6 @@ local.sqlite
 standalone persistence
   <workspace-id>.local.sqlite readers/writers
   workspace cache/UI/sidebar/inbox/settings JSON readers/writers
-  surface-checkpoint.json dead APIs
 ```
 
 ## Startup and save contracts
@@ -981,8 +762,7 @@ flowchart TD
     A[Open core.sqlite] --> B{Core migrate + validate}
     B -->|failure| C[Core integrity error]
     B -->|success| D[Install authoritative topology + composition]
-    D --> E[Finalize persisted pendingUndo panes]
-    E --> F[Open one local.sqlite independently]
+    D --> F[Open one local.sqlite independently]
     F -->|available| G[Load typed local lanes]
     F -->|unavailable| H[Use deterministic local defaults]
     G --> I[Default missing/invalid/stale lane values]
@@ -1020,9 +800,7 @@ Gain:
 Cost:
 
 - five topology tables are mechanically rebuilt because their foreign-key,
-  primary-key, and uniqueness definitions change; `pane` is rebuilt in the
-  same forward core migration because the supported SQLite runtime cannot add
-  its residency `CHECK` in place;
+  primary-key, and uniqueness definitions change;
 - a real pre-existing global-key conflict fails the migration rather than being
   guessed away.
 
@@ -1040,20 +818,6 @@ Cost:
 - one-time reset of notification history, local preferences, recent targets,
   cursors, window/sidebar memory, and caches;
 - users re-establish preferences through ordinary use.
-
-### Undo does not survive process restart
-
-Gain:
-
-- no durable tab-layout snapshot schema or recovery engine;
-- closed panes cannot remain indefinitely because an app exited during the
-  undo window;
-- one process owns the undo experience and one coordinator owns finalization.
-
-Cost:
-
-- quitting or crashing during the 15-minute window forfeits undo;
-- startup finalizes those panes instead of restoring them.
 
 ### One physical local database is one physical failure domain
 
@@ -1091,32 +855,18 @@ The implementation plan must turn these into permanent tests and product proof:
    sidecars or workspace JSON persistence.
 10. Every new local table round-trips its typed values and rejects invalid enum,
    boolean, claim, and key shapes.
-11. Pane close and tab close both enter `pendingUndo` with one 15-minute policy;
-    undo before expiry restores them.
-12. Close-tab and background-pane intermediate states flush to SQLite and reload
-    without `paneNotOwnedByTab`; a close that committed cannot reappear after
-    restart.
-13. Expiry and explicit backgrounded-pane purge remove the full parent/drawer
-    subtree: pane/content/layout remnants, view slots, Ghostty surfaces, runtime
-    state, and every terminal ZMX session. Capacity eviction uses the identical
-    path.
-14. Restart with persisted `pendingUndo` state finalizes it without attempting a
-    durable undo restore.
-15. Removing a repo/worktree clears pane facets but leaves the pane, CWD,
+11. Removing a repo/worktree clears pane facets but leaves the pane, CWD,
     surface, and ZMX session alive.
-16. Core cutover converts in-composition legacy orphan rows to active and removes
-    out-of-composition legacy orphan rows; no `orphaned` residency remains.
-17. Atoms contain no persistence, subprocess, timer, or lifecycle-coordination
-    logic.
-18. MainActor proof shows persistence and lifecycle paths perform only bounded
-    capture/transition/apply work there. Composition preparation, row mapping,
-    SQLite, ZMX, filesystem, retries, timers, and collection-wide computation
+12. Atoms contain no persistence or persistence-coordination logic.
+13. MainActor proof shows persistence paths perform only bounded
+    capture/apply work there. Composition preparation, row mapping, SQLite,
+    filesystem, retries, timers, and collection-wide computation
     execute off MainActor. A production-shaped repository/watch-folder fixture
     does not increase synchronous MainActor work in proportion to topology size.
 
 The later plan owns exact commands and sequencing. Proof should use the existing
-Swift test suite, SQLite integration fixtures, ZMX E2E lane for real session
-destruction, and a bounded debug-app smoke. No ad hoc proof scripts are required.
+Swift test suite, SQLite integration fixtures, and a bounded debug-app smoke. No
+ad hoc proof scripts are required.
 
 ## Non-goals
 
@@ -1124,7 +874,9 @@ destruction, and a bounded debug-app smoke. No ad hoc proof scripts are required
 - Repository discovery, filesystem watching, Git scheduling, EventBus, Ghostty
   callback admission, or terminal activity redesign.
 - Notification meaning, retention, grouping, or coalescence redesign.
-- Durable undo across app restarts.
+- Pane retention, close/undo expiry, Ghostty/runtime/ZMX finalization, orphan
+  residency cleanup, or surface checkpoint cleanup; those belong to the linked
+  pane-retention follow-up.
 - Automatic deletion of unreferenced repositories or worktrees.
 - A generic recovery framework, reconciliation engine, receipt protocol,
   replay system, compatibility layer, or persistence logic in atoms.
@@ -1146,20 +898,15 @@ Local persistence repository
   owns: one local.sqlite and typed non-authoritative lanes
   exposes: loaded value or deterministic default
 
-Workspace surface coordinator
-  owns: close/undo/finalize sequencing across live state,
-        Ghostty surface, runtime state, and ZMX
-
 Atoms
   own: live canonical state and pure derived projections
-  do not own: persistence, timers, subprocess cleanup, migration,
-              or lifecycle coordination
+  do not own: persistence or migration
 
 Off-main workers and actors
   own: validation, row mapping, collection computation, SQLite I/O,
-       filesystem work, timers, retries, and ZMX subprocess operations
+       filesystem work, timers, and retries
 ```
 
-The core schema correction, clean local database, and pane lifecycle correction
-are separable implementation slices. They share one hard boundary: local state
-must never validate core, and topology loss must never become pane destruction.
+The core schema correction and clean local database are the two implementation
+slices. They share one hard boundary: local state must never validate core, and
+topology loss must never become pane destruction.
