@@ -52,7 +52,7 @@ struct UnixSocketTransportTests {
             }
 
             credentials.set(
-                try DarwinPeerCredentialProvider().credentials(forAcceptedSocket: connection.fileDescriptor))
+                try connection.peerCredentials(using: DarwinPeerCredentialProvider()))
         }
         defer { listener.stop() }
 
@@ -93,6 +93,105 @@ struct UnixSocketTransportTests {
 
             #expect(throws: UnixSocketTransportError.self) {
                 try connection.send(Data("reply\n".utf8))
+            }
+        #endif
+    }
+
+    @Test("closed connection cannot access a reused descriptor")
+    func closedConnectionCannotAccessReusedDescriptor() throws {
+        #if canImport(Darwin)
+            do {
+                var originalDescriptors: [Int32] = [0, 0]
+                guard socketpair(AF_UNIX, SOCK_STREAM, 0, &originalDescriptors) == 0 else {
+                    throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
+                }
+
+                let reusedDescriptor = originalDescriptors[0]
+                let connection = UnixSocketConnection(fileDescriptor: reusedDescriptor)
+                connection.close()
+                _ = Darwin.close(originalDescriptors[1])
+
+                let placeholderDescriptor = Darwin.open("/dev/null", O_RDONLY)
+                guard placeholderDescriptor >= 0 else {
+                    throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
+                }
+                if placeholderDescriptor != reusedDescriptor {
+                    guard Darwin.dup2(placeholderDescriptor, reusedDescriptor) == reusedDescriptor else {
+                        _ = Darwin.close(placeholderDescriptor)
+                        throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
+                    }
+                    _ = Darwin.close(placeholderDescriptor)
+                }
+
+                var replacementDescriptors: [Int32] = [0, 0]
+                guard socketpair(AF_UNIX, SOCK_STREAM, 0, &replacementDescriptors) == 0 else {
+                    _ = Darwin.close(reusedDescriptor)
+                    throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
+                }
+                defer {
+                    _ = Darwin.close(reusedDescriptor)
+                    _ = Darwin.close(replacementDescriptors[1])
+                }
+
+                guard Darwin.dup2(replacementDescriptors[0], reusedDescriptor) == reusedDescriptor else {
+                    _ = Darwin.close(replacementDescriptors[0])
+                    throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
+                }
+                _ = Darwin.close(replacementDescriptors[0])
+
+                #expect(throws: UnixSocketTransportError.self) {
+                    _ = try connection.peerCredentials(using: DarwinPeerCredentialProvider())
+                }
+                #expect(throws: UnixSocketTransportError.self) {
+                    try connection.send(Data("stale\n".utf8))
+                }
+            }
+
+            do {
+                var originalDescriptors: [Int32] = [0, 0]
+                guard socketpair(AF_UNIX, SOCK_STREAM, 0, &originalDescriptors) == 0 else {
+                    throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
+                }
+
+                let reusedDescriptor = originalDescriptors[0]
+                let connection = UnixSocketConnection(fileDescriptor: reusedDescriptor)
+                connection.close()
+                _ = Darwin.close(originalDescriptors[1])
+
+                let placeholderDescriptor = Darwin.open("/dev/null", O_RDONLY)
+                guard placeholderDescriptor >= 0 else {
+                    throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
+                }
+                if placeholderDescriptor != reusedDescriptor {
+                    guard Darwin.dup2(placeholderDescriptor, reusedDescriptor) == reusedDescriptor else {
+                        _ = Darwin.close(placeholderDescriptor)
+                        throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
+                    }
+                    _ = Darwin.close(placeholderDescriptor)
+                }
+
+                var replacementDescriptors: [Int32] = [0, 0]
+                guard socketpair(AF_UNIX, SOCK_STREAM, 0, &replacementDescriptors) == 0 else {
+                    _ = Darwin.close(reusedDescriptor)
+                    throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
+                }
+                defer {
+                    _ = Darwin.close(reusedDescriptor)
+                    _ = Darwin.close(replacementDescriptors[1])
+                }
+
+                guard Darwin.dup2(replacementDescriptors[0], reusedDescriptor) == reusedDescriptor else {
+                    _ = Darwin.close(replacementDescriptors[0])
+                    throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
+                }
+                _ = Darwin.close(replacementDescriptors[0])
+                _ = Data("successor\n".utf8).withUnsafeBytes { bytes in
+                    Darwin.write(replacementDescriptors[1], bytes.baseAddress, bytes.count)
+                }
+
+                #expect(throws: UnixSocketTransportError.self) {
+                    _ = try connection.receive(maxBytes: 64)
+                }
             }
         #endif
     }
