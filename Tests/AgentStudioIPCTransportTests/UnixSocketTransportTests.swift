@@ -139,12 +139,16 @@ struct UnixSocketTransportTests {
                 }
                 _ = Darwin.close(replacementDescriptors[0])
 
-                #expect(throws: UnixSocketTransportError.self) {
-                    _ = try connection.peerCredentials(using: DarwinPeerCredentialProvider())
+                let credentialProvider = RecordingPeerCredentialProvider()
+                #expect(throws: UnixSocketTransportError(reason: .connectionClosed)) {
+                    _ = try connection.peerCredentials(using: credentialProvider)
                 }
-                #expect(throws: UnixSocketTransportError.self) {
+                #expect(credentialProvider.invocationCount == 0)
+                #expect(throws: UnixSocketTransportError(reason: .connectionClosed)) {
                     try connection.send(Data("stale\n".utf8))
                 }
+
+                expectNoAvailableBytes(on: replacementDescriptors[1])
             }
 
             do {
@@ -189,11 +193,48 @@ struct UnixSocketTransportTests {
                     Darwin.write(replacementDescriptors[1], bytes.baseAddress, bytes.count)
                 }
 
-                #expect(throws: UnixSocketTransportError.self) {
+                #expect(throws: UnixSocketTransportError(reason: .connectionClosed)) {
                     _ = try connection.receive(maxBytes: 64)
                 }
+
+                var preservedPayload = [UInt8](repeating: 0, count: 64)
+                let preservedByteCount = preservedPayload.withUnsafeMutableBytes { bytes in
+                    Darwin.read(reusedDescriptor, bytes.baseAddress, bytes.count)
+                }
+                try #require(preservedByteCount >= 0)
+                let preservedText = String(bytes: preservedPayload.prefix(preservedByteCount), encoding: .utf8)
+                #expect(preservedText == "successor\n")
             }
         #endif
+    }
+}
+
+private func expectNoAvailableBytes(on descriptor: Int32) {
+    var unexpectedByte: UInt8 = 0
+    let receivedByteCount = Darwin.recv(
+        descriptor,
+        &unexpectedByte,
+        MemoryLayout.size(ofValue: unexpectedByte),
+        MSG_DONTWAIT
+    )
+    let receiveErrno = errno
+    #expect(receivedByteCount == -1)
+    #expect(receiveErrno == EAGAIN || receiveErrno == EWOULDBLOCK)
+}
+
+private final class RecordingPeerCredentialProvider: PeerCredentialProviding, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedInvocationCount = 0
+
+    var invocationCount: Int {
+        lock.withLock { storedInvocationCount }
+    }
+
+    func credentials(forAcceptedSocket _: Int32) throws -> PeerCredentials {
+        lock.withLock {
+            storedInvocationCount += 1
+        }
+        return PeerCredentials(userIdentifier: getuid(), groupIdentifier: getgid())
     }
 }
 
