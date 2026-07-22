@@ -105,8 +105,12 @@ export function useBridgeFileViewerPierreTreeRuntime(
 		onQueryTransactionReady: (transactionId): boolean =>
 			completeFileQueryTransactionRef.current(transactionId),
 	});
+	const handleTreePatchStreamDrainRef = useRef<() => void>(() => {});
 	useBridgeFileTreePatchStream({
 		coordinator: patchCoordinatorRef.current,
+		onDrain: (): void => {
+			handleTreePatchStreamDrainRef.current();
+		},
 		stream: props.fileTreePatchStream,
 	});
 
@@ -181,8 +185,13 @@ export function useBridgeFileViewerPierreTreeRuntime(
 				});
 			}
 		});
+		handleTreePatchStreamDrainRef.current = (): void => {
+			rebindScrollElement();
+			scheduleVisibleFileDemand();
+		};
 		const unsubscribeModel = model.subscribe(scheduleVisibleFileDemand);
 		return (): void => {
+			handleTreePatchStreamDrainRef.current = (): void => {};
 			cancelAnimationFrame(setupFrameId);
 			if (animationFrameId !== null) {
 				cancelAnimationFrame(animationFrameId);
@@ -235,6 +244,7 @@ export function useBridgeFileViewerPierreTreeRuntime(
 
 function useBridgeFileTreePatchStream(props: {
 	readonly coordinator: BridgeFileViewerTreePatchCoordinator;
+	readonly onDrain: () => void;
 	readonly stream: BridgeMainFileTreePatchStream;
 }): void {
 	const streamCursor = useSyncExternalStore(
@@ -250,6 +260,8 @@ function useBridgeFileTreePatchStream(props: {
 	const animationFrameIdRef = useRef<number | null>(null);
 	const coordinatorRef = useRef(props.coordinator);
 	coordinatorRef.current = props.coordinator;
+	const onDrainRef = useRef(props.onDrain);
+	onDrainRef.current = props.onDrain;
 
 	useEffect((): void => {
 		const newEntries = props.stream.readAfter(queuedCursorRef.current);
@@ -261,6 +273,7 @@ function useBridgeFileTreePatchStream(props: {
 			const entry = queuedEntriesRef.current.shift();
 			if (entry === undefined) {
 				animationFrameIdRef.current = null;
+				onDrainRef.current();
 				return;
 			}
 			coordinatorRef.current.applyEntry(entry);

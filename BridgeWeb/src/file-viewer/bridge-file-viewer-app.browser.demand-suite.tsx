@@ -103,11 +103,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForMetadataTreeRowCount(2);
 		await waitForBridgeViewerTreeItemButton('src/first-worker-viewport.ts');
 		await waitForBridgeViewerTreeItemButton('src/second-worker-viewport.ts');
+		const initialViewportCommand = await viewportCommands.waitForFirst();
 		const treeScrollOwner = findBridgeViewerTreeScrollOwner();
 		if (treeScrollOwner === null) {
 			throw new Error('Expected File View tree scroll owner for worker viewport demand.');
 		}
-		const initialViewportCommand = await viewportCommands.waitForFirst();
 
 		await actUpdate((): void => {
 			treeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
@@ -156,11 +156,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForMetadataTreeRowCount(80);
 		await waitForTreeScrollHeightAtLeast(80 * 24);
 		await waitForBridgeViewerTreeItemButton('File-000.swift');
+		const initialViewportCommand = await viewportCommands.waitForFirst();
 		const treeScrollOwner = findBridgeViewerTreeScrollOwner();
 		if (treeScrollOwner === null) {
 			throw new Error('Expected File View tree scroll owner for scrolled worker viewport demand.');
 		}
-		const initialViewportCommand = await viewportCommands.waitForFirst();
 
 		await actUpdate((): void => {
 			treeScrollOwner.scrollTop = 24 * 30;
