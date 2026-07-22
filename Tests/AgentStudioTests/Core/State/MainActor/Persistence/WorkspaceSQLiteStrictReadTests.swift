@@ -307,6 +307,83 @@ struct WorkspaceSQLiteStrictReadTests {
         #expect(snapshot.sidebarWidth == 420)
     }
 
+    @Test("async core load defaults malformed cursor rows without discarding valid window state")
+    func asyncCoreLoadDefaultsMalformedCursorWithoutDiscardingValidWindowState() async throws {
+        let workspaceId = UUIDv7.generate()
+        let rootDirectory = try makeStrictReadTemporaryDirectory(prefix: "independent-cursor-default")
+        let localDatabaseURL = rootDirectory.appending(path: "local.sqlite")
+        let factory = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: rootDirectory.appending(path: "core.sqlite"),
+            localDatabaseURL: localDatabaseURL
+        )
+        let seededSnapshot = makeStrictReadNonemptySnapshot(workspaceId: workspaceId)
+        try await seedStrictReadWorkspace(workspace: seededSnapshot, factory: factory)
+        let localPool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: localDatabaseURL,
+            label: "AgentStudio.sqlite.strict-read.independent-cursor-default.local"
+        )
+        try await localPool.write { database in
+            try database.execute(
+                sql: "UPDATE local_workspace_cursor SET active_tab_id = 'malformed' WHERE workspace_id = ?",
+                arguments: [workspaceId.uuidString]
+            )
+        }
+        try localPool.close()
+
+        let result = await factory.makeDatastore().loadWorkspaceSnapshot()
+
+        guard case .loaded(let snapshot) = result else {
+            Issue.record("Expected core with independently defaulted cursor state, got \(result)")
+            return
+        }
+        #expect(snapshot.activeTabId == seededSnapshot.tabs.single?.id)
+        #expect(snapshot.sidebarWidth == seededSnapshot.sidebarWidth)
+    }
+
+    @Test("synchronous core load defaults malformed window rows without discarding valid cursor state")
+    func synchronousCoreLoadDefaultsMalformedWindowWithoutDiscardingValidCursorState() throws {
+        let workspaceId = UUIDv7.generate()
+        let firstPane = makePane(title: "First")
+        let secondPane = makePane(title: "Second")
+        let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: secondPane.id)
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: workspaceId,
+            name: "Independent Window Default",
+            panes: [firstPane, secondPane],
+            tabs: [tab],
+            activeTabId: tab.id,
+            sidebarWidth: 420,
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 2)
+        )
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.strict-read.independent-window-default.core"
+        )
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.strict-read.independent-window-default.local"
+        )
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let backend = WorkspaceSQLiteStoreBackend(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
+            makeLocalRepository: { workspaceId in
+                WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
+            }
+        )
+        try backend.save(.emptyTopologyFixture(workspace: snapshot))
+        try localQueue.write { database in
+            try database.execute(
+                sql: "UPDATE local_window_state SET window_frame_json = 'malformed' WHERE window_role = 'main'"
+            )
+        }
+
+        let loadedSnapshot = try backend.load()
+        let loaded = try #require(loadedSnapshot)
+
+        #expect(loaded.tabs.single?.defaultArrangement.activePaneId == secondPane.id)
+        #expect(loaded.sidebarWidth == 250)
+    }
+
     @Test("valid core and local rows load exactly without mutation")
     func validCoreAndLocalRowsLoadWithoutMutation() async throws {
         let workspaceId = UUIDv7.generate()

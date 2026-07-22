@@ -48,20 +48,22 @@ enum WorkspacePersistenceTransformer {
         repositoryTopologyAtom.replaceTopology(replacement)
     }
 
-    static func makeRepositoryTopologySQLiteSnapshot(
-        repositoryTopologyAtom: RepositoryTopologyAtom,
+    @concurrent nonisolated static func makeRepositoryTopologySQLiteSnapshotOffMain(
+        repositories: [Repo],
+        unavailableRepositoryIDs: Set<UUID>,
+        watchedPaths: [WatchedPath],
         persistedAt: Date
-    ) -> RepositoryTopologySQLiteSnapshot {
+    ) async -> RepositoryTopologySQLiteSnapshot {
         RepositoryTopologySQLiteSnapshot(
-            repos: canonicalRepos(from: repositoryTopologyAtom.repos),
-            worktrees: canonicalWorktrees(from: repositoryTopologyAtom.repos),
-            unavailableRepoIds: repositoryTopologyAtom.unavailableRepoIds,
-            watchedPaths: repositoryTopologyAtom.watchedPaths,
+            repos: canonicalRepos(from: repositories),
+            worktrees: canonicalWorktrees(from: repositories),
+            unavailableRepoIds: unavailableRepositoryIDs,
+            watchedPaths: watchedPaths,
             updatedAt: persistedAt
         )
     }
 
-    private static func canonicalRepos(from repos: [Repo]) -> [CanonicalRepo] {
+    private nonisolated static func canonicalRepos(from repos: [Repo]) -> [CanonicalRepo] {
         repos.map { repo in
             CanonicalRepo(
                 id: repo.id,
@@ -75,7 +77,7 @@ enum WorkspacePersistenceTransformer {
         }
     }
 
-    private static func canonicalWorktrees(from repos: [Repo]) -> [CanonicalWorktree] {
+    private nonisolated static func canonicalWorktrees(from repos: [Repo]) -> [CanonicalWorktree] {
         repos.flatMap { repo in
             repo.worktrees.map { worktree in
                 CanonicalWorktree(

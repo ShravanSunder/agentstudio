@@ -182,8 +182,60 @@ struct InboxNotificationSQLiteRepositoryTests {
         )
 
         let notifications = try fixture.repository.fetchNotifications()
+        let physicalRowCount = try fixture.databaseQueue.read { database in
+            try Int.fetchOne(
+                database,
+                sql: "SELECT COUNT(*) FROM local_notification_inbox_item WHERE workspace_id = ?",
+                arguments: [workspaceId.uuidString]
+            ) ?? -1
+        }
 
         #expect(notifications.isEmpty)
+        #expect(physicalRowCount == 0)
+    }
+
+    @Test("malformed rows cannot consume physical retention capacity")
+    func malformedRowsCannotConsumePhysicalRetentionCapacity() throws {
+        let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000076")!
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+        let cap = AppPolicies.InboxNotification.maxRetained
+        let validNotifications = (0..<cap).map { index in
+            makeRepositoryNotification(
+                id: UUID(uuidString: "20000000-0000-0000-0000-\(String(format: "%012d", 300 + index))")!,
+                timestamp: Date(timeIntervalSince1970: TimeInterval(index)),
+                title: "Valid \(index)"
+            )
+        }
+        try fixture.repository.replaceAll(validNotifications)
+        try insertRawNotificationRow(
+            databaseQueue: fixture.databaseQueue,
+            row: .init(
+                workspaceId: workspaceId,
+                id: UUID(uuidString: "20000000-0000-0000-0000-000000000077")!,
+                timestamp: TimeInterval(cap + 1),
+                kind: "unsupportedKind",
+                title: "Malformed",
+                sourceKind: "global"
+            )
+        )
+
+        _ = try fixture.repository.append(
+            makeRepositoryNotification(
+                id: UUID(uuidString: "20000000-0000-0000-0000-000000000078")!,
+                timestamp: Date(timeIntervalSince1970: TimeInterval(cap + 2)),
+                title: "Incoming"
+            )
+        )
+
+        let physicalRows = try fixture.databaseQueue.read { database in
+            try Row.fetchAll(
+                database,
+                sql: "SELECT id, kind FROM local_notification_inbox_item WHERE workspace_id = ?",
+                arguments: [workspaceId.uuidString]
+            )
+        }
+        #expect(physicalRows.count == cap)
+        #expect(physicalRows.contains { ($0["kind"] as String) == "unsupportedKind" } == false)
     }
 
     @Test("upsert by claim prefers exact claim match before session fallback")

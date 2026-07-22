@@ -43,8 +43,8 @@ struct InboxNotificationSQLiteRepository {
     }
 
     func fetchNotifications() throws -> [InboxNotification] {
-        try databaseWriter.read { database in
-            try fetchNotificationRows(database).compactMap { try? InboxNotificationSQLiteCodecs.notification(from: $0) }
+        try databaseWriter.write { database in
+            try fetchDecodableNotificationsAndDeleteMalformedRows(database)
         }
     }
 
@@ -355,7 +355,7 @@ struct InboxNotificationSQLiteRepository {
         try Row.fetchAll(
             database,
             sql: """
-                SELECT *
+                SELECT rowid AS local_rowid, *
                 FROM local_notification_inbox_item
                 WHERE workspace_id = ?
                 ORDER BY rowid
@@ -489,21 +489,10 @@ struct InboxNotificationSQLiteRepository {
     }
 
     private func enforceRetentionCap(_ database: Database) throws -> RetentionOutcome {
-        let count =
-            try Int.fetchOne(
-                database,
-                sql: """
-                    SELECT COUNT(*)
-                    FROM local_notification_inbox_item
-                    WHERE workspace_id = ?
-                    """,
-                arguments: [workspaceId.uuidString]
-            ) ?? 0
-        let overflow = count - AppPolicies.InboxNotification.maxRetained
+        let notifications = try fetchDecodableNotificationsAndDeleteMalformedRows(database)
+        let overflow = notifications.count - AppPolicies.InboxNotification.maxRetained
         guard overflow > 0 else { return .empty }
 
-        let notifications = try fetchNotificationRows(database)
-            .compactMap { try? InboxNotificationSQLiteCodecs.notification(from: $0) }
         let droppedNotificationIds = InboxNotificationRetentionPolicy.droppedNotificationIds(
             from: notifications,
             overflow: overflow
@@ -524,6 +513,37 @@ struct InboxNotificationSQLiteRepository {
             droppedCount: droppedIds.count,
             droppedNotificationIds: droppedNotificationIds
         )
+    }
+
+    private func fetchDecodableNotificationsAndDeleteMalformedRows(
+        _ database: Database
+    ) throws -> [InboxNotification] {
+        let rows = try fetchNotificationRows(database)
+        var notifications: [InboxNotification] = []
+        var malformedRowIds: [Int64] = []
+        notifications.reserveCapacity(rows.count)
+
+        for row in rows {
+            do {
+                notifications.append(try InboxNotificationSQLiteCodecs.notification(from: row))
+            } catch {
+                let rowId: Int64 = row["local_rowid"]
+                malformedRowIds.append(rowId)
+            }
+        }
+
+        if !malformedRowIds.isEmpty {
+            let placeholders = Array(repeating: "?", count: malformedRowIds.count).joined(separator: ", ")
+            try database.execute(
+                sql: """
+                    DELETE FROM local_notification_inbox_item
+                    WHERE workspace_id = ? AND rowid IN (\(placeholders))
+                    """,
+                arguments: StatementArguments([workspaceId.uuidString] + malformedRowIds.map(String.init))
+            )
+        }
+
+        return notifications
     }
 
 }

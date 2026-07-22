@@ -499,11 +499,6 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         }
 
         let dataEnvironment = [AppDataPaths.dataDirectoryEnvironmentKey: input.dataRoot.path]
-        let workspacesDirectory = AppDataPaths.workspacesDirectory(
-            environment: dataEnvironment,
-            isDebugBuild: true
-        )
-        try FileManager.default.createDirectory(at: workspacesDirectory, withIntermediateDirectories: true)
         let datastore = WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: AppDataPaths.coreSQLiteURL(
                 environment: dataEnvironment,

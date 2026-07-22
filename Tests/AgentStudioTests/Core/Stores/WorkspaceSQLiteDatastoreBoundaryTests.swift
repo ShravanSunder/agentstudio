@@ -115,20 +115,13 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
         #expect(!inboxBootSource.contains("InboxNotificationSQLiteRepository("))
     }
 
-    @Test("configuration backed datastore keeps local SQLite IO behind actor caches")
-    func configurationBackedDatastoreKeepsLocalSQLiteIOBehindActorCaches() throws {
+    @Test("configuration backed datastore keeps local SQLite IO behind its actor-owned bundle")
+    func configurationBackedDatastoreKeepsLocalSQLiteIOBehindActorOwnedBundle() throws {
         let source = try projectSource("Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastore.swift")
 
-        #expect(
-            source.contains(
-                "makeLocalRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache }"
-            )
-        )
-        #expect(
-            source.contains(
-                "makeLocalRestoreRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache }"
-            )
-        )
+        #expect(source.contains("makeLocalRepository: { _ in"))
+        #expect(source.contains("makeLocalRestoreRepository: { _ in"))
+        #expect(source.contains("throw WorkspaceSQLiteDatastoreError.useDatastoreApplicationLocalRepositoryBundle"))
         #expect(!source.contains("func hasCompletedSnapshot(workspaceId: UUID) async"))
     }
 

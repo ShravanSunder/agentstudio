@@ -7,12 +7,32 @@ import Testing
 @MainActor
 @Suite("Workspace SQLite save coordinator", .serialized)
 struct WorkspaceSQLiteSaveCoordinatorTests {
+    @Test("shallow capture prepares the exact current composition off-main")
+    func shallowCapturePreparesExactCurrentCompositionOffMain() async throws {
+        // Arrange
+        let fixture = try makeFixture()
+        let persistedAt = Date(timeIntervalSince1970: 1_784_000_004)
+        let expectedTabs = fixture.tabLayoutAtom.tabs
+
+        // Act
+        let capture = fixture.coordinator.captureCurrentSaveState(persistedAt: persistedAt)
+        let prepared = await WorkspaceSQLiteSavePreparation.prepareOffMain(capture)
+
+        // Assert
+        #expect(
+            prepared.workspace.id
+                == fixture.coordinator.captureCurrentSaveState(persistedAt: persistedAt).workspaceID
+        )
+        #expect(prepared.workspace.panes.count == 1)
+        #expect(prepared.workspace.tabs == expectedTabs)
+    }
+
     @Test("valid save writes the exact current composition bundle")
     func validSaveWritesExactCurrentCompositionBundle() async throws {
         // Arrange
         let fixture = try makeFixture()
         let persistedAt = Date(timeIntervalSince1970: 1_784_000_000)
-        let expected = fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
+        let expected = await fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
 
         // Act
         let saved = try await fixture.coordinator.save(persistedAt: persistedAt)
@@ -29,11 +49,11 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
     }
 
     @Test("topology changes cannot change captured composition")
-    func topologyChangesCannotChangeCapturedComposition() throws {
+    func topologyChangesCannotChangeCapturedComposition() async throws {
         // Arrange
         let fixture = try makeFixture()
         let persistedAt = Date(timeIntervalSince1970: 1_784_000_003)
-        let beforeTopologyChange = fixture.coordinator.captureCurrentSaveBundle(
+        let beforeTopologyChange = await fixture.coordinator.captureCurrentSaveBundle(
             persistedAt: persistedAt
         )
 
@@ -53,7 +73,7 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
             return
         }
         fixture.repositoryTopologyAtom.replaceTopology(replacement)
-        let afterTopologyChange = fixture.coordinator.captureCurrentSaveBundle(
+        let afterTopologyChange = await fixture.coordinator.captureCurrentSaveBundle(
             persistedAt: persistedAt
         )
 
@@ -87,13 +107,13 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
         // Arrange
         let fixture = try makeFixture()
         let persistedAt = Date(timeIntervalSince1970: 1_784_000_002)
-        let before = fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
+        let before = await fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
 
         // Act
         _ = try await fixture.coordinator.save(persistedAt: persistedAt)
 
         // Assert
-        let after = fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
+        let after = await fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
         #expect(after == before)
     }
 }

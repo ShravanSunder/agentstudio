@@ -4,10 +4,9 @@ import Testing
 
 @testable import AgentStudio
 
-/// Characterizes the workspace save latch (2026-06-11 debug investigation):
-/// save-time pane-graph validation rejects pane states the live runtime model
-/// legally produces. T4 fixes that by making live facets nullable references
-/// at the persistence boundary rather than fatal source-binding validators.
+/// Characterizes live pane facets at the persistence boundary. Cleared facets
+/// remain nullable, while non-nil repo and worktree identities must resolve
+/// against the authoritative global topology.
 @Suite("WorkspaceCoreRepositoryPaneSourceLatchTests")
 struct WorkspaceCoreRepositoryPaneSourceLatchTests {
     private let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-00000000A001")!
@@ -135,8 +134,8 @@ struct WorkspaceCoreRepositoryPaneSourceLatchTests {
         #expect(requiredSource.worktreeId == worktreeBId)
     }
 
-    @Test("active pane sourced from a worktree missing from topology saves with null refs")
-    func activePaneWithDanglingSourceWorktreeSavesWithNullRefs() throws {
+    @Test("active pane with a dangling worktree facet is rejected")
+    func activePaneWithDanglingWorktreeFacetIsRejected() throws {
         // Arrange — orphaning can be skipped entirely (no effect handler
         // registered: WorkspaceCacheCoordinator "pane orphaning skipped").
         // The pane stays active while its source worktree is gone.
@@ -151,13 +150,11 @@ struct WorkspaceCoreRepositoryPaneSourceLatchTests {
             ]
         )
 
-        // Act
-        try fixture.repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
-
-        // Assert
-        let storedSource = try fixture.fetchPaneSource(paneId: paneId)
-        let requiredSource = try #require(storedSource)
-        #expect(requiredSource.repoId == nil)
-        #expect(requiredSource.worktreeId == nil)
+        // Act / Assert — a non-nil durable facet is a strict topology
+        // reference. Persistence must reject it rather than silently erase it.
+        #expect(throws: WorkspaceCoreRepositoryError.worktreeNotFound(worktreeBId)) {
+            try fixture.repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
+        }
+        #expect(try fixture.fetchPaneSource(paneId: paneId) == nil)
     }
 }

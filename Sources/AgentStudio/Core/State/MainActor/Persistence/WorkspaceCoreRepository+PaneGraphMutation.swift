@@ -276,18 +276,28 @@ private func resolvedPaneReferenceIds(
 ) throws -> (repoId: UUID?, worktreeId: UUID?) {
     let facets = pane.metadata.durableFacets
     if let worktreeId = facets.worktreeId {
-        guard
-            let repoId = try fetchPaneReferenceWorktreeRepoId(
-                database,
-                worktreeId: worktreeId
-            )
-        else {
-            return (nil, nil)
+        guard let actualRepoId = try fetchPaneReferenceWorktreeRepoId(database, worktreeId: worktreeId) else {
+            throw WorkspaceCoreRepositoryError.worktreeNotFound(worktreeId)
         }
-        return (repoId, worktreeId)
+        if let requestedRepoId = facets.repoId {
+            guard try paneReferenceRepoExists(database, repoId: requestedRepoId) else {
+                throw WorkspaceCoreRepositoryError.repoNotFound(requestedRepoId)
+            }
+            guard requestedRepoId == actualRepoId else {
+                throw WorkspaceCoreRepositoryError.worktreeRepoMismatch(
+                    worktreeId: worktreeId,
+                    expectedRepoId: requestedRepoId,
+                    actualRepoId: actualRepoId
+                )
+            }
+        }
+        return (actualRepoId, worktreeId)
     }
 
-    if let repoId = facets.repoId, try paneReferenceRepoExists(database, repoId: repoId) {
+    if let repoId = facets.repoId {
+        guard try paneReferenceRepoExists(database, repoId: repoId) else {
+            throw WorkspaceCoreRepositoryError.repoNotFound(repoId)
+        }
         return (repoId, nil)
     }
     return (nil, nil)

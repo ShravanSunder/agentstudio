@@ -59,16 +59,6 @@ enum AppDataPaths {
             .standardizedFileURL
     }
 
-    static func workspacesDirectory(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        releaseChannel: ReleaseChannel = .current,
-        isDebugBuild: Bool = Self.isDebugBuild
-    ) -> URL {
-        rootDirectory(environment: environment, releaseChannel: releaseChannel, isDebugBuild: isDebugBuild)
-            .appending(path: "workspaces")
-            .standardizedFileURL
-    }
-
     static func globalPreferencesURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         releaseChannel: ReleaseChannel = .current,

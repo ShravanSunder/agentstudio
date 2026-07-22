@@ -207,6 +207,41 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         #expect(remainingNames == [legacyURL.lastPathComponent])
     }
 
+    @Test("legacy per-workspace local SQLite sidecar is ignored and left untouched")
+    func legacyWorkspaceLocalSQLiteSidecarIsIgnoredAndLeftUntouched() async throws {
+        let harness = try StrictSQLiteCompositionLoadHarness.make(testName: "legacy-local-sidecar-ignored")
+        defer { harness.removeTemporaryFiles() }
+        let legacyWorkspaceID = UUIDv7.generate()
+        let legacyDirectory = harness.rootDirectory.appending(path: "workspaces")
+        let legacyURL = legacyDirectory.appending(
+            path: "\(legacyWorkspaceID.uuidString).local.sqlite"
+        )
+        try FileManager.default.createDirectory(
+            at: legacyDirectory,
+            withIntermediateDirectories: true
+        )
+        let sentinel = Data("legacy local SQLite must not be opened, rewritten, or archived".utf8)
+        try sentinel.write(to: legacyURL)
+        let originalAttributes = try FileManager.default.attributesOfItem(atPath: legacyURL.path)
+        let store = harness.makeStore()
+
+        let result = await store.loadCanonicalComposition()
+
+        guard case .initializedDefaultWorkspace = result else {
+            Issue.record("Expected SQLite default initialization, got \(result)")
+            return
+        }
+        #expect(store.workspaceId != legacyWorkspaceID)
+        #expect(try Data(contentsOf: legacyURL) == sentinel)
+        let currentAttributes = try FileManager.default.attributesOfItem(atPath: legacyURL.path)
+        #expect(currentAttributes[.modificationDate] as? Date == originalAttributes[.modificationDate] as? Date)
+        let remainingNames = try FileManager.default.contentsOfDirectory(
+            at: legacyDirectory,
+            includingPropertiesForKeys: nil
+        ).map(\.lastPathComponent)
+        #expect(remainingNames == [legacyURL.lastPathComponent])
+    }
+
     @Test("unavailable SQLite returns typed failure without mutation")
     func unavailableSQLiteReturnsTypedFailureWithoutMutation() async throws {
         let harness = try StrictSQLiteCompositionLoadHarness.make(testName: "sqlite-unavailable")

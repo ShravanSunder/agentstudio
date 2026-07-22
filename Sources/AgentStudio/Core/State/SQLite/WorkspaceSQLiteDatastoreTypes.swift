@@ -7,7 +7,7 @@ struct WorkspaceSQLiteDatastoreConfiguration: Sendable {
 
 enum WorkspaceSQLiteDatastoreError: Error, Equatable, Sendable {
     case missingConfiguration
-    case useDatastoreLocalRepositoryCache
+    case useDatastoreApplicationLocalRepositoryBundle
 }
 
 struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {

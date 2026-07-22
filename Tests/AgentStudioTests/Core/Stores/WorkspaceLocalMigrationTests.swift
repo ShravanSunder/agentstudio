@@ -133,6 +133,39 @@ struct WorkspaceLocalMigrationTests {
         #expect(childCount == 0)
     }
 
+    @Test("main window first use creates one stable UUIDv7 identity")
+    func mainWindowFirstUseCreatesOneStableUUIDv7Identity() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+        let repository = WorkspaceLocalRepository(workspaceId: UUIDv7.generate(), databaseWriter: databaseQueue)
+
+        try repository.replaceWindowState(
+            .init(sidebarWidth: 300, windowFrame: nil),
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        let firstStoredWindowId: String? = try databaseQueue.read { database in
+            try String.fetchOne(database, sql: "SELECT window_id FROM local_window_state")
+        }
+        let firstWindowId = try #require(firstStoredWindowId)
+
+        let reopenedRepository = WorkspaceLocalRepository(
+            workspaceId: UUIDv7.generate(),
+            databaseWriter: databaseQueue
+        )
+        try reopenedRepository.replaceWindowState(
+            .init(sidebarWidth: 320, windowFrame: nil),
+            updatedAt: Date(timeIntervalSince1970: 2)
+        )
+        let reopenedStoredWindowId: String? = try databaseQueue.read { database in
+            try String.fetchOne(database, sql: "SELECT window_id FROM local_window_state")
+        }
+        let reopenedWindowId = try #require(reopenedStoredWindowId)
+
+        let parsedWindowId = try #require(UUID(uuidString: firstWindowId))
+        #expect(UUIDv7.isV7(parsedWindowId))
+        #expect(reopenedWindowId == firstWindowId)
+    }
+
     @Test("SQLite enforces structural values without product enum checks")
     func sqliteEnforcesStructuralValuesWithoutProductEnumChecks() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()

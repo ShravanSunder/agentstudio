@@ -78,8 +78,13 @@ final class RepositoryTopologyStore {
 
     private func persistNow() async throws {
         guard let sqliteDatastore else { return }
-        let snapshot = WorkspacePersistenceTransformer.makeRepositoryTopologySQLiteSnapshot(
-            repositoryTopologyAtom: atom,
+        let repositories = atom.repos
+        let unavailableRepositoryIDs = atom.unavailableRepoIds
+        let watchedPaths = atom.watchedPaths
+        let snapshot = await WorkspacePersistenceTransformer.makeRepositoryTopologySQLiteSnapshotOffMain(
+            repositories: repositories,
+            unavailableRepositoryIDs: unavailableRepositoryIDs,
+            watchedPaths: watchedPaths,
             persistedAt: Date()
         )
         try await sqliteDatastore.saveRepositoryTopologySnapshot(snapshot)

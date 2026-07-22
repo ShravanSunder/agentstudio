@@ -5,17 +5,13 @@ extension WorkspaceSQLiteStoreBackend {
         localRepositoryForWorkspaceId: @Sendable (UUID) async throws -> WorkspaceLocalRepository
     ) async throws -> WorkspaceCoreLoadSnapshot {
         let authoritativeSnapshot = try strictlySelectedAuthoritativeSnapshot()
-        let localState:
-            (
-                cursor: WorkspaceLocalRepository.CursorStateRecord,
-                window: WorkspaceLocalRepository.WindowStateRecord?
-            )? = try? await {
-                let localRepository = try await localRepositoryForWorkspaceId(authoritativeSnapshot.workspace.id)
-                return (
-                    cursor: try localRepository.fetchCursorState(),
-                    window: try localRepository.fetchWindowState()
-                )
-            }()
+        let localRepository = try? await localRepositoryForWorkspaceId(authoritativeSnapshot.workspace.id)
+        let localCursorState = localRepository.flatMap { repository in
+            try? repository.fetchCursorState()
+        }
+        let localWindowState = localRepository.flatMap { repository in
+            try? repository.fetchWindowState()
+        }
         let workspaceSnapshot = try WorkspaceSQLiteStateBridge.workspaceSnapshot(
             from: .init(
                 workspace: authoritativeSnapshot.workspace,
@@ -23,11 +19,11 @@ extension WorkspaceSQLiteStoreBackend {
                 tabShells: authoritativeSnapshot.tabShells,
                 tabGraph: authoritativeSnapshot.tabGraph,
                 cursorState: WorkspaceSQLiteStateBridge.localCursorStateForComposition(
-                    persisted: localState?.cursor,
+                    persisted: localCursorState,
                     paneGraph: authoritativeSnapshot.paneGraph,
                     tabGraph: authoritativeSnapshot.tabGraph
                 ),
-                windowState: localState?.window
+                windowState: localWindowState
             )
         )
         return WorkspaceCoreLoadSnapshot(
