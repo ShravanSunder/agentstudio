@@ -1,7 +1,16 @@
 # Persistence Ownership and Pane Lifecycle Hard Cut
 
 Date: 2026-07-21
-Status: Draft
+Status: Draft — persistence hard-cut scope active; pane cleanup deferred
+
+> Scope note (2026-07-22): pane retention, undo expiry, and resource
+> finalization are being split into
+> [`2026-07-22-pane-retention-and-safe-cleanup`](../2026-07-22-pane-retention-and-safe-cleanup/2026-07-22-pane-retention-and-safe-cleanup.md).
+> Do not implement R6, R7, or the pane-lifecycle plan from this artifact until
+> that follow-up design is accepted and this combined draft is surgically
+> narrowed. Current implementation focus is the persistence ownership hard cut:
+> R1-R5, R8-R9 as they apply to core/local persistence, and complete removal of
+> legacy JSON-to-SQLite and per-workspace-local compatibility code.
 
 ## Read this first
 
