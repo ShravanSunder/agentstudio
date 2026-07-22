@@ -161,7 +161,7 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
-source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "[build] BUILD_PATH=$BUILD_PATH"
 xcb_pipe=$(_xcb_pipe_cmd)
@@ -174,7 +174,7 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
-source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" release
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "[build-release] BUILD_PATH=$BUILD_PATH"
 xcb_pipe=$(_xcb_pipe_cmd)
@@ -206,7 +206,7 @@ description = "Run test suite with code coverage and print coverage JSON path"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
 echo "[test-coverage] BUILD_PATH=$BUILD_PATH"
@@ -253,7 +253,7 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
-source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
@@ -266,7 +266,7 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
-source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
@@ -280,7 +280,7 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
-source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 export AGENT_STUDIO_BENCHMARK_MODE=benchmark
 xcb_pipe=$(_xcb_pipe_cmd)
@@ -318,7 +318,7 @@ run = """
 set -euo pipefail
 shopt -s nullglob
 reaped=0
-for dir in .build-agent-* .build-release-agent-*; do
+for dir in .build-agent-1 .build-agent-2; do
   [ -d "$dir/.slot-claim" ] || continue
   if ! lsof +D "$dir" >/dev/null 2>&1; then
     rm -rf "$dir/.slot-claim"
@@ -336,15 +336,20 @@ run = """
 #!/usr/bin/env bash
 set -e
 
-# Find the freshest release artifact across .build-release-agent-{1..4}.
-# Honors SWIFT_BUILD_DIR if the caller pinned it.
-if [ -n "${SWIFT_BUILD_DIR:-}" ] && [ -f "$SWIFT_BUILD_DIR/release/AgentStudio" ]; then
+# Find the freshest release artifact across the two shared build slots.
+if [ -n "${SWIFT_BUILD_DIR:-}" ] && \
+  { [ "$SWIFT_BUILD_DIR" = ".build-agent-1" ] || \
+    [ "$SWIFT_BUILD_DIR" = ".build-agent-2" ] || \
+    { { [ "${CI:-}" = "true" ] || [ "${GITHUB_ACTIONS:-}" = "true" ]; } && \
+      [ "$SWIFT_BUILD_DIR" = ".build-ci" ]; }; } && \
+  [ -f "$SWIFT_BUILD_DIR/release/AgentStudio" ]
+then
   BUILD_PATH="$SWIFT_BUILD_DIR"
 else
   BUILD_PATH=""
   newest_mtime=0
-  for n in 1 2 3 4; do
-    candidate=".build-release-agent-$n"
+  for n in 1 2; do
+    candidate=".build-agent-$n"
     binary="$candidate/release/AgentStudio"
     if [ -f "$binary" ]; then
       mtime=$(stat -f %m "$binary")
@@ -355,7 +360,7 @@ else
     fi
   done
   if [ -z "$BUILD_PATH" ]; then
-    echo "create-app-bundle: no release artifact found in .build-release-agent-{1..4}" >&2
+    echo "create-app-bundle: no release artifact found in .build-agent-1 or .build-agent-2" >&2
     exit 1
   fi
 fi
