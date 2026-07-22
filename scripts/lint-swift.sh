@@ -44,26 +44,41 @@ for scoped_path in "${scoped_paths[@]}"; do
   fi
 done
 
-echo "--- swift-format lint (scoped) ---"
-swift-format lint "${scoped_paths[@]}" 2>&1 \
-  && echo "swift-format: OK" \
-  || { echo "swift-format: FAIL"; exit 1; }
-
-echo "--- SwiftLint (scoped) ---"
-swiftlint lint --strict "${scoped_paths[@]}" 2>&1 \
-  && echo "swiftlint: OK" \
-  || { echo "swiftlint: FAIL"; exit 1; }
-
-run_architecture_lint
-
+scoped_swift_paths=()
 run_release_contract=0
 for scoped_path in "${scoped_paths[@]}"; do
   case "$scoped_path" in
+    *.swift)
+      scoped_swift_paths+=("$scoped_path")
+      ;;
     .github/workflows/release.yml|scripts/release-*|scripts/verify-release-scripts.sh)
       run_release_contract=1
+      echo "lint-swift: routing release path to release checks: $scoped_path"
+      ;;
+    docs/*)
+      echo "lint-swift: ignoring documentation path: $scoped_path"
+      ;;
+    *)
+      echo "lint-swift: ignoring non-Swift path: $scoped_path"
       ;;
   esac
 done
+
+if [[ ${#scoped_swift_paths[@]} -gt 0 ]]; then
+  echo "--- swift-format lint (scoped) ---"
+  swift-format lint "${scoped_swift_paths[@]}" 2>&1 \
+    && echo "swift-format: OK" \
+    || { echo "swift-format: FAIL"; exit 1; }
+
+  echo "--- SwiftLint (scoped) ---"
+  swiftlint lint --strict "${scoped_swift_paths[@]}" 2>&1 \
+    && echo "swiftlint: OK" \
+    || { echo "swiftlint: FAIL"; exit 1; }
+
+  run_architecture_lint
+else
+  echo "lint-swift: no Swift-lintable paths remain"
+fi
 
 if [[ $run_release_contract -eq 1 ]]; then
   run_release_script_checks
