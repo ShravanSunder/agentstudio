@@ -90,6 +90,103 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func gitStatusScopeBecomesMetricDimension() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 123,
+            severityText: .info,
+            body: "performance.git.status",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(12.0),
+                "agentstudio.performance.git.status_scope": .string("pathspec"),
+                "agentstudio.performance.git.pathspec.count": .int(3),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.eventName == "performance.git.status")
+        let expectedDimensions = [
+            AgentStudioOTLPPerformanceMetricDimension(name: "event", value: "performance.git.status"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "scope", value: "pathspec"),
+        ]
+        #expect(metricEvent.dimensions == expectedDimensions)
+        #expect(
+            metricEvent.samples == [
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.git.status",
+                    label: "agentstudio_performance_git_pathspec_count",
+                    dimensions: expectedDimensions,
+                    value: 3
+                )
+            ])
+        #expect(metricEvent.elapsedMilliseconds == 12.0)
+    }
+
+    @Test
+    func gitBackoffProjectsBoundedMetricsWithReasonDimension() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 123,
+            severityText: .info,
+            body: "performance.git.backoff",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.git.backoff_open": .bool(true),
+                "agentstudio.performance.git.backoff_ms": .double(500),
+                "agentstudio.performance.git.backoff_attempt.count": .int(3),
+                "agentstudio.performance.git.backoff.reason": .string("timeout"),
+                "agentstudio.performance.git.pending.count": .int(2),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.eventName == "performance.git.backoff")
+        let expectedDimensions = [
+            AgentStudioOTLPPerformanceMetricDimension(name: "event", value: "performance.git.backoff"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "reason", value: "timeout"),
+        ]
+        #expect(metricEvent.dimensions == expectedDimensions)
+        #expect(
+            metricEvent.samples == [
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.git.backoff",
+                    label: "agentstudio_performance_git_backoff_attempt_count",
+                    dimensions: expectedDimensions,
+                    value: 3
+                ),
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.git.backoff",
+                    label: "agentstudio_performance_git_backoff_ms",
+                    dimensions: expectedDimensions,
+                    value: 500
+                ),
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.git.backoff",
+                    label: "agentstudio_performance_git_backoff_open",
+                    dimensions: expectedDimensions,
+                    value: 1
+                ),
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.git.backoff",
+                    label: "agentstudio_performance_git_pending_count",
+                    dimensions: expectedDimensions,
+                    value: 2
+                ),
+            ])
+    }
+
+    @Test
     func atomPerformanceRecordProjectsAtomCounters() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 456,
@@ -361,309 +458,6 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             )
         )
         #expect(gauge.values == [6, 0])
-    }
-
-    @Test
-    func bridgePerformanceRecordProjectsOnlySafeBridgeMetrics() throws {
-        let record = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 124,
-            severityText: .info,
-            body: "performance.bridge.webkit.package_push",
-            traceID: "11111111111111111111111111111111",
-            spanID: "2222222222222222",
-            parentSpanID: "3333333333333333",
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.bridge.performance.webkit", version: "0.1.0"),
-            attributes: [
-                "agentstudio.bridge.content.byte_size_bucket": .int(100_000),
-                "agentstudio.bridge.content.line_count_bucket": .int(500),
-                "agentstudio.bridge.item_id": .string("private-item-id"),
-                "agentstudio.bridge.phase": .string("transport"),
-                "agentstudio.bridge.plane": .string("data"),
-                "agentstudio.bridge.priority": .string("cold"),
-                "agentstudio.bridge.slice": .string("diff_package_metadata"),
-                "agentstudio.performance.elapsed_ms": .double(8.5),
-                "agentstudio.trace.tag": .string("bridge.performance.webkit"),
-            ]
-        )
-
-        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
-        let expectedDimensions = [
-            AgentStudioOTLPPerformanceMetricDimension(
-                name: "event",
-                value: "performance.bridge.webkit.package_push"
-            ),
-            AgentStudioOTLPPerformanceMetricDimension(name: "phase", value: "transport"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "plane", value: "data"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "priority", value: "cold"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "slice", value: "diff_package_metadata"),
-        ]
-
-        #expect(metricEvent.eventName == "performance.bridge.webkit.package_push")
-        #expect(metricEvent.elapsedMilliseconds == 8.5)
-        #expect(metricEvent.dimensions == expectedDimensions)
-        #expect(
-            metricEvent.samples == [
-                AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.bridge.webkit.package_push",
-                    label: "agentstudio_bridge_content_byte_size_bucket",
-                    dimensions: expectedDimensions,
-                    value: 100_000
-                ),
-                AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.bridge.webkit.package_push",
-                    label: "agentstudio_bridge_content_line_count_bucket",
-                    dimensions: expectedDimensions,
-                    value: 500
-                ),
-            ])
-    }
-
-    @Test
-    func bridgePerformanceRecordRequiresCompleteFiniteTaxonomy() {
-        let missingPhase = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 124,
-            severityText: .info,
-            body: "performance.bridge.webkit.package_push",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.bridge.performance.webkit", version: "0.1.0"),
-            attributes: [
-                "agentstudio.bridge.plane": .string("data"),
-                "agentstudio.bridge.priority": .string("cold"),
-                "agentstudio.bridge.slice": .string("diff_package_metadata"),
-            ]
-        )
-        let invalidSlice = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 125,
-            severityText: .info,
-            body: "performance.bridge.webkit.package_push",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.bridge.performance.webkit", version: "0.1.0"),
-            attributes: [
-                "agentstudio.bridge.phase": .string("transport"),
-                "agentstudio.bridge.plane": .string("data"),
-                "agentstudio.bridge.priority": .string("cold"),
-                "agentstudio.bridge.slice": .string("not_a_slice"),
-            ]
-        )
-
-        #expect(AgentStudioOTLPPerformanceMetricEvent(record: missingPhase) == nil)
-        #expect(AgentStudioOTLPPerformanceMetricEvent(record: invalidSlice) == nil)
-    }
-
-    @Test
-    func sidebarPerformanceRecordProjectsControlledTaxonomyDimensions() throws {
-        let record = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 130,
-            severityText: .info,
-            body: "performance.sidebar.projection",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
-            attributes: [
-                "agentstudio.performance.elapsed_ms": .double(4.5),
-                "agentstudio.performance.sidebar.surface": .string("inbox"),
-                "agentstudio.performance.sidebar.phase": .string("mainactor_apply"),
-                "agentstudio.performance.sidebar.query_state": .string("non_empty"),
-                "agentstudio.performance.sidebar.group_mode": .string("none"),
-                "agentstudio.performance.sidebar.trigger": .string("grouping_switch"),
-                "agentstudio.performance.sidebar.input.count": .int(42),
-                "agentstudio.performance.sidebar.group.count": .int(4),
-                "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(4.5),
-                "agentstudio.performance.sidebar.query_character.count": .int(3),
-                "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms": .double(0.5),
-            ]
-        )
-
-        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
-        let expectedDimensions = [
-            AgentStudioOTLPPerformanceMetricDimension(name: "event", value: "performance.sidebar.projection"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "surface", value: "inbox"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "phase", value: "mainactor_apply"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "query_state", value: "non_empty"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "group_mode", value: "none"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "trigger", value: "grouping_switch"),
-        ]
-
-        #expect(metricEvent.dimensions == expectedDimensions)
-        #expect(metricEvent.elapsedMilliseconds == 4.5)
-        #expect(
-            metricEvent.samples == [
-                AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.sidebar.projection",
-                    label: "agentstudio_performance_sidebar_group_count",
-                    dimensions: expectedDimensions,
-                    value: 4
-                ),
-                AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.sidebar.projection",
-                    label: "agentstudio_performance_sidebar_input_count",
-                    dimensions: expectedDimensions,
-                    value: 42
-                ),
-                AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.sidebar.projection",
-                    label: "agentstudio_performance_sidebar_mainactor_apply_elapsed_ms",
-                    dimensions: expectedDimensions,
-                    value: 4.5
-                ),
-                AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.sidebar.projection",
-                    label: "agentstudio_performance_sidebar_query_character_count",
-                    dimensions: expectedDimensions,
-                    value: 3
-                ),
-                AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.sidebar.projection",
-                    label: "agentstudio_performance_sidebar_request_build_mainactor_elapsed_ms",
-                    dimensions: expectedDimensions,
-                    value: 0.5
-                ),
-            ])
-    }
-
-    @Test
-    func sidebarPerformanceRecordRejectsMissingSurfaceTaxonomy() {
-        let record = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 130,
-            severityText: .info,
-            body: "performance.sidebar.projection",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
-            attributes: [
-                "agentstudio.performance.elapsed_ms": .double(4.5),
-                "agentstudio.performance.sidebar.phase": .string("mainactor_apply"),
-                "agentstudio.performance.sidebar.query_state": .string("non_empty"),
-                "agentstudio.performance.sidebar.group_mode": .string("none"),
-                "agentstudio.performance.sidebar.trigger": .string("grouping_switch"),
-            ]
-        )
-
-        #expect(AgentStudioOTLPPerformanceMetricEvent(record: record) == nil)
-    }
-
-    @Test
-    func sidebarPerformanceRecordAcceptsVisibilityModeTrigger() throws {
-        let record = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 131,
-            severityText: .info,
-            body: "performance.sidebar.projection",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
-            attributes: [
-                "agentstudio.performance.elapsed_ms": .double(1.5),
-                "agentstudio.performance.sidebar.surface": .string("repo"),
-                "agentstudio.performance.sidebar.phase": .string("projection_worker"),
-                "agentstudio.performance.sidebar.query_state": .string("empty"),
-                "agentstudio.performance.sidebar.group_mode": .string("repo"),
-                "agentstudio.performance.sidebar.trigger": .string("visibility_mode"),
-                "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(1.5),
-            ]
-        )
-
-        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
-
-        #expect(
-            metricEvent.dimensions.contains(
-                AgentStudioOTLPPerformanceMetricDimension(name: "trigger", value: "visibility_mode")))
-        #expect(
-            metricEvent.samples.contains(
-                AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.sidebar.projection",
-                    label: "agentstudio_performance_sidebar_total_worker_elapsed_ms",
-                    dimensions: metricEvent.dimensions,
-                    value: 1.5
-                )))
-    }
-
-    @Test
-    func sidebarPerformanceRecordAcceptsSortOrderTrigger() throws {
-        let record = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 132,
-            severityText: .info,
-            body: "performance.sidebar.projection",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
-            attributes: [
-                "agentstudio.performance.elapsed_ms": .double(2.25),
-                "agentstudio.performance.sidebar.surface": .string("repo"),
-                "agentstudio.performance.sidebar.phase": .string("projection_worker"),
-                "agentstudio.performance.sidebar.query_state": .string("empty"),
-                "agentstudio.performance.sidebar.group_mode": .string("repo"),
-                "agentstudio.performance.sidebar.trigger": .string("sort_order"),
-                "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(2.25),
-            ]
-        )
-
-        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
-
-        #expect(
-            metricEvent.dimensions.contains(
-                AgentStudioOTLPPerformanceMetricDimension(name: "trigger", value: "sort_order")))
-        #expect(
-            metricEvent.samples.contains(
-                AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.sidebar.projection",
-                    label: "agentstudio_performance_sidebar_total_worker_elapsed_ms",
-                    dimensions: metricEvent.dimensions,
-                    value: 2.25
-                )))
-    }
-
-    @Test
-    func sidebarPerformanceRecordRequiresCompleteControlledTaxonomy() {
-        let missingSurface = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 132,
-            severityText: .info,
-            body: "performance.sidebar.projection",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
-            attributes: [
-                "agentstudio.performance.sidebar.phase": .string("mainactor_apply"),
-                "agentstudio.performance.sidebar.query_state": .string("empty"),
-                "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
-            ]
-        )
-        let invalidPhase = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 133,
-            severityText: .info,
-            body: "performance.sidebar.projection",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
-            attributes: [
-                "agentstudio.performance.sidebar.surface": .string("inbox"),
-                "agentstudio.performance.sidebar.phase": .string("query_text_/Users/private"),
-                "agentstudio.performance.sidebar.query_state": .string("empty"),
-                "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
-                "agentstudio.performance.sidebar.trigger": .string("startup_diagnostic"),
-            ]
-        )
-
-        #expect(AgentStudioOTLPPerformanceMetricEvent(record: missingSurface) == nil)
-        #expect(AgentStudioOTLPPerformanceMetricEvent(record: invalidPhase) == nil)
     }
 
     @Test

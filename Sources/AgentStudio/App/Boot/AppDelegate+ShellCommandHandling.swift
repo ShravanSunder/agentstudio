@@ -40,9 +40,10 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
+            .newFloatingTerminal, .openWebview, .showBridgeReview, .showBridgeFiles,
             .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
             .setInboxRowStateFilter, .setInboxContentMode,
-            .newFloatingTerminal, .openWebview, .openBridgeReview, .openNewTerminalInTab:
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .openNewTerminalInTab:
             false
         }
     }
@@ -138,7 +139,8 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
-            .newFloatingTerminal, .openWebview, .openBridgeReview, .openNewTerminalInTab:
+            .newFloatingTerminal, .openWebview, .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .openNewTerminalInTab:
             return false
         }
     }
@@ -185,7 +187,8 @@ extension AppDelegate: ShellCommandHandling {
             .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
-            .openWebview, .openBridgeReview, .signInGitHub, .signInGoogle,
+            .openWebview, .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:
             return false
         }

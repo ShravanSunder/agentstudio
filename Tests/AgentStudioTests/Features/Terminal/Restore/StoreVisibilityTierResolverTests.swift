@@ -79,6 +79,31 @@ struct StoreVisibilityTierResolverTests {
     }
 
     @Test
+    func tier_marksOrphanedLayoutPaneHidden_inActiveTab() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-visibility-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = WorkspaceStore()
+        let repo = store.addRepo(at: tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let pane = store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let tab = Tab(paneId: pane.id, name: "Orphaned")
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+        store.setResidency(.orphaned(reason: .worktreeNotFound(path: worktree.path.path)), for: pane.id)
+
+        let resolver = StoreVisibilityTierResolver(store: store)
+
+        #expect(resolver.tier(for: PaneId(existingUUID: pane.id)) == .p1Hidden)
+        #expect(!resolver.isActive(PaneId(existingUUID: pane.id)))
+    }
+
+    @Test
     func tier_marksExpandedDrawerChildrenVisible() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-visibility-\(UUID().uuidString)")

@@ -17,6 +17,7 @@ package enum AppIPCMethodContributionError: Error, Equatable, Sendable {
 
 package enum AppIPCContributionRequestError: Error, Equatable, Sendable {
     case invalidParams
+    case targetOutsideSecurityContract
 }
 
 package enum AppIPCContributionParameters {
@@ -55,6 +56,19 @@ package struct AppIPCContributionSecurityContract: Equatable, Sendable {
         self.dataScopes = dataScopes
         self.sensitiveDataExclusions = sensitiveDataExclusions
     }
+
+    package func allowsTarget(_ target: IPCTargetScope) -> Bool {
+        switch target {
+        case .app:
+            targetVocabulary.contains(.app)
+        case .pane:
+            targetVocabulary.contains(.pane)
+        case .selfPane:
+            targetVocabulary.contains(.selfPane)
+        case .workspace:
+            targetVocabulary.contains(.workspace)
+        }
+    }
 }
 
 package struct AppIPCAuthorizedRequestContext: Sendable {
@@ -80,23 +94,62 @@ package struct AppIPCContributionAuthorizationTools: Sendable {
 }
 
 package struct AppIPCContributionDispatchContext: Sendable {
+    private let authorizedTarget: IPCTargetScope
+    private let principal: IPCPrincipal
     private let paneSnapshotReader: @Sendable (UUID) async throws -> IPCPaneSnapshotResult
     private let paneHandleDecoder: @Sendable (String) throws -> UUID
 
     package init(
+        authorizedTarget: IPCTargetScope,
+        principal: IPCPrincipal,
         paneSnapshotReader: @escaping @Sendable (UUID) async throws -> IPCPaneSnapshotResult,
         paneHandleDecoder: @escaping @Sendable (String) throws -> UUID
     ) {
+        self.authorizedTarget = authorizedTarget
+        self.principal = principal
         self.paneSnapshotReader = paneSnapshotReader
         self.paneHandleDecoder = paneHandleDecoder
     }
 
     package func uuidFromPaneHandle(_ rawHandle: String) throws -> UUID {
-        try paneHandleDecoder(rawHandle)
+        let paneId = try paneHandleDecoder(rawHandle)
+        try validateAuthorizedPaneId(paneId)
+        return paneId
     }
 
     package func snapshotPane(_ paneId: UUID) async throws -> IPCPaneSnapshotResult {
-        try await paneSnapshotReader(paneId)
+        try validateAuthorizedPaneId(paneId)
+        return try await paneSnapshotReader(paneId)
+    }
+
+    private func validateAuthorizedPaneId(_ paneId: UUID) throws {
+        guard allowsPaneId(paneId) else {
+            throw AppIPCContributionRequestError.targetOutsideSecurityContract
+        }
+    }
+
+    private func allowsPaneId(_ paneId: UUID) -> Bool {
+        switch authorizedTarget {
+        case .pane(let rawPaneId):
+            paneIdMatches(paneId, rawPaneId: rawPaneId)
+        case .selfPane:
+            principalBoundPaneMatches(paneId)
+        case .app, .workspace:
+            false
+        }
+    }
+
+    private func principalBoundPaneMatches(_ paneId: UUID) -> Bool {
+        switch principal.kind {
+        case .spawnedPaneAgent(let boundPaneId, _):
+            paneIdMatches(paneId, rawPaneId: boundPaneId)
+        case .automationClient, .futureMCPClient, .unsafeDebugClient:
+            false
+        }
+    }
+
+    private func paneIdMatches(_ paneId: UUID, rawPaneId: String) -> Bool {
+        UUID(uuidString: rawPaneId) == paneId || rawPaneId == paneId.uuidString
     }
 }
 

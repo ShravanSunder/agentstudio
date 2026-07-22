@@ -1,12 +1,29 @@
 import Foundation
 import Observation
 
+/// AppKit presentation facts for one registered workspace window.
+///
+/// These facts intentionally exclude key and focus state. Key and focus rank
+/// interactive work, but they do not decide whether a pane is foreground.
+struct WindowPresentationFacts: Equatable, Sendable {
+    let isVisible: Bool
+    let isMiniaturized: Bool
+    let isOccluded: Bool
+
+    static let hidden = Self(
+        isVisible: false,
+        isMiniaturized: false,
+        isOccluded: true
+    )
+}
+
 @Observable
 @MainActor
 final class WindowLifecycleAtom {
     private(set) var registeredWindowIds: Set<UUID> = []
     private(set) var keyWindowId: UUID?
     private(set) var focusedWindowId: UUID?
+    private var presentationFactsByWindowId: [UUID: WindowPresentationFacts] = [:]
     // Transient window facts for launch restore. Never persisted.
     private(set) var terminalContainerBounds: CGRect = .zero
     private(set) var isLaunchLayoutSettled = false
@@ -36,6 +53,57 @@ final class WindowLifecycleAtom {
 
     func recordWindowRegistered(_ windowId: UUID) {
         registeredWindowIds.insert(windowId)
+        if presentationFactsByWindowId[windowId] == nil {
+            presentationFactsByWindowId[windowId] = .hidden
+        }
+    }
+
+    func presentationFacts(for windowId: UUID) -> WindowPresentationFacts? {
+        presentationFactsByWindowId[windowId]
+    }
+
+    func recordWindowPresentation(
+        _ facts: WindowPresentationFacts,
+        for windowId: UUID
+    ) {
+        guard registeredWindowIds.contains(windowId) else { return }
+        presentationFactsByWindowId[windowId] = facts
+    }
+
+    func recordWindowVisibility(_ isVisible: Bool, for windowId: UUID) {
+        guard let facts = presentationFactsByWindowId[windowId] else { return }
+        recordWindowPresentation(
+            WindowPresentationFacts(
+                isVisible: isVisible,
+                isMiniaturized: facts.isMiniaturized,
+                isOccluded: facts.isOccluded
+            ),
+            for: windowId
+        )
+    }
+
+    func recordWindowMiniaturization(_ isMiniaturized: Bool, for windowId: UUID) {
+        guard let facts = presentationFactsByWindowId[windowId] else { return }
+        recordWindowPresentation(
+            WindowPresentationFacts(
+                isVisible: facts.isVisible,
+                isMiniaturized: isMiniaturized,
+                isOccluded: facts.isOccluded
+            ),
+            for: windowId
+        )
+    }
+
+    func recordWindowOcclusion(_ isOccluded: Bool, for windowId: UUID) {
+        guard let facts = presentationFactsByWindowId[windowId] else { return }
+        recordWindowPresentation(
+            WindowPresentationFacts(
+                isVisible: facts.isVisible,
+                isMiniaturized: facts.isMiniaturized,
+                isOccluded: isOccluded
+            ),
+            for: windowId
+        )
     }
 
     func recordWindowBecameKey(_ windowId: UUID) {

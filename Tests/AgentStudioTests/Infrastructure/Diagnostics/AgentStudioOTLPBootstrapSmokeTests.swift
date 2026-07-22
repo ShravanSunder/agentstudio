@@ -7,6 +7,44 @@ import Testing
 @Suite(.serialized)
 struct AgentStudioOTLPBootstrapSmokeTests {
     @Test
+    func otelConfigurationAppliesExplicitLogBatchBackpressurePolicy() throws {
+        let configuration = try AgentStudioOTLPBootstrapper.otelConfiguration(
+            record: AgentStudioOTLPProjectedLogRecord(
+                timeUnixNano: 123,
+                severityText: .info,
+                body: "runtime.otlp.configuration",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "agentstudio-test"],
+                scope: .init(name: "agentstudio-test", version: "test-version"),
+                attributes: [:]
+            ),
+            context: AgentStudioOTLPTraceSinkContext(
+                endpoint: #require(URL(string: "http://127.0.0.1:4318")),
+                otlpProtocol: .httpProtobuf
+            )
+        )
+
+        #expect(configuration.logs.batchLogRecordProcessor.maxQueueSize == AppPolicies.Diagnostics.otlpLogMaxQueueSize)
+        #expect(configuration.logs.batchLogRecordProcessor.maxQueueSize == 8192)
+        #expect(
+            configuration.logs.batchLogRecordProcessor.maxExportBatchSize
+                == AppPolicies.Diagnostics.otlpLogMaxExportBatchSize
+        )
+        #expect(configuration.logs.batchLogRecordProcessor.maxExportBatchSize == 1024)
+        #expect(
+            configuration.logs.batchLogRecordProcessor.scheduleDelay == AppPolicies.Diagnostics.otlpLogScheduleDelay
+        )
+        #expect(configuration.logs.batchLogRecordProcessor.scheduleDelay == .seconds(1))
+        #expect(configuration.logs.batchLogRecordProcessor.exportTimeout == AppPolicies.Diagnostics.otlpExportTimeout)
+        #expect(configuration.traces.batchSpanProcessor.scheduleDelay == AppPolicies.Diagnostics.otlpTraceScheduleDelay)
+        #expect(configuration.traces.batchSpanProcessor.exportTimeout == AppPolicies.Diagnostics.otlpExportTimeout)
+        #expect(configuration.metrics.exportInterval == AppPolicies.Diagnostics.otlpMetricsExportInterval)
+        #expect(configuration.metrics.exportTimeout == AppPolicies.Diagnostics.otlpExportTimeout)
+    }
+
+    @Test
     func liveOTLPSinkPostsLogRecordToLoopbackHTTPCollector() async throws {
         let collector = try LoopbackOTLPHTTPCollector()
         try await collector.start()
@@ -63,16 +101,16 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         )
         await runtime.record(
             tag: .bridgePerformanceWebKit,
-            body: "performance.bridge.webkit.package_push",
+            body: "performance.bridge.webkit.push_envelope",
             traceID: "11111111111111111111111111111111",
             spanID: "2222222222222222",
             attributes: [
                 "agentstudio.bridge.content.byte_size_bucket": .int(100_000),
                 "agentstudio.bridge.content.line_count_bucket": .int(500),
-                "agentstudio.bridge.phase": .string("package_push"),
+                "agentstudio.bridge.phase": .string("transport"),
                 "agentstudio.bridge.plane": .string("data"),
                 "agentstudio.bridge.priority": .string("cold"),
-                "agentstudio.bridge.slice": .string("diff_package_metadata"),
+                "agentstudio.bridge.slice": .string("review_metadata"),
                 "agentstudio.bridge.transport": .string("push"),
                 "agentstudio.performance.elapsed_ms": .double(8.5),
             ]
@@ -101,7 +139,7 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         #expect(metricsRequest.bodyContains("performance.git.status"))
         #expect(metricsRequest.bodyContains("agentstudio_performance_event_elapsed_ms"))
         #expect(metricsRequest.bodyContains("agentstudio_performance_git_pending_count"))
-        #expect(metricsRequest.bodyContains("diff_package_metadata"))
+        #expect(metricsRequest.bodyContains("review_metadata"))
 
         try await assertBridgeOTLPTraceRequests(collector)
     }
@@ -110,7 +148,7 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         let bridgeLogRequest = try #require(
             await collector.waitForRequest(
                 pathSuffix: "/v1/logs",
-                containing: "performance.bridge.webkit.package_push",
+                containing: "performance.bridge.webkit.push_envelope",
                 timeout: .seconds(5)
             )
         )
@@ -119,7 +157,7 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         let bridgeTraceRequest = try #require(
             await collector.waitForRequest(
                 pathSuffix: "/v1/traces",
-                containing: "performance.bridge.webkit.package_push",
+                containing: "performance.bridge.webkit.push_envelope",
                 timeout: .seconds(5)
             )
         )

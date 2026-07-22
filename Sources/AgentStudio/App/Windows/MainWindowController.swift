@@ -27,11 +27,12 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private var awaitsLaunchMaximize = false
     private var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
     private var workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom!
-    private let windowId = UUID()
+    private var windowId = UUID()
 
     private static let estimatedTitlebarHeight: CGFloat = 40
 
     convenience init(
+        workspaceWindowId: UUID = UUID(),
         store: WorkspaceStore,
         workspaceActionExecutor: WorkspaceActionExecutor,
         runtimeCommandDispatcher: any PaneRuntimeCommandDispatching,
@@ -44,6 +45,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         inboxSidebarState: InboxSidebarState,
         paneInboxPresenter: PaneInboxNotificationPresenter,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void = {},
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
     ) {
         let window = NSWindow(
@@ -77,12 +79,14 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         }
 
         self.init(window: window)
+        self.windowId = workspaceWindowId
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.workspaceWindowMemoryAtom = store.windowMemoryAtom
         self.inboxAtom = inboxAtom
         self.uiState = atom(\.workspaceSidebarState)
         window.delegate = self
         applicationLifecycleMonitor.handleWindowRegistered(windowId)
+        synchronizeWindowPresentationFacts()
 
         // Create and set content view controller
         let splitVC = MainSplitViewController(
@@ -99,6 +103,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             inboxSidebarState: inboxSidebarState,
             paneInboxPresenter: paneInboxPresenter,
             performanceTraceRecorder: performanceTraceRecorder,
+            onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
         self.splitViewController = splitVC
@@ -123,24 +128,60 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidBecomeMain(_ notification: Notification) {
         applyLaunchMaximizeIfNeeded()
+        synchronizeWindowPresentationFacts()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
         applyLaunchMaximizeIfNeeded()
         applicationLifecycleMonitor.handleWindowDidBecomeKey(windowId)
+        synchronizeWindowPresentationFacts()
     }
 
     func windowDidResignKey(_ notification: Notification) {
         applicationLifecycleMonitor.handleWindowDidResignKey(windowId)
+        synchronizeWindowPresentationFacts()
+    }
+
+    func windowDidMiniaturize(_ notification: Notification) {
+        synchronizeWindowPresentationFacts()
+    }
+
+    func windowDidDeminiaturize(_ notification: Notification) {
+        synchronizeWindowPresentationFacts()
+    }
+
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        synchronizeWindowPresentationFacts()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window else { return }
+        applicationLifecycleMonitor.handleWindowPresentationChanged(
+            windowId,
+            isVisible: false,
+            isMiniaturized: window.isMiniaturized,
+            isOccluded: true
+        )
     }
 
     func makePaneFocusAppControl(store: WorkspaceStore) -> (any PaneFocusAppControlling)? {
-        splitViewController?.makePaneFocusAppControl(store: store)
+        splitViewController?.loadViewIfNeeded()
+        return splitViewController?.makePaneFocusAppControl(store: store)
     }
 
     private func saveWindowFrame() {
         guard let frame = window?.frame else { return }
         workspaceWindowMemoryAtom.setWindowFrame(frame)
+    }
+
+    private func synchronizeWindowPresentationFacts() {
+        guard let window else { return }
+        applicationLifecycleMonitor.handleWindowPresentationChanged(
+            windowId,
+            isVisible: window.isVisible,
+            isMiniaturized: window.isMiniaturized,
+            isOccluded: !window.occlusionState.contains(.visible)
+        )
     }
 
     // MARK: - Frame Validation
@@ -419,6 +460,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     func completeLaunchPresentation() {
         guard let window else { return }
         window.makeKeyAndOrderFront(nil)
+        synchronizeWindowPresentationFacts()
         applyLaunchMaximizeIfNeeded()
     }
 

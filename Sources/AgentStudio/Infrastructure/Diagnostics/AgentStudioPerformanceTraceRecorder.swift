@@ -42,17 +42,28 @@ struct TraceIdentityPerformanceSnapshot: Equatable, Sendable {
 }
 
 final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
+    struct TopologyLookupFact: Hashable, Sendable {
+        let normalizedCWD: String
+        let worktreePathIndexGeneration: UInt64
+        let repoId: UUID?
+        let worktreeId: UUID?
+    }
+
     enum Event: String, Sendable {
         case atomDerived = "performance.atom.derived"
         case atomMutation = "performance.atom.mutation"
         case atomRead = "performance.atom.read"
+        case bridgeGitReadScheduler = "performance.bridge.git_read_scheduler"
+        case bridgeWorktreeProductConstruction = "performance.bridge.worktree_product_construction"
         case commandBarFilter = "performance.commandbar.filter"
         case commandBarItems = "performance.commandbar.items"
         case coordinatorWrite = "performance.coordinator.write"
         case filesystemEffectSnapshot = "performance.filesystem.effect_snapshot"
         case filesystemLogicalDebt = "performance.filesystem.logical_debt"
         case gitAdmission = "performance.git.admission"
+        case gitBackoff = "performance.git.backoff"
         case gitEventPosted = "performance.git.event_posted"
+        case gitPathQuarantine = "performance.git.path_quarantine"
         case gitLogicalDebt = "performance.git.logical_debt"
         case gitSnapshotDedup = "performance.git.snapshot_dedup"
         case gitStatusComputed = "performance.git.status"
@@ -85,6 +96,8 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
 
     private let traceRuntime: AgentStudioTraceRuntime?
     private let eventQueue: AgentStudioTraceEventQueue?
+    private let lock = NSLock()
+    private var topologyLookupAdmission = TopologyLookupTraceAdmission()
     private let processMemorySampler: AgentStudioProcessMemorySampler?
     private let runtimeDeliveryPerformanceReporter: RuntimeDeliveryPerformanceReporter?
 
@@ -157,6 +170,23 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         var mergedAttributes = attributes
         mergedAttributes["agentstudio.performance.elapsed_ms"] = .double(Self.milliseconds(from: duration))
         record(event, attributes: mergedAttributes)
+    }
+
+    func recordRepoAndWorktreeLookup(
+        duration: Duration,
+        indexCount: Int,
+        hasMatch: Bool,
+        fact: TopologyLookupFact
+    ) {
+        guard shouldRecordTopologyLookup(fact) else { return }
+        recordDuration(
+            .repoAndWorktreeLookup,
+            duration: duration,
+            attributes: [
+                "agentstudio.performance.topology.index.count": .int(indexCount),
+                "agentstudio.performance.topology.has_match": .bool(hasMatch),
+            ]
+        )
     }
 
     func recordTerminalAccumulatorDrain(
@@ -280,8 +310,59 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         return secondsMilliseconds + attosecondsMilliseconds
     }
 
+    private func shouldRecordTopologyLookup(_ fact: TopologyLookupFact) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return topologyLookupAdmission.admit(
+            fact,
+            now: ContinuousClock().now,
+            window: AppPolicies.Diagnostics.topologyLookupTraceAdmissionWindow,
+            limit: AppPolicies.Diagnostics.topologyLookupTraceAdmissionLimit
+        )
+    }
+
     private static func traceInteger(_ value: UInt64) -> AgentStudioTraceValue {
         .int(Int(clamping: value))
     }
+}
 
+private struct TopologyLookupTraceAdmission {
+    private var windowStart: ContinuousClock.Instant?
+    private var admittedInWindow = 0
+    private var emittedFactGeneration: UInt64?
+    private var emittedFacts: Set<AgentStudioPerformanceTraceRecorder.TopologyLookupFact> = []
+
+    mutating func admit(
+        _ fact: AgentStudioPerformanceTraceRecorder.TopologyLookupFact,
+        now: ContinuousClock.Instant,
+        window: Duration,
+        limit: Int
+    ) -> Bool {
+        resetDeduplicationIfNeeded(for: fact)
+        guard !emittedFacts.contains(fact) else { return false }
+        resetWindowIfNeeded(now: now, window: window)
+        guard admittedInWindow < limit else { return false }
+        admittedInWindow += 1
+        emittedFacts.insert(fact)
+        return true
+    }
+
+    private mutating func resetDeduplicationIfNeeded(
+        for fact: AgentStudioPerformanceTraceRecorder.TopologyLookupFact
+    ) {
+        guard emittedFactGeneration != fact.worktreePathIndexGeneration else { return }
+        emittedFactGeneration = fact.worktreePathIndexGeneration
+        emittedFacts.removeAll(keepingCapacity: true)
+    }
+
+    private mutating func resetWindowIfNeeded(now: ContinuousClock.Instant, window: Duration) {
+        guard let windowStart else {
+            self.windowStart = now
+            admittedInWindow = 0
+            return
+        }
+        guard windowStart.duration(to: now) >= window else { return }
+        self.windowStart = now
+        admittedInWindow = 0
+    }
 }

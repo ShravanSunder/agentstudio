@@ -15,6 +15,7 @@
 	"ignorePatterns": [
 		"dist",
 		"coverage",
+		"tmp",
 		"node_modules",
 		"src/test-fixtures/bridge-contract-fixtures"
 	]

@@ -1,290 +1,372 @@
 import Foundation
 import WebKit
 
-/// URL scheme handler for `agentstudio://` custom scheme.
-///
-/// Routes:
-/// - `agentstudio://app/*` — bundled React app assets (HTML, JS, CSS)
-/// - `agentstudio://resource/content/<handleId>?generation=<n>` — file contents on demand
-struct BridgeSchemeHandler: URLSchemeHandler {
-    let paneId: UUID
-    let contentStore: BridgeContentStore
+/// URL scheme handler for bundled assets and capability-bound POST streams.
+/// File and Review product bytes are owned by the pane product session; the
+/// retired feature-resource GET route is intentionally absent.
+struct BridgeSchemeHandler: URLSchemeHandler, Sendable {
     let appAssetStore: BridgeAppAssetStore
-    let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+    let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
+    let productSessionRouter: BridgeProductSchemeSessionRouter?
+
+    private static let invalidRouteReason = "invalid-route"
 
     init(
-        paneId: UUID,
-        contentStore: BridgeContentStore = BridgeContentStore(),
+        paneId _: UUID,
         appAssetStore: BridgeAppAssetStore = BridgeAppAssetStore(),
-        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
+        telemetrySessionOwner: BridgePaneTelemetrySessionOwner? = nil,
+        productSessionRouter: BridgeProductSchemeSessionRouter? = nil
     ) {
-        self.paneId = paneId
-        self.contentStore = contentStore
         self.appAssetStore = appAssetStore
-        self.telemetryRecorder = telemetryRecorder
+        self.telemetrySessionOwner = telemetrySessionOwner
+        self.productSessionRouter = productSessionRouter
     }
-
-    // MARK: - URLSchemeHandler
 
     func reply(for request: URLRequest) -> some AsyncSequence<URLSchemeTaskResult, any Error> {
         AsyncThrowingStream<URLSchemeTaskResult, any Error> { continuation in
-            guard let url = request.url else {
-                continuation.finish(throwing: BridgeSchemeError.invalidRequest("Missing URL"))
-                return
-            }
-
-            let classification = Self.classifyPath(url.absoluteString)
-            switch classification {
-            case .app(let relativePath):
-                let task = Task {
-                    do {
-                        let asset = try await appAssetStore.load(relativePath: relativePath)
-                        try Task.checkCancellation()
-                        continuation.yield(
-                            .response(
-                                URLResponse(
-                                    url: url,
-                                    mimeType: asset.mimeType,
-                                    expectedContentLength: asset.data.count,
-                                    textEncodingName: Self.textEncodingName(for: asset.mimeType)
-                                )))
-                        try Task.checkCancellation()
-                        continuation.yield(.data(asset.data))
-                        continuation.finish()
-                    } catch {
-                        continuation.finish(throwing: error)
-                    }
-                }
-                continuation.onTermination = { _ in
-                    task.cancel()
-                }
-
-            case .content(let handleId, let generation):
-                let task = Task {
-                    let traceContext = Self.traceContext(from: request)
-                    let hasTraceparentHeader = Self.traceparentHeader(from: request) != nil
-                    let loadStart = ContinuousClock.now
-                    do {
-                        let observed = try await contentStore.loadObserved(
-                            handleId: handleId,
-                            requestedGeneration: generation
-                        )
-                        let result = observed.result
-                        await recordContentLoadTelemetry(
-                            observation: observed.observation,
-                            traceContext: traceContext,
-                            hasTraceparentHeader: hasTraceparentHeader,
-                            phase: "success",
-                            durationMilliseconds: Self.milliseconds(from: loadStart.duration(to: ContinuousClock.now))
-                        )
-                        try Task.checkCancellation()
-                        continuation.yield(
-                            .response(
-                                URLResponse(
-                                    url: url,
-                                    mimeType: result.mimeType,
-                                    expectedContentLength: result.data.count,
-                                    textEncodingName: Self.textEncodingName(for: result.mimeType)
-                                )))
-                        try Task.checkCancellation()
-                        continuation.yield(.data(result.data))
-                        continuation.finish()
-                    } catch let failure as BridgeContentLoadObservedFailure {
-                        await recordContentLoadTelemetry(
-                            observation: failure.observation,
-                            traceContext: traceContext,
-                            hasTraceparentHeader: hasTraceparentHeader,
-                            phase: "error",
-                            durationMilliseconds: Self.milliseconds(from: loadStart.duration(to: ContinuousClock.now))
-                        )
-                        continuation.finish(throwing: failure.underlyingError)
-                    } catch {
-                        continuation.finish(throwing: error)
-                    }
-                }
-                continuation.onTermination = { _ in
-                    task.cancel()
-                }
-
-            case .invalid:
-                continuation.finish(throwing: BridgeSchemeError.invalidRoute(url.absoluteString))
-            }
+            routeReply(for: request, continuation: continuation)
         }
     }
 
-    // MARK: - Path Classification
+    private func routeReply(
+        for request: URLRequest,
+        continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
+    ) {
+        guard let url = request.url else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRequest("Missing URL"))
+            return
+        }
+        guard let readMethod = Self.readMethod(from: request.httpMethod) else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRequest("Unsupported method"))
+            return
+        }
 
-    /// Categorization of an `agentstudio://` URL into one of the supported route types.
+        let classification = Self.classifyPath(url.absoluteString)
+        if readMethod == .options {
+            emitOptionsResponse(url: url, classification: classification, continuation: continuation)
+            return
+        }
+        guard readMethod != .post || classification.supportsPostRequests else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRequest("Unsupported method"))
+            return
+        }
+        switch classification {
+        case .app(let relativePath):
+            startAppAssetReplyTask(
+                relativePath: relativePath,
+                url: url,
+                readMethod: readMethod,
+                continuation: continuation
+            )
+        case .telemetryBatch:
+            startTelemetryBatchReplyTask(
+                url: url,
+                request: request,
+                readMethod: readMethod,
+                continuation: continuation
+            )
+        case .product:
+            startProductReplyTask(request: request, continuation: continuation)
+        case .invalid:
+            continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
+        }
+    }
+
+    private func emitOptionsResponse(
+        url: URL,
+        classification: PathType,
+        continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
+    ) {
+        guard classification != .invalid else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
+            return
+        }
+        let isProductPreflight = classification == .product
+        continuation.yield(
+            .response(
+                Self.response(
+                    url: url,
+                    mimeType: "text/plain",
+                    expectedContentLength: 0,
+                    allowedMethods: Self.allowedMethods(for: classification),
+                    allowedHeaders: isProductPreflight
+                        ? "Content-Type, \(BridgeProductWireContract.capabilityHeaderName)"
+                        : "Content-Type, traceparent",
+                    statusCode: isProductPreflight ? 204 : 200
+                )))
+        continuation.finish()
+    }
+
+    private func startAppAssetReplyTask(
+        relativePath: String,
+        url: URL,
+        readMethod: BridgeSchemeReadMethod,
+        continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
+    ) {
+        let task = Task {
+            do {
+                let asset = try await appAssetStore.load(relativePath: relativePath)
+                try Task.checkCancellation()
+                continuation.yield(
+                    .response(
+                        Self.response(
+                            url: url,
+                            mimeType: asset.mimeType,
+                            expectedContentLength: asset.data.count
+                        )))
+                if readMethod == .get {
+                    try Task.checkCancellation()
+                    continuation.yield(.data(asset.data))
+                }
+                continuation.finish()
+            } catch {
+                continuation.finish(throwing: error)
+            }
+        }
+        continuation.onTermination = { _ in task.cancel() }
+    }
+
     enum PathType: Equatable {
-        /// Bundled React app asset at the given relative path (e.g. "index.html", "assets/main.js").
         case app(String)
-        /// Content resource request with a scoped handle and package generation guard.
-        case content(handleId: String, generation: BridgeReviewGeneration)
-        /// Unrecognized or malicious route (e.g. path traversal, wrong host).
+        case telemetryBatch
+        case product
         case invalid
     }
 
-    /// Classify a URL string into app asset, resource request, or invalid.
-    ///
-    /// Security: Rejects path traversal attempts by checking decoded path segments
-    /// for ".." components. Uses `URL.path()` which percent-decodes, so encoded
-    /// traversal like `%2e%2e` is caught after decoding. Segment-based checking
-    /// avoids false-rejecting benign paths containing dots (e.g. `my.file.txt`).
     static func classifyPath(_ urlString: String) -> PathType {
-        guard let url = URL(string: urlString),
-            url.scheme == "agentstudio"
-        else {
+        guard let url = URL(string: urlString), url.scheme == "agentstudio" else {
             return .invalid
         }
-
         let host = url.host() ?? ""
-        // Stable-decode: iteratively percent-decode until the string stops changing.
-        // Catches double-encoding attacks like %252e%252e → %2e%2e → ".."
         var path = url.path()
         var previous: String?
         while path != previous {
             previous = path
             path = path.removingPercentEncoding ?? path
         }
-
-        // Reject path traversal — check for ".." as a complete path segment.
-        // Segment-based check avoids false-rejecting benign filenames like "my..config.js".
-        let segments = path.split(separator: "/")
-        if segments.contains("..") {
+        guard !path.split(separator: "/").contains("..") else {
             return .invalid
         }
 
         switch host {
         case "app":
-            let relativePath = String(path.dropFirst())  // remove leading /
-            guard !relativePath.isEmpty else { return .invalid }
-            return .app(relativePath)
-
-        case "resource":
-            // Expected: /content/<handleId>?generation=<n>
-            let components = path.split(separator: "/")
-            guard components.count == 2,
-                components[0] == "content",
-                !components[1].isEmpty,
-                let generation = generationValue(from: url)
-            else {
+            let relativePath = String(path.dropFirst())
+            return relativePath.isEmpty ? .invalid : .app(relativePath)
+        case "telemetry":
+            return path == "/batch" ? .telemetryBatch : .invalid
+        case "rpc":
+            switch url.absoluteString {
+            case BridgeProductWireContract.commandRoute,
+                BridgeProductWireContract.streamRoute,
+                BridgeProductWireContract.contentRoute:
+                return .product
+            default:
                 return .invalid
             }
-            return .content(handleId: String(components[1]), generation: BridgeReviewGeneration(generation))
-
         default:
             return .invalid
         }
     }
 
-    private static func generationValue(from url: URL) -> Int? {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-            let value = components.queryItems?.first(where: { $0.name == "generation" })?.value,
-            let generation = Int(value),
-            generation >= 0
-        else {
-            return nil
+    enum BridgeSchemeReadMethod {
+        case get
+        case head
+        case options
+        case post
+    }
+
+    private func startTelemetryBatchReplyTask(
+        url: URL,
+        request: URLRequest,
+        readMethod: BridgeSchemeReadMethod,
+        continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
+    ) {
+        let task = Task {
+            await emitTelemetryBatch(
+                url: url,
+                request: request,
+                readMethod: readMethod,
+                continuation: continuation
+            )
         }
-        return generation
+        continuation.onTermination = { _ in task.cancel() }
     }
 
-    private static func traceContext(from request: URLRequest) -> BridgeTraceContext? {
-        guard let traceparent = traceparentHeader(from: request) else {
-            return nil
-        }
-        return try? BridgeTraceContext.parseTraceparent(traceparent)
-    }
-
-    private static func traceparentHeader(from request: URLRequest) -> String? {
-        request.value(forHTTPHeaderField: "traceparent")
-    }
-
-    private func recordContentLoadTelemetry(
-        observation: BridgeContentLoadObservation,
-        traceContext: BridgeTraceContext?,
-        hasTraceparentHeader: Bool,
-        phase: String,
-        durationMilliseconds: Double
+    private func emitTelemetryBatch(
+        url: URL,
+        request: URLRequest,
+        readMethod: BridgeSchemeReadMethod,
+        continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
     ) async {
-        guard let telemetryRecorder else {
+        guard readMethod == .post else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRequest("Unsupported telemetry method"))
             return
         }
-        await telemetryRecorder.record(
-            sample: BridgeTelemetrySample(
-                scope: .swift,
-                name: "performance.bridge.swift.content_load",
-                durationMilliseconds: durationMilliseconds,
-                traceContext: traceContext,
-                stringAttributes: [
-                    "agentstudio.bridge.cache.result": observation.cacheResult.rawValue,
-                    "agentstudio.bridge.content.correlation_mode": traceContext == nil ? "summary" : "traceparent",
-                    "agentstudio.bridge.content.role": observation.role?.rawValue ?? "unknown",
-                    "agentstudio.bridge.generation.relation": observation.generationRelation.rawValue,
-                    "agentstudio.bridge.phase": phase,
-                    "agentstudio.bridge.plane": BridgeTelemetryPlane.data.rawValue,
-                    "agentstudio.bridge.priority": BridgeTelemetryPriority.hot.rawValue,
-                    "agentstudio.bridge.slice": BridgeTelemetrySlice.contentFetch.rawValue,
-                    "agentstudio.bridge.transport": "content",
-                ],
-                numericAttributes: [
-                    "agentstudio.bridge.content.byte_size_bucket": Double(observation.byteSizeBucket),
-                    "agentstudio.bridge.content.line_count_bucket": Double(observation.lineCountBucket),
-                ],
-                booleanAttributes: [
-                    "agentstudio.bridge.cache_hit": observation.cacheResult == .cacheHit,
-                    "agentstudio.bridge.content.binary": observation.isBinary,
-                    "agentstudio.bridge.content.stale": observation.isStale,
-                    "agentstudio.bridge.header_missing": !hasTraceparentHeader,
-                    "agentstudio.bridge.header_supported": traceContext != nil,
-                ]
-            ),
-            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        guard let telemetrySessionOwner else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
+            return
+        }
+        let presentedCapability = request.value(
+            forHTTPHeaderField: BridgeTelemetryWorkerWireContract.capabilityHeaderName
         )
+        guard await telemetrySessionOwner.authorizes(presentedCapability) else {
+            emitTelemetryHTTPResponse(url: url, statusCode: 403, body: nil, continuation: continuation)
+            return
+        }
+        guard request.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("application/json") == true
+        else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRequest("Unsupported telemetry content type"))
+            return
+        }
+        let body: Data
+        switch BridgeProductBoundedRequestBodyReader(maximumBytes: BridgeTelemetryWorkerPolicy.live.batchMaxBytes)
+            .read(request)
+        {
+        case .body(let admittedBody, _):
+            body = admittedBody
+        case .oversized:
+            emitTelemetryHTTPResponse(url: url, statusCode: 413, body: nil, continuation: continuation)
+            return
+        case .invalid, .missing:
+            continuation.finish(throwing: BridgeSchemeError.invalidRequest("Missing telemetry body"))
+            return
+        }
+        switch await telemetrySessionOwner.admit(
+            presentedCapability: presentedCapability,
+            encodedBody: body
+        ) {
+        case .unauthorized:
+            emitTelemetryHTTPResponse(url: url, statusCode: 403, body: nil, continuation: continuation)
+        case .bodyTooLarge:
+            emitTelemetryHTTPResponse(url: url, statusCode: 413, body: nil, continuation: continuation)
+        case .response(let response):
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            guard let responseBody = try? encoder.encode(response) else {
+                continuation.finish(
+                    throwing: BridgeSchemeError.invalidRequest("Telemetry response encoding failed")
+                )
+                return
+            }
+            emitTelemetryHTTPResponse(
+                url: url,
+                statusCode: 200,
+                body: responseBody,
+                continuation: continuation
+            )
+        }
     }
 
-    private static func milliseconds(from duration: Duration) -> Double {
-        AgentStudioPerformanceTraceRecorder.milliseconds(from: duration)
+    private func emitTelemetryHTTPResponse(
+        url: URL,
+        statusCode: Int,
+        body: Data?,
+        continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
+    ) {
+        let headers = [
+            "Access-Control-Allow-Headers":
+                "Content-Type, traceparent, \(BridgeTelemetryWorkerWireContract.capabilityHeaderName)",
+            "Access-Control-Allow-Methods": Self.allowedMethods(for: .telemetryBatch),
+            "Access-Control-Allow-Origin": "*",
+            "Content-Length": String(body?.count ?? 0),
+            "Content-Type": "application/json; charset=utf-8",
+        ]
+        guard
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: statusCode,
+                httpVersion: "HTTP/1.1",
+                headerFields: headers
+            )
+        else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRequest("Telemetry response failed"))
+            return
+        }
+        continuation.yield(.response(response))
+        if let body {
+            continuation.yield(.data(body))
+        }
+        continuation.finish()
     }
 
-    // MARK: - MIME Type Resolution
-
-    /// Resolve MIME type from file extension.
-    ///
-    /// Covers the common web asset types served by a bundled React app.
-    /// Unknown extensions default to `application/octet-stream`.
     static func mimeType(for filename: String) -> String {
-        let ext = (filename as NSString).pathExtension.lowercased()
-        switch ext {
-        case "html", "htm": return "text/html"
-        case "js", "mjs": return "application/javascript"
-        case "css": return "text/css"
-        case "json": return "application/json"
-        case "svg": return "image/svg+xml"
-        case "png": return "image/png"
-        case "jpg", "jpeg": return "image/jpeg"
-        case "woff2": return "font/woff2"
-        case "woff": return "font/woff"
-        case "wasm": return "application/wasm"
-        default: return "application/octet-stream"
+        switch (filename as NSString).pathExtension.lowercased() {
+        case "html", "htm": "text/html"
+        case "js", "mjs": "application/javascript"
+        case "css": "text/css"
+        case "json": "application/json"
+        case "svg": "image/svg+xml"
+        case "png": "image/png"
+        case "jpg", "jpeg": "image/jpeg"
+        case "woff2": "font/woff2"
+        case "woff": "font/woff"
+        case "wasm": "application/wasm"
+        default: "application/octet-stream"
         }
     }
 
     static func textEncodingName(for mimeType: String) -> String? {
-        if mimeType.hasPrefix("text/") || mimeType == "application/json" || mimeType == "application/javascript" {
+        if mimeType.hasPrefix("text/") || mimeType == "application/json"
+            || mimeType == "application/javascript"
+        {
             return "utf-8"
         }
         return nil
     }
+
+    static func allowedMethods(for classification: PathType) -> String {
+        classification.supportsPostRequests ? "OPTIONS, POST" : "GET, HEAD, OPTIONS"
+    }
+
+    static func response(
+        url: URL,
+        mimeType: String,
+        expectedContentLength: Int?,
+        allowedMethods: String = "GET, HEAD, OPTIONS",
+        allowedHeaders: String = "Content-Type, traceparent",
+        statusCode: Int = 200
+    ) -> URLResponse {
+        var headers = [
+            "Access-Control-Allow-Headers": allowedHeaders,
+            "Access-Control-Allow-Methods": allowedMethods,
+            "Access-Control-Allow-Origin": "*",
+            "Content-Type": mimeType,
+        ]
+        if let expectedContentLength {
+            headers["Content-Length"] = String(expectedContentLength)
+        }
+        if let textEncodingName = textEncodingName(for: mimeType) {
+            headers["Content-Type"] = "\(mimeType); charset=\(textEncodingName)"
+        }
+        return HTTPURLResponse(
+            url: url,
+            statusCode: statusCode,
+            httpVersion: "HTTP/1.1",
+            headerFields: headers
+        )
+            ?? URLResponse(
+                url: url,
+                mimeType: mimeType,
+                expectedContentLength: expectedContentLength ?? -1,
+                textEncodingName: textEncodingName(for: mimeType)
+            )
+    }
 }
 
-// MARK: - Errors
+extension BridgeSchemeHandler {
+    fileprivate static func readMethod(from httpMethod: String?) -> BridgeSchemeReadMethod? {
+        switch httpMethod?.uppercased() ?? "GET" {
+        case "GET": .get
+        case "HEAD": .head
+        case "OPTIONS": .options
+        case "POST": .post
+        default: nil
+        }
+    }
+}
 
-/// Errors produced by the bridge scheme handler when a URL cannot be served.
 enum BridgeSchemeError: Error, Sendable {
-    /// The request was malformed (e.g. missing URL).
-    case invalidRequest(String)
-    /// The URL matched the `agentstudio` scheme but the route is unrecognized.
-    case invalidRoute(String)
-    /// The URL requested a valid app route but no packaged app asset exists.
     case assetNotFound(String)
+    case invalidRequest(String)
+    case invalidRoute(String)
 }

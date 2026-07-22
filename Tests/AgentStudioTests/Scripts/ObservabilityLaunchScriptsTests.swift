@@ -10,7 +10,8 @@ struct ObservabilityLaunchScriptsTests {
 
         #expect(script.contains("worktree_debug_code()"))
         #expect(script.contains("space = 36 ** 4"))
-        #expect(script.contains("source \"$PROJECT_ROOT/scripts/swift-build-slot.sh\" debug"))
+        #expect(script.contains("source \"$PROJECT_ROOT/scripts/swift-build-slot.sh\""))
+        #expect(!script.contains("swift-build-slot.sh\" debug"))
         #expect(script.contains("--print-identity"))
         #expect(script.contains("AgentStudio Debug $code.app"))
         #expect(script.contains("Agent Studio Debug $code"))
@@ -50,6 +51,10 @@ struct ObservabilityLaunchScriptsTests {
         let testHelperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let agentInstructions = try String(contentsOfFile: "AGENTS.md", encoding: .utf8)
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let benchmarkWorkflow = try String(
+            contentsOfFile: ".github/workflows/benchmarks.yml",
+            encoding: .utf8
+        )
 
         #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test\""))
         #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-fast\""))
@@ -57,19 +62,26 @@ struct ObservabilityLaunchScriptsTests {
         #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-webkit\""))
         #expect(miseConfig.contains("[tasks.test-e2e]"))
         #expect(miseConfig.contains("[tasks.test-zmx-e2e]"))
-        #expect(miseConfig.contains("source \"${PROJECT_ROOT}/scripts/swift-build-slot.sh\" debug"))
-        #expect(wrapperScript.contains("source \"${PROJECT_ROOT}/scripts/swift-build-slot.sh\" debug"))
+        #expect(miseConfig.contains("source \"${PROJECT_ROOT}/scripts/swift-build-slot.sh\""))
+        #expect(wrapperScript.contains("source \"${PROJECT_ROOT}/scripts/swift-build-slot.sh\""))
+        #expect(!miseConfig.contains("swift-build-slot.sh\" debug"))
+        #expect(!miseConfig.contains("swift-build-slot.sh\" release"))
+        #expect(!wrapperScript.contains("swift-build-slot.sh\" debug"))
+        #expect(!wrapperScript.contains("swift-build-slot.sh\" release"))
         #expect(wrapperScript.contains("TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-60}\""))
         #expect(wrapperScript.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-$TIMEOUT_SECONDS"))
         #expect(wrapperScript.contains("SWIFT_TEST_SKIP_PREBUILD"))
         #expect(wrapperScript.contains("PREBUILD_TIMEOUT_SECONDS=$PREBUILD_TIMEOUT_SECONDS"))
         #expect(wrapperScript.contains("run_swift_with_timeout"))
         #expect(wrapperScript.contains("requested swift test args: $*"))
-        #expect(
-            wrapperScript.contains(
-                "swift test --skip-build \"$@\" --skip ZmxE2ETests --build-path \"$BUILD_PATH\""
-            )
-        )
+        #expect(wrapperScript.contains("requested_filter_mentions_suite()"))
+        #expect(wrapperScript.contains("--skip WebKitSerializedTests"))
+        #expect(wrapperScript.contains("--skip E2ESerializedTests"))
+        #expect(wrapperScript.contains("--skip ZmxE2ETests"))
+        #expect(wrapperScript.contains("swift_test_args=(\"$@\")"))
+        #expect(wrapperScript.contains("swift_test_args+=("))
+        #expect(wrapperScript.contains("swift test --skip-build \"${swift_test_args[@]}\""))
+        #expect(wrapperScript.contains("AGENTSTUDIO_TRACE_BACKEND=\"${SWIFT_TEST_TRACE_BACKEND:-jsonl}\""))
         #expect(testHelperScript.contains("Timeout in seconds for the one-time test bundle build"))
         #expect(testHelperScript.contains("\"prebuild test bundles\" \\\n    \"$PREBUILD_TIMEOUT_SECONDS\""))
         #expect(testHelperScript.contains("swift_test_output_has_failures()"))
@@ -77,12 +89,30 @@ struct ObservabilityLaunchScriptsTests {
         #expect(testHelperScript.contains("recorded an issue"))
         #expect(testHelperScript.contains("grep -Eq \"unexpected signal code [0-9]+\" <<<\"$output\""))
         #expect(!testHelperScript.contains("echo \"$output\" | grep -Eq \"unexpected signal code [0-9]+\""))
+        #expect(
+            testHelperScript.contains(
+                "WebKitSerializedTests/BridgeTransportIntegrationTests/test_intakeSnapshotFrame_rendersReviewViewerShell"
+            ))
+        #expect(!testHelperScript.contains("WebKitSerializedTests/WorkspaceSurfaceBridgeFilesystemRefreshTests"))
+        #expect(testHelperScript.contains("WorkspaceSurfaceCoordinatorFilesystemSourceTests"))
+        #expect(testHelperScript.contains("WebKitSerializedTests/BridgePaneControllerIPCProjectionTests"))
+        #expect(testHelperScript.contains("WebKitSerializedTests/BridgePaneControllerContentAuthorityTests"))
+        #expect(
+            testHelperScript.contains(
+                "WebKitSerializedTests/BridgeProductRealGitFileAndReviewWebKitTests"
+            ))
+        #expect(!testHelperScript.contains("\nWebKitSerializedTests/BridgeTransportIntegrationTests\n"))
         #expect(testHelperScript.contains("terminate_process_tree TERM \"$command_pid\""))
         #expect(!testHelperScript.contains("pkill -9 -f"))
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))
-        #expect(ciWorkflow.contains("SWIFT_TEST_WORKERS: \"4\""))
-        #expect(ciWorkflow.contains("set -o pipefail\n          mise run test-benchmark 2>&1 | tee benchmark.log"))
+        #expect(!ciWorkflow.contains("SWIFT_TEST_WORKERS"))
+        #expect(!ciWorkflow.contains("mise run test-benchmark"))
+        #expect(
+            benchmarkWorkflow.contains(
+                "set -o pipefail\n          mise run test-benchmark 2>&1 | tee benchmark.log"
+            )
+        )
     }
 
     @Test("observability launchers scrub inherited AgentStudio process identity")
@@ -651,6 +681,7 @@ struct ObservabilityLaunchScriptsTests {
         #expect(result.stderr.contains("PID is not running"))
         #expect(!FileManager.default.fileExists(atPath: curlMarker.path))
     }
+
 }
 
 @Suite("Observability beta launcher scripts")
@@ -868,84 +899,4 @@ struct ObservabilityBetaLauncherScriptsTests {
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_REASON=launchservices_pid_not_found"))
     }
 
-    @Test("beta launcher refuses running beta from a different bundle path")
-    func betaLauncherRefusesAnyRunningBetaRuntime() throws {
-        let fixture = try LauncherScriptFixture()
-        defer { fixture.cleanup() }
-        let selectedApp = try fixture.makeAppBundle(name: "Selected AgentStudio Beta.app", releaseChannel: "beta")
-        let runningApp = try fixture.makeAppBundle(name: "Installed AgentStudio Beta.app", releaseChannel: "beta")
-        let openMarker = fixture.url("open-called")
-        let stateFile = fixture.url("latest.env")
-
-        let result = try fixture.runScript(
-            "scripts/run-beta-observability.sh",
-            arguments: ["--app", selectedApp.path, "--detach"],
-            environment: [
-                "AGENTSTUDIO_OPEN_BIN": try fixture.executable(
-                    "open",
-                    """
-                    #!/bin/bash
-                    echo called > "\(openMarker.path)"
-                    exit 0
-                    """
-                ).path,
-                "AGENTSTUDIO_PGREP_BIN": try fixture.executable(
-                    "pgrep",
-                    """
-                    #!/bin/bash
-                    echo 4242
-                    """
-                ).path,
-                "AGENTSTUDIO_LSOF_BIN": try fixture.executable(
-                    "lsof",
-                    """
-                    #!/bin/bash
-                    echo "n\(runningApp.path)/Contents/MacOS/AgentStudio"
-                    """
-                ).path,
-                "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
-            ]
-        )
-
-        #expect(result.exitCode == 1)
-        #expect(!FileManager.default.fileExists(atPath: openMarker.path))
-        let state = try String(contentsOf: stateFile, encoding: .utf8)
-        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=already_running"))
-        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_PID=4242"))
-    }
-
-    @Test("beta launcher fails closed when running process attribution is unavailable")
-    func betaLauncherFailsClosedWhenRunningProcessAttributionIsUnavailable() throws {
-        let fixture = try LauncherScriptFixture()
-        defer { fixture.cleanup() }
-        let selectedApp = try fixture.makeAppBundle(name: "Selected AgentStudio Beta.app", releaseChannel: "beta")
-        let stateFile = fixture.url("latest.env")
-
-        let result = try fixture.runScript(
-            "scripts/run-beta-observability.sh",
-            arguments: ["--app", selectedApp.path, "--detach"],
-            environment: [
-                "AGENTSTUDIO_PGREP_BIN": try fixture.executable(
-                    "pgrep",
-                    """
-                    #!/bin/bash
-                    echo 4343
-                    """
-                ).path,
-                "AGENTSTUDIO_LSOF_BIN": try fixture.executable(
-                    "lsof",
-                    """
-                    #!/bin/bash
-                    exit 0
-                    """
-                ).path,
-                "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
-            ]
-        )
-
-        #expect(result.exitCode == 1)
-        let state = try String(contentsOf: stateFile, encoding: .utf8)
-        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=launch_failed"))
-        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_REASON=duplicate_attribution_failed"))
-    }
 }

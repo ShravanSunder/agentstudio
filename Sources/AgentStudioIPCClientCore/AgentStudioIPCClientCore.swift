@@ -88,6 +88,22 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
     case terminalSend(handle: String, input: String, correlationId: UUID?)
     case terminalWait(
         handle: String, condition: IPCTerminalWaitCondition, timeoutSeconds: Double, afterSequence: UInt64?)
+    case bridgeDiffLoad(IPCBridgeReviewOpenParams)
+    case bridgeFileViewOpen(IPCBridgeFileViewOpenParams)
+    case bridgeDiffRefresh(IPCBridgeReviewRefreshParams)
+    case bridgeDiffGetPackage(handle: String)
+    case bridgeDiffRenderState(handle: String)
+    case bridgeDiffSelectFile(IPCBridgeReviewSelectFileParams)
+    case bridgeDiffScrollToFile(IPCBridgeDiffScrollToFileParams)
+    case bridgeDiffExpandFile(IPCBridgeDiffExpandFileParams)
+    case bridgeDiffCollapseFile(IPCBridgeDiffCollapseFileParams)
+    case bridgeFileTreeSearch(IPCBridgeFileTreeSearchParams)
+    case bridgeFileTreeSetFilter(IPCBridgeFileTreeSetFilterParams)
+    case bridgeFileTreeRevealPath(IPCBridgeFileTreeRevealPathParams)
+    case bridgeFileViewGetContent(IPCBridgeContentGetParams)
+    case bridgeFileViewShowMarkdownPreview(IPCBridgeFileViewShowMarkdownPreviewParams)
+    case bridgeTelemetrySnapshot(handle: String)
+    case bridgeTelemetryFlush(handle: String)
     case eventsSubscribe(eventNames: [IPCEventName])
     case eventsUnsubscribe(subscriptionId: UUID)
 
@@ -123,6 +139,38 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
             "terminal.send"
         case .terminalWait:
             "terminal.wait"
+        case .bridgeDiffLoad:
+            "bridge.diff.load"
+        case .bridgeFileViewOpen:
+            "bridge.fileView.open"
+        case .bridgeDiffRefresh:
+            "bridge.diff.refresh"
+        case .bridgeDiffGetPackage:
+            "bridge.diff.getPackage"
+        case .bridgeDiffRenderState:
+            "bridge.diff.renderState"
+        case .bridgeDiffSelectFile:
+            "bridge.diff.selectFile"
+        case .bridgeDiffScrollToFile:
+            "bridge.diff.scrollToFile"
+        case .bridgeDiffExpandFile:
+            "bridge.diff.expandFile"
+        case .bridgeDiffCollapseFile:
+            "bridge.diff.collapseFile"
+        case .bridgeFileTreeSearch:
+            "bridge.fileTree.search"
+        case .bridgeFileTreeSetFilter:
+            "bridge.fileTree.setFilter"
+        case .bridgeFileTreeRevealPath:
+            "bridge.fileTree.revealPath"
+        case .bridgeFileViewGetContent:
+            "bridge.fileView.getContent"
+        case .bridgeFileViewShowMarkdownPreview:
+            "bridge.fileView.showMarkdownPreview"
+        case .bridgeTelemetrySnapshot:
+            "bridge.telemetry.snapshot"
+        case .bridgeTelemetryFlush:
+            "bridge.telemetry.flush"
         case .eventsSubscribe:
             "events.subscribe"
         case .eventsUnsubscribe:
@@ -136,7 +184,11 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
             true
         case .authLogin, .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes,
             .currentPane, .paneSnapshot, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend,
-            .terminalWait, .eventsUnsubscribe:
+            .terminalWait,
+            .bridgeDiffLoad, .bridgeFileViewOpen, .bridgeDiffRefresh, .bridgeDiffGetPackage, .bridgeDiffRenderState,
+            .bridgeDiffSelectFile, .bridgeDiffScrollToFile, .bridgeDiffExpandFile, .bridgeDiffCollapseFile,
+            .bridgeFileTreeSearch, .bridgeFileTreeSetFilter, .bridgeFileTreeRevealPath, .bridgeFileViewGetContent,
+            .bridgeFileViewShowMarkdownPreview, .bridgeTelemetrySnapshot, .bridgeTelemetryFlush, .eventsUnsubscribe:
             false
         }
     }
@@ -178,12 +230,53 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
                 params["afterSequence"] = .number(Double(afterSequence))
             }
             return .object(params)
+        case .bridgeDiffLoad, .bridgeFileViewOpen, .bridgeDiffRefresh, .bridgeDiffGetPackage, .bridgeDiffRenderState,
+            .bridgeDiffSelectFile, .bridgeDiffScrollToFile, .bridgeDiffExpandFile, .bridgeDiffCollapseFile,
+            .bridgeFileTreeSearch, .bridgeFileTreeSetFilter, .bridgeFileTreeRevealPath, .bridgeFileViewGetContent,
+            .bridgeFileViewShowMarkdownPreview, .bridgeTelemetrySnapshot, .bridgeTelemetryFlush:
+            return try bridgeParams()
         case .eventsSubscribe(let eventNames):
             return .object([
                 "eventNames": .array(eventNames.map { .string($0.rawValue) })
             ])
         case .eventsUnsubscribe(let subscriptionId):
             return .object(["subscriptionId": .string(subscriptionId.uuidString)])
+        }
+    }
+
+    private func bridgeParams() throws -> JSONValue {
+        switch self {
+        case .bridgeDiffLoad(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeFileViewOpen(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeDiffRefresh(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeDiffGetPackage(let handle), .bridgeDiffRenderState(let handle),
+            .bridgeTelemetrySnapshot(let handle), .bridgeTelemetryFlush(let handle):
+            return .object(["handle": .string(handle)])
+        case .bridgeDiffSelectFile(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeDiffScrollToFile(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeDiffExpandFile(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeDiffCollapseFile(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeFileTreeSearch(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeFileTreeSetFilter(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeFileTreeRevealPath(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeFileViewGetContent(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeFileViewShowMarkdownPreview(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .authLogin, .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes,
+            .currentPane, .paneSnapshot, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend,
+            .terminalWait, .eventsSubscribe, .eventsUnsubscribe:
+            throw AgentStudioIPCClientError(reason: .invalidArguments)
         }
     }
 }

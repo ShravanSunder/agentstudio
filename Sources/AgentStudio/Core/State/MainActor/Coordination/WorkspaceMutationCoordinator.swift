@@ -267,6 +267,9 @@ final class WorkspaceMutationCoordinator {
             Self.arrangementState(from: snapshot.tab),
             at: snapshot.tabIndex
         )
+        for pane in snapshot.panes {
+            workspacePaneAtom.setResidency(pane.residency, for: pane.id)
+        }
         workspaceTabShellAtom.setActiveTab(snapshot.tab.id)
     }
 

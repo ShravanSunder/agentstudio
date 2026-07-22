@@ -1,0 +1,1058 @@
+{
+  "wireVersion": 2,
+  "bootstrap": {
+    "kind": "productSession.bootstrap",
+    "wireVersion": 2,
+    "paneSessionId": "pane-session-1",
+    "workerInstanceId": "worker-instance-1",
+    "policy": {
+      "maximumContentBytes": 2097152,
+      "maximumRequestBodyBytes": 131072,
+      "maximumMetadataFrameBytes": 131072,
+      "maximumQueuedStreamBytes": 4194304,
+      "maximumQueuedStreamFrames": 64,
+      "terminalFrameReserve": 1
+    }
+  },
+  "capabilityHeaderCases": [
+    {
+      "bytes": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31
+      ],
+      "encoded": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+    }
+  ],
+  "contentDataBoundaryManifest": {
+    "payloadPattern": "global_offset_mod_251",
+    "maximumPayload": {
+      "payloadByteCount": 131072,
+      "encodedFrameByteCount": 131085,
+      "payloadSha256": "feb1e4409d009e0ec502eaabe321f86b5197a881e9b765252ec8a75d6957596d",
+      "encodedFrameSha256": "c4ddd5f1e3c431c8f38b836d322b1845e8f45e67f9a510a6536599199f72a9d8"
+    },
+    "oversizedPayloadByteCount": 131073,
+    "twoMiB": {
+      "totalPayloadByteCount": 2097152,
+      "dataFrameCount": 16,
+      "fullPayloadByteCount": 131072,
+      "encodedDataFramesByteCount": 2097360,
+      "payloadSha256": "1e075c8d478ad21844e33e830a695ef03a4d2488b69ee275bd8947618bb1be1e",
+      "encodedDataFramesSha256": "4bbab583ca46a79e44145301aa2bd7493520546d8b793ddbb52c925a0e0395c0",
+      "boundaries": [
+        {
+          "contentSequence": 1,
+          "offsetBytes": 0,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "feb1e4409d009e0ec502eaabe321f86b5197a881e9b765252ec8a75d6957596d",
+          "encodedFrameSha256": "c4ddd5f1e3c431c8f38b836d322b1845e8f45e67f9a510a6536599199f72a9d8"
+        },
+        {
+          "contentSequence": 2,
+          "offsetBytes": 131072,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "62a45e6a977d9b0e042fbc141b76b9e078eb2656bb41330111f8c54553352d1d",
+          "encodedFrameSha256": "f6e137754a1dabdbe04207a428b6a95b9908e9b25b8371d657ff2c472ccd10be"
+        },
+        {
+          "contentSequence": 3,
+          "offsetBytes": 262144,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "0846b894197e8fd46cc72ca0bf766e9bdb71568292a2f8f2e6b9c9feb87442c6",
+          "encodedFrameSha256": "99ab74ebdfdb42bc136a516d214f74fcfacc0cd31d873de33ecdedd0500395a5"
+        },
+        {
+          "contentSequence": 4,
+          "offsetBytes": 393216,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "6d9e1b22e914f5863da531ffab5e2eb332743b4ae3479391dede1c37e5e245cd",
+          "encodedFrameSha256": "f3254fe674def8cdb8041014f4c5b2792891a65aab544f75f48fc316b5b01d6f"
+        },
+        {
+          "contentSequence": 5,
+          "offsetBytes": 524288,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "9eec05501e0e76a671c124c71e9c10c324b93c92c837fafc4d0c3f34f8360350",
+          "encodedFrameSha256": "2142d843dcf7dbfe625ab540cb382afc5a2a5445ca82d4d6f4564a58620602bf"
+        },
+        {
+          "contentSequence": 6,
+          "offsetBytes": 655360,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "d5a3c1e7df87b7bed844fc59a2ca4a9de8e5e477cb86c17396e1a3f1f1cbfded",
+          "encodedFrameSha256": "48cd514a1ae31964e11f2b5e32f70ddcb9d83c2d603eb818532b868c6ca4262c"
+        },
+        {
+          "contentSequence": 7,
+          "offsetBytes": 786432,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "89c751d130edaaadba1b4a87681a205c74fb1efd8dffabd2b713795876786c36",
+          "encodedFrameSha256": "530900bc3bad5a472dfe398ec27d2d152ddec97c750d421e66504829e088faed"
+        },
+        {
+          "contentSequence": 8,
+          "offsetBytes": 917504,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "16d8446f733497544282ea1a7ab2bb0a6d8d3ff2dd04a11419bde3374825f1e5",
+          "encodedFrameSha256": "5e326143e7000a310f7642fad41a52c89cd9666531c1de8e56277851a7dd58c1"
+        },
+        {
+          "contentSequence": 9,
+          "offsetBytes": 1048576,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "aa001bfe43de129e4482ed4334137f316d139bf3bc1bb40da9f8792edfee5821",
+          "encodedFrameSha256": "2bf99f4401882ee1f7487f687883c2167b4b22dc7cee86f350c13a72ab205228"
+        },
+        {
+          "contentSequence": 10,
+          "offsetBytes": 1179648,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "f505ab7087f7d2973172c6f2534fd04758153ceef3f68076f02989e3b7caa21e",
+          "encodedFrameSha256": "27ad7f0dd4b968d89ca7ef74210df66367a92408e0ad4ad518dc447e630bd28d"
+        },
+        {
+          "contentSequence": 11,
+          "offsetBytes": 1310720,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "5674f143867e7992bd3c2d6754d010213143f0a04c7b64363ec3db70b7d2f121",
+          "encodedFrameSha256": "0b70de95f764fea2f5b0f22f2eaec953081096cd95b10a7417532ee1bd7ed062"
+        },
+        {
+          "contentSequence": 12,
+          "offsetBytes": 1441792,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "199f58597e05807a8002961669b9876814e1ca4efeb333be282f3399488a659c",
+          "encodedFrameSha256": "88106aa53e9bc3ee32f3e5988149b39184973461fd663aca9ec95c3a7483a5b0"
+        },
+        {
+          "contentSequence": 13,
+          "offsetBytes": 1572864,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "21eac409d2bc38696e87f4c12e7f68b97df73f64c2d3007067b45805c53d933b",
+          "encodedFrameSha256": "2a670ec3a2849d56c2a717110f1e1fcd9485dbf363a60bb938990cb4ad4c9a35"
+        },
+        {
+          "contentSequence": 14,
+          "offsetBytes": 1703936,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "08378f40f2e7242317c2298f55bef0f5fd6a163a23f4e2a25b8737afcf9132d6",
+          "encodedFrameSha256": "5f88ca4b40e61a726d224bbe9917e962d0b716f80c023aee3fc5a666c98edc8f"
+        },
+        {
+          "contentSequence": 15,
+          "offsetBytes": 1835008,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "30e23cb2f4d6467197b5aa742bc006e956f1a6f16e9fd384c714acfdca3deaa3",
+          "encodedFrameSha256": "f2a6b4d013d9f8a7fa304ea403c8e17bfcaf67e6cf8ee2e9809b775adf526e3f"
+        },
+        {
+          "contentSequence": 16,
+          "offsetBytes": 1966080,
+          "payloadByteCount": 131072,
+          "encodedFrameByteCount": 131085,
+          "payloadSha256": "404b5652ff8209034ae71f7cf723918b97a23ae249d8436c18770015f0a3bfb3",
+          "encodedFrameSha256": "14510782ad9885491112bb5fb3d70cbaa6ee732ac2e3e49550774ce0aff5bead"
+        }
+      ]
+    }
+  },
+  "interestStateVectors": [
+    {
+      "name": "review-empty",
+      "state": {
+        "subscriptionKind": "review.metadata",
+        "interests": []
+      },
+      "encodedBase64": "AQEAAAAA",
+      "sha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6"
+    },
+    {
+      "name": "file-empty",
+      "state": {
+        "subscriptionKind": "file.metadata",
+        "interests": [],
+        "pathScope": []
+      },
+      "encodedBase64": "AQIAAAAAAAAAAA==",
+      "sha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b"
+    },
+    {
+      "name": "review-multi-lane",
+      "state": {
+        "subscriptionKind": "review.metadata",
+        "interests": [
+          {
+            "itemIds": [
+              "review-item-2"
+            ],
+            "lane": "visible"
+          },
+          {
+            "itemIds": [
+              "review-item-1"
+            ],
+            "lane": "foreground"
+          }
+        ]
+      },
+      "encodedBase64": "AQEAAAACAAAADXJldmlldy1pdGVtLTEBAAAADXJldmlldy1pdGVtLTID",
+      "sha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd"
+    },
+    {
+      "name": "file-multi-lane-and-scope",
+      "state": {
+        "subscriptionKind": "file.metadata",
+        "interests": [
+          {
+            "lane": "visible",
+            "paths": [
+              "src/z.ts"
+            ]
+          },
+          {
+            "lane": "foreground",
+            "paths": [
+              "src/a.ts"
+            ]
+          }
+        ],
+        "pathScope": [
+          "tests",
+          "src"
+        ]
+      },
+      "encodedBase64": "AQIAAAACAAAACHNyYy9hLnRzAQAAAAhzcmMvei50cwMAAAACAAAAA3NyYwAAAAV0ZXN0cw==",
+      "sha256": "9396c477af63ed0b05a10296eb36674ea43886e009901564f0db31b363940702"
+    }
+  ],
+  "fileSourceCurrentCases": [
+    {
+      "name": "available",
+      "request": {
+        "method": "file.source.current",
+        "request": {}
+      },
+      "result": {
+        "method": "file.source.current",
+        "result": {
+          "source": {
+            "cwdScope": null,
+            "freshness": "live",
+            "includeStatuses": true,
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootPathToken": "0123456789abcdef",
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "status": "available"
+        }
+      }
+    },
+    {
+      "name": "unavailable",
+      "request": {
+        "method": "file.source.current",
+        "request": {}
+      },
+      "result": {
+        "method": "file.source.current",
+        "result": {
+          "reason": "no-file-source-authority",
+          "status": "unavailable"
+        }
+      }
+    }
+  ],
+  "reviewIntakeReadyCases": [
+    {
+      "name": "cold-intake",
+      "request": {
+        "method": "review.intake.ready",
+        "request": {
+          "reason": null,
+          "streamId": null
+        }
+      },
+      "result": {
+        "method": "review.intake.ready",
+        "result": null
+      }
+    },
+    {
+      "name": "established-stream",
+      "request": {
+        "method": "review.intake.ready",
+        "request": {
+          "reason": "sequence_gap",
+          "streamId": "review:stream-1"
+        }
+      },
+      "result": {
+        "method": "review.intake.ready",
+        "result": null
+      }
+    }
+  ],
+  "reviewPublicationAppliedCases": [
+    {
+      "name": "lowercase-uuidv7",
+      "request": {
+        "method": "review.publication.applied",
+        "request": {
+          "publicationId": "00000000-0000-7000-8000-000000000017"
+        }
+      },
+      "result": {
+        "method": "review.publication.applied",
+        "result": null
+      }
+    }
+  ],
+  "controlRequests": [
+    {
+      "kind": "workerSession.open",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-open-1",
+      "requestSequence": 1,
+      "request": null
+    },
+    {
+      "kind": "product.call",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 7,
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-call-1",
+      "requestSequence": 2,
+      "call": {
+        "method": "review.markFileViewed",
+        "request": {
+          "itemId": "review-item-1"
+        }
+      }
+    },
+    {
+      "kind": "subscription.open",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 7,
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-review-subscription-open-1",
+      "requestSequence": 3,
+      "subscriptionId": "review-subscription-1",
+      "subscription": {
+        "subscriptionKind": "review.metadata"
+      }
+    },
+    {
+      "kind": "subscription.open",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 2,
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-file-subscription-open-1",
+      "requestSequence": 4,
+      "subscriptionId": "file-subscription-1",
+      "subscription": {
+        "subscriptionKind": "file.metadata",
+        "source": {
+          "cwdScope": null,
+          "freshness": "live",
+          "includeStatuses": true,
+          "repoId": "00000000-0000-4000-8000-000000000001",
+          "rootPathToken": "root-token-1",
+          "worktreeId": "00000000-0000-4000-8000-000000000002"
+        }
+      }
+    },
+    {
+      "kind": "subscription.updateBatch",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 7,
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-review-subscription-update-batch-1",
+      "requestSequence": 5,
+      "subscriptionId": "review-subscription-1",
+      "subscriptionKind": "review.metadata",
+      "updateId": "review-interest-update-1",
+      "baseInterestRevision": 0,
+      "baseInterestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+      "targetInterestRevision": 1,
+      "targetInterestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+      "batchIndex": 0,
+      "batchCount": 1,
+      "totalDeltaItemCount": 2,
+      "delta": {
+        "subscriptionKind": "review.metadata",
+        "add": [
+          {
+            "itemId": "review-item-1",
+            "lane": "foreground"
+          },
+          {
+            "itemId": "review-item-2",
+            "lane": "visible"
+          }
+        ],
+        "removeItemIds": []
+      }
+    },
+    {
+      "kind": "subscription.cancel",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 2,
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-file-subscription-cancel-1",
+      "requestSequence": 6,
+      "subscriptionId": "file-subscription-1",
+      "subscriptionKind": "file.metadata"
+    },
+    {
+      "kind": "workerSession.resync",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-resync-1",
+      "requestSequence": 7,
+      "activeSubscriptions": [
+        {
+          "subscriptionId": "review-subscription-1",
+          "subscriptionKind": "review.metadata",
+          "interestRevision": 1,
+          "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+          "workerDerivationEpoch": 7
+        },
+        {
+          "subscriptionId": "file-subscription-1",
+          "subscriptionKind": "file.metadata",
+          "workerDerivationEpoch": 2,
+          "interestRevision": 0,
+          "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b"
+        }
+      ],
+      "lastAcceptedRequestSequence": 6,
+      "lastAcceptedStreamSequence": 6
+    }
+  ],
+  "controlResponses": [
+    {
+      "kind": "workerSession.accepted",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-open-1",
+      "requestSequence": 1,
+      "result": null
+    },
+    {
+      "kind": "call.completed",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-call-1",
+      "requestSequence": 2,
+      "call": {
+        "method": "review.markFileViewed",
+        "result": null
+      }
+    },
+    {
+      "kind": "subscription.openAccepted",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-review-subscription-open-1",
+      "requestSequence": 3,
+      "subscriptionId": "review-subscription-1",
+      "subscriptionKind": "review.metadata",
+      "interestRevision": 0,
+      "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6"
+    },
+    {
+      "kind": "subscription.updateBatchAccepted",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-review-subscription-update-batch-1",
+      "requestSequence": 5,
+      "subscriptionId": "review-subscription-1",
+      "subscriptionKind": "review.metadata",
+      "updateId": "review-interest-update-1",
+      "batchIndex": 0,
+      "targetInterestRevision": 1,
+      "targetInterestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+      "disposition": "committed"
+    },
+    {
+      "kind": "subscription.cancelAccepted",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-file-subscription-cancel-1",
+      "requestSequence": 6,
+      "subscriptionId": "file-subscription-1",
+      "subscriptionKind": "file.metadata"
+    },
+    {
+      "kind": "resync.accepted",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-resync-1",
+      "requestSequence": 7,
+      "metadataStreamSequenceBarrier": 6,
+      "nextExpectedRequestSequence": 8,
+      "reconciliation": [
+        {
+          "disposition": "retained",
+          "subscriptionId": "review-subscription-1",
+          "subscriptionKind": "review.metadata",
+          "interestRevision": 1,
+          "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+          "workerDerivationEpoch": 7
+        },
+        {
+          "disposition": "retained",
+          "subscriptionId": "file-subscription-1",
+          "subscriptionKind": "file.metadata",
+          "interestRevision": 0,
+          "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b",
+          "workerDerivationEpoch": 2
+        }
+      ]
+    },
+    {
+      "kind": "request.error",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-error-1",
+      "requestSequence": 8,
+      "code": "resync_required",
+      "nextExpectedRequestSequence": 8,
+      "retryAfterMilliseconds": 0,
+      "retryable": true,
+      "safeMessage": "Worker session must resynchronize."
+    }
+  ],
+  "metadataStreamRequests": [
+    {
+      "kind": "metadataStream.open",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "resumeFromStreamSequence": null
+    },
+    {
+      "kind": "metadataStream.open",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-resumed-1",
+      "resumeFromStreamSequence": 6
+    },
+    {
+      "kind": "metadataStream.open",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-snapshot-1",
+      "resumeFromStreamSequence": 6
+    }
+  ],
+  "metadataFrames": [
+    {
+      "kind": "metadataStream.accepted",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "streamSequence": 0,
+      "resumeDisposition": "snapshot_required"
+    },
+    {
+      "kind": "pane.presentation",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-presentation-1",
+      "streamSequence": 1,
+      "activityRevision": 1,
+      "nativeActivity": "foreground",
+      "refreshingLanes": [
+        "file",
+        "review"
+      ]
+    },
+    {
+      "kind": "pane.presentation",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-presentation-1",
+      "streamSequence": 2,
+      "activityRevision": 2,
+      "nativeActivity": "loadedHidden",
+      "refreshingLanes": []
+    },
+    {
+      "kind": "pane.presentation",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-presentation-1",
+      "streamSequence": 3,
+      "activityRevision": 3,
+      "nativeActivity": "dormant",
+      "refreshingLanes": []
+    },
+    {
+      "kind": "pane.presentation",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-presentation-1",
+      "streamSequence": 4,
+      "activityRevision": 4,
+      "nativeActivity": "closed",
+      "refreshingLanes": []
+    },
+    {
+      "kind": "subscription.accepted",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 7,
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "streamSequence": 1,
+      "subscriptionId": "review-subscription-1",
+      "subscriptionKind": "review.metadata",
+      "subscriptionSequence": 0,
+      "interestRevision": 0,
+      "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+      "sourceGeneration": 7,
+      "cursor": null
+    },
+    {
+      "kind": "subscription.interestsCommitted",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 7,
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "streamSequence": 2,
+      "subscriptionId": "review-subscription-1",
+      "subscriptionKind": "review.metadata",
+      "subscriptionSequence": 1,
+      "interestRevision": 1,
+      "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+      "sourceGeneration": 7,
+      "cursor": "review-cursor-commit-1",
+      "updateId": "review-interest-update-1"
+    },
+    {
+      "kind": "subscription.data",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 7,
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "streamSequence": 3,
+      "subscriptionId": "review-subscription-1",
+      "subscriptionKind": "review.metadata",
+      "subscriptionSequence": 2,
+      "interestRevision": 1,
+      "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+      "sourceGeneration": 7,
+      "cursor": "review-cursor-1",
+      "data": {
+        "subscriptionKind": "review.metadata",
+        "event": {
+          "eventKind": "review.sourceAccepted",
+          "sourceIdentity": "review-source-1",
+          "packageId": "review-package-1",
+          "publicationId": "11111111-1111-7111-8111-111111111111",
+          "generation": 7,
+          "revision": 1
+        }
+      }
+    },
+    {
+      "kind": "subscription.accepted",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 2,
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "streamSequence": 4,
+      "subscriptionId": "file-subscription-1",
+      "subscriptionKind": "file.metadata",
+      "subscriptionSequence": 0,
+      "interestRevision": 0,
+      "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b",
+      "sourceGeneration": 11,
+      "cursor": null
+    },
+    {
+      "kind": "subscription.data",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 2,
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "streamSequence": 5,
+      "subscriptionId": "file-subscription-1",
+      "subscriptionKind": "file.metadata",
+      "subscriptionSequence": 1,
+      "interestRevision": 0,
+      "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b",
+      "sourceGeneration": 11,
+      "cursor": "file-cursor-1",
+      "data": {
+        "subscriptionKind": "file.metadata",
+        "event": {
+          "eventKind": "file.sourceAccepted",
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          }
+        }
+      }
+    },
+    {
+      "kind": "subscription.reset",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 7,
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "streamSequence": 6,
+      "subscriptionId": "review-subscription-1",
+      "subscriptionKind": "review.metadata",
+      "subscriptionSequence": 3,
+      "interestRevision": 2,
+      "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+      "sourceGeneration": 7,
+      "cursor": "review-cursor-2",
+      "reason": "interest_mismatch"
+    },
+    {
+      "kind": "subscription.accepted",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 3,
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "streamSequence": 7,
+      "subscriptionId": "file-subscription-epoch-3",
+      "subscriptionKind": "file.metadata",
+      "subscriptionSequence": 0,
+      "interestRevision": 0,
+      "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b",
+      "sourceGeneration": 12,
+      "cursor": null
+    },
+    {
+      "kind": "subscription.data",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 2,
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "streamSequence": 8,
+      "subscriptionId": "file-subscription-1",
+      "subscriptionKind": "file.metadata",
+      "subscriptionSequence": 2,
+      "interestRevision": 0,
+      "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b",
+      "sourceGeneration": 11,
+      "cursor": "file-cursor-stale-2",
+      "data": {
+        "subscriptionKind": "file.metadata",
+        "event": {
+          "eventKind": "file.sourceAccepted",
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          }
+        }
+      }
+    },
+    {
+      "kind": "subscription.accepted",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 7,
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "streamSequence": 9,
+      "subscriptionId": "review-subscription-cancel-1",
+      "subscriptionKind": "review.metadata",
+      "subscriptionSequence": 0,
+      "interestRevision": 0,
+      "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+      "sourceGeneration": 7,
+      "cursor": null
+    },
+    {
+      "kind": "subscription.cancelled",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 7,
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "streamSequence": 10,
+      "subscriptionId": "review-subscription-cancel-1",
+      "subscriptionKind": "review.metadata",
+      "subscriptionSequence": 1,
+      "interestRevision": 0,
+      "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+      "sourceGeneration": 7,
+      "cursor": null
+    },
+    {
+      "kind": "content.cancelled",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 2,
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "streamSequence": 11,
+      "contentRequestId": "content-request-1",
+      "leaseId": "lease-1",
+      "disposition": "stopped",
+      "identity": {
+        "contentKind": "file.content",
+        "descriptorId": "file-descriptor-1",
+        "fileId": "file-1",
+        "source": {
+          "repoId": "00000000-0000-4000-8000-000000000001",
+          "rootRevisionToken": null,
+          "sourceCursor": "source-cursor-1",
+          "sourceId": "source-1",
+          "subscriptionGeneration": 11,
+          "worktreeId": "00000000-0000-4000-8000-000000000002"
+        },
+        "window": {
+          "kind": "prefix",
+          "maximumBytes": 2097152,
+          "maximumLines": 10000,
+          "startByte": 0
+        }
+      }
+    },
+    {
+      "kind": "subscription.end",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 2,
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "streamSequence": 12,
+      "subscriptionId": "file-subscription-1",
+      "subscriptionKind": "file.metadata",
+      "subscriptionSequence": 3,
+      "interestRevision": 0,
+      "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b",
+      "sourceGeneration": 11,
+      "cursor": "file-cursor-2"
+    },
+    {
+      "kind": "metadataStream.error",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-1",
+      "streamSequence": 13,
+      "code": "internal",
+      "retryable": false,
+      "safeMessage": null
+    },
+    {
+      "kind": "metadataStream.accepted",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-resumed-1",
+      "streamSequence": 7,
+      "resumeDisposition": "resumed"
+    },
+    {
+      "kind": "metadataStream.accepted",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "metadataStreamId": "metadata-stream-snapshot-1",
+      "streamSequence": 7,
+      "resumeDisposition": "snapshot_required"
+    }
+  ],
+  "contentRequests": [
+    {
+      "kind": "content.open",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 2,
+      "workerInstanceId": "worker-instance-1",
+      "contentRequestId": "content-request-1",
+      "leaseId": "lease-1",
+      "contentKind": "file.content",
+      "descriptor": {
+        "contentKind": "file.content",
+        "declaredByteLength": 3,
+        "descriptorId": "file-descriptor-1",
+        "encoding": "utf-8",
+        "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "fileId": "file-1",
+        "maximumBytes": 3,
+        "source": {
+          "repoId": "00000000-0000-4000-8000-000000000001",
+          "rootRevisionToken": null,
+          "sourceCursor": "source-cursor-1",
+          "sourceId": "source-1",
+          "subscriptionGeneration": 11,
+          "worktreeId": "00000000-0000-4000-8000-000000000002"
+        },
+        "window": {
+          "kind": "prefix",
+          "maximumBytes": 3,
+          "maximumLines": 10000,
+          "startByte": 0
+        }
+      }
+    }
+  ],
+  "contentHeaders": [
+    {
+      "kind": "content.accepted",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 2,
+      "workerInstanceId": "worker-instance-1",
+      "contentRequestId": "content-request-1",
+      "leaseId": "lease-1",
+      "contentSequence": 0,
+      "declaredByteLength": 3,
+      "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      "maximumBytes": 3,
+      "identity": {
+        "contentKind": "file.content",
+        "descriptorId": "file-descriptor-1",
+        "fileId": "file-1",
+        "source": {
+          "repoId": "00000000-0000-4000-8000-000000000001",
+          "rootRevisionToken": null,
+          "sourceCursor": "source-cursor-1",
+          "sourceId": "source-1",
+          "subscriptionGeneration": 11,
+          "worktreeId": "00000000-0000-4000-8000-000000000002"
+        },
+        "window": {
+          "kind": "prefix",
+          "maximumBytes": 3,
+          "maximumLines": 10000,
+          "startByte": 0
+        }
+      }
+    },
+    {
+      "kind": "content.data",
+      "contentSequence": 1,
+      "offsetBytes": 0
+    },
+    {
+      "kind": "content.end",
+      "contentSequence": 2,
+      "endOfSource": true,
+      "observedByteLength": 3,
+      "observedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    },
+    {
+      "kind": "content.error",
+      "contentSequence": 2,
+      "code": "internal",
+      "retryable": false,
+      "safeMessage": null
+    },
+    {
+      "kind": "content.reset",
+      "contentSequence": 2,
+      "reason": "stale_source"
+    }
+  ],
+  "wireVectors": {
+    "metadataAccepted": {
+      "headerJSON": "{\"metadataStreamId\":\"metadata-stream-1\",\"paneSessionId\":\"pane-session-1\",\"streamSequence\":0,\"wireVersion\":2,\"workerInstanceId\":\"worker-instance-1\",\"kind\":\"metadataStream.accepted\",\"resumeDisposition\":\"snapshot_required\"}",
+      "encodedBase64": "AAAA3HsibWV0YWRhdGFTdHJlYW1JZCI6Im1ldGFkYXRhLXN0cmVhbS0xIiwicGFuZVNlc3Npb25JZCI6InBhbmUtc2Vzc2lvbi0xIiwic3RyZWFtU2VxdWVuY2UiOjAsIndpcmVWZXJzaW9uIjoyLCJ3b3JrZXJJbnN0YW5jZUlkIjoid29ya2VyLWluc3RhbmNlLTEiLCJraW5kIjoibWV0YWRhdGFTdHJlYW0uYWNjZXB0ZWQiLCJyZXN1bWVEaXNwb3NpdGlvbiI6InNuYXBzaG90X3JlcXVpcmVkIn0="
+    },
+    "contentData": {
+      "encodedHex": "0000000c020000000100000000616263",
+      "payloadBase64": "YWJj",
+      "encodedBase64": "AAAADAIAAAABAAAAAGFiYw=="
+    },
+    "contentStream": {
+      "acceptedBodyJSON": "{\"contentRequestId\":\"content-request-1\",\"identity\":{\"contentKind\":\"file.content\",\"descriptorId\":\"file-descriptor-1\",\"fileId\":\"file-1\",\"source\":{\"repoId\":\"00000000-0000-4000-8000-000000000001\",\"rootRevisionToken\":null,\"sourceCursor\":\"source-cursor-1\",\"sourceId\":\"source-1\",\"subscriptionGeneration\":11,\"worktreeId\":\"00000000-0000-4000-8000-000000000002\"},\"window\":{\"kind\":\"prefix\",\"maximumBytes\":3,\"maximumLines\":10000,\"startByte\":0}},\"leaseId\":\"lease-1\",\"paneSessionId\":\"pane-session-1\",\"wireVersion\":2,\"workerDerivationEpoch\":2,\"workerInstanceId\":\"worker-instance-1\",\"declaredByteLength\":3,\"expectedSha256\":\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\",\"maximumBytes\":3}",
+      "endBodyJSON": "{\"endOfSource\":true,\"observedByteLength\":3,\"observedSha256\":\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"}",
+      "frameCount": 3,
+      "encodedByteLength": 852,
+      "encodedBase64": "AAACuAEAAAAAeyJjb250ZW50UmVxdWVzdElkIjoiY29udGVudC1yZXF1ZXN0LTEiLCJpZGVudGl0eSI6eyJjb250ZW50S2luZCI6ImZpbGUuY29udGVudCIsImRlc2NyaXB0b3JJZCI6ImZpbGUtZGVzY3JpcHRvci0xIiwiZmlsZUlkIjoiZmlsZS0xIiwic291cmNlIjp7InJlcG9JZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInJvb3RSZXZpc2lvblRva2VuIjpudWxsLCJzb3VyY2VDdXJzb3IiOiJzb3VyY2UtY3Vyc29yLTEiLCJzb3VyY2VJZCI6InNvdXJjZS0xIiwic3Vic2NyaXB0aW9uR2VuZXJhdGlvbiI6MTEsIndvcmt0cmVlSWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDIifSwid2luZG93Ijp7ImtpbmQiOiJwcmVmaXgiLCJtYXhpbXVtQnl0ZXMiOjMsIm1heGltdW1MaW5lcyI6MTAwMDAsInN0YXJ0Qnl0ZSI6MH19LCJsZWFzZUlkIjoibGVhc2UtMSIsInBhbmVTZXNzaW9uSWQiOiJwYW5lLXNlc3Npb24tMSIsIndpcmVWZXJzaW9uIjoyLCJ3b3JrZXJEZXJpdmF0aW9uRXBvY2giOjIsIndvcmtlckluc3RhbmNlSWQiOiJ3b3JrZXItaW5zdGFuY2UtMSIsImRlY2xhcmVkQnl0ZUxlbmd0aCI6MywiZXhwZWN0ZWRTaGEyNTYiOiJiYTc4MTZiZjhmMDFjZmVhNDE0MTQwZGU1ZGFlMjIyM2IwMDM2MWEzOTYxNzdhOWNiNDEwZmY2MWYyMDAxNWFkIiwibWF4aW11bUJ5dGVzIjozfQAAAAwCAAAAAQAAAABhYmMAAACEAwAAAAJ7ImVuZE9mU291cmNlIjp0cnVlLCJvYnNlcnZlZEJ5dGVMZW5ndGgiOjMsIm9ic2VydmVkU2hhMjU2IjoiYmE3ODE2YmY4ZjAxY2ZlYTQxNDE0MGRlNWRhZTIyMjNiMDAzNjFhMzk2MTc3YTljYjQxMGZmNjFmMjAwMTVhZCJ9"
+    }
+  }
+}

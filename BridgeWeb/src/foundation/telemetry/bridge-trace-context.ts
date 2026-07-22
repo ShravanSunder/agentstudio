@@ -10,22 +10,24 @@ export interface BridgeTraceContext {
 const lowercaseTraceIdPattern = /^[0-9a-f]{32}$/u;
 const lowercaseSpanIdPattern = /^[0-9a-f]{16}$/u;
 
-const bridgeTraceContextSchema = z.object({
-	traceId: z
-		.string()
-		.regex(lowercaseTraceIdPattern)
-		.refine((value: string): boolean => !isAllZero(value)),
-	spanId: z
-		.string()
-		.regex(lowercaseSpanIdPattern)
-		.refine((value: string): boolean => !isAllZero(value)),
-	parentSpanId: z
-		.string()
-		.regex(lowercaseSpanIdPattern)
-		.refine((value: string): boolean => !isAllZero(value))
-		.nullable(),
-	sampled: z.boolean(),
-});
+export const bridgeTraceContextSchema = z
+	.object({
+		traceId: z
+			.string()
+			.regex(lowercaseTraceIdPattern)
+			.refine((value: string): boolean => !isAllZero(value)),
+		spanId: z
+			.string()
+			.regex(lowercaseSpanIdPattern)
+			.refine((value: string): boolean => !isAllZero(value)),
+		parentSpanId: z
+			.string()
+			.regex(lowercaseSpanIdPattern)
+			.refine((value: string): boolean => !isAllZero(value))
+			.nullable(),
+		sampled: z.boolean(),
+	})
+	.strict();
 
 export function decodeBridgeTraceContext(value: unknown): BridgeTraceContext | null {
 	const result = bridgeTraceContextSchema.safeParse(value);

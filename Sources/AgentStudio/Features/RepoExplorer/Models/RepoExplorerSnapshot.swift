@@ -66,6 +66,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
     let visibilityMode: RepoExplorerVisibilityMode
     let query: String
     let paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]]
+    let bridgeCommandResolutionByWorktreeId: [UUID: BridgePaneCommandResolution]
 
     init(
         repos: [RepoPresentationItem],
@@ -74,7 +75,8 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         sortOrder: RepoExplorerSortOrder = .default,
         visibilityMode: RepoExplorerVisibilityMode = .all,
         query: String,
-        paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:]
+        paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:],
+        bridgePaneCommandCandidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]] = [:]
     ) {
         self.repos = repos
         self.repoEnrichmentSnapshotByRepoId = repoEnrichmentByRepoId
@@ -83,5 +85,14 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         self.visibilityMode = visibilityMode
         self.query = query
         self.paneLocationsByWorktreeId = paneLocationsByWorktreeId
+        var bridgeCommandResolutionByWorktreeId: [UUID: BridgePaneCommandResolution] = [:]
+        for worktree in repos.flatMap(\.worktrees)
+        where bridgeCommandResolutionByWorktreeId[worktree.id] == nil {
+            bridgeCommandResolutionByWorktreeId[worktree.id] = BridgePaneCommandResolver.resolve(
+                worktreeId: worktree.id,
+                candidates: bridgePaneCommandCandidatesByWorktreeId[worktree.id, default: []]
+            )
+        }
+        self.bridgeCommandResolutionByWorktreeId = bridgeCommandResolutionByWorktreeId
     }
 }

@@ -34,7 +34,7 @@ struct CommandBarRowShortcutResolverTests {
             displayedItems: actionsLevel.items
         )
 
-        #expect(resolvedItem?.title == "New pane in new tab")
+        #expect(resolvedItem?.title == "Open Terminal in New Tab")
     }
 
     @Test

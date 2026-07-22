@@ -111,7 +111,10 @@ enum AppCommand: String, CaseIterable {
     case showCommandBarRepos
     // Webview commands
     case openWebview
-    case openBridgeReview
+    case showBridgeReview
+    case showBridgeFiles
+    case openBridgeReviewInNewTab
+    case openBridgeFilesInNewTab
     case signInGitHub
     case signInGoogle
     // Sidebar commands
@@ -323,7 +326,8 @@ struct AppCommandIPCExposure: Equatable, Sendable {
             .addRepoFavorite, .removeRepoFavorite:
             return [.sidebarStateMutate]
         case .editPaneNote, .watchFolder, .removeRepo, .openWorktree, .openWorktreeInPane,
-            .openWebview, .openBridgeReview:
+            .openWebview, .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
             return [.layoutMutate]
         case .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .copyCurrentPanePath, .signInGitHub, .signInGoogle, .filterSidebar, .showCommandBarEverything,
@@ -349,6 +353,9 @@ protocol WorkspaceCommandHandling: AnyObject {
 
     /// Query whether a targeted command is currently available for a specific element.
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
+
+    /// Resolve the current Bridge pane target used by both contextual presentation and execution.
+    func bridgePaneCommandTarget(worktreeId: UUID) -> BridgePaneCommandTarget?
 
     /// Execute a direct pane extraction request that carries drag/drop placement details.
     func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?)
@@ -503,6 +510,10 @@ extension WorkspaceCommandHandling {
     func canExecute(_ command: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
         canExecute(command)
     }
+
+    func bridgePaneCommandTarget(worktreeId _: UUID) -> BridgePaneCommandTarget? {
+        nil
+    }
 }
 
 @MainActor
@@ -642,6 +653,10 @@ final class AppCommandDispatcher {
         let appCanExecute = appCommandRouter?.canExecute(command, target: target, targetType: targetType) ?? false
         let handlerCanExecute = handler?.canExecute(command, target: target, targetType: targetType) ?? false
         return appCanExecute || handlerCanExecute
+    }
+
+    func bridgePaneCommandTarget(worktreeId: UUID) -> BridgePaneCommandTarget? {
+        handler?.bridgePaneCommandTarget(worktreeId: worktreeId)
     }
 
     // MARK: - Lookup

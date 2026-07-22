@@ -30,6 +30,22 @@ final class ApplicationLifecycleMonitor {
         windowLifecycleStore.recordWindowRegistered(windowId)
     }
 
+    func handleWindowPresentationChanged(
+        _ windowId: UUID,
+        isVisible: Bool,
+        isMiniaturized: Bool,
+        isOccluded: Bool
+    ) {
+        windowLifecycleStore.recordWindowPresentation(
+            WindowPresentationFacts(
+                isVisible: isVisible,
+                isMiniaturized: isMiniaturized,
+                isOccluded: isOccluded
+            ),
+            for: windowId
+        )
+    }
+
     func handleWindowDidBecomeKey(_ windowId: UUID) {
         windowLifecycleStore.recordWindowBecameKey(windowId)
         windowLifecycleStore.recordWindowBecameFocused(windowId)

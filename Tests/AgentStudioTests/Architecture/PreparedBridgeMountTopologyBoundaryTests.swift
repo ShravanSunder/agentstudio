@@ -21,6 +21,20 @@ struct PreparedBridgeMountTopologyBoundaryTests {
             ),
             encoding: .utf8
         )
+        let bridgeLifecycleSource = try String(
+            contentsOf: projectRoot.appending(
+                path:
+                    "Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+BridgeViewLifecycle.swift"
+            ),
+            encoding: .utf8
+        )
+        let viewLifecycleSource = try String(
+            contentsOf: projectRoot.appending(
+                path:
+                    "Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift"
+            ),
+            encoding: .utf8
+        )
         let admissionSource = try String(
             contentsOf: projectRoot.appending(
                 path:
@@ -55,8 +69,15 @@ struct PreparedBridgeMountTopologyBoundaryTests {
         #expect(providerSource.contains("source: state.source"))
         #expect(providerSource.contains("launchDirectory: pane.metadata.launchDirectory"))
         #expect(providerSource.contains("currentWorkingDirectory: pane.metadata.cwd"))
+        #expect(providerSource.contains("StableKey.fromPath(repositoryURL)"))
+        #expect(providerSource.contains("scopeKey: BridgeGitReadScopeKey(token: pane.id.uuidString)"))
         #expect(mountSource.contains("func mountPreparedNonterminalContent("))
-        #expect(mountSource.contains("bridgeReviewSourceProvider(for: pane, state: state)"))
+        #expect(bridgeLifecycleSource.contains("bridgeReviewSourceProvider(for: pane, state: state)"))
+        #expect(
+            viewLifecycleSource.contains(
+                "case .webview, .codeViewer, .bridgePanel, .unsupported:\n            return mountCurrentNonterminalContent(pane: pane)"
+            )
+        )
         #expect(admissionSource.contains("PreparedNonterminalMountAdmissionPort"))
         #expect(admissionSource.contains("claimPreparedContentMount("))
         #expect(admissionSource.contains("owner: .nonterminal"))

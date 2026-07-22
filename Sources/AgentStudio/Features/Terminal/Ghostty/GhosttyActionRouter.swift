@@ -11,6 +11,12 @@ protocol GhosttyActionRoutingLookup: AnyObject {
 extension SurfaceManager: GhosttyActionRoutingLookup {}
 
 typealias GhosttyActionRoutingLookupProvider = @MainActor @Sendable () -> any GhosttyActionRoutingLookup
+typealias GhosttyMetadataActionRouter = (
+    _ actionTag: UInt32,
+    _ payload: GhosttyAdapter.ActionPayload,
+    _ target: ghostty_target_s,
+    _ handledResult: Bool
+) -> Bool
 
 extension Ghostty {
     /// Owns Ghostty action-tag handling, host-side suppression, and trace emission.
@@ -122,6 +128,30 @@ extension Ghostty {
             action: ghostty_action_s,
             routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
         ) -> Bool {
+            handleAction(
+                appPtr,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider,
+                metadataActionRouter: { actionTag, payload, target, handledResult in
+                    routeActionToTerminalRuntime(
+                        actionTag: actionTag,
+                        payload: payload,
+                        target: target,
+                        routingLookupProvider: routingLookupProvider,
+                        handledResult: handledResult
+                    )
+                }
+            )
+        }
+
+        static func handleAction(
+            _ appPtr: ghostty_app_t,
+            target: ghostty_target_s,
+            action: ghostty_action_s,
+            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider,
+            metadataActionRouter: @escaping GhosttyMetadataActionRouter
+        ) -> Bool {
             let rawActionTag = UInt32(truncatingIfNeeded: action.tag.rawValue)
             guard let actionTag = GhosttyActionTag(rawValue: rawActionTag) else {
                 traceGhosttyAction(
@@ -156,7 +186,8 @@ extension Ghostty {
                 rawActionTag: rawActionTag,
                 target: target,
                 action: action,
-                routingLookupProvider: routingLookupProvider
+                routingLookupProvider: routingLookupProvider,
+                metadataActionRouter: metadataActionRouter
             ) {
                 return workspaceActionResult
             }
@@ -179,14 +210,16 @@ extension Ghostty {
             rawActionTag: UInt32,
             target: ghostty_target_s,
             action: ghostty_action_s,
-            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
+            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider,
+            metadataActionRouter: @escaping GhosttyMetadataActionRouter
         ) -> Bool? {
             if let metadataAction = handleMetadataAction(
                 actionTag,
                 rawActionTag: rawActionTag,
                 target: target,
                 action: action,
-                routingLookupProvider: routingLookupProvider
+                routingLookupProvider: routingLookupProvider,
+                metadataActionRouter: metadataActionRouter
             ) {
                 return metadataAction
             }
@@ -219,23 +252,17 @@ extension Ghostty {
             rawActionTag: UInt32,
             target: ghostty_target_s,
             action: ghostty_action_s,
-            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
+            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider,
+            metadataActionRouter: @escaping GhosttyMetadataActionRouter
         ) -> Bool? {
             switch actionTag {
             case .setTitle:
-                guard let titlePtr = action.action.set_title.title else {
+                guard let payload = copiedSetTitlePayload(from: action) else {
                     logUnknownAction(
                         actionTag: rawActionTag, target: target, routingLookupProvider: routingLookupProvider)
                     return false
                 }
-                let title = String(cString: titlePtr)
-                return routeActionToTerminalRuntime(
-                    actionTag: rawActionTag,
-                    payload: .titleChanged(title),
-                    target: target,
-                    routingLookupProvider: routingLookupProvider,
-                    handledResult: true
-                )
+                return metadataActionRouter(rawActionTag, payload, target, true)
             case .pwd:
                 let resolvedPwd = action.action.pwd.pwd.map { String(cString: $0) }
                 if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface,
@@ -250,16 +277,16 @@ extension Ghostty {
                         actionTag: rawActionTag, target: target, routingLookupProvider: routingLookupProvider)
                     return false
                 }
-                return routeActionToTerminalRuntime(
-                    actionTag: rawActionTag,
-                    payload: .cwdChanged(cwdPath),
-                    target: target,
-                    routingLookupProvider: routingLookupProvider,
-                    handledResult: true
-                )
+                return metadataActionRouter(rawActionTag, .cwdChanged(cwdPath), target, true)
             default:
                 return nil
             }
+        }
+
+        static func copiedSetTitlePayload(
+            from action: ghostty_action_s
+        ) -> GhosttyAdapter.ActionPayload? {
+            action.action.set_title.title.map { .titleChanged(String(cString: $0)) }
         }
 
         private static func handleSplitAction(

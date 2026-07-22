@@ -3,22 +3,13 @@ import Observation
 
 /// Root domain state per bridge pane.
 /// Full model defined in design doc section 8 (line 1440).
-/// This is the minimal set needed for push pipeline state projection.
+/// This is the bridge pane's native domain state.
 @Observable
 @MainActor
 final class PaneDomainState {
     let diff = DiffState()
     let review = ReviewState()
     let connection = ConnectionState()
-    private(set) var commandAcks: [String: CommandAck] = [:]
-
-    func recordAck(_ ack: CommandAck) {
-        commandAcks[ack.commandId] = ack
-    }
-
-    func clearAcks() {
-        commandAcks.removeAll()
-    }
 }
 
 @Observable

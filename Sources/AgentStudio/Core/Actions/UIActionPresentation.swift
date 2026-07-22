@@ -132,10 +132,11 @@ enum LocalActionSpec {
                 label: "Open in...", helpText: "Choose an editor to open this worktree", icon: .system(.ellipsisCircle))
         case .openInNewTab:
             return ActionSpec(
-                label: "Open in New Tab", helpText: "Open this worktree in a new tab", icon: .system(.plusRectangle))
+                label: "Open Terminal in New Tab", helpText: "Open this worktree in a new terminal tab",
+                icon: .system(.plusRectangle))
         case .openInPaneSplit:
             return ActionSpec(
-                label: "Open in Pane (Split)", helpText: "Open this worktree in a split pane",
+                label: "Open Terminal in Pane (Split)", helpText: "Open this worktree in a split terminal pane",
                 icon: .system(.rectangleSplit2x1))
         case .goToTerminal:
             return ActionSpec(

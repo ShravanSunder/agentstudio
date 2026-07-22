@@ -93,8 +93,8 @@ actor FilesystemActor {
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
         watchedFolderScanScheduler: WatchedFolderScanScheduler = .production(),
-        debounceWindow: Duration = .milliseconds(500),
-        maxFlushLatency: Duration = .seconds(2),
+        debounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
+        maxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         self.runtimeBus = bus
@@ -111,8 +111,8 @@ actor FilesystemActor {
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
         watchedFolderScanScheduler: WatchedFolderScanScheduler = .production(),
         sleepClock: C,
-        debounceWindow: Duration = .milliseconds(500),
-        maxFlushLatency: Duration = .seconds(2),
+        debounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
+        maxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) where C.Duration == Duration, C: Sendable {
         self.runtimeBus = bus

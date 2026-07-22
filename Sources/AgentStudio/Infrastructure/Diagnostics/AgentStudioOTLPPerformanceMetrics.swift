@@ -237,6 +237,18 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         {
             dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "reason", value: reason))
         }
+        if record.body == "performance.git.status",
+            case .string(let scope) = record.attributes["agentstudio.performance.git.status_scope"],
+            isSafeDimensionValue(scope)
+        {
+            dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "scope", value: scope))
+        }
+        if record.body == "performance.git.backoff",
+            case .string(let reason) = record.attributes["agentstudio.performance.git.backoff.reason"],
+            isSafeDimensionValue(reason)
+        {
+            dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "reason", value: reason))
+        }
         if record.body == "performance.terminal.accumulator_drain",
             case .string(let drainClass) = record.attributes[
                 "agentstudio.performance.terminal.accumulator.drain.class"
@@ -248,30 +260,7 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             )
         }
         if record.body.hasPrefix("performance.bridge.") {
-            appendBridgeDimension(
-                name: "phase",
-                attributeKey: "agentstudio.bridge.phase",
-                record: record,
-                dimensions: &dimensions
-            )
-            appendBridgeDimension(
-                name: "plane",
-                attributeKey: "agentstudio.bridge.plane",
-                record: record,
-                dimensions: &dimensions
-            )
-            appendBridgeDimension(
-                name: "priority",
-                attributeKey: "agentstudio.bridge.priority",
-                record: record,
-                dimensions: &dimensions
-            )
-            appendBridgeDimension(
-                name: "slice",
-                attributeKey: "agentstudio.bridge.slice",
-                record: record,
-                dimensions: &dimensions
-            )
+            appendBridgeDimensions(record: record, dimensions: &dimensions)
         }
         if Self.requiresSidebarMetricTaxonomy(record) {
             appendSafeStringDimension(
@@ -306,6 +295,33 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             )
         }
         return dimensions
+    }
+
+    private static func appendBridgeDimensions(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        let bridgeDimensionAttributes = [
+            ("agent.proof.marker", "agent.proof.marker"),
+            ("phase", "agentstudio.bridge.phase"),
+            ("plane", "agentstudio.bridge.plane"),
+            ("priority", "agentstudio.bridge.priority"),
+            ("slice", "agentstudio.bridge.slice"),
+            ("lane", "agentstudio.bridge.demand.lane"),
+            ("variant", "agentstudio.bridge.viewer.ttfi_variant"),
+            ("native_capacity_event", "agentstudio.bridge.native_capacity.event"),
+            ("operation_class", "agentstudio.bridge.native_capacity.operation_class"),
+            ("activity_rank", "agentstudio.bridge.native_capacity.activity_rank"),
+            ("product_kind", "agentstudio.bridge.native_capacity.product_kind"),
+        ]
+        for (name, attributeKey) in bridgeDimensionAttributes {
+            appendBridgeDimension(
+                name: name,
+                attributeKey: attributeKey,
+                record: record,
+                dimensions: &dimensions
+            )
+        }
     }
 
     private static func measurement(
@@ -385,6 +401,30 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         "agentstudio.bridge.batch.sample_count",
         "agentstudio.bridge.content.byte_size_bucket",
         "agentstudio.bridge.content.line_count_bucket",
+        "agentstudio.bridge.demand.queue_depth",
+        "agentstudio.bridge.demand.scheduler_queue_wait_ms",
+        "agentstudio.bridge.demand.stale_drop.count",
+        "agentstudio.bridge.metadata_manifest.emitted_total",
+        "agentstudio.bridge.metadata_manifest.expected_total",
+        "agentstudio.bridge.metadata_manifest.remaining_total",
+        "agentstudio.bridge.native_capacity.coalesced_waiter.count",
+        "agentstudio.bridge.native_capacity.deadline.count",
+        "agentstudio.bridge.native_capacity.draining.count",
+        "agentstudio.bridge.native_capacity.entry.count",
+        "agentstudio.bridge.native_capacity.fairness_history.count",
+        "agentstudio.bridge.native_capacity.in_flight.count",
+        "agentstudio.bridge.native_capacity.lease.count",
+        "agentstudio.bridge.native_capacity.locator.count",
+        "agentstudio.bridge.native_capacity.logical_waiter.count",
+        "agentstudio.bridge.native_capacity.occupied_slot.count",
+        "agentstudio.bridge.native_capacity.pane_activity.count",
+        "agentstudio.bridge.native_capacity.payload.count",
+        "agentstudio.bridge.native_capacity.queued.count",
+        "agentstudio.bridge.native_capacity.retained_artifact_byte.count",
+        "agentstudio.bridge.native_capacity.running.count",
+        "agentstudio.bridge.native_capacity.tombstone.count",
+        "agentstudio.bridge.native_capacity.waiter.count",
+        "agentstudio.bridge.native_capacity.worktree.count",
         "agentstudio.bridge.telemetry.dropped_count",
     ]
 

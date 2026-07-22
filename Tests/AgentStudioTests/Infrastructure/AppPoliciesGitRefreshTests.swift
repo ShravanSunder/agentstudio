@@ -22,6 +22,10 @@ struct AppPoliciesGitRefreshTests {
         #expect(policy.nilStatusRetryDelay > .zero)
         #expect(AppPolicies.GitRefresh.defaultStatusReadTimeout == .seconds(1))
         #expect(AppPolicies.GitRefresh.defaultDiscoveryReadTimeout == .seconds(2))
+        #expect(AppPolicies.GitRefresh.defaultDetachedStatusReadLimit == 4)
+        #expect(AppPolicies.GitRefresh.filesystemDebounceWindow == .milliseconds(500))
+        #expect(AppPolicies.GitRefresh.filesystemMaxFlushLatency == .seconds(10))
+        #expect(AppPolicies.GitRefresh.filesystemDerivedCoalescingWindow == .milliseconds(500))
         #expect(
             RepoScanner.AgentStudioGitRepositoryDiscoveryProvider.defaultTimeout
                 == AppPolicies.GitRefresh.defaultDiscoveryReadTimeout

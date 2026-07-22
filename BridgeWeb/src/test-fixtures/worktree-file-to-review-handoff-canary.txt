@@ -1,0 +1,2 @@
+Bridge worktree file-to-review handoff canary.
+This tracked fixture is safe for the Vite verifier to mutate.
