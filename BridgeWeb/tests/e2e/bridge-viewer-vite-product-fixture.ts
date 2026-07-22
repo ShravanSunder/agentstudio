@@ -1,7 +1,8 @@
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:net';
+import { createServer as createHTTPServer } from 'node:http';
+import { createServer as createTCPServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -220,6 +221,7 @@ export async function startBridgeViewerOwnedViteProductServer(
 	oracle: BridgeViewerViteProductFixtureOracle,
 ): Promise<BridgeViewerOwnedViteProductServer> {
 	const port = await reserveLoopbackPort();
+	const telemetryReceiver = await startBridgeViewerOwnedTelemetryReceiver();
 	const child = spawn(
 		process.execPath,
 		[viteCLIPath, '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
@@ -229,6 +231,8 @@ export async function startBridgeViewerOwnedViteProductServer(
 				...process.env,
 				BRIDGE_WEB_DEV_BASE: oracle.baseRef,
 				BRIDGE_WEB_DEV_SCENARIO: 'current-worktree',
+				BRIDGE_WEB_DEV_TELEMETRY_OTLP_LOGS_URL: `${telemetryReceiver.origin}/v1/logs`,
+				BRIDGE_WEB_DEV_TELEMETRY_OTLP_METRICS_URL: `${telemetryReceiver.origin}/v1/metrics`,
 				BRIDGE_WEB_DEV_WORKTREE: oracle.worktreeRoot,
 			},
 			stdio: ['pipe', 'pipe', 'pipe'],
@@ -269,18 +273,27 @@ export async function startBridgeViewerOwnedViteProductServer(
 			'owned Vite readiness',
 		);
 	} catch (error: unknown) {
-		return await rejectOwnedViteStartupAfterCleanup({
-			child,
-			exitPromise,
-			startupError: error,
-		});
+		try {
+			return await rejectOwnedViteStartupAfterCleanup({
+				child,
+				exitPromise,
+				startupError: error,
+			});
+		} finally {
+			await telemetryReceiver.stop();
+		}
 	}
 	const origin = `http://127.0.0.1:${port}`;
 	return {
 		origin,
 		pid: child.pid ?? 0,
-		stop: async (): Promise<BridgeViewerOwnedViteProductServerCleanup> =>
-			await stopOwnedViteServer({ child, exitPromise }),
+		stop: async (): Promise<BridgeViewerOwnedViteProductServerCleanup> => {
+			try {
+				return await stopOwnedViteServer({ child, exitPromise });
+			} finally {
+				await telemetryReceiver.stop();
+			}
+		},
 		version: /VITE v(?<version>\d+\.\d+\.\d+)/u.exec(readinessOutput)?.groups?.['version'] ?? null,
 	};
 }
@@ -400,7 +413,7 @@ function defaultOwnedViteShutdownDependencies(): BridgeViewerOwnedViteShutdownDe
 }
 
 async function reserveLoopbackPort(): Promise<number> {
-	const server = createServer();
+	const server = createTCPServer();
 	await new Promise<void>((resolve, reject): void => {
 		server.once('error', reject);
 		server.listen(0, '127.0.0.1', (): void => resolve());
@@ -414,6 +427,42 @@ async function reserveLoopbackPort(): Promise<number> {
 		server.close((error): void => (error === undefined ? resolve() : reject(error)));
 	});
 	return address.port;
+}
+
+async function startBridgeViewerOwnedTelemetryReceiver(): Promise<{
+	readonly origin: string;
+	readonly stop: () => Promise<void>;
+}> {
+	const server = createHTTPServer((request, response): void => {
+		request.resume();
+		if (
+			request.method === 'POST' &&
+			(request.url === '/v1/logs' || request.url === '/v1/metrics')
+		) {
+			response.statusCode = 200;
+			response.end();
+			return;
+		}
+		response.statusCode = 404;
+		response.end();
+	});
+	await new Promise<void>((resolve, reject): void => {
+		server.once('error', reject);
+		server.listen(0, '127.0.0.1', (): void => resolve());
+	});
+	const address = server.address();
+	if (address === null || typeof address === 'string') {
+		server.close();
+		throw new Error('Failed to start the owned Bridge telemetry receiver.');
+	}
+	return {
+		origin: `http://127.0.0.1:${address.port}`,
+		stop: async (): Promise<void> => {
+			await new Promise<void>((resolve, reject): void => {
+				server.close((error): void => (error === undefined ? resolve() : reject(error)));
+			});
+		},
+	};
 }
 
 function sha256(value: string | Uint8Array): string {
