@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "wireVersion": 2,
+  "cases": [
+    {
+      "name": "metadata-unknown-key",
+      "request": {
+        "kind": "stream.frameObserved",
+        "streamKind": "metadata",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-startup-1",
+        "workerInstanceId": "worker-instance-startup-1",
+        "metadataStreamId": "metadata-stream-startup-1",
+        "streamSequence": 0,
+        "unknown": true
+      }
+    },
+    {
+      "name": "metadata-invalid-stream-id",
+      "request": {
+        "kind": "stream.frameObserved",
+        "streamKind": "metadata",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-startup-1",
+        "workerInstanceId": "worker-instance-startup-1",
+        "metadataStreamId": "",
+        "streamSequence": 0
+      }
+    },
+    {
+      "name": "metadata-invalid-sequence",
+      "request": {
+        "kind": "stream.frameObserved",
+        "streamKind": "metadata",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-startup-1",
+        "workerInstanceId": "worker-instance-startup-1",
+        "metadataStreamId": "metadata-stream-startup-1",
+        "streamSequence": -1
+      }
+    },
+    {
+      "name": "metadata-invalid-worker-id",
+      "request": {
+        "kind": "stream.frameObserved",
+        "streamKind": "metadata",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-startup-1",
+        "workerInstanceId": "worker/invalid",
+        "metadataStreamId": "metadata-stream-startup-1",
+        "streamSequence": 0
+      }
+    },
+    {
+      "name": "content-extra-metadata-key",
+      "request": {
+        "kind": "stream.frameObserved",
+        "streamKind": "content",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-startup-1",
+        "workerInstanceId": "worker-instance-startup-1",
+        "contentRequestId": "content-request-startup-1",
+        "leaseId": "lease-startup-1",
+        "contentSequence": 0,
+        "metadataStreamId": "metadata-stream-startup-1"
+      }
+    },
+    {
+      "name": "content-unknown-key",
+      "request": {
+        "kind": "stream.frameObserved",
+        "streamKind": "content",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-startup-1",
+        "workerInstanceId": "worker-instance-startup-1",
+        "contentRequestId": "content-request-startup-1",
+        "leaseId": "lease-startup-1",
+        "contentSequence": 0,
+        "unknown": true
+      }
+    },
+    {
+      "name": "content-invalid-request-id",
+      "request": {
+        "kind": "stream.frameObserved",
+        "streamKind": "content",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-startup-1",
+        "workerInstanceId": "worker-instance-startup-1",
+        "contentRequestId": "",
+        "leaseId": "lease-startup-1",
+        "contentSequence": 0
+      }
+    },
+    {
+      "name": "content-invalid-lease-id",
+      "request": {
+        "kind": "stream.frameObserved",
+        "streamKind": "content",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-startup-1",
+        "workerInstanceId": "worker-instance-startup-1",
+        "contentRequestId": "content-request-startup-1",
+        "leaseId": "lease/invalid",
+        "contentSequence": 0
+      }
+    },
+    {
+      "name": "content-invalid-sequence",
+      "request": {
+        "kind": "stream.frameObserved",
+        "streamKind": "content",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-startup-1",
+        "workerInstanceId": "worker-instance-startup-1",
+        "contentRequestId": "content-request-startup-1",
+        "leaseId": "lease-startup-1",
+        "contentSequence": -1
+      }
+    },
+    {
+      "name": "unknown-stream-kind",
+      "request": {
+        "kind": "stream.frameObserved",
+        "streamKind": "telemetry",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-startup-1",
+        "workerInstanceId": "worker-instance-startup-1",
+        "contentRequestId": "content-request-startup-1",
+        "leaseId": "lease-startup-1",
+        "contentSequence": 0
+      }
+    }
+  ]
+}

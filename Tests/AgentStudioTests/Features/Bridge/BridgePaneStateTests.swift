@@ -55,6 +55,58 @@ final class BridgePaneStateTests {
     }
 
     @Test
+    func test_codable_roundTrip_with_workspaceCompareTargets() throws {
+        let states = [
+            BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(
+                    rootPath: "/tmp/repo",
+                    baseline: .localDefaultBranch(branchName: "main")
+                )
+            ),
+            BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(
+                    rootPath: "/tmp/repo",
+                    baseline: .originDefaultBranch(remoteName: "origin", branchName: "main")
+                )
+            ),
+            BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(rootPath: "/tmp/repo", baseline: .branch(name: "feature/review"))
+            ),
+            BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(rootPath: "/tmp/repo", baseline: .ref(name: "v1.2.3"))
+            ),
+        ]
+
+        for state in states {
+            let data = try JSONEncoder().encode(state)
+            let decoded = try JSONDecoder().decode(BridgePaneState.self, from: data)
+            #expect(decoded == state)
+        }
+    }
+
+    @Test
+    func test_codable_decodes_legacy_raw_workspace_baseline() throws {
+        let json = #"""
+            {
+              "panelKind": "diffViewer",
+              "source": {
+                "workspace": {
+                  "rootPath": "/tmp/repo",
+                  "baseline": "unstaged"
+                }
+              }
+            }
+            """#
+        let decoded = try JSONDecoder().decode(BridgePaneState.self, from: Data(json.utf8))
+
+        #expect(decoded.source == .workspace(rootPath: "/tmp/repo", baseline: .unstaged))
+    }
+
+    @Test
     func test_codable_roundTrip_with_agentSnapshotSource() throws {
         let id = UUID()
         let date = Date(timeIntervalSince1970: 1_000_000)

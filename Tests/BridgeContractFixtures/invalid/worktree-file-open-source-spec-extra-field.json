@@ -1,0 +1,14 @@
+{
+  "clientRequestId": "request-1",
+  "repoId": "00000000-0000-7000-8000-000000000001",
+  "worktreeId": "00000000-0000-7000-8000-000000000002",
+  "rootPathToken": "stable-root-token-1",
+  "pathScope": [
+    "Sources/App"
+  ],
+  "includeStatuses": true,
+  "includeComments": false,
+  "includeAgentComms": false,
+  "freshness": "live",
+  "includeFileDescriptors": true
+}

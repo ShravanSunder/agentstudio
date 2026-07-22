@@ -28,6 +28,11 @@ struct BridgeContentLoadObservedResult: Equatable, Sendable {
     let observation: BridgeContentLoadObservation
 }
 
+struct BridgeContentStreamObservedResult: Equatable, Sendable {
+    let result: BridgeContentStreamResult
+    let observation: BridgeContentLoadObservation
+}
+
 struct BridgeContentLoadObservedFailure: Error, @unchecked Sendable {
     let underlyingError: any Error
     let observation: BridgeContentLoadObservation

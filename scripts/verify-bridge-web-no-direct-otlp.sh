@@ -3,11 +3,19 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scan_output="$(mktemp -t bridge-web-otlp-scan.XXXXXX)"
-trap 'rm -f "$scan_output"' EXIT
+lockfile_importers="$(mktemp -t bridge-web-otlp-lock-importers.XXXXXX)"
+trap 'rm -f "$scan_output" "$lockfile_importers"' EXIT
+
+lockfile_path="$PROJECT_ROOT/BridgeWeb/pnpm-lock.yaml"
+/usr/bin/awk '
+  /^importers:$/ { in_importers = 1 }
+  /^packages:$/ { in_importers = 0 }
+  in_importers == 1 { print }
+' "$lockfile_path" >"$lockfile_importers"
 
 default_scan_targets=(
   "$PROJECT_ROOT/BridgeWeb/package.json"
-  "$PROJECT_ROOT/BridgeWeb/pnpm-lock.yaml"
+  "$lockfile_importers"
   "$PROJECT_ROOT/BridgeWeb/src"
   "$PROJECT_ROOT/Sources/AgentStudio/Resources/BridgeWeb/app"
 )

@@ -81,6 +81,43 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         )
     }
 
+    @Test("close tab marks snapshot panes pending undo and undo restores active ownership")
+    func closeTab_marksSnapshotPanesPendingUndo_andUndoRestoresActiveOwnership() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let firstPane = makeWebviewPane(harness.store, title: "First")
+        let secondPane = makeWebviewPane(harness.store, title: "Second")
+        let tab = Tab(paneId: firstPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.insertPane(
+            secondPane.id,
+            inTab: tab.id,
+            at: firstPane.id,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
+
+        harness.coordinator.execute(.closeTab(tabId: tab.id))
+
+        #expect(harness.store.tab(tab.id) == nil)
+        for paneId in [firstPane.id, secondPane.id] {
+            let closedPane = try #require(harness.store.pane(paneId))
+            #expect(closedPane.residency.isPendingUndo)
+            #expect(!closedPane.residency.isActive)
+        }
+
+        harness.coordinator.undoCloseTab()
+
+        let restoredTab = try #require(harness.store.tab(tab.id))
+        #expect(Set(restoredTab.allPaneIds) == Set([firstPane.id, secondPane.id]))
+        for paneId in [firstPane.id, secondPane.id] {
+            #expect(harness.store.pane(paneId)?.residency == .active)
+        }
+    }
+
     @Test("undoTabClose keeps tab only with successfully restored panes")
     func undoTabClose_partialRestore_removesFailedPanes() {
         let harness = makeHarness()

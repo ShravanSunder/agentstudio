@@ -57,12 +57,23 @@ struct AgentStudioTraceConfigurationTests {
     }
 
     @Test
-    func wildcardEnablesAllKnownTags() {
+    func wildcardEnablesAllTagsExceptHighVolumeAtoms() {
         let configuration = AgentStudioTraceConfiguration.from(environment: [
             "AGENTSTUDIO_TRACE_TAGS": "*"
         ])
 
+        #expect(configuration.enabledTags == Set(AgentStudioTraceTag.allCases).subtracting([.atoms]))
+        #expect(!configuration.isEnabled(.atoms))
+    }
+
+    @Test
+    func atomsRequiresExplicitSelectionAlongsideWildcard() {
+        let configuration = AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_TAGS": "*,atoms"
+        ])
+
         #expect(configuration.enabledTags == Set(AgentStudioTraceTag.allCases))
+        #expect(configuration.isEnabled(.atoms))
     }
 
     @Test

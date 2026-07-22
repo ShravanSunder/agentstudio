@@ -66,6 +66,25 @@ public enum AgentStudioIPCClientArguments {
         _ commandName: String,
         remainingArguments: [String]
     ) throws -> AgentStudioIPCClientCommand {
+        if let command = try parseAppCommand(commandName, remainingArguments: remainingArguments) {
+            return command
+        }
+        if let command = try parseTerminalCommand(commandName, remainingArguments: remainingArguments) {
+            return command
+        }
+        if let command = try parseEventCommand(commandName, remainingArguments: remainingArguments) {
+            return command
+        }
+        if let command = try parseBridgeCommand(commandName, remainingArguments: remainingArguments) {
+            return command
+        }
+        throw AgentStudioIPCClientError(reason: .invalidArguments)
+    }
+
+    private static func parseAppCommand(
+        _ commandName: String,
+        remainingArguments: [String]
+    ) throws -> AgentStudioIPCClientCommand? {
         switch commandName {
         case "auth-login":
             try requireCount(remainingArguments, 0)
@@ -104,6 +123,16 @@ public enum AgentStudioIPCClientArguments {
             let values = try requireCount(remainingArguments, 1)
             let commandId = IPCCommandIdentifier(rawValue: values[0])
             return .commandExecute(IPCCommandExecuteParams(commandId: commandId, targetHandle: nil))
+        default:
+            return nil
+        }
+    }
+
+    private static func parseTerminalCommand(
+        _ commandName: String,
+        remainingArguments: [String]
+    ) throws -> AgentStudioIPCClientCommand? {
+        switch commandName {
         case "terminal-status":
             let values = try requireCount(remainingArguments, 1)
             return .terminalStatus(handle: values[0])
@@ -135,6 +164,16 @@ public enum AgentStudioIPCClientArguments {
                 timeoutSeconds: timeoutSeconds,
                 afterSequence: afterSequence
             )
+        default:
+            return nil
+        }
+    }
+
+    private static func parseEventCommand(
+        _ commandName: String,
+        remainingArguments: [String]
+    ) throws -> AgentStudioIPCClientCommand? {
+        switch commandName {
         case "events-subscribe":
             let values = try requireCount(remainingArguments, 1)
             let eventNames = try values[0].split(separator: ",").map { rawName -> IPCEventName in
@@ -154,8 +193,113 @@ public enum AgentStudioIPCClientArguments {
             }
             return .eventsUnsubscribe(subscriptionId: subscriptionId)
         default:
+            return nil
+        }
+    }
+
+    private static func parseBridgeCommand(
+        _ commandName: String,
+        remainingArguments: [String]
+    ) throws -> AgentStudioIPCClientCommand? {
+        switch commandName {
+        case "bridge-diff-load":
+            let worktreeId = try parseOptionalWorktreeId(remainingArguments)
+            return .bridgeDiffLoad(IPCBridgeReviewOpenParams(worktreeId: worktreeId))
+        case "bridge-file-view-open":
+            let worktreeId = try parseOptionalWorktreeId(remainingArguments)
+            return .bridgeFileViewOpen(IPCBridgeFileViewOpenParams(worktreeId: worktreeId))
+        case "bridge-diff-refresh":
+            let values = try requireCount(remainingArguments, 1)
+            return .bridgeDiffRefresh(IPCBridgeReviewRefreshParams(handle: values[0]))
+        case "bridge-diff-get-package":
+            let values = try requireCount(remainingArguments, 1)
+            return .bridgeDiffGetPackage(handle: values[0])
+        case "bridge-diff-render-state":
+            let values = try requireCount(remainingArguments, 1)
+            return .bridgeDiffRenderState(handle: values[0])
+        case "bridge-diff-select-file":
+            let values = try requireCount(remainingArguments, 2)
+            return .bridgeDiffSelectFile(
+                IPCBridgeReviewSelectFileParams(handle: values[0], itemId: values[1])
+            )
+        case "bridge-diff-scroll-to-file":
+            let values = try requireCount(remainingArguments, 2)
+            return .bridgeDiffScrollToFile(
+                IPCBridgeDiffScrollToFileParams(handle: values[0], itemId: values[1])
+            )
+        case "bridge-diff-expand-file":
+            let values = try requireCount(remainingArguments, 2)
+            return .bridgeDiffExpandFile(
+                IPCBridgeDiffExpandFileParams(handle: values[0], itemId: values[1])
+            )
+        case "bridge-diff-collapse-file":
+            let values = try requireCount(remainingArguments, 2)
+            return .bridgeDiffCollapseFile(
+                IPCBridgeDiffCollapseFileParams(handle: values[0], itemId: values[1])
+            )
+        case "bridge-file-tree-search":
+            let values = try requireCount(remainingArguments, 2)
+            return .bridgeFileTreeSearch(
+                IPCBridgeFileTreeSearchParams(handle: values[0], searchText: values[1])
+            )
+        case "bridge-file-tree-set-filter":
+            let values = try requireCount(remainingArguments, 3)
+            return .bridgeFileTreeSetFilter(
+                IPCBridgeFileTreeSetFilterParams(
+                    handle: values[0],
+                    gitStatusFilter: values[1],
+                    fileClassFilter: values[2]
+                )
+            )
+        case "bridge-file-tree-reveal-path":
+            let values = try requireCount(remainingArguments, 2)
+            return .bridgeFileTreeRevealPath(
+                IPCBridgeFileTreeRevealPathParams(handle: values[0], path: values[1])
+            )
+        case "bridge-file-view-get-content":
+            let values = try requireCount(remainingArguments, 3)
+            guard let reviewGeneration = Int(values[2]) else {
+                throw AgentStudioIPCClientError(reason: .invalidArguments)
+            }
+            return .bridgeFileViewGetContent(
+                IPCBridgeContentGetParams(
+                    handle: values[0],
+                    contentHandleId: values[1],
+                    reviewGeneration: reviewGeneration
+                )
+            )
+        case "bridge-file-view-show-markdown-preview":
+            guard remainingArguments.count == 1 || remainingArguments.count == 2 else {
+                throw AgentStudioIPCClientError(reason: .invalidArguments)
+            }
+            return .bridgeFileViewShowMarkdownPreview(
+                IPCBridgeFileViewShowMarkdownPreviewParams(
+                    handle: remainingArguments[0],
+                    itemId: remainingArguments.count == 2 ? remainingArguments[1] : nil
+                )
+            )
+        case "bridge-telemetry-snapshot":
+            let values = try requireCount(remainingArguments, 1)
+            return .bridgeTelemetrySnapshot(handle: values[0])
+        case "bridge-telemetry-flush":
+            let values = try requireCount(remainingArguments, 1)
+            return .bridgeTelemetryFlush(handle: values[0])
+        default:
+            return nil
+        }
+    }
+
+    private static func parseOptionalWorktreeId(_ arguments: [String]) throws -> UUID? {
+        guard arguments.count <= 1 else {
             throw AgentStudioIPCClientError(reason: .invalidArguments)
         }
+        guard let rawWorktreeId = arguments.first else {
+            return nil
+        }
+        guard let parsedWorktreeId = UUID(uuidString: rawWorktreeId) else {
+            throw AgentStudioIPCClientError(reason: .invalidArguments)
+        }
+        return parsedWorktreeId
     }
 
     @discardableResult

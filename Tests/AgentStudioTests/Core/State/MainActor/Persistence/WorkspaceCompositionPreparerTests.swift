@@ -189,7 +189,86 @@ struct WorkspaceCompositionPreparerTests {
         #expect(prepared.windowMemory.sidebarWidth == 333)
     }
 
-    @Test("prepared content inputs exhaustively partition panes in stable priority order")
+    @Test("recoverable unowned panes remain in pane graph without tab or mount composition")
+    func recoverableUnownedPanesRemainInPaneGraphWithoutTabOrMountComposition() throws {
+        // Arrange
+        let ownedPane = makeCompositionPane(
+            title: "Owned webview",
+            content: .webview(
+                WebviewState(
+                    url: try #require(URL(string: "https://example.com/owned")),
+                    title: "Owned webview",
+                    showNavigation: false
+                )
+            )
+        )
+        let backgroundedPane = makeCompositionPane(
+            title: "Backgrounded webview",
+            content: .webview(
+                WebviewState(
+                    url: try #require(URL(string: "https://example.com/backgrounded")),
+                    title: "Backgrounded webview",
+                    showNavigation: false
+                )
+            ),
+            residency: .backgrounded
+        )
+        let orphanedPane = makeCompositionPane(
+            title: "Orphaned webview",
+            content: .webview(
+                WebviewState(
+                    url: try #require(URL(string: "https://example.com/orphaned")),
+                    title: "Orphaned webview",
+                    showNavigation: false
+                )
+            ),
+            residency: .orphaned(
+                reason: .worktreeNotFound(path: "/tmp/composition-orphaned-worktree")
+            )
+        )
+        let tab = makeCompositionTab(paneID: ownedPane.id)
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(),
+            name: "Recoverable pane pool",
+            panes: [ownedPane, backgroundedPane, orphanedPane],
+            tabs: [tab],
+            activeTabId: tab.id
+        )
+
+        // Act
+        let prepared = try requirePreparedComposition(
+            WorkspaceCompositionPreparer.prepare(snapshot)
+        )
+
+        // Assert
+        #expect(Set(prepared.paneGraph.replacement.paneStates.keys) == Set(snapshot.panes.map(\.id)))
+        #expect(prepared.tabGraph.tabIDByPaneID == [ownedPane.id: tab.id])
+        #expect(prepared.terminalActivationInput.entries.isEmpty)
+        #expect(prepared.nonterminalContentMountInput.entries.map(\.paneID.uuid) == [ownedPane.id])
+    }
+
+    @Test("active unowned pane rejects instead of entering recoverable pane pool")
+    func activeUnownedPaneRejectsInsteadOfEnteringRecoverablePanePool() throws {
+        // Arrange
+        let ownedPane = makeCompositionPane()
+        let activeUnownedPane = makeCompositionPane()
+        let tab = makeCompositionTab(paneID: ownedPane.id)
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(),
+            name: "Invalid active pane pool",
+            panes: [ownedPane, activeUnownedPane],
+            tabs: [tab],
+            activeTabId: tab.id
+        )
+
+        // Act
+        let result = WorkspaceCompositionPreparer.prepare(snapshot)
+
+        // Assert
+        #expect(result == .rejected(.paneNotOwnedByTab(activeUnownedPane.id)))
+    }
+
+    @Test("prepared content inputs exhaustively partition canonically owned panes in stable priority order")
     func preparedContentInputsExhaustivelyPartitionPanesInStablePriorityOrder() throws {
         // Arrange
         let fixture = try makePreparedContentPartitionFixture()
@@ -251,7 +330,7 @@ struct WorkspaceCompositionPreparerTests {
 }
 
 private enum WorkspaceCompositionPreparerTestError: Error {
-    case preparationRejected
+    case preparationRejected(WorkspaceCompositionPreparationRejection)
 }
 
 private struct PreparedContentPartitionFixture {
@@ -343,10 +422,12 @@ private func makePreparedContentPartitionFixture() throws -> PreparedContentPart
 private func requirePreparedComposition(
     _ result: WorkspaceCompositionPreparationResult
 ) throws -> PreparedWorkspaceComposition {
-    guard case .prepared(let prepared) = result else {
-        throw WorkspaceCompositionPreparerTestError.preparationRejected
+    switch result {
+    case .prepared(let prepared):
+        return prepared
+    case .rejected(let rejection):
+        throw WorkspaceCompositionPreparerTestError.preparationRejected(rejection)
     }
-    return prepared
 }
 
 private func makeCompositionPane(
@@ -354,7 +435,8 @@ private func makeCompositionPane(
     title: String = "Terminal",
     worktreeID: UUID? = nil,
     zmxSessionID: ZmxSessionID = .generateUUIDv7(),
-    content: PaneContent? = nil
+    content: PaneContent? = nil,
+    residency: SessionResidency = .active
 ) -> Pane {
     let resolvedContent =
         content
@@ -371,7 +453,8 @@ private func makeCompositionPane(
             launchDirectory: URL(filePath: "/tmp/composition"),
             title: title,
             facets: PaneContextFacets(worktreeId: worktreeID)
-        )
+        ),
+        residency: residency
     )
 }
 

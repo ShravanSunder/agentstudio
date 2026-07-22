@@ -156,4 +156,85 @@ struct IPCContractsTests {
         #expect(IPCEventName.allCases.map(\.rawValue).contains("terminal.commandFinished"))
         #expect(!IPCEventName.allCases.map(\.rawValue).contains { $0.hasPrefix("zmx.") })
     }
+
+    @Test("bridge render state keeps diagnostics probes optional when omitted")
+    func bridgeRenderStateKeepsDiagnosticsProbesOptionalWhenOmitted() throws {
+        let paneId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let payload = """
+            {
+              "paneId": "\(paneId.uuidString)",
+              "summary": {
+                "pageTitle": "AgentStudio Bridge",
+                "hasAppRoot": true,
+                "hasEmptyShell": false,
+                "hasReviewShell": true,
+                "sidebarPosition": "right"
+              },
+              "diagnostics": {
+                "evaluateSucceeded": true,
+                "pageErrorCount": 0,
+                "pageErrorKinds": [],
+                "pageErrorMessages": [],
+                "nativeActivity": "foreground",
+                "foregroundWorkEpoch": 1,
+                "dirtyFactPresent": false,
+                "activeRefreshPassPresent": false,
+                "refreshPassCount": 0,
+                "productSession": {
+                  "activeProducerCount": 0,
+                  "activeProducerTaskCount": 0,
+                  "activeContentLeaseCount": 0,
+                  "queuedFrameCount": 0,
+                  "queuedByteCount": 0,
+                  "pendingFrameWaiterCount": 0,
+                  "inFlightFrameReceiptCount": 0,
+                  "pendingLifecycleAcknowledgementCount": 0,
+                  "nextMetadataStreamSequence": 0
+                }
+              }
+            }
+            """
+
+        let result = try JSONDecoder().decode(IPCBridgeRenderStateResult.self, from: Data(payload.utf8))
+
+        #expect(result.paneId == paneId)
+        #expect(result.summary.visibleHydrationStateProbe == nil)
+        #expect(result.summary.visibleHydrationDiscardProbe == nil)
+        #expect(result.summary.frameJankProbe == nil)
+        #expect(result.visibleHydrationStateProbe == nil)
+        #expect(result.visibleHydrationDiscardProbe == nil)
+        #expect(result.frameJankProbe == nil)
+    }
+
+    @Test("bridge file tree search page-control command encodes web search mode")
+    func bridgeFileTreeSearchPageControlCommandEncodesWebSearchMode() throws {
+        let encoded = try JSONEncoder().encode(
+            IPCBridgePageControlCommand.fileTreeSearch(searchText: "BridgePaneController")
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        let searchMode = try #require(object["searchMode"] as? [String: Any])
+
+        #expect(object["method"] as? String == "bridge.fileTree.search")
+        #expect(object["searchText"] as? String == "BridgePaneController")
+        #expect(searchMode["kind"] as? String == "text")
+    }
+
+    @Test("bridge file tree search params default to web text search mode")
+    func bridgeFileTreeSearchParamsDefaultToWebTextSearchMode() throws {
+        let payload = """
+            {
+              "handle": "pane:1",
+              "searchText": "BridgePaneController"
+            }
+            """
+
+        let params = try JSONDecoder().decode(
+            IPCBridgeFileTreeSearchParams.self,
+            from: Data(payload.utf8)
+        )
+
+        #expect(params.searchMode == .text)
+    }
 }

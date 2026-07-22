@@ -41,7 +41,8 @@ extension WebKitSerializedTests {
                 traceContextFactory: BridgeTraceContextFactory(
                     makeTraceId: { "11111111111111111111111111111111" },
                     makeSpanId: { "2222222222222222" }
-                )
+                ),
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
             let commandId = UUID()
@@ -72,15 +73,15 @@ extension WebKitSerializedTests {
             #expect(packageBuild.stringAttributes["agentstudio.bridge.phase"] == "package_build")
             #expect(packageBuild.stringAttributes["agentstudio.bridge.plane"] == "data")
             #expect(packageBuild.stringAttributes["agentstudio.bridge.priority"] == "cold")
-            #expect(packageBuild.stringAttributes["agentstudio.bridge.slice"] == "diff_package_metadata")
+            #expect(packageBuild.stringAttributes["agentstudio.bridge.slice"] == "review_metadata")
             #expect(deltaBuild.stringAttributes["agentstudio.bridge.phase"] == "delta_build")
             #expect(deltaBuild.stringAttributes["agentstudio.bridge.plane"] == "data")
             #expect(deltaBuild.stringAttributes["agentstudio.bridge.priority"] == "warm")
-            #expect(deltaBuild.stringAttributes["agentstudio.bridge.slice"] == "diff_package_delta")
+            #expect(deltaBuild.stringAttributes["agentstudio.bridge.slice"] == "review_delta")
             #expect(contentRegister.stringAttributes["agentstudio.bridge.phase"] == "content_register")
             #expect(contentRegister.stringAttributes["agentstudio.bridge.plane"] == "data")
             #expect(contentRegister.stringAttributes["agentstudio.bridge.priority"] == "cold")
-            #expect(contentRegister.stringAttributes["agentstudio.bridge.slice"] == "diff_package_metadata")
+            #expect(contentRegister.stringAttributes["agentstudio.bridge.slice"] == "review_metadata")
         }
 
         @Test("release-style telemetry policy disables bridge telemetry wiring")
@@ -94,11 +95,10 @@ extension WebKitSerializedTests {
                 ),
                 telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy(isDebugBuild: false),
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.swift, .web, .webKit]),
-                telemetryRecorder: recorder
+                telemetryRecorder: recorder,
+                initialPaneActivity: .foreground
             )
             defer { controller.teardown() }
-            var errorCode: Int?
-            controller.router.onError = { code, _, _ in errorCode = code }
 
             await controller.recordSwiftTelemetry(
                 name: "performance.bridge.swift.package_build",
@@ -107,23 +107,43 @@ extension WebKitSerializedTests {
                 traceContext: nil,
                 durationMilliseconds: 1
             )
-            await controller.router.dispatch(
-                json:
-                    #"{"jsonrpc":"2.0","method":"system.bridgeTelemetry","params":{"schemaVersion":1,"scenario":"package_apply_content_fetch_v1","samples":[]}}"#,
-                isBridgeReady: true
-            )
+            let flushResult = try? await controller.flushTelemetryForIPC()
 
-            #expect(controller.router.telemetryRecorder == nil)
-            #expect(controller.router.telemetryIngestor == nil)
-            #expect(errorCode == -32_601)
+            #expect(controller.telemetrySessionOwner == nil)
+            #expect(flushResult?.kind == .unavailable)
+            #expect(flushResult?.unavailableReason == .disabled)
             #expect(await recorder.samples().isEmpty)
+        }
+
+        @Test("IPC telemetry flush reports disabled without recorder fallback")
+        func ipcTelemetryFlushReportsDisabledWithoutRecorderFallback() async throws {
+            let recorder = BridgeTelemetryRecorderSpy()
+            await recorder.setDrainFailure()
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                telemetryRecorder: recorder,
+                initialPaneActivity: .foreground
+            )
+            defer { controller.teardown() }
+
+            let result = try await controller.flushTelemetryForIPC()
+
+            #expect(result.kind == .unavailable)
+            #expect(result.unavailableReason == .disabled)
+            #expect(result.report == nil)
         }
     }
 }
 
 private actor BridgeTelemetryRecorderSpy: BridgePerformanceTraceRecording {
+    enum Failure: Error {
+        case drainFailed
+    }
+
     private var recordedSamples: [BridgeTelemetrySample] = []
     private var recordedDrops: [BridgeTelemetryDropReason] = []
+    private var shouldFailDrain = false
 
     func record(sample: BridgeTelemetrySample, receivedAtUnixNano: UInt64) async {
         recordedSamples.append(sample)
@@ -132,12 +152,24 @@ private actor BridgeTelemetryRecorderSpy: BridgePerformanceTraceRecording {
     func recordDrop(
         reason: BridgeTelemetryDropReason,
         droppedCount: Int,
+        firstRejectedEventName: String?,
         receivedAtUnixNano: UInt64
     ) async {
+        _ = firstRejectedEventName
         recordedDrops.append(reason)
     }
 
     func samples() -> [BridgeTelemetrySample] {
         recordedSamples
+    }
+
+    func setDrainFailure() {
+        shouldFailDrain = true
+    }
+
+    func drain() async throws {
+        if shouldFailDrain {
+            throw Failure.drainFailed
+        }
     }
 }

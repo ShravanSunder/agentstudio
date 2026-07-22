@@ -1,4 +1,6 @@
 [tools]
+node = "26.5.0"
+pnpm = "11.14.0"
 zig = "0.15.2"
 
 [env]
@@ -104,27 +106,112 @@ run = "/bin/bash scripts/lint-swift.sh"
 
 [tasks.bridge-web-check]
 description = "Run BridgeWeb lint, format check, and TypeScript check"
-depends = ["bridge-web-sync-fixtures"]
+depends = ["bridge-web-install", "bridge-web-sync-fixtures"]
 dir = "BridgeWeb"
 run = "pnpm run check"
+
+[tasks.bridge-web-install]
+description = "Install BridgeWeb pnpm dependencies"
+dir = "BridgeWeb"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+if command -v corepack >/dev/null 2>&1; then
+  corepack enable
+  corepack prepare pnpm@11.14.0 --activate
+elif ! command -v pnpm >/dev/null 2>&1; then
+  echo "BridgeWeb install requires corepack or pnpm on PATH" >&2
+  exit 127
+fi
+pnpm install --frozen-lockfile
+"""
 
 [tasks.bridge-web-sync-fixtures]
 description = "Verify BridgeWeb JSON contract fixtures match Swift source fixtures"
 run = "bash scripts/bridge-web-sync-fixtures.sh"
 
 [tasks.bridge-web-test]
-description = "Run BridgeWeb Vitest suites"
+description = "Run all BridgeWeb Vitest unit, integration, and E2E tests"
+depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test"
 
+[tasks.bridge-web-unit-test]
+description = "Run BridgeWeb Vitest unit tests"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run test:unit"
+
+[tasks.bridge-web-integration-test]
+description = "Run BridgeWeb Vitest Node and Browser Mode integration tests"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run test:integration"
+
+[tasks.bridge-web-browser-test]
+description = "Run BridgeWeb Vitest Browser Mode integration tests"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run test:browser"
+
+[tasks.bridge-web-browser-stress-test]
+description = "Run BridgeWeb scale-bound Browser Mode stress tests"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run test:browser:stress"
+
+[tasks.bridge-web-e2e-test]
+description = "Run BridgeWeb Vitest Vite product E2E tests"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run test:e2e"
+
+[tasks.verify-bridge-review-controlled-composition]
+description = "Verify Review product-only authority and controlled Browser Mode composition"
+run = """
+#!/usr/bin/env bash
+set -uo pipefail
+unit_status=0
+browser_status=0
+pnpm -C BridgeWeb exec vitest run src/app/bridge-app-review-viewer-mode.product-authority.unit.test.ts || unit_status=$?
+pnpm -C BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/app/bridge-review-product-controlled-composition.browser.test.tsx || browser_status=$?
+if (( unit_status != 0 )); then
+  exit "$unit_status"
+fi
+exit "$browser_status"
+"""
+
+[tasks.bridge-web-browser-benchmark]
+description = "Run BridgeWeb browser performance proof"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run test:benchmark:browser"
+
 [tasks.bridge-web-build]
 description = "Build BridgeWeb into the SwiftPM resource bundle"
+depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run build"
+
+[tasks.bridge-web-audit]
+description = "Audit BridgeWeb packaged dependencies and app assets"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run audit:assets"
+
+[tasks.bridge-viewer-benchmark]
+description = "Run Bridge viewer large-tree and large-diff benchmark proof"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run benchmark:viewer && /bin/bash ../scripts/verify-bridge-viewer-benchmark.sh"
 
 [tasks.verify-bridge-observability]
 description = "Verify Bridge debug observability events in the shared Victoria stack"
 run = "bash scripts/verify-bridge-observability.sh"
+
+[tasks.verify-bridge-headless-manifest]
+description = "Verify Bridge Worktree/File headless manifest proof artifact"
+run = "/bin/bash scripts/verify-bridge-headless-manifest.sh"
 
 [tasks.doctor-mac]
 description = "Check local macOS prerequisites and known build hazards"
@@ -138,7 +225,7 @@ bash scripts/doctor-mac.sh
 
 [tasks.setup]
 description = "First-time setup: build zig deps, copy frameworks and resources"
-depends = ["copy-xcframework", "setup-dev-resources", "build-zmx", "install-hooks"]
+depends = ["copy-xcframework", "setup-dev-resources", "build-zmx", "bridge-web-install", "install-hooks"]
 run = "echo 'Setup complete. Run mise run build or mise run test.'"
 
 [tasks.install-hooks]
@@ -157,6 +244,7 @@ echo "Installed pre-push hook: .githooks/pre-push"
 
 [tasks.build]
 description = "Debug build (run mise run setup first time)"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -170,6 +258,7 @@ swift build --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 
 [tasks.build-release]
 description = "Release build (run mise run setup first time)"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -183,26 +272,32 @@ swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 
 [tasks.test]
 description = "Run default test suite; real zmx lifecycle proof stays in test-zmx-e2e"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test"
 
 [tasks.test-fast]
 description = "Run fast lane: fast non-WebKit tests, excluding large script/smoke/integration/benchmark proof"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-fast"
 
 [tasks.test-large]
 description = "Run large non-WebKit script, smoke, and integration tests"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-large"
 
 [tasks.test-prebuild]
 description = "Prebuild Swift test bundles for cached CI test lanes"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-prebuild"
 
 [tasks.test-webkit]
 description = "Run real WebKit runtime tests in isolated serial processes with crash retry"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-webkit"
 
 [tasks.test-coverage]
 description = "Run test suite with code coverage and print coverage JSON path"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -249,6 +344,7 @@ fi
 
 [tasks.test-e2e]
 description = "Run general E2E serialized tests only; excludes the dedicated zmx lifecycle lane"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -262,6 +358,7 @@ AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTe
 
 [tasks.test-zmx-e2e]
 description = "Run zmx E2E tests only (opt-in; may stall)"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -458,6 +555,30 @@ run = "/bin/bash scripts/verify-beta-observability.sh"
 [tasks.verify-debug-observability]
 description = "Verify AgentStudio debug startup records and scrubbed fields in VictoriaLogs"
 run = "/bin/bash scripts/verify-debug-observability.sh"
+
+[tasks.verify-bridge-review-journey-smoke]
+description = "Verify Bridge review file-selection paint stability from marker-scoped VictoriaLogs"
+run = "/bin/bash scripts/verify-bridge-review-journey-smoke.sh"
+
+[tasks.verify-bridge-mode-idle-smoke]
+description = "Verify Bridge review/file mode switching and idle telemetry stability"
+run = "/bin/bash scripts/verify-bridge-mode-idle-smoke.sh"
+
+[tasks.verify-bridge-product-paint-correlation]
+description = "Verify real-current-worktree Bridge source-to-DOM paint correlation"
+run = "/bin/bash scripts/verify-bridge-product-paint-correlation.sh"
+
+[tasks.run-bridge-packaged-product-journey]
+description = "Build and launch the strict Bridge packaged product journey"
+run = "/bin/bash scripts/run-bridge-packaged-product-journey.sh"
+
+[tasks.verify-bridge-packaged-product-journey]
+description = "Verify the strict Bridge packaged LaunchServices journey"
+run = "/bin/bash scripts/verify-bridge-packaged-product-journey.sh"
+
+[tasks.verify-bridge-review-momentum-scroll-state-probe]
+description = "Verify Review momentum-scroll hydration state probe"
+run = "/bin/bash scripts/verify-bridge-review-momentum-scroll-state-probe.sh"
 
 [tasks.verify-stable-preferences-observability]
 description = "Verify local stable preference-honoring records in VictoriaLogs"

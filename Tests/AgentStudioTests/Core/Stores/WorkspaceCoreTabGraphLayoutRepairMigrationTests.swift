@@ -40,13 +40,18 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         let fixture = TabGraphStorageFixture()
 
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "004_create_tabs_and_arrangements"
+        )
         try databaseQueue.write { database in
-            try createLegacyTabGraphStorageBeforeLayoutRepair(database)
-            try markCompletedCoreMigrationsBeforeTabGraphLayoutRepair(database)
             try seedLegacyCorruptTabGraphStorage(database, fixture: fixture)
         }
 
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "005_repair_tab_graph_layout_storage"
+        )
 
         let repairCounts = try databaseQueue.read { database in
             try fetchTabGraphStorageRepairCounts(database)
@@ -87,9 +92,11 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
         let staleDrawerDividerId = UUID().uuidString
         let retainedDrawerDividerId = UUID().uuidString
 
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "004_create_tabs_and_arrangements"
+        )
         try databaseQueue.write { database in
-            try createLegacyTabGraphStorageBeforeLayoutRepair(database)
-            try markCompletedCoreMigrationsBeforeTabGraphLayoutRepair(database)
             try seedTabGraphStorageFixture(database, fixture: fixture)
             try insertPane(database, workspaceId: fixture.workspaceId, paneId: layoutSecondPaneId)
             try insertPane(
@@ -152,7 +159,10 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
             )
         }
 
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "005_repair_tab_graph_layout_storage"
+        )
 
         let retainedDividerIds = try databaseQueue.read { database in
             try fetchRetainedLayoutDividerIds(database)
@@ -213,212 +223,6 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
         try insertTabArrangement(database, fixture: fixture)
         try insertDrawer(database, fixture: fixture)
         try insertArrangementDrawerView(database, fixture: fixture)
-    }
-
-    private func createLegacyTabGraphStorageBeforeLayoutRepair(_ database: Database) throws {
-        for statement in legacyTabGraphStorageBeforeLayoutRepairStatements {
-            try database.execute(sql: statement)
-        }
-    }
-
-    private var legacyTabGraphStorageBeforeLayoutRepairStatements: [String] {
-        [
-            """
-            CREATE TABLE workspace (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
-            )
-            """,
-            """
-            CREATE TABLE watched_path (
-                id TEXT PRIMARY KEY,
-                workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-                path TEXT NOT NULL,
-                stable_key TEXT NOT NULL,
-                added_at REAL NOT NULL,
-                UNIQUE(workspace_id, stable_key)
-            )
-            """,
-            """
-            CREATE TABLE repo (
-                id TEXT PRIMARY KEY,
-                workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-                name TEXT NOT NULL,
-                repo_path TEXT NOT NULL,
-                stable_key TEXT NOT NULL,
-                created_at REAL NOT NULL,
-                UNIQUE(workspace_id, stable_key),
-                UNIQUE(id, workspace_id)
-            )
-            """,
-            """
-            CREATE TABLE worktree (
-                id TEXT PRIMARY KEY,
-                workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-                repo_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                path TEXT NOT NULL,
-                stable_key TEXT NOT NULL,
-                is_main_worktree INTEGER NOT NULL,
-                UNIQUE(workspace_id, stable_key),
-                UNIQUE(repo_id, stable_key),
-                FOREIGN KEY(repo_id, workspace_id)
-                    REFERENCES repo(id, workspace_id)
-                    ON DELETE CASCADE
-            )
-            """,
-            """
-            CREATE TABLE unavailable_repo (
-                workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-                repo_id TEXT NOT NULL,
-                PRIMARY KEY(workspace_id, repo_id),
-                FOREIGN KEY(repo_id, workspace_id)
-                    REFERENCES repo(id, workspace_id)
-                    ON DELETE CASCADE
-            )
-            """,
-            """
-            CREATE INDEX idx_repo_workspace_id ON repo(workspace_id)
-            """,
-            """
-            CREATE INDEX idx_worktree_workspace_id ON worktree(workspace_id)
-            """,
-            """
-            CREATE INDEX idx_worktree_repo_id ON worktree(repo_id)
-            """,
-            """
-            CREATE TABLE pane (
-                id TEXT PRIMARY KEY,
-                workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-                content_type TEXT NOT NULL,
-                execution_backend TEXT NOT NULL,
-                source_kind TEXT NOT NULL,
-                source_repo_id TEXT,
-                source_worktree_id TEXT,
-                launch_directory TEXT,
-                title TEXT,
-                cwd TEXT,
-                residency_kind TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                parent_pane_id TEXT REFERENCES pane(id) ON DELETE CASCADE,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
-            )
-            """,
-            """
-            CREATE TABLE pane_content_terminal (
-                pane_id TEXT PRIMARY KEY REFERENCES pane(id) ON DELETE CASCADE,
-                provider TEXT NOT NULL,
-                lifetime TEXT NOT NULL
-            )
-            """,
-            """
-            CREATE TABLE tab_shell (
-                id TEXT PRIMARY KEY,
-                workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-                name TEXT NOT NULL,
-                sort_index INTEGER NOT NULL
-            )
-            """,
-            """
-            CREATE TABLE tab_arrangement (
-                id TEXT PRIMARY KEY,
-                tab_id TEXT NOT NULL REFERENCES tab_shell(id) ON DELETE CASCADE,
-                name TEXT NOT NULL,
-                is_default INTEGER NOT NULL,
-                shows_minimized_panes INTEGER NOT NULL,
-                sort_index INTEGER NOT NULL
-            )
-            """,
-            """
-            CREATE TABLE arrangement_layout_pane (
-                arrangement_id TEXT NOT NULL REFERENCES tab_arrangement(id) ON DELETE CASCADE,
-                pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE,
-                sort_index INTEGER NOT NULL,
-                ratio REAL NOT NULL,
-                PRIMARY KEY(arrangement_id, pane_id),
-                UNIQUE(arrangement_id, sort_index)
-            )
-            """,
-            """
-            CREATE TABLE arrangement_layout_divider (
-                arrangement_id TEXT NOT NULL REFERENCES tab_arrangement(id) ON DELETE CASCADE,
-                divider_id TEXT NOT NULL,
-                sort_index INTEGER NOT NULL,
-                PRIMARY KEY(arrangement_id, divider_id),
-                UNIQUE(arrangement_id, sort_index)
-            )
-            """,
-            """
-            CREATE TABLE drawer (
-                id TEXT PRIMARY KEY,
-                parent_pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE
-            )
-            """,
-            """
-            CREATE TABLE arrangement_drawer_view (
-                arrangement_id TEXT NOT NULL REFERENCES tab_arrangement(id) ON DELETE CASCADE,
-                drawer_id TEXT NOT NULL REFERENCES drawer(id) ON DELETE CASCADE,
-                row_split_ratio REAL NOT NULL,
-                PRIMARY KEY(arrangement_id, drawer_id)
-            )
-            """,
-            """
-            CREATE TABLE drawer_view_layout_pane (
-                arrangement_id TEXT NOT NULL,
-                drawer_id TEXT NOT NULL,
-                row_kind TEXT NOT NULL,
-                pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE,
-                sort_index INTEGER NOT NULL,
-                ratio REAL NOT NULL,
-                PRIMARY KEY(arrangement_id, drawer_id, pane_id),
-                UNIQUE(arrangement_id, drawer_id, row_kind, sort_index),
-                FOREIGN KEY(arrangement_id, drawer_id)
-                    REFERENCES arrangement_drawer_view(arrangement_id, drawer_id)
-                    ON DELETE CASCADE
-            )
-            """,
-            """
-            CREATE TABLE drawer_view_layout_divider (
-                arrangement_id TEXT NOT NULL,
-                drawer_id TEXT NOT NULL,
-                row_kind TEXT NOT NULL,
-                divider_id TEXT NOT NULL,
-                sort_index INTEGER NOT NULL,
-                PRIMARY KEY(arrangement_id, drawer_id, row_kind, divider_id),
-                UNIQUE(arrangement_id, drawer_id, row_kind, sort_index),
-                FOREIGN KEY(arrangement_id, drawer_id)
-                    REFERENCES arrangement_drawer_view(arrangement_id, drawer_id)
-                    ON DELETE CASCADE
-            )
-            """,
-        ]
-    }
-
-    private func markCompletedCoreMigrationsBeforeTabGraphLayoutRepair(_ database: Database) throws {
-        try database.execute(
-            sql: """
-                CREATE TABLE grdb_migrations (
-                    identifier TEXT NOT NULL PRIMARY KEY
-                )
-                """
-        )
-        for migrationId in [
-            "001_create_workspace",
-            "002_create_repo_worktree_topology",
-            "003_create_panes",
-            "004_create_tabs_and_arrangements",
-        ] {
-            try database.execute(
-                sql: """
-                    INSERT INTO grdb_migrations(identifier)
-                    VALUES (?)
-                    """,
-                arguments: [migrationId]
-            )
-        }
     }
 
     private func seedLegacyCorruptTabGraphStorage(

@@ -14,7 +14,18 @@ enum FilesystemPathDisposition: Sendable, Equatable {
 /// - apply root-level `.gitignore` rules for projection payload suppression
 struct FilesystemPathFilter: Sendable {
     fileprivate static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemPathFilter")
+    static let empty = Self(ignoredRules: [])
+
     private let ignoredRules: [GitIgnoreRule]
+
+    var estimatedRetainedByteCount: Int {
+        ignoredRules.reduce(32) { partialResult, rule in
+            partialResult
+                + rule.originalPattern.utf8.count
+                + rule.compiledRegex.pattern.utf8.count
+                + 64
+        }
+    }
 
     static func load(forRootPath rootPath: URL) -> Self {
         let gitIgnorePath = rootPath.appending(path: ".gitignore")
@@ -27,7 +38,7 @@ struct FilesystemPathFilter: Sendable {
                 return Self(ignoredRules: [])
             }
             logger.warning(
-                "Failed to load .gitignore at \(gitIgnorePath.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                "Failed to load .gitignore at \(gitIgnorePath.path, privacy: .public): domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public) reason=\(Self.gitIgnoreReadFailureReason(nsError), privacy: .public)"
             )
             return Self(ignoredRules: [])
         }
@@ -91,6 +102,38 @@ struct FilesystemPathFilter: Sendable {
             normalizedPath.removeFirst()
         }
         return normalizedPath
+    }
+
+    private static func gitIgnoreReadFailureReason(_ error: NSError) -> String {
+        if error.domain == NSCocoaErrorDomain {
+            switch error.code {
+            case NSFileReadNoPermissionError:
+                return "fileReadNoPermission"
+            case NSFileReadNoSuchFileError:
+                return "fileReadNoSuchFile"
+            case NSFileReadInapplicableStringEncodingError:
+                return "fileReadEncoding"
+            case NSFileReadCorruptFileError:
+                return "fileReadCorrupt"
+            default:
+                break
+            }
+        }
+        if error.domain == NSPOSIXErrorDomain {
+            switch POSIXErrorCode(rawValue: Int32(error.code)) {
+            case .EACCES?:
+                return "permissionDenied"
+            case .EPERM?:
+                return "operationNotPermitted"
+            case .ENOENT?:
+                return "notFound"
+            case .EMFILE?, .ENFILE?:
+                return "tooManyOpenFiles"
+            default:
+                break
+            }
+        }
+        return "unknown"
     }
 }
 

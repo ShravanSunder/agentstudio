@@ -44,7 +44,7 @@ struct BridgePerformanceTraceRecorderTests {
         await recorder.record(
             sample: BridgeTelemetrySample(
                 scope: .webKit,
-                name: "performance.bridge.webkit.package_push",
+                name: "performance.bridge.webkit.push_envelope",
                 durationMilliseconds: 2,
                 traceContext: nil,
                 stringAttributes: [
@@ -60,7 +60,7 @@ struct BridgePerformanceTraceRecorderTests {
         let outputFileURL = try #require(runtime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"body\":\"performance.bridge.swift.package_build\""))
-        #expect(contents.contains("\"body\":\"performance.bridge.webkit.package_push\""))
+        #expect(contents.contains("\"body\":\"performance.bridge.webkit.push_envelope\""))
         #expect(contents.contains("\"agentstudio.trace.tag\":\"bridge.performance.swift\""))
         #expect(contents.contains("\"agentstudio.trace.tag\":\"bridge.performance.webkit\""))
         #expect(contents.contains("\"trace_id\":\"11111111111111111111111111111111\""))
@@ -120,6 +120,7 @@ struct BridgePerformanceTraceRecorderTests {
         await recorder.recordDrop(
             reason: .queueSaturated,
             droppedCount: 3,
+            firstRejectedEventName: nil,
             receivedAtUnixNano: 125
         )
         try await recorder.drain()

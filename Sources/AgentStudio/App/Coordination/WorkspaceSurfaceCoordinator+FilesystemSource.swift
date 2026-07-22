@@ -9,6 +9,11 @@ protocol WorkspaceFilesystemSourceManaging: AnyObject, Sendable {
     func assertTopology(_ assertion: FilesystemTopologyAssertion) async
     func setActivity(worktreeId: UUID, isActiveInApp: Bool) async
     func setActivePaneWorktree(worktreeId: UUID?) async
+    func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) async
+}
+
+extension WorkspaceFilesystemSourceManaging {
+    func setSidebarVisibleWorktrees(_: Set<UUID>) async {}
 }
 
 extension FilesystemActor: WorkspaceFilesystemSourceManaging {}
@@ -18,6 +23,7 @@ private struct FilesystemSourceSyncWriteMetrics {
     let registeredCount: Int
     let activityWriteCount: Int
     let activePaneWriteCount: Int
+    let sidebarVisibleWriteCount: Int
     let topologyGeneration: UInt64
     let filesystemSourceDuration: Duration
 }
@@ -58,6 +64,12 @@ extension WorkspaceSurfaceCoordinator {
     func scheduleActivePaneWorktreeUpdate() {
         filesystemAffectedKeyRequestCount &+= 1
         pendingActivePaneWorktreeUpdate = true
+        startFilesystemEffectTaskIfNeeded()
+    }
+
+    func scheduleSidebarVisibleWorktreesUpdate() {
+        guard hasPendingSidebarVisibleWorktreesUpdate else { return }
+        filesystemAffectedKeyRequestCount &+= 1
         startFilesystemEffectTaskIfNeeded()
     }
 
@@ -107,6 +119,10 @@ extension WorkspaceSurfaceCoordinator {
         let requestGeneration = filesystemProjectionRequestGeneration
         let capturedPaneContextGeneration = paneContextGeneration
         let capturedTopologyGeneration = filesystemAppliedTopologyGeneration
+
+        // Product invalidation owns exact repo/worktree identity and must not be
+        // discarded when the separately derived pane projection becomes stale.
+        await publishProductFileEnvelopeIfNeeded(envelope)
 
         let indexStart = clock.now
         let projectionResult = await filesystemProjectionIndex.projectPaneFilesystem(
@@ -171,6 +187,80 @@ extension WorkspaceSurfaceCoordinator {
         return PaneFilesystemProjectionAdmission.classify(worktreeEnvelope.event).performancePhase
     }
 
+    private func publishProductFileEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) async {
+        guard case .worktree(let worktreeEnvelope) = envelope else { return }
+        guard let worktreeId = worktreeEnvelope.worktreeId else { return }
+
+        // Close the observation callback scheduling gap before admitting work from
+        // this raw event. The same canonical facts remain the sole activity mint.
+        refreshBridgePaneActivities()
+
+        if let worktreeIdentity = productConstructionWorktreeIdentity(
+            for: worktreeEnvelope,
+            worktreeId: worktreeId
+        ) {
+            _ = await worktreeProductConstructionCoordinator.invalidate(
+                worktree: worktreeIdentity
+            )
+        }
+
+        for bridgeView in viewRegistry.allBridgeViews.values {
+            let controller = bridgeView.controller
+            guard controller.runtime.metadata.repoId == worktreeEnvelope.repoId,
+                controller.runtime.metadata.worktreeId == worktreeId
+            else {
+                continue
+            }
+            switch worktreeEnvelope.event {
+            case .filesystem(.filesChanged(let changeset)):
+                await controller.handleWorktreeProductInvalidation(
+                    .filesChanged(changeset)
+                )
+            case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
+                guard snapshot.worktreeId == worktreeId, snapshot.repoId == worktreeEnvelope.repoId else {
+                    continue
+                }
+                await controller.handleWorktreeProductInvalidation(
+                    .statusChanged(
+                        GitWorkingTreeStatus(
+                            summary: snapshot.summary,
+                            branch: snapshot.branch,
+                            origin: nil
+                        )
+                    )
+                )
+            case .filesystem, .gitWorkingDirectory, .forge, .security:
+                continue
+            }
+        }
+    }
+
+    private func productConstructionWorktreeIdentity(
+        for envelope: WorktreeEnvelope,
+        worktreeId: UUID
+    ) -> BridgeWorktreeIdentityKey? {
+        switch envelope.event {
+        case .filesystem(.filesChanged(let changeset)):
+            guard changeset.repoId == envelope.repoId,
+                changeset.worktreeId == worktreeId
+            else { return nil }
+        case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
+            guard snapshot.repoId == envelope.repoId,
+                snapshot.worktreeId == worktreeId
+            else { return nil }
+        case .filesystem, .gitWorkingDirectory, .forge, .security:
+            return nil
+        }
+        guard let repo = store.repositoryTopologyAtom.repo(envelope.repoId),
+            let worktree = repo.worktrees.first(where: { $0.id == worktreeId })
+        else { return nil }
+        return BridgeWorktreeIdentityKey(
+            repoIdentity: repo.id.uuidString,
+            worktreeIdentity: worktree.id.uuidString,
+            stableRootIdentity: StableKey.fromPath(worktree.path)
+        )
+    }
+
     func setupFilesystemSourceSync() {
         scheduleFilesystemRootAndActivitySync()
     }
@@ -214,6 +304,12 @@ extension WorkspaceSurfaceCoordinator {
         filesystemSyncRequested
             || !pendingFilesystemPaneUpdatesByPaneId.isEmpty
             || pendingActivePaneWorktreeUpdate
+            || hasPendingSidebarVisibleWorktreesUpdate
+    }
+
+    private var hasPendingSidebarVisibleWorktreesUpdate: Bool {
+        atom(\.sidebarVisibleWorktreesRuntime).visibleWorktreeIds
+            != filesystemLastSidebarVisibleWorktreeIds
     }
 
     private func performAffectedFilesystemEffectsPass() async {
@@ -222,6 +318,9 @@ extension WorkspaceSurfaceCoordinator {
         pendingFilesystemPaneUpdatesByPaneId.removeAll(keepingCapacity: true)
         let shouldUpdateActivePaneWorktree = pendingActivePaneWorktreeUpdate
         pendingActivePaneWorktreeUpdate = false
+        let sidebarVisibleWorktreeIds = atom(\.sidebarVisibleWorktreesRuntime).visibleWorktreeIds
+        let shouldUpdateSidebarVisibleWorktrees =
+            sidebarVisibleWorktreeIds != filesystemLastSidebarVisibleWorktreeIds
         var didApplyPaneEffect = false
 
         for paneUpdate in paneUpdates {
@@ -250,6 +349,12 @@ extension WorkspaceSurfaceCoordinator {
             }
         }
 
+        if shouldUpdateSidebarVisibleWorktrees {
+            await filesystemSource.setSidebarVisibleWorktrees(sidebarVisibleWorktreeIds)
+            guard !Task.isCancelled else { return }
+            filesystemLastSidebarVisibleWorktreeIds = sidebarVisibleWorktreeIds
+        }
+
         if didApplyPaneEffect {
             traceIdentityRefreshHandler?()
         }
@@ -273,6 +378,7 @@ extension WorkspaceSurfaceCoordinator {
         let topologyEntries = filesystemProjectionTopologyEntries()
         let paneEntries = filesystemProjectionPaneEntries()
         let activePaneWorktreeId = activePaneWorktree()
+        let sidebarVisibleWorktreeIds = atom(\.sidebarVisibleWorktreesRuntime).visibleWorktreeIds
 
         let indexStart = clock.now
         let syncDiff = await filesystemProjectionIndex.reconcileSourceSync(
@@ -284,7 +390,9 @@ extension WorkspaceSurfaceCoordinator {
                 appliedContextsByWorktreeId: filesystemRegisteredContextsByWorktreeId,
                 appliedActivityByWorktreeId: filesystemActivityByWorktreeId,
                 activePaneWorktreeId: activePaneWorktreeId,
-                appliedActivePaneWorktreeId: filesystemLastActivePaneWorktreeId
+                appliedActivePaneWorktreeId: filesystemLastActivePaneWorktreeId,
+                sidebarVisibleWorktreeIds: sidebarVisibleWorktreeIds,
+                appliedSidebarVisibleWorktreeIds: filesystemLastSidebarVisibleWorktreeIds
             )
         )
         let indexDuration = indexStart.duration(to: clock.now)
@@ -313,6 +421,7 @@ extension WorkspaceSurfaceCoordinator {
         filesystemRegisteredContextsByWorktreeId = syncDiff.contextsByWorktreeId
         filesystemActivityByWorktreeId = syncDiff.activityByWorktreeId
         filesystemLastActivePaneWorktreeId = syncDiff.activePaneWorktreeId
+        filesystemLastSidebarVisibleWorktreeIds = syncDiff.sidebarVisibleWorktreeIds
         filesystemAppliedTopologyGeneration = writeMetrics.topologyGeneration
         nextFilesystemProjectionSequenceByPaneId = nextFilesystemProjectionSequenceByPaneId.filter { paneId, _ in
             syncDiff.validPaneIds.contains(paneId)
@@ -328,6 +437,9 @@ extension WorkspaceSurfaceCoordinator {
                 "agentstudio.performance.coordinator.activity_write.count": .int(writeMetrics.activityWriteCount),
                 "agentstudio.performance.coordinator.active_pane_write.count": .int(
                     writeMetrics.activePaneWriteCount
+                ),
+                "agentstudio.performance.coordinator.sidebar_visible_write.count": .int(
+                    writeMetrics.sidebarVisibleWriteCount
                 ),
                 "agentstudio.performance.coordinator.filesystem_source_elapsed_ms": .double(
                     AgentStudioPerformanceTraceRecorder.milliseconds(from: writeMetrics.filesystemSourceDuration)
@@ -355,6 +467,7 @@ extension WorkspaceSurfaceCoordinator {
         var registeredCount = 0
         var activityWriteCount = 0
         var activePaneWriteCount = 0
+        var sidebarVisibleWriteCount = 0
 
         for worktreeId in syncDiff.unregisterWorktreeIds {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
@@ -404,6 +517,13 @@ extension WorkspaceSurfaceCoordinator {
             activePaneWriteCount = 1
         }
 
+        if syncDiff.shouldUpdateSidebarVisibleWorktrees {
+            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+            await filesystemSource.setSidebarVisibleWorktrees(syncDiff.sidebarVisibleWorktreeIds)
+            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+            sidebarVisibleWriteCount = 1
+        }
+
         guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
         filesystemTopologyAssertionGeneration &+= 1
         let topologyGeneration = filesystemTopologyAssertionGeneration
@@ -421,6 +541,7 @@ extension WorkspaceSurfaceCoordinator {
             registeredCount: registeredCount,
             activityWriteCount: activityWriteCount,
             activePaneWriteCount: activePaneWriteCount,
+            sidebarVisibleWriteCount: sidebarVisibleWriteCount,
             topologyGeneration: topologyGeneration,
             filesystemSourceDuration: sourceStart.duration(to: clock.now)
         )

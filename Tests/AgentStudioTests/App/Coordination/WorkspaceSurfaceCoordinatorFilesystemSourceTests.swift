@@ -61,6 +61,38 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
         #expect(firstActivePane < firstAssertTopology)
     }
 
+    @Test("sidebar visibility changes use the affected-key lane after bootstrap")
+    func sidebarVisibilityChangesUseAffectedKeyLaneAfterBootstrap() async {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let sidebarVisibleWorktreesAtom = atom(\.sidebarVisibleWorktreesRuntime)
+        sidebarVisibleWorktreesAtom.setVisibleWorktreeIds([])
+        defer { sidebarVisibleWorktreesAtom.setVisibleWorktreeIds([]) }
+
+        let source = OrderedRecordingFilesystemSource()
+        let coordinator = makeCoordinator(
+            store: harness.store,
+            source: source,
+            index: FilesystemProjectionIndex(),
+            bus: harness.bus
+        )
+
+        await source.waitForOperation(.assertTopology)
+        let bootstrapFullReconciliationCount = coordinator.filesystemFullReconciliationRequestCount
+        await source.resetOperations()
+
+        let visibleWorktreeIds: Set<UUID> = [UUID(), UUID()]
+        sidebarVisibleWorktreesAtom.setVisibleWorktreeIds(visibleWorktreeIds)
+        coordinator.scheduleSidebarVisibleWorktreesUpdate()
+
+        await source.waitForOperation(.sidebarVisibleWorktrees)
+        await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
+
+        #expect(await source.operations() == [.sidebarVisibleWorktrees(worktreeIds: visibleWorktreeIds)])
+        #expect(coordinator.filesystemFullReconciliationRequestCount == bootstrapFullReconciliationCount)
+        await coordinator.shutdown()
+    }
+
     @Test("stale source sync result is discarded before source side effects")
     func staleSourceSyncResultIsDiscardedBeforeSourceSideEffects() async throws {
         let harness = makeHarness()
@@ -535,6 +567,7 @@ enum FilesystemSourceOperation: Sendable, Equatable {
     case unregister(worktreeId: UUID)
     case activity(worktreeId: UUID, isActiveInApp: Bool)
     case activePane(worktreeId: UUID?)
+    case sidebarVisibleWorktrees(worktreeIds: Set<UUID>)
     case assertTopology(worktreeIds: Set<UUID>)
 
     var registeredWorktreeId: UUID? {
@@ -552,6 +585,8 @@ enum FilesystemSourceOperation: Sendable, Equatable {
             .activity
         case .activePane:
             .activePane
+        case .sidebarVisibleWorktrees:
+            .sidebarVisibleWorktrees
         case .assertTopology:
             .assertTopology
         }
@@ -588,6 +623,7 @@ enum FilesystemSourceOperationKind: Sendable, Equatable {
     case unregister
     case activity
     case activePane
+    case sidebarVisibleWorktrees
     case assertTopology
 }
 
@@ -605,6 +641,7 @@ actor OrderedRecordingFilesystemSource: WorkspaceFilesystemSourceManaging {
     private var operationWaiters: [FilesystemSourceOperationKind: [CheckedContinuation<Void, Never>]] = [:]
     private var operationCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var topologyWaiters: [(Set<UUID>, CheckedContinuation<Void, Never>)] = []
+    private var topologyCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var shouldPauseNextUnregister = false
     private var pausedUnregisterWaiters: [CheckedContinuation<Void, Never>] = []
     private var resumeUnregisterWaiters: [CheckedContinuation<Void, Never>] = []
@@ -657,6 +694,10 @@ actor OrderedRecordingFilesystemSource: WorkspaceFilesystemSourceManaging {
         appendOperation(.activePane(worktreeId: worktreeId))
     }
 
+    func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) async {
+        appendOperation(.sidebarVisibleWorktrees(worktreeIds: worktreeIds))
+    }
+
     func snapshot() -> OrderedFilesystemSourceSnapshot {
         OrderedFilesystemSourceSnapshot(
             registeredRoots: registeredRoots,
@@ -703,6 +744,8 @@ actor OrderedRecordingFilesystemSource: WorkspaceFilesystemSourceManaging {
                 .activity
             case .activePane:
                 .activePane
+            case .sidebarVisibleWorktrees:
+                .sidebarVisibleWorktrees
             case .assertTopology:
                 .assertTopology
             }
@@ -730,6 +773,13 @@ actor OrderedRecordingFilesystemSource: WorkspaceFilesystemSourceManaging {
         }
     }
 
+    func waitForAssertTopologyCount(atLeast minimumCount: Int) async {
+        if assertTopologyCount >= minimumCount { return }
+        await withCheckedContinuation { continuation in
+            topologyCountWaiters.append((minimumCount, continuation))
+        }
+    }
+
     private func appendOperation(_ operation: FilesystemSourceOperation) {
         operationLog.append(operation)
         let kind = operation.kind
@@ -747,6 +797,16 @@ actor OrderedRecordingFilesystemSource: WorkspaceFilesystemSourceManaging {
         }
         operationCountWaiters = remainingCountWaiters
         guard case .assertTopology(let worktreeIds) = operation else { return }
+        var remainingTopologyCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+        let currentAssertTopologyCount = assertTopologyCount
+        for (minimumCount, continuation) in topologyCountWaiters {
+            if currentAssertTopologyCount >= minimumCount {
+                continuation.resume()
+            } else {
+                remainingTopologyCountWaiters.append((minimumCount, continuation))
+            }
+        }
+        topologyCountWaiters = remainingTopologyCountWaiters
         var remainingWaiters: [(Set<UUID>, CheckedContinuation<Void, Never>)] = []
         for (expectedWorktreeIds, continuation) in topologyWaiters {
             if expectedWorktreeIds == worktreeIds {
@@ -756,6 +816,10 @@ actor OrderedRecordingFilesystemSource: WorkspaceFilesystemSourceManaging {
             }
         }
         topologyWaiters = remainingWaiters
+    }
+
+    private var assertTopologyCount: Int {
+        operationLog.filter(\.isAssertTopology).count
     }
 }
 

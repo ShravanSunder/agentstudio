@@ -1,0 +1,402 @@
+import { createHash } from 'node:crypto';
+import { readFile, realpath } from 'node:fs/promises';
+import { extname, relative, resolve, sep } from 'node:path';
+
+import { defaultBridgeWorktreeDevPorts, type BridgeWorktreeDevPorts } from './ports.ts';
+
+type WorktreeFileChangeKind = 'added' | 'copied' | 'deleted' | 'modified' | 'renamed';
+
+export interface BridgeWorktreeChangedFile {
+	readonly additions: number;
+	readonly baseContent: string | null;
+	readonly basePath: string | null;
+	readonly changeKind: WorktreeFileChangeKind;
+	readonly deletions: number;
+	readonly headContent: string | null;
+	readonly headPath: string | null;
+	readonly path: string;
+}
+
+export interface BridgeWorktreeDevSnapshot {
+	readonly changedFiles: readonly BridgeWorktreeChangedFile[];
+	readonly currentFilePaths: readonly string[];
+	readonly fingerprint: string;
+}
+
+interface GitNameStatusRecord {
+	readonly basePath: string | null;
+	readonly changeKind: WorktreeFileChangeKind;
+	readonly headPath: string | null;
+	readonly path: string;
+}
+
+export async function loadBridgeWorktreeDevSnapshot(props: {
+	readonly baseRef: string;
+	readonly worktreeRoot: string;
+}): Promise<BridgeWorktreeDevSnapshot> {
+	const worktreeRoot = await realpath(props.worktreeRoot);
+	const [changedFiles, currentFilePaths] = await Promise.all([
+		readChangedFiles({
+			baseRef: props.baseRef,
+			worktreeRoot,
+		}),
+		readCurrentWorktreeFilePaths(worktreeRoot),
+	]);
+	return {
+		changedFiles,
+		currentFilePaths,
+		fingerprint: fingerprintWorktreeSnapshot({ changedFiles, currentFilePaths }),
+	};
+}
+
+export async function bridgeWorktreeDevRootTokenForPath(
+	path: string,
+	ports: BridgeWorktreeDevPorts = defaultBridgeWorktreeDevPorts,
+	signal?: AbortSignal,
+): Promise<string> {
+	return `root-${hashText(await ports.realpath(path, signal)).slice(0, 32)}`;
+}
+
+async function readChangedFiles(props: {
+	readonly baseRef: string;
+	readonly worktreeRoot: string;
+}): Promise<readonly BridgeWorktreeChangedFile[]> {
+	const records = await gitNameStatusRecords(props);
+	const changedFiles = await Promise.all(
+		records.map(async (record): Promise<BridgeWorktreeChangedFile> => {
+			const [baseContent, headContent] = await Promise.all([
+				record.changeKind === 'added'
+					? Promise.resolve(null)
+					: gitShowOrNull(props.worktreeRoot, props.baseRef, record.basePath ?? record.path),
+				record.changeKind === 'deleted'
+					? Promise.resolve(null)
+					: readWorktreeFileText({ path: record.path, worktreeRoot: props.worktreeRoot }),
+			]);
+			const lineDelta = countLineDelta(baseContent, headContent);
+			return {
+				additions: lineDelta.additions,
+				baseContent,
+				basePath: record.basePath,
+				changeKind: record.changeKind,
+				deletions: lineDelta.deletions,
+				headContent,
+				headPath: record.headPath,
+				path: record.path,
+			};
+		}),
+	);
+	return changedFiles;
+}
+
+function fingerprintWorktreeSnapshot(props: {
+	readonly changedFiles: readonly BridgeWorktreeChangedFile[];
+	readonly currentFilePaths: readonly string[];
+}): string {
+	return hashText(
+		JSON.stringify({
+			changedFiles: props.changedFiles.map((changedFile) => ({
+				additions: changedFile.additions,
+				baseContentHash:
+					changedFile.baseContent === null ? null : hashText(changedFile.baseContent),
+				changeKind: changedFile.changeKind,
+				deletions: changedFile.deletions,
+				basePath: changedFile.basePath,
+				headContentHash:
+					changedFile.headContent === null ? null : hashText(changedFile.headContent),
+				headPath: changedFile.headPath,
+				path: changedFile.path,
+			})),
+			currentFilePaths: props.currentFilePaths,
+		}),
+	);
+}
+
+async function gitNameStatusRecords(props: {
+	readonly baseRef: string;
+	readonly worktreeRoot: string;
+}): Promise<readonly GitNameStatusRecord[]> {
+	const diffOutput = await gitStdout(props.worktreeRoot, [
+		'diff',
+		'--name-status',
+		'-z',
+		'--find-renames',
+		'--find-copies',
+		props.baseRef,
+		'--',
+	]);
+	const untrackedOutput = await gitStdout(props.worktreeRoot, [
+		'ls-files',
+		'--others',
+		'--exclude-standard',
+		'-z',
+	]);
+	const diffRecords = parseNameStatusRecords(diffOutput);
+	const untrackedRecords = untrackedOutput
+		.split('\0')
+		.filter((path) => path.length > 0)
+		.map(
+			(path): GitNameStatusRecord => ({
+				basePath: null,
+				changeKind: 'added',
+				headPath: path,
+				path,
+			}),
+		);
+	const recordByPath = new Map<string, GitNameStatusRecord>();
+	for (const record of [...diffRecords, ...untrackedRecords]) {
+		recordByPath.set(record.path, record);
+	}
+	return [...recordByPath.values()].toSorted((left, right) => left.path.localeCompare(right.path));
+}
+
+async function readCurrentWorktreeFilePaths(worktreeRoot: string): Promise<readonly string[]> {
+	const [currentFilesOutput, deletedFilesOutput] = await Promise.all([
+		gitStdout(worktreeRoot, ['ls-files', '--cached', '--others', '--exclude-standard', '-z']),
+		gitStdout(worktreeRoot, ['ls-files', '--deleted', '-z']),
+	]);
+	const deletedPaths = new Set(
+		deletedFilesOutput.split('\0').filter((path): boolean => path.length > 0),
+	);
+	const candidatePaths = currentFilesOutput
+		.split('\0')
+		.filter((path) => path.length > 0 && !deletedPaths.has(path));
+	return candidatePaths.toSorted((left, right) => left.localeCompare(right));
+}
+
+function parseNameStatusRecords(output: string): readonly GitNameStatusRecord[] {
+	const records: GitNameStatusRecord[] = [];
+	const fields = output.split('\0');
+	let fieldIndex = 0;
+	while (fieldIndex < fields.length) {
+		const status = fields[fieldIndex];
+		if (status === undefined || status.length === 0) {
+			fieldIndex += 1;
+			continue;
+		}
+		const hasSourcePath = status.startsWith('R') || status.startsWith('C');
+		const oldPath = hasSourcePath ? fields[fieldIndex + 1] : null;
+		const path = hasSourcePath ? fields[fieldIndex + 2] : fields[fieldIndex + 1];
+		fieldIndex += hasSourcePath ? 3 : 2;
+		if (path === undefined || path.length === 0 || oldPath === undefined) {
+			throw new Error(`Invalid git name-status record: ${status}`);
+		}
+		const changeKind = changeKindForGitStatus(status);
+		records.push({
+			basePath: changeKind === 'added' ? null : (oldPath ?? path),
+			changeKind,
+			headPath: changeKind === 'deleted' ? null : path,
+			path,
+		});
+	}
+	return records;
+}
+
+function changeKindForGitStatus(status: string): WorktreeFileChangeKind {
+	const statusKind = status[0] ?? '';
+	switch (statusKind) {
+		case 'A':
+			return 'added';
+		case 'C':
+			return 'copied';
+		case 'D':
+			return 'deleted';
+		case 'M':
+			return 'modified';
+		case 'R':
+			return 'renamed';
+		default:
+			return 'modified';
+	}
+}
+
+export async function resolveAllowedWorktreeRoot(
+	rawWorktreeRoot: string,
+	ports: BridgeWorktreeDevPorts = defaultBridgeWorktreeDevPorts,
+	signal?: AbortSignal,
+): Promise<string> {
+	const worktreeRoot = await ports.realpath(resolve(rawWorktreeRoot), signal);
+	const gitRoot = (
+		await gitStdout(worktreeRoot, ['rev-parse', '--show-toplevel'], ports, signal)
+	).trim();
+	const realGitRoot = await ports.realpath(gitRoot, signal);
+	if (worktreeRoot !== realGitRoot) {
+		throw new Error(`Bridge worktree dev provider root must be the git root: ${realGitRoot}`);
+	}
+	return worktreeRoot;
+}
+
+export async function resolveDefaultBaseRef(worktreeRoot: string): Promise<string> {
+	const remoteDefaultBranchMergeBase = await gitRemoteDefaultBranchMergeBaseOrNull(worktreeRoot);
+	if (remoteDefaultBranchMergeBase !== null) {
+		return remoteDefaultBranchMergeBase;
+	}
+	const mergeBaseCandidates = await Promise.all(
+		['origin/main', 'main', 'origin/master', 'master'].map(
+			async (candidateRef): Promise<string | null> =>
+				await gitMergeBaseOrNull(worktreeRoot, candidateRef),
+		),
+	);
+	return mergeBaseCandidates.find((mergeBase): mergeBase is string => mergeBase !== null) ?? 'HEAD';
+}
+
+async function gitRemoteDefaultBranchMergeBaseOrNull(worktreeRoot: string): Promise<string | null> {
+	try {
+		const defaultBranchRef = (
+			await gitStdout(worktreeRoot, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'])
+		).trim();
+		if (defaultBranchRef.length === 0) {
+			return null;
+		}
+		return await gitMergeBaseOrNull(worktreeRoot, defaultBranchRef);
+	} catch {
+		return null;
+	}
+}
+
+async function gitMergeBaseOrNull(
+	worktreeRoot: string,
+	candidateRef: string,
+): Promise<string | null> {
+	try {
+		const mergeBase = (await gitStdout(worktreeRoot, ['merge-base', 'HEAD', candidateRef])).trim();
+		return mergeBase.length === 0 ? null : mergeBase;
+	} catch {
+		return null;
+	}
+}
+
+export async function readWorktreeFileText(props: {
+	readonly path: string;
+	readonly worktreeRoot: string;
+}): Promise<string> {
+	const absolutePath = resolve(props.worktreeRoot, props.path);
+	if (!isPathInsideRoot({ absolutePath, rootPath: props.worktreeRoot })) {
+		throw new Error(`Bridge worktree path escapes root: ${props.path}`);
+	}
+	const realAbsolutePath = await realpath(absolutePath);
+	if (!isPathInsideRoot({ absolutePath: realAbsolutePath, rootPath: props.worktreeRoot })) {
+		throw new Error(`Bridge worktree path escapes root: ${props.path}`);
+	}
+	return await readFile(realAbsolutePath, 'utf8');
+}
+
+function isPathInsideRoot(props: {
+	readonly absolutePath: string;
+	readonly rootPath: string;
+}): boolean {
+	const relativePath = relative(props.rootPath, props.absolutePath);
+	return (
+		!relativePath.startsWith('..') && relativePath !== '' && !relativePath.split(sep).includes('..')
+	);
+}
+
+async function gitShowOrNull(
+	worktreeRoot: string,
+	baseRef: string,
+	path: string,
+): Promise<string | null> {
+	try {
+		return await gitStdout(worktreeRoot, ['show', `${baseRef}:${path}`]);
+	} catch {
+		return null;
+	}
+}
+
+async function gitStdout(
+	cwd: string,
+	args: readonly string[],
+	ports: BridgeWorktreeDevPorts = defaultBridgeWorktreeDevPorts,
+	signal?: AbortSignal,
+): Promise<string> {
+	// Dev-server only: production Swift-side Bridge git data prep must use agentstudio-git.
+	const bytes = await ports.runGit({ args, cwd, signal });
+	return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+}
+
+function countLineDelta(
+	baseContent: string | null,
+	headContent: string | null,
+): { readonly additions: number; readonly deletions: number } {
+	if (baseContent === null) {
+		return { additions: lineCount(headContent), deletions: 0 };
+	}
+	if (headContent === null) {
+		return { additions: 0, deletions: lineCount(baseContent) };
+	}
+	const baseLines = new Set(linesForDiff(baseContent));
+	const headLines = new Set(linesForDiff(headContent));
+	return {
+		additions: [...headLines].filter((line) => !baseLines.has(line)).length,
+		deletions: [...baseLines].filter((line) => !headLines.has(line)).length,
+	};
+}
+
+function linesForDiff(content: string): readonly string[] {
+	return content.split('\n').filter((line) => line.length > 0);
+}
+
+function lineCount(content: string | null | undefined): number {
+	return linesForDiff(content ?? '').length;
+}
+
+export function renderLineCount(content: string): number {
+	if (content.length === 0) {
+		return 0;
+	}
+	const renderedContent = content.endsWith('\n') ? content.slice(0, -1) : content;
+	return renderedContent.split('\n').length;
+}
+
+export function extensionForPath(path: string): string {
+	const extension = extname(path).replace(/^\./u, '');
+	return extension.length === 0 ? 'txt' : extension;
+}
+
+export function languageForExtension(extension: string): string {
+	switch (extension) {
+		case 'md':
+		case 'mdx':
+			return 'markdown';
+		case 'swift':
+			return 'swift';
+		case 'ts':
+		case 'tsx':
+			return 'typescript';
+		case 'js':
+		case 'jsx':
+			return 'javascript';
+		case 'json':
+			return 'json';
+		case 'yml':
+		case 'yaml':
+			return 'yaml';
+		default:
+			return 'text';
+	}
+}
+
+export function mimeTypeForExtension(extension: string): string {
+	switch (extension) {
+		case 'md':
+		case 'mdx':
+			return 'text/markdown';
+		case 'ts':
+		case 'tsx':
+			return 'text/typescript';
+		case 'js':
+		case 'jsx':
+			return 'text/javascript';
+		case 'json':
+			return 'application/json';
+		default:
+			return 'text/plain';
+	}
+}
+
+export function hashText(text: string): string {
+	return createHash('sha256').update(text).digest('hex');
+}
+
+export function byteLength(text: string): number {
+	return new TextEncoder().encode(text).byteLength;
+}

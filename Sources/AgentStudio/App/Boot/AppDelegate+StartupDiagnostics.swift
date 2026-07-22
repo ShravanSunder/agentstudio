@@ -1,49 +1,6 @@
 import AppKit
 import Foundation
 
-private struct CrossTabMoveGeometrySmokeFixture {
-    let sourceTabId: UUID
-    let destinationTabId: UUID
-    let movedPaneId: UUID
-    let sourceLeftPaneId: UUID
-    let targetPaneId: UUID
-    let otherDestinationPaneId: UUID
-
-    var paneIds: [UUID] {
-        [movedPaneId, sourceLeftPaneId, targetPaneId, otherDestinationPaneId]
-    }
-
-    var expectedVisiblePaneIdsAfterMove: [UUID] {
-        [movedPaneId, targetPaneId, otherDestinationPaneId]
-    }
-}
-
-struct CrossTabMoveGeometrySmokeRenderProof: Equatable {
-    let expectedVisiblePaneCount: Int
-    let terminalViewCount: Int
-    let surfaceIdCount: Int
-    let mountedSurfaceCount: Int
-    let validGeometryCount: Int
-
-    var succeeded: Bool {
-        expectedVisiblePaneCount > 0
-            && terminalViewCount == expectedVisiblePaneCount
-            && mountedSurfaceCount == expectedVisiblePaneCount
-            && validGeometryCount == expectedVisiblePaneCount
-    }
-
-    var attributes: [String: AgentStudioTraceValue] {
-        [
-            "agentstudio.startup_diagnostic.expected_visible_pane.count": .int(expectedVisiblePaneCount),
-            "agentstudio.startup_diagnostic.fixture.terminal_view.count": .int(terminalViewCount),
-            "agentstudio.startup_diagnostic.fixture.surface_reference.count": .int(surfaceIdCount),
-            "agentstudio.startup_diagnostic.fixture.surface.count": .int(mountedSurfaceCount),
-            "agentstudio.startup_diagnostic.fixture.valid_geometry.count": .int(validGeometryCount),
-            "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(succeeded),
-        ]
-    }
-}
-
 @MainActor
 extension AppDelegate {
     func runStartupDiagnosticActionIfRequested() {
@@ -79,6 +36,18 @@ extension AppDelegate {
                     await self.runIPCTerminalSmokeDiagnostic(action: action)
                 case .bridgeReviewObservabilitySmoke:
                     await self.runBridgeReviewObservabilitySmokeDiagnostic(action: action)
+                case .bridgeFileViewObservabilitySmoke:
+                    await self.runBridgeFileViewObservabilitySmokeDiagnostic(action: action)
+                case .bridgeFileViewCommandRouteObservabilitySmoke:
+                    await self.runBridgeFileViewCommandRouteObservabilitySmokeDiagnostic(action: action)
+                case .bridgeFileViewTargetedRouteObservabilitySmoke:
+                    await self.runBridgeFileViewTargetedRouteObservabilitySmokeDiagnostic(action: action)
+                case .bridgeReviewToFileViewObservabilitySmoke:
+                    await self.runBridgeReviewToFileViewObservabilitySmokeDiagnostic(action: action)
+                case .bridgeProductPaintCorrelation:
+                    await self.runBridgeProductPaintCorrelationDiagnostic(action: action)
+                case .bridgeProductStreamWebKitFeasibility:
+                    await self.runBridgeProductStreamWebKitFeasibilityDiagnostic(action: action)
                 case .sidebarPerformanceProof:
                     await self.runSidebarPerformanceProofDiagnostic(action: action)
             #endif
@@ -326,86 +295,6 @@ extension AppDelegate {
             )
         }
 
-        private func runBridgeReviewObservabilitySmokeDiagnostic(
-            action: AgentStudioStartupDiagnosticAction
-        ) async {
-            guard let pane = workspaceSurfaceCoordinator.openBridgeReviewObservabilitySmoke() else {
-                startupTraceRecorder.recordAppStartup(
-                    "app.startup_diagnostic_action.blocked",
-                    phase: "startup_diagnostic_action",
-                    outcome: "blocked",
-                    attributes: startupDiagnosticTraceAttributes(for: action).merging([
-                        "agentstudio.startup_diagnostic.skip_reason": .string("bridge_pane_creation_failed")
-                    ]) { _, newValue in newValue }
-                )
-                return
-            }
-
-            guard
-                let bridgeView = viewRegistry.view(for: pane.id)?
-                    .mountedContent(as: BridgePaneMountView.self)
-            else {
-                startupTraceRecorder.recordAppStartup(
-                    "app.startup_diagnostic_action.blocked",
-                    phase: "startup_diagnostic_action",
-                    outcome: "blocked",
-                    attributes: startupDiagnosticTraceAttributes(for: action).merging([
-                        "agentstudio.startup_diagnostic.skip_reason": .string("bridge_view_missing")
-                    ]) { _, newValue in newValue }
-                )
-                return
-            }
-
-            let commandId = UUIDv7.generate()
-            let result = await bridgeView.controller.handleDiffCommand(
-                .loadDiff(
-                    DiffArtifact(
-                        diffId: BridgeObservabilitySmokeReviewSourceProvider.diffId,
-                        worktreeId: BridgeObservabilitySmokeReviewSourceProvider.worktreeId,
-                        patchData: Data()
-                    )
-                ),
-                commandId: commandId,
-                correlationId: nil
-            )
-            let outcome: String
-            switch result {
-            case .success:
-                outcome = "succeeded"
-            case .queued:
-                outcome = "queued"
-            case .failure:
-                outcome = "blocked"
-            }
-            startupTraceRecorder.recordAppStartup(
-                "app.startup_diagnostic_action.command_exercised",
-                phase: "startup_diagnostic_action",
-                outcome: outcome,
-                attributes: startupDiagnosticTraceAttributes(for: action).merging(
-                    bridgeReviewObservabilitySmokeTraceAttributes(succeeded: outcome == "succeeded")
-                ) { _, newValue in newValue }
-            )
-            startupTraceRecorder.recordAppStartup(
-                outcome == "succeeded"
-                    ? "app.startup_diagnostic_action.completed"
-                    : "app.startup_diagnostic_action.blocked",
-                phase: "startup_diagnostic_action",
-                outcome: outcome,
-                attributes: startupDiagnosticTraceAttributes(for: action).merging(
-                    bridgeReviewObservabilitySmokeTraceAttributes(succeeded: outcome == "succeeded")
-                ) { _, newValue in newValue }
-            )
-        }
-
-        private func bridgeReviewObservabilitySmokeTraceAttributes(
-            succeeded: Bool
-        ) -> [String: AgentStudioTraceValue] {
-            [
-                "agentstudio.startup_diagnostic.expected_visible_pane.count": .int(1),
-                "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(succeeded),
-            ]
-        }
-
         private func runSidebarPerformanceProofDiagnostic(
             action: AgentStudioStartupDiagnosticAction
         ) async {
@@ -635,7 +524,7 @@ extension AppDelegate {
         )
     }
 
-    private func waitForStartupDiagnosticAppActivation() async {
+    func waitForStartupDiagnosticAppActivation() async {
         let clock = ContinuousClock()
         let start = clock.now
         while !NSApp.isActive
@@ -650,7 +539,7 @@ extension AppDelegate {
         }
     }
 
-    private func startupDiagnosticLaunchRestoreBounds() async -> CGRect? {
+    func startupDiagnosticLaunchRestoreBounds() async -> CGRect? {
         if windowLifecycleStore.isReadyForLaunchRestore {
             return windowLifecycleStore.terminalContainerBounds
         }
@@ -827,7 +716,7 @@ extension AppDelegate {
         )
     }
 
-    private func startupDiagnosticTraceAttributes(
+    func startupDiagnosticTraceAttributes(
         for action: AgentStudioStartupDiagnosticAction
     ) -> [String: AgentStudioTraceValue] {
         [

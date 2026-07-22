@@ -4,7 +4,7 @@ import AgentStudioProgrammaticControl
 import Foundation
 import Testing
 
-@Suite("AgentStudio App IPC service command methods", .serialized)
+@Suite("AgentStudio App IPC service command methods")
 struct AgentStudioAppIPCServiceCommandTests {
     @Test("command execution auth separates unsafe debug from automation and explicit UI presentation")
     func commandExecutionAuthSeparatesUnsafeDebugFromAutomationAndExplicitUIPresentation() async throws {

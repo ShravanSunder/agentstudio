@@ -34,6 +34,32 @@ struct FilesystemSourceSyncRequest: Sendable, Equatable {
     let appliedActivityByWorktreeId: [UUID: Bool]
     let activePaneWorktreeId: UUID?
     let appliedActivePaneWorktreeId: UUID?
+    let sidebarVisibleWorktreeIds: Set<UUID>
+    let appliedSidebarVisibleWorktreeIds: Set<UUID>
+
+    init(
+        requestGeneration: UInt64,
+        paneContextGeneration: UInt64,
+        topologyEntries: [FilesystemProjectionTopologyEntry],
+        paneEntries: [FilesystemProjectionPaneEntry],
+        appliedContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:],
+        appliedActivityByWorktreeId: [UUID: Bool],
+        activePaneWorktreeId: UUID?,
+        appliedActivePaneWorktreeId: UUID?,
+        sidebarVisibleWorktreeIds: Set<UUID> = [],
+        appliedSidebarVisibleWorktreeIds: Set<UUID> = []
+    ) {
+        self.requestGeneration = requestGeneration
+        self.paneContextGeneration = paneContextGeneration
+        self.topologyEntries = topologyEntries
+        self.paneEntries = paneEntries
+        self.appliedContextsByWorktreeId = appliedContextsByWorktreeId
+        self.appliedActivityByWorktreeId = appliedActivityByWorktreeId
+        self.activePaneWorktreeId = activePaneWorktreeId
+        self.appliedActivePaneWorktreeId = appliedActivePaneWorktreeId
+        self.sidebarVisibleWorktreeIds = sidebarVisibleWorktreeIds
+        self.appliedSidebarVisibleWorktreeIds = appliedSidebarVisibleWorktreeIds
+    }
 }
 
 struct FilesystemSourceSyncDiff: Sendable, Equatable {
@@ -56,6 +82,8 @@ struct FilesystemSourceSyncDiff: Sendable, Equatable {
     let activityByWorktreeId: [UUID: Bool]
     let activePaneWorktreeId: UUID?
     let shouldUpdateActivePaneWorktree: Bool
+    let sidebarVisibleWorktreeIds: Set<UUID>
+    let shouldUpdateSidebarVisibleWorktrees: Bool
     let validPaneIds: Set<UUID>
     let validWorktreeIds: Set<UUID>
 }

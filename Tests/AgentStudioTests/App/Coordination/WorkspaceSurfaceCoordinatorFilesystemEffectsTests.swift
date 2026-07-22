@@ -37,67 +37,69 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
 
     @Test("active tab selection writes only the changed active worktree")
     func activeTabSelectionWritesOnlyChangedActiveWorktree() async throws {
-        let context = makeContext(named: "active-selection")
-        defer { try? FileManager.default.removeItem(at: context.tempDirectory) }
-        let repo = context.store.addRepo(at: context.tempDirectory.appending(path: "repo"))
-        let firstWorktree = try #require(context.store.repo(repo.id)?.worktrees.first { $0.isMainWorktree })
-        let secondCandidate = Worktree(
-            repoId: repo.id,
-            name: "second",
-            path: repo.repoPath.appending(path: "second")
-        )
-        context.store.reconcileDiscoveredWorktrees(repo.id, worktrees: [firstWorktree, secondCandidate])
-        let secondWorktree = try #require(
-            context.store.repo(repo.id)?.worktrees.first { $0.path == secondCandidate.path }
-        )
-        let firstPane = context.store.createPane(
-            launchDirectory: firstWorktree.path,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: firstWorktree.id, cwd: firstWorktree.path)
-        )
-        let secondPane = context.store.createPane(
-            launchDirectory: secondWorktree.path,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: secondWorktree.id, cwd: secondWorktree.path)
-        )
-        let firstTab = Tab(paneId: firstPane.id)
-        let secondTab = Tab(paneId: secondPane.id)
-        context.store.appendTab(firstTab)
-        context.store.appendTab(secondTab)
-        context.store.setActiveTab(firstTab.id)
-        let source = OrderedRecordingFilesystemSource()
-        let coordinator = makeCoordinator(context: context, source: source)
-        defer { Task { await coordinator.shutdown() } }
-        await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
-        await source.resetOperations()
-
-        let focusExecutor = PaneFocusExecutor(
-            hostViewProvider: { _ in nil },
-            hostViewsProvider: { [] },
-            selectTab: { context.store.setActiveTab($0) },
-            selectPane: { _, _ in },
-            selectDrawerPane: { _, _ in },
-            selectEmptyDrawer: { _ in },
-            syncRuntimeFocus: { _ in }
-        )
-        let focusDecision = PaneCommandFocusDecider.decide(
-            trigger: .selectTab(secondTab.id),
-            context: PaneFocusContext(
-                activeTabId: firstTab.id,
-                activePaneId: firstPane.id,
-                activeDrawer: nil,
-                targetPaneId: secondPane.id,
-                targetTabId: secondTab.id,
-                targetPaneKind: .terminal,
-                targetPaneIsAlreadyActive: false,
-                targetMountedContent: .unmounted,
-                managementLayer: .inactive,
-                windowState: .key
+        try await withAsyncTestAtomRegistry { _ in
+            let context = makeContext(named: "active-selection")
+            defer { try? FileManager.default.removeItem(at: context.tempDirectory) }
+            let repo = context.store.addRepo(at: context.tempDirectory.appending(path: "repo"))
+            let firstWorktree = try #require(context.store.repo(repo.id)?.worktrees.first { $0.isMainWorktree })
+            let secondCandidate = Worktree(
+                repoId: repo.id,
+                name: "second",
+                path: repo.repoPath.appending(path: "second")
             )
-        )
-        focusExecutor.apply(.command(focusDecision))
-        await source.waitForOperationCount(1)
-        await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
+            context.store.reconcileDiscoveredWorktrees(repo.id, worktrees: [firstWorktree, secondCandidate])
+            let secondWorktree = try #require(
+                context.store.repo(repo.id)?.worktrees.first { $0.path == secondCandidate.path }
+            )
+            let firstPane = context.store.createPane(
+                launchDirectory: firstWorktree.path,
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: firstWorktree.id, cwd: firstWorktree.path)
+            )
+            let secondPane = context.store.createPane(
+                launchDirectory: secondWorktree.path,
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: secondWorktree.id, cwd: secondWorktree.path)
+            )
+            let firstTab = Tab(paneId: firstPane.id)
+            let secondTab = Tab(paneId: secondPane.id)
+            context.store.appendTab(firstTab)
+            context.store.appendTab(secondTab)
+            context.store.setActiveTab(firstTab.id)
+            let source = OrderedRecordingFilesystemSource()
+            let coordinator = makeCoordinator(context: context, source: source)
+            defer { Task { await coordinator.shutdown() } }
+            await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
+            await source.resetOperations()
 
-        #expect(await source.operations() == [.activePane(worktreeId: secondWorktree.id)])
+            let focusExecutor = PaneFocusExecutor(
+                hostViewProvider: { _ in nil },
+                hostViewsProvider: { [] },
+                selectTab: { context.store.setActiveTab($0) },
+                selectPane: { _, _ in },
+                selectDrawerPane: { _, _ in },
+                selectEmptyDrawer: { _ in },
+                syncRuntimeFocus: { _ in }
+            )
+            let focusDecision = PaneCommandFocusDecider.decide(
+                trigger: .selectTab(secondTab.id),
+                context: PaneFocusContext(
+                    activeTabId: firstTab.id,
+                    activePaneId: firstPane.id,
+                    activeDrawer: nil,
+                    targetPaneId: secondPane.id,
+                    targetTabId: secondTab.id,
+                    targetPaneKind: .terminal,
+                    targetPaneIsAlreadyActive: false,
+                    targetMountedContent: .unmounted,
+                    managementLayer: .inactive,
+                    windowState: .key
+                )
+            )
+            focusExecutor.apply(.command(focusDecision))
+            await source.waitForOperationCount(1)
+            await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
+
+            #expect(await source.operations() == [.activePane(worktreeId: secondWorktree.id)])
+        }
     }
 
     @Test("direct worktree open writes only the changed active worktree")

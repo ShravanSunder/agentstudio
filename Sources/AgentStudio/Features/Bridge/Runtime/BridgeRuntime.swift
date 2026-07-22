@@ -148,18 +148,9 @@ final class BridgeRuntime: BusPostingPaneRuntime {
         )
     }
 
-    func recordCommandAck(_ ack: CommandAck) {
-        paneState.recordAck(ack)
-    }
-
-    func clearCommandAcks() {
-        paneState.clearAcks()
-    }
-
     func resetForControllerTeardown() {
         guard lifecycle != .terminated else { return }
         eventChannel.finishSubscribers()
-        clearCommandAcks()
     }
 
     private static func capabilities(for contentType: PaneContentType) -> Set<PaneCapability> {

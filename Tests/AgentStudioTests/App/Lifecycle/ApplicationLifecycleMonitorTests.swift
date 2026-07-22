@@ -17,6 +17,25 @@ struct ApplicationLifecycleMonitorTests {
         )
     }
 
+    @Test("routes application active and inactive facts")
+    func routesApplicationActivityFacts() {
+        // Arrange
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
+        let monitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appStore,
+            windowLifecycleStore: windowStore
+        )
+
+        // Act and assert: active
+        monitor.handleApplicationDidBecomeActive()
+        #expect(appStore.isActive)
+
+        // Act and assert: inactive
+        monitor.handleApplicationDidResignActive()
+        #expect(!appStore.isActive)
+    }
+
     @Test("marks termination synchronously when willTerminate ingress arrives")
     func test_applicationLifecycleMonitor_marksTerminationSynchronously() {
         let appStore = AppLifecycleAtom()
@@ -48,6 +67,33 @@ struct ApplicationLifecycleMonitorTests {
         #expect(windowStore.registeredWindowIds.contains(windowId))
         #expect(windowStore.keyWindowId == nil)
         #expect(windowStore.focusedWindowId == nil)
+    }
+
+    @Test("writes complete AppKit window presentation facts")
+    func writesCompleteWindowPresentationFacts() throws {
+        // Arrange
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
+        let monitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appStore,
+            windowLifecycleStore: windowStore
+        )
+        let windowId = UUID()
+        monitor.handleWindowRegistered(windowId)
+
+        // Act
+        monitor.handleWindowPresentationChanged(
+            windowId,
+            isVisible: true,
+            isMiniaturized: false,
+            isOccluded: false
+        )
+
+        // Assert
+        #expect(
+            try #require(windowStore.presentationFacts(for: windowId))
+                == WindowPresentationFacts(isVisible: true, isMiniaturized: false, isOccluded: false)
+        )
     }
 
     @Test("writes terminal container bounds to the window lifecycle store")

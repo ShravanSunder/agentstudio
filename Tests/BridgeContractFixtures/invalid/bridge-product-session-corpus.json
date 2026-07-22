@@ -1,0 +1,1553 @@
+{
+  "cases": [
+    {
+      "name": "obsolete generic product command payload",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "product.command",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-generic-1",
+        "requestSequence": 1,
+        "command": {
+          "name": "review.refresh",
+          "payload": {
+            "arbitrary": true
+          }
+        }
+      }
+    },
+    {
+      "name": "unsupported product wire version",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "workerSession.open",
+        "wireVersion": 1,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-old-wire-1",
+        "requestSequence": 1,
+        "request": null
+      }
+    },
+    {
+      "name": "mark viewed call uses legacy fileId",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "product.call",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 7,
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-call-1",
+        "requestSequence": 1,
+        "call": {
+          "method": "review.markFileViewed",
+          "request": {
+            "fileId": "review-item-1"
+          }
+        }
+      }
+    },
+    {
+      "name": "empty call result uses object instead of null",
+      "contract": "controlResponse",
+      "value": {
+        "kind": "call.completed",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-call-1",
+        "requestSequence": 1,
+        "call": {
+          "method": "review.markFileViewed",
+          "result": {}
+        }
+      }
+    },
+    {
+      "name": "empty worker session request uses object instead of null",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "workerSession.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-open-1",
+        "requestSequence": 1,
+        "request": {}
+      }
+    },
+    {
+      "name": "review subscription receives file source configuration",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "subscription.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 7,
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-subscription-open-1",
+        "requestSequence": 1,
+        "subscriptionId": "review-subscription-1",
+        "subscription": {
+          "subscriptionKind": "review.metadata",
+          "source": {
+            "cwdScope": null,
+            "freshness": "live",
+            "includeStatuses": true,
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootPathToken": "root-token-1",
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          }
+        }
+      }
+    },
+    {
+      "name": "legacy subscription update carries whole options",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "subscription.update",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-subscription-update-legacy-1",
+        "requestSequence": 2,
+        "subscriptionId": "review-subscription-1",
+        "subscription": {
+          "subscriptionKind": "review.metadata",
+          "options": {
+            "interests": [
+              {
+                "itemIds": [
+                  "review-item-1"
+                ],
+                "lane": "visible"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "subscription update batch cross-wires its typed delta",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "subscription.updateBatch",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 7,
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-subscription-update-cross-wire-1",
+        "requestSequence": 2,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "updateId": "review-interest-update-1",
+        "baseInterestRevision": 0,
+        "baseInterestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+        "targetInterestRevision": 1,
+        "targetInterestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+        "batchIndex": 0,
+        "batchCount": 1,
+        "totalDeltaItemCount": 1,
+        "delta": {
+          "subscriptionKind": "file.metadata",
+          "add": [
+            {
+              "path": "src/file.ts",
+              "lane": "visible"
+            }
+          ],
+          "removePaths": [],
+          "addPathScope": [],
+          "removePathScope": []
+        }
+      }
+    },
+    {
+      "name": "subscription update batch skips an interest revision",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "subscription.updateBatch",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 7,
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-subscription-update-skip-1",
+        "requestSequence": 2,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "updateId": "review-interest-update-1",
+        "baseInterestRevision": 0,
+        "baseInterestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+        "targetInterestRevision": 2,
+        "targetInterestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+        "batchIndex": 0,
+        "batchCount": 1,
+        "totalDeltaItemCount": 1,
+        "delta": {
+          "subscriptionKind": "review.metadata",
+          "add": [
+            {
+              "itemId": "review-item-1",
+              "lane": "visible"
+            }
+          ],
+          "removeItemIds": []
+        }
+      }
+    },
+    {
+      "name": "subscription update batch index reaches its batch count",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "subscription.updateBatch",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 7,
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-subscription-update-index-1",
+        "requestSequence": 2,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "updateId": "review-interest-update-1",
+        "baseInterestRevision": 0,
+        "baseInterestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+        "targetInterestRevision": 1,
+        "targetInterestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+        "batchIndex": 1,
+        "batchCount": 1,
+        "totalDeltaItemCount": 1,
+        "delta": {
+          "subscriptionKind": "review.metadata",
+          "add": [
+            {
+              "itemId": "review-item-1",
+              "lane": "visible"
+            }
+          ],
+          "removeItemIds": []
+        }
+      }
+    },
+    {
+      "name": "subscription update batch is empty",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "subscription.updateBatch",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 7,
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-subscription-update-empty-1",
+        "requestSequence": 2,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "updateId": "review-interest-update-1",
+        "baseInterestRevision": 0,
+        "baseInterestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+        "targetInterestRevision": 1,
+        "targetInterestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+        "batchIndex": 0,
+        "batchCount": 1,
+        "totalDeltaItemCount": 1,
+        "delta": {
+          "subscriptionKind": "review.metadata",
+          "add": [],
+          "removeItemIds": []
+        }
+      }
+    },
+    {
+      "name": "review subscription removal uses an invalid item identifier",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "subscription.updateBatch",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 7,
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-subscription-update-invalid-removal-1",
+        "requestSequence": 2,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "updateId": "review-interest-update-1",
+        "baseInterestRevision": 0,
+        "baseInterestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+        "targetInterestRevision": 1,
+        "targetInterestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+        "batchIndex": 0,
+        "batchCount": 1,
+        "totalDeltaItemCount": 1,
+        "delta": {
+          "subscriptionKind": "review.metadata",
+          "add": [],
+          "removeItemIds": [
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "name": "resync repeats a subscription id",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "workerSession.resync",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-resync-1",
+        "requestSequence": 4,
+        "activeSubscriptions": [
+          {
+            "subscriptionId": "review-subscription-1",
+            "subscriptionKind": "review.metadata",
+            "interestRevision": 1,
+            "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+            "workerDerivationEpoch": 7
+          },
+          {
+            "subscriptionId": "review-subscription-1",
+            "subscriptionKind": "review.metadata",
+            "interestRevision": 1,
+            "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+            "workerDerivationEpoch": 7
+          }
+        ],
+        "lastAcceptedRequestSequence": 3,
+        "lastAcceptedStreamSequence": 2
+      }
+    },
+    {
+      "name": "metadata stream accepted uses negative sequence",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "metadataStream.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": -1,
+        "resumeDisposition": "snapshot_required"
+      }
+    },
+    {
+      "name": "subscription accepted starts above zero",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "subscription.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 7,
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 1,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "subscriptionSequence": 1,
+        "interestRevision": 0,
+        "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+        "sourceGeneration": 7,
+        "cursor": null
+      }
+    },
+    {
+      "name": "subscription data uses reserved sequence zero",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "subscription.data",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 7,
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 2,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "subscriptionSequence": 0,
+        "interestRevision": 1,
+        "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+        "sourceGeneration": 7,
+        "cursor": "review-cursor-1",
+        "data": {
+          "subscriptionKind": "review.metadata",
+          "event": {
+            "eventKind": "review.sourceAccepted",
+            "sourceIdentity": "review-source-1",
+            "packageId": "review-package-1",
+            "generation": 7,
+            "revision": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "review subscription frame carries file event",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "subscription.data",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 7,
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 2,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "subscriptionSequence": 1,
+        "interestRevision": 1,
+        "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+        "sourceGeneration": 7,
+        "cursor": "review-cursor-1",
+        "data": {
+          "subscriptionKind": "file.metadata",
+          "event": {
+            "eventKind": "file.sourceAccepted",
+            "source": {
+              "repoId": "00000000-0000-4000-8000-000000000001",
+              "rootRevisionToken": null,
+              "sourceCursor": "source-cursor-1",
+              "sourceId": "source-1",
+              "subscriptionGeneration": 11,
+              "worktreeId": "00000000-0000-4000-8000-000000000002"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "physical metadata frame carries surface identity",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "metadataStream.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 0,
+        "resumeDisposition": "snapshot_required",
+        "surface": "review"
+      }
+    },
+    {
+      "name": "subscription cursor exceeds its bounded opaque reference",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "subscription.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 7,
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 1,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "subscriptionSequence": 0,
+        "interestRevision": 0,
+        "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+        "sourceGeneration": 7,
+        "cursor": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "metadata stream request uses GET",
+      "contract": "metadataStreamRequest",
+      "value": {
+        "kind": "metadataStream.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "resumeFromStreamSequence": null,
+        "method": "GET"
+      }
+    },
+    {
+      "name": "review content kind is not frozen before S6b",
+      "contract": "contentRequest",
+      "value": {
+        "kind": "content.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 7,
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentKind": "review.content",
+        "descriptor": {
+          "contentKind": "review.content",
+          "descriptorId": "review-descriptor-1"
+        }
+      }
+    },
+    {
+      "name": "file content descriptor carries raw display path",
+      "contract": "contentRequest",
+      "value": {
+        "kind": "content.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 2,
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentKind": "file.content",
+        "descriptor": {
+          "contentKind": "file.content",
+          "declaredByteLength": 3,
+          "descriptorId": "file-descriptor-1",
+          "encoding": "utf-8",
+          "expectedSha256": null,
+          "fileId": "file-1",
+          "maximumBytes": 2097152,
+          "path": "src/file.ts",
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 2097152,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "file content source rejects non-RFC UUID variant",
+      "contract": "contentRequest",
+      "value": {
+        "kind": "content.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 2,
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentKind": "file.content",
+        "descriptor": {
+          "contentKind": "file.content",
+          "declaredByteLength": 3,
+          "descriptorId": "file-descriptor-1",
+          "encoding": "utf-8",
+          "expectedSha256": null,
+          "fileId": "file-1",
+          "maximumBytes": 2097152,
+          "source": {
+            "repoId": "00000000-0000-0000-0000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 2097152,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "content data uses reserved sequence zero",
+      "contract": "contentHeader",
+      "value": {
+        "kind": "content.data",
+        "contentSequence": 0,
+        "offsetBytes": 0
+      }
+    },
+    {
+      "name": "File content request maximum must equal its declaration",
+      "contract": "contentRequest",
+      "value": {
+        "kind": "content.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 2,
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentKind": "file.content",
+        "descriptor": {
+          "contentKind": "file.content",
+          "declaredByteLength": 3,
+          "descriptorId": "file-descriptor-1",
+          "encoding": "utf-8",
+          "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+          "fileId": "file-1",
+          "maximumBytes": 4,
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 4,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "File content request maximum exceeds the u32 stream range",
+      "contract": "contentRequest",
+      "value": {
+        "kind": "content.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 2,
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentKind": "file.content",
+        "descriptor": {
+          "contentKind": "file.content",
+          "declaredByteLength": 4294967296,
+          "descriptorId": "file-descriptor-1",
+          "encoding": "utf-8",
+          "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+          "fileId": "file-1",
+          "maximumBytes": 4294967296,
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 4294967296,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "content data offset exceeds the u32 stream range",
+      "contract": "contentHeader",
+      "value": {
+        "kind": "content.data",
+        "contentSequence": 1,
+        "offsetBytes": 4294967296
+      }
+    },
+    {
+      "name": "File content acceptance maximum must equal its declaration",
+      "contract": "contentHeader",
+      "value": {
+        "kind": "content.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 2,
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentSequence": 0,
+        "declaredByteLength": 3,
+        "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "maximumBytes": 4,
+        "identity": {
+          "contentKind": "file.content",
+          "descriptorId": "file-descriptor-1",
+          "fileId": "file-1",
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 4,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "content acceptance maximum exceeds the u32 stream range",
+      "contract": "contentHeader",
+      "value": {
+        "kind": "content.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 2,
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentSequence": 0,
+        "declaredByteLength": 4294967296,
+        "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "maximumBytes": 4294967296,
+        "identity": {
+          "contentKind": "file.content",
+          "descriptorId": "file-descriptor-1",
+          "fileId": "file-1",
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 4294967296,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "content end observed length exceeds the u32 stream range",
+      "contract": "contentHeader",
+      "value": {
+        "kind": "content.end",
+        "contentSequence": 1,
+        "endOfSource": true,
+        "observedByteLength": 4294967296,
+        "observedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+      }
+    },
+    {
+      "name": "content acceptance declares more bytes than its maximum",
+      "contract": "contentHeader",
+      "value": {
+        "kind": "content.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 2,
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentSequence": 0,
+        "declaredByteLength": 3,
+        "expectedSha256": null,
+        "maximumBytes": 2,
+        "identity": {
+          "contentKind": "file.content",
+          "descriptorId": "file-descriptor-1",
+          "fileId": "file-1",
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 2,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "content acceptance maximum conflicts with its identity window",
+      "contract": "contentHeader",
+      "value": {
+        "kind": "content.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerDerivationEpoch": 2,
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentSequence": 0,
+        "declaredByteLength": null,
+        "expectedSha256": null,
+        "maximumBytes": 3,
+        "identity": {
+          "contentKind": "file.content",
+          "descriptorId": "file-descriptor-1",
+          "fileId": "file-1",
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 2,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "content error leaks raw source text",
+      "contract": "contentHeader",
+      "value": {
+        "kind": "content.error",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentSequence": 2,
+        "code": "internal",
+        "retryable": false,
+        "safeMessage": "Unavailable.",
+        "rawError": "source text must not cross the boundary",
+        "identity": {
+          "contentKind": "file.content",
+          "descriptorId": "file-descriptor-1",
+          "fileId": "file-1",
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 2097152,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "bootstrap retains obsolete resource GET route",
+      "contract": "bootstrap",
+      "value": {
+        "kind": "productSession.bootstrap",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "initialSurface": "review",
+        "productCapabilityBytes": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "policy": {
+          "maximumContentBytes": 2097152,
+          "maximumControlRequestBytes": 65536,
+          "maximumMetadataFrameBytes": 262144,
+          "maximumQueuedStreamBytes": 4194304,
+          "maximumQueuedStreamFrames": 64,
+          "terminalFrameReserve": 1
+        },
+        "routes": {
+          "command": {
+            "method": "POST",
+            "url": "agentstudio://rpc/command"
+          },
+          "resource": {
+            "method": "GET",
+            "urlPrefix": "agentstudio://resource/"
+          },
+          "stream": {
+            "method": "POST",
+            "url": "agentstudio://rpc/stream"
+          }
+        }
+      }
+    },
+    {
+      "name": "pane worker session open carries forbidden global worker epoch",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "workerSession.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-open-1",
+        "requestSequence": 1,
+        "request": null,
+        "workerEpoch": 7
+      }
+    },
+    {
+      "name": "pane resync carries forbidden derivation epoch",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "workerSession.resync",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-resync-1",
+        "requestSequence": 7,
+        "activeSubscriptions": [
+          {
+            "subscriptionId": "review-subscription-1",
+            "subscriptionKind": "review.metadata",
+            "interestRevision": 1,
+            "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+            "workerDerivationEpoch": 7
+          },
+          {
+            "subscriptionId": "file-subscription-1",
+            "subscriptionKind": "file.metadata",
+            "workerDerivationEpoch": 2,
+            "interestRevision": 0,
+            "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b"
+          }
+        ],
+        "lastAcceptedRequestSequence": 6,
+        "lastAcceptedStreamSequence": 6,
+        "workerDerivationEpoch": 7
+      }
+    },
+    {
+      "name": "control response carries forbidden global worker epoch",
+      "contract": "controlResponse",
+      "value": {
+        "kind": "workerSession.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-open-1",
+        "requestSequence": 1,
+        "result": null,
+        "workerEpoch": 7
+      }
+    },
+    {
+      "name": "control response carries forbidden derivation epoch",
+      "contract": "controlResponse",
+      "value": {
+        "kind": "workerSession.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-open-1",
+        "requestSequence": 1,
+        "result": null,
+        "workerDerivationEpoch": 7
+      }
+    },
+    {
+      "name": "metadata stream open carries forbidden global worker epoch",
+      "contract": "metadataStreamRequest",
+      "value": {
+        "kind": "metadataStream.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "resumeFromStreamSequence": null,
+        "workerEpoch": 7
+      }
+    },
+    {
+      "name": "metadata stream open carries forbidden derivation epoch",
+      "contract": "metadataStreamRequest",
+      "value": {
+        "kind": "metadataStream.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "resumeFromStreamSequence": null,
+        "workerDerivationEpoch": 7
+      }
+    },
+    {
+      "name": "metadata stream accepted carries forbidden global worker epoch",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "metadataStream.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 0,
+        "resumeDisposition": "snapshot_required",
+        "workerEpoch": 7
+      }
+    },
+    {
+      "name": "metadata stream accepted carries forbidden derivation epoch",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "metadataStream.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 0,
+        "resumeDisposition": "snapshot_required",
+        "workerDerivationEpoch": 7
+      }
+    },
+    {
+      "name": "metadata stream error carries forbidden derivation epoch",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "metadataStream.error",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 13,
+        "code": "internal",
+        "retryable": false,
+        "safeMessage": null,
+        "workerDerivationEpoch": 7
+      }
+    },
+    {
+      "name": "surface product call uses forbidden global worker epoch",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "product.call",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-call-1",
+        "requestSequence": 2,
+        "call": {
+          "method": "review.markFileViewed",
+          "request": {
+            "itemId": "review-item-1"
+          }
+        },
+        "workerEpoch": 7
+      }
+    },
+    {
+      "name": "surface subscription push uses forbidden global worker epoch",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "subscription.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 1,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "subscriptionSequence": 0,
+        "interestRevision": 0,
+        "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+        "sourceGeneration": 7,
+        "cursor": null,
+        "workerEpoch": 7
+      }
+    },
+    {
+      "name": "surface content open uses forbidden global worker epoch",
+      "contract": "contentRequest",
+      "value": {
+        "kind": "content.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentKind": "file.content",
+        "descriptor": {
+          "contentKind": "file.content",
+          "declaredByteLength": 3,
+          "descriptorId": "file-descriptor-1",
+          "encoding": "utf-8",
+          "expectedSha256": null,
+          "fileId": "file-1",
+          "maximumBytes": 2097152,
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 2097152,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        },
+        "workerEpoch": 2
+      }
+    },
+    {
+      "name": "surface content accepted uses forbidden global worker epoch",
+      "contract": "contentHeader",
+      "value": {
+        "kind": "content.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentSequence": 0,
+        "declaredByteLength": 3,
+        "expectedSha256": null,
+        "maximumBytes": 2097152,
+        "identity": {
+          "contentKind": "file.content",
+          "descriptorId": "file-descriptor-1",
+          "fileId": "file-1",
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 2097152,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        },
+        "workerEpoch": 2
+      }
+    },
+    {
+      "name": "surface product call omits derivation epoch",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "product.call",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-call-1",
+        "requestSequence": 2,
+        "call": {
+          "method": "review.markFileViewed",
+          "request": {
+            "itemId": "review-item-1"
+          }
+        }
+      }
+    },
+    {
+      "name": "surface subscription open omits derivation epoch",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "subscription.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-review-subscription-open-1",
+        "requestSequence": 3,
+        "subscriptionId": "review-subscription-1",
+        "subscription": {
+          "subscriptionKind": "review.metadata"
+        }
+      }
+    },
+    {
+      "name": "surface subscription update omits derivation epoch",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "subscription.updateBatch",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-review-subscription-update-batch-1",
+        "requestSequence": 5,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "updateId": "review-interest-update-1",
+        "baseInterestRevision": 0,
+        "baseInterestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+        "targetInterestRevision": 1,
+        "targetInterestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+        "batchIndex": 0,
+        "batchCount": 1,
+        "totalDeltaItemCount": 2,
+        "delta": {
+          "subscriptionKind": "review.metadata",
+          "add": [
+            {
+              "itemId": "review-item-1",
+              "lane": "foreground"
+            },
+            {
+              "itemId": "review-item-2",
+              "lane": "visible"
+            }
+          ],
+          "removeItemIds": []
+        }
+      }
+    },
+    {
+      "name": "surface subscription cancel omits derivation epoch",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "subscription.cancel",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-file-subscription-cancel-1",
+        "requestSequence": 6,
+        "subscriptionId": "file-subscription-1",
+        "subscriptionKind": "file.metadata"
+      }
+    },
+    {
+      "name": "active resync entry omits derivation epoch",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "workerSession.resync",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-resync-1",
+        "requestSequence": 7,
+        "activeSubscriptions": [
+          {
+            "subscriptionId": "review-subscription-1",
+            "subscriptionKind": "review.metadata",
+            "interestRevision": 1,
+            "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd"
+          },
+          {
+            "subscriptionId": "file-subscription-1",
+            "subscriptionKind": "file.metadata",
+            "workerDerivationEpoch": 2,
+            "interestRevision": 0,
+            "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b"
+          }
+        ],
+        "lastAcceptedRequestSequence": 6,
+        "lastAcceptedStreamSequence": 6
+      }
+    },
+    {
+      "name": "same-surface resync entries carry conflicting derivation epochs",
+      "contract": "controlRequest",
+      "value": {
+        "kind": "workerSession.resync",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "request-resync-1",
+        "requestSequence": 7,
+        "activeSubscriptions": [
+          {
+            "subscriptionId": "review-subscription-1",
+            "subscriptionKind": "review.metadata",
+            "interestRevision": 1,
+            "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+            "workerDerivationEpoch": 7
+          },
+          {
+            "subscriptionId": "review-subscription-conflict-2",
+            "subscriptionKind": "review.metadata",
+            "interestRevision": 1,
+            "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
+            "workerDerivationEpoch": 8
+          },
+          {
+            "subscriptionId": "file-subscription-1",
+            "subscriptionKind": "file.metadata",
+            "workerDerivationEpoch": 2,
+            "interestRevision": 0,
+            "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b"
+          }
+        ],
+        "lastAcceptedRequestSequence": 6,
+        "lastAcceptedStreamSequence": 6
+      }
+    },
+    {
+      "name": "subscription push frame omits derivation epoch",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "subscription.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 1,
+        "subscriptionId": "review-subscription-1",
+        "subscriptionKind": "review.metadata",
+        "subscriptionSequence": 0,
+        "interestRevision": 0,
+        "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
+        "sourceGeneration": 7,
+        "cursor": null
+      }
+    },
+    {
+      "name": "content cancelled frame omits derivation epoch",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "content.cancelled",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-1",
+        "streamSequence": 11,
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "disposition": "stopped",
+        "identity": {
+          "contentKind": "file.content",
+          "descriptorId": "file-descriptor-1",
+          "fileId": "file-1",
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 2097152,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "content open omits derivation epoch",
+      "contract": "contentRequest",
+      "value": {
+        "kind": "content.open",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentKind": "file.content",
+        "descriptor": {
+          "contentKind": "file.content",
+          "declaredByteLength": 3,
+          "descriptorId": "file-descriptor-1",
+          "encoding": "utf-8",
+          "expectedSha256": null,
+          "fileId": "file-1",
+          "maximumBytes": 2097152,
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 2097152,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "content accepted omits derivation epoch",
+      "contract": "contentHeader",
+      "value": {
+        "kind": "content.accepted",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "contentRequestId": "content-request-1",
+        "leaseId": "lease-1",
+        "contentSequence": 0,
+        "declaredByteLength": 3,
+        "expectedSha256": null,
+        "maximumBytes": 2097152,
+        "identity": {
+          "contentKind": "file.content",
+          "descriptorId": "file-descriptor-1",
+          "fileId": "file-1",
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
+          },
+          "window": {
+            "kind": "prefix",
+            "maximumBytes": 2097152,
+            "maximumLines": 10000,
+            "startByte": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "pane presentation uses unknown native activity",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "pane.presentation",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-presentation-1",
+        "streamSequence": 1,
+        "activityRevision": 1,
+        "nativeActivity": "background",
+        "refreshingLanes": []
+      }
+    },
+    {
+      "name": "pane presentation uses zero activity revision",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "pane.presentation",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-presentation-1",
+        "streamSequence": 1,
+        "activityRevision": 0,
+        "nativeActivity": "foreground",
+        "refreshingLanes": []
+      }
+    },
+    {
+      "name": "pane presentation activity revision exceeds safe integer",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "pane.presentation",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-presentation-1",
+        "streamSequence": 1,
+        "activityRevision": 9007199254740992,
+        "nativeActivity": "foreground",
+        "refreshingLanes": []
+      }
+    },
+    {
+      "name": "pane presentation repeats refreshing lane",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "pane.presentation",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-presentation-1",
+        "streamSequence": 1,
+        "activityRevision": 1,
+        "nativeActivity": "foreground",
+        "refreshingLanes": [
+          "file",
+          "file"
+        ]
+      }
+    },
+    {
+      "name": "pane presentation uses unknown refreshing lane",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "pane.presentation",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-presentation-1",
+        "streamSequence": 1,
+        "activityRevision": 1,
+        "nativeActivity": "foreground",
+        "refreshingLanes": [
+          "metadata"
+        ]
+      }
+    },
+    {
+      "name": "pane presentation uses noncanonical refreshing lane order",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "pane.presentation",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-presentation-1",
+        "streamSequence": 1,
+        "activityRevision": 1,
+        "nativeActivity": "foreground",
+        "refreshingLanes": [
+          "review",
+          "file"
+        ]
+      }
+    },
+    {
+      "name": "pane presentation carries unknown field",
+      "contract": "metadataFrame",
+      "value": {
+        "kind": "pane.presentation",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "metadataStreamId": "metadata-stream-presentation-1",
+        "streamSequence": 1,
+        "activityRevision": 1,
+        "nativeActivity": "foreground",
+        "refreshingLanes": [],
+        "surface": "file"
+      }
+    }
+  ]
+}

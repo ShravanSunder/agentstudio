@@ -65,10 +65,25 @@ final class WorkspaceActionExecutor {
         coordinator.openWebview(url: url)
     }
 
-    /// Open a new read-only Bridge review pane in a new tab.
+    func resolveBridgePaneCommand(worktreeId: UUID? = nil) -> BridgePaneCommandTarget? {
+        coordinator.resolveBridgePaneCommand(worktreeId: worktreeId)
+    }
+
     @discardableResult
-    func openBridgeReview() -> Pane? {
-        coordinator.openBridgeReview()
+    func requestBridgePaneSurface(_ surface: BridgeProductSurface, paneId: UUID) -> Bool {
+        coordinator.requestBridgePaneSurface(surface, paneId: paneId)
+    }
+
+    /// Open an independent read-only Bridge review pane in a new tab.
+    @discardableResult
+    func openBridgeReviewInNewTab(worktreeId: UUID? = nil) -> Pane? {
+        coordinator.openBridgeReviewInNewTab(worktreeId: worktreeId)
+    }
+
+    /// Open an independent Bridge file-viewer pane in a new tab.
+    @discardableResult
+    func openBridgeFilesInNewTab(worktreeId: UUID? = nil) -> Pane? {
+        coordinator.openBridgeFilesInNewTab(worktreeId: worktreeId)
     }
 
     @discardableResult
