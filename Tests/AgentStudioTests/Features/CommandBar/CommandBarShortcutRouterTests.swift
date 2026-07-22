@@ -52,7 +52,7 @@ struct CommandBarShortcutRouterTests {
             Issue.record("Expected row shortcut routing to execute the matching row")
             return
         }
-        #expect(item.title == "New pane in new tab")
+        #expect(item.title == "Open Terminal in New Tab")
     }
 
     @Test

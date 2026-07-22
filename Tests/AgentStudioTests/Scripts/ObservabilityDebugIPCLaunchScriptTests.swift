@@ -28,6 +28,8 @@ struct ObservabilityDebugIPCLaunchScriptTests {
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
+                "AGENTSTUDIO_OBSERVABILITY_VERIFY_ATTEMPTS": "1",
+                "AGENTSTUDIO_OBSERVABILITY_VERIFY_RETRY_DELAY_SECONDS": "0",
                 "AGENTSTUDIO_CURL_BIN": try fixture.executable(
                     "curl-missing-ipc-terminal-smoke",
                     """

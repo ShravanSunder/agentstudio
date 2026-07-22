@@ -35,11 +35,13 @@ final class AtomRegistry {
     let arrangementPanelPresentation: ArrangementPanelPresentationAtom
     let workspaceSidebarMemory: WorkspaceSidebarMemoryAtom
     let sidebarFocusRuntime: SidebarFocusRuntimeAtom
+    let sidebarVisibleWorktreesRuntime: SidebarVisibleWorktreesRuntimeAtom
     let workspaceSidebarState: WorkspaceSidebarState
     let managementLayer: ManagementLayerAtom
     let commandBarSurface: CommandBarSurfaceAtom
     let transientKeyboardSurface: TransientKeyboardSurfaceAtom
     let workspaceFocusOwner: WorkspaceFocusOwnerAtom
+    let bridgePaneAttendance: BridgePaneAttendanceAtom
     let sessionRuntime: SessionRuntimeAtom
     let welcome: WelcomeAtom
 
@@ -74,10 +76,12 @@ final class AtomRegistry {
         arrangementPanelPresentation: ArrangementPanelPresentationAtom = .init(),
         workspaceSidebarMemory: WorkspaceSidebarMemoryAtom = .init(),
         sidebarFocusRuntime: SidebarFocusRuntimeAtom = .init(),
+        sidebarVisibleWorktreesRuntime: SidebarVisibleWorktreesRuntimeAtom = .init(),
         managementLayer: ManagementLayerAtom = .init(),
         commandBarSurface: CommandBarSurfaceAtom = .init(),
         transientKeyboardSurface: TransientKeyboardSurfaceAtom = .init(),
         workspaceFocusOwner: WorkspaceFocusOwnerAtom = .init(),
+        bridgePaneAttendance: BridgePaneAttendanceAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init(),
         welcome: WelcomeAtom = .init()
     ) {
@@ -156,6 +160,7 @@ final class AtomRegistry {
         self.arrangementPanelPresentation = arrangementPanelPresentation
         self.workspaceSidebarMemory = workspaceSidebarMemory
         self.sidebarFocusRuntime = sidebarFocusRuntime
+        self.sidebarVisibleWorktreesRuntime = sidebarVisibleWorktreesRuntime
         self.workspaceSidebarState = WorkspaceSidebarState(
             memoryAtom: workspaceSidebarMemory,
             focusAtom: sidebarFocusRuntime
@@ -164,6 +169,7 @@ final class AtomRegistry {
         self.commandBarSurface = commandBarSurface
         self.transientKeyboardSurface = transientKeyboardSurface
         self.workspaceFocusOwner = workspaceFocusOwner
+        self.bridgePaneAttendance = bridgePaneAttendance
         self.sessionRuntime = sessionRuntime
         self.welcome = welcome
     }

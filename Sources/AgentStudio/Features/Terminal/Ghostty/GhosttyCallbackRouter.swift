@@ -9,6 +9,22 @@ extension Ghostty {
     /// and `action_cb` forwards the app pointer directly into `ActionRouter`.
     enum CallbackRouter {
         static func runtimeConfig(userdataPointer: UnsafeMutableRawPointer) -> ghostty_runtime_config_s {
+            runtimeConfig(
+                userdataPointer: userdataPointer,
+                actionCallback: { appPtr, target, action in
+                    guard let appPtr else {
+                        ghosttyLogger.fault("Ghostty action callback dropped: app pointer was nil")
+                        return false
+                    }
+                    return ActionRouter.handleAction(appPtr, target: target, action: action)
+                }
+            )
+        }
+
+        static func runtimeConfig(
+            userdataPointer: UnsafeMutableRawPointer,
+            actionCallback: ghostty_runtime_action_cb
+        ) -> ghostty_runtime_config_s {
             ghostty_runtime_config_s(
                 userdata: userdataPointer,
                 supports_selection_clipboard: true,
@@ -29,13 +45,7 @@ extension Ghostty {
                         app.tick()
                     }
                 },
-                action_cb: { appPtr, target, action in
-                    guard let appPtr else {
-                        ghosttyLogger.fault("Ghostty action callback dropped: app pointer was nil")
-                        return false
-                    }
-                    return ActionRouter.handleAction(appPtr, target: target, action: action)
-                },
+                action_cb: actionCallback,
                 read_clipboard_cb: { userdata, location, state in
                     Self.readClipboard(userdata, location: location, state: state)
                 },

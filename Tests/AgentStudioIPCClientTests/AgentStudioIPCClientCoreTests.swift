@@ -148,6 +148,229 @@ struct AgentStudioIPCClientCoreTests {
         )
     }
 
+    @Test("parses bridge diff commands")
+    func parsesBridgeDiffCommands() throws {
+        let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
+        let openInvocation = try parseIPCInvocation("bridge-diff-load", worktreeId.uuidString)
+        let openFileViewInvocation = try parseIPCInvocation(
+            "bridge-file-view-open",
+            worktreeId.uuidString
+        )
+        let refreshInvocation = try parseIPCInvocation("bridge-diff-refresh", "pane:2")
+        let packageInvocation = try parseIPCInvocation("bridge-diff-get-package", "pane:2")
+        let renderStateInvocation = try parseIPCInvocation("bridge-diff-render-state", "pane:2")
+        let selectInvocation = try parseIPCInvocation(
+            "bridge-diff-select-file",
+            "pane:2",
+            "item-source"
+        )
+        let scrollInvocation = try parseIPCInvocation(
+            "bridge-diff-scroll-to-file",
+            "pane:2",
+            "item-source"
+        )
+        let searchInvocation = try parseIPCInvocation(
+            "bridge-file-tree-search",
+            "pane:2",
+            "BridgePaneController"
+        )
+        let filterInvocation = try parseIPCInvocation(
+            "bridge-file-tree-set-filter",
+            "pane:2",
+            "modified",
+            "source"
+        )
+        let revealInvocation = try parseIPCInvocation(
+            "bridge-file-tree-reveal-path",
+            "pane:2",
+            "Sources/App/View.swift"
+        )
+        let markdownInvocation = try parseIPCInvocation(
+            "bridge-file-view-show-markdown-preview",
+            "pane:2",
+            "item-source"
+        )
+        let telemetryFlushInvocation = try parseIPCInvocation("bridge-telemetry-flush", "pane:2")
+        let telemetrySnapshotInvocation = try parseIPCInvocation("bridge-telemetry-snapshot", "pane:2")
+
+        #expect(
+            openInvocation.command
+                == .bridgeDiffLoad(IPCBridgeReviewOpenParams(worktreeId: worktreeId))
+        )
+        #expect(
+            openFileViewInvocation.command
+                == .bridgeFileViewOpen(IPCBridgeFileViewOpenParams(worktreeId: worktreeId))
+        )
+        #expect(refreshInvocation.command == .bridgeDiffRefresh(IPCBridgeReviewRefreshParams(handle: "pane:2")))
+        #expect(packageInvocation.command == .bridgeDiffGetPackage(handle: "pane:2"))
+        #expect(renderStateInvocation.command == .bridgeDiffRenderState(handle: "pane:2"))
+        #expect(
+            selectInvocation.command
+                == .bridgeDiffSelectFile(
+                    IPCBridgeReviewSelectFileParams(handle: "pane:2", itemId: "item-source")
+                )
+        )
+        #expect(
+            scrollInvocation.command
+                == .bridgeDiffScrollToFile(
+                    IPCBridgeDiffScrollToFileParams(handle: "pane:2", itemId: "item-source")
+                )
+        )
+        #expect(
+            searchInvocation.command
+                == .bridgeFileTreeSearch(
+                    IPCBridgeFileTreeSearchParams(handle: "pane:2", searchText: "BridgePaneController")
+                )
+        )
+        #expect(
+            filterInvocation.command
+                == .bridgeFileTreeSetFilter(
+                    IPCBridgeFileTreeSetFilterParams(
+                        handle: "pane:2",
+                        gitStatusFilter: "modified",
+                        fileClassFilter: "source"
+                    )
+                )
+        )
+        #expect(
+            revealInvocation.command
+                == .bridgeFileTreeRevealPath(
+                    IPCBridgeFileTreeRevealPathParams(handle: "pane:2", path: "Sources/App/View.swift")
+                )
+        )
+        #expect(
+            markdownInvocation.command
+                == .bridgeFileViewShowMarkdownPreview(
+                    IPCBridgeFileViewShowMarkdownPreviewParams(handle: "pane:2", itemId: "item-source")
+                )
+        )
+        #expect(telemetrySnapshotInvocation.command == .bridgeTelemetrySnapshot(handle: "pane:2"))
+        #expect(telemetryFlushInvocation.command == .bridgeTelemetryFlush(handle: "pane:2"))
+    }
+
+    @Test("parses bridge diff expand and collapse commands")
+    func parsesBridgeDiffExpandAndCollapseCommands() throws {
+        let expandInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-diff-expand-file", "pane:2", "item-source"],
+            environment: [:]
+        )
+        let collapseInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-diff-collapse-file", "pane:2", "item-source"],
+            environment: [:]
+        )
+
+        #expect(
+            expandInvocation.command
+                == .bridgeDiffExpandFile(
+                    IPCBridgeDiffExpandFileParams(handle: "pane:2", itemId: "item-source")
+                )
+        )
+        #expect(
+            collapseInvocation.command
+                == .bridgeDiffCollapseFile(
+                    IPCBridgeDiffCollapseFileParams(handle: "pane:2", itemId: "item-source")
+                )
+        )
+    }
+
+    @Test("builds semantic bridge control request frames")
+    func buildsSemanticBridgeControlRequestFrames() throws {
+        let client = AgentStudioIPCClient(
+            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
+        )
+
+        let frame = try client.requestFrame(
+            .bridgeFileTreeSetFilter(
+                IPCBridgeFileTreeSetFilterParams(
+                    handle: "pane:2",
+                    gitStatusFilter: "modified",
+                    fileClassFilter: "source"
+                )
+            ),
+            requestId: 16
+        )
+        let request = try JSONRPCCodec.decodeRequest(frame)
+
+        #expect(request.id == .number(16))
+        #expect(request.method == "bridge.fileTree.setFilter")
+        guard case .object(let params)? = request.params else {
+            Issue.record("expected object params")
+            return
+        }
+        #expect(params["handle"] == .string("pane:2"))
+        #expect(params["gitStatusFilter"] == .string("modified"))
+        #expect(params["fileClassFilter"] == .string("source"))
+    }
+
+    @Test("builds bridge file view open request frame")
+    func buildsBridgeFileViewOpenRequestFrame() throws {
+        let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000702")!
+        let client = AgentStudioIPCClient(
+            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
+        )
+
+        let frame = try client.requestFrame(
+            .bridgeFileViewOpen(IPCBridgeFileViewOpenParams(worktreeId: worktreeId)),
+            requestId: 17
+        )
+        let request = try JSONRPCCodec.decodeRequest(frame)
+
+        #expect(request.id == .number(17))
+        #expect(request.method == "bridge.fileView.open")
+        guard case .object(let params)? = request.params else {
+            Issue.record("expected object params")
+            return
+        }
+        #expect(params["worktreeId"] == .string(worktreeId.uuidString))
+    }
+
+    @Test("builds bridge file view content request frame")
+    func buildsBridgeFileViewContentRequestFrame() throws {
+        let client = AgentStudioIPCClient(
+            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
+        )
+
+        let frame = try client.requestFrame(
+            .bridgeFileViewGetContent(
+                IPCBridgeContentGetParams(
+                    handle: "pane:2",
+                    contentHandleId: "content-123",
+                    reviewGeneration: 7
+                )
+            ),
+            requestId: 14
+        )
+        let request = try JSONRPCCodec.decodeRequest(frame)
+
+        #expect(request.id == .number(14))
+        #expect(request.method == "bridge.fileView.getContent")
+        guard case .object(let params)? = request.params else {
+            Issue.record("expected object params")
+            return
+        }
+        #expect(params["handle"] == .string("pane:2"))
+        #expect(params["contentHandleId"] == .string("content-123"))
+        #expect(params["reviewGeneration"] == .number(7))
+    }
+
+    @Test("builds bridge telemetry flush request frame")
+    func buildsBridgeTelemetryFlushRequestFrame() throws {
+        let client = AgentStudioIPCClient(
+            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
+        )
+
+        let frame = try client.requestFrame(.bridgeTelemetryFlush(handle: "pane:2"), requestId: 15)
+        let request = try JSONRPCCodec.decodeRequest(frame)
+
+        #expect(request.id == .number(15))
+        #expect(request.method == "bridge.telemetry.flush")
+        guard case .object(let params)? = request.params else {
+            Issue.record("expected object params")
+            return
+        }
+        #expect(params["handle"] == .string("pane:2"))
+    }
+
     @Test("parses auth token stdin mode without accepting argv bearer tokens")
     func parsesAuthTokenStdinModeWithoutAcceptingArgvBearerTokens() throws {
         let loginInvocation = try AgentStudioIPCClientArguments.parse(
@@ -384,6 +607,13 @@ private func writeMetadata(socketPath: String) throws -> URL {
     let data = Data(#"{"socketPath":"\#(socketPath)","protocol":"agentstudio-ipc-jsonrpc-2"}"#.utf8)
     try data.write(to: url)
     return url
+}
+
+private func parseIPCInvocation(_ arguments: String...) throws -> AgentStudioIPCClientInvocation {
+    try AgentStudioIPCClientArguments.parse(
+        ["--socket", "/tmp/app.sock"] + arguments,
+        environment: [:]
+    )
 }
 
 private func temporarySocketPath() -> String {

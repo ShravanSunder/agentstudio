@@ -16,8 +16,14 @@ struct ShellGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
         self.processExecutor = processExecutor
     }
 
-    func status(for rootPath: URL) async -> GitWorkingTreeStatus? {
-        await Self.computeStatus(rootPath: rootPath, processExecutor: processExecutor)
+    // Parity/e2e helper: pathspecs are ignored and a full status is returned.
+    // The projector's fold reconstructs scoped counts from the (synthesized)
+    // full entry set, so ignoring the scope stays fold-consistent.
+    func statusResult(for rootPath: URL, pathspecs _: [String]?) async -> GitWorkingTreeStatusResult {
+        guard let status = await Self.computeStatus(rootPath: rootPath, processExecutor: processExecutor) else {
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
+        }
+        return .available(status)
     }
 
     @concurrent

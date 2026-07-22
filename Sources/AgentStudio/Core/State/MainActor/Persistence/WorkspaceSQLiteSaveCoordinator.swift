@@ -33,8 +33,9 @@ enum WorkspaceSQLiteSavePreparation {
     @concurrent nonisolated static func prepareOffMain(
         _ capture: WorkspaceSQLiteSaveCapture
     ) async -> WorkspaceSQLiteSaveBundle {
-        let panes = capture.paneStatesByID.values.map { paneState in
-            paneState.pane(isDrawerExpanded: paneState.drawer?.drawerId == capture.expandedDrawerID)
+        let panes = capture.paneStatesByID.values.compactMap { paneState -> Pane? in
+            guard !paneState.residency.isPendingUndo else { return nil }
+            return paneState.pane(isDrawerExpanded: paneState.drawer?.drawerId == capture.expandedDrawerID)
         }
         let tabGraphStatesByID = Dictionary(
             uniqueKeysWithValues: capture.tabGraphStates.map { ($0.tabId, $0) }

@@ -72,8 +72,8 @@ Write surfaces:
 Read-only context:
 - `Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/BridgeChangeCollator.swift`
   — grouping semantics deltas must respect.
-- `docs/architecture/swift_react_bridge_design.md` §6 — push plane the delta
-  envelope rides.
+- `docs/architecture/bridge_native_runtime_architecture.md` — pane publication
+  and product transport carrying Review deltas.
 
 ## Task Sequence
 

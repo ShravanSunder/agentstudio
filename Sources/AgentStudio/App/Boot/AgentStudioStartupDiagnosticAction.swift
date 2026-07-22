@@ -12,12 +12,33 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
             case crossTabMoveGeometrySmoke = "cross-tab-move-geometry-smoke"
             case ipcTerminalSmoke = "ipc-terminal-smoke"
             case bridgeReviewObservabilitySmoke = "bridge-review-observability-smoke"
+            case bridgeFileViewObservabilitySmoke = "bridge-file-view-observability-smoke"
+            case bridgeFileViewCommandRouteObservabilitySmoke =
+                "bridge-file-view-command-route-observability-smoke"
+            case bridgeFileViewTargetedRouteObservabilitySmoke =
+                "bridge-file-view-targeted-route-observability-smoke"
+            case bridgeReviewToFileViewObservabilitySmoke = "bridge-review-to-file-view-observability-smoke"
+            case bridgeProductPaintCorrelation = "bridge-product-paint-correlation"
+            case bridgeProductStreamWebKitFeasibility = "bridge-product-stream-webkit-feasibility"
             case sidebarPerformanceProof = "sidebar-performance-proof"
         #endif
         case addWatchFolder = "add-watch-folder"
     }
 
     let kind: Kind
+
+    var suppressesAutomaticLaunchPaneRestore: Bool {
+        #if DEBUG
+            kind == .bridgeReviewObservabilitySmoke || kind == .bridgeFileViewObservabilitySmoke
+                || kind == .bridgeFileViewCommandRouteObservabilitySmoke
+                || kind == .bridgeFileViewTargetedRouteObservabilitySmoke
+                || kind == .bridgeReviewToFileViewObservabilitySmoke
+                || kind == .bridgeProductPaintCorrelation
+                || kind == .bridgeProductStreamWebKitFeasibility
+        #else
+            false
+        #endif
+    }
 
     var commandName: String {
         switch kind {
@@ -34,6 +55,18 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
                 "ipcTerminalSmoke"
             case .bridgeReviewObservabilitySmoke:
                 "bridgeReviewObservabilitySmoke"
+            case .bridgeFileViewObservabilitySmoke:
+                "bridgeFileViewObservabilitySmoke"
+            case .bridgeFileViewCommandRouteObservabilitySmoke:
+                "bridgeFileViewCommandRouteObservabilitySmoke"
+            case .bridgeFileViewTargetedRouteObservabilitySmoke:
+                "bridgeFileViewTargetedRouteObservabilitySmoke"
+            case .bridgeReviewToFileViewObservabilitySmoke:
+                "bridgeReviewToFileViewObservabilitySmoke"
+            case .bridgeProductPaintCorrelation:
+                "bridgeProductPaintCorrelation"
+            case .bridgeProductStreamWebKitFeasibility:
+                "bridgeProductStreamWebKitFeasibility"
             case .sidebarPerformanceProof:
                 "sidebarPerformanceProof"
         #endif

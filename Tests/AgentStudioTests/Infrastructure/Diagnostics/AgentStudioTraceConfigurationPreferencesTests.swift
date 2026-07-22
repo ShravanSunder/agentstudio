@@ -33,6 +33,30 @@ struct AgentStudioTraceConfigurationPreferencesTests {
             releaseChannel: .stable,
             isDebugBuild: false
         )
+        let expectedTags =
+            Set(AgentStudioTraceTag.allCases)
+            .subtracting(AgentStudioTraceTag.explicitOnlyTags)
+
+        #expect(configuration.enabledTags == expectedTags)
+        #expect(configuration.backend == .both)
+        #expect(configuration.flushMode == .immediate)
+        #expect(configuration.otlpEndpoint?.absoluteString == "http://127.0.0.1:4318")
+    }
+
+    @Test
+    func explicitPreferenceTagsCanEnableAtomsWithWildcard() {
+        let configuration = AgentStudioTraceConfiguration.from(
+            environment: [:],
+            preferenceLayer: AgentStudioTracePreferenceLayer(
+                enabled: true,
+                traceTags: "*,atoms",
+                traceBackend: "both",
+                traceFlush: "immediate",
+                otlpEndpoint: "http://127.0.0.1:4318"
+            ),
+            releaseChannel: .stable,
+            isDebugBuild: false
+        )
 
         #expect(configuration.enabledTags == Set(AgentStudioTraceTag.allCases))
         #expect(configuration.backend == .both)

@@ -1,8 +1,10 @@
-import { describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test } from 'vitest';
 
 import {
 	applyDeltaToBridgeReviewItemRegistry,
 	createBridgeReviewItemRegistry,
+	readBridgeReviewItemRegistryDiagnostics,
+	resetBridgeReviewItemRegistryDiagnosticsForTests,
 } from './bridge-review-item-registry.js';
 import {
 	makeBridgeReviewItem,
@@ -10,6 +12,30 @@ import {
 } from './bridge-review-package-test-support.js';
 
 describe('bridge review item registry', () => {
+	beforeEach(() => {
+		resetBridgeReviewItemRegistryDiagnosticsForTests();
+	});
+
+	test('does not rebuild package-shaped registry facts for selection-only calls', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const firstRegistry = createBridgeReviewItemRegistry({
+			reviewPackage,
+			selectedItemId: 'item-source',
+		});
+
+		resetBridgeReviewItemRegistryDiagnosticsForTests();
+		const secondRegistry = createBridgeReviewItemRegistry({
+			reviewPackage,
+			selectedItemId: null,
+		});
+
+		expect(secondRegistry).toBe(firstRegistry);
+		expect(readBridgeReviewItemRegistryDiagnostics()).toMatchObject({
+			cacheHitCount: 1,
+			fullBuildCount: 0,
+		});
+	});
+
 	test('rejects stale generation deltas with an explicit fact', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const registry = createBridgeReviewItemRegistry({
@@ -113,9 +139,50 @@ describe('bridge review item registry', () => {
 				itemId: 'item-source',
 				pathLabel: 'Sources/App/View.swift',
 				reviewPriority: 'high',
-				isSelected: true,
 			},
 		]);
+	});
+
+	test('extends append-only delta registries incrementally instead of rebuilding package facts', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const registry = createBridgeReviewItemRegistry({
+			reviewPackage,
+			selectedItemId: null,
+		});
+		resetBridgeReviewItemRegistryDiagnosticsForTests();
+
+		const result = applyDeltaToBridgeReviewItemRegistry(registry, {
+			packageId: reviewPackage.packageId,
+			reviewGeneration: reviewPackage.reviewGeneration,
+			revision: reviewPackage.revision + 1,
+			operations: {
+				addItems: [
+					makeBridgeReviewItem({
+						itemId: 'item-added',
+						path: 'Sources/App/New.swift',
+					}),
+				],
+				updateItems: [],
+				removeItems: [],
+				moveItems: [],
+				updateGroups: null,
+				updateSummary: null,
+				invalidateContent: [],
+			},
+		});
+
+		expect(result.accepted).toBe(true);
+		if (!result.accepted) {
+			throw new Error('expected delta acceptance');
+		}
+		expect(result.registry.orderedItems.map((item) => item.itemId)).toEqual([
+			'item-source',
+			'item-added',
+		]);
+		expect(readBridgeReviewItemRegistryDiagnostics()).toMatchObject({
+			fullBuildCount: 0,
+			incrementalBuildCount: 1,
+		});
 	});
 
 	test('keeps out-of-scope added items out of visible review facts', () => {

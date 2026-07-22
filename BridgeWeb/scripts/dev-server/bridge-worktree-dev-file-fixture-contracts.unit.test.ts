@@ -1,0 +1,424 @@
+import { describe, expect, test } from 'vitest';
+
+import invalidOpenSourceOutcomeExtraFieldFixture from '../../src/test-fixtures/bridge-contract-fixtures/invalid/worktree-file-open-source-outcome-extra-field.json' with { type: 'json' };
+import invalidOpenSourceOutcomeWrongProtocolFixture from '../../src/test-fixtures/bridge-contract-fixtures/invalid/worktree-file-open-source-outcome-wrong-protocol.json' with { type: 'json' };
+import invalidOpenSourceSpecExtraFieldFixture from '../../src/test-fixtures/bridge-contract-fixtures/invalid/worktree-file-open-source-spec-extra-field.json' with { type: 'json' };
+import validOpenSourceOutcomeFixture from '../../src/test-fixtures/bridge-contract-fixtures/valid/worktree-file-open-source-outcome.json' with { type: 'json' };
+import validOpenSourceSpecFixture from '../../src/test-fixtures/bridge-contract-fixtures/valid/worktree-file-open-source-spec.json' with { type: 'json' };
+import type {
+	WorktreeFileDescriptor,
+	WorktreeFileMetadataLineage,
+	WorktreeFileSurfaceSourceIdentity,
+	WorktreeTreeRowMetadata,
+} from './bridge-worktree-dev-file-fixture-contracts.js';
+import {
+	worktreeFileDescriptorSchema,
+	worktreeFileInvalidatedFrameSchema,
+	worktreeFileMetadataLineageSchema,
+	worktreeFileSurfaceOpenSourceOutcomeSchema,
+	worktreeFileSurfaceSourceSpecSchema,
+	worktreeFileProtocolFrameSchema,
+	worktreeSnapshotFrameSchema,
+	worktreeStatusPatchFrameSchema,
+	worktreeTreeWindowFrameSchema,
+} from './bridge-worktree-dev-file-fixture-contracts.js';
+
+describe('worktree file protocol models', () => {
+	test('parses shared open-source input and output contract fixtures', () => {
+		const sourceSpec = worktreeFileSurfaceSourceSpecSchema.parse(validOpenSourceSpecFixture);
+		expect(sourceSpec).toMatchObject({
+			clientRequestId: 'request-1',
+			freshness: 'live',
+			pathScope: ['Sources/App'],
+		});
+		expect(sourceSpec).not.toHaveProperty('includeFileDescriptors');
+		expect(worktreeFileSurfaceOpenSourceOutcomeSchema.parse(validOpenSourceOutcomeFixture)).toEqual(
+			{
+				status: 'accepted',
+				protocol: 'worktree-file',
+				streamId: 'worktree-file:00000000-0000-7000-8000-000000000003',
+				generation: 1,
+			},
+		);
+	});
+
+	test('throws on malformed shared open-source contract fixtures', () => {
+		expect(() =>
+			worktreeFileSurfaceSourceSpecSchema.parse(invalidOpenSourceSpecExtraFieldFixture),
+		).toThrow();
+		expect(() =>
+			worktreeFileSurfaceOpenSourceOutcomeSchema.parse(
+				invalidOpenSourceOutcomeWrongProtocolFixture,
+			),
+		).toThrow();
+		expect(() =>
+			worktreeFileSurfaceOpenSourceOutcomeSchema.parse(invalidOpenSourceOutcomeExtraFieldFixture),
+		).toThrow();
+	});
+
+	test('parses Worktree/File snapshot frames with provider extent facts', () => {
+		expect(
+			worktreeSnapshotFrameSchema.parse({
+				kind: 'snapshot',
+				streamId: 'worktree-file:pane-1',
+				generation: 1,
+				sequence: 0,
+				frameKind: 'worktree.snapshot',
+				source: makeSourceIdentity(),
+				metadataLineage: { loadedBy: 'startup_window', lane: 'foreground' },
+				requestSelector: {
+					clientRequestId: 'request-1',
+					repoId: 'repo-1',
+					worktreeId: 'worktree-1',
+					rootPathToken: 'root-token-1',
+					includeStatuses: true,
+					includeComments: false,
+					includeAgentComms: false,
+					freshness: 'live',
+				},
+				treeRows: [
+					{
+						rowId: 'row-1',
+						path: 'Sources/App/View.swift',
+						name: 'View.swift',
+						parentPath: 'Sources/App',
+						depth: 2,
+						isDirectory: false,
+						fileId: 'file-1',
+					},
+				],
+				treeSizeFacts: {
+					extentKind: 'exactPathCount',
+					pathCount: 12_000,
+					windowStartIndex: 0,
+					windowRowCount: 50,
+					rowHeightPixels: 24,
+				},
+				statusPatch: {
+					staged: 0,
+					unstaged: 1,
+					untracked: 0,
+				},
+			}),
+		).toMatchObject({
+			frameKind: 'worktree.snapshot',
+			treeSizeFacts: {
+				extentKind: 'exactPathCount',
+				pathCount: 12_000,
+				rowHeightPixels: 24,
+			},
+		});
+	});
+
+	test('requires streamed tree rows on snapshot and tree-window metadata frames', () => {
+		const sourceIdentity = makeSourceIdentity();
+		const row = {
+			rowId: 'row-1',
+			path: 'Sources/App/View.swift',
+			name: 'View.swift',
+			parentPath: 'Sources/App',
+			depth: 2,
+			isDirectory: false,
+			fileId: 'file-1',
+		};
+
+		expect(
+			worktreeSnapshotFrameSchema.safeParse({
+				kind: 'snapshot',
+				streamId: 'worktree-file:pane-1',
+				generation: 1,
+				sequence: 0,
+				frameKind: 'worktree.snapshot',
+				source: sourceIdentity,
+			}).success,
+		).toBe(false);
+		expect(
+			worktreeTreeWindowFrameSchema.safeParse({
+				kind: 'delta',
+				streamId: 'worktree-file:pane-1',
+				generation: 1,
+				sequence: 1,
+				frameKind: 'worktree.treeWindow',
+				projectionIdentity: {
+					source: sourceIdentity,
+					pathScope: [],
+					treeWindowKey: 'tree-window-1',
+				},
+			}).success,
+		).toBe(false);
+		expect(
+			worktreeTreeWindowFrameSchema.parse({
+				kind: 'delta',
+				streamId: 'worktree-file:pane-1',
+				generation: 1,
+				sequence: 1,
+				frameKind: 'worktree.treeWindow',
+				projectionIdentity: {
+					source: sourceIdentity,
+					pathScope: [],
+					treeWindowKey: 'tree-window-1',
+				},
+				metadataLineage: { loadedBy: 'idle', lane: 'idle' },
+				rows: [row],
+			}).rows,
+		).toEqual([row]);
+	});
+
+	test('parses frame-level native metadata lineage on snapshot and tree-window frames', () => {
+		const sourceIdentity = makeSourceIdentity();
+		const snapshotRow = makeTreeRow({ path: 'Sources/App/View.swift' });
+		const idleWindowRow = makeTreeRow({ path: 'Sources/App/Details.swift' });
+
+		const parsedSnapshotFrame = worktreeFileProtocolFrameSchema.parse({
+			kind: 'snapshot',
+			streamId: 'worktree-file:pane-1',
+			generation: 1,
+			sequence: 0,
+			frameKind: 'worktree.snapshot',
+			source: sourceIdentity,
+			metadataLineage: { loadedBy: 'startup_window', lane: 'foreground' },
+			treeRows: [snapshotRow],
+		});
+		expect(parsedSnapshotFrame.frameKind).toBe('worktree.snapshot');
+		if (parsedSnapshotFrame.frameKind !== 'worktree.snapshot') {
+			throw new Error('expected parsed snapshot frame');
+		}
+		expect(parsedSnapshotFrame.metadataLineage).toEqual({
+			loadedBy: 'startup_window',
+			lane: 'foreground',
+		});
+		expect(parsedSnapshotFrame.treeRows[0]).not.toHaveProperty('loaded_by');
+		expect(parsedSnapshotFrame.treeRows[0]).not.toHaveProperty('lane');
+
+		const parsedTreeWindowFrame = worktreeFileProtocolFrameSchema.parse({
+			kind: 'delta',
+			streamId: 'worktree-file:pane-1',
+			generation: 1,
+			sequence: 1,
+			frameKind: 'worktree.treeWindow',
+			projectionIdentity: {
+				source: sourceIdentity,
+				pathScope: [],
+				treeWindowKey: 'tree-window-1',
+			},
+			metadataLineage: { loadedBy: 'idle', lane: 'idle' },
+			rows: [idleWindowRow],
+		});
+		expect(parsedTreeWindowFrame.frameKind).toBe('worktree.treeWindow');
+		if (parsedTreeWindowFrame.frameKind !== 'worktree.treeWindow') {
+			throw new Error('expected parsed tree window frame');
+		}
+		expect(parsedTreeWindowFrame.metadataLineage).toEqual({ loadedBy: 'idle', lane: 'idle' });
+		expect(parsedTreeWindowFrame.rows[0]).not.toHaveProperty('loaded_by');
+		expect(parsedTreeWindowFrame.rows[0]).not.toHaveProperty('lane');
+	});
+
+	test('parses shared demand lane loadedBy vocabulary on metadata lineage', () => {
+		const loadedByValues: readonly WorktreeFileMetadataLineage['loadedBy'][] = [
+			'startup_window',
+			'foreground',
+			'visible',
+			'nearby',
+			'speculative',
+			'idle',
+			'delta',
+			'reset',
+			'replacement',
+		];
+
+		for (const loadedBy of loadedByValues) {
+			expect(
+				worktreeFileMetadataLineageSchema.parse({
+					loadedBy,
+					lane: loadedBy === 'startup_window' ? 'foreground' : 'idle',
+				}).loadedBy,
+			).toBe(loadedBy);
+		}
+	});
+
+	test('rejects legacy Worktree/File-specific loadedBy tokens on metadata lineage', () => {
+		for (const loadedBy of [
+			'foreground_interest',
+			'visible_window',
+			'nearby_window',
+			'speculative_interest',
+		]) {
+			expect(
+				worktreeFileMetadataLineageSchema.safeParse({
+					loadedBy,
+					lane: 'idle',
+				}).success,
+			).toBe(false);
+		}
+	});
+
+	test('rejects snapshot frames that keep per-row lineage or drop frame lineage', () => {
+		const sourceIdentity = makeSourceIdentity();
+		const row = makeTreeRow({ path: 'Sources/App/View.swift' });
+
+		expect(
+			worktreeSnapshotFrameSchema.safeParse({
+				kind: 'snapshot',
+				streamId: 'worktree-file:pane-1',
+				generation: 1,
+				sequence: 0,
+				frameKind: 'worktree.snapshot',
+				source: sourceIdentity,
+				metadataLineage: { loadedBy: 'startup_window', lane: 'foreground' },
+				treeRows: [{ ...row, loaded_by: 'startup_window' }],
+			}).success,
+		).toBe(false);
+		expect(
+			worktreeSnapshotFrameSchema.safeParse({
+				kind: 'snapshot',
+				streamId: 'worktree-file:pane-1',
+				generation: 1,
+				sequence: 0,
+				frameKind: 'worktree.snapshot',
+				source: sourceIdentity,
+				treeRows: [row],
+			}).success,
+		).toBe(false);
+	});
+
+	test('requires explicit file virtualized extent facts', () => {
+		expect(
+			worktreeFileDescriptorSchema.parse({
+				path: 'Sources/App/View.swift',
+				fileId: 'file-1',
+				contentHandle: 'handle-1',
+				sourceIdentity: makeSourceIdentity(),
+				sizeBytes: 96,
+				virtualizedExtentKind: 'exactLineCount',
+				lineCount: 4,
+				isBinary: false,
+				unavailableReason: null,
+				language: 'swift',
+				fileExtension: 'swift',
+			}),
+		).toMatchObject({
+			virtualizedExtentKind: 'exactLineCount',
+			lineCount: 4,
+		});
+		expect(
+			worktreeFileDescriptorSchema.safeParse({
+				path: 'Sources/App/View.swift',
+				fileId: 'file-1',
+				contentHandle: 'handle-1',
+				sourceIdentity: makeSourceIdentity(),
+				sizeBytes: 96,
+				virtualizedExtentKind: 'exactLineCount',
+				isBinary: false,
+				unavailableReason: null,
+			}).success,
+		).toBe(false);
+		expect(
+			worktreeFileDescriptorSchema.safeParse({
+				path: 'Sources/App/View.swift',
+				fileId: 'file-1',
+				contentHandle: 'handle-1',
+				sourceIdentity: makeSourceIdentity(),
+				sizeBytes: 96,
+				virtualizedExtentKind: 'estimatedHeight',
+				isBinary: false,
+				unavailableReason: null,
+			}).success,
+		).toBe(false);
+	});
+
+	test('parses status and invalidation frames without Review package lineage', () => {
+		const descriptor = makeWorktreeFileDescriptor('Sources/App/View.swift');
+
+		expect(
+			worktreeStatusPatchFrameSchema.parse({
+				kind: 'delta',
+				streamId: 'worktree-file:pane-1',
+				generation: 1,
+				sequence: 1,
+				frameKind: 'worktree.statusPatch',
+				patch: {
+					staged: 1,
+					unstaged: 2,
+					untracked: 3,
+					branchName: 'feature/worktree-file',
+				},
+			}).patch,
+		).toMatchObject({ staged: 1, unstaged: 2, untracked: 3 });
+		expect(
+			worktreeFileInvalidatedFrameSchema.parse({
+				kind: 'delta',
+				streamId: 'worktree-file:pane-1',
+				generation: 1,
+				sequence: 2,
+				frameKind: 'worktree.fileInvalidated',
+				invalidation: {
+					path: 'Sources/App/View.swift',
+					fileId: 'file-1',
+					reason: 'filesystemEvent',
+					contentHandleIds: ['handle-1'],
+					latestDescriptor: descriptor,
+				},
+			}).invalidation.latestDescriptor?.path,
+		).toBe('Sources/App/View.swift');
+		expect(
+			worktreeFileInvalidatedFrameSchema.safeParse({
+				kind: 'delta',
+				streamId: 'worktree-file:pane-1',
+				generation: 1,
+				sequence: 2,
+				frameKind: 'worktree.fileInvalidated',
+				packageId: 'review-package-1',
+				invalidation: {
+					path: 'Sources/App/View.swift',
+					reason: 'filesystemEvent',
+				},
+			}).success,
+		).toBe(false);
+	});
+});
+
+function makeSourceIdentity(): WorktreeFileSurfaceSourceIdentity {
+	return {
+		sourceId: 'source-1',
+		repoId: 'repo-1',
+		worktreeId: 'worktree-1',
+		subscriptionGeneration: 1,
+		sourceCursor: 'cursor-1',
+	};
+}
+
+interface MakeTreeRowProps {
+	readonly path: string;
+}
+
+function makeTreeRow(props: MakeTreeRowProps): WorktreeTreeRowMetadata {
+	const name = props.path.split('/').at(-1) ?? props.path;
+	const parentPath = props.path.includes('/')
+		? props.path.slice(0, Math.max(0, props.path.lastIndexOf('/')))
+		: null;
+	return {
+		rowId: `row:${props.path}`,
+		path: props.path,
+		name,
+		parentPath,
+		depth: props.path.split('/').length - 1,
+		isDirectory: false,
+		fileId: `file:${props.path}`,
+	};
+}
+
+function makeWorktreeFileDescriptor(path: string): WorktreeFileDescriptor {
+	return {
+		path,
+		fileId: 'file-1',
+		contentHandle: 'handle-1',
+		sourceIdentity: makeSourceIdentity(),
+		sizeBytes: 96,
+		virtualizedExtentKind: 'exactLineCount',
+		lineCount: 4,
+		isBinary: false,
+		unavailableReason: null,
+		language: 'swift',
+		fileExtension: 'swift',
+	};
+}

@@ -16,14 +16,27 @@ private final class TerminationDrainCompletion: @unchecked Sendable {
     }
 }
 
+@MainActor
+func runFirstPersistenceFlushAfterWorkspaceCacheShutdown(
+    workspaceCacheCoordinator: WorkspaceCacheCoordinator?,
+    firstPersistenceFlush: @MainActor () async -> Void
+) async {
+    await workspaceCacheCoordinator?.shutdown()
+    await firstPersistenceFlush()
+}
+
 extension AppDelegate {
     func flushApplicationStateBeforeTermination(store: WorkspaceStore) async {
         stopAppIPCServer()
 
-        do {
-            try await repoCacheStore.flushAsync(for: store.identityAtom.workspaceId)
-        } catch {
-            appLogger.warning("Workspace cache flush failed at termination: \(error.localizedDescription)")
+        await runFirstPersistenceFlushAfterWorkspaceCacheShutdown(
+            workspaceCacheCoordinator: workspaceCacheCoordinator
+        ) {
+            do {
+                try await self.repoCacheStore.flushAsync(for: store.identityAtom.workspaceId)
+            } catch {
+                appLogger.warning("Workspace cache flush failed at termination: \(error.localizedDescription)")
+            }
         }
 
         do {

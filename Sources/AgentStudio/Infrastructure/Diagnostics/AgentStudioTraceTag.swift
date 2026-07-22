@@ -52,7 +52,15 @@ enum AgentStudioTraceTag: String, CaseIterable, Codable, Sendable {
             .filter { !$0.isEmpty }
 
         if selectors.contains("*") {
-            return AgentStudioTraceTagSelection(tags: Set(Self.allCases), unknownSelectors: [])
+            // The wildcard excludes high-volume lanes: atoms emits ~150k+
+            // events under a large-worktree boot storm, which has overflowed
+            // the OTLP batch log queue and crashed debug sessions. Selecting
+            // atoms requires naming it explicitly (e.g. "*,atoms").
+            var tags = Set(Self.allCases).subtracting(Self.explicitOnlyTags)
+            for selector in selectors where selector != "*" {
+                tags.formUnion(Self.tags(matching: selector))
+            }
+            return AgentStudioTraceTagSelection(tags: tags, unknownSelectors: [])
         }
 
         var tags = Set<Self>()
@@ -67,6 +75,9 @@ enum AgentStudioTraceTag: String, CaseIterable, Codable, Sendable {
         }
         return AgentStudioTraceTagSelection(tags: tags, unknownSelectors: unknownSelectors)
     }
+
+    /// High-volume lanes that never ride the wildcard; opt in by name.
+    static let explicitOnlyTags: Set<Self> = [.atoms]
 
     private static func tags(matching selector: String) -> [Self] {
         if selector.hasSuffix(".*") {

@@ -66,7 +66,8 @@ if [ "$STARTUP_DIAGNOSTIC_ACTION" != "bridge-review-observability-smoke" ]; then
   exit 1
 fi
 
-"$PROJECT_ROOT/scripts/verify-debug-observability.sh" >/dev/null
+AGENTSTUDIO_OBSERVABILITY_ALLOW_COMPLETED_EXIT=1 \
+  "$PROJECT_ROOT/scripts/verify-debug-observability.sh" >/dev/null
 "$PROJECT_ROOT/scripts/verify-bridge-web-no-direct-otlp.sh" >/dev/null
 
 logsql_exact_value_filter() {
@@ -128,6 +129,24 @@ wait_for_log_query() {
   done
   echo "$description" >&2
   return 1
+}
+
+wait_for_optional_log_query() {
+  local logsql="${1:?missing LogSQL query}"
+  local response=""
+  local attempt=1
+  while [ "$attempt" -le "$VERIFY_ATTEMPTS" ]; do
+    response="$(query_logs "$logsql")"
+    if [ -n "$response" ]; then
+      printf '%s' "$response"
+      return 0
+    fi
+    if [ "$attempt" -lt "$VERIFY_ATTEMPTS" ]; then
+      sleep "$VERIFY_RETRY_DELAY_SECONDS"
+    fi
+    attempt=$((attempt + 1))
+  done
+  return 0
 }
 
 wait_for_trace_query() {
@@ -194,6 +213,119 @@ wait_for_metric_count() {
   return 1
 }
 
+json_truthy_field() {
+  local field="${1:?missing JSON field}"
+  local payload="${2:-}"
+  grep -q "\"$field\":true" <<<"$payload" ||
+    grep -q "\"$field\":\"true\"" <<<"$payload"
+}
+
+json_exact_string_field() {
+  local field="${1:?missing JSON field}"
+  local expected="${2:?missing expected value}"
+  local payload="${3:-}"
+  grep -q "\"$field\":\"$expected\"" <<<"$payload"
+}
+
+json_falseish_field() {
+  local field="${1:?missing JSON field}"
+  local payload="${2:-}"
+  grep -Eq "\"$field\":(\"false\"|false)([,}[:space:]]|$)" <<<"$payload"
+}
+
+is_frame_not_live_skip() {
+  local payload="${1:-}"
+  json_exact_string_field agentstudio.startup_diagnostic.skip_reason frame_not_live "$payload" &&
+    json_falseish_field agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive "$payload" &&
+    json_falseish_field agentstudio.startup_diagnostic.render_proof.succeeded "$payload"
+}
+
+json_zero_int_field() {
+  local field="${1:?missing JSON field}"
+  local payload="${2:-}"
+  grep -Eq "\"$field\":(\"?0\"?)([,}[:space:]]|$)" <<<"$payload"
+}
+
+json_positive_int_field() {
+  local field="${1:?missing JSON field}"
+  local payload="${2:-}"
+  /usr/bin/python3 - "$field" "$payload" <<'PY'
+import json
+import sys
+
+field, payload = sys.argv[1], sys.argv[2]
+for line in payload.splitlines():
+    if not line.strip():
+        continue
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    try:
+        value = int(record[field])
+    except (KeyError, TypeError, ValueError):
+        continue
+    if value > 0:
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
+json_positive_materialized_line_count() {
+  local payload="${1:-}"
+  /usr/bin/python3 - "$payload" <<'PY'
+import json
+import sys
+
+payload = sys.argv[1]
+fields = [
+    "agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count",
+    "agentstudio.startup_diagnostic.bridge.selected_materialized.deletion_line.count",
+    "agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count",
+]
+for line in payload.splitlines():
+    if not line.strip():
+        continue
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    total = 0
+    for field in fields:
+        try:
+            total += int(record.get(field, 0))
+        except (TypeError, ValueError):
+            pass
+    if total > 0:
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
+json_matching_string_fields() {
+  local left_field="${1:?missing left JSON field}"
+  local right_field="${2:?missing right JSON field}"
+  local payload="${3:-}"
+  /usr/bin/python3 - "$left_field" "$right_field" "$payload" <<'PY'
+import json
+import sys
+
+left_field, right_field, payload = sys.argv[1], sys.argv[2], sys.argv[3]
+for line in payload.splitlines():
+    if not line.strip():
+        continue
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    left = record.get(left_field)
+    right = record.get(right_field)
+    if isinstance(left, str) and left and left == right:
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
 marker_filter="$(logsql_exact_value_filter agent.proof.marker "$MARKER")"
 scenario_filter="$(logsql_exact_value_filter agentstudio.bridge.test.scenario "$BRIDGE_OBSERVABILITY_SCENARIO")"
 trace_marker_filter="$(logsql_quoted_exact_value_filter span_attr:agent.proof.marker "$MARKER")"
@@ -201,25 +333,165 @@ trace_scenario_filter="$(
   logsql_quoted_exact_value_filter span_attr:agentstudio.bridge.test.scenario "$BRIDGE_OBSERVABILITY_SCENARIO"
 )"
 base_log_query="service.name:AgentStudio dev.runtime.flavor:debug $marker_filter $scenario_filter"
+diagnostic_action_filter="$(logsql_exact_value_filter agentstudio.startup_diagnostic.action "$STARTUP_DIAGNOSTIC_ACTION")"
+diagnostic_log_query="service.name:AgentStudio dev.runtime.flavor:debug $marker_filter $diagnostic_action_filter"
+diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.bridge.review_expected_item.count,agentstudio.startup_diagnostic.bridge.review_metadata_item.count,agentstudio.startup_diagnostic.bridge.review_metadata_tree_row.count,agentstudio.startup_diagnostic.bridge.review_shell.visible,agentstudio.startup_diagnostic.bridge.review_shell.state,agentstudio.startup_diagnostic.bridge.code_view.visible,agentstudio.startup_diagnostic.bridge.selected_item.visible,agentstudio.startup_diagnostic.bridge.selected_path.visible,agentstudio.startup_diagnostic.bridge.selected_content.visible,agentstudio.startup_diagnostic.bridge.selected_content.state,agentstudio.startup_diagnostic.bridge.selected_content_role.count,agentstudio.startup_diagnostic.bridge.selected_content_cache_key.count,agentstudio.startup_diagnostic.bridge.selected_content_character.count,agentstudio.startup_diagnostic.bridge.selected_content_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.update_result,agentstudio.startup_diagnostic.bridge.selected_materialized.item_type,agentstudio.startup_diagnostic.bridge.selected_materialized.item_version,agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.deletion_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count,agentstudio.startup_diagnostic.bridge.page_issue.count,agentstudio.startup_diagnostic.bridge.diff_container.count,agentstudio.startup_diagnostic.bridge.code_view.instance.first_item.height_px,agentstudio.startup_diagnostic.bridge.code_view.rendered_item.count,agentstudio.startup_diagnostic.bridge.code_view.rendered_item.type,agentstudio.startup_diagnostic.bridge.code_view.rendered_item.version,agentstudio.startup_diagnostic.bridge.code_view_panel.width_px,agentstudio.startup_diagnostic.bridge.code_view_panel.height_px,agentstudio.startup_diagnostic.bridge.diff_container.width_px,agentstudio.startup_diagnostic.bridge.code_text.length,agentstudio.startup_diagnostic.bridge.code_shadow_text.length,agentstudio.startup_diagnostic.bridge.worker_pool.state,agentstudio.startup_diagnostic.bridge.worker_pool.manager_state,agentstudio.startup_diagnostic.bridge.worker_pool.workers_failed,agentstudio.startup_diagnostic.bridge.worker_diagnostic.diff_success_count,agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive,agentstudio.startup_diagnostic.render_proof.succeeded"
+diagnostic_skipped_query="$diagnostic_log_query _msg:app.startup_diagnostic_action.skipped"
+
+diagnostic_completed_response="$(
+  wait_for_optional_log_query \
+    "$diagnostic_log_query _msg:app.startup_diagnostic_action.completed | fields $diagnostic_fields | limit 5"
+)"
+
+if [ -z "$diagnostic_completed_response" ]; then
+  diagnostic_skipped_response="$(
+    wait_for_optional_log_query \
+      "$diagnostic_skipped_query | fields $diagnostic_fields,agentstudio.startup_diagnostic.skip_reason | limit 5"
+  )"
+  if is_frame_not_live_skip "$diagnostic_skipped_response"; then
+    echo "SKIP Bridge startup diagnostic bridge-review-observability-smoke: frame_not_live"
+    echo "$diagnostic_skipped_response"
+    exit 0
+  fi
+  echo "missing Bridge startup diagnostic completed record for marker $MARKER" >&2
+  echo "$diagnostic_skipped_response" >&2
+  exit 1
+fi
+
+required_truthy_diagnostic_fields=(
+  agentstudio.startup_diagnostic.render_proof.succeeded
+  agentstudio.startup_diagnostic.bridge.review_shell.visible
+  agentstudio.startup_diagnostic.bridge.code_view.visible
+  agentstudio.startup_diagnostic.bridge.selected_item.visible
+  agentstudio.startup_diagnostic.bridge.selected_path.visible
+  agentstudio.startup_diagnostic.bridge.selected_content.visible
+)
+
+for field in "${required_truthy_diagnostic_fields[@]}"; do
+  if ! json_truthy_field "$field" "$diagnostic_completed_response"; then
+    echo "Bridge startup diagnostic completed with false or missing field: $field" >&2
+    echo "$diagnostic_completed_response" >&2
+    exit 1
+  fi
+done
+
+if ! json_exact_string_field \
+  agentstudio.startup_diagnostic.bridge.selected_content.state \
+  ready \
+  "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic selected content is not ready" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
+
+if ! json_exact_string_field \
+  agentstudio.startup_diagnostic.bridge.selected_materialized.update_result \
+  updated \
+  "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic did not materialize selected content" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
+
+required_positive_diagnostic_fields=(
+  agentstudio.startup_diagnostic.expected_visible_pane.count
+  agentstudio.startup_diagnostic.bridge.review_expected_item.count
+  agentstudio.startup_diagnostic.bridge.review_metadata_item.count
+  agentstudio.startup_diagnostic.bridge.review_metadata_tree_row.count
+  agentstudio.startup_diagnostic.bridge.selected_content_role.count
+  agentstudio.startup_diagnostic.bridge.selected_content_cache_key.count
+  agentstudio.startup_diagnostic.bridge.selected_content_character.count
+  agentstudio.startup_diagnostic.bridge.selected_materialized.item_version
+  agentstudio.startup_diagnostic.bridge.diff_container.count
+  agentstudio.startup_diagnostic.bridge.code_view.instance.first_item.height_px
+  agentstudio.startup_diagnostic.bridge.code_view.rendered_item.count
+  agentstudio.startup_diagnostic.bridge.code_view.rendered_item.version
+  agentstudio.startup_diagnostic.bridge.code_view_panel.width_px
+  agentstudio.startup_diagnostic.bridge.code_view_panel.height_px
+  agentstudio.startup_diagnostic.bridge.diff_container.width_px
+  agentstudio.startup_diagnostic.bridge.code_text.length
+  agentstudio.startup_diagnostic.bridge.code_shadow_text.length
+  agentstudio.startup_diagnostic.bridge.worker_diagnostic.diff_success_count
+)
+
+for field in "${required_positive_diagnostic_fields[@]}"; do
+  if ! json_positive_int_field "$field" "$diagnostic_completed_response"; then
+    echo "Bridge startup diagnostic completed with non-positive or missing field: $field" >&2
+    echo "$diagnostic_completed_response" >&2
+    exit 1
+  fi
+done
+
+if ! json_positive_materialized_line_count "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic completed without materialized selected content lines" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
+
+if ! json_zero_int_field \
+  agentstudio.startup_diagnostic.bridge.page_issue.count \
+  "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic reported page issues" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
+
+if ! json_zero_int_field \
+  agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count \
+  "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic reported worker diagnostic failures" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
+
+if ! json_matching_string_fields \
+  agentstudio.startup_diagnostic.bridge.code_view.rendered_item.type \
+  agentstudio.startup_diagnostic.bridge.selected_materialized.item_type \
+  "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic rendered item type does not match materialized selected item type" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
+
+if ! json_exact_string_field \
+  agentstudio.startup_diagnostic.bridge.worker_pool.state \
+  ready \
+  "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic worker pool is not ready" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
+
+if ! json_exact_string_field \
+  agentstudio.startup_diagnostic.bridge.worker_pool.manager_state \
+  initialized \
+  "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic worker pool manager is not initialized" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
 
 required_log_event_contracts=(
-  "performance.bridge.swift.package_build|package_build|data|cold|diff_package_metadata|swift"
-  "performance.bridge.swift.delta_build|delta_build|data|warm|diff_package_delta|swift"
-  "performance.bridge.swift.content_register|content_register|data|cold|diff_package_metadata|swift"
+  "performance.bridge.swift.package_build|package_build|data|cold|review_metadata|swift"
+  "performance.bridge.swift.delta_build|delta_build|data|warm|review_delta|swift"
+  "performance.bridge.swift.content_register|content_register|data|cold|review_metadata|swift"
   "performance.bridge.swift.content_load|success|data|hot|content_fetch|content"
   "performance.bridge.swift.telemetry_ingest|accepted|observability|best_effort|telemetry_ingest|swift"
-  "performance.bridge.webkit.package_push|transport|data|cold|diff_package_metadata|push"
-  "performance.bridge.webkit.package_push|transport|data|warm|diff_package_delta|push"
-  "performance.bridge.webkit.package_push|transport|data|hot|diff_status|push"
+  "performance.bridge.webkit.push_envelope|transport|data|hot|diff_status|push"
   "performance.bridge.webkit.rpc_dispatch|dispatch|control|warm|review_rpc|rpc"
   "performance.bridge.webkit.rpc_response|success|control|warm|review_rpc|rpc"
   "performance.bridge.webkit.telemetry_batch|accepted|observability|best_effort|telemetry_batch|rpc"
-  "performance.bridge.web.package_apply|apply|data|cold|diff_package_metadata|push"
-  "performance.bridge.web.package_apply|apply|data|warm|diff_package_delta|push"
-  "performance.bridge.web.package_apply|apply|data|hot|diff_status|push"
+  "performance.bridge.web.intake_frame|intake|data|cold|review_metadata|intake"
+  "performance.bridge.web.push_apply|apply|data|hot|diff_status|push"
+  "performance.bridge.web.review_metadata_apply|review_metadata_apply|data|hot|review_metadata|intake"
   "performance.bridge.web.rpc_send|send|control|warm|review_rpc|rpc"
   "performance.bridge.web.content_fetch|fetch|data|hot|content_fetch|content"
-  "performance.bridge.web.first_render|render|data|hot|diff_package_metadata|push"
+  "performance.bridge.web.first_render|render|data|hot|review_metadata|intake"
+  "performance.bridge.trees.projection_build|projection_build|data|warm|review_projection|worker"
+  "performance.bridge.viewer.content_queue|content_queue|data|hot|content_fetch|content"
+  "performance.bridge.pierre.item_update|item_update|data|hot|code_view_item|swift"
+  "performance.bridge.shiki.highlight|highlight|data|hot|shiki_highlight|worker"
+  "performance.bridge.worker.task|worker_task|data|warm|worker_task|worker"
 )
 
 historical_bridge_lane_field="agentstudio.bridge.${BRIDGE_HISTORICAL_LANE_SUFFIX:-lane}"
@@ -232,18 +504,21 @@ for contract in "${required_log_event_contracts[@]}"; do
 done
 
 required_metric_event_contracts=(
-  "performance.bridge.swift.package_build|package_build|data|cold|diff_package_metadata"
+  "performance.bridge.swift.package_build|package_build|data|cold|review_metadata"
   "performance.bridge.swift.content_load|success|data|hot|content_fetch"
-  "performance.bridge.webkit.package_push|transport|data|cold|diff_package_metadata"
-  "performance.bridge.webkit.package_push|transport|data|warm|diff_package_delta"
-  "performance.bridge.webkit.package_push|transport|data|hot|diff_status"
+  "performance.bridge.webkit.push_envelope|transport|data|hot|diff_status"
   "performance.bridge.webkit.rpc_dispatch|dispatch|control|warm|review_rpc"
   "performance.bridge.webkit.telemetry_batch|accepted|observability|best_effort|telemetry_batch"
-  "performance.bridge.web.package_apply|apply|data|cold|diff_package_metadata"
-  "performance.bridge.web.package_apply|apply|data|warm|diff_package_delta"
-  "performance.bridge.web.package_apply|apply|data|hot|diff_status"
+  "performance.bridge.web.intake_frame|intake|data|cold|review_metadata"
+  "performance.bridge.web.push_apply|apply|data|hot|diff_status"
+  "performance.bridge.web.review_metadata_apply|review_metadata_apply|data|hot|review_metadata"
   "performance.bridge.web.content_fetch|fetch|data|hot|content_fetch"
-  "performance.bridge.web.first_render|render|data|hot|diff_package_metadata"
+  "performance.bridge.web.first_render|render|data|hot|review_metadata"
+  "performance.bridge.trees.projection_build|projection_build|data|warm|review_projection"
+  "performance.bridge.viewer.content_queue|content_queue|data|hot|content_fetch"
+  "performance.bridge.pierre.item_update|item_update|data|hot|code_view_item"
+  "performance.bridge.shiki.highlight|highlight|data|hot|shiki_highlight"
+  "performance.bridge.worker.task|worker_task|data|warm|worker_task"
 )
 
 for contract in "${required_metric_event_contracts[@]}"; do
@@ -252,26 +527,68 @@ for contract in "${required_metric_event_contracts[@]}"; do
   count="$(wait_for_metric_count "missing Bridge metric counter for marker $MARKER: $event_name $phase/$plane/$priority/$slice" "$promql")"
 done
 
-package_push_slice_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.package_push",phase="transport",plane="data",priority="cold",slice="diff_package_metadata"}'
-package_push_slice_count="$(
-  wait_for_metric_count \
-    "missing Bridge package_push metric counter grouped by plane/priority/slice for marker $MARKER" \
-    "$package_push_slice_promql"
-)"
+for forbidden_review_push_slice in \
+  diff_package_metadata \
+  diff_package_delta \
+  review_metadata \
+  review_delta \
+  review_invalidation \
+  review_reset
+do
+  forbidden_package_push_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.push_envelope",phase="transport",plane="data",slice="'"$forbidden_review_push_slice"'"}'
+  forbidden_package_push_count="$(metric_value "$forbidden_package_push_promql")"
+  if [ "$forbidden_package_push_count" != "0" ] && [ "$forbidden_package_push_count" != "0.0" ]; then
+    echo "Bridge Review package data still used WebKit push transport" >&2
+    echo "slice=$forbidden_review_push_slice count=$forbidden_package_push_count" >&2
+    exit 1
+  fi
 
-broad_package_push_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.package_push"} unless agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.package_push",phase=~".+",plane=~".+",priority=~".+",slice=~".+"}'
-broad_package_push_count="$(metric_value "$broad_package_push_promql")"
-if [ "$broad_package_push_count" != "0" ] && [ "$broad_package_push_count" != "0.0" ]; then
-  echo "missing Bridge broad package_push metric fallback guard: unlabeled fallback series survived" >&2
-  echo "count=$broad_package_push_count" >&2
+  forbidden_web_push_apply_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.web.push_apply",phase="apply",plane="data",slice="'"$forbidden_review_push_slice"'",transport="push"}'
+  forbidden_web_push_apply_count="$(metric_value "$forbidden_web_push_apply_promql")"
+  if [ "$forbidden_web_push_apply_count" != "0" ] && [ "$forbidden_web_push_apply_count" != "0.0" ]; then
+    echo "Bridge Review package data still used web push apply transport" >&2
+    echo "slice=$forbidden_review_push_slice count=$forbidden_web_push_apply_count" >&2
+    exit 1
+  fi
+done
+
+for forbidden_first_render_push_slice in diff_package_metadata review_metadata; do
+  forbidden_first_render_push_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.web.first_render",phase="render",plane="data",slice="'"$forbidden_first_render_push_slice"'",transport="push"}'
+  forbidden_first_render_push_count="$(metric_value "$forbidden_first_render_push_promql")"
+  if [ "$forbidden_first_render_push_count" != "0" ] && [ "$forbidden_first_render_push_count" != "0.0" ]; then
+    echo "Bridge Review first render still reported push transport" >&2
+    echo "slice=$forbidden_first_render_push_slice count=$forbidden_first_render_push_count" >&2
+    exit 1
+  fi
+done
+
+broad_push_envelope_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.push_envelope"} unless agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.push_envelope",phase=~".+",plane=~".+",priority=~".+",slice=~".+"}'
+broad_push_envelope_count="$(metric_value "$broad_push_envelope_promql")"
+if [ "$broad_push_envelope_count" != "0" ] && [ "$broad_push_envelope_count" != "0.0" ]; then
+  echo "missing Bridge broad push_envelope metric fallback guard: unlabeled fallback series survived" >&2
+  echo "count=$broad_push_envelope_count" >&2
   exit 1
 fi
 
-unknown_package_push_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.package_push",slice="unknown"}'
-unknown_package_push_count="$(metric_value "$unknown_package_push_promql")"
-if [ "$unknown_package_push_count" != "0" ] && [ "$unknown_package_push_count" != "0.0" ]; then
-  echo "Bridge package_push metric used unknown producer slice" >&2
-  echo "count=$unknown_package_push_count" >&2
+unknown_push_envelope_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.push_envelope",slice="unknown"}'
+unknown_push_envelope_count="$(metric_value "$unknown_push_envelope_promql")"
+if [ "$unknown_push_envelope_count" != "0" ] && [ "$unknown_push_envelope_count" != "0.0" ]; then
+  echo "Bridge push_envelope metric used unknown producer slice" >&2
+  echo "count=$unknown_push_envelope_count" >&2
+  exit 1
+fi
+
+legacy_package_push_count="$(metric_value 'agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.package_push"}')"
+if [ "$legacy_package_push_count" != "0" ] && [ "$legacy_package_push_count" != "0.0" ]; then
+  echo "legacy Bridge package_push metric survived hard cutover" >&2
+  echo "count=$legacy_package_push_count" >&2
+  exit 1
+fi
+
+legacy_package_apply_count="$(metric_value 'agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.web.package_apply"}')"
+if [ "$legacy_package_apply_count" != "0" ] && [ "$legacy_package_apply_count" != "0.0" ]; then
+  echo "legacy Bridge package_apply metric survived hard cutover" >&2
+  echo "count=$legacy_package_apply_count" >&2
   exit 1
 fi
 
@@ -320,14 +637,70 @@ do
   fi
 done
 
-unknown_package_push_log_response="$(
-  query_logs "$base_log_query _msg:performance.bridge.webkit.package_push $(logsql_exact_value_filter agentstudio.bridge.slice unknown) | limit 1"
+unknown_push_envelope_log_response="$(
+  query_logs "$base_log_query _msg:performance.bridge.webkit.push_envelope $(logsql_exact_value_filter agentstudio.bridge.slice unknown) | limit 1"
 )"
-if [ -n "$unknown_package_push_log_response" ]; then
-  echo "Bridge package_push log used unknown producer slice" >&2
-  echo "$unknown_package_push_log_response" >&2
+if [ -n "$unknown_push_envelope_log_response" ]; then
+  echo "Bridge push_envelope log used unknown producer slice" >&2
+  echo "$unknown_push_envelope_log_response" >&2
   exit 1
 fi
+
+legacy_package_push_log_response="$(
+  query_logs "$base_log_query _msg:performance.bridge.webkit.package_push | limit 1"
+)"
+if [ -n "$legacy_package_push_log_response" ]; then
+  echo "legacy Bridge package_push log survived hard cutover" >&2
+  echo "$legacy_package_push_log_response" >&2
+  exit 1
+fi
+
+legacy_package_apply_log_response="$(
+  query_logs "$base_log_query _msg:performance.bridge.web.package_apply | limit 1"
+)"
+if [ -n "$legacy_package_apply_log_response" ]; then
+  echo "legacy Bridge package_apply log survived hard cutover" >&2
+  echo "$legacy_package_apply_log_response" >&2
+  exit 1
+fi
+
+for forbidden_review_push_slice in \
+  diff_package_metadata \
+  diff_package_delta \
+  review_metadata \
+  review_delta \
+  review_invalidation \
+  review_reset
+do
+  forbidden_package_push_log_response="$(
+    query_logs "$base_log_query _msg:performance.bridge.webkit.push_envelope $(logsql_exact_value_filter agentstudio.bridge.slice "$forbidden_review_push_slice") | limit 1"
+  )"
+  if [ -n "$forbidden_package_push_log_response" ]; then
+    echo "Bridge Review package data still used WebKit push logs" >&2
+    echo "$forbidden_package_push_log_response" >&2
+    exit 1
+  fi
+
+  forbidden_web_push_apply_log_response="$(
+    query_logs "$base_log_query _msg:performance.bridge.web.push_apply $(logsql_exact_value_filter agentstudio.bridge.slice "$forbidden_review_push_slice") $(logsql_exact_value_filter agentstudio.bridge.transport push) | limit 1"
+  )"
+  if [ -n "$forbidden_web_push_apply_log_response" ]; then
+    echo "Bridge Review package data still used web push apply logs" >&2
+    echo "$forbidden_web_push_apply_log_response" >&2
+    exit 1
+  fi
+done
+
+for forbidden_first_render_push_slice in diff_package_metadata review_metadata; do
+  forbidden_first_render_push_log_response="$(
+    query_logs "$base_log_query _msg:performance.bridge.web.first_render $(logsql_exact_value_filter agentstudio.bridge.slice "$forbidden_first_render_push_slice") $(logsql_exact_value_filter agentstudio.bridge.transport push) | limit 1"
+  )"
+  if [ -n "$forbidden_first_render_push_log_response" ]; then
+    echo "Bridge Review first render still reported push transport in logs" >&2
+    echo "$forbidden_first_render_push_log_response" >&2
+    exit 1
+  fi
+done
 
 telemetry_self_rpc_log_response="$(
   query_logs "$base_log_query agentstudio.bridge.rpc.method_class:telemetry | limit 1"

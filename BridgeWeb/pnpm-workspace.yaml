@@ -1,0 +1,6 @@
+allowBuilds:
+  '@parcel/watcher': true
+  '@tailwindcss/oxide': true
+  esbuild: true
+minimumReleaseAgeExclude:
+  - '@vitejs/plugin-react@6.0.4'

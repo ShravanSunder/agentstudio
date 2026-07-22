@@ -385,7 +385,7 @@ AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$ARTIFACT_ROOT/preflight.env" \
   "$PROJECT_ROOT/scripts/run-debug-observability.sh" --preflight-idle
 
 # shellcheck disable=SC1091
-source "$PROJECT_ROOT/scripts/swift-build-slot.sh" debug
+source "$PROJECT_ROOT/scripts/swift-build-slot.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "building debug AgentStudio once for launch comparison: $BUILD_PATH"
 swift build --build-path "$BUILD_PATH"

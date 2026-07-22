@@ -1,0 +1,86 @@
+import type {
+	CodeViewItem,
+	CodeViewLineSelection,
+	CodeViewScrollBehavior,
+	CodeViewScrollTarget,
+} from '@pierre/diffs';
+
+import type { BridgeCodeViewItem } from './bridge-code-view-materialization.js';
+
+export interface BridgeCodeViewModel {
+	readonly addItems: (items: readonly BridgeCodeViewItem[]) => void;
+	readonly getItem: (id: string) => CodeViewItem | undefined;
+	readonly updateItem: (item: BridgeCodeViewItem) => boolean;
+	readonly updateItemId: (oldId: string, newId: string) => boolean;
+	readonly scrollTo: (target: CodeViewScrollTarget) => void;
+	readonly setSelectedLines: (selection: CodeViewLineSelection | null) => void;
+}
+
+export interface BridgeCodeViewControllerProps {
+	readonly model: BridgeCodeViewModel;
+}
+
+export interface ApplyBridgeCodeViewItemUpdateOptions {
+	readonly scrollIntoView?: boolean;
+	readonly scrollBehavior?: CodeViewScrollBehavior;
+}
+
+export type ApplyBridgeCodeViewItemUpdateResult = 'added' | 'updated' | 'unchanged';
+
+// A content render (a real Pierre DOM apply) happens only when an item is newly added or its version
+// changed. An 'unchanged' apply is a version-equal no-op: no DOM swap, no height reflow, and no new
+// paint. The selected_content_painted telemetry and any "did the viewport re-render" decision must
+// gate on this so a benign metadata delta (which re-applies the same-version item) neither paints nor
+// re-renders. This is the single predicate behind that gate — see bridge-code-view-panel.tsx.
+export function bridgeCodeViewApplyResultDidRenderContent(
+	result: ApplyBridgeCodeViewItemUpdateResult,
+): boolean {
+	return result === 'added' || result === 'updated';
+}
+
+export class BridgeCodeViewController {
+	readonly #model: BridgeCodeViewModel;
+
+	constructor(props: BridgeCodeViewControllerProps) {
+		this.#model = props.model;
+	}
+
+	applyItemUpdate(
+		item: BridgeCodeViewItem,
+		options: ApplyBridgeCodeViewItemUpdateOptions = {},
+	): ApplyBridgeCodeViewItemUpdateResult {
+		const existingItem = this.#model.getItem(item.id);
+		let result: ApplyBridgeCodeViewItemUpdateResult;
+		if (existingItem === undefined) {
+			this.#model.addItems([item]);
+			result = 'added';
+		} else {
+			result = this.#model.updateItem(item) ? 'updated' : 'unchanged';
+		}
+
+		if (options.scrollIntoView === true) {
+			this.scrollToItem(item.id, options.scrollBehavior ?? 'instant');
+		}
+		return result;
+	}
+
+	scrollToItem(itemId: string, behavior: CodeViewScrollBehavior = 'instant'): void {
+		if (this.#model.getItem(itemId) === undefined) {
+			return;
+		}
+		this.#model.scrollTo({
+			type: 'item',
+			id: itemId,
+			align: 'start',
+			behavior,
+		});
+	}
+
+	setSelectedLines(selection: CodeViewLineSelection | null): void {
+		this.#model.setSelectedLines(selection);
+	}
+
+	updateItemId(oldId: string, newId: string): boolean {
+		return this.#model.updateItemId(oldId, newId);
+	}
+}

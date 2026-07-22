@@ -1,0 +1,7 @@
+{
+  "status": "accepted",
+  "protocol": "worktree-file",
+  "streamId": "worktree-file:00000000-0000-7000-8000-000000000003",
+  "generation": 1,
+  "legacyPackageId": "old-world-package"
+}

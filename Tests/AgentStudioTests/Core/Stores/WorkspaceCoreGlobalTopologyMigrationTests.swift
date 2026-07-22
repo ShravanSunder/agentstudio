@@ -143,6 +143,12 @@ struct WorkspaceCoreGlobalTopologyMigrationTests {
             let fixture = CoreTopologyMigrationFixture()
             try databaseQueue.write { database in
                 try fixture.insert(into: database)
+            }
+            try WorkspaceCoreMigrations.migrator.migrate(
+                databaseQueue,
+                upTo: "012_background_active_unowned_layout_panes"
+            )
+            try databaseQueue.write { database in
                 try conflict.insertConflictingRow(into: database, fixture: fixture)
             }
             let before = try databaseQueue.read { database in

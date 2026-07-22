@@ -53,7 +53,7 @@ keep it an island:
   module per the spec ("This foundation does not add a new Bridge atom").
 - No Swift-side method/protocol changes beyond what the production-wiring plan
   already owns; this plan consumes the wire contract documented in
-  `docs/architecture/swift_react_bridge_design.md` §5 and §7.
+  `docs/architecture/bridge_web_runtime_architecture.md`.
 - Annotation, review-state mutation, and editing remain out (read-only pane).
 
 ## Scope
@@ -73,9 +73,8 @@ Write surfaces:
   `Tests/BridgeContractFixtures`), wired into `bridge-web-check`.
 
 Read-only context:
-- `docs/architecture/swift_react_bridge_design.md` §5.4 (push format), §5.1
-  (JSON-RPC commands), §7.2-7.4 (receiver/sender/RPC client design the doc
-  already specifies).
+- `docs/architecture/bridge_web_runtime_architecture.md` — metadata intake,
+  worker/session topology, reset, and reconvergence contracts.
 - `Sources/AgentStudio/Features/Bridge/Transport/BridgeBootstrap.swift` — the
   authoritative event names, nonce fields, and relay shapes.
 

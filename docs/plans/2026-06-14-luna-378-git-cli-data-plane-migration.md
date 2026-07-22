@@ -24,7 +24,7 @@ Line counts checked before planning:
 - `docs/plans/2026-06-08-bridge-agent-review-foundation.md`: 1071 lines.
 - `docs/superpowers/plans/2026-06-08-agentstudio-git-bridge-foundation.md`: 2139 lines.
 - `docs/superpowers/specs/2026-06-10-bridge-review-foundation.md`: 329 lines.
-- `docs/architecture/swift_react_bridge_design.md`: 2914 lines.
+- The removed monolithic Bridge architecture document: 2914 lines.
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Git/GitWorkingTreeStatusProvider.swift`: inspected current shell provider and app-local status contracts.
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Git/GitWorkingDirectoryProjector.swift`: inspected provider injection and eventbus boundary.
 - `Sources/AgentStudio/App/Coordination/FilesystemGitPipeline.swift`: inspected default provider construction.
@@ -45,7 +45,7 @@ Line counts checked before planning:
 
 - `docs/plans/2026-06-08-bridge-agent-review-foundation.md` is the landed Bridge foundation plan. It says the Git/backend lane supplies data behind `BridgeReviewSourceProvider` and must not own BridgeWeb TypeScript contracts, content handles, endpoint shape, package shape, or review-generation vocabulary.
 - `docs/superpowers/specs/2026-06-10-bridge-review-foundation.md` defines the canonical Bridge review vocabulary and allows direct AgentStudioGit calls only when public SDK DTOs exactly match Bridge contracts.
-- `docs/architecture/swift_react_bridge_design.md` says the review foundation exists and the remaining Bridge work is source-provider-backed package data and downstream viewer rendering.
+- The then-current monolithic Bridge architecture document said the review foundation existed and the remaining Bridge work was source-provider-backed package data and downstream viewer rendering. Current ownership now lives in [Bridge Viewer Architecture](../architecture/bridge_viewer_architecture.md), [Bridge Native Runtime Architecture](../architecture/bridge_native_runtime_architecture.md), and [Bridge Web Runtime Architecture](../architecture/bridge_web_runtime_architecture.md).
 - `docs/superpowers/plans/2026-06-08-agentstudio-git-bridge-foundation.md` built the separate AgentStudioGit package and explicitly scoped Git Tasks 1-8 away from Bridge contracts.
 - `Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/AgentStudioGitBridgeReviewDataClient.swift` is already the thin Bridge-owned mapper from AgentStudioGit DTOs into Bridge review contracts.
 - `Sources/AgentStudio/Core/RuntimeEventSystem/Git/GitWorkingTreeStatusProvider.swift` still shells to `git status`, `git diff --shortstat`, and `git config --get remote.origin.url`.

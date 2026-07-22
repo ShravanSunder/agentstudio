@@ -31,21 +31,34 @@ final class WorkspacePreparedContentMountCoordinator {
         terminalAdmissionPort: any TerminalActivationAdmissionPort,
         nonterminalAdmissionPort: any NonterminalContentMountAdmissionPort
     ) {
-        self.cohort = cohort
+        // Hidden Bridge panes stay outside the startup ledger so a later reveal
+        // falls through to the existing steady-state content mount owner.
+        let startupCohort = WorkspacePreparedContentMountCohort(
+            generation: cohort.generation,
+            terminalActivationInput: cohort.terminalActivationInput,
+            nonterminalContentMountInput: NonterminalContentMountInput(
+                entries: cohort.nonterminalContentMountInput.entries.filter {
+                    guard $0.visibilityPriority == .hidden else { return true }
+                    guard case .bridgePanel = $0.content else { return true }
+                    return false
+                }
+            )
+        )
+        self.cohort = startupCohort
         self.viewRegistry = viewRegistry
         terminalScheduler = TerminalActivationScheduler(
             cohort: TerminalActivationCohort(
-                generation: cohort.generation,
-                input: cohort.terminalActivationInput
+                generation: startupCohort.generation,
+                input: startupCohort.terminalActivationInput
             ),
             admissionPort: terminalAdmissionPort
         )
         nonterminalOwner = NonterminalContentMountOwner(
-            generation: cohort.generation,
-            input: cohort.nonterminalContentMountInput,
+            generation: startupCohort.generation,
+            input: startupCohort.nonterminalContentMountInput,
             admissionPort: nonterminalAdmissionPort
         )
-        viewRegistry.installPreparedContentMountCohort(cohort)
+        viewRegistry.installPreparedContentMountCohort(startupCohort)
     }
 
     func mount() async -> WorkspacePreparedContentMountSettlement {

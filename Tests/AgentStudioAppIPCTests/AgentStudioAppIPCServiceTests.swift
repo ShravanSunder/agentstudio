@@ -34,6 +34,7 @@ struct AgentStudioAppIPCServiceTests {
                 queryPort: FakeQueryPort(),
                 layoutPort: FakeLayoutPort(),
                 runtimePort: FakeRuntimePort(),
+                bridgePort: FakeBridgePort(),
                 commandPort: FakeCommandPort(),
                 uiPresentationPort: FakeUIPresentationPort(),
                 sidebarPort: FakeSidebarPort(),
@@ -77,7 +78,7 @@ struct AgentStudioAppIPCServiceTests {
     }
 
     @Test("server authenticates and serves a command on the same socket")
-    func serverAuthenticatesAndServesCommandOnSameSocket() throws {
+    func serverAuthenticatesAndServesCommandOnSameSocket() async throws {
         let fixture = try LiveServerFixture()
         defer {
             fixture.cleanup()
@@ -102,23 +103,30 @@ struct AgentStudioAppIPCServiceTests {
         try sendRequest(
             connection: connection,
             request: JSONRPCClientRequest(
-                id: .number(10),
-                method: "auth.login",
-                params: .object(["token": .string(token.rawValue)])
+                id: .number(9),
+                method: "system.ping",
+                params: .object([:])
             )
         )
-        let login = try frameReader.receiveResponse(connection: connection)
-        #expect(login.id == .number(10))
-        #expect(login.error == nil)
+        let ping = try await frameReader.receiveResponseWithoutBlockingMainActor(connection: connection)
+        try #require(ping.id == .number(9))
+        try #require(ping.error == nil, "server must remain running immediately before auth.login")
+
+        try await loginWithoutBlockingMainActor(
+            connection: connection,
+            token: token,
+            requestId: 10,
+            reader: &frameReader
+        )
 
         try sendRequest(
             connection: connection,
             request: JSONRPCClientRequest(id: .number(11), method: "system.identify", params: .object([:]))
         )
-        let identify = try frameReader.receiveResponse(connection: connection)
+        let identify = try await frameReader.receiveResponseWithoutBlockingMainActor(connection: connection)
 
-        #expect(identify.id == .number(11))
-        #expect(identify.error == nil)
+        try #require(identify.id == .number(11))
+        try #require(identify.error == nil)
         guard case .object(let result)? = identify.result else {
             Issue.record("expected identify result")
             return
@@ -599,7 +607,7 @@ struct AgentStudioAppIPCServiceTests {
     }
 
     @Test("server stop closes existing authenticated socket sessions")
-    func serverStopClosesExistingAuthenticatedSocketSessions() throws {
+    func serverStopClosesExistingAuthenticatedSocketSessions() async throws {
         let fixture = try LiveServerFixture()
         defer {
             fixture.cleanup()
@@ -620,7 +628,24 @@ struct AgentStudioAppIPCServiceTests {
             connection.close()
         }
         var reader = TestFrameReader()
-        try login(connection: connection, token: token, requestId: 50, reader: &reader)
+        try sendRequest(
+            connection: connection,
+            request: JSONRPCClientRequest(
+                id: .number(49),
+                method: "system.ping",
+                params: .object([:])
+            )
+        )
+        let ping = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
+        try #require(ping.id == .number(49))
+        try #require(ping.error == nil, "server must remain running immediately before auth.login")
+
+        try await loginWithoutBlockingMainActor(
+            connection: connection,
+            token: token,
+            requestId: 50,
+            reader: &reader
+        )
 
         fixture.server.stop()
 

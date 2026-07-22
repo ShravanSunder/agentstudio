@@ -57,6 +57,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var workspaceSettingsStore: WorkspaceSettingsStore!
     var workspaceSQLiteDatastore: WorkspaceSQLiteDatastore?
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
+    var bridgeGitReadScheduler: BridgeGitReadScheduler!
+    var bridgeWorktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
     var viewRegistry: ViewRegistry!
     var workspaceSurfaceCoordinator: WorkspaceSurfaceCoordinator!
@@ -165,27 +167,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func presentWindowAfterWorkspaceComposition() {
+        guard let dependencies = mainWindowCreationDependencies(caller: "presentWindowAfterWorkspaceComposition") else {
+            return
+        }
+
         // Create main window
-        mainWindowController = MainWindowController(
-            store: store,
-            workspaceActionExecutor: executor,
-            runtimeCommandDispatcher: workspaceSurfaceCoordinator,
-            applicationLifecycleMonitor: applicationLifecycleMonitor,
-            appLifecycleStore: appLifecycleStore,
-            tabBarAdapter: tabBarAdapter,
-            viewRegistry: viewRegistry,
-            inboxAtom: atomStore.inboxNotification,
-            inboxPrefsAtom: atomStore.inboxNotificationPrefs,
-            inboxSidebarState: atomStore.inboxSidebarState,
-            paneInboxPresenter: paneInboxNotificationPresenter,
-            performanceTraceRecorder: performanceTraceRecorder,
-            closeTransitionCoordinator: closeTransitionCoordinator
-        )
+        mainWindowController = makeMainWindowController(dependencies: dependencies)
         mainWindowController?.prepareLaunchMaximizeAndRestore()
         mainWindowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         mainWindowController?.completeLaunchPresentation()
-        observeLaunchRestoreReadiness()
+        if AgentStudioStartupDiagnosticAction.fromEnvironment()?.suppressesAutomaticLaunchPaneRestore == true {
+            launchRestoreObservationState.complete()
+        } else {
+            observeLaunchRestoreReadiness()
+        }
         wireLifecycleConsumers()
         startAppIPCServer()
         if let window = mainWindowController?.window {
@@ -273,21 +269,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let window = mainWindowController?.window, window.isVisible {
             window.makeKeyAndOrderFront(nil)
         } else {
-            mainWindowController = MainWindowController(
-                store: store,
-                workspaceActionExecutor: executor,
-                runtimeCommandDispatcher: workspaceSurfaceCoordinator,
-                applicationLifecycleMonitor: applicationLifecycleMonitor,
-                appLifecycleStore: appLifecycleStore,
-                tabBarAdapter: tabBarAdapter,
-                viewRegistry: viewRegistry,
-                inboxAtom: atomStore.inboxNotification,
-                inboxPrefsAtom: atomStore.inboxNotificationPrefs,
-                inboxSidebarState: atomStore.inboxSidebarState,
-                paneInboxPresenter: paneInboxNotificationPresenter,
-                performanceTraceRecorder: performanceTraceRecorder,
-                closeTransitionCoordinator: closeTransitionCoordinator
-            )
+            guard let dependencies = mainWindowCreationDependencies(caller: "showOrCreateMainWindow") else {
+                return
+            }
+
+            mainWindowController = makeMainWindowController(dependencies: dependencies)
             mainWindowController?.showWindow(nil)
             wireLifecycleConsumers()
         }
@@ -299,6 +285,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard terminationDrainTask == nil else { return .terminateLater }
         terminationDrainTask = Task { @MainActor [weak self] in
             await self?.flushApplicationStateBeforeTermination(store: store)
+            if let workspaceSurfaceCoordinator = self?.workspaceSurfaceCoordinator {
+                await workspaceSurfaceCoordinator.shutdown()
+            }
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater

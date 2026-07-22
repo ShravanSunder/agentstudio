@@ -17,6 +17,8 @@ struct RepositoryTopologyHotPathArchitectureTests {
         #expect(!source.contains("WorktreeReconciliationCandidate"))
         #expect(!source.contains("RepositoryTopologyReplacementPreparation"))
         #expect(!source.contains("recordDuration"))
+        #expect(!source.contains("AgentStudioPerformanceTraceRecorder"))
+        #expect(!source.contains("ensureMainWorktree"))
     }
 
     @Test("repoAndWorktree lookup uses the precomputed path index")

@@ -4,10 +4,84 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
+private final class VisibleWorktreeCallbackRecorder {
+    private(set) var callCount = 0
+
+    func record() {
+        callCount += 1
+    }
+}
+
+@MainActor
 @Suite("RepoExplorerView")
 struct RepoExplorerViewTests {
     init() {
         installTestAtomRegistryIfNeeded()
+    }
+
+    @Test("visible row range maps only resolved worktree entries")
+    func visibleRowRangeMapsResolvedWorktreeEntries() {
+        let firstRepoId = UUID()
+        let secondRepoId = UUID()
+        let firstWorktreeId = UUID()
+        let secondWorktreeId = UUID()
+        let group = RepoPresentationGroup(
+            id: "remote:askluna/agent-studio",
+            repoTitle: "agent-studio",
+            organizationName: "askluna",
+            repos: []
+        )
+        let entries: [RepoExplorerListEntry] = [
+            .resolvedGroupHeader(group),
+            .resolvedWorktreeRow(
+                groupId: group.id,
+                repoId: firstRepoId,
+                worktreeId: firstWorktreeId,
+                rowId: "first"
+            ),
+            .resolvedWorktreeRow(
+                groupId: group.id,
+                repoId: secondRepoId,
+                worktreeId: secondWorktreeId,
+                rowId: "second"
+            ),
+        ]
+
+        let visibleWorktreeIds = RepoExplorerVisibleRows.worktreeIds(
+            in: entries,
+            rowRange: NSRange(location: 0, length: 2)
+        )
+
+        #expect(visibleWorktreeIds == [firstWorktreeId])
+        #expect(
+            RepoExplorerVisibleRows.worktreeIds(
+                in: entries,
+                rowRange: NSRange(location: NSNotFound, length: 0)
+            ).isEmpty
+        )
+    }
+
+    @Test("visible worktree publication replaces atom state and invokes callback")
+    func visibleWorktreePublicationReplacesAtomStateAndInvokesCallback() {
+        let atom = SidebarVisibleWorktreesRuntimeAtom()
+        let recorder = VisibleWorktreeCallbackRecorder()
+        let firstWorktreeId = UUID()
+        let secondWorktreeId = UUID()
+        atom.setVisibleWorktreeIds([firstWorktreeId])
+
+        RepoExplorerVisibleRows.publish(
+            [secondWorktreeId],
+            into: atom,
+            onChange: recorder.record
+        )
+
+        #expect(atom.visibleWorktreeIds == [secondWorktreeId])
+        #expect(recorder.callCount == 1)
+
+        RepoExplorerVisibleRows.publish([], into: atom, onChange: recorder.record)
+
+        #expect(atom.visibleWorktreeIds.isEmpty)
+        #expect(recorder.callCount == 2)
     }
     @Test("flat list entries expand a resolved group into header and child rows")
     func flatListEntriesExpandResolvedGroupIntoHeaderAndChildRows() {

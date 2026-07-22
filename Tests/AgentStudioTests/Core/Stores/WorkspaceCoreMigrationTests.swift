@@ -91,9 +91,20 @@ struct WorkspaceCoreMigrationTests {
                 "009_drop_pane_source_binding",
                 "010_repository_topology_tags_and_tab_color",
                 "011_add_repo_sidebar_metadata",
-                "012_globalize_repository_topology",
+                "012_background_active_unowned_layout_panes",
+                "013_globalize_repository_topology",
             ]
         )
+    }
+
+    @Test("migration 012 backgrounds only historical active unowned top-level panes")
+    func migration012BackgroundsOnlyHistoricalActiveUnownedTopLevelPanes() throws {
+        let fixture = try makeMigration012Fixture()
+        try WorkspaceCoreMigrations.migrator.migrate(
+            fixture.databaseQueue,
+            upTo: "012_background_active_unowned_layout_panes"
+        )
+        try assertMigration012Result(fixture)
     }
 
     @Test("migration 009 refits pane source columns as facet columns")
@@ -729,4 +740,146 @@ struct WorkspaceCoreMigrationTests {
         ) != nil
     }
 
+}
+
+private struct Migration012Fixture {
+    let databaseQueue: DatabaseQueue
+    let repoId: String
+    let worktreeId: String
+    let ownedPaneId: String
+    let unownedLayoutPaneId: String
+    let unownedLegacyLeafPaneId: String
+    let malformedDrawerChildPaneId: String
+    let malformedLayoutWithParentPaneId: String
+}
+
+extension WorkspaceCoreMigrationTests {
+    fileprivate func makeMigration012Fixture() throws -> Migration012Fixture {
+        let fixture = Migration012Fixture(
+            databaseQueue: try SQLiteDatabaseFactory.makeInMemoryQueue(),
+            repoId: UUID().uuidString,
+            worktreeId: UUID().uuidString,
+            ownedPaneId: UUID().uuidString,
+            unownedLayoutPaneId: UUID().uuidString,
+            unownedLegacyLeafPaneId: UUID().uuidString,
+            malformedDrawerChildPaneId: UUID().uuidString,
+            malformedLayoutWithParentPaneId: UUID().uuidString
+        )
+        let workspaceId = UUID().uuidString
+        let tabId = UUID().uuidString
+
+        try WorkspaceCoreMigrations.migrator.migrate(
+            fixture.databaseQueue,
+            upTo: "011_add_repo_sidebar_metadata"
+        )
+        try fixture.databaseQueue.write { database in
+            try insertMigration012Rows(
+                database,
+                fixture: fixture,
+                workspaceId: workspaceId,
+                tabId: tabId
+            )
+        }
+        return fixture
+    }
+
+    fileprivate func insertMigration012Rows(
+        _ database: Database,
+        fixture: Migration012Fixture,
+        workspaceId: String,
+        tabId: String
+    ) throws {
+        try insertWorkspace(database, workspaceId: workspaceId)
+        try insertRepo(database, workspaceId: workspaceId, repoId: fixture.repoId)
+        try insertWorktree(
+            database,
+            workspaceId: workspaceId,
+            repoId: fixture.repoId,
+            worktreeId: fixture.worktreeId
+        )
+        try insertMigration012Panes(database, fixture: fixture, workspaceId: workspaceId)
+        try insertTabShell(database, workspaceId: workspaceId, tabId: tabId, name: "Owned", sortIndex: 0)
+        try insertTabPane(database, tabId: tabId, paneId: fixture.ownedPaneId)
+    }
+
+    fileprivate func insertMigration012Panes(
+        _ database: Database,
+        fixture: Migration012Fixture,
+        workspaceId: String
+    ) throws {
+        let topLevelPaneIds = [
+            fixture.ownedPaneId,
+            fixture.unownedLayoutPaneId,
+            fixture.unownedLegacyLeafPaneId,
+        ]
+        for paneId in topLevelPaneIds {
+            try insertPane(
+                database,
+                workspaceId: workspaceId,
+                paneId: paneId,
+                facetRepoId: paneId == fixture.unownedLegacyLeafPaneId ? nil : fixture.repoId,
+                facetWorktreeId: paneId == fixture.unownedLegacyLeafPaneId ? nil : fixture.worktreeId
+            )
+        }
+        for paneId in [fixture.malformedDrawerChildPaneId, fixture.malformedLayoutWithParentPaneId] {
+            try insertPane(
+                database,
+                workspaceId: workspaceId,
+                paneId: paneId,
+                parentPaneId: fixture.ownedPaneId
+            )
+        }
+        try database.execute(
+            sql: "UPDATE pane SET kind = 'layout', title = ?, note = ?, cwd = ? WHERE id = ?",
+            arguments: ["Preserved title", "Preserved note", "/tmp/preserved-cwd", fixture.unownedLayoutPaneId]
+        )
+        try database.execute(
+            sql: "UPDATE pane SET kind = 'layout' WHERE id = ?",
+            arguments: [fixture.malformedLayoutWithParentPaneId]
+        )
+        for paneId in topLevelPaneIds
+            + [fixture.malformedDrawerChildPaneId, fixture.malformedLayoutWithParentPaneId]
+        {
+            try database.execute(
+                sql: """
+                    INSERT INTO pane_content_terminal(pane_id, provider, lifetime, zmx_session_id)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [paneId, "zmx", "persistent", "session-\(paneId)"]
+            )
+        }
+    }
+
+    fileprivate func assertMigration012Result(_ fixture: Migration012Fixture) throws {
+        let paneRows = try fixture.databaseQueue.read { database in
+            try Row.fetchAll(
+                database,
+                sql: """
+                    SELECT pane.*, pane_content_terminal.provider,
+                           pane_content_terminal.lifetime, pane_content_terminal.zmx_session_id
+                    FROM pane
+                    JOIN pane_content_terminal ON pane_content_terminal.pane_id = pane.id
+                    ORDER BY pane.id
+                    """
+            )
+        }
+        let paneRowsById = Dictionary(uniqueKeysWithValues: paneRows.map { ($0["id"] as String, $0) })
+
+        #expect(paneRowsById[fixture.unownedLayoutPaneId]?["residency_kind"] as String? == "backgrounded")
+        #expect(paneRowsById[fixture.unownedLegacyLeafPaneId]?["residency_kind"] as String? == "backgrounded")
+        #expect(paneRowsById[fixture.ownedPaneId]?["residency_kind"] as String? == "active")
+        #expect(paneRowsById[fixture.malformedDrawerChildPaneId]?["residency_kind"] as String? == "active")
+        #expect(paneRowsById[fixture.malformedLayoutWithParentPaneId]?["residency_kind"] as String? == "active")
+
+        let migratedLayoutPane = try #require(paneRowsById[fixture.unownedLayoutPaneId])
+        #expect(migratedLayoutPane["kind"] as String? == "layout")
+        #expect(migratedLayoutPane["facet_repo_id"] as String? == fixture.repoId)
+        #expect(migratedLayoutPane["facet_worktree_id"] as String? == fixture.worktreeId)
+        #expect(migratedLayoutPane["title"] as String? == "Preserved title")
+        #expect(migratedLayoutPane["note"] as String? == "Preserved note")
+        #expect(migratedLayoutPane["cwd"] as String? == "/tmp/preserved-cwd")
+        #expect(migratedLayoutPane["provider"] as String? == "zmx")
+        #expect(migratedLayoutPane["lifetime"] as String? == "persistent")
+        #expect(migratedLayoutPane["zmx_session_id"] as String? == "session-\(fixture.unownedLayoutPaneId)")
+    }
 }

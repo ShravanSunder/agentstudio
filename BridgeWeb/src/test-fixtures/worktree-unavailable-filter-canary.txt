@@ -1,0 +1,2 @@
+Bridge worktree unavailable-filter canary.
+This tracked fixture is safe for the Vite verifier to delete and restore.

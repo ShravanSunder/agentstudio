@@ -1,0 +1,2 @@
+Bridge worktree split-reset canary.
+This tracked fixture is safe for the Vite verifier to mutate.

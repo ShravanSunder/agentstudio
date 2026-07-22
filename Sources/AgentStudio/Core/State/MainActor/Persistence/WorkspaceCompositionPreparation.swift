@@ -367,10 +367,17 @@ enum WorkspaceCompositionPreparer {
             }
         }
 
-        for paneID in paneInputs.paneIDs where tabIDByPaneID[paneID] == nil {
-            return .failure(.paneNotOwnedByTab(paneID))
+        for pane in paneInputs.panes where tabIDByPaneID[pane.id] == nil {
+            guard isRecoverableUnownedPane(pane) else {
+                return .failure(.paneNotOwnedByTab(pane.id))
+            }
         }
         return .success(PreparedWorkspaceCompositionTabInputs(tabIDByPaneID: tabIDByPaneID))
+    }
+
+    private static func isRecoverableUnownedPane(_ pane: Pane) -> Bool {
+        guard !pane.isDrawerChild else { return false }
+        return pane.residency == .backgrounded || pane.residency.isOrphaned
     }
 
     private static func validateArrangement(
@@ -577,7 +584,7 @@ enum WorkspaceCompositionPreparer {
 
         for (sourceIndex, pane) in panes.enumerated() {
             guard let tabID = tabIDByPaneID[pane.id], let tab = tabsByID[tabID] else {
-                preconditionFailure("validated composition pane is missing its owning tab")
+                continue
             }
             guard
                 let hostPlacement = contentHostPlacement(

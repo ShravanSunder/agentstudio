@@ -48,7 +48,10 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
             try seedLegacyCorruptTabGraphStorage(database, fixture: fixture)
         }
 
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "005_repair_tab_graph_layout_storage"
+        )
 
         let repairCounts = try databaseQueue.read { database in
             try fetchTabGraphStorageRepairCounts(database)
@@ -156,7 +159,10 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
             )
         }
 
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "005_repair_tab_graph_layout_storage"
+        )
 
         let retainedDividerIds = try databaseQueue.read { database in
             try fetchRetainedLayoutDividerIds(database)

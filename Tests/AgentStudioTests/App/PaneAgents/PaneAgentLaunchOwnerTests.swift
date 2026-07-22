@@ -89,9 +89,7 @@ struct PaneAgentLaunchOwnerTests {
 
             let handle = try owner.launchPaneAgent(boundPaneId: fixture.boundPaneId, boundWorkspaceId: nil)
 
-            var status: Int32 = 0
-            let waited = waitpid(handle.processIdentifier, &status, 0)
-            #expect(waited == handle.processIdentifier)
+            let status = try #require(waitForProcessExit(processIdentifier: handle.processIdentifier))
             #expect(status == 0)
         #endif
     }
@@ -113,6 +111,37 @@ struct PaneAgentLaunchOwnerTests {
         #expect(!target.contains(#""AgentStudioAppIPC""#))
     }
 }
+
+#if canImport(Darwin)
+    private func waitForProcessExit(
+        processIdentifier: pid_t,
+        timeout: DispatchTimeInterval = .seconds(10)
+    ) -> Int32? {
+        let semaphore = DispatchSemaphore(value: 0)
+        let source = DispatchSource.makeProcessSource(
+            identifier: processIdentifier,
+            eventMask: .exit,
+            queue: DispatchQueue.global(qos: .userInitiated)
+        )
+        source.setEventHandler {
+            semaphore.signal()
+        }
+        source.resume()
+
+        let waitResult = semaphore.wait(timeout: .now() + timeout)
+        source.cancel()
+
+        var status: Int32 = 0
+        if waitResult == .timedOut {
+            _ = kill(processIdentifier, SIGKILL)
+            _ = waitpid(processIdentifier, &status, 0)
+            return nil
+        }
+
+        let waited = waitpid(processIdentifier, &status, 0)
+        return waited == processIdentifier ? status : nil
+    }
+#endif
 
 private final class RecordingPaneAgentBootstrapProvider: PaneAgentBootstrapProviding {
     let bootstrap: AgentStudioIPCPaneBootstrap
@@ -214,6 +243,7 @@ private struct PaneAgentLiveServerFixture {
                 queryPort: PaneAgentTestQueryPort(runtimeId: runtimeId),
                 layoutPort: PaneAgentTestLayoutPort(),
                 runtimePort: PaneAgentTestRuntimePort(),
+                bridgePort: PaneAgentTestBridgePort(),
                 commandPort: PaneAgentTestCommandPort(),
                 uiPresentationPort: PaneAgentTestUIPresentationPort(),
                 sidebarPort: PaneAgentTestSidebarPort(),
@@ -337,6 +367,74 @@ private struct PaneAgentTestCommandPort: AppIPCCommandPort {
 
     func executeCommand(_: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
         throw AppIPCCommandError(reason: .unsupportedCommand)
+    }
+}
+
+private struct PaneAgentTestBridgePort: AppIPCBridgePort {
+    func openReview(_: IPCBridgeReviewOpenParams) throws -> IPCBridgeReviewOpenResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func openFileView(_: IPCBridgeFileViewOpenParams) throws -> IPCBridgeFileViewOpenResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func refreshReview(_: IPCBridgeReviewRefreshParams) async throws -> IPCBridgeReviewRefreshResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func getPackage(_: IPCHandle) throws -> IPCBridgeReviewPackageResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func renderState(_: IPCHandle) async throws -> IPCBridgeRenderStateResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func selectFile(_: IPCBridgeReviewSelectFileParams) async throws -> IPCBridgeReviewSelectFileResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func scrollToFile(_: IPCBridgeDiffScrollToFileParams) async throws -> IPCBridgePageControlResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func expandFile(_: IPCBridgeDiffExpandFileParams) async throws -> IPCBridgePageControlResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func collapseFile(_: IPCBridgeDiffCollapseFileParams) async throws -> IPCBridgePageControlResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func searchFileTree(_: IPCBridgeFileTreeSearchParams) async throws -> IPCBridgePageControlResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func setFileTreeFilter(_: IPCBridgeFileTreeSetFilterParams) async throws -> IPCBridgePageControlResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func revealFileTreePath(_: IPCBridgeFileTreeRevealPathParams) async throws -> IPCBridgePageControlResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func showMarkdownPreview(_: IPCBridgeFileViewShowMarkdownPreviewParams) async throws
+        -> IPCBridgePageControlResult
+    {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func getContent(_: IPCBridgeContentGetParams) async throws -> IPCBridgeContentGetResult {
+        throw AppIPCBridgeError(reason: .contentUnavailable)
+    }
+
+    func telemetrySnapshot(_: IPCHandle) async throws -> IPCBridgeTelemetrySnapshotResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func flushTelemetry(_: IPCHandle) async throws -> IPCBridgeTelemetryFlushResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
     }
 }
 

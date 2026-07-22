@@ -3,7 +3,7 @@
 > Status: canonical design source for the pre-Pierre Bridge review foundation.
 > Created: 2026-06-10
 > Execution plan: [2026-06-08 Bridge Agent Review Foundation](../../plans/2026-06-08-bridge-agent-review-foundation.md)
-> Architecture companion: [Swift-React Bridge Architecture](../../architecture/swift_react_bridge_design.md)
+> Architecture companions: [Bridge Viewer Architecture](../../architecture/bridge_viewer_architecture.md) and [Bridge Native Runtime Architecture](../../architecture/bridge_native_runtime_architecture.md)
 > Git data-plane plan: [AgentStudio Git Data-Plane Implementation Plan](../plans/2026-06-08-agentstudio-git-bridge-foundation.md)
 
 This spec defines the Bridge review foundation as it should be understood by

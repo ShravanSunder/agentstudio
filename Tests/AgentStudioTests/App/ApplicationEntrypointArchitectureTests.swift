@@ -111,12 +111,23 @@ struct ApplicationEntrypointArchitectureTests {
         let appDelegateURL = projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift")
         let startupDiagnosticsURL = projectRoot.appending(
             path: "Sources/AgentStudio/App/Boot/AppDelegate+StartupDiagnostics.swift")
+        let reviewStartupDiagnosticsURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Boot/AppDelegate+BridgeReviewStartupDiagnostics.swift")
         let diagnosticActionURL = projectRoot.appending(
             path: "Sources/AgentStudio/App/Boot/AgentStudioStartupDiagnosticAction.swift")
+        let appPoliciesURL = projectRoot.appending(path: "Sources/AgentStudio/Infrastructure/AppPolicies.swift")
+        let paneTabViewControllerURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Panes/PaneTabViewController.swift")
 
         let appDelegateSource = try String(contentsOf: appDelegateURL, encoding: .utf8)
         let startupDiagnosticsSource = try String(contentsOf: startupDiagnosticsURL, encoding: .utf8)
+        let reviewStartupDiagnosticsSource = try String(
+            contentsOf: reviewStartupDiagnosticsURL,
+            encoding: .utf8
+        )
         let diagnosticActionSource = try String(contentsOf: diagnosticActionURL, encoding: .utf8)
+        let appPoliciesSource = try String(contentsOf: appPoliciesURL, encoding: .utf8)
+        let paneTabViewControllerSource = try String(contentsOf: paneTabViewControllerURL, encoding: .utf8)
 
         let presentationCompleteIndex = try #require(
             appDelegateSource.range(of: "mainWindowController?.completeLaunchPresentation()")?.lowerBound)
@@ -142,6 +153,14 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)"))
         #expect(startupDiagnosticsSource.contains("commandBarController.state.rawInput = \"# repo\""))
         #expect(startupDiagnosticsSource.contains("handleWatchFolderRequested(startingAt: folderURL)"))
+        let diagnosticTaskIndex = try #require(
+            startupDiagnosticsSource.range(of: "Task { @MainActor")?.lowerBound)
+        let diagnosticDispatchRecordIndex = try #require(
+            startupDiagnosticsSource.range(of: "app.startup_diagnostic_action.dispatched")?.lowerBound)
+        let diagnosticFirstYieldIndex = try #require(
+            startupDiagnosticsSource.range(of: "await Task.yield()")?.lowerBound)
+        #expect(diagnosticTaskIndex < diagnosticDispatchRecordIndex)
+        #expect(diagnosticDispatchRecordIndex < diagnosticFirstYieldIndex)
         let dispatchDebugGuardIndex = try #require(startupDiagnosticsSource.range(of: "#if DEBUG")?.lowerBound)
         let dispatchSmokeCaseIndex = try #require(
             startupDiagnosticsSource.range(of: "case .crossTabMoveGeometrySmoke")?.lowerBound)
@@ -152,6 +171,37 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(dispatchSmokeCaseIndex < dispatchDebugEndIndex)
         #expect(dispatchDebugGuardIndex < dispatchIPCSmokeCaseIndex)
         #expect(dispatchIPCSmokeCaseIndex < dispatchDebugEndIndex)
+        try assertStartupDiagnosticActivationPrecedesOpeningTerminal(
+            startupDiagnosticsSource: startupDiagnosticsSource)
+        try assertBridgeReviewSmokeDiagnosticSuppressesLaunchRestore(
+            appDelegateSource: appDelegateSource,
+            startupDiagnosticsSource: startupDiagnosticsSource,
+            reviewStartupDiagnosticsSource: reviewStartupDiagnosticsSource,
+            diagnosticActionSource: diagnosticActionSource,
+            paneTabViewControllerSource: paneTabViewControllerSource
+        )
+        #expect(appPoliciesSource.contains("bridgeReviewSmokeReadinessTimeout"))
+        #expect(
+            reviewStartupDiagnosticsSource.contains(
+                "AppPolicies.StartupDiagnostic.bridgeReviewSmokeReadinessTimeout"))
+        #expect(
+            !reviewStartupDiagnosticsSource.contains(
+                "AppPolicies.StartupDiagnostic.ipcTerminalSmokeReadinessTimeout"))
+        #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.command_exercised"))
+        #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.blocked"))
+        let diagnosticDispatchIndex = try #require(
+            startupDiagnosticsSource.range(of: "app.startup_diagnostic_action.dispatched")?.lowerBound)
+        let firstDiagnosticYieldIndex = try #require(
+            startupDiagnosticsSource.range(of: "await Task.yield()")?.lowerBound)
+        #expect(diagnosticDispatchIndex < firstDiagnosticYieldIndex)
+        #expect(!startupDiagnosticsSource.contains("for _ in 0..<80"))
+        #expect(diagnosticActionSource.contains("AGENTSTUDIO_STARTUP_WATCH_FOLDER"))
+        #expect(!appDelegateSource.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))
+    }
+
+    private func assertStartupDiagnosticActivationPrecedesOpeningTerminal(
+        startupDiagnosticsSource: String
+    ) throws {
         #expect(startupDiagnosticsSource.contains("WindowRestoreBridge(windowLifecycleStore: windowLifecycleStore)"))
         #expect(startupDiagnosticsSource.contains("isReadyForLaunchRestore"))
         let diagnosticActivateIndex = try #require(
@@ -168,16 +218,59 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(startupDiagnosticsSource.contains("AppPolicies.StartupDiagnostic.appActivationTimeout"))
         #expect(startupDiagnosticsSource.contains("workspaceSurfaceCoordinator.openFloatingTerminal("))
         #expect(startupDiagnosticsSource.contains("provider: .zmx"))
-        #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.command_exercised"))
-        #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.blocked"))
-        let diagnosticDispatchIndex = try #require(
-            startupDiagnosticsSource.range(of: "app.startup_diagnostic_action.dispatched")?.lowerBound)
-        let firstDiagnosticYieldIndex = try #require(
-            startupDiagnosticsSource.range(of: "await Task.yield()")?.lowerBound)
-        #expect(diagnosticDispatchIndex < firstDiagnosticYieldIndex)
-        #expect(!startupDiagnosticsSource.contains("for _ in 0..<80"))
-        #expect(diagnosticActionSource.contains("AGENTSTUDIO_STARTUP_WATCH_FOLDER"))
-        #expect(!appDelegateSource.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))
+    }
+
+    private func assertBridgeReviewSmokeDiagnosticSuppressesLaunchRestore(
+        appDelegateSource: String,
+        startupDiagnosticsSource: String,
+        reviewStartupDiagnosticsSource: String,
+        diagnosticActionSource: String,
+        paneTabViewControllerSource: String
+    ) throws {
+        #expect(diagnosticActionSource.contains("suppressesAutomaticLaunchPaneRestore"))
+        #expect(diagnosticActionSource.contains("kind == .bridgeReviewObservabilitySmoke"))
+        #expect(appDelegateSource.contains("suppressesAutomaticLaunchPaneRestore == true"))
+        #expect(appDelegateSource.contains("launchRestoreObservationState.complete()"))
+        #expect(paneTabViewControllerSource.contains("suppressesAutomaticLaunchPaneRestore == true"))
+        #expect(paneTabViewControllerSource.contains("skipped visible view restore for startup diagnostic"))
+        #expect(startupDiagnosticsSource.contains("runBridgeReviewObservabilitySmokeDiagnostic(action: action)"))
+
+        let bridgeDiagnosticIndex = try #require(
+            reviewStartupDiagnosticsSource.range(of: "func runBridgeReviewObservabilitySmokeDiagnostic")?.lowerBound)
+        let bridgeDiagnosticEndIndex = try #require(
+            reviewStartupDiagnosticsSource.range(
+                of: "private func recordBridgeReviewObservabilitySmokePhase",
+                range: bridgeDiagnosticIndex..<reviewStartupDiagnosticsSource.endIndex
+            )?.lowerBound)
+        let bridgeDiagnosticKeyWindowIndex = try #require(
+            reviewStartupDiagnosticsSource.range(
+                of: "mainWindowController?.window?.makeKeyAndOrderFront(nil)",
+                range: bridgeDiagnosticIndex..<reviewStartupDiagnosticsSource.endIndex
+            )?.lowerBound)
+        let bridgeDiagnosticActivationWaitIndex = try #require(
+            reviewStartupDiagnosticsSource.range(
+                of: "await waitForStartupDiagnosticAppActivation()",
+                range: bridgeDiagnosticIndex..<reviewStartupDiagnosticsSource.endIndex
+            )?.lowerBound)
+        let bridgeDiagnosticBoundsWaitIndex = try #require(
+            reviewStartupDiagnosticsSource.range(
+                of: "recordBridgeReviewObservabilitySmokePhase(\"bounds_wait_started\"",
+                range: bridgeDiagnosticIndex..<reviewStartupDiagnosticsSource.endIndex
+            )?.lowerBound)
+
+        #expect(bridgeDiagnosticIndex < bridgeDiagnosticKeyWindowIndex)
+        #expect(bridgeDiagnosticKeyWindowIndex < bridgeDiagnosticActivationWaitIndex)
+        #expect(bridgeDiagnosticActivationWaitIndex < bridgeDiagnosticBoundsWaitIndex)
+        #expect(
+            reviewStartupDiagnosticsSource.range(
+                of: "workspaceSurfaceCoordinator.restoreVisiblePaneIfNeeded(pane.id",
+                range: bridgeDiagnosticIndex..<bridgeDiagnosticEndIndex
+            ) != nil)
+        #expect(
+            reviewStartupDiagnosticsSource.range(
+                of: "restoreAllViews",
+                range: bridgeDiagnosticIndex..<bridgeDiagnosticEndIndex
+            ) == nil)
     }
 
     @Test("AppKit persistent UI restoration is disabled")
@@ -233,6 +326,7 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(ipcBootSource.contains("makePaneFocusAppControl(store: store)"))
         #expect(ipcBootSource.contains("server.start()"))
         #expect(appIPCStopIndex < flushStoresIndex)
+        #expect(mainWindowControllerSource.contains("splitViewController?.loadViewIfNeeded()"))
         #expect(mainWindowControllerSource.contains("makePaneFocusAppControl(store: WorkspaceStore)"))
         #expect(splitViewControllerSource.contains("makePaneFocusAppControl(store: WorkspaceStore)"))
         #expect(splitViewControllerSource.contains("PaneTabViewControllerPaneFocusAppControl"))

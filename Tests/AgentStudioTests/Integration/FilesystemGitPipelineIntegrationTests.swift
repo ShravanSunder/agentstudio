@@ -238,6 +238,47 @@ struct FilesystemGitPipelineIntegrationTests {
         )
     }
 
+    @Test("explicit watched-folder refresh bypasses filesystem-derived git coalescing")
+    func explicitWatchedFolderRefreshBypassesGitCoalescing() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let gitClock = TestPushClock()
+        let provider = MutableGitWorkingTreeStatusProvider(status: makeTrackedStatus(branch: "initial"))
+        let pipeline = FilesystemGitPipeline(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            fseventStreamClient: SilentFSEventStreamClient(),
+            filesystemDebounceWindow: .zero,
+            filesystemMaxFlushLatency: .zero,
+            gitCoalescingWindow: .milliseconds(500),
+            gitPeriodicRefreshInterval: nil,
+            gitSleepClock: gitClock
+        )
+        await pipeline.start()
+
+        let rootPath = FileManager.default.temporaryDirectory
+            .appending(path: "pipeline-explicit-refresh-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+
+        let worktreeId = UUID()
+        await pipeline.register(worktreeId: worktreeId, repoId: UUID(), rootPath: rootPath)
+        let initialReadCompleted = await eventually("registration should perform its immediate read") {
+            await provider.callCount == 1
+        }
+        #expect(initialReadCompleted)
+
+        await provider.setStatus(makeTrackedStatus(branch: "manual"))
+        _ = await pipeline.refreshWatchedFolders([])
+        let explicitReadCompletedWithoutClockAdvance = await eventually(
+            "explicit refresh should bypass the filesystem-derived coalescing window"
+        ) {
+            await provider.callCount == 2
+        }
+        #expect(explicitReadCompletedWithoutClockAdvance)
+
+        await pipeline.shutdown()
+    }
+
     private func makeTrackedStatus(
         aheadCount: Int = 0,
         behindCount: Int = 0,
@@ -405,6 +446,7 @@ struct FilesystemGitPipelineIntegrationTests {
 
 private actor MutableGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     private var currentStatus: GitWorkingTreeStatus?
+    private(set) var callCount = 0
 
     init(status: GitWorkingTreeStatus?) {
         self.currentStatus = status
@@ -414,8 +456,12 @@ private actor MutableGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider 
         currentStatus = status
     }
 
-    func status(for _: URL) async -> GitWorkingTreeStatus? {
-        currentStatus
+    func statusResult(for _: URL, pathspecs _: [String]?) async -> GitWorkingTreeStatusResult {
+        callCount += 1
+        guard let currentStatus else {
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
+        }
+        return .available(currentStatus)
     }
 }
 

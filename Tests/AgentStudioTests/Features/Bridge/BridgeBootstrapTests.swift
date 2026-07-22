@@ -3,149 +3,143 @@ import Testing
 
 @testable import AgentStudio
 
-/// Tests for BridgeBootstrap JavaScript generator.
-///
-/// The bootstrap script runs at document start in the bridge content world.
-/// It installs `window.__bridgeInternal` with relay functions, listens for
-/// commands from page world with nonce validation, handles the bridge.ready
-/// handshake, and dispatches push events to page world.
+/// Contract tests for the document-start bootstrap that remains after the product-transport hard cut.
 @Suite(.serialized)
 final class BridgeBootstrapTests {
-
-    // MARK: - Bridge Internal API
-
     @Test
-    func test_script_contains_bridgeInternal_global() {
-        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(script.contains("window.__bridgeInternal"), "Bootstrap must install __bridgeInternal in bridge world")
-    }
+    func bootstrapOwnsReadinessAndSessionBootstrapOnly() {
+        // Arrange
+        let script = BridgeBootstrap.generateScript()
 
-    // MARK: - Command Listener
+        // Act
+        let forbiddenLegacyCarrierMarkers = [
+            "window.__bridgeInternal",
+            "__bridge_command",
+            "__bridge_push",
+            "__bridge_intake",
+            "pushNonce",
+            "PUSH_NONCE",
+            "applyEnvelope",
+            "applyIntakeFrameJSON",
+        ]
 
-    @Test
-    func test_script_contains_command_listener() {
-        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(
-            script.contains("__bridge_command"),
-            "Bootstrap must listen for __bridge_command CustomEvents from page world")
-    }
-
-    // MARK: - Nonce Validation
-
-    @Test
-    func test_script_contains_nonce_validation() {
-        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(script.contains("test-nonce"), "Bootstrap must embed bridge nonce for command validation")
-    }
-
-    // MARK: - Push Relay
-
-    @Test
-    func test_script_contains_push_relay() {
-        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(script.contains("__bridge_push"), "Bootstrap must dispatch __bridge_push CustomEvents to page world")
-    }
-
-    // MARK: - Ready Listener
-
-    @Test
-    func test_script_contains_ready_listener() {
-        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(
-            script.contains("__bridge_ready") || script.contains("bridge.ready"),
-            "Bootstrap must relay bridge.ready from page world to Swift")
-    }
-
-    // MARK: - Handshake Dispatch
-
-    @Test
-    func test_script_contains_handshake_dispatch() {
-        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(script.contains("__bridge_handshake"), "Bootstrap must dispatch handshake with pushNonce to page world")
-    }
-
-    // MARK: - Nonce Uniqueness
-
-    @Test
-    func test_different_nonces_produce_different_scripts() {
-        let script1 = BridgeBootstrap.generateScript(bridgeNonce: "nonce-a", pushNonce: "push-a")
-        let script2 = BridgeBootstrap.generateScript(bridgeNonce: "nonce-b", pushNonce: "push-b")
-        #expect(script1 != script2, "Different nonces should produce different bootstrap scripts")
-    }
-
-    // MARK: - Handshake Replay (P1)
-
-    @Test
-    func test_script_contains_handshake_replay_listener() {
-        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(
-            script.contains("__bridge_handshake_request"),
-            "Bootstrap must listen for __bridge_handshake_request so late page-world listeners can recover the pushNonce"
-        )
-    }
-
-    // MARK: - Push Envelope Metadata (P2)
-
-    @Test
-    func test_push_relay_includes_revision_and_epoch_at_detail_level() {
-        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        // merge and replace functions should accept revision and epoch params
-        // and include __revision/__epoch at the event detail level
-        #expect(
-            script.contains("__revision: revision"),
-            "Push relay must expose __revision at event detail level for stale guards")
-        #expect(
-            script.contains("__epoch: epoch"), "Push relay must expose __epoch at event detail level for epoch checks")
+        // Assert
+        #expect(script.contains("__bridge_ready"))
+        #expect(script.contains("bridge.ready"))
+        #expect(script.contains("__bridge_product_session_bootstrap_request"))
+        #expect(script.contains("__bridge_telemetry_session_bootstrap_request"))
+        #expect(!forbiddenLegacyCarrierMarkers.contains(where: script.contains))
     }
 
     @Test
-    func test_applyEnvelope_extracts_metadata_from_envelope() {
-        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(script.contains("envelope.__revision"), "applyEnvelope must extract __revision from envelope")
-        #expect(script.contains("envelope.__epoch"), "applyEnvelope must extract __epoch from envelope")
+    func readyRelayRequiresAndPreservesThePageRequestIdentifier() {
+        let script = BridgeBootstrap.generateScript()
+
+        #expect(script.contains("typeof event.detail.requestId === 'string'"))
+        #expect(script.contains("requestId.length === 0"))
+        #expect(script.contains("id: requestId, method: 'bridge.ready'"))
+        #expect(script.contains("params: {}"))
     }
 
     @Test
-    func test_push_relay_preserves_store_at_detail_level() {
-        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(script.contains("op: 'merge'"))
-        #expect(script.contains("op: 'replace'"))
-        #expect(
-            script.contains("store: store"),
-            "Push relay must expose store at event detail level so page-world receivers can route pushes")
+    func handshakePublishesBootstrapContextAndSupportsLateListenerReplay() {
+        let script = BridgeBootstrap.generateScript()
+
+        #expect(script.contains("__bridge_handshake"))
+        #expect(script.contains("detail: { telemetryConfig: TELEMETRY_CONFIG }"))
+        #expect(script.contains("__bridge_handshake_request"))
     }
 
     @Test
-    func test_handshake_carries_optional_telemetry_config() {
+    func handshakeCarriesOptionalTelemetryConfigWithoutWorkerAuthority() {
         let config = BridgeTelemetryBootstrapConfig.enabled(
             scopes: [.web, .webKit],
             scenario: "package_apply_content_fetch_v1"
         )
-        let script = BridgeBootstrap.generateScript(
-            bridgeNonce: "test-nonce",
-            pushNonce: "push-nonce",
-            telemetryConfig: config
-        )
+        let script = BridgeBootstrap.generateScript(telemetryConfig: config)
+
         #expect(script.contains("const TELEMETRY_CONFIG ="))
-        #expect(script.contains("system.bridgeTelemetry"))
         #expect(script.contains("telemetryConfig: TELEMETRY_CONFIG"))
+        #expect(!script.contains("endpointUrl"))
+        #expect(!script.contains("maxSamplesPerBatch"))
+        #expect(!script.contains("maxEncodedBatchBytes"))
+        #expect(!script.contains("minimumFlushIntervalMilliseconds"))
+        #expect(!script.contains("system.bridgeTelemetry"))
     }
 
     @Test
-    func test_applyEnvelope_preserves_trace_context_at_detail_level() {
-        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(script.contains("envelope.__traceContext"))
-        #expect(script.contains("__traceContext: traceContext || null"))
-        #expect(script.contains("this.merge(store, payload, revision, epoch, slice, traceContext)"))
-        #expect(script.contains("this.replace(store, payload, revision, epoch, slice, traceContext)"))
+    func handshakeCarriesViewerOpenAnchorForTimeToFirstInteraction() {
+        let config = BridgeTelemetryBootstrapConfig.enabled(
+            scopes: [.web],
+            scenario: "package_apply_content_fetch_v1",
+            viewerOpenEpochUnixMillis: 1_750_000_000_000,
+            viewerOpenTraceparent: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+        )
+        let script = BridgeBootstrap.generateScript(telemetryConfig: config)
+
+        #expect(script.contains("viewerOpenEpochUnixMillis"))
+        #expect(script.contains("1750000000000"))
+        #expect(script.contains("viewerOpenTraceparent"))
+        #expect(script.contains("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"))
     }
 
     @Test
-    func test_applyEnvelope_preserves_slice_at_detail_level() {
-        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(script.contains("const slice = envelope.slice"))
-        #expect(script.contains("slice: slice"))
-        #expect(script.contains("merge: function(store, data, revision, epoch, slice, traceContext)"))
-        #expect(script.contains("replace: function(store, data, revision, epoch, slice, traceContext)"))
+    func bootstrapPublishesReviewFrameAuthorityAttributes() {
+        let script = BridgeBootstrap.generateScript(
+            reviewPaneId: "pane-123",
+            reviewStreamId: "review:pane-123"
+        )
+
+        #expect(script.contains("const REVIEW_PANE_ID = \"pane-123\""))
+        #expect(script.contains("const REVIEW_STREAM_ID = \"review:pane-123\""))
+        #expect(script.contains("data-bridge-review-pane-id"))
+        #expect(script.contains("data-bridge-review-stream-id"))
+    }
+
+    @Test
+    func bootstrapSelectsWorktreeFileProtocolWithoutSourceIdentityRelay() {
+        let script = BridgeBootstrap.generateScript(appProtocol: "worktree-file")
+
+        #expect(script.contains("data-bridge-app-protocol"))
+        #expect(script.contains("const APP_PROTOCOL = \"worktree-file\""))
+        #expect(!script.contains("WORKTREE_FILE_SOURCE_SPEC"))
+        #expect(!script.contains("data-bridge-worktree-file-source-spec"))
+    }
+
+    @Test
+    func productSessionBootstrapUsesCorrelatedRequestsAndAClosedReasonUnion() {
+        let script = BridgeBootstrap.generateScript()
+
+        #expect(script.contains("typeof detail.requestId === 'string'"))
+        #expect(script.contains("detail.reason === 'initial'"))
+        #expect(script.contains("detail.reason === 'workerReplacement'"))
+        #expect(script.contains("method: 'bridge.productSession.bootstrap'"))
+        #expect(script.contains("params: { reason: reason }"))
+        #expect(!script.contains("PRODUCT_SESSION_BOOTSTRAP"))
+        #expect(!script.contains("PRODUCT_CAPABILITY_BYTES"))
+        #expect(!script.contains("productCapability:"))
+    }
+
+    @Test
+    func telemetrySessionBootstrapUsesCorrelatedRequestsAndAClosedReasonUnion() {
+        let script = BridgeBootstrap.generateScript()
+
+        #expect(script.contains("detail.reason === 'initial'"))
+        #expect(script.contains("detail.reason === 'sidecarReplacement'"))
+        #expect(script.contains("method: 'bridge.telemetrySession.bootstrap'"))
+        #expect(script.contains("params: { reason: reason }"))
+    }
+
+    @Test
+    func bootstrapHasNoOrdinaryPageCommandRPCOrLegacyCarrierRelay() {
+        let script = BridgeBootstrap.generateScript()
+
+        #expect(!script.contains("sendCommandJSON"))
+        #expect(!script.contains("__bridge_response"))
+        #expect(!script.contains("PAGE_WORLD_ALLOWED_COMMAND_METHODS"))
+        #expect(!script.contains("'bridge.intakeReady'"))
+        #expect(!script.contains("'bridge.activeViewerMode.update'"))
+        #expect(!script.contains("'worktreeFileSurface.requestFileDescriptor'"))
+        #expect(!script.contains("pageWorldLegacy"))
     }
 }

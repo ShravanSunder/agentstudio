@@ -53,7 +53,7 @@ extension E2ESerializedTests {
 
         @Test
         func test_attachCommand_containsAttachAndSessionId() async throws {
-            try await withBackend { _, backend in
+            try await withBackend { harness, backend in
                 // Arrange
                 let handle = try await backend.createPaneSession(sessionID: .generateUUIDv7())
 
@@ -62,7 +62,7 @@ extension E2ESerializedTests {
 
                 // Assert
                 #expect(!cmd.contains("ZMX_DIR="))
-                #expect(cmd.hasPrefix("\""))
+                #expect(cmd.hasPrefix(ZmxBackend.shellEscape(try #require(harness.zmxPath))))
                 #expect(cmd.contains("attach"))
                 #expect(cmd.contains(handle.id.rawValue))
                 #expect(cmd.contains("-i -l"))

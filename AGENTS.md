@@ -316,6 +316,22 @@ When two app surfaces need the same visual control, extract a shared primitive i
 
 Before creating a feature-local UI primitive, check for an existing shared component with the same interaction semantics. Reuse or extract keyboard, focus, selection, and command-toggle behavior even when row content differs. Styling parity alone is not enough.
 
+BridgeWeb React UI uses shadcn-style owned source primitives. For reusable React
+controls, do not hand-roll route-local toggles, segmented controls, buttons,
+menus, inputs, or toolbar widgets because one route happens to have nearby
+markup. First check `BridgeWeb/src/components/ui/`. If the needed shadcn
+primitive is missing, add the primitive source there, edit that owned component
+to match Agent Studio's product tokens and sizing, then compose it through a
+feature-neutral BridgeViewer/shared wrapper. Product-specific chrome may wrap
+shadcn primitives, but it must not replace them with one-off custom controls.
+For BridgeViewer specifically, FileViewer and ReviewViewer controls with the
+same interaction semantics must share the same primitive layer and visual scale.
+
+Bridge worktree and review git data prepared on the Swift/native side must use
+the repo's `agentstudio-git` library. TypeScript may shell out to `git` only in
+clearly scoped Vite dev-server utilities or test fixture utilities; do not use
+TS git helpers as production Bridge protocol or source-adapter plumbing.
+
 Use `AppStyles` for presentation constants only: spacing, radii, icon sizes, opacity, typography, colors, and paint dimensions. Use `AppPolicies` for behavioral constants: limits, thresholds, retention caps, validation rules, routing rules, and accept/reject decisions. If changing the value can change state transitions or command/event behavior, it belongs in `AppPolicies` even when the UI reads it.
 
 Search rule of thumb:
@@ -372,6 +388,7 @@ icons when a sidebar/local action already defines the presentation.
 | `SidebarCacheState` | UI-facing composition surface over sidebar expanded groups plus legacy checkout color cleanup | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
 | `WorkspaceSidebarMemoryAtom` | persisted workspace sidebar shell memory: filter text, filter visibility, collapsed state, active surface | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
 | `SidebarFocusRuntimeAtom` | runtime-only sidebar focus fact for keyboard-owner derivation | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
+| `SidebarVisibleWorktreesRuntimeAtom` | runtime-only sidebar visible worktree ids for git enrichment admission | `Core/State/MainActor/Atoms/SidebarVisibleWorktreesRuntimeAtom.swift` |
 | `WorkspaceSidebarState` | UI-facing composition surface over sidebar memory + runtime focus atoms | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
 | `WorkspaceFocusOwnerAtom` | runtime focus owner for main-pane, empty-drawer, and drawer-pane focus | `Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift` |
 | `WorkspacePaneFocusDerived` | shared app-wide pane focus reader for command visibility and status UI | `Core/State/MainActor/Atoms/WorkspacePaneFocusDerived.swift` |
@@ -440,7 +457,7 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 | [Directory Structure](docs/architecture/directory_structure.md) | Module boundaries, Core vs Features, import rule, component placement |
 | [Architecture Lint Inventory](docs/architecture/architecture_lint_inventory.md) | SwiftLint rule IDs, former shell-script coverage, and blocking/report-only/test/review classifications |
 | [AgentStudio IPC Architecture](docs/architecture/agentstudio_ipc_architecture.md) | App-level programmatic-control contract, AppIPC port, composition, and zmx separation boundaries |
-| [Swift-React Bridge](docs/architecture/swift_react_bridge_design.md) | Bridge architecture, content-delivery status, JSON-RPC/push contracts, read-only CodeView/Shiki review surface, and LUNA-337 completion boundary |
+| [Bridge Viewer Architecture](docs/architecture/bridge_viewer_architecture.md) | End-to-end Bridge Viewer ownership and flow; routes to the [native runtime](docs/architecture/bridge_native_runtime_architecture.md) and [web runtime](docs/architecture/bridge_web_runtime_architecture.md) source documents |
 | [Style Guide](docs/guides/style_guide.md) | macOS design conventions and visual standards |
 | [Agent Resources](docs/guides/agent_resources.md) | Bootstrap, official Swift/macOS docs, DeepWiki sources, and research guidance |
 
@@ -743,21 +760,20 @@ mise run test -- --filter "CommandBarState"
 ```
 If you must invoke `swift test` directly, source the slot helper first so you don't collide with another agent's build dir:
 ```bash
-source scripts/swift-build-slot.sh debug
+source scripts/swift-build-slot.sh
 swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState"
 ```
 
 | Env Var | Default | Purpose |
 |---------|---------|---------|
-| `SWIFT_BUILD_DIR` | auto-allocated `.build-agent-{1..4}` via `scripts/swift-build-slot.sh` | Helper claims the first slot whose `.slot-claim` dir doesn't exist (atomic `mkdir`). Pin to a specific slot to override (rare). |
+| `SWIFT_BUILD_DIR` | auto-allocated `.build-agent-1` or `.build-agent-2` via `scripts/swift-build-slot.sh` | Helper claims the first slot whose `.slot-claim` dir doesn't exist (atomic `mkdir`). Local overrides are not supported. |
 | `SWIFT_TEST_PARALLEL` | `1` (enabled) | Set to `0` to disable parallel workers |
-| `SWIFT_TEST_WORKERS` | `hw.ncpu / 2` (max 4) | Parallel test worker count |
 
-**Bounded 4-slot pool.** Every swift-running mise task sources `scripts/swift-build-slot.sh`. The helper iterates `.build-agent-{1..4}` and uses an atomic `mkdir <dir>/.slot-claim` to claim a slot; an EXIT trap on the calling shell removes the claim on normal exit. SwiftPM's own kernel-level flock handles serialization within a slot. Slots are reused by the next agent — disk usage is bounded by 4 × build size. Main agents and subagents share the pool; the helper handles allocation.
+**Bounded 2-slot pool.** Every swift-running mise task sources `scripts/swift-build-slot.sh`. Debug builds, release builds, and tests all share `.build-agent-1` and `.build-agent-2`. The helper uses an atomic `mkdir <dir>/.slot-claim` to claim a slot; an EXIT trap on the calling shell removes the claim on normal exit. SwiftPM's own kernel-level flock handles serialization within a slot. Main agents and subagents share the pool; the helper handles allocation.
 
-**Concurrent agents land on different slots.** Atomic `mkdir` guarantees that 4 agents racing simultaneously each claim a distinct slot. Within one shell, sourcing the helper once gives you one slot held for the lifetime of that shell — repeated `mise run` invocations in the same shell reuse the same slot (warm cache).
+**Concurrent agents land on different slots.** Atomic `mkdir` guarantees that two callers racing simultaneously claim distinct slots. A third caller fails instead of creating another build directory.
 
-**If all 4 slots are busy** the helper aborts with `swift-build-slot: all 4 ... slots are busy`. This is rare; it means 4 other agents are actively building.
+**If both slots are busy** the helper aborts with `swift-build-slot: all 2 slots are busy`.
 
 **SIGKILL leaks.** If a calling shell is `kill -9`'d, the EXIT trap doesn't fire and `.slot-claim` is left behind. Run `mise run clean-agent-builds` to reap stale claims (it removes `.slot-claim` from any slot whose `lsof +D` shows no open file descriptors, so it's safe to run while other agents are working).
 

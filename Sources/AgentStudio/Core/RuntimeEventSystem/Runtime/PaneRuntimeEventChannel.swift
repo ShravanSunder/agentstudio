@@ -8,6 +8,8 @@ import os
 /// - Posts envelopes to the app-wide pane event bus
 @MainActor
 final class PaneRuntimeEventChannel {
+    typealias OutboundPost = @Sendable (RuntimeEnvelope) async -> EventBus<RuntimeEnvelope>.PostResult
+
     private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneRuntimeEventChannel")
     private let clock: ContinuousClock
     private let replayBuffer: EventReplayBuffer
@@ -24,7 +26,8 @@ final class PaneRuntimeEventChannel {
         clock: ContinuousClock = ContinuousClock(),
         replayBuffer: EventReplayBuffer = EventReplayBuffer(),
         paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
-        performanceReporter: RuntimeDeliveryPerformanceReporter = PaneRuntimeEventBus.performanceReporter
+        performanceReporter: RuntimeDeliveryPerformanceReporter = PaneRuntimeEventBus.performanceReporter,
+        outboundPost: OutboundPost? = nil
     ) {
         self.clock = clock
         self.replayBuffer = replayBuffer
@@ -38,11 +41,15 @@ final class PaneRuntimeEventChannel {
             bufferingPolicy: .bufferingNewest(128)
         )
         self.busContinuation = continuation
+        let outboundPost =
+            outboundPost ?? { envelope in
+                await paneEventBus.post(envelope)
+            }
         // swiftlint:disable:next no_task_detached
         self.busConsumerTask = Task.detached {
             await Self.consumeOutboundBusStream(
                 stream,
-                paneEventBus: paneEventBus,
+                outboundPost: outboundPost,
                 performanceReporter: performanceReporter,
                 performanceChannelToken: performanceChannelToken
             )
@@ -110,7 +117,7 @@ final class PaneRuntimeEventChannel {
 
     @concurrent nonisolated private static func consumeOutboundBusStream(
         _ stream: AsyncStream<RuntimeEnvelope>,
-        paneEventBus: EventBus<RuntimeEnvelope>,
+        outboundPost: OutboundPost,
         performanceReporter: RuntimeDeliveryPerformanceReporter,
         performanceChannelToken: RuntimeDeliveryChannelToken
     ) async {
@@ -120,7 +127,7 @@ final class PaneRuntimeEventChannel {
         }
         for await envelope in stream {
             guard !Task.isCancelled else { break }
-            let postResult = await paneEventBus.post(envelope)
+            let postResult = await outboundPost(envelope)
             performanceReporter.recordRuntimeChannelOutboundPosted(performanceChannelToken)
             if postResult.droppedCount > 0 {
                 detachedLogger.warning(
