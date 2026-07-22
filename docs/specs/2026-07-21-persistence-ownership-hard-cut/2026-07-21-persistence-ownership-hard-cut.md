@@ -1,294 +1,392 @@
-# Persistence Ownership Hard Cut
+# Persistence Ownership and Pane Lifecycle Hard Cut
 
 Date: 2026-07-21
 Status: Draft
 
 ## Read this first
 
-AgentStudio has three different kinds of state that are currently mixed together:
+This change fixes three customer-impacting problems:
 
-1. Global repositories and worktrees that exist independently of any workspace.
-2. Workspace composition: panes, tabs, arrangements, and drawers.
-3. Local presentation and cache state that may be missing without making the workspace invalid.
+1. Deleting a workspace can currently delete application-level repositories,
+   worktrees, watched paths, tags, and availability rows because the SQLite
+   schema incorrectly makes them children of the workspace.
+2. A local preference/cache write can currently make a valid core snapshot look
+   incomplete and prevent AgentStudio from opening.
+3. Closing panes and tabs does not implement one coherent 15-minute undo
+   lifecycle. Pane records, Ghostty surfaces, runtime state, and ZMX sessions can
+   outlive one another, and worktree disappearance incorrectly marks live panes
+   as orphaned.
 
-The current SQLite schema still says that a workspace owns repositories and worktrees. The current save protocol also makes a valid core workspace depend on a matching local preference database. Both relationships are wrong.
-
-This spec makes the ownership explicit:
+The target ownership is intentionally small:
 
 ```text
 core.sqlite
-  global repository topology
-  durable workspace compositions
+  authoritative global repository topology
+  authoritative workspace composition
+  pane close state during the 15-minute undo window
 
 local.sqlite
-  workspace-local continuation state
-  window-keyed presentation state
-  repository/worktree caches
-  local feature state
+  one clean application-level database
+  non-authoritative cursors, window/sidebar state, preferences,
+  notifications, recent targets, and rebuildable caches
+
+preferences.global.json
+  the only supported standalone JSON preference file
 ```
 
-`core.sqlite` is authoritative and internally consistent. `local.sqlite` is non-authoritative and always allowed to fall back to deterministic defaults.
+`core.sqlite` must be internally atomic and sufficient to open the app.
+`local.sqlite` may be missing or unusable; the app then uses deterministic
+defaults without changing core.
+
+## Customer problems and required outcomes
+
+### 1. Workspace deletion destroys data it does not own
+
+The domain model already treats repositories and worktrees as application-level
+entities. The current database does not. It stores `workspace_id` on topology
+tables and uses workspace-delete cascades.
+
+Required outcome:
+
+- workspace deletion removes only that workspace's pane/tab/layout composition;
+- watched paths, repositories, worktrees, tags, notes, favorite state, and
+  availability remain unchanged;
+- the same repository or worktree can be referenced by multiple workspace
+  compositions;
+- only an explicit topology mutation may delete a repository or worktree.
+
+### 2. Local state can brick startup
+
+Core composition is authoritative. Window geometry, cursors, sidebar state,
+notifications, preferences, and caches are not. The current staged-core,
+local-write, core-completion protocol makes core validity depend on local I/O.
+
+Required outcome:
+
+- one core save is one SQLite transaction;
+- one core load is one consistent SQLite read transaction;
+- core completion never depends on a local token or write;
+- one clean application-level `local.sqlite` replaces per-workspace local
+  sidecars;
+- missing, corrupt, or unavailable local state never blocks valid core startup.
+
+### 3. Closed and orphaned panes accumulate
+
+The model contains `pendingUndo`, but production close paths do not consistently
+set it. The coordinator keeps an in-memory stack capped by entry count rather
+than a 15-minute deadline. `SurfaceManager` separately uses a five-minute TTL
+and destroys only its Ghostty surface. The ZMX destroy API has no production
+expiry caller. Worktree removal also changes pane residency even though pane
+runtime is CWD-backed and does not belong to a worktree.
+
+Required outcome:
+
+- closing a pane or tab starts one 15-minute undo deadline;
+- during that window, the pane record, terminal identity, and runtime resources
+  remain available for undo;
+- expiry removes the pane and all owned content from core, retires the Ghostty
+  surface and runtime state, and destroys the stored ZMX session;
+- worktree/repository disappearance clears optional topology facets only; it
+  does not close the pane or change pane residency;
+- the obsolete worktree-derived `orphaned` residency is removed;
+- a pane outside tab/drawer membership is valid only when deliberately
+  `backgrounded` or `pendingUndo`; any other membership orphan is rejected or
+  removed by the defined cutover, not silently retained forever.
 
 ## Current evidence
 
-- `CanonicalRepo` and `Worktree` already have no workspace identity; `Worktree` refers only to its repository.
-- `WorkspaceCoreMigrations` still places `workspace_id` foreign keys and workspace-delete cascades on watched paths, repositories, worktrees, tags, and availability.
-- `WorkspaceSQLiteSaveCoordinator` still captures repository topology, workspace composition, cursors, and window state into one save bundle.
-- `WorkspaceSQLiteStoreBackend` and `WorkspaceSQLiteDatastore` still require matching core/local completion state.
-- `WorkspaceSQLiteDatastoreConfiguration` still chooses a local database URL from a workspace UUID.
+The design is grounded in these current source boundaries:
 
-These source anchors make this a persistence ownership correction, not a new domain-model invention.
+- `WorkspaceCoreMigrations.swift` defines workspace ownership and cascades on
+  `watched_path`, `repo`, `worktree`, and `unavailable_repo`.
+- `WorkspaceCoreMigrations+RepositoryTopology.swift` repeats workspace ownership
+  in `repo_tag`.
+- `WorkspaceCoreRepository+Topology.swift` still requires workspace identity for
+  topology reads and writes.
+- `WorkspaceSQLiteDatastore.swift` and the store backend coordinate separate
+  core/local completion state instead of treating core as independently atomic.
+- `WorkspaceSQLiteSaveCoordinator.swift` captures composition and topology in
+  one bundle before an off-main suspension. A later-arriving older capture can
+  therefore replace newer accepted topology.
+- `WorkspaceLocalMigrations.swift` defines one schema per workspace-local
+  sidecar and repeats `workspace_id` on global cache rows.
+- `WorkspaceSurfaceCoordinator+ActionExecution.swift` closes tabs/panes through
+  an in-memory undo stack and has no working time-based `expireUndoEntry` path.
+- `WorkspaceCompositionPreparation.swift` rejects every pane outside tab
+  membership, while the product intentionally retains `backgrounded` panes and
+  must retain `pendingUndo` panes. Direct tab close therefore creates a state
+  that current autosave cannot commit.
+- `SurfaceManager.swift` has an independent five-minute surface-only undo TTL.
+- `WorkspacePaneGraphAtom.purgeOrphanedPane` accepts only `backgrounded` even
+  though its facade also routes worktree-derived `orphaned` panes there.
+- `ZmxBackend.destroySessionByID` exists, but pane/tab expiry does not call it.
 
-## Critical defect: workspace deletion destroys global topology
-
-This is a release-blocking ownership bug, not ordinary schema cleanup.
-
-The current schema attaches application-level topology to `workspace(id)` through cascading foreign keys:
-
-```text
-DELETE workspace W
-  │
-  ├── ON DELETE CASCADE ──► watched_path.workspace_id
-  ├── ON DELETE CASCADE ──► repo.workspace_id
-  │                            │
-  │                            ├──► worktree(repo_id, workspace_id)
-  │                            ├──► repo_tag(repo_id, workspace_id)
-  │                            └──► unavailable_repo(repo_id, workspace_id)
-  └── intended cascade ─────► panes, tabs, arrangements, and drawers owned by W
-```
-
-`WorkspaceCoreRepository.deleteWorkspace` issues a plain `DELETE FROM workspace`. SQLite therefore removes both the intended workspace composition and the unrelated watched paths, repositories, worktrees, tags, and availability rows. The live domain model already treats repository topology as application-global, so the database delete boundary contradicts the product ownership boundary.
-
-The hard-cut invariant is:
+A read-only production aggregate check on 2026-07-21 found:
 
 ```text
-delete workspace
-  = delete that workspace's composition
-  + update active-workspace selection when necessary
-  + zero mutation to global repository topology
+core quick_check             ok
+foreign-key violations       0
+workspaces                    1
+repositories                 157
+worktrees                    244
+panes                         47
+tabs                          8
+
+pane residency
+  active                     14  (14 in composition)
+  backgrounded                4  (4 outside composition, intentional pool)
+  orphaned                   29  (25 in composition, 4 outside composition)
+  pendingUndo                 0
 ```
 
-Only an explicit repository-topology mutation may delete a repository or worktree. The migration, repository API, destructive-path tests, and foreign-key inspection must all prove this invariant; a passing ordinary workspace-delete test that checks only workspace rows is insufficient.
+No IDs, paths, titles, notes, terminal content, or notification content were
+read. The result demonstrates that `orphaned` is not a reliable synonym for
+"closed pane": most such panes are still members of live compositions.
 
-## Customer problem
+## Ownership boundaries
 
-The current design can turn unrelated local state into destructive or startup-blocking behavior:
+### Current core ownership: incorrect
 
-- A failed local cursor or window-state write can leave the matching core snapshot incomplete and prevent the app from opening on every later launch.
-- Deleting a workspace can cascade through SQLite into watched paths, repositories, and worktrees even though repositories are application-level resources.
-- The same repository cannot be referenced naturally by multiple workspace compositions because persistence still scopes the repository to one workspace.
-- Per-workspace local database files encode the obsolete assumption that one workspace equals one macOS window.
-- Window presentation, workspace continuation, global repository caches, and notification state share an unclear ownership convention.
+```mermaid
+erDiagram
+    WORKSPACE ||--o{ WATCHED_PATH : "CASCADE owns (wrong)"
+    WORKSPACE ||--o{ REPO : "CASCADE owns (wrong)"
+    WORKSPACE ||--o{ WORKTREE : "CASCADE owns (wrong)"
+    WORKSPACE ||--o{ REPO_TAG : "CASCADE owns (wrong)"
+    WORKSPACE ||--o{ UNAVAILABLE_REPO : "CASCADE owns (wrong)"
+    WORKSPACE ||--o{ PANE : "owns composition"
+    WORKSPACE ||--o{ TAB_SHELL : "owns composition"
+    REPO ||--o{ WORKTREE : owns
+    PANE o|--o| REPO : "workspace-matched facet"
+    PANE o|--o| WORKTREE : "workspace-matched facet"
+```
 
-## Product intent
+### Target core ownership
 
-AgentStudio must preserve durable workspace composition without allowing preferences or caches to control whether the application can open. Repositories and worktrees must remain available independently of which compositions or windows reference them.
+```mermaid
+erDiagram
+    WORKSPACE ||--o{ PANE : "CASCADE owns"
+    WORKSPACE ||--o{ TAB_SHELL : "CASCADE owns"
+    TAB_SHELL ||--o{ TAB_ARRANGEMENT : owns
+    REPO ||--o{ WORKTREE : "CASCADE owns"
+    REPO ||--o{ REPO_TAG : "CASCADE owns"
+    REPO ||--o| UNAVAILABLE_REPO : "CASCADE owns"
+    PANE o|--o| REPO : "optional global facet; SET NULL"
+    PANE o|--o| WORKTREE : "optional global facet; SET NULL"
+```
 
-Success means:
+There is no edge from `workspace` to repository topology.
 
-- deleting or switching a workspace cannot delete global repository topology;
-- one repository or worktree can be referenced by multiple compositions;
-- a missing, stale, invalid, corrupt, or unavailable `local.sqlite` cannot invalidate `core.sqlite` or block startup;
-- only one application `local.sqlite` is used;
-- each local row reveals its actual owner through an explicit key;
-- the current single-window UI retains its presentation memory without pretending that a window is a workspace.
+### Target database responsibility
 
-## Domain vocabulary
+```mermaid
+flowchart LR
+    Core["core.sqlite<br/>authoritative"]
+    Local["local.sqlite<br/>non-authoritative"]
+    Atoms["MainActor live atoms"]
+    Runtime["Ghostty / runtime / ZMX"]
 
-### Repository topology
+    Core -->|"strict atomic load"| Atoms
+    Local -->|"typed values or defaults"| Atoms
+    Atoms -->|"coordinator commands"| Runtime
+    Atoms -->|"atomic core save"| Core
+    Atoms -->|"independent lane writes"| Local
 
-Application-level watched paths, repositories, worktrees, repository metadata, and topology availability. A worktree belongs to a repository. Neither belongs to a workspace.
+    Local -. "never validates or completes" .-> Core
+```
 
-### Workspace composition
-
-A durable composition of panes, tabs, arrangements, and drawers. A composition may reference global repository and worktree IDs, but it does not own those entities.
-
-### Window shell
-
-Presentation state belonging to a macOS window, such as its frame and sidebar presentation. Every persisted window row uses a durable `window_id`. AgentStudio currently creates one main-window row; the schema does not confuse that row with a workspace.
-
-### Local lane
-
-A logically independent group of non-authoritative rows. Failure in one lane falls back only that lane when the database remains readable. Failure to open the entire local database falls back every local lane without affecting core.
+Atoms remain state owners and pure derived-state owners. Persistence and
+subprocess cleanup remain in repositories, stores, and coordinators.
 
 ## Requirements
 
-### R1. Global repository ownership
+### R1. Global topology in `core.sqlite`
 
-Watched paths, repositories, worktrees, and unavailable-repository state are application-level core data.
-
-- Repository identity does not contain `workspace_id`.
-- Worktree identity contains `repo_id` and does not contain `workspace_id`.
-- Deleting a workspace must not delete or mutate repository topology.
-- In particular, workspace deletion must leave watched paths, repositories, worktrees, repository tags, favorite/note metadata, and unavailable-repository state unchanged.
-- Repository topology APIs must not require `workspaceId` to fetch or mutate global topology.
-- Workspace composition saves must not carry or replace global topology.
-- Global topology has one mutation authority; an older captured state must not overwrite newer accepted repository/worktree state.
-- Deleting a global repository or worktree requires an explicit topology mutation. Automatic collection of unreferenced topology is outside this spec.
-- Existing repository and worktree identities must remain stable across the hard cut when they are unambiguous.
-- Newly generated identities use UUIDv7. Existing identifiers are accepted as stored.
+- `watched_path`, `repo`, `worktree`, `repo_tag`, and `unavailable_repo` have no
+  `workspace_id` column, workspace foreign key, or workspace-delete cascade.
+- `worktree.repo_id` is the only ownership edge for worktrees.
+- Repository APIs fetch and mutate one application-level topology without a
+  workspace parameter.
+- Workspace composition saves do not carry or replace topology.
+- An older captured composition save can never replace newer accepted topology;
+  removing topology from composition bundles is the required ownership boundary,
+  not a timestamp-based whole-state overwrite from multiple stores.
+- Existing identifiers and values are copied unchanged during the schema
+  migration. No UUID merge, deduplication, reconciliation, or metadata synthesis
+  is performed.
+- Newly generated identifiers use UUIDv7. Existing stored identifiers are used
+  as-is.
 
 ### R2. Workspace composition references global topology
 
-Workspace-owned pane, tab, arrangement, and drawer rows retain `workspace_id`.
+- Pane, tab, arrangement, and drawer rows remain owned by `workspace_id`.
+- `pane.facet_repo_id` and `pane.facet_worktree_id` reference global topology
+  and use `ON DELETE SET NULL`.
+- If both pane facets are present, the worktree must belong to the selected
+  repository.
+- Removing a repository/worktree facet does not change pane residency, CWD,
+  terminal lifetime, or ZMX identity.
 
-- Pane repository/worktree references target global repository/worktree IDs.
-- A pane and its referenced repository/worktree do not need a shared workspace owner.
-- The same repository or worktree may be referenced from panes in multiple workspaces.
-- Deleting a repository or worktree must follow an explicit reference policy; it must not be an accidental consequence of deleting a workspace.
-- Optional pane references use global foreign keys with deletion behavior that leaves the composition valid, such as clearing the reference rather than deleting the pane.
+### R3. Atomic core persistence
 
-### R3. One application-local database
+- Every authoritative core mutation commits in one SQLite transaction.
+- Every core hydration reads workspace selection, workspace metadata,
+  composition, and global topology inside one SQLite read transaction.
+- A crash before commit leaves the previous core state; a crash after commit
+  leaves the new core state.
+- `workspace_sqlite_snapshot_status` is removed. A committed SQLite transaction
+  is complete by definition.
+- `legacy_workspace_import_status` is removed. This hard cut has no JSON import
+  or replay authority.
 
-AgentStudio uses one `local.sqlite` for all non-authoritative local persistence.
+### R4. One clean application `local.sqlite`
 
-- No production path selects a local database file from a workspace UUID.
-- Opening another workspace selects rows inside the same database; it does not open another database file.
-- The local database remains a separate failure domain from `core.sqlite`.
+- The application opens one local database at the app data root. Its path is not
+  derived from a workspace UUID.
+- The database is created from the target schema and starts empty.
+- Old `<workspace-id>.local.sqlite` files are not read, merged, copied, or
+  imported.
+- Workspace JSON cache/UI/sidebar/inbox/settings files are not read, replayed,
+  or imported. Their runtime readers and writers are removed.
+- `preferences.global.json` remains supported and is not moved into SQLite.
+- Missing local rows use deterministic defaults. Failure to open the entire
+  local database defaults all local state and does not change the core result.
+- Local writes are independent transactions. A local write failure does not
+  roll back or invalidate core.
 
-### R4. Explicit local row ownership
+This intentionally resets notification history, cursors, recent targets,
+window/sidebar memory, workspace-scoped settings, and rebuildable caches once at
+cutover. The accepted cost is loss of non-authoritative local state; the gain is
+removing all import/replay/compatibility machinery and eliminating local state
+as a boot dependency.
 
-Every local table uses the key of the thing that owns the state.
+### R5. Explicit local ownership
 
-```text
-Owner                          Required key
-─────────────────────────────  ─────────────────────────
-workspace composition         workspace_id
-window shell                  window_id
-repository cache              repo_id
-worktree or PR cache           worktree_id, with repo_id when useful
-notification                  notification ID plus its query/reference keys
+- Workspace continuation and workspace-scoped feature rows include
+  `workspace_id` in their primary key.
+- Window frame and sidebar presentation are keyed by durable `window_id`, not a
+  workspace.
+- The current single-window product persists one row with `window_role =
+  'main'`. On first use it generates a UUIDv7 `window_id`; later launches find
+  the same row by the stable role.
+- Repository/worktree/PR caches are keyed globally by repo/worktree identity and
+  have no workspace owner.
+- Cross-database references are validated in code after core loads because
+  SQLite cannot enforce foreign keys across separate files. Stale local rows
+  default or disappear without changing core.
+
+### R6. Pane and tab close lifecycle
+
+Close undo is process-local. The durable pane row records the deadline so a
+crash cannot turn a closed pane into an immortal one; the layout restoration
+snapshot remains in memory and is not promoted into a new persistence system.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Active
+    Active --> Backgrounded: explicit remove-from-layout without close
+    Backgrounded --> Active: explicit reactivate
+    Active --> PendingUndo: close pane or tab
+    Backgrounded --> PendingUndo: close backgrounded pane
+    PendingUndo --> Active: undo before deadline in same process
+    PendingUndo --> Destroyed: 15-minute deadline
+    PendingUndo --> Destroyed: next startup after process ended
+    Destroyed --> [*]
 ```
 
-Workspace/composition-local state includes active tab, arrangement, pane, drawer expansion, and active drawer-child cursors.
+Normative behavior:
 
-Workspace-owned tables use workspace-qualified keys even when their entity IDs are normally global:
+- The TTL is one compile-time product policy: 15 minutes. The coordinator and
+  `SurfaceManager` do not own different deadlines.
+- Closing a tab gives every pane and owned drawer child in that tab the same
+  deadline.
+- Closing a pane gives that pane and its owned drawer children the same
+  deadline.
+- Closing removes layout membership immediately but keeps the pane record and
+  terminal ZMX identity while undo remains possible.
+- Core persistence treats `backgrounded` and `pendingUndo` panes as an explicit
+  off-layout pane pool. Composition validation permits those two residencies
+  outside tab/drawer membership and rejects `active` panes outside membership.
+  A close and its resulting pool membership persist atomically, so restart can
+  never resurrect the pre-close tab merely because autosave rejected the pane.
+- Undo before the deadline cancels finalization, restores composition from the
+  process-local close snapshot, and returns the pane to `active`.
+- Expiry is one coordinator-owned finalization command. It removes the undo
+  entry, destroys/retire the Ghostty surface, clears runtime state, invokes
+  `ZmxBackend.destroySessionByID` for terminal panes, removes the pane plus owned
+  content/drawer rows from live state, and commits the resulting core deletion.
+- ZMX "already absent" is successful idempotent cleanup. Other backend failures
+  are diagnosed; they do not resurrect the pane or invalidate core.
+- On next startup, any persisted `pendingUndo` pane is finalized immediately
+  because the process-local layout snapshot no longer exists.
+- Capacity limits may evict the oldest undo entry early only if eviction runs
+  the same complete finalization path. Capacity eviction must never discard only
+  the snapshot while retaining the pane/session.
+- Every other permanent pane deletion, including explicit purge of a
+  `backgrounded` pane, uses the same subtree finalizer. Parent panes and all
+  owned drawer children retire their model, view slot, surface, runtime state,
+  and terminal ZMX session together.
 
-```text
-cursor family         (workspace_id, tab/arrangement/pane/drawer key)
-recent target         (workspace_id, target_id)
-notification          (workspace_id, notification_id)
-notification group    (workspace_id, group_key)
-```
+### R7. Orphan semantics are narrow
 
-Window state includes:
+The target pane lifecycle has no worktree-derived `orphaned` residency.
 
-- window frame;
-- sidebar width;
-- sidebar collapsed state;
-- selected sidebar surface;
-- persisted sidebar filter presentation already supported by the product.
-- Repo Explorer expanded groups.
+- A pane in a tab/drawer remains active when its repo/worktree disappears. Its
+  optional facet clears; its CWD and terminal continue.
+- `backgrounded` means an intentional recoverable pane outside layout
+  membership. It is not an error and is not subject to the close TTL.
+- `pendingUndo` means an intentional close outside layout membership and is
+  subject to the 15-minute deadline.
+- An `active` pane outside tab/drawer membership is invalid.
+- A pane with a worktree-derived `orphaned` value is converted once during the
+  core schema cutover:
+  - if it still has tab/drawer membership, it becomes `active` and remains open;
+  - if it has no membership, its pane/content rows are deleted as stale state.
+- No ongoing startup repair engine, orphan receipt, or topology-driven pane
+  collector is introduced.
 
-Sidebar focus remains runtime-only. Newly created window IDs use UUIDv7. This spec persists the current window's identity and state but does not implement multi-window creation or restoration behavior.
+### R8. Failure containment and observability
 
-Recent targets and notification rows may retain `workspace_id` where workspace filtering or continuation is part of their existing product meaning. Repository and worktree caches must not gain workspace ownership.
+Existing diagnostics must distinguish:
 
-Global cache generation metadata uses an application singleton. It is not repeated for each workspace.
+- core open/migration/validation/commit failure;
+- local database unavailable and local lane read/write failure;
+- local stale-reference defaulting;
+- pane undo started, undone, expired, finalized, and backend cleanup failed.
 
-### R5. Core commit integrity
+OTLP output must not include raw paths, pane titles, notes, notification bodies,
+terminal content, or session IDs.
 
-A core save is complete based only on `core.sqlite`.
+## Exact schema changes
 
-- All authoritative changes for one core save commit in one SQLite transaction.
-- One core load observes one consistent SQLite read transaction; it must not assemble authoritative state from independently changing reads.
-- A process crash before commit leaves the previous valid core state.
-- A process crash after commit leaves the new valid core state.
-- Core completion must not wait for, compare against, or be cleared by a local write.
-- The staged-core/local-write/core-completion protocol is removed from the runtime contract.
+### Core current-to-target delta
 
-### R6. Local failure defaults
+| Object | Current | Target |
+| --- | --- | --- |
+| `watched_path` | workspace-owned; unique within workspace | global; `stable_key` globally unique |
+| `repo` | workspace-owned; unique within workspace | global; `stable_key` globally unique |
+| `worktree` | composite repo/workspace FK | global; owned only by `repo_id` |
+| `repo_tag` | workspace-qualified key/FK | `(repo_id, tag)` |
+| `unavailable_repo` | workspace-qualified key/FK | one row per global `repo_id` |
+| `pane` | topology facets must share workspace; supports worktree-derived orphan fields | global optional facets; no orphan fields; checked close residency |
+| `workspace_sqlite_snapshot_status` | cross-database completion state | dropped |
+| `legacy_workspace_import_status` | legacy import/replay state | dropped |
 
-Local state is useful but never required to interpret valid core composition.
+This is not a rebuild of all domain data. SQLite cannot remove the existing
+workspace foreign keys, composite uniqueness constraints, and cascade clauses
+in place, so the forward GRDB migration rebuilds only the five topology tables
+and `pane` in one transaction. Rows and identifiers are copied 1:1 except for
+the explicitly defined obsolete orphan-state cutover above.
 
-- Missing local rows use deterministic defaults.
-- Stale local references are checked against loaded core state and defaulted when their targets no longer exist.
-- Invalid values default only their logical lane when possible.
-- Failure to query one local lane does not discard readable rows from unrelated lanes.
-- Failure to open or migrate the entire local database defaults all local lanes.
-- Local failure never changes the core load result and never reaches a startup `preconditionFailure`.
-- A later ordinary local save may persist the current valid state; this does not require a general startup repair system.
+Previously shipped GRDB migration bodies and identifiers remain unchanged. One
+new forward migration produces the target schema; this preserves upgradeability
+without retaining any old runtime read/write path.
 
-Cursor defaults must produce a usable composition rather than merely setting every optional ID to `nil`:
+The migration does not merge duplicate entities. If the existing rows cannot
+satisfy the target global uniqueness constraints, the transaction fails and
+leaves the original schema/data unchanged.
 
-```text
-active tab          first core tab by persisted order, or nil when no tabs exist
-active arrangement  selected tab's core default arrangement
-active pane         first valid pane by persisted layout order
-drawer expansion    all collapsed
-drawer child        unset unless the composition requires a valid child
-```
-
-Default selection must not depend on dictionary iteration order, wall-clock time, or a newly generated identifier.
-
-One `local.sqlite` provides logical lane isolation, not separate physical fault domains. Corruption that prevents opening the shared file may make every local lane unavailable together. This is accepted because no local lane is authoritative; the resulting defaults and loss must be observable, and core must remain unchanged.
-
-### R7. Local writes are independent
-
-- Local write failure does not roll back or invalidate a committed core save.
-- A failed local write does not mutate canonical atoms or repository topology.
-- Each local store reports failure through existing diagnostics and continues with its valid in-memory/default state.
-- Local persistence is not performed by atoms. Atoms remain state owners or pure derived state; repositories, stores, and coordinators own persistence work.
-- Core composition preparation validates only authoritative composition. A separate local-overlay boundary sanitizes cursors and window/sidebar memory before applying them to live local atoms.
-- The datastore owns one local database connection/repository. Returning a constant URL from the old workspace-to-URL closure while retaining multiple workspace-keyed pools is forbidden.
-
-### R8. Existing data has an explicit hard-cut disposition
-
-The hard cut distinguishes durable/user-visible local data from rebuildable data:
-
-- Core workspace composition, repositories, worktrees, metadata, and references must be preserved.
-- Workspace cursors, window/sidebar memory, recent targets, and notification history should be carried into the single `local.sqlite` when their rows are valid.
-- Repository/worktree enrichment and pull-request counts are rebuildable and may be regenerated rather than migrated.
-- Cross-database completion tokens, local lane migration markers whose only purpose was sidecar import, and obsolete workspace ownership columns are not retained as runtime compatibility mechanisms.
-- The cutover is one-way. Production does not keep parallel old/new read or write paths after successful schema migration.
-- `preferences.global.json` remains the only intentionally supported standalone JSON preference file.
-- The currently live `<workspace-id>.settings.json` values are copied once into typed `local.sqlite` rows during cutover; the primary and backup files are not runtime authorities afterward.
-- Legacy workspace cache, UI, sidebar, inbox, and terminal checkpoint JSON files are not migration fallbacks. Their current SQLite data or deterministic defaults are authoritative.
-- Normal GRDB schema migration history remains. Runtime import decisions, replay markers, archive-readiness state, dual writers, compatibility decoders, and custom cutover receipt protocols do not.
-
-The forward core migration preserves each existing topology row, identifier, metadata value, and pane reference as stored. It does not merge topology rows, select winner identities, or synthesize metadata. If removing obsolete workspace ownership exposes an actual uniqueness violation, the migration fails transactionally and leaves the pre-migration database unchanged.
-
-The one-time settings copy is part of the forward cutover and writes its target rows transactionally. Normal GRDB migration state and the typed target rows are its only durable authority. It must not introduce a permanent import-status table or a second recovery state machine. Once the core hard-cut migration commits, later launches never consult legacy JSON or sidecars to hydrate, merge, repair, or default local state.
-
-Local conversion is best-effort and cannot control the core result:
-
-```text
-local conversion succeeds  -> preserve the valid retained local/settings rows
-local conversion fails     -> open the committed core with deterministic local defaults
-                              never replay legacy JSON or sidecars on a later launch
-```
-
-### R9. Failure containment is observable
-
-Existing persistence telemetry must distinguish:
-
-- core open, migration, validation, and commit failures;
-- whole-local-database unavailability;
-- individual local-lane read/write failures;
-- stale local references defaulted against core;
-- one-time hard-cut migration outcomes.
-
-Telemetry must not include raw paths, notification bodies, prompts, or other prohibited OTLP payloads.
-
-## Technical contract
-
-### Normative schema changes
-
-This section defines the required resulting schema. Migration statement order and temporary rebuild-table names belong to the implementation plan; the final ownership, keys, foreign keys, and removed tables do not.
-
-#### `core.sqlite`: global topology tables
-
-Current ownership columns are removed:
-
-```text
-watched_path.workspace_id     remove
-repo.workspace_id             remove
-worktree.workspace_id         remove
-repo_tag.workspace_id         remove
-unavailable_repo.workspace_id remove
-```
-
-Target shapes:
+### Target `core.sqlite` DDL: global topology
 
 ```sql
 CREATE TABLE watched_path (
@@ -338,54 +436,139 @@ CREATE TABLE unavailable_repo (
 );
 ```
 
-Global `stable_key` uniqueness matches the existing in-memory topology invariant. `worktree.repo_id` is the only ownership edge between worktrees and repositories.
+### Target `core.sqlite` DDL: touched pane table
 
-#### `core.sqlite`: workspace composition references
-
-Workspace composition tables keep `workspace_id`. The `pane` table keeps its composition ownership while its optional repository facets point to global topology:
+The composition graph tables remain unchanged. The `pane` table is shown in
+full because its topology references and lifecycle columns change.
 
 ```sql
-workspace_id      TEXT NOT NULL
-                  REFERENCES workspace(id) ON DELETE CASCADE
+CREATE TABLE pane (
+    id                      TEXT PRIMARY KEY,
+    workspace_id            TEXT NOT NULL
+                            REFERENCES workspace(id) ON DELETE CASCADE,
+    content_type            TEXT NOT NULL CHECK (
+        content_type IN (
+            'terminal', 'browser', 'diff', 'editor',
+            'review', 'agent', 'codeViewer'
+        )
+        OR content_type GLOB 'plugin:?*'
+    ),
+    execution_backend       TEXT NOT NULL,
+    facet_repo_id           TEXT REFERENCES repo(id) ON DELETE SET NULL,
+    facet_worktree_id       TEXT REFERENCES worktree(id) ON DELETE SET NULL,
+    launch_directory        TEXT,
+    title                   TEXT NOT NULL,
+    note                    TEXT,
+    cwd                     TEXT,
+    checkout_ref            TEXT,
+    residency_kind          TEXT NOT NULL,
+    pending_undo_expires_at REAL,
+    kind                    TEXT NOT NULL,
+    parent_pane_id          TEXT REFERENCES pane(id) ON DELETE CASCADE,
+    created_at              REAL NOT NULL,
+    updated_at              REAL NOT NULL,
+    CHECK (
+        (
+            residency_kind = 'pendingUndo'
+            AND pending_undo_expires_at IS NOT NULL
+        )
+        OR (
+            residency_kind IN ('active', 'backgrounded')
+            AND pending_undo_expires_at IS NULL
+        )
+    )
+);
 
-facet_repo_id     TEXT
-                  REFERENCES repo(id) ON DELETE SET NULL
+CREATE INDEX idx_pane_workspace_id ON pane(workspace_id);
 
-facet_worktree_id TEXT
-                  REFERENCES worktree(id) ON DELETE SET NULL
+CREATE TRIGGER pane_parent_matches_workspace
+BEFORE INSERT ON pane
+WHEN NEW.parent_pane_id IS NOT NULL
+AND (SELECT workspace_id FROM pane WHERE id = NEW.parent_pane_id)
+    != NEW.workspace_id
+BEGIN
+    SELECT RAISE(ABORT, 'pane parent_pane_id must belong to pane workspace');
+END;
+
+CREATE TRIGGER pane_parent_update_matches_workspace
+BEFORE UPDATE OF parent_pane_id, workspace_id ON pane
+WHEN NEW.parent_pane_id IS NOT NULL
+AND (SELECT workspace_id FROM pane WHERE id = NEW.parent_pane_id)
+    != NEW.workspace_id
+BEGIN
+    SELECT RAISE(ABORT, 'pane parent_pane_id must belong to pane workspace');
+END;
+
+CREATE TRIGGER pane_facets_match_repository_insert
+BEFORE INSERT ON pane
+WHEN NEW.facet_repo_id IS NOT NULL
+AND NEW.facet_worktree_id IS NOT NULL
+AND (SELECT repo_id FROM worktree WHERE id = NEW.facet_worktree_id)
+    != NEW.facet_repo_id
+BEGIN
+    SELECT RAISE(ABORT, 'pane worktree facet must belong to repo facet');
+END;
+
+CREATE TRIGGER pane_facets_match_repository_update
+BEFORE UPDATE OF facet_repo_id, facet_worktree_id ON pane
+WHEN NEW.facet_repo_id IS NOT NULL
+AND NEW.facet_worktree_id IS NOT NULL
+AND (SELECT repo_id FROM worktree WHERE id = NEW.facet_worktree_id)
+    != NEW.facet_repo_id
+BEGIN
+    SELECT RAISE(ABORT, 'pane worktree facet must belong to repo facet');
+END;
 ```
 
-The same-workspace repo/worktree triggers are removed:
+The existing content-type immutability and pane-content-family triggers remain
+unchanged. These obsolete triggers are dropped:
 
-```text
-pane_facet_repo_matches_workspace
-pane_facet_repo_update_matches_workspace
-pane_facet_worktree_matches_workspace
-pane_facet_worktree_update_matches_workspace
+```sql
+DROP TRIGGER IF EXISTS pane_facet_repo_matches_workspace;
+DROP TRIGGER IF EXISTS pane_facet_repo_update_matches_workspace;
+DROP TRIGGER IF EXISTS pane_facet_worktree_matches_workspace;
+DROP TRIGGER IF EXISTS pane_facet_worktree_update_matches_workspace;
 ```
 
-A replacement constraint or trigger preserves only the real relationship:
+These obsolete tables are dropped without replacement:
 
-```text
-when facet_repo_id and facet_worktree_id are both present,
-worktree.repo_id must equal facet_repo_id
+```sql
+DROP TABLE workspace_sqlite_snapshot_status;
+DROP TABLE legacy_workspace_import_status;
 ```
 
-Deleting a workspace cascades only through workspace composition tables. Deleting global topology clears optional pane facets through `ON DELETE SET NULL`; it does not delete panes.
+### New application `local.sqlite`: complete target DDL
 
-#### `core.sqlite`: removed cross-database validity state
+This file is created clean. The following is its complete product schema; GRDB's
+own migration table is implicit and is not a product table.
 
-The following runtime validity table is removed:
+```mermaid
+flowchart TB
+    subgraph WorkspaceRows["workspace_id owned rows"]
+        WC[workspace cursor]
+        TC[tab cursor]
+        AC[arrangement cursor]
+        DC[drawer cursors]
+        RT[recent targets]
+        NI[notifications]
+        FP[feature preferences]
+    end
 
-```text
-workspace_sqlite_snapshot_status
+    subgraph WindowRows["window_id owned rows"]
+        WS[window frame + sidebar state]
+        WG[expanded sidebar groups]
+        WS --> WG
+    end
+
+    subgraph GlobalRows["application-global rows"]
+        CM[cache metadata singleton]
+        RC[repo enrichment by repo_id]
+        WTC[worktree enrichment by worktree_id]
+        PR[PR count by worktree_id]
+    end
 ```
 
-A committed core transaction is complete by definition. Normal GRDB schema migration state is the only hard-cut marker. No replacement completion token, cutover receipt, or product-level migration state machine is introduced.
-
-#### `local.sqlite`: workspace continuation tables
-
-All workspace-owned local keys become explicitly workspace-qualified:
+#### Workspace continuation
 
 ```sql
 CREATE TABLE local_workspace_cursor (
@@ -402,6 +585,9 @@ CREATE TABLE local_tab_cursor (
     PRIMARY KEY (workspace_id, tab_id)
 );
 
+CREATE INDEX idx_local_tab_cursor_workspace
+ON local_tab_cursor(workspace_id);
+
 CREATE TABLE local_arrangement_cursor (
     workspace_id   TEXT NOT NULL,
     arrangement_id TEXT NOT NULL,
@@ -409,6 +595,9 @@ CREATE TABLE local_arrangement_cursor (
     updated_at     REAL NOT NULL,
     PRIMARY KEY (workspace_id, arrangement_id)
 );
+
+CREATE INDEX idx_local_arrangement_cursor_workspace
+ON local_arrangement_cursor(workspace_id);
 
 CREATE TABLE local_drawer_cursor (
     workspace_id TEXT NOT NULL,
@@ -418,29 +607,32 @@ CREATE TABLE local_drawer_cursor (
     PRIMARY KEY (workspace_id, drawer_id)
 );
 
+CREATE INDEX idx_local_drawer_cursor_workspace
+ON local_drawer_cursor(workspace_id);
+
 CREATE UNIQUE INDEX idx_local_drawer_one_expanded_per_workspace
 ON local_drawer_cursor(workspace_id)
 WHERE is_expanded = 1;
 
 CREATE TABLE local_arrangement_drawer_cursor (
-    workspace_id   TEXT NOT NULL,
-    arrangement_id TEXT NOT NULL,
-    drawer_id      TEXT NOT NULL,
+    workspace_id    TEXT NOT NULL,
+    arrangement_id  TEXT NOT NULL,
+    drawer_id       TEXT NOT NULL,
     active_child_id TEXT,
-    updated_at     REAL NOT NULL,
+    updated_at      REAL NOT NULL,
     PRIMARY KEY (workspace_id, arrangement_id, drawer_id)
 );
+
+CREATE INDEX idx_local_arrangement_drawer_cursor_workspace
+ON local_arrangement_drawer_cursor(workspace_id);
 ```
 
-These are deliberately not foreign keys into `core.sqlite`; cross-database references are validated as a local overlay after core loads.
-
-#### `local.sqlite`: window shell tables
-
-The two workspace-owned tables `local_workspace_window_state` and `local_sidebar_state` are replaced by window-keyed state:
+#### Window and sidebar presentation
 
 ```sql
 CREATE TABLE local_window_state (
     window_id         TEXT PRIMARY KEY,
+    window_role       TEXT NOT NULL UNIQUE CHECK (window_role = 'main'),
     sidebar_width     REAL NOT NULL,
     window_frame_json TEXT,
     filter_text       TEXT NOT NULL,
@@ -458,26 +650,144 @@ CREATE TABLE local_window_sidebar_expanded_group (
 );
 ```
 
-There is no `workspace_id` in these tables. The current product writes one UUIDv7 `window_id`; future multi-window work may write additional rows without changing this ownership boundary.
+#### Recent targets
 
-#### `local.sqlite`: workspace-local feature tables
+```sql
+CREATE TABLE local_recent_workspace_target (
+    workspace_id  TEXT NOT NULL,
+    id            TEXT NOT NULL,
+    path          TEXT NOT NULL,
+    display_title TEXT NOT NULL,
+    subtitle      TEXT NOT NULL,
+    repo_id       TEXT,
+    worktree_id   TEXT,
+    kind          TEXT NOT NULL CHECK (kind IN ('worktree', 'cwdOnly')),
+    last_opened_at REAL NOT NULL,
+    PRIMARY KEY (workspace_id, id),
+    CHECK (
+        (
+            kind = 'worktree'
+            AND repo_id IS NOT NULL
+            AND worktree_id IS NOT NULL
+        )
+        OR (
+            kind = 'cwdOnly'
+            AND repo_id IS NULL
+            AND worktree_id IS NULL
+        )
+    )
+);
 
-Recent targets and notification history remain workspace-scoped inside the shared file. Their primary keys become workspace-qualified:
-
-```text
-local_recent_workspace_target
-  PRIMARY KEY (workspace_id, id)
-
-local_notification_inbox_item
-  PRIMARY KEY (workspace_id, id)
-
-local_notification_inbox_collapsed_group
-  PRIMARY KEY (workspace_id, group_key)
+CREATE INDEX idx_local_recent_target_workspace_time
+ON local_recent_workspace_target(workspace_id, last_opened_at);
 ```
 
-All supporting indexes begin with `workspace_id` when queries are workspace-scoped. Existing notification claim, pane, tab, repo, worktree, timestamp, and retention columns remain unchanged unless a key/index must change to support the shared file. Notification behavior is not redesigned.
+#### Notification inbox
 
-The live values currently stored in `<workspace-id>.settings.json` move to separate typed, workspace-owned tables. They do not move into a generic key/value table or JSON blob:
+```sql
+CREATE TABLE local_notification_inbox_collapsed_group (
+    workspace_id TEXT NOT NULL,
+    group_key    TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, group_key)
+);
+
+CREATE TABLE local_notification_inbox_item (
+    workspace_id                    TEXT NOT NULL,
+    id                              TEXT NOT NULL,
+    timestamp                       REAL NOT NULL,
+    kind                            TEXT NOT NULL,
+    title                           TEXT NOT NULL,
+    body                            TEXT,
+    source_kind                     TEXT NOT NULL,
+    pane_id                         TEXT,
+    tab_id                          TEXT,
+    tab_display_label               TEXT,
+    tab_ordinal                     INTEGER,
+    repo_id                         TEXT,
+    repo_name                       TEXT,
+    worktree_id                     TEXT,
+    worktree_name                   TEXT,
+    branch_name                     TEXT,
+    pane_display_label              TEXT,
+    pane_ordinal                    INTEGER,
+    pane_role                       TEXT,
+    parent_pane_id                  TEXT,
+    parent_pane_display_label       TEXT,
+    parent_pane_ordinal             INTEGER,
+    drawer_ordinal                  INTEGER,
+    runtime_display_label           TEXT,
+    activity_burst_window_id        TEXT,
+    activity_session_id             TEXT,
+    activity_event_count            INTEGER,
+    activity_rows_added             INTEGER,
+    activity_threshold_rows         INTEGER,
+    activity_latest_rows            INTEGER,
+    claim_pane_id                   TEXT,
+    claim_lane                      TEXT,
+    claim_semantic                  TEXT,
+    claim_session_id                TEXT,
+    is_read                         INTEGER NOT NULL
+                                    CHECK (is_read IN (0, 1)),
+    is_dismissed_from_pane_inbox    INTEGER NOT NULL
+                                    CHECK (is_dismissed_from_pane_inbox IN (0, 1)),
+    PRIMARY KEY (workspace_id, id),
+    CHECK (
+        (
+            claim_pane_id IS NULL
+            AND claim_lane IS NULL
+            AND claim_semantic IS NULL
+            AND claim_session_id IS NULL
+        )
+        OR (
+            claim_pane_id IS NOT NULL
+            AND claim_lane IN ('activity', 'actionNeeded', 'safety')
+            AND claim_semantic IS NOT NULL
+        )
+    )
+);
+
+CREATE INDEX idx_notification_workspace_timestamp
+ON local_notification_inbox_item(workspace_id, timestamp);
+
+CREATE INDEX idx_notification_workspace_pane
+ON local_notification_inbox_item(workspace_id, pane_id);
+
+CREATE INDEX idx_notification_workspace_tab
+ON local_notification_inbox_item(workspace_id, tab_id);
+
+CREATE INDEX idx_notification_workspace_repo
+ON local_notification_inbox_item(workspace_id, repo_id);
+
+CREATE INDEX idx_notification_workspace_worktree
+ON local_notification_inbox_item(workspace_id, worktree_id);
+
+CREATE INDEX idx_notification_claim_exact
+ON local_notification_inbox_item(
+    workspace_id,
+    claim_pane_id,
+    claim_lane,
+    claim_semantic,
+    claim_session_id
+)
+WHERE claim_pane_id IS NOT NULL
+  AND claim_lane IS NOT NULL
+  AND claim_semantic IS NOT NULL;
+
+CREATE INDEX idx_notification_claim_session
+ON local_notification_inbox_item(
+    workspace_id,
+    claim_pane_id,
+    claim_session_id
+)
+WHERE claim_pane_id IS NOT NULL
+  AND claim_session_id IS NOT NULL
+  AND claim_lane IN ('activity', 'actionNeeded');
+```
+
+Notification meaning, coalescence, retention, and presentation are unchanged.
+Only the shared-file key shape changes.
+
+#### Typed workspace preferences
 
 ```sql
 CREATE TABLE local_editor_preferences (
@@ -487,40 +797,37 @@ CREATE TABLE local_editor_preferences (
 );
 
 CREATE TABLE local_repo_explorer_preferences (
-    workspace_id     TEXT PRIMARY KEY,
-    grouping_mode    TEXT NOT NULL
-                     CHECK (grouping_mode IN ('repo', 'pane', 'tab')),
-    sort_order       TEXT NOT NULL
-                     CHECK (sort_order IN ('ascending', 'descending')),
-    visibility_mode  TEXT NOT NULL
-                     CHECK (visibility_mode IN ('all', 'favoritesOnly')),
-    updated_at       REAL NOT NULL
+    workspace_id    TEXT PRIMARY KEY,
+    grouping_mode   TEXT NOT NULL
+                    CHECK (grouping_mode IN ('repo', 'pane', 'tab')),
+    sort_order      TEXT NOT NULL
+                    CHECK (sort_order IN ('ascending', 'descending')),
+    visibility_mode TEXT NOT NULL
+                    CHECK (visibility_mode IN ('all', 'favoritesOnly')),
+    updated_at      REAL NOT NULL
 );
 
 CREATE TABLE local_inbox_notification_preferences (
-    workspace_id             TEXT PRIMARY KEY,
-    grouping                  TEXT NOT NULL
-                              CHECK (grouping IN ('byTab', 'byRepo', 'byPane', 'none')),
-    sort_order                TEXT NOT NULL
-                              CHECK (sort_order IN ('newestFirst', 'oldestFirst')),
-    bell_enabled              INTEGER NOT NULL CHECK (bell_enabled IN (0, 1)),
-    global_content_mode       TEXT NOT NULL
-                              CHECK (global_content_mode IN ('rollUpAlerts', 'activity', 'all')),
-    global_row_state_filter   TEXT NOT NULL
-                              CHECK (global_row_state_filter IN ('unreadOnly', 'all')),
-    pane_content_mode         TEXT NOT NULL
-                              CHECK (pane_content_mode IN ('rollUpAlerts', 'activity', 'all')),
-    pane_row_state_filter     TEXT NOT NULL
-                              CHECK (pane_row_state_filter IN ('unreadOnly', 'all')),
-    updated_at                REAL NOT NULL
+    workspace_id            TEXT PRIMARY KEY,
+    grouping                 TEXT NOT NULL
+                             CHECK (grouping IN ('byTab', 'byRepo', 'byPane', 'none')),
+    sort_order               TEXT NOT NULL
+                             CHECK (sort_order IN ('newestFirst', 'oldestFirst')),
+    bell_enabled             INTEGER NOT NULL
+                             CHECK (bell_enabled IN (0, 1)),
+    global_content_mode      TEXT NOT NULL
+                             CHECK (global_content_mode IN ('rollUpAlerts', 'activity', 'all')),
+    global_row_state_filter  TEXT NOT NULL
+                             CHECK (global_row_state_filter IN ('unreadOnly', 'all')),
+    pane_content_mode        TEXT NOT NULL
+                             CHECK (pane_content_mode IN ('rollUpAlerts', 'activity', 'all')),
+    pane_row_state_filter    TEXT NOT NULL
+                             CHECK (pane_row_state_filter IN ('unreadOnly', 'all')),
+    updated_at               REAL NOT NULL
 );
 ```
 
-These tables preserve the current feature-atom ownership split. The obsolete checkout-color compatibility field is discarded. Runtime-only pane inbox presentation remains unpersisted.
-
-#### `local.sqlite`: global rebuildable cache tables
-
-Repository caches lose `workspace_id` and use global entity identity:
+#### Global rebuildable caches
 
 ```sql
 CREATE TABLE cache_metadata (
@@ -551,7 +858,7 @@ CREATE TABLE cache_worktree_enrichment (
     payload_json     TEXT
 );
 
-CREATE INDEX idx_cache_worktree_repo_id
+CREATE INDEX idx_cache_worktree_repo
 ON cache_worktree_enrichment(repo_id);
 
 CREATE TABLE cache_pull_request_count (
@@ -560,397 +867,213 @@ CREATE TABLE cache_pull_request_count (
     count       INTEGER NOT NULL CHECK (count >= 0),
     updated_at  REAL NOT NULL
 );
+
+CREATE INDEX idx_cache_pull_request_repo
+ON cache_pull_request_count(repo_id);
 ```
 
-`cache_notification_count` is removed; notification unread state remains inbox-owned.
-
-#### `local.sqlite`: removed sidecar-era tables
-
-The shared target schema does not contain:
-
-```text
-legacy_workspace_import_status
-workspace_sqlite_snapshot_status
-local_workspace_sqlite_snapshot_status
-local_persistence_lane_marker
-cache_notification_count
-local_workspace_window_state
-local_sidebar_state
-local_sidebar_expanded_group
-```
-
-The presentation tables are replaced by the window-keyed tables above. No production path reads or writes the old per-workspace sidecar schema after the hard cut. `legacy_workspace_import_status` and both snapshot-status tables have no replacement runtime receipt or completion-token protocol.
-
-### Foreign-key diagrams
-
-Legend:
-
-```text
-────►  SQLite foreign key
-┄┄┄►  cross-database logical reference validated in code
-[N]    many rows
-[0..1] optional reference
-```
-
-#### `core.sqlite`
-
-```text
-                              ┌──────────────────────┐
-                              │      workspace       │
-                              │ id PK                │
-                              └──────────┬───────────┘
-                                         │ ON DELETE CASCADE
-                     ┌───────────────────┼───────────────────┐
-                     ▼                   ▼                   ▼
-                  pane [N]          tab_shell [N]      drawer graph [N]
-                  workspace_id FK   workspace_id FK    workspace-owned FKs
-                     │
-                     │ optional global references
-                     ├──────────────► repo [0..1]
-                     │                ON DELETE SET NULL
-                     └──────────────► worktree [0..1]
-                                      ON DELETE SET NULL
-
-┌──────────────────────┐       ON DELETE CASCADE       ┌──────────────────────┐
-│         repo         │◄──────────────────────────────│      worktree [N]    │
-│ id PK                │       worktree.repo_id FK     │ id PK                │
-│ stable_key UNIQUE    │                               │ stable_key UNIQUE    │
-└──────────┬───────────┘                               └──────────────────────┘
-           │
-           ├────► repo_tag [N]          ON DELETE CASCADE
-           └────► unavailable_repo      ON DELETE CASCADE
-
-watched_path
-  id PK
-  stable_key UNIQUE
-  no workspace foreign key
-```
-
-Forbidden edge:
-
-```text
-workspace ─X─► repo / worktree / watched_path / repo_tag / unavailable_repo
-```
-
-The pane remains owned by its workspace. Its optional repo/worktree facets refer to global entities. When both facets are present, a constraint verifies that `worktree.repo_id == facet_repo_id`.
-
-#### `local.sqlite` and cross-database references
-
-```text
-┌─────────────────────────────┐
-│ local_window_state          │
-│ window_id PK                │
-└──────────────┬──────────────┘
-               │ ON DELETE CASCADE
-               ▼
-  local_window_sidebar_expanded_group [N]
-  (window_id FK, group_key) PK
-
-local_workspace_cursor                     core.workspace
-local_tab_cursor                    ┄┄┄┄┄┄► core composition IDs
-local_arrangement_cursor                    validated after core load
-local_drawer_cursor
-local_arrangement_drawer_cursor
-
-local_recent_workspace_target       ┄┄┄┄┄┄► core.workspace/repo/worktree
-local_notification_inbox_item       ┄┄┄┄┄┄► core workspace/pane/tab/topology
-
-cache_repo_enrichment               ┄┄┄┄┄┄► core.repo
-cache_worktree_enrichment           ┄┄┄┄┄┄► core.worktree/repo
-cache_pull_request_count            ┄┄┄┄┄┄► core.worktree
-```
-
-SQLite cannot enforce foreign keys across two separate database files. These dashed references are optional local overlays: stale targets are defaulted, skipped, or rebuilt and never invalidate core.
-
-### Database migration versus backward compatibility
-
-Both databases receive a one-time, crash-safe migration. The migration is required; backward-compatible runtime paths are forbidden.
-
-```text
-before successful cutover              after successful cutover
-──────────────────────────────          ──────────────────────────────
-old core schema is migration input      only target core schema is used
-workspace sidecars are import input     only one local.sqlite is used
-existing IDs remain unchanged          all live references keep those IDs
-                                        no old readers, dual writes, or shims
-```
-
-#### Core data that migrates
-
-- Workspaces and their pane/tab/arrangement/drawer compositions remain durable.
-- Watched paths, repositories, worktrees, tags, favorite state, notes, and unavailable state move from workspace-owned rows to global rows.
-- Existing topology rows and IDs are preserved without reconciliation or metadata merging.
-- Pane `facet_repo_id` and `facet_worktree_id` values retain their existing referenced IDs.
-- Workspace selection remains intact.
-- The old `workspace_sqlite_snapshot_status` table is dropped after its schema role ends; it is not copied into a replacement runtime protocol.
-
-The core migration is transactional. Failure leaves the pre-migration core database unchanged and loadable by the same migration code on retry; it must not leave a partially globalized schema.
-
-#### Local data that migrates
-
-The one-time conversion reads the old `<workspace-id>.local.sqlite` files only during the first hard-cut launch.
-
-Migrated into the one `local.sqlite`:
-
-- workspace cursors for every valid workspace;
-- recent workspace targets;
-- notification inbox items, read/dismissed state, claims, and collapsed groups;
-- the active/current window's frame, sidebar width, sidebar state, filter presentation, and expanded groups, assigned one new UUIDv7 `window_id`;
-- other valid workspace-owned feature rows explicitly retained by the target schema.
-
-The one-time cutover also reads the live `<workspace-id>.settings.json` and, when needed, its valid backup solely to populate the typed editor, Repo Explorer, and Inbox preference rows. This preserves current user preferences without retaining JSON as a runtime store. The obsolete checkout-color field is not copied.
-
-Not migrated:
-
-- repository/worktree enrichment caches;
-- pull-request counts;
-- deprecated notification-count cache rows;
-- local completion tokens;
-- legacy lane/import markers whose only purpose was the old sidecar or compatibility path;
-- inactive workspace window/sidebar rows that cannot truthfully be associated with a real current window.
-
-Rebuildable cache data starts empty and is repopulated by its existing owners. Missing local values use the defaults defined by R6.
-
-#### Cutover rule
-
-The core migration and local conversion have deliberately different failure behavior:
-
-- Core migration failure rolls back the core transaction and leaves the pre-migration database unchanged.
-- Core migration success is final and independent of local conversion.
-- Successful local conversion preserves the valid retained local/settings rows.
-- Failed or interrupted local conversion uses deterministic local defaults. It does not block core startup and is not retried from legacy inputs on a later launch.
-
-After the core hard cut:
-
-- production opens only the target `core.sqlite` and one `local.sqlite`;
-- old sidecars are no longer read or written;
-- `<workspace-id>.settings.json` and `<workspace-id>.settings.backup.json` are no longer read or written;
-- no compatibility adapter, fallback reader, dual writer, alias table, or feature flag remains;
-
-Normal GRDB migration identifiers remain the durable migration ledger. Historical migration bodies are not rewritten. Forward migrations rebuild or drop obsolete objects and leave only the target schema. The hard cut introduces no product-level receipt table, archive state machine, or replay policy.
-
-### Legacy persistence code and artifact hard cut
-
-The resulting production source has exactly one supported standalone JSON preference artifact:
-
-```text
-retain
-  preferences.global.json
-
-remove as live/import/fallback persistence
-  <UUID>.workspace.cache.json
-  <UUID>.workspace.ui.json
-  <UUID>.workspace.sidebar-cache.json
-  <UUID>.notification-inbox.json
-  <UUID>.settings.json
-  <UUID>.settings.backup.json
-  matching *.corrupt-*.json quarantine paths
-  surface-checkpoint.json
-```
-
-`surface-checkpoint.json` is included because its save/load/clear API has no production callers. Removing that dead persistence seam does not redesign Ghostty or terminal lifecycle behavior.
-
-The following source contracts do not survive under another name:
-
-- `WorkspacePersistor`, `WorkspacePersistor+Payloads`, and `WorkspacePersistor.PersistableState`;
-- JSON fallback/import/quarantine branches in `RepoCacheStore`, `UIStateStore`, `SidebarCacheStore`, `InboxNotificationStore`, and `WorkspaceSettingsStore`;
-- `allowLegacyFilePersistence`, `allowLegacyFileImport`, `canArchiveLegacy*`, `WorkspaceLocalSQLiteLegacyLane`, and `WorkspaceLocalSQLiteLegacyImportDecision`;
-- datastore legacy-decision payloads and operations;
-- inbox legacy-import materialization state and APIs;
-- legacy preference decoder aliases whose only purpose is old JSON compatibility;
-- `PaneMetadata.LegacySource` decoding compatibility when its remaining caller inventory confirms it serves only removed JSON payloads;
-- the dead surface-checkpoint path helper and `SurfaceManager` checkpoint methods;
-- SQLite conversion routes through legacy `WorkspacePersistor` DTOs. Current SQLite snapshots use current, explicitly named typed inputs.
-
-This deletion list does not include JSON used as transport, Bridge RPC, drag/drop payloads, JSONL telemetry, or typed JSON columns inside SQLite. Those are not standalone legacy persistence authorities.
-
-### Core ownership map
+### Objects deliberately absent from the target
 
 ```text
 core.sqlite
-
-watched_path
-repo
-  └── worktree.repo_id ───────────────► repo.id
-unavailable_repo.repo_id ─────────────► repo.id
-
-workspace
-  ├── pane.workspace_id ──────────────► workspace.id
-  ├── tab_shell.workspace_id ─────────► workspace.id
-  └── composition graph
-
-pane.facet_repo_id ───────────────────► repo.id
-pane.facet_worktree_id ───────────────► worktree.id
-```
-
-Forbidden core edges:
-
-```text
-repo.workspace_id
-worktree.workspace_id
-watched_path.workspace_id
-workspace deletion ──cascade──► repo/worktree/watched_path
-pane-to-repo validation based on equal workspace_id
-```
-
-The exact existing pane column names may differ by pane metadata family. The invariant is the same: every optional pane reference targets a global repository/worktree ID, and a topology deletion clears the optional reference rather than deleting the pane or workspace composition.
-
-### Local ownership map
-
-```text
-local.sqlite
-
-workspace cursor lane
-  key: workspace_id
-  values: active tab, arrangement, pane, drawer cursors
-
-window-shell lane
-  key: window_id
-  values: frame and sidebar presentation memory
-
-workspace-local feature lanes
-  key: workspace_id plus feature/entity key
-  values: recent targets, notification views/history where currently scoped
-
-global cache lanes
-  key: repo_id or worktree_id
-  values: rebuildable enrichment and PR counts
-
-global cache metadata
-  key: one application singleton
-  values: cache revision and rebuild timestamp
-```
-
-Forbidden local edges:
-
-```text
-local completion token ──validates──► core completion
-repo cache ──owned by──► workspace_id
-window state ──owned by──► workspace_id
-local read failure ──causes──► fatal application startup
-```
-
-### Startup flow
-
-```text
-core.sqlite
-  open + migrate + strictly validate authoritative state
-  ├── valid   → install workspace composition and global topology
-  └── invalid → core-integrity failure
+  legacy_workspace_import_status
+  workspace_sqlite_snapshot_status
+  topology workspace_id columns and workspace cascades
+  pane orphan_reason_kind
+  pane orphan_worktree_path
+  pane/worktree same-workspace triggers
 
 local.sqlite
-  open independently
-  ├── available
-  │     ├── load each logical lane
-  │     ├── validate local references against core
-  │     └── use defaults for missing/stale/invalid lanes
-  └── unavailable → use defaults for all local lanes
+  local_workspace_sqlite_snapshot_status
+  local_persistence_lane_marker
+  cache_notification_count
+  workspace-owned repository/worktree cache columns
+  workspace-owned window/sidebar tables
 
-present application
+standalone persistence
+  <workspace-id>.local.sqlite readers/writers
+  workspace cache/UI/sidebar/inbox/settings JSON readers/writers
+  surface-checkpoint.json dead APIs
 ```
 
-No local outcome changes the already-determined core outcome.
+## Startup and save contracts
 
-### Save flow
+### Startup
 
-```text
-authoritative mutation
-  → one atomic core.sqlite transaction
-  → success or rollback
-
-local presentation/continuation mutation
-  → independent local.sqlite transaction for its owning lane
-  → success or diagnostic failure
+```mermaid
+flowchart TD
+    A[Open core.sqlite] --> B{Core migrate + validate}
+    B -->|failure| C[Core integrity error]
+    B -->|success| D[Install authoritative topology + composition]
+    D --> E[Finalize persisted pendingUndo panes]
+    E --> F[Open one local.sqlite independently]
+    F -->|available| G[Load typed local lanes]
+    F -->|unavailable| H[Use deterministic local defaults]
+    G --> I[Default missing/invalid/stale lane values]
+    H --> J[Present app]
+    I --> J
 ```
 
-There is no distributed transaction between the two databases.
+No local result changes the already accepted core result.
+
+### Save
+
+```mermaid
+flowchart LR
+    CoreMutation[Authoritative mutation] --> CoreTx[One core.sqlite transaction]
+    CoreTx -->|commit| CoreDone[Complete]
+    CoreTx -->|failure| CoreRollback[Previous core remains]
+
+    LocalMutation[Local presentation/cache mutation] --> LocalTx[Independent local.sqlite transaction]
+    LocalTx -->|failure| LocalDefault[Keep live state; diagnose; default on next load]
+```
+
+There is no distributed transaction, matching completion token, receipt, replay
+engine, or atom-owned persistence logic.
+
+## Design tradeoffs
+
+### Global topology requires a transactional table rebuild
+
+Gain:
+
+- the database finally matches the domain model;
+- workspace deletion cannot destroy repositories;
+- multiple compositions can reference the same topology.
+
+Cost:
+
+- six tables (`pane` plus five topology tables) are mechanically rebuilt during
+  one forward core migration because SQLite cannot alter the embedded foreign
+  keys and uniqueness clauses in place;
+- a real pre-existing global-key conflict fails the migration rather than being
+  guessed away.
+
+### Clean local database discards local history
+
+Gain:
+
+- no sidecar consolidation, JSON import, replay prevention, receipts, or
+  compatibility readers;
+- local failure can never make core invalid;
+- one clear application-level owner for non-authoritative state.
+
+Cost:
+
+- one-time reset of notification history, local preferences, recent targets,
+  cursors, window/sidebar memory, and caches;
+- users re-establish preferences through ordinary use.
+
+### Undo does not survive process restart
+
+Gain:
+
+- no durable tab-layout snapshot schema or recovery engine;
+- closed panes cannot remain indefinitely because an app exited during the
+  undo window;
+- one process owns the undo experience and one coordinator owns finalization.
+
+Cost:
+
+- quitting or crashing during the 15-minute window forfeits undo;
+- startup finalizes those panes instead of restoring them.
+
+### One physical local database is one physical failure domain
+
+Gain:
+
+- one connection owner and one schema;
+- correct global cache ownership;
+- no workspace/window equivalence.
+
+Cost:
+
+- file-level corruption can reset every local lane at once, although each lane
+  remains logically independent when the database is readable.
+
+## Proof expectations
+
+The implementation plan must turn these into permanent tests and product proof:
+
+1. Core schema inspection shows no workspace FK/cascade in global topology and
+   no obsolete completion/import tables.
+2. Deleting inactive, active, and final workspaces removes only their
+   composition; global topology and metadata remain byte-for-byte equivalent.
+3. The same repo/worktree can be referenced from two workspace compositions.
+4. A barrier-controlled save proves an older captured composition cannot replace
+   newer topology after an off-main suspension.
+5. A forward migration preserves topology UUIDs and values 1:1 and rolls back
+   entirely on target uniqueness failure.
+6. Core save interruption leaves either the previous complete state or the new
+   complete state, never a staged incomplete state.
+7. Core hydration reads one consistent generation while a concurrent writer
+   commits.
+8. Missing/corrupt/unavailable `local.sqlite` still opens valid core and presents
+   usable deterministic tab/pane/sidebar defaults.
+9. Production opens exactly one local database and never reads old local
+   sidecars or workspace JSON persistence.
+10. Every new local table round-trips its typed values and rejects invalid enum,
+   boolean, claim, and key shapes.
+11. Pane close and tab close both enter `pendingUndo` with one 15-minute policy;
+    undo before expiry restores them.
+12. Close-tab and background-pane intermediate states flush to SQLite and reload
+    without `paneNotOwnedByTab`; a close that committed cannot reappear after
+    restart.
+13. Expiry and explicit backgrounded-pane purge remove the full parent/drawer
+    subtree: pane/content/layout remnants, view slots, Ghostty surfaces, runtime
+    state, and every terminal ZMX session. Capacity eviction uses the identical
+    path.
+14. Restart with persisted `pendingUndo` state finalizes it without attempting a
+    durable undo restore.
+15. Removing a repo/worktree clears pane facets but leaves the pane, CWD,
+    surface, and ZMX session alive.
+16. Core cutover converts in-composition legacy orphan rows to active and removes
+    out-of-composition legacy orphan rows; no `orphaned` residency remains.
+17. Atoms contain no persistence, subprocess, timer, or lifecycle-coordination
+    logic.
+
+The later plan owns exact commands and sequencing. Proof should use the existing
+Swift test suite, SQLite integration fixtures, ZMX E2E lane for real session
+destruction, and a bounded debug-app smoke. No ad hoc proof scripts are required.
+
+## Non-goals
+
+- Multi-window creation or restoration.
+- Repository discovery, filesystem watching, Git scheduling, EventBus, Ghostty
+  callback admission, or terminal activity redesign.
+- Notification meaning, retention, grouping, or coalescence redesign.
+- Durable undo across app restarts.
+- Automatic deletion of unreferenced repositories or worktrees.
+- A generic recovery framework, reconciliation engine, receipt protocol,
+  replay system, compatibility layer, or persistence logic in atoms.
+- Preserving non-authoritative local data from the old sidecars/JSON files.
 
 ## Spec boundary and separability map
 
 ```text
-Repository topology owner
-  owns: global watched paths, repos, worktrees, topology metadata
-  exposes: global repository topology repository/API
-                      │
-                      │ stable repo/worktree IDs
-                      ▼
-Workspace composition owner
+Global topology repository
+  owns: watched paths, repos, worktrees, tags, availability
+  exposes: global typed reads/mutations
+
+Workspace composition repository
   owns: workspace, pane, tab, arrangement, drawer graph
-  exposes: atomic core composition repository/API
-                      │
-                      │ immutable IDs for local validation
-                      ▼
-Local persistence owner
-  owns: one local.sqlite and independent local lanes
-  exposes: typed loaded/defaulted/unavailable results
-                      │
-                      │ validated values only
-                      ▼
-MainActor atoms
-  own: live state and pure derived projections
-  do not own: persistence, migration, recovery, or database coordination
+  references: global repo/worktree IDs
+  guarantees: one atomic core transaction
+
+Local persistence repository
+  owns: one local.sqlite and typed non-authoritative lanes
+  exposes: loaded value or deterministic default
+
+Workspace surface coordinator
+  owns: close/undo/finalize sequencing across live state,
+        Ghostty surface, runtime state, and ZMX
+
+Atoms
+  own: live canonical state and pure derived projections
+  do not own: persistence, timers, subprocess cleanup, migration,
+              or lifecycle coordination
 ```
 
-The global-topology schema correction and the local-database consolidation are separable implementation slices, but the shipped contract must remove the cross-database core/local validity dependency. The application must never ship an intermediate state in which the new core schema still relies on an old per-workspace local completion token.
-
-Workspace composition persistence is not a global-topology writer. This forbidden edge prevents an older composition save from reverting or deleting newer repository state.
-
-The current global `RepositoryTopologyAtom` and entity-keyed cache atoms remain the live state owners. This is a persistence hard cut, not an atom redesign.
-
-## Proof expectations
-
-The implementation plan must operationalize proof for these behaviors:
-
-1. Schema ownership: global topology tables have no workspace ownership or workspace-delete cascade; workspace composition tables retain workspace ownership. `PRAGMA foreign_key_check` returns no rows after migration and destructive-path tests.
-2. Mandatory workspace-delete data-loss regression:
-   - seed global watched path P, repo R, worktree T, tags/metadata/availability, and workspaces A and B whose panes reference the same R and T;
-   - delete inactive workspace A and prove only A's composition disappears;
-   - delete active/final workspace B and prove selection follows its existing contract while P, R, T, tags/metadata/availability remain unchanged;
-   - explicitly delete T or R through the topology authority and prove optional pane facets clear without deleting panes or workspaces.
-3. Topology currentness: an older captured composition save cannot overwrite a newer topology mutation.
-4. Atomic core: injected failure during core persistence leaves the previous complete core state loadable.
-5. Local independence: failure before, during, or after a local write cannot change the core load result.
-6. Lane defaults: missing/stale/invalid cursor, window, sidebar, notification, and cache lanes default independently according to their contracts.
-7. Whole-local failure: missing, corrupt, or migration-failed `local.sqlite` still permits core hydration and usable application startup.
-8. Window ownership: two window IDs can hold different frame/sidebar state without workspace-key collisions.
-9. Single local file: production opens one local database rather than selecting a path by workspace ID.
-10. Data cutover: core rows and IDs survive unchanged; a real target-schema uniqueness violation rolls back the core migration without changing the original database; successful local conversion preserves valid retained local history; failed or interrupted local conversion uses defaults without later legacy replay; rebuildable caches regenerate cleanly.
-11. Preference cutover: every current editor, Repo Explorer, and Inbox preference round-trips through its typed table; missing/invalid values default by feature; obsolete checkout colors do not return.
-12. Legacy-source absence: production source contains no workspace settings/cache/UI/sidebar/inbox JSON persistence, `WorkspacePersistor`, legacy import decision, matching completion-token, or surface-checkpoint path. `preferences.global.json` and its validation tests remain.
-13. Atom boundary: persistence and migration logic do not enter atoms or pure derived state.
-
-Proof must use permanent schema, repository, datastore, startup-integration, and application smoke coverage. The later implementation plan owns exact commands and sequencing.
-
-Tests that currently assert workspace-qualified topology, core/local completion-token matching, strict failure for missing/corrupt local state, legacy JSON replay/materialization/archive readiness, per-workspace local database pools, or live settings JSON must be removed or inverted to assert this contract. Existing active-workspace selection, pane/tab/drawer integrity, atom ownership, current SQLite round-trip, and database quarantine coverage remains and is adapted rather than discarded.
-
-Current architecture docs must stop describing workspace-owned topology, per-workspace local databases, JSON cache/UI/settings stores, completion-token validity, or legacy archive/import behavior as live architecture. Historical specs and plans remain historical unless separately marked superseded; they are not rewritten into current truth.
-
-## Non-goals
-
-- Implement multiple macOS windows.
-- Implement multiple-window creation, coordination, or restoration behavior.
-- Change what a workspace composition contains.
-- Redesign repository discovery, filesystem watching, Git enrichment, or their performance policy.
-- Redesign notification meaning, retention, or presentation.
-- Change Bridge, Ghostty, EventBus, IPC, terminal lifecycle, or pane runtime behavior.
-- Add terminal checkpointing or replace the dead `surface-checkpoint.json` seam with another checkpoint system.
-- Add a generic distributed transaction framework, recovery engine, compatibility layer, or new persistence logic to atoms.
-- Preserve rebuildable caches at the cost of complicating the hard cut.
-
-## Alternatives rejected
-
-### Keep one local database per workspace
-
-Rejected because it preserves the obsolete workspace/window equivalence, duplicates migrations/connections, and gives global repository caches no natural owner.
-
-### Keep matching completion tokens across core and local
-
-Rejected because local preferences and caches are non-authoritative. A distributed completion protocol lets local failure invalidate valid core state.
-
-### Move all local state into core.sqlite
-
-Rejected because it would let preferences, caches, and machine-local failures expand the authoritative core failure domain.
-
-### Add local defaults but retain workspace-owned repositories
-
-Rejected because it fixes only the startup symptom while preserving destructive repository ownership and blocking shared repository references.
+The core schema correction, clean local database, and pane lifecycle correction
+are separable implementation slices. They share one hard boundary: local state
+must never validate core, and topology loss must never become pane destruction.
