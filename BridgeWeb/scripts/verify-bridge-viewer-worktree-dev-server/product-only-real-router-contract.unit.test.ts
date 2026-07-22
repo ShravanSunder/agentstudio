@@ -546,10 +546,13 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 
 		// Act
 		const browserConfigUsesNamedInstalledChromeInstances =
-			/instances:\s*\[\s*\{\s*browser:\s*'chromium',\s*launch:\s*\{\s*channel:\s*'chrome',?\s*\},\s*name:\s*'integration-chromium',?\s*\},?\s*\]/u.test(
+			/provider:\s*playwright\(\{\s*launchOptions:\s*\{\s*channel:\s*'chrome',?\s*\},?\s*\}\)/u.test(
 				browserConfigSource,
 			) &&
-			/instances:\s*\[\s*\{\s*browser:\s*'chromium',\s*launch:\s*\{\s*channel:\s*'chrome',?\s*\},\s*name:\s*'benchmark-chromium',?\s*\},?\s*\]/u.test(
+			/instances:\s*\[\s*\{\s*browser:\s*'chromium',\s*name:\s*'integration-chromium',?\s*\},?\s*\]/u.test(
+				browserConfigSource,
+			) &&
+			/instances:\s*\[\s*\{\s*browser:\s*'chromium',\s*name:\s*'benchmark-chromium',?\s*\},?\s*\]/u.test(
 				browserConfigSource,
 			);
 		const realRouterUsesInstalledChrome =
@@ -559,7 +562,7 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 
 		// Assert
 		expect(browserConfigSource).toContain(
-			"import type {} from '@vitest/browser/providers/playwright';",
+			"import { playwright } from '@vitest/browser-playwright';",
 		);
 		expect(browserConfigUsesNamedInstalledChromeInstances).toBe(true);
 		expect(realRouterUsesInstalledChrome).toBe(true);

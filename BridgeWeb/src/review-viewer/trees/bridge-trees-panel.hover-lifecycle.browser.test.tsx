@@ -13,7 +13,7 @@ describe('BridgeReviewTreesPanel hover lifecycle', () => {
 		// Arrange
 		const hoveredItemIds: Array<string | null> = [];
 		const reviewPackage = makeBridgeReviewPackage();
-		const rendered = render(
+		const rendered = await render(
 			<BridgeReviewTreesPanel
 				isActive={true}
 				onHoveredItemIdChange={(itemId): void => {
@@ -35,7 +35,7 @@ describe('BridgeReviewTreesPanel hover lifecycle', () => {
 
 		// Act
 		await act(async (): Promise<void> => {
-			rendered.unmount();
+			await rendered.unmount();
 			await Promise.resolve();
 		});
 

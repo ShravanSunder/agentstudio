@@ -53,8 +53,8 @@ import {
 
 describe('BridgeFileViewerApp Browser Mode', () => {
 	afterEach(async () => {
-		await actUpdate((): void => {
-			cleanup();
+		await actUpdate(async (): Promise<void> => {
+			await cleanup();
 		});
 		await settleBridgeFileViewerBrowserUpdates();
 		await actFrame();
@@ -81,7 +81,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const openedDescriptorIds: string[] = [];
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile
 				codeViewWorkerPoolEnabled={false}
@@ -165,7 +165,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const metadataInterestUpdates: FileMetadataInterestUpdate[] = [];
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile
 				codeViewWorkerPoolEnabled={false}
@@ -229,7 +229,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const openedDescriptorIds: string[] = [];
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile
 				codeViewWorkerPoolEnabled={false}
@@ -287,7 +287,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		const openedDescriptorIds: string[] = [];
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile={true}
 				initialMetadataEvents={makeFileMetadataEvents(firstDescriptor, targetDescriptor)}
@@ -326,7 +326,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const openedDescriptorIds: string[] = [];
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile={true}
 				codeViewWorkerPoolEnabled={false}
@@ -387,7 +387,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 		const openedDescriptorIds: string[] = [];
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile={true}
 				initialMetadataEvents={[sourceAcceptedEvent]}
@@ -426,7 +426,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			path: 'src/plain.ts',
 		});
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(targetDescriptor)}
@@ -452,7 +452,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			fileId: 'file-warm',
 			path: 'src/warm.ts',
 		});
-		render(
+		await render(
 			<BridgeFileViewerApp
 				initialMetadataEvents={makeFileMetadataEvents(warmDescriptor)}
 				fileProductSession={{
@@ -461,8 +461,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 		await waitForFileCodeViewViewport();
-		await actUpdate((): void => {
-			cleanup();
+		await actUpdate(async (): Promise<void> => {
+			await cleanup();
 		});
 		await actFrame();
 
@@ -515,7 +515,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			);
 		}
 
-		render(<ControlledFileViewer />);
+		await render(<ControlledFileViewer />);
 
 		const idleViewport = await waitForFileCodeViewViewport();
 		expect(currentSourceSettled).toBe(true);
@@ -555,7 +555,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		const deferredContent = makeDeferredContent();
 
-		render(
+		await render(
 			<div style={{ display: 'grid', height: '360px', overflow: 'hidden', width: '960px' }}>
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
@@ -622,7 +622,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			);
 		}
 
-		render(
+		await render(
 			<div style={{ height: '360px', width: '960px' }}>
 				<ControlledFileViewer />
 			</div>,
@@ -696,7 +696,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			);
 		}
 
-		render(
+		await render(
 			<div style={{ display: 'grid', height: '360px', overflow: 'hidden', width: '960px' }}>
 				<ControlledFileViewer />
 			</div>,
@@ -767,7 +767,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			);
 		}
 
-		render(
+		await render(
 			<div style={{ display: 'grid', height: '360px', overflow: 'hidden', width: '960px' }}>
 				<ControlledFileViewer />
 			</div>,

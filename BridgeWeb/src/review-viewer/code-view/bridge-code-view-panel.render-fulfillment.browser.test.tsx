@@ -112,7 +112,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			visibleCodeViewItems: [retainedReadableItem],
 			workerPoolEnabled: false,
 		};
-		const rendered = render(<BridgeCodeViewPanel {...panelProps} />);
+		const rendered = await render(<BridgeCodeViewPanel {...panelProps} />);
 
 		try {
 			await settleBridgeCodeViewState(
@@ -123,7 +123,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 
 			// Act: the same semantic item becomes selected after its keyed frontend copy was reset.
 			await act(async (): Promise<void> => {
-				rendered.rerender(
+				await rendered.rerender(
 					<BridgeCodeViewPanel
 						{...panelProps}
 						selectedContentLoadingItemId={publicationItem.id}
@@ -166,7 +166,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 				request: { facets: [], mode: { kind: 'normalReview' } },
 			});
 			await act(async (): Promise<void> => {
-				rendered.rerender(
+				await rendered.rerender(
 					<BridgeCodeViewPanel
 						{...panelProps}
 						projection={changedProjection}
@@ -307,7 +307,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			visibleCodeViewItems: [firstControllerSeedItem],
 			workerPoolEnabled: false,
 		};
-		const rendered = render(<BridgeCodeViewPanel {...panelProps} />);
+		const rendered = await render(<BridgeCodeViewPanel {...panelProps} />);
 
 		try {
 			await settleBridgeCodeViewState((): boolean => {
@@ -611,7 +611,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 				visibleCodeViewItems: [secondPublicationItem],
 			};
 			await act(async (): Promise<void> => {
-				rendered.rerender(<BridgeCodeViewPanel {...secondPanelProps} />);
+				await rendered.rerender(<BridgeCodeViewPanel {...secondPanelProps} />);
 				await Promise.resolve();
 			});
 			await settleBridgeCodeViewState((): boolean => {
@@ -680,7 +680,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			renderFulfillmentCoordinator.markPublicationQueued(retryPublication);
 			expect(dispositionKinds(dispositions)).toEqual(secondPaintedKinds);
 			await act(async (): Promise<void> => {
-				rendered.rerender(
+				await rendered.rerender(
 					<BridgeCodeViewPanel
 						{...secondPanelProps}
 						selectedCodeViewItem={retryPublicationItem}

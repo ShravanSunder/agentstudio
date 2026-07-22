@@ -41,7 +41,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
 
 		// Act
-		render(
+		await render(
 			<BridgeFileViewerBrowserHarnessApp
 				autoOpenInitialFile={true}
 				fileProductSession={{
@@ -69,7 +69,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 
 	test('projects text and regex matches with required ancestors through the visible File search', async () => {
 		// Arrange
-		const renderResult = render(
+		const renderResult = await render(
 			<BridgeFileViewerBrowserHarnessApp
 				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
 			/>,
@@ -158,7 +158,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 
 	test('availability filters replace the visible File tree and Clear restores every branch', async () => {
 		// Arrange
-		const renderResult = render(
+		const renderResult = await render(
 			<BridgeFileViewerBrowserHarnessApp
 				initialMetadataEvents={makeMixedAvailabilityTreeMetadataEvents()}
 			/>,

@@ -12,7 +12,9 @@ describe('useBridgeFileViewerStoreBindings Browser Mode', () => {
 	test('keeps only component UI choices in the File viewer store', async () => {
 		let latestBindings: BridgeFileViewerStoreBindings | null = null;
 
-		render(<BridgeFileViewerStoreBindingsProbe bind={(bindings) => (latestBindings = bindings)} />);
+		await render(
+			<BridgeFileViewerStoreBindingsProbe bind={(bindings) => (latestBindings = bindings)} />,
+		);
 
 		await act(async () => {
 			const bindings = requireBindings(latestBindings);

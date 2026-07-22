@@ -42,7 +42,7 @@ const disabledBridgeTelemetryRecorderRef = {
 
 describe('Bridge Review production recovery Browser witnesses', () => {
 	afterEach(async (): Promise<void> => {
-		cleanup();
+		await cleanup();
 		disposeBridgeReviewRecoveryWitnessHarnesses();
 		await advanceBridgeReviewRecoveryWitnessFrames(2);
 		document.body.replaceChildren();
@@ -55,7 +55,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			lineCount: 3,
 			markerPrefix: 'HIERARCHY',
 		});
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 		await expect
 			.element(harness.renderResult.getByTestId('bridge-review-fallback-frame'))
 			.toBeVisible();
@@ -87,7 +87,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			lineCount: 3,
 			markerPrefix: 'SEARCH',
 		});
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 		await harness.publishDisplay();
 		await expect.element(harness.renderResult.getByTestId('review-viewer-shell')).toBeVisible();
 		expect(document.querySelector('[data-testid="bridge-review-search-toggle"]')).not.toBeNull();
@@ -247,7 +247,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 				fileClass: index < 3 ? ('source' as const) : ('test' as const),
 			});
 		});
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 		await harness.publishDisplay();
 		await expect.poll(() => mountedReviewTreePaths(harness.pierreTreeHost())).toHaveLength(9);
 
@@ -305,7 +305,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		});
 		const targetFile = files[4];
 		if (targetFile === undefined) throw new Error('J1 REVIEW EXPLICIT REVEAL FIXTURE MISSING');
-		const harness = renderBridgeReviewRecoveryWitness(files, {
+		const harness = await renderBridgeReviewRecoveryWitness(files, {
 			navigationCommand: reviewNavigationCommand('explicit-reveal-command', targetFile.itemId),
 		});
 
@@ -331,7 +331,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		});
 		const targetFile = files[4];
 		if (targetFile === undefined) throw new Error('Review epoch disclosure fixture is incomplete.');
-		const harness = renderBridgeReviewRecoveryWitness(files, {
+		const harness = await renderBridgeReviewRecoveryWitness(files, {
 			navigationCommand: reviewNavigationCommand('epoch-disclosure-command', targetFile.itemId),
 		});
 		await harness.publishDisplay();
@@ -360,7 +360,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		const targetFile = files[4];
 		if (targetFile === undefined)
 			throw new Error('Review package disclosure fixture is incomplete.');
-		const harness = renderBridgeReviewRecoveryWitness(files, {
+		const harness = await renderBridgeReviewRecoveryWitness(files, {
 			navigationCommand: reviewNavigationCommand('package-disclosure-command', targetFile.itemId),
 		});
 		await harness.publishDisplay();
@@ -471,7 +471,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			lineCount: 3,
 			markerPrefix: 'POST_PAINT',
 		});
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 		await harness.publishDisplay();
 		await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
 		await expect.poll(() => harness.markFileViewedCommandCount()).toBe(1);
@@ -572,7 +572,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			lineCount: 3,
 			markerPrefix: 'CONTINUOUS',
 		});
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 		await expect
 			.element(harness.renderResult.getByTestId('bridge-review-fallback-frame'))
 			.toBeVisible();
@@ -614,7 +614,9 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			sourceGeneration: 1,
 			sourceIdentity: 'review-paint-correlation-source',
 		} satisfies BridgeWorkerRenderSourceCorrelation;
-		const harness = renderBridgeReviewRecoveryWitness([{ ...fixtureFile, sourceCorrelation }]);
+		const harness = await renderBridgeReviewRecoveryWitness([
+			{ ...fixtureFile, sourceCorrelation },
+		]);
 
 		// Act
 		await harness.publishDisplay();
@@ -653,7 +655,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			lineCount: 3,
 			markerPrefix: 'STREAMED_CONTINUOUS',
 		});
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 		await expect
 			.element(harness.renderResult.getByTestId('bridge-review-fallback-frame'))
 			.toBeVisible();
@@ -682,7 +684,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			lineCount: 3,
 			markerPrefix: 'STREAMED_DISCLOSURE',
 		});
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 
 		// Act
 		await harness.publishDisplayPrefix(3);
@@ -841,18 +843,18 @@ function makeReadyReviewPresentationState(
 	};
 }
 
-async function renderInsideAct(element: ReactElement): Promise<ReturnType<typeof render>> {
-	let rendered: ReturnType<typeof render> | null = null;
+async function renderInsideAct(element: ReactElement): Promise<Awaited<ReturnType<typeof render>>> {
+	let rendered: Awaited<ReturnType<typeof render>> | null = null;
 	await act(async (): Promise<void> => {
-		rendered = render(element);
+		rendered = await render(element);
 		await Promise.resolve();
 	});
 	return requireRenderResult(rendered);
 }
 
 function requireRenderResult(
-	rendered: ReturnType<typeof render> | null,
-): ReturnType<typeof render> {
+	rendered: Awaited<ReturnType<typeof render>> | null,
+): Awaited<ReturnType<typeof render>> {
 	if (rendered === null) throw new Error('Expected Browser render result.');
 	return rendered;
 }

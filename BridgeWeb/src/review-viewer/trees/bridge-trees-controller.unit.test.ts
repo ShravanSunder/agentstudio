@@ -1,5 +1,11 @@
-import type { FileTreeBatchOperation, FileTreeItemHandle, FileTreeOptions } from '@pierre/trees';
-import { describe, expect, expectTypeOf, test, vi } from 'vitest';
+import type {
+	FileTreeBatchOperation,
+	FileTreeDirectoryHandle,
+	FileTreeFileHandle,
+	FileTreeItemHandle,
+	FileTreeOptions,
+} from '@pierre/trees';
+import { describe, expect, expectTypeOf, test, vi, type Mock } from 'vitest';
 
 import {
 	applyDeltaToBridgeReviewItemRegistry,
@@ -916,23 +922,18 @@ class RecordingTreesModel implements BridgeTreesModel {
 	}
 }
 
+interface RecordingDirectoryHandle extends FileTreeDirectoryHandle {
+	readonly expand: Mock<() => void>;
+}
+
+interface RecordingFileHandle extends FileTreeFileHandle {
+	readonly select: Mock<() => void>;
+}
+
 function makeDirectoryHandle(props: {
 	readonly expand?: () => void;
 	readonly isExpanded: boolean;
-}): {
-	readonly collapse: ReturnType<typeof vi.fn>;
-	readonly deselect: ReturnType<typeof vi.fn>;
-	readonly expand: ReturnType<typeof vi.fn>;
-	readonly focus: ReturnType<typeof vi.fn>;
-	readonly getPath: ReturnType<typeof vi.fn>;
-	readonly isDirectory: () => true;
-	readonly isExpanded: () => boolean;
-	readonly isFocused: () => boolean;
-	readonly isSelected: () => boolean;
-	readonly select: ReturnType<typeof vi.fn>;
-	readonly toggle: ReturnType<typeof vi.fn>;
-	readonly toggleSelect: ReturnType<typeof vi.fn>;
-} {
+}): RecordingDirectoryHandle {
 	let expanded = props.isExpanded;
 	return {
 		collapse: vi.fn((): void => {
@@ -959,16 +960,7 @@ function makeDirectoryHandle(props: {
 	};
 }
 
-function makeFileHandle(): {
-	readonly deselect: ReturnType<typeof vi.fn>;
-	readonly focus: ReturnType<typeof vi.fn>;
-	readonly getPath: ReturnType<typeof vi.fn>;
-	readonly isDirectory: () => false;
-	readonly isFocused: () => boolean;
-	readonly isSelected: () => boolean;
-	readonly select: ReturnType<typeof vi.fn>;
-	readonly toggleSelect: ReturnType<typeof vi.fn>;
-} {
+function makeFileHandle(): RecordingFileHandle {
 	return {
 		deselect: vi.fn(),
 		focus: vi.fn(),

@@ -88,7 +88,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		] as const;
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				initialMetadataEvents={makeFileMetadataEvents(...initialDescriptors)}
 				fileProductSession={{
@@ -155,7 +155,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const openedDescriptorIds: string[] = [];
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				initialMetadataEvents={makeFileMetadataEvents(oldFirstDescriptor, oldSecondDescriptor)}
 				fileProductSession={{
@@ -218,7 +218,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const openedDescriptorIds: string[] = [];
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}
@@ -283,7 +283,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const openedDescriptorIds: string[] = [];
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile
 				codeViewWorkerPoolEnabled={false}
@@ -343,7 +343,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<div style={{ display: 'grid', height: '360px', overflow: 'hidden', width: '960px' }}>
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
@@ -423,7 +423,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const openedDescriptorIds: string[] = [];
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}
@@ -481,7 +481,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			| ((messages: readonly BridgeWorkerServerToMainMessage[]) => void)
 			| null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(targetDescriptor)}
@@ -547,7 +547,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 		let replacementFetchAttemptCount = 0;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}
@@ -606,7 +606,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const openedDescriptorIds: string[] = [];
 		let fetchAttemptCount = 0;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(targetDescriptor)}
@@ -694,7 +694,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			);
 		}
 
-		render(<ControlledFileViewer />);
+		await render(<ControlledFileViewer />);
 
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('inactiveRefreshInitial');
@@ -746,7 +746,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}
@@ -800,7 +800,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}
@@ -870,7 +870,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const metadataInterestUpdates: FileMetadataInterestUpdate[] = [];
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}

@@ -31,7 +31,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 	test('publishes real keyed Review facts and a later metadata window without a package adapter', async () => {
 		// Arrange
 		const harness = makeReviewSurfaceHarness();
-		const rendered = render(<ReviewDirectDisplayProbe reviewClient={harness.reviewClient} />);
+		const rendered = await render(<ReviewDirectDisplayProbe reviewClient={harness.reviewClient} />);
 		await expect.element(rendered.getByTestId('review-direct-display-probe')).toBeInTheDocument();
 
 		// Act
@@ -79,7 +79,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const onActiveSourceChange = vi.fn();
 		const telemetryRecorderRef = { current: createBridgeTelemetryRecorder(null) };
 		const viewerHeaderControls = <div />;
-		const rendered = render(
+		const rendered = await render(
 			<BridgeReviewViewerMode
 				isActive={false}
 				onActiveSourceChange={onActiveSourceChange}
@@ -104,7 +104,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 
 		// Act
 		await act(async (): Promise<void> => {
-			rendered.rerender(
+			await rendered.rerender(
 				<BridgeReviewViewerMode
 					isActive={false}
 					onActiveSourceChange={onActiveSourceChange}
@@ -125,7 +125,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 	test('retries timed-out Review intake-ready delivery until acknowledgement with newer shared epochs', async () => {
 		// Arrange
 		const harness = makeReviewSurfaceHarness();
-		const rendered = render(<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />);
+		const rendered = await render(
+			<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />,
+		);
 		await expect.element(rendered.getByTestId('review-intake-lifecycle-probe')).toBeInTheDocument();
 		const initialRequestId = requireDefined(
 			reviewIntakeReadyRequestIds(harness.lifecycleStore)[0],
@@ -161,7 +163,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				acknowledgedAtSequence: 1,
 				requestId: retryRequestId,
 			});
-			rendered.rerender(<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />);
+			await rendered.rerender(<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />);
 			await Promise.resolve();
 		});
 		expect(reviewIntakeReadyCommands(harness.sentCommands)).toHaveLength(2);
@@ -197,7 +199,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 	test('bounds unacknowledged Review intake-ready delivery attempts', async () => {
 		// Arrange
 		const harness = makeReviewSurfaceHarness();
-		const rendered = render(<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />);
+		const rendered = await render(
+			<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />,
+		);
 		await expect.element(rendered.getByTestId('review-intake-lifecycle-probe')).toBeInTheDocument();
 
 		// Act: exhaust each permitted attempt without acknowledging delivery.
@@ -212,7 +216,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				await Promise.resolve();
 			});
 		}
-		rendered.rerender(<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />);
+		await rendered.rerender(<ReviewIntakeLifecycleProbe reviewClient={harness.reviewClient} />);
 
 		// Assert
 		expect(reviewIntakeReadyCommands(harness.sentCommands)).toHaveLength(3);
@@ -221,7 +225,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		// Arrange
 		const harness = makeReviewSurfaceHarness();
 		const streamedWindowCount = 32;
-		const rendered = render(
+		const rendered = await render(
 			<BridgeReviewViewerMode
 				isActive={false}
 				onActiveSourceChange={vi.fn()}
@@ -276,7 +280,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		// Arrange
 		const harness = makeFileSurfaceHarness();
 		const reportedSources: Array<{ readonly generation: number; readonly sourceId: string }> = [];
-		const rendered = render(
+		const rendered = await render(
 			<BridgeFileViewerSurfaceClientProvider surfaceClient={harness.fileViewClient}>
 				<FileDisplaySourceProbe
 					onDisplaySourceChange={(source): void => {
@@ -321,7 +325,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		renderContainer.style.height = '100vh';
 		renderContainer.style.width = '100vw';
 		document.body.append(renderContainer);
-		const rendered = render(
+		const rendered = await render(
 			<BridgeReviewViewerMode
 				codeViewWorkerPoolEnabled={false}
 				isActive={true}
@@ -389,7 +393,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 
 		// Act: retain the recovered shell while Review becomes inactive.
 		await act(async (): Promise<void> => {
-			rendered.rerender(
+			await rendered.rerender(
 				<BridgeReviewViewerMode
 					codeViewWorkerPoolEnabled={false}
 					isActive={false}

@@ -119,8 +119,8 @@ const realViteProductTest = realViteProductTestEnabled ? test : test.skip;
 
 describe('BridgeFileViewerApp sustained deep scrolling', () => {
 	afterEach(async () => {
-		await actUpdate((): void => {
-			cleanup();
+		await actUpdate(async (): Promise<void> => {
+			await cleanup();
 		});
 		await settleBridgeFileViewerBrowserUpdates();
 		await actFrame();
@@ -136,183 +136,193 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 		routePierreWorkerFactory = null;
 	});
 
-	test('keeps the production FileTree and CodeView painted through sustained deep scrolling', async () => {
-		await ensureBridgeCodeViewThemeResolved();
-		routePierreWorkerFactory = createBridgePierrePortableBlobWorkerFactory();
-		await assertCompleteFileDeepScrollSourceOracle();
-		const selectedDescriptor = makeCompleteFileDeepScrollDescriptor({
-			contentHandle: 'deep-scroll-selected-content',
-			fileId: 'file-000',
-			path: deepScrollSelectedPath,
-		});
-		const deferredContent = makeDeferredContent();
-		const openedDescriptors: BridgeProductFileContentDescriptor[] = [];
-		const openedDescriptorIds: string[] = [];
-		const workerCommands: BridgeWorkerMainToServerMessage[] = [];
+	test(
+		'keeps the production FileTree and CodeView painted through sustained deep scrolling',
+		{ tags: ['stress'] },
+		async () => {
+			await ensureBridgeCodeViewThemeResolved();
+			routePierreWorkerFactory = createBridgePierrePortableBlobWorkerFactory();
+			await assertCompleteFileDeepScrollSourceOracle();
+			const selectedDescriptor = makeCompleteFileDeepScrollDescriptor({
+				contentHandle: 'deep-scroll-selected-content',
+				fileId: 'file-000',
+				path: deepScrollSelectedPath,
+			});
+			const deferredContent = makeDeferredContent();
+			const openedDescriptors: BridgeProductFileContentDescriptor[] = [];
+			const openedDescriptorIds: string[] = [];
+			const workerCommands: BridgeWorkerMainToServerMessage[] = [];
 
-		render(
-			<div style={{ height: '720px', overflow: 'hidden', width: '1280px' }}>
-				<BridgeFileViewerBrowserHarnessApp
-					autoOpenInitialFile
+			await render(
+				<div style={{ height: '720px', overflow: 'hidden', width: '1280px' }}>
+					<BridgeFileViewerBrowserHarnessApp
+						autoOpenInitialFile
+						codeViewWorkerFactory={routePierreWorkerFactory.workerFactory}
+						codeViewWorkerPoolEnabled
+						initialMetadataEvents={makeCompleteFileDeepScrollMetadataEvents(selectedDescriptor)}
+						fileProductSession={{
+							onWorkerCommand: (message): void => {
+								workerCommands.push(message);
+							},
+							readContent: ({ descriptor }) => {
+								openedDescriptors.push(descriptor);
+								openedDescriptorIds.push(descriptor.descriptorId);
+								return deferredContent.promise;
+							},
+						}}
+					/>
+				</div>,
+			);
+			await settleCompleteFilePierreWorkerPoolInitialization(
+				routePierreWorkerFactory.workerFactory,
+			);
+
+			await waitForMetadataTreeRowCount(completeFileDeepScrollTreeRowCount);
+			await waitForTreeScrollHeightAtLeast(completeFileDeepScrollTreeRowCount * 24);
+			await waitForOpenFileState('loading');
+			await waitForOpenedContentCount({ expectedCount: 1, openedDescriptorIds });
+			await assertDeepScrollLoadingState({
+				openedDescriptor: openedDescriptors[0],
+				selectedDescriptor,
+				workerCommands,
+			});
+			const activeTaskPublication = waitForBridgePierreWorkerPoolActiveTaskPublicationForTest(
+				routePierreWorkerFactory.workerFactory,
+			);
+			await actUpdate((): void => {
+				deferredContent.resolve(makeFileContent(completeFileDeepScrollFixture.text));
+			});
+			await actUpdate(async (): Promise<void> => {
+				await activeTaskPublication;
+			});
+			await waitForOpenFileState('ready');
+			await waitForVisibleCodeText(completeFileDeepScrollFixture.firstSourceText);
+			assertDeepScrollReadyCorrelation({
+				openedDescriptor: openedDescriptors[0],
+				selectedDescriptor,
+				workerCommands,
+			});
+			const owners = await requireDeepScrollOwners();
+			await waitForFileCodeViewScrollable(owners.codeScrollOwner);
+			await waitForCompleteFileInitialPaintReady();
+			assertDeepScrollSurfaceInvariant({ owners, step: 'initial' });
+
+			await runDeepScrollSequence({
+				fractionIndex: 0,
+				owners,
+				previousCodeScrollTop: 0,
+				previousTreeScrollTop: 0,
+			});
+			await waitForBridgeViewerVisibleTreeItemPath(owners.treeScrollOwner, deepScrollFinalTreePath);
+			await waitForDeepScrollFinalSource({ attempt: 0, owners });
+			const finalSnapshot = assertDeepScrollSurfaceInvariant({ owners, step: 'final' });
+
+			expect(finalSnapshot.treeScrollTop).toBeGreaterThan(70_000);
+			expect(finalSnapshot.codeScrollTop).toBeGreaterThan(100_000);
+			expect(bridgeViewerVisibleTreeItemPaths(owners.treeScrollOwner)).toContain(
+				deepScrollFinalTreePath,
+			);
+			expect(bridgeViewerVisibleCodeTextContent(owners.codeScrollOwner)).toContain(
+				completeFileDeepScrollFixture.finalSourceText,
+			);
+			expect(owners.codeScrollOwner.scrollTop).toBeGreaterThanOrEqual(
+				owners.codeScrollOwner.scrollHeight - owners.codeScrollOwner.clientHeight - 1,
+			);
+		},
+	);
+
+	test(
+		'keeps the full production File route painted through sustained deep scrolling',
+		{ tags: ['stress'] },
+		async () => {
+			await assertCompleteFileDeepScrollSourceOracle();
+			const selectedDescriptor = makeCompleteFileDeepScrollDescriptor({
+				contentHandle: 'deep-scroll-route-selected-content',
+				fileId: 'file-000',
+				path: deepScrollSelectedPath,
+			});
+			const openedDescriptors: BridgeProductFileContentDescriptor[] = [];
+			const workerCommands: BridgeWorkerMainToServerMessage[] = [];
+			const productSession: BridgeFileViewerBrowserTestProductSession = {
+				initialMetadataEvents: makeCompleteFileDeepScrollMetadataEvents(selectedDescriptor),
+				onWorkerCommand: (message): void => {
+					workerCommands.push(message);
+				},
+				readContent: async ({ descriptor }) => {
+					openedDescriptors.push(descriptor);
+					return makeFileContent(completeFileDeepScrollFixture.text);
+				},
+			};
+			const paneSessionFactory = createBridgeFileViewerBrowserTestPaneSessionFactory({
+				productSessionRef: { current: productSession },
+			});
+			disposeRouteHandshake = installBridgeReadyHandshake().dispose;
+			routePierreWorkerFactory = createBridgePierrePortableBlobWorkerFactory();
+
+			await render(
+				<BridgeAppProtocolRouter
 					codeViewWorkerFactory={routePierreWorkerFactory.workerFactory}
 					codeViewWorkerPoolEnabled
-					initialMetadataEvents={makeCompleteFileDeepScrollMetadataEvents(selectedDescriptor)}
-					fileProductSession={{
-						onWorkerCommand: (message): void => {
-							workerCommands.push(message);
-						},
-						readContent: ({ descriptor }) => {
-							openedDescriptors.push(descriptor);
-							openedDescriptorIds.push(descriptor.descriptorId);
-							return deferredContent.promise;
-						},
-					}}
-				/>
-			</div>,
-		);
-		await settleCompleteFilePierreWorkerPoolInitialization(routePierreWorkerFactory.workerFactory);
+					fileViewerProps={{ autoOpenInitialFile: true }}
+					paneRuntimeFactory={() => createBridgePaneRuntime({ sessionFactory: paneSessionFactory })}
+					protocol="worktree-file"
+				/>,
+			);
 
-		await waitForMetadataTreeRowCount(completeFileDeepScrollTreeRowCount);
-		await waitForTreeScrollHeightAtLeast(completeFileDeepScrollTreeRowCount * 24);
-		await waitForOpenFileState('loading');
-		await waitForOpenedContentCount({ expectedCount: 1, openedDescriptorIds });
-		await assertDeepScrollLoadingState({
-			openedDescriptor: openedDescriptors[0],
-			selectedDescriptor,
-			workerCommands,
-		});
-		const activeTaskPublication = waitForBridgePierreWorkerPoolActiveTaskPublicationForTest(
-			routePierreWorkerFactory.workerFactory,
-		);
-		await actUpdate((): void => {
-			deferredContent.resolve(makeFileContent(completeFileDeepScrollFixture.text));
-		});
-		await actUpdate(async (): Promise<void> => {
-			await activeTaskPublication;
-		});
-		await waitForOpenFileState('ready');
-		await waitForVisibleCodeText(completeFileDeepScrollFixture.firstSourceText);
-		assertDeepScrollReadyCorrelation({
-			openedDescriptor: openedDescriptors[0],
-			selectedDescriptor,
-			workerCommands,
-		});
-		const owners = await requireDeepScrollOwners();
-		await waitForFileCodeViewScrollable(owners.codeScrollOwner);
-		await waitForCompleteFileInitialPaintReady();
-		assertDeepScrollSurfaceInvariant({ owners, step: 'initial' });
+			await waitForPierreWorkerRouteReady({ attempt: 0 });
+			await waitForMetadataTreeRowCount(completeFileDeepScrollTreeRowCount);
+			await waitForTreeScrollHeightAtLeast(completeFileDeepScrollTreeRowCount * 24);
+			await waitForOpenFileState('ready');
+			await waitForVisibleCodeText(completeFileDeepScrollFixture.firstSourceText);
+			assertDeepScrollReadyCorrelation({
+				openedDescriptor: openedDescriptors[0],
+				selectedDescriptor,
+				workerCommands,
+			});
+			const owners = await requireDeepScrollOwners({
+				routeOwners: {
+					appRoot: await waitForDeepScrollRouteElement({
+						attempt: 0,
+						selector: '[data-testid="bridge-app-root"]',
+					}),
+					fileModeHost: await waitForDeepScrollRouteElement({
+						attempt: 0,
+						selector: '[data-testid="bridge-viewer-mode-host-file"]',
+					}),
+				},
+			});
+			await waitForFileCodeViewScrollable(owners.codeScrollOwner);
+			await waitForCompleteFileInitialPaintReady();
+			assertDeepScrollSurfaceInvariant({ owners, step: 'route-initial' });
 
-		await runDeepScrollSequence({
-			fractionIndex: 0,
-			owners,
-			previousCodeScrollTop: 0,
-			previousTreeScrollTop: 0,
-		});
-		await waitForBridgeViewerVisibleTreeItemPath(owners.treeScrollOwner, deepScrollFinalTreePath);
-		await waitForDeepScrollFinalSource({ attempt: 0, owners });
-		const finalSnapshot = assertDeepScrollSurfaceInvariant({ owners, step: 'final' });
+			await runDeepScrollSequence({
+				fractionIndex: 0,
+				owners,
+				previousCodeScrollTop: 0,
+				previousTreeScrollTop: 0,
+			});
+			await waitForBridgeViewerVisibleTreeItemPath(owners.treeScrollOwner, deepScrollFinalTreePath);
+			await waitForDeepScrollFinalSource({ attempt: 0, owners });
+			const finalSnapshot = assertDeepScrollSurfaceInvariant({ owners, step: 'route-final' });
 
-		expect(finalSnapshot.treeScrollTop).toBeGreaterThan(70_000);
-		expect(finalSnapshot.codeScrollTop).toBeGreaterThan(100_000);
-		expect(bridgeViewerVisibleTreeItemPaths(owners.treeScrollOwner)).toContain(
-			deepScrollFinalTreePath,
-		);
-		expect(bridgeViewerVisibleCodeTextContent(owners.codeScrollOwner)).toContain(
-			completeFileDeepScrollFixture.finalSourceText,
-		);
-		expect(owners.codeScrollOwner.scrollTop).toBeGreaterThanOrEqual(
-			owners.codeScrollOwner.scrollHeight - owners.codeScrollOwner.clientHeight - 1,
-		);
-	});
-
-	test('keeps the full production File route painted through sustained deep scrolling', async () => {
-		await assertCompleteFileDeepScrollSourceOracle();
-		const selectedDescriptor = makeCompleteFileDeepScrollDescriptor({
-			contentHandle: 'deep-scroll-route-selected-content',
-			fileId: 'file-000',
-			path: deepScrollSelectedPath,
-		});
-		const openedDescriptors: BridgeProductFileContentDescriptor[] = [];
-		const workerCommands: BridgeWorkerMainToServerMessage[] = [];
-		const productSession: BridgeFileViewerBrowserTestProductSession = {
-			initialMetadataEvents: makeCompleteFileDeepScrollMetadataEvents(selectedDescriptor),
-			onWorkerCommand: (message): void => {
-				workerCommands.push(message);
-			},
-			readContent: async ({ descriptor }) => {
-				openedDescriptors.push(descriptor);
-				return makeFileContent(completeFileDeepScrollFixture.text);
-			},
-		};
-		const paneSessionFactory = createBridgeFileViewerBrowserTestPaneSessionFactory({
-			productSessionRef: { current: productSession },
-		});
-		disposeRouteHandshake = installBridgeReadyHandshake().dispose;
-		routePierreWorkerFactory = createBridgePierrePortableBlobWorkerFactory();
-
-		render(
-			<BridgeAppProtocolRouter
-				codeViewWorkerFactory={routePierreWorkerFactory.workerFactory}
-				codeViewWorkerPoolEnabled
-				fileViewerProps={{ autoOpenInitialFile: true }}
-				paneRuntimeFactory={() => createBridgePaneRuntime({ sessionFactory: paneSessionFactory })}
-				protocol="worktree-file"
-			/>,
-		);
-
-		await waitForPierreWorkerRouteReady({ attempt: 0 });
-		await waitForMetadataTreeRowCount(completeFileDeepScrollTreeRowCount);
-		await waitForTreeScrollHeightAtLeast(completeFileDeepScrollTreeRowCount * 24);
-		await waitForOpenFileState('ready');
-		await waitForVisibleCodeText(completeFileDeepScrollFixture.firstSourceText);
-		assertDeepScrollReadyCorrelation({
-			openedDescriptor: openedDescriptors[0],
-			selectedDescriptor,
-			workerCommands,
-		});
-		const owners = await requireDeepScrollOwners({
-			routeOwners: {
-				appRoot: await waitForDeepScrollRouteElement({
-					attempt: 0,
-					selector: '[data-testid="bridge-app-root"]',
-				}),
-				fileModeHost: await waitForDeepScrollRouteElement({
-					attempt: 0,
-					selector: '[data-testid="bridge-viewer-mode-host-file"]',
-				}),
-			},
-		});
-		await waitForFileCodeViewScrollable(owners.codeScrollOwner);
-		await waitForCompleteFileInitialPaintReady();
-		assertDeepScrollSurfaceInvariant({ owners, step: 'route-initial' });
-
-		await runDeepScrollSequence({
-			fractionIndex: 0,
-			owners,
-			previousCodeScrollTop: 0,
-			previousTreeScrollTop: 0,
-		});
-		await waitForBridgeViewerVisibleTreeItemPath(owners.treeScrollOwner, deepScrollFinalTreePath);
-		await waitForDeepScrollFinalSource({ attempt: 0, owners });
-		const finalSnapshot = assertDeepScrollSurfaceInvariant({ owners, step: 'route-final' });
-
-		expect(finalSnapshot.treeScrollTop).toBeGreaterThan(70_000);
-		expect(finalSnapshot.codeScrollTop).toBeGreaterThan(100_000);
-		expect(bridgeViewerVisibleTreeItemPaths(owners.treeScrollOwner)).toContain(
-			deepScrollFinalTreePath,
-		);
-		expect(bridgeViewerVisibleCodeTextContent(owners.codeScrollOwner)).toContain(
-			completeFileDeepScrollFixture.finalSourceText,
-		);
-		expect(owners.codeScrollOwner.scrollTop).toBeGreaterThanOrEqual(
-			owners.codeScrollOwner.scrollHeight - owners.codeScrollOwner.clientHeight - 1,
-		);
-		await assertCompleteFilePositionSurvivesModeSwitch({
-			codeScrollOwner: owners.codeScrollOwner,
-			expectedSelectedPath: deepScrollSelectedPath,
-			treeScrollOwner: owners.treeScrollOwner,
-		});
-	});
+			expect(finalSnapshot.treeScrollTop).toBeGreaterThan(70_000);
+			expect(finalSnapshot.codeScrollTop).toBeGreaterThan(100_000);
+			expect(bridgeViewerVisibleTreeItemPaths(owners.treeScrollOwner)).toContain(
+				deepScrollFinalTreePath,
+			);
+			expect(bridgeViewerVisibleCodeTextContent(owners.codeScrollOwner)).toContain(
+				completeFileDeepScrollFixture.finalSourceText,
+			);
+			expect(owners.codeScrollOwner.scrollTop).toBeGreaterThanOrEqual(
+				owners.codeScrollOwner.scrollHeight - owners.codeScrollOwner.clientHeight - 1,
+			);
+			await assertCompleteFilePositionSurvivesModeSwitch({
+				codeScrollOwner: owners.codeScrollOwner,
+				expectedSelectedPath: deepScrollSelectedPath,
+				treeScrollOwner: owners.treeScrollOwner,
+			});
+		},
+	);
 
 	test('rejects same-size middle-byte corruption before publishing a ready Pierre item', async () => {
 		routePierreWorkerFactory = createBridgePierrePortableBlobWorkerFactory();
@@ -331,7 +341,7 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 			completeFileDeepScrollFixture.sha256,
 		);
 
-		render(
+		await render(
 			<BridgeFileViewerBrowserHarnessApp
 				autoOpenInitialFile
 				codeViewWorkerFactory={routePierreWorkerFactory.workerFactory}
@@ -357,7 +367,7 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 			routeProductSessionHost = installBridgeAppDevProductSessionHost();
 			routePierreWorkerFactory = createBridgePierrePortableBlobWorkerFactory();
 
-			render(
+			await render(
 				<BridgeAppProtocolRouter
 					codeViewWorkerFactory={routePierreWorkerFactory.workerFactory}
 					codeViewWorkerPoolEnabled

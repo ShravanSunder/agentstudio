@@ -27,7 +27,7 @@ describe('Bridge File viewer render snapshot controller Browser Mode', () => {
 		});
 
 		// Act
-		render(
+		await render(
 			<BridgeFileViewerSurfaceClientProvider surfaceClient={paneRuntime.surfaceClient('fileView')}>
 				<BridgeFileViewerRenderSnapshotProbe />
 			</BridgeFileViewerSurfaceClientProvider>,

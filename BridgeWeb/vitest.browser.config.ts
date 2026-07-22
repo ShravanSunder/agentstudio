@@ -2,16 +2,18 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import react from '@vitejs/plugin-react';
-import type {} from '@vitest/browser/providers/playwright';
-import { defineConfig, type UserConfig } from 'vitest/config';
+import { playwright } from '@vitest/browser-playwright';
+import { defineConfig, type TestUserConfig } from 'vitest/config';
 
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
 
 const browserConfig = {
 	enabled: true,
-	provider: 'playwright',
+	provider: playwright({
+		launchOptions: { channel: 'chrome' },
+	}),
 	headless: true,
-	instances: [{ browser: 'chromium', launch: { channel: 'chrome' }, name: 'integration-chromium' }],
+	instances: [{ browser: 'chromium', name: 'integration-chromium' }],
 	api: {
 		host: '127.0.0.1',
 		port: 63325,
@@ -22,7 +24,7 @@ const browserConfig = {
 	},
 	screenshotFailures: true,
 	screenshotDirectory: '../tmp/bridgeweb-vitest-screenshots',
-} satisfies NonNullable<NonNullable<UserConfig['test']>['browser']>;
+} satisfies NonNullable<TestUserConfig['browser']>;
 
 export default defineConfig({
 	plugins: [react()],
@@ -36,6 +38,12 @@ export default defineConfig({
 	},
 	test: {
 		globals: true,
+		tags: [
+			{
+				description: 'Scale-bound browser workloads run outside the per-commit correctness lane.',
+				name: 'stress',
+			},
+		],
 		projects: [
 			{
 				plugins: [react()],
@@ -74,9 +82,7 @@ export default defineConfig({
 							host: '127.0.0.1',
 							port: 63326,
 						},
-						instances: [
-							{ browser: 'chromium', launch: { channel: 'chrome' }, name: 'benchmark-chromium' },
-						],
+						instances: [{ browser: 'chromium', name: 'benchmark-chromium' }],
 					},
 					benchmark: {
 						include: ['src/**/*.browser.benchmark.ts', 'src/**/*.browser.benchmark.tsx'],

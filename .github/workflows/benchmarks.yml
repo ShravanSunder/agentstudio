@@ -1,21 +1,18 @@
-name: CI / Test
+name: CI / Post-merge Benchmarks
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
-  test:
+  benchmarks:
     runs-on: macos-26
     env:
-      SWIFT_BUILD_DIR: .build-ci
+      SWIFT_BUILD_DIR: .build-benchmark
       XCB_EXTRA_ARGS: "--renderer github-actions"
 
     steps:
@@ -26,31 +23,6 @@ jobs:
 
       - name: Setup mise
         uses: jdx/mise-action@v3
-
-      # --- Lint (fast, no build needed) ---
-
-      - name: Install lint tools
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: 1
-          HOMEBREW_NO_INSTALL_CLEANUP: 1
-        run: brew install swift-format swiftlint
-
-      - name: Lint
-        run: mise run lint
-
-      - name: AgentStudio architecture lint tool tests
-        run: swift test --package-path Tools/AgentStudioArchitectureLint
-
-      - name: Format check (swift-format)
-        run: |
-          swift-format format --in-place --recursive Sources/ Tests/ Tools/AgentStudioArchitectureLint/Sources Tools/AgentStudioArchitectureLint/Tests
-          git diff --quiet -- Sources/ Tests/ Tools/AgentStudioArchitectureLint/Sources Tools/AgentStudioArchitectureLint/Tests || {
-            echo "Swift formatting changes detected. Run mise run format locally.";
-            git diff -- Sources/ Tests/ Tools/AgentStudioArchitectureLint/Sources Tools/AgentStudioArchitectureLint/Tests;
-            exit 1;
-          }
-
-      # --- BridgeWeb check/build before Swift WebKit lanes ---
 
       - name: Enable pnpm
         run: |
@@ -67,25 +39,8 @@ jobs:
       - name: Install BridgeWeb dependencies
         run: mise run bridge-web-install
 
-      - name: BridgeWeb check
-        run: mise run bridge-web-check
-
-      - name: BridgeWeb Vitest unit tests
-        run: mise run bridge-web-unit-test
-
-      - name: BridgeWeb Vitest integration tests
-        run: mise run bridge-web-integration-test
-
-      - name: BridgeWeb Vitest E2E tests
-        run: mise run bridge-web-e2e-test
-
-      - name: BridgeWeb packaged build
-        run: |
-          mise run bridge-web-build
-          test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
-          ls -la Sources/AgentStudio/Resources/BridgeWeb/app
-
-      # --- Submodule SHAs for cache keys ---
+      - name: BridgeWeb Vitest stress tests
+        run: mise run bridge-web-browser-stress-test
 
       - name: Get submodule SHAs
         id: submodules
@@ -95,8 +50,6 @@ jobs:
           echo "ghostty_sha=$GHOSTTY_SHA" >> "$GITHUB_OUTPUT"
           echo "zmx_sha=$ZMX_SHA" >> "$GITHUB_OUTPUT"
 
-      # --- Zig compilation cache (speeds up builds on artifact cache miss) ---
-
       - name: Cache Zig compilation
         uses: actions/cache@v4
         with:
@@ -104,11 +57,10 @@ jobs:
             ~/.cache/zig
             vendor/ghostty/.zig-cache
             vendor/zmx/.zig-cache
-          key: zig-compile-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
+          key: benchmark-zig-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
           restore-keys: |
+            benchmark-zig-${{ runner.os }}-
             zig-compile-${{ runner.os }}-
-
-      # --- Cache/build Ghostty ---
 
       - name: Cache Ghostty artifacts
         id: cache-ghostty
@@ -125,8 +77,6 @@ jobs:
           cd vendor/ghostty
           zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native
 
-      # --- Cache/build zmx ---
-
       - name: Cache zmx artifacts
         id: cache-zmx
         uses: actions/cache@v4
@@ -139,8 +89,6 @@ jobs:
         run: |
           cd vendor/zmx
           zig build -Doptimize=ReleaseFast
-
-      # --- Setup resources + build + test (delegated to mise) ---
 
       - name: Copy XCFramework
         run: |
@@ -165,39 +113,38 @@ jobs:
             [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
           fi
 
-      - name: Cache Swift build
+      - name: Cache Swift benchmark build
         uses: actions/cache@v4
         with:
-          path: .build-ci
-          key: swift-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          path: .build-benchmark
+          key: swift-benchmark-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
           restore-keys: |
+            swift-benchmark-${{ runner.os }}-
             swift-${{ runner.os }}-
 
-      - name: Prebuild Swift test bundles
+      - name: Test large non-WebKit lane
         env:
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
-          SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "900"
-        run: mise run test-prebuild
-
-      - name: Test fast lane
-        env:
-          SWIFT_TEST_SKIP_PREBUILD: "1"
-          SWIFT_TEST_TIMEOUT_SECONDS: "300"
           _XCB_BYPASS: "1"
-        run: mise run test-fast
+        run: mise run test-large
 
-      - name: Test WebKit lane
-        env:
-          # WebKit teardown can crash swiftpm-testing-helper after assertions pass;
-          # this lane isolates real WebKit runtime suites and retries signal crashes.
-          SWIFT_TEST_TIMEOUT_SECONDS: "600"
-          XCB_EXTRA_ARGS: "--renderer github-actions"
-        run: mise run test-webkit
+      - name: Swift benchmark tests
+        run: |
+          set -o pipefail
+          mise run test-benchmark 2>&1 | tee benchmark.log
+          grep -E "\[PushBenchmark\]" benchmark.log > benchmark-lines.txt || true
+          if [ ! -s benchmark-lines.txt ]; then
+            echo "[PushBenchmark] No benchmark threshold lines emitted in this run." > benchmark-lines.txt
+          fi
+          cat benchmark-lines.txt
 
-      - name: Upload test results
+      - name: Upload benchmark results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
-          path: test-results-*.xml
+          name: benchmark-results
+          path: |
+            benchmark.log
+            benchmark-lines.txt
+            test-results-*.xml
           if-no-files-found: warn

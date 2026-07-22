@@ -171,7 +171,7 @@ vi.mock('../core/comm-worker/bridge-pane-runtime.js', async (importOriginal) => 
 describe('BridgeApp pane runtime hard cut', () => {
 	afterEach(async () => {
 		await actWait(async (): Promise<void> => {
-			cleanup();
+			await cleanup();
 			await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
 		});
 		vi.restoreAllMocks();
@@ -190,7 +190,7 @@ describe('BridgeApp pane runtime hard cut', () => {
 	test('keeps one pane-owned runtime and stable surface clients across File to Review to File', async () => {
 		// Arrange
 		await actWait(async (): Promise<void> => {
-			render(<BridgeAppProtocolRouter protocol="worktree-file" />);
+			await render(<BridgeAppProtocolRouter protocol="worktree-file" />);
 			await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
 		});
 		const appRoot = requireHTMLElement(document.querySelector('[data-testid="bridge-app-root"]'));
@@ -231,7 +231,7 @@ describe('BridgeApp pane runtime hard cut', () => {
 	test('forwards one initial Review activation while page readiness is unresolved', async () => {
 		// Arrange
 		await actWait(async (): Promise<void> => {
-			render(
+			await render(
 				<BridgeAppProtocolRouter
 					codeViewWorkerPoolEnabled={false}
 					fileViewerProps={{ autoOpenInitialFile: false }}
@@ -268,7 +268,7 @@ describe('BridgeApp pane runtime hard cut', () => {
 		// Arrange
 		const handshake = installBridgeReadyHandshake();
 		await actWait(async (): Promise<void> => {
-			render(
+			await render(
 				<BridgeAppProtocolRouter
 					codeViewWorkerPoolEnabled={false}
 					fileViewerProps={{ autoOpenInitialFile: false }}
@@ -364,7 +364,7 @@ describe('BridgeApp pane runtime hard cut', () => {
 		// Arrange
 		const handshake = installBridgeReadyHandshake();
 		await actWait(async (): Promise<void> => {
-			render(
+			await render(
 				<div style={{ height: '860px', overflow: 'hidden', width: '1,440px' }}>
 					<BridgeAppProtocolRouter
 						codeViewWorkerPoolEnabled={false}
@@ -489,7 +489,7 @@ describe('BridgeApp pane runtime hard cut', () => {
 	test('routes strict native page controls into the active Review and File owners', async () => {
 		// Arrange
 		await actWait(async (): Promise<void> => {
-			render(
+			await render(
 				<BridgeAppProtocolRouter
 					codeViewWorkerPoolEnabled={false}
 					fileViewerProps={{ autoOpenInitialFile: false }}

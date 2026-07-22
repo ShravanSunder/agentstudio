@@ -48,7 +48,7 @@ interface BridgeReviewRenderedHostRecord {
 
 describe('Bridge Review real-product continuous hydration', () => {
 	afterEach(async (): Promise<void> => {
-		cleanup();
+		await cleanup();
 		activeHandshakeDisposer?.();
 		activeHandshakeDisposer = null;
 		activeProductSessionHost?.dispose();
@@ -74,7 +74,7 @@ describe('Bridge Review real-product continuous hydration', () => {
 				new URLSearchParams('fixture=worktree&viewer=review'),
 			).navigationCommand;
 
-			const rendered = render(
+			const rendered = await render(
 				<BridgeAppProtocolRouter
 					codeViewWorkerFactory={activePierreWorkerFactory.workerFactory}
 					codeViewWorkerPoolEnabled

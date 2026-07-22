@@ -79,7 +79,7 @@ export interface BridgeReviewRecoveryWitnessHarness {
 	readonly publishRetainedSelectedOnlyDisplay: (selectedItemIndex: number) => Promise<void>;
 	readonly publishedContentItemIds: () => readonly string[];
 	readonly renderedCodeViewItemIds: () => readonly string[];
-	readonly renderResult: ReturnType<typeof render>;
+	readonly renderResult: Awaited<ReturnType<typeof render>>;
 	readonly markFileViewedCommandCount: () => number;
 	readonly selectedItemCommandCount: () => number;
 	readonly selectionScrollToPathSampleCount: () => number;
@@ -120,10 +120,10 @@ export function makeBridgeReviewRecoveryWitnessFiles(props: {
 	});
 }
 
-export function renderBridgeReviewRecoveryWitness(
+export async function renderBridgeReviewRecoveryWitness(
 	files: readonly BridgeReviewRecoveryWitnessFile[],
 	props: { readonly navigationCommand?: BridgeViewerNavigationCommand } = {},
-): BridgeReviewRecoveryWitnessHarness {
+): Promise<BridgeReviewRecoveryWitnessHarness> {
 	if (files.length === 0) throw new Error('Review recovery witness requires at least one file.');
 	const renderStore = createBridgeMainRenderSnapshotStore();
 	const lifecycleStore = createBridgeWorkerRpcLifecycleStore();
@@ -184,7 +184,7 @@ export function renderBridgeReviewRecoveryWitness(
 			/>
 		</div>
 	);
-	const renderResult = render(renderWitnessRoot(true));
+	const renderResult = await render(renderWitnessRoot(true));
 	const requireMessageListener = (): ((message: BridgeWorkerServerToMainMessage) => void) => {
 		if (messageListener === null) {
 			throw new Error(
@@ -458,7 +458,7 @@ export function renderBridgeReviewRecoveryWitness(
 			).length,
 		setActive: async (isActive: boolean): Promise<void> => {
 			await act(async (): Promise<void> => {
-				renderResult.rerender(renderWitnessRoot(isActive));
+				await renderResult.rerender(renderWitnessRoot(isActive));
 				await Promise.resolve();
 			});
 			await advanceBridgeReviewRecoveryWitnessFrames(2);

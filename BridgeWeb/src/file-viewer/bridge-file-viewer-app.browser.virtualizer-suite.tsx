@@ -34,7 +34,7 @@ import {
 describe('BridgeFileViewerApp virtualizer anchoring', () => {
 	afterEach(async () => {
 		await settleBridgeFileViewerBrowserUpdates();
-		cleanup();
+		await cleanup();
 		await waitForBridgeViewerAnimationFrame();
 		document.body.replaceChildren();
 	});
@@ -43,7 +43,7 @@ describe('BridgeFileViewerApp virtualizer anchoring', () => {
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 		const telemetrySamples: BridgeTelemetrySample[] = [];
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeTreeWindowedMetadataEvents({

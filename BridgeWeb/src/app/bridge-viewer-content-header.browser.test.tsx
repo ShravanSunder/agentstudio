@@ -12,7 +12,7 @@ import {
 describe('BridgeViewerContentHeader Browser Mode', () => {
 	test('presents optional updating status accessibly without moving title or controls', async () => {
 		// Arrange
-		const rendered = render(
+		const rendered = await render(
 			<BridgeViewerContentHeader
 				controls={<button data-testid="header-proof-control">Control</button>}
 				eyebrow="Files"
@@ -46,7 +46,7 @@ describe('BridgeViewerContentHeader Browser Mode', () => {
 		expect(statusBox.right).toBeLessThanOrEqual(controlsBoxWithStatus.left);
 
 		// Act
-		rendered.rerender(
+		await rendered.rerender(
 			<BridgeViewerContentHeader
 				controls={<button data-testid="header-proof-control">Control</button>}
 				eyebrow="Files"
@@ -74,7 +74,7 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 	test('uses the owned compact toggle-group primitive at content topbar chrome scale', async () => {
 		const modeChanges = vi.fn<(mode: 'file' | 'review') => void>();
 
-		render(
+		await render(
 			<BridgeViewerContentHeader
 				controls={<BridgeViewerContextSwitcher mode="file" onModeChange={modeChanges} />}
 				eyebrow="Files"
@@ -137,10 +137,10 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 });
 
 describe('BridgeReviewProjectionMenu Browser Mode', () => {
-	test('uses the owned compact toggle-group primitive for review projection modes', () => {
+	test('uses the owned compact toggle-group primitive for review projection modes', async () => {
 		const modeChanges = vi.fn<(mode: { readonly kind: string }) => void>();
 
-		render(
+		await render(
 			<BridgeReviewProjectionMenu
 				onProjectionModeChange={modeChanges}
 				projectionMode={{ kind: 'normalReview' }}

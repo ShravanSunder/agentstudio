@@ -57,7 +57,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		};
 		const handshake = installBridgeReadyHandshake();
 
-		renderFileProductApp('review', productSession);
+		await renderFileProductApp('review', productSession);
 		expect(await pollWithinActUntilEqual(() => sourceDiscoveryCount, 1)).toBe(1);
 		expect(await pollWithinActUntilEqual(() => metadataSubscriptionOpenCount, 1)).toBe(1);
 
@@ -84,7 +84,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		};
 		const handshake = installBridgeReadyHandshake();
 
-		renderFileProductApp('worktree-file', productSession);
+		await renderFileProductApp('worktree-file', productSession);
 		expect(await pollWithinActUntilEqual(() => sourceDiscoveryCount, 1)).toBe(1);
 		expect(await pollWithinActUntilEqual(() => metadataSubscriptionOpenCount, 1)).toBe(1);
 
@@ -101,14 +101,14 @@ describe('Bridge file viewer mode re-open on switch', () => {
 	});
 });
 
-function renderFileProductApp(
+async function renderFileProductApp(
 	protocol: 'review' | 'worktree-file',
 	productSession: BridgeFileViewerBrowserTestProductSession,
-): ReturnType<typeof render> {
+): Promise<Awaited<ReturnType<typeof render>>> {
 	const paneSessionFactory = createBridgeFileViewerBrowserTestPaneSessionFactory({
 		productSessionRef: { current: productSession },
 	});
-	return render(
+	return await render(
 		<BridgeAppProtocolRouter
 			codeViewWorkerPoolEnabled={false}
 			paneRuntimeFactory={() => createBridgePaneRuntime({ sessionFactory: paneSessionFactory })}

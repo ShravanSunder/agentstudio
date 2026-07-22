@@ -61,7 +61,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	afterEach(async () => {
 		await settleBridgeFileViewerBrowserUpdates();
 		await act(async (): Promise<void> => {
-			cleanup();
+			await cleanup();
 			await Promise.resolve();
 		});
 		await actFrame();
@@ -72,7 +72,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	test('discovers File source and opens one typed metadata subscription', async () => {
 		let sourceCallCount = 0;
 		let subscriptionOpenCount = 0;
-		render(
+		await render(
 			<BridgeFileViewerApp
 				initialMetadataEvents={makeFileMetadataEvents(makeFileDescriptor({ path: 'src/app.ts' }))}
 				fileProductSession={{
@@ -104,7 +104,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 	test('continues worker-owned metadata intake while File View is inactive', async () => {
 		let publishMetadata: PublishFileMetadataEvents | null = null;
-		const { rerender } = render(
+		const { rerender } = await render(
 			<BridgeFileViewerApp
 				isActive={true}
 				fileProductSession={{
@@ -116,7 +116,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 		await actFrame();
 		await actFrame();
-		rerender(
+		await rerender(
 			<BridgeFileViewerApp
 				isActive={false}
 				fileProductSession={{
@@ -136,7 +136,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('uses the shared compact rail chrome before opening tree search', async () => {
-		render(
+		await render(
 			<BridgeFileViewerApp
 				initialMetadataEvents={makeFileMetadataEvents(
 					makeFileDescriptor({ path: 'src/app.ts' }),
@@ -291,7 +291,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('renders FileView rail in the shared resizable panel layout with stable geometry', async () => {
-		render(
+		await render(
 			<div style={{ display: 'grid', height: '360px', overflow: 'hidden', width: '960px' }}>
 				<BridgeFileViewerApp
 					initialMetadataEvents={makeFileMetadataEvents(
@@ -367,7 +367,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	test('renders streamed metadata tree rows before file descriptors arrive', async () => {
 		const openedDescriptorIds: string[] = [];
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
@@ -395,7 +395,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('does not classify metadata-only rows as text before descriptor metadata arrives', async () => {
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
@@ -436,7 +436,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const metadataInterestUpdates: FileMetadataInterestUpdate[] = [];
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile
 				codeViewWorkerPoolEnabled={false}
@@ -482,7 +482,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	test('applies subscribed tree window metadata after the startup snapshot', async () => {
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeTreeWindowedMetadataEvents({
@@ -532,7 +532,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	test('applies subscribed tree delta updates to the visible FileView tree', async () => {
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
@@ -609,7 +609,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const openedDescriptorIds: string[] = [];
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile
 				codeViewWorkerPoolEnabled={false}
@@ -708,7 +708,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(keptDescriptor, deletedDescriptor)}
@@ -751,7 +751,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const openedDescriptorIds: string[] = [];
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
@@ -808,7 +808,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			fileId: 'file-open-ready',
 			path: 'src/file-open-ready.ts',
 		});
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(descriptor)}
@@ -839,7 +839,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		await import('./bridge-file-viewer-shell.js');
 		await act(async (): Promise<void> => {
-			render(
+			await render(
 				<div style={{ height: '720px', overflow: 'hidden', width: '1280px' }}>
 					<BridgeFileViewerApp
 						initialMetadataEvents={makeFileMetadataEvents(descriptor)}

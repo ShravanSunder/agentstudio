@@ -45,7 +45,7 @@ beforeEach((): void => {
 afterEach(async (): Promise<void> => {
 	uninstallBridgeViewerFailureGuards();
 	await act(async (): Promise<void> => {
-		cleanup();
+		await cleanup();
 		await Promise.resolve();
 	});
 	document.body.replaceChildren();

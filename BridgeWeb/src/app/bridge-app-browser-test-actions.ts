@@ -44,9 +44,9 @@ export function actWait<TValue>(wait: () => Promise<TValue>): Promise<TValue> {
 	return act(wait);
 }
 
-export async function actUpdate(update: () => void): Promise<void> {
+export async function actUpdate(update: () => void | Promise<void>): Promise<void> {
 	await act(async (): Promise<void> => {
-		update();
+		await update();
 		await Promise.resolve();
 	});
 }

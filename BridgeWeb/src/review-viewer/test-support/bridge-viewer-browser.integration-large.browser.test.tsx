@@ -15,7 +15,7 @@ import {
 
 describe('Bridge Review continuous large-document Browser witness', () => {
 	afterEach(async (): Promise<void> => {
-		cleanup();
+		await cleanup();
 		disposeBridgeReviewRecoveryWitnessHarnesses();
 		await advanceBridgeReviewRecoveryWitnessFrames(2);
 		document.body.replaceChildren();
@@ -34,7 +34,7 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 		if (earlyFile === undefined || middleFile === undefined || finalFile === undefined) {
 			throw new Error('Large Review recovery witness requires early, middle, and final files.');
 		}
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 		await expect
 			.element(harness.renderResult.getByTestId('bridge-review-fallback-frame'))
 			.toBeVisible();
@@ -88,7 +88,7 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 		if (earlyFile === undefined || middleFile === undefined || finalFile === undefined) {
 			throw new Error('Progressive Review witness requires early, middle, and final files.');
 		}
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 
 		// Act: metadata alone must install the complete ordered header manifest.
 		await harness.publishDisplay();
@@ -162,7 +162,7 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 			lineCount: 12,
 			markerPrefix: 'SUSTAINED_SCROLL_VIEWPORT',
 		});
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 		await harness.publishDisplay();
 		await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
 		await advanceBridgeReviewRecoveryWitnessFrames(4);
@@ -223,7 +223,7 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 		if (retainedSelectedFile === undefined || firstFile === undefined || finalFile === undefined) {
 			throw new Error('Retained Review witness requires first, middle, and final files.');
 		}
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 
 		// Act: reproduce the stale selected-only model, hydrate it, then publish the full same-epoch catalog.
 		await harness.publishRetainedSelectedOnlyDisplay(retainedSelectedItemIndex);
@@ -300,7 +300,7 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 				'Selected-loading reconcile witness requires first, middle, and final files.',
 			);
 		}
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 		await harness.publishRetainedSelectedOnlyDisplay(0);
 		await harness.publishDemandedContent();
 		expect(harness.codeText()).toContain(retainedFile.contentMarker);
@@ -369,7 +369,7 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 			mountedCodeViewCapture.current = this;
 			originalSetup.call(this, root);
 		};
-		const harness = renderBridgeReviewRecoveryWitness(files, {
+		const harness = await renderBridgeReviewRecoveryWitness(files, {
 			navigationCommand: {
 				commandId: 'same-identity-selected-loading',
 				commandKind: 'activateTarget',
@@ -475,7 +475,7 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 		if (targetFile === undefined) {
 			throw new Error('Active-scroll selection witness requires a far target file.');
 		}
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 		await harness.publishDisplay();
 		await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
 		await harness.publishDemandedContent();
@@ -600,89 +600,94 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 		);
 	});
 
-	test('traverses the deterministic 3,420-file 100,000-line Review class without tree clicks', async () => {
-		// Arrange: 3,420 files with 15 base and 15 head lines produce 102,600 source lines.
-		const files = makeBridgeReviewRecoveryWitnessFiles({
-			count: 3_420,
-			lineCount: 15,
-			markerPrefix: 'PRODUCT_SCALE_TRAVERSAL',
-		});
-		const earlyFile = files[0];
-		const middleFile = files[Math.floor(files.length / 2)];
-		const finalFile = files.at(-1);
-		if (earlyFile === undefined || middleFile === undefined || finalFile === undefined) {
-			throw new Error('Product-scale Review witness requires early, middle, and final files.');
-		}
-		const totalSourceLineCount = files.reduce(
-			(lineCount, file): number => lineCount + file.lineCount * 2,
-			0,
-		);
-		expect(totalSourceLineCount).toBeGreaterThanOrEqual(100_000);
-		const harness = renderBridgeReviewRecoveryWitness(files);
+	test(
+		'traverses the deterministic 3,420-file 100,000-line Review class without tree clicks',
+		{ tags: ['stress'] },
+		async () => {
+			// Arrange: 3,420 files with 15 base and 15 head lines produce 102,600 source lines.
+			const files = makeBridgeReviewRecoveryWitnessFiles({
+				count: 3_420,
+				lineCount: 15,
+				markerPrefix: 'PRODUCT_SCALE_TRAVERSAL',
+			});
+			const earlyFile = files[0];
+			const middleFile = files[Math.floor(files.length / 2)];
+			const finalFile = files.at(-1);
+			if (earlyFile === undefined || middleFile === undefined || finalFile === undefined) {
+				throw new Error('Product-scale Review witness requires early, middle, and final files.');
+			}
+			const totalSourceLineCount = files.reduce(
+				(lineCount, file): number => lineCount + file.lineCount * 2,
+				0,
+			);
+			expect(totalSourceLineCount).toBeGreaterThanOrEqual(100_000);
+			const harness = await renderBridgeReviewRecoveryWitness(files);
 
-		// Act: metadata installs every header before interaction; bodies arrive only from CodeView demand.
-		await harness.publishDisplay();
-		await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
-		await expect
-			.element(harness.renderResult.getByTestId('bridge-code-view-panel'))
-			.toHaveAttribute('data-code-view-item-count', String(files.length));
-		await advanceBridgeReviewRecoveryWitnessFrames(3);
-		await harness.publishDemandedContent();
-		expect(harness.publishedContentItemIds().length).toBeLessThan(files.length);
-		await expect.poll(() => harness.codeScrollOwner()).not.toBeNull();
-		const scrollOwner = harness.codeScrollOwner();
-		if (scrollOwner === null) throw new Error('Product-scale Review CodeView has no scroll owner.');
-		const scan = await scanBridgeReviewRecoveryWitnessDocument({
-			markerItemIds: [earlyFile.itemId, middleFile.itemId, finalFile.itemId],
-			markers: [earlyFile.contentMarker, middleFile.contentMarker, finalFile.contentMarker],
-			orderedItemIds: files.map((file): string => file.itemId),
-			publishDemandedContent: harness.publishDemandedContent,
-			sampleCount: 65,
-			scrollOwner,
-			visibleItemIds: (): readonly string[] => {
-				const viewportBounds = scrollOwner.getBoundingClientRect();
-				return harness
-					.paintedCodeViewItems()
-					.filter(
-						(paintedItem): boolean =>
-							paintedItem.bottom > viewportBounds.top && paintedItem.top < viewportBounds.bottom,
-					)
-					.map((paintedItem): string => paintedItem.itemId);
-			},
-			visibleCodeText: harness.visibleCodeText,
-		});
+			// Act: metadata installs every header before interaction; bodies arrive only from CodeView demand.
+			await harness.publishDisplay();
+			await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
+			await expect
+				.element(harness.renderResult.getByTestId('bridge-code-view-panel'))
+				.toHaveAttribute('data-code-view-item-count', String(files.length));
+			await advanceBridgeReviewRecoveryWitnessFrames(3);
+			await harness.publishDemandedContent();
+			expect(harness.publishedContentItemIds().length).toBeLessThan(files.length);
+			await expect.poll(() => harness.codeScrollOwner()).not.toBeNull();
+			const scrollOwner = harness.codeScrollOwner();
+			if (scrollOwner === null)
+				throw new Error('Product-scale Review CodeView has no scroll owner.');
+			const scan = await scanBridgeReviewRecoveryWitnessDocument({
+				markerItemIds: [earlyFile.itemId, middleFile.itemId, finalFile.itemId],
+				markers: [earlyFile.contentMarker, middleFile.contentMarker, finalFile.contentMarker],
+				orderedItemIds: files.map((file): string => file.itemId),
+				publishDemandedContent: harness.publishDemandedContent,
+				sampleCount: 65,
+				scrollOwner,
+				visibleItemIds: (): readonly string[] => {
+					const viewportBounds = scrollOwner.getBoundingClientRect();
+					return harness
+						.paintedCodeViewItems()
+						.filter(
+							(paintedItem): boolean =>
+								paintedItem.bottom > viewportBounds.top && paintedItem.top < viewportBounds.bottom,
+						)
+						.map((paintedItem): string => paintedItem.itemId);
+				},
+				visibleCodeText: harness.visibleCodeText,
+			});
 
-		// Assert: one document reaches real early/middle/final bodies without selection-driven membership.
-		const viewportItemIds = new Set(harness.viewportCommandVisibleItemIds().flat());
-		const publishedItemIds = new Set(harness.publishedContentItemIds());
-		const trace = {
-			blankPaintSampleCount: scan.blankPaintSampleCount,
-			convergenceSampleCount: scan.convergenceSampleCount,
-			finalScrollHeight: scan.finalScrollHeight,
-			markerConvergenceSamples: scan.markerConvergenceSamples,
-			finalItemPublished: publishedItemIds.has(finalFile.itemId),
-			finalItemVisibleDemand: viewportItemIds.has(finalFile.itemId),
-			middleItemPublished: publishedItemIds.has(middleFile.itemId),
-			middleItemVisibleDemand: viewportItemIds.has(middleFile.itemId),
-			observedMarkers: [...scan.observedMarkers],
-			publishedItemCount: harness.publishedContentItemIds().length,
-			viewportItemCount: viewportItemIds.size,
-		};
-		expect(harness.selectedItemCommandCount()).toBe(1);
-		expect(scan.blankPaintSampleCount, JSON.stringify(trace)).toBe(0);
-		expect(scan.observedMarkers.has(earlyFile.contentMarker), JSON.stringify(trace)).toBe(true);
-		expect(scan.observedMarkers.has(middleFile.contentMarker), JSON.stringify(trace)).toBe(true);
-		expect(scan.observedMarkers.has(finalFile.contentMarker), JSON.stringify(trace)).toBe(true);
-		expect(viewportItemIds.has(middleFile.itemId), JSON.stringify(trace)).toBe(true);
-		expect(viewportItemIds.has(finalFile.itemId), JSON.stringify(trace)).toBe(true);
-		await expect
-			.element(harness.renderResult.getByTestId('bridge-code-view-panel'))
-			.toHaveAttribute('data-code-view-item-count', String(files.length));
-	});
+			// Assert: one document reaches real early/middle/final bodies without selection-driven membership.
+			const viewportItemIds = new Set(harness.viewportCommandVisibleItemIds().flat());
+			const publishedItemIds = new Set(harness.publishedContentItemIds());
+			const trace = {
+				blankPaintSampleCount: scan.blankPaintSampleCount,
+				convergenceSampleCount: scan.convergenceSampleCount,
+				finalScrollHeight: scan.finalScrollHeight,
+				markerConvergenceSamples: scan.markerConvergenceSamples,
+				finalItemPublished: publishedItemIds.has(finalFile.itemId),
+				finalItemVisibleDemand: viewportItemIds.has(finalFile.itemId),
+				middleItemPublished: publishedItemIds.has(middleFile.itemId),
+				middleItemVisibleDemand: viewportItemIds.has(middleFile.itemId),
+				observedMarkers: [...scan.observedMarkers],
+				publishedItemCount: harness.publishedContentItemIds().length,
+				viewportItemCount: viewportItemIds.size,
+			};
+			expect(harness.selectedItemCommandCount()).toBe(1);
+			expect(scan.blankPaintSampleCount, JSON.stringify(trace)).toBe(0);
+			expect(scan.observedMarkers.has(earlyFile.contentMarker), JSON.stringify(trace)).toBe(true);
+			expect(scan.observedMarkers.has(middleFile.contentMarker), JSON.stringify(trace)).toBe(true);
+			expect(scan.observedMarkers.has(finalFile.contentMarker), JSON.stringify(trace)).toBe(true);
+			expect(viewportItemIds.has(middleFile.itemId), JSON.stringify(trace)).toBe(true);
+			expect(viewportItemIds.has(finalFile.itemId), JSON.stringify(trace)).toBe(true);
+			await expect
+				.element(harness.renderResult.getByTestId('bridge-code-view-panel'))
+				.toHaveAttribute('data-code-view-item-count', String(files.length));
+		},
+	);
 });
 
 async function renderBridgeReviewPendingHydrationSelection(markerPrefix: string): Promise<{
-	readonly harness: ReturnType<typeof renderBridgeReviewRecoveryWitness>;
+	readonly harness: Awaited<ReturnType<typeof renderBridgeReviewRecoveryWitness>>;
 	readonly scrollOwner: HTMLElement;
 	readonly targetFile: ReturnType<typeof makeBridgeReviewRecoveryWitnessFiles>[number];
 }> {
@@ -695,7 +700,7 @@ async function renderBridgeReviewPendingHydrationSelection(markerPrefix: string)
 	if (targetFile === undefined) {
 		throw new Error('Pending-hydration selection witness requires a far target file.');
 	}
-	const harness = renderBridgeReviewRecoveryWitness(files);
+	const harness = await renderBridgeReviewRecoveryWitness(files);
 	await harness.publishDisplay();
 	await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
 	await advanceBridgeReviewRecoveryWitnessFrames(12);
@@ -728,7 +733,7 @@ async function renderBridgeReviewPendingHydrationSelection(markerPrefix: string)
 }
 
 async function ensureBridgeReviewTreeDirectoryExpanded(props: {
-	readonly harness: ReturnType<typeof renderBridgeReviewRecoveryWitness>;
+	readonly harness: Awaited<ReturnType<typeof renderBridgeReviewRecoveryWitness>>;
 	readonly path: string;
 }): Promise<void> {
 	const directoryRow = await props.harness.scrollTreePathIntoView(props.path);

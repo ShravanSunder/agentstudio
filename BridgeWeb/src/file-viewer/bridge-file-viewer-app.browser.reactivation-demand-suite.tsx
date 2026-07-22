@@ -94,7 +94,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		}
 
 		await act(async (): Promise<void> => {
-			render(<ControlledFileViewer />);
+			await render(<ControlledFileViewer />);
 			await import('./bridge-file-viewer-shell.js');
 			await Promise.resolve();
 		});
@@ -148,7 +148,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		const openedDescriptorIds: string[] = [];
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile
 				codeViewWorkerPoolEnabled={false}
@@ -226,7 +226,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			);
 		}
 
-		render(<ControlledFileViewer />);
+		await render(<ControlledFileViewer />);
 		await actFrame();
 		await waitForBridgeFileViewerWorkerMessageDrain();
 
@@ -293,7 +293,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			);
 		}
 
-		render(<ControlledFileViewer />);
+		await render(<ControlledFileViewer />);
 		await actFrame();
 		await waitForBridgeFileViewerWorkerMessageDrain();
 
@@ -392,7 +392,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			);
 		}
 
-		render(<ControlledFileViewer />);
+		await render(<ControlledFileViewer />);
 		await actFrame();
 		await waitForBridgeFileViewerWorkerMessageDrain();
 
@@ -440,7 +440,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		let subscriptionInterestCount: number | null = null;
 		let subscriptionPathScopeCount: number | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
@@ -475,7 +475,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		const openedDescriptorIds: string[] = [];
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				initialMetadataEvents={makeFileMetadataEvents(visibleDescriptor, updatedDescriptor)}
 				isActive={false}
@@ -497,7 +497,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const metadataInterestUpdates: FileMetadataInterestUpdate[] = [];
 		const openedDescriptorIds: string[] = [];
 
-		render(
+		await render(
 			<div style={{ height: '720px', overflow: 'hidden', width: '1280px' }}>
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
@@ -577,7 +577,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			);
 		}
 
-		render(
+		await render(
 			<div style={{ height: '720px', overflow: 'hidden', width: '1280px' }}>
 				<ControlledFileViewer />
 			</div>,

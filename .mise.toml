@@ -152,6 +152,12 @@ depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test:browser"
 
+[tasks.bridge-web-browser-stress-test]
+description = "Run BridgeWeb scale-bound Browser Mode stress tests"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run test:browser:stress"
+
 [tasks.bridge-web-e2e-test]
 description = "Run BridgeWeb Vitest Vite product E2E tests"
 depends = ["bridge-web-install"]

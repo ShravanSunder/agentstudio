@@ -6,10 +6,17 @@ struct CIFastLaneWorkflowTests {
     @Test("fast lane keeps cached parallel default")
     func fastLaneKeepsCachedParallelDefault() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let benchmarkWorkflow = try String(
+            contentsOfFile: ".github/workflows/benchmarks.yml",
+            encoding: .utf8
+        )
         let swiftTestTaskScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
         let testHelperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let fastLaneStep = try workflowStep(named: "Test fast lane", in: ciWorkflow)
-        let largeLaneStep = try workflowStep(named: "Test large non-WebKit lane", in: ciWorkflow)
+        let largeLaneStep = try workflowStep(
+            named: "Test large non-WebKit lane",
+            in: benchmarkWorkflow
+        )
         let prebuildStep = try workflowStep(named: "Prebuild Swift test bundles", in: ciWorkflow)
         let fastLaneMode = try shellCase(named: "test-fast", in: swiftTestTaskScript)
         let largeLaneMode = try shellCase(named: "test-large", in: swiftTestTaskScript)
@@ -22,6 +29,9 @@ struct CIFastLaneWorkflowTests {
         )
 
         #expect(ciWorkflow.contains("SWIFT_BUILD_DIR: .build-ci"))
+        #expect(!ciWorkflow.contains("Test large non-WebKit lane"))
+        #expect(benchmarkWorkflow.contains("push:\n    branches: [main]"))
+        #expect(benchmarkWorkflow.contains("workflow_dispatch:"))
         #expect(ciWorkflow.contains("path: .build-ci"))
         #expect(prebuildStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(prebuildStep.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"900\""))
@@ -33,7 +43,7 @@ struct CIFastLaneWorkflowTests {
         #expect(!fastLaneStep.contains("XCB_EXTRA_ARGS"))
         #expect(fastLaneStep.contains("run: mise run test-fast"))
         #expect(!largeLaneStep.contains("SWIFT_TEST_WORKERS"))
-        #expect(largeLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
+        #expect(!largeLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD"))
         #expect(largeLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(largeLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(largeLaneStep.contains("run: mise run test-large"))

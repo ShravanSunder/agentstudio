@@ -50,6 +50,10 @@ struct ObservabilityLaunchScriptsTests {
         let testHelperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let agentInstructions = try String(contentsOfFile: "AGENTS.md", encoding: .utf8)
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let benchmarkWorkflow = try String(
+            contentsOfFile: ".github/workflows/benchmarks.yml",
+            encoding: .utf8
+        )
 
         #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test\""))
         #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-fast\""))
@@ -98,7 +102,12 @@ struct ObservabilityLaunchScriptsTests {
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))
         #expect(!ciWorkflow.contains("SWIFT_TEST_WORKERS"))
-        #expect(ciWorkflow.contains("set -o pipefail\n          mise run test-benchmark 2>&1 | tee benchmark.log"))
+        #expect(!ciWorkflow.contains("mise run test-benchmark"))
+        #expect(
+            benchmarkWorkflow.contains(
+                "set -o pipefail\n          mise run test-benchmark 2>&1 | tee benchmark.log"
+            )
+        )
     }
 
     @Test("observability launchers scrub inherited AgentStudio process identity")

@@ -38,7 +38,7 @@ export function registerBridgeFileViewerSourceSnapshotDemandTest(): void {
 		const metadataInterestUpdates: FileMetadataInterestUpdate[] = [];
 		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}
