@@ -270,6 +270,7 @@ const bridgeLocalFirstValidatedFixtureOracleBrand = Symbol(
 export interface BridgeLocalFirstValidatedFixtureOracle {
 	readonly fixtureChecksum: string;
 	readonly fixtureId: string;
+	readonly oracleEntryIdFor: (actionDescriptor: BridgeLocalFirstProofActionDescriptor) => string;
 	readonly expectedEndpointFor: (oracleEntryId: string) => BridgeLocalFirstProofExpectedEndpoint;
 	readonly [bridgeLocalFirstValidatedFixtureOracleBrand]: true;
 }
@@ -303,6 +304,10 @@ export function parseBridgeLocalFirstProofFixtureOracle(props: {
 		throw new Error('fixture oracle identity does not match immutable run identity');
 	}
 	const entries = new Map<string, BridgeLocalFirstProofExpectedEndpoint>();
+	const entryIdsByManifestRowId = new Map<
+		string,
+		Map<BridgeLocalFirstProofActionDescriptor['actionIndex'], string>
+	>();
 	for (const entry of oracle.entries) {
 		const expectedEntryId = bridgeLocalFirstProofOracleEntryId({
 			actionDescriptor: entry.actionDescriptor,
@@ -312,10 +317,26 @@ export function parseBridgeLocalFirstProofFixtureOracle(props: {
 			throw new Error(`fixture oracle has invalid or duplicate entry ${entry.oracleEntryId}`);
 		}
 		entries.set(entry.oracleEntryId, entry.expectedEndpoint);
+		const entryIdsByActionIndex =
+			entryIdsByManifestRowId.get(entry.actionDescriptor.manifestRowId) ??
+			new Map<BridgeLocalFirstProofActionDescriptor['actionIndex'], string>();
+		entryIdsByActionIndex.set(entry.actionDescriptor.actionIndex, entry.oracleEntryId);
+		entryIdsByManifestRowId.set(entry.actionDescriptor.manifestRowId, entryIdsByActionIndex);
 	}
 	return Object.freeze({
 		fixtureChecksum: oracle.fixtureChecksum,
 		fixtureId: oracle.fixtureId,
+		oracleEntryIdFor: (actionDescriptor: BridgeLocalFirstProofActionDescriptor) => {
+			const oracleEntryId = entryIdsByManifestRowId
+				.get(actionDescriptor.manifestRowId)
+				?.get(actionDescriptor.actionIndex);
+			if (oracleEntryId === undefined) {
+				throw new Error(
+					`fixture oracle is missing ${actionDescriptor.manifestRowId}:${actionDescriptor.actionIndex}`,
+				);
+			}
+			return oracleEntryId;
+		},
 		expectedEndpointFor: (oracleEntryId: string) => {
 			const endpoint = entries.get(oracleEntryId);
 			if (endpoint === undefined) {

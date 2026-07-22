@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 import {
-	bridgeLocalFirstProofOracleEntryId,
 	bridgeLocalFirstProofExternalEvidenceSchema,
 	bridgeLocalFirstProofFailureKinds,
 	bridgeLocalFirstProofInteractionEvidenceSchema,
@@ -590,7 +589,6 @@ function validateWarmup(props: {
 	}
 	const expectedEndpoint = expectedEndpointForAction({
 		actionIndex: 'warmup',
-		fixtureChecksum: props.fixtureChecksum,
 		fixtureOracle: props.fixtureOracle,
 		manifestRowId: props.manifestRowId,
 		oracleEntryId: warmup.oracleEntryId,
@@ -706,7 +704,6 @@ function validateInteractionEvidence(props: {
 		}
 		const expectedEndpoint = expectedEndpointForAction({
 			actionIndex: attemptIndex,
-			fixtureChecksum: props.fixtureChecksum,
 			fixtureOracle: props.fixtureOracle,
 			manifestRowId: props.manifestRowId,
 			oracleEntryId: attempt.identity.oracleEntryId,
@@ -742,17 +739,13 @@ function validateInteractionEvidence(props: {
 
 function expectedEndpointForAction(props: {
 	readonly actionIndex: 'warmup' | number;
-	readonly fixtureChecksum: string;
 	readonly fixtureOracle: BridgeLocalFirstValidatedFixtureOracle;
 	readonly manifestRowId: string;
 	readonly oracleEntryId: string;
 }): BridgeLocalFirstProofExpectedEndpoint {
-	const expectedOracleEntryId = bridgeLocalFirstProofOracleEntryId({
-		actionDescriptor: {
-			actionIndex: props.actionIndex,
-			manifestRowId: props.manifestRowId,
-		},
-		fixtureChecksum: props.fixtureChecksum,
+	const expectedOracleEntryId = props.fixtureOracle.oracleEntryIdFor({
+		actionIndex: props.actionIndex,
+		manifestRowId: props.manifestRowId,
 	});
 	if (props.oracleEntryId !== expectedOracleEntryId) {
 		throw new Error(`${props.oracleEntryId}: fixture oracle action identity mismatch`);

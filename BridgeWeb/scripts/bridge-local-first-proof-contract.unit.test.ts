@@ -91,7 +91,7 @@ function reduceBridgeLocalFirstProofCohort(
 
 describe('bridge local-first proof contract', () => {
 	test('admits a complete fresh cohort and freezes every identity boundary', () => {
-		const freshCohort = makeCompleteCohort();
+		const freshCohort = copyCompleteCohort({ cellIndexes: [] });
 		expect(freshCohort.cells).toHaveLength(84);
 		expect(freshCohort.cells.flatMap((cell) => cell.launches)).toHaveLength(252);
 		expect(
@@ -813,12 +813,6 @@ function contractTestFixtureOptions(
 		stimulusStrideMilliseconds: 1_000,
 		successfulDurationMilliseconds: ({ attemptIndex }): number => attemptIndex + 1,
 	};
-}
-
-function makeCompleteCohort(
-	props: MakeCompleteCohortProps = {},
-): DeepMutable<BridgeLocalFirstProofCohortInput> {
-	return makeBridgeLocalFirstTestProofFixture(contractTestFixtureOptions(props)).cohort;
 }
 
 interface CopyCompleteCohortProps {
