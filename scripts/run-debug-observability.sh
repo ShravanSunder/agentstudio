@@ -482,6 +482,65 @@ copy_debug_bundle() {
   printf '%s\n' "$app_path"
 }
 
+atomically_swap_paths() {
+  local first_path="${1:?missing first path}"
+  local second_path="${2:?missing second path}"
+
+  /usr/bin/python3 - "$first_path" "$second_path" <<'PY'
+import ctypes
+import os
+import sys
+
+AT_FDCWD = -2
+RENAME_SWAP = 0x00000002
+
+libc = ctypes.CDLL(None, use_errno=True)
+renameatx_np = libc.renameatx_np
+renameatx_np.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+renameatx_np.restype = ctypes.c_int
+
+result = renameatx_np(
+    AT_FDCWD,
+    os.fsencode(sys.argv[1]),
+    AT_FDCWD,
+    os.fsencode(sys.argv[2]),
+    RENAME_SWAP,
+)
+if result != 0:
+    error_number = ctypes.get_errno()
+    raise OSError(error_number, os.strerror(error_number))
+PY
+}
+
+publish_debug_bundle() (
+  local source_binary="${1:?missing source binary}"
+  local build_root="${2:?missing build root}"
+  local code="${3:?missing debug code}"
+  local published_root="${4:?missing published root}"
+  local published_app="$published_root/AgentStudio Debug $code.app"
+  local staging_root=""
+
+  cleanup_publish_staging() {
+    if [ -n "$staging_root" ] && [ -d "$staging_root" ]; then
+      /bin/rm -rf "$staging_root"
+    fi
+  }
+  trap cleanup_publish_staging EXIT
+
+  mkdir -p "$published_root"
+  staging_root="$(mktemp -d "$published_root/.staging.XXXXXX")"
+
+  local staged_app
+  staged_app="$(copy_debug_bundle "$source_binary" "$build_root" "$code" "$staging_root")"
+  if [ -e "$published_app" ]; then
+    atomically_swap_paths "$staged_app" "$published_app"
+  else
+    /bin/mv "$staged_app" "$published_app"
+  fi
+
+  printf '%s\n' "$published_app"
+)
+
 build_path="${AGENTSTUDIO_DEBUG_BUILD_PATH:-}"
 skip_build=false
 detach=false
@@ -553,6 +612,17 @@ if [ "$preflight_idle" = true ]; then
     exit 1
   fi
   exit 0
+fi
+
+debug_launch_lock="$debug_root/.launch.lock"
+mkdir -p "$debug_root" "$(dirname "$state_file")"
+chmod 700 "$debug_root"
+exec 9>"$debug_launch_lock"
+if ! /usr/bin/lockf -s -t 0 9; then
+  write_launch_failed_state debug_launch_in_progress
+  echo "Another Agent Studio Debug $debug_code launch is already in progress." >&2
+  echo "observability state: $state_file" >&2
+  exit 1
 fi
 
 if [ -z "$build_path" ]; then
@@ -732,8 +802,12 @@ if ! trace_name_is_safe_path_component "$trace_name"; then
   exit 1
 fi
 
-artifact_parent="${AGENTSTUDIO_DEBUG_ARTIFACT_DIR:-$debug_root/apps/app-$(date +%Y%m%d%H%M%S)-$$}"
-app_path="$(copy_debug_bundle "$binary_path" "$build_path" "$debug_code" "$artifact_parent")"
+if [ -n "${AGENTSTUDIO_DEBUG_ARTIFACT_DIR:-}" ]; then
+  app_path="$(copy_debug_bundle "$binary_path" "$build_path" "$debug_code" "$AGENTSTUDIO_DEBUG_ARTIFACT_DIR")"
+else
+  default_artifact_root="$debug_root/apps"
+  app_path="$(publish_debug_bundle "$binary_path" "$build_path" "$debug_code" "$default_artifact_root")"
+fi
 app_binary_path="$app_path/Contents/MacOS/AgentStudio"
 
 trace_dir="${AGENTSTUDIO_TRACE_DIR:-$debug_root/traces}"
