@@ -217,6 +217,21 @@ subprocess cleanup remain in repositories, stores, and coordinators.
 - Newly generated identifiers use UUIDv7. Existing stored identifiers are used
   as-is.
 
+`id` and `stable_key` are different concepts:
+
+```text
+id          durable entity identity and foreign-key target
+            UUID; newly generated values use UUIDv7
+
+stable_key  discovery fingerprint derived from canonical filesystem path
+            16 hexadecimal characters: the first 64 bits of SHA-256
+            not a UUID, not a foreign-key identity, and not merge authority
+```
+
+Moving a canonical path may change `stable_key` while the entity UUID remains
+stable. Equal stable keys reject invalid duplicate topology; they never authorize
+combining two stored UUID identities.
+
 ### R2. Workspace composition references global topology
 
 - Pane, tab, arrangement, and drawer rows remain owned by `workspace_id`.
@@ -357,6 +372,55 @@ Existing diagnostics must distinguish:
 OTLP output must not include raw paths, pane titles, notes, notification bodies,
 terminal content, or session IDs.
 
+### R9. MainActor remains a bounded UI-state boundary
+
+This persistence correction must reduce or preserve MainActor work. It must not
+move database, lifecycle, or collection computation onto MainActor merely
+because a coordinator or atom is MainActor-isolated.
+
+MainActor may perform only:
+
+- shallow capture of immutable `Sendable` state needed by an off-main worker;
+- bounded identity lookup and validation required to start a transition;
+- direct mutation of canonical UI atoms;
+- application of an already-prepared result;
+- AppKit, SwiftUI observation, and embedded Ghostty calls that require
+  MainActor ownership.
+
+MainActor must not perform:
+
+- SQLite open, migration, query, encoding, transaction, or quarantine work;
+- filesystem, repository, subprocess, or ZMX operations;
+- composition preparation or schema validation;
+- collection-wide sorting, filtering, grouping, diffing, reconciliation,
+  aggregation, or cache rebuilding;
+- timer waiting, retry loops, or cleanup polling;
+- rebuilding large persistence payloads from observable state on every save.
+
+An `@MainActor` coordinator owns sequencing, not computation. It captures a
+small typed request, calls an actor or `@concurrent nonisolated` worker, and
+applies the prepared result. Atoms remain canonical state or pure derived state
+with small selector-style transforms; they do not become persistence planners,
+cleanup engines, or background-work substitutes.
+
+For persistence, capture uses shallow value/COW snapshots or incrementally
+maintained changed-row inputs. Mapping those values into SQL rows, validating
+the aggregate, and performing I/O happens after leaving MainActor. Repository
+or watch-folder count must not multiply synchronous MainActor work.
+
+```mermaid
+flowchart LR
+    UI["MainActor atoms/UI"]
+    Capture["bounded typed capture"]
+    Worker["off-main preparation / actor I/O"]
+    Apply["small MainActor apply"]
+
+    UI --> Capture
+    Capture --> Worker
+    Worker --> Apply
+    Apply --> UI
+```
+
 ## Exact schema changes
 
 ### Core current-to-target delta
@@ -372,11 +436,14 @@ terminal content, or session IDs.
 | `workspace_sqlite_snapshot_status` | cross-database completion state | dropped |
 | `legacy_workspace_import_status` | legacy import/replay state | dropped |
 
-This is not a rebuild of all domain data. SQLite cannot remove the existing
-workspace foreign keys, composite uniqueness constraints, and cascade clauses
-in place, so the forward GRDB migration rebuilds only the five topology tables
-and `pane` in one transaction. Rows and identifiers are copied 1:1 except for
-the explicitly defined obsolete orphan-state cutover above.
+This is not a rebuild of all domain data. SQLite cannot alter the existing
+topology foreign keys, primary keys, or uniqueness constraints in place, so the
+five topology tables require replacement. AgentStudio uses system SQLite and
+cannot assume SQLite 3.53; the current linked runtime is 3.51, which cannot add
+the pane residency `CHECK` in place. The forward GRDB migration therefore
+rebuilds those five topology tables and `pane` in one transaction.
+Rows and identifiers are copied 1:1 except for the explicitly defined obsolete
+orphan-state cutover above.
 
 Previously shipped GRDB migration bodies and identifiers remain unchanged. One
 new forward migration produces the target schema; this preserves upgradeability
@@ -943,9 +1010,10 @@ Gain:
 
 Cost:
 
-- six tables (`pane` plus five topology tables) are mechanically rebuilt during
-  one forward core migration because SQLite cannot alter the embedded foreign
-  keys and uniqueness clauses in place;
+- five topology tables are mechanically rebuilt because their foreign-key,
+  primary-key, and uniqueness definitions change; `pane` is rebuilt in the
+  same forward core migration because the supported SQLite runtime cannot add
+  its residency `CHECK` in place;
 - a real pre-existing global-key conflict fails the migration rather than being
   guessed away.
 
@@ -1031,6 +1099,11 @@ The implementation plan must turn these into permanent tests and product proof:
     out-of-composition legacy orphan rows; no `orphaned` residency remains.
 17. Atoms contain no persistence, subprocess, timer, or lifecycle-coordination
     logic.
+18. MainActor proof shows persistence and lifecycle paths perform only bounded
+    capture/transition/apply work there. Composition preparation, row mapping,
+    SQLite, ZMX, filesystem, retries, timers, and collection-wide computation
+    execute off MainActor. A production-shaped repository/watch-folder fixture
+    does not increase synchronous MainActor work in proportion to topology size.
 
 The later plan owns exact commands and sequencing. Proof should use the existing
 Swift test suite, SQLite integration fixtures, ZMX E2E lane for real session
@@ -1072,6 +1145,10 @@ Atoms
   own: live canonical state and pure derived projections
   do not own: persistence, timers, subprocess cleanup, migration,
               or lifecycle coordination
+
+Off-main workers and actors
+  own: validation, row mapping, collection computation, SQLite I/O,
+       filesystem work, timers, retries, and ZMX subprocess operations
 ```
 
 The core schema correction, clean local database, and pane lifecycle correction
