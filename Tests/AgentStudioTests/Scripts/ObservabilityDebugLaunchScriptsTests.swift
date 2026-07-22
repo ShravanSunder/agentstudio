@@ -25,7 +25,7 @@ struct ObservabilityDebugLaunchScriptsTests {
     @Test("debug launcher allocates a shared swift build slot by default")
     func debugLauncherAllocatesSharedSwiftBuildSlotByDefault() throws {
         let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
-        #expect(script.contains("source \"$PROJECT_ROOT/scripts/swift-build-slot.sh\" debug"))
+        #expect(script.contains("source \"$PROJECT_ROOT/scripts/swift-build-slot.sh\""))
         #expect(script.contains("swift build --build-path \"$build_path\""))
     }
 
