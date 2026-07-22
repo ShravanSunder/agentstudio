@@ -31,6 +31,19 @@ struct ObservabilityLaunchScriptsTests {
         #expect(script.contains("AGENTSTUDIO_OBSERVABILITY_STATUS already_running"))
     }
 
+    @Test("debug launcher publishes one stable default app through disposable staging")
+    func debugLauncherPublishesOneStableDefaultAppThroughDisposableStaging() throws {
+        let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
+
+        #expect(script.contains("publish_debug_bundle()"))
+        #expect(script.contains("default_artifact_root=\"$debug_root/apps\""))
+        #expect(script.contains("renameatx_np"))
+        #expect(!script.contains("$debug_root/apps/app-$(date"))
+        #expect(script.contains("AGENTSTUDIO_DEBUG_ARTIFACT_DIR"))
+        #expect(script.contains("debug_launch_lock=\"$debug_root/.launch.lock\""))
+        #expect(script.contains("/usr/bin/lockf -s -t 0 9"))
+    }
+
     @Test("debug worktree code avoids known four character collision")
     func debugWorktreeCodeAvoidsKnownFourCharacterCollision() throws {
         let fixture = try LauncherScriptFixture()
