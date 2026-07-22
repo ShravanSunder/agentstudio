@@ -41,6 +41,9 @@ struct GitWorkingTreeStatus: Sendable, Equatable {
     let summary: GitWorkingTreeSummary
     let branch: String?
     let originResolution: GitOriginResolution
+    /// True only for a pathspec-scoped read containing a standalone add,
+    /// delete, or untracked entry that may be one visible half of a rename.
+    let containsPathIdentityAmbiguity: Bool
     /// Per-file entries consistent with `summary`. When a status is constructed
     /// from a summary alone, canonical placeholder entries are synthesized so the
     /// projector's scoped fold can reconstruct the same counts.
@@ -50,12 +53,14 @@ struct GitWorkingTreeStatus: Sendable, Equatable {
         summary: GitWorkingTreeSummary,
         branch: String?,
         originResolution: GitOriginResolution,
-        entries: [GitWorkingTreeStatusEntry]
+        entries: [GitWorkingTreeStatusEntry],
+        containsPathIdentityAmbiguity: Bool = false
     ) {
         self.summary = summary
         self.branch = branch
         self.originResolution = originResolution
         self.entries = entries
+        self.containsPathIdentityAmbiguity = containsPathIdentityAmbiguity
     }
 
     init(

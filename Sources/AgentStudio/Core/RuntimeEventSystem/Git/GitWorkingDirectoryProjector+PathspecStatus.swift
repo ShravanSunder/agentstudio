@@ -95,6 +95,8 @@ extension GitWorkingDirectoryProjector {
         scoped: GitWorkingTreeStatus,
         pathspecs: [String]
     ) -> GitWorkingTreeStatus? {
+        guard !scoped.containsPathIdentityAmbiguity else { return nil }
+
         for entry in scoped.entries {
             if let previousPath = entry.previousPath {
                 guard pathspecCovers(pathspecs, previousPath) else { return nil }

@@ -51,6 +51,101 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         #expect(status.originResolution == .resolved("git@example.com:askluna/agent-studio.git"))
     }
 
+    @Test("scoped modified entry preserves full summary without identity ambiguity")
+    func scopedModifiedEntryPreservesFullSummaryWithoutIdentityAmbiguity() async throws {
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            statusReader: { _, _ in
+                makeSnapshot(
+                    summary: makeSummary(
+                        unstagedFileCount: 1,
+                        linesAdded: 12,
+                        linesDeleted: 5,
+                        aheadCount: 2,
+                        hasUpstream: true
+                    ),
+                    entries: [
+                        makeStatusEntry(path: "Sources/App.swift", worktreeState: .modified)
+                    ]
+                )
+            }
+        )
+
+        let status = try #require(
+            await provider.status(
+                for: URL(fileURLWithPath: "/tmp/repo"),
+                pathspecs: ["Sources/App.swift"]
+            )
+        )
+
+        #expect(status.containsPathIdentityAmbiguity == false)
+        #expect(status.branch == "main")
+        #expect(status.summary.linesAdded == 12)
+        #expect(status.summary.linesDeleted == 5)
+        #expect(status.summary.aheadCount == 2)
+        #expect(status.summary.hasUpstream == true)
+    }
+
+    @Test("scoped standalone added and untracked entries preserve identity ambiguity")
+    func scopedStandaloneAddedAndUntrackedEntriesPreserveIdentityAmbiguity() async throws {
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            statusReader: { _, _ in
+                makeSnapshot(
+                    entries: [
+                        makeStatusEntry(path: "added.txt", worktreeState: .added),
+                        makeStatusEntry(path: "untracked.txt", untracked: true),
+                    ]
+                )
+            }
+        )
+
+        let status = try #require(
+            await provider.status(
+                for: URL(fileURLWithPath: "/tmp/repo"),
+                pathspecs: ["added.txt", "untracked.txt"]
+            )
+        )
+
+        #expect(status.containsPathIdentityAmbiguity)
+    }
+
+    @Test("scoped standalone deleted entry preserves identity ambiguity")
+    func scopedStandaloneDeletedEntryPreservesIdentityAmbiguity() async throws {
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            statusReader: { _, _ in
+                makeSnapshot(
+                    entries: [makeStatusEntry(path: "deleted.txt", indexState: .deleted)]
+                )
+            }
+        )
+
+        let status = try #require(
+            await provider.status(
+                for: URL(fileURLWithPath: "/tmp/repo"),
+                pathspecs: ["deleted.txt"]
+            )
+        )
+
+        #expect(status.containsPathIdentityAmbiguity)
+    }
+
+    @Test("full status does not report scoped identity ambiguity")
+    func fullStatusDoesNotReportScopedIdentityAmbiguity() async throws {
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            statusReader: { _, _ in
+                makeSnapshot(
+                    entries: [
+                        makeStatusEntry(path: "added.txt", indexState: .added),
+                        makeStatusEntry(path: "deleted.txt", worktreeState: .deleted),
+                    ]
+                )
+            }
+        )
+
+        let status = try #require(await provider.status(for: URL(fileURLWithPath: "/tmp/repo")))
+
+        #expect(status.containsPathIdentityAmbiguity == false)
+    }
+
     @Test("SDK origin states preserve AgentStudio origin-resolution semantics")
     func sdkOriginStatesPreserveAgentStudioOriginResolutionSemantics() async throws {
         let awaitingProvider = AgentStudioGitWorkingTreeStatusProvider(
@@ -830,7 +925,8 @@ private func makeSnapshot(
         shortName: "main"
     ),
     originResolution: AgentStudioGit.GitOriginResolution = .confirmedAbsent,
-    summary: AgentStudioGit.GitStatusSummary = makeSummary()
+    summary: AgentStudioGit.GitStatusSummary = makeSummary(),
+    entries: [AgentStudioGit.GitStatusEntry] = []
 ) -> AgentStudioGit.GitStatusSnapshot {
     AgentStudioGit.GitStatusSnapshot(
         repositoryRoot: URL(fileURLWithPath: "/tmp/repo"),
@@ -839,7 +935,24 @@ private func makeSnapshot(
         head: head,
         originResolution: originResolution,
         summary: summary,
-        entries: []
+        entries: entries
+    )
+}
+
+private func makeStatusEntry(
+    path: String,
+    previousPath: String? = nil,
+    indexState: AgentStudioGit.GitStatusState? = nil,
+    worktreeState: AgentStudioGit.GitStatusState? = nil,
+    untracked: Bool = false
+) -> AgentStudioGit.GitStatusEntry {
+    AgentStudioGit.GitStatusEntry(
+        path: path,
+        previousPath: previousPath,
+        indexState: indexState,
+        worktreeState: worktreeState,
+        ignored: false,
+        untracked: untracked
     )
 }
 
