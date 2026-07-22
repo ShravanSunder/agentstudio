@@ -818,8 +818,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 
+		await waitForBridgeFileViewerWorkerMessageDrain();
 		const fileButton = await waitForBridgeViewerTreeItemButton('src/file-open-ready.ts');
 		await actClick(fileButton);
+		await waitForBridgeFileViewerWorkerMessageDrain();
 
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('fileOpenReady');

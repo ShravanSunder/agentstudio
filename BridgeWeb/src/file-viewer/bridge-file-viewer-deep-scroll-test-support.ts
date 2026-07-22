@@ -71,17 +71,17 @@ async function waitForCompleteFilePierreWorkerPoolReady(props: {
 	);
 	const paintedPublicationId =
 		paintedPublication?.getAttribute('data-bridge-painted-publication-id') ?? null;
-	const stableFrameCount =
-		props.requirePaintedPublication &&
-		paintedPublicationId !== null &&
-		paintedPublicationId === props.previousPaintedPublicationId
-			? (props.stableFrameCount ?? 0) + 1
-			: 0;
-	if (
+	const renderedReadinessObserved =
 		managerState === 'initialized' &&
 		loadingStatus === null &&
-		(!props.requirePaintedPublication || stableFrameCount >= 2)
-	) {
+		(!props.requirePaintedPublication || paintedPublicationId !== null);
+	const stableFrameCount =
+		renderedReadinessObserved &&
+		(!props.requirePaintedPublication ||
+			paintedPublicationId === props.previousPaintedPublicationId)
+			? (props.stableFrameCount ?? 0) + 1
+			: 0;
+	if (renderedReadinessObserved && stableFrameCount >= 2) {
 		return;
 	}
 	if (props.attempt >= 120) {
