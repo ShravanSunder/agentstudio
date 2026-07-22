@@ -568,6 +568,17 @@ if [ "$preflight_idle" = true ]; then
   exit 0
 fi
 
+debug_launch_lock="$debug_root/.launch.lock"
+mkdir -p "$debug_root" "$(dirname "$state_file")"
+chmod 700 "$debug_root"
+exec 9>"$debug_launch_lock"
+if ! /usr/bin/lockf -s -t 0 9; then
+  write_launch_failed_state debug_launch_in_progress
+  echo "Another Agent Studio Debug $debug_code launch is already in progress." >&2
+  echo "observability state: $state_file" >&2
+  exit 1
+fi
+
 if [ -z "$build_path" ]; then
   # shellcheck disable=SC1091
   source "$PROJECT_ROOT/scripts/swift-build-slot.sh"

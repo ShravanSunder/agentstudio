@@ -40,6 +40,8 @@ struct ObservabilityLaunchScriptsTests {
         #expect(script.contains("renameatx_np"))
         #expect(!script.contains("$debug_root/apps/app-$(date"))
         #expect(script.contains("AGENTSTUDIO_DEBUG_ARTIFACT_DIR"))
+        #expect(script.contains("debug_launch_lock=\"$debug_root/.launch.lock\""))
+        #expect(script.contains("/usr/bin/lockf -s -t 0 9"))
     }
 
     @Test("debug worktree code avoids known four character collision")
