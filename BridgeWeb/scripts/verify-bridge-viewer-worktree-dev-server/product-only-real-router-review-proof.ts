@@ -68,8 +68,7 @@ export async function proveFreshReviewRoute(props: {
 	await installFreshReviewIdentitySnapshot(props.page);
 
 	let viewportState = await readFreshReviewViewportState(props.page);
-	const initialDirectoryDisclosure = viewportState.directoryDisclosure;
-	const selectedItemIdAtStart = viewportState.selectedItemId;
+	const selectedItemIdBeforeInitialHydration = viewportState.selectedItemId;
 	const expectedItemIndexById = new Map(
 		props.expectedItemIds.map((itemId, itemIndex): readonly [string, number] => [
 			itemId,
@@ -78,28 +77,30 @@ export async function proveFreshReviewRoute(props: {
 	);
 	const mountedHeaderOrderViolations: BridgeViewerReviewMountedHeaderOrderViolation[] = [];
 	const mountedHeaderOrderViolationSignatures = new Set<string>();
+	const observedHeaderItemIds: string[] = [];
+	const observedHeaderItemIdSet = new Set<string>();
+	const hydrationMilestones: BridgeViewerReviewHydrationMilestone[] = [];
+	const hydrationCoverageAccumulator = createFreshReviewHydrationCoverageAccumulator();
+	const initialHydrationWindow = await captureFreshReviewHydrationWindow({
+		excludedItemIds: [],
+		page: props.page,
+		selectedItemId: selectedItemIdBeforeInitialHydration,
+	});
+	viewportState = await readFreshReviewViewportState(props.page);
+	const initialDirectoryDisclosure = viewportState.directoryDisclosure;
+	const selectedItemIdAtStart = viewportState.selectedItemId;
+	const initialVisibleItemIds = viewportState.visibleItems.map((item): string => item.itemId);
 	recordMountedHeaderOrderViolation({
 		expectedItemIndexById,
 		mountedItemIds: viewportState.mountedItemIds,
 		mountedHeaderOrderViolations,
 		mountedHeaderOrderViolationSignatures,
 	});
-	const observedHeaderItemIds: string[] = [];
-	const observedHeaderItemIdSet = new Set<string>();
 	appendFirstSeenItemIds({
 		itemIds: viewportState.mountedItemIds,
 		observedItemIds: observedHeaderItemIds,
 		observedItemIdSet: observedHeaderItemIdSet,
 	});
-	const hydrationMilestones: BridgeViewerReviewHydrationMilestone[] = [];
-	const hydrationCoverageAccumulator = createFreshReviewHydrationCoverageAccumulator();
-	const initialHydrationWindow = await captureFreshReviewHydrationWindow({
-		excludedItemIds: [],
-		page: props.page,
-		selectedItemId: selectedItemIdAtStart,
-	});
-	viewportState = await readFreshReviewViewportState(props.page);
-	const initialVisibleItemIds = viewportState.visibleItems.map((item): string => item.itemId);
 	recordFreshReviewHydrationCoverageWindow({
 		accumulator: hydrationCoverageAccumulator,
 		window: initialHydrationWindow,
@@ -125,18 +126,6 @@ export async function proveFreshReviewRoute(props: {
 	let settledBottomTurnCount = 0;
 	const traversalStepBudget = Math.max(512, props.expectedItemIds.length * 4);
 	for (let stepIndex = 0; stepIndex < traversalStepBudget; stepIndex += 1) {
-		viewportState = await readFreshReviewViewportState(props.page);
-		recordMountedHeaderOrderViolation({
-			expectedItemIndexById,
-			mountedItemIds: viewportState.mountedItemIds,
-			mountedHeaderOrderViolations,
-			mountedHeaderOrderViolationSignatures,
-		});
-		appendFirstSeenItemIds({
-			itemIds: viewportState.mountedItemIds,
-			observedItemIds: observedHeaderItemIds,
-			observedItemIdSet: observedHeaderItemIdSet,
-		});
 		const settledHydrationWindow = await captureFreshReviewHydrationWindow({
 			excludedItemIds: [],
 			page: props.page,

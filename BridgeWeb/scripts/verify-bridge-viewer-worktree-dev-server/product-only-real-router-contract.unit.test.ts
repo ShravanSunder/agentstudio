@@ -625,6 +625,33 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		const initialVisibleExclusionSnapshotIndex = reviewProofSource.indexOf(
 			'const initialVisibleItemIds = viewportState.visibleItems.map',
 		);
+		const initialObservedHeaderSnapshotIndex = reviewProofSource.indexOf(
+			'appendFirstSeenItemIds({',
+		);
+		const initialMountedOrderSnapshotIndex = reviewProofSource.indexOf(
+			'recordMountedHeaderOrderViolation({',
+		);
+		const initialSelectionSnapshotIndex = reviewProofSource.indexOf(
+			'const selectedItemIdAtStart = viewportState.selectedItemId',
+		);
+		const initialDisclosureSnapshotIndex = reviewProofSource.indexOf(
+			'const initialDirectoryDisclosure = viewportState.directoryDisclosure',
+		);
+		const traversalLoopIndex = reviewProofSource.indexOf(
+			'for (let stepIndex = 0; stepIndex < traversalStepBudget; stepIndex += 1)',
+		);
+		const traversalHydrationSettlementIndex = reviewProofSource.indexOf(
+			'const settledHydrationWindow = await captureFreshReviewHydrationWindow',
+			traversalLoopIndex,
+		);
+		const traversalObservedHeaderSnapshotIndex = reviewProofSource.indexOf(
+			'appendFirstSeenItemIds({',
+			traversalLoopIndex,
+		);
+		const traversalMountedOrderSnapshotIndex = reviewProofSource.indexOf(
+			'recordMountedHeaderOrderViolation({',
+			traversalLoopIndex,
+		);
 
 		// Assert
 		expect(hydrationTimeoutIsTerminal).toBe(true);
@@ -632,6 +659,14 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		expect(journeyOwnsDeadlineCleanup).toBe(true);
 		expect(initialHydrationSettlementIndex).toBeGreaterThan(0);
 		expect(initialVisibleExclusionSnapshotIndex).toBeGreaterThan(initialHydrationSettlementIndex);
+		expect(initialObservedHeaderSnapshotIndex).toBeGreaterThan(initialHydrationSettlementIndex);
+		expect(initialMountedOrderSnapshotIndex).toBeGreaterThan(initialHydrationSettlementIndex);
+		expect(initialSelectionSnapshotIndex).toBeGreaterThan(initialHydrationSettlementIndex);
+		expect(initialDisclosureSnapshotIndex).toBeGreaterThan(initialHydrationSettlementIndex);
+		expect(traversalLoopIndex).toBeGreaterThan(0);
+		expect(traversalHydrationSettlementIndex).toBeGreaterThan(traversalLoopIndex);
+		expect(traversalObservedHeaderSnapshotIndex).toBeGreaterThan(traversalHydrationSettlementIndex);
+		expect(traversalMountedOrderSnapshotIndex).toBeGreaterThan(traversalHydrationSettlementIndex);
 		expect(journeySource).toContain('BRIDGE_PRODUCT_JOURNEY_DEADLINE_EXCEEDED');
 		expect(journeySource).not.toContain('requestAnimationFrame');
 		expect(reviewProofSource).not.toContain('requestAnimationFrame');
