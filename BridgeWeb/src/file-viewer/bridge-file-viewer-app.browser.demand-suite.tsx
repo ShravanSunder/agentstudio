@@ -41,7 +41,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		const openedDescriptorIds: string[] = [];
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				initialMetadataEvents={makeFileMetadataEvents(firstDescriptor, secondDescriptor)}
 				fileProductSession={{
@@ -84,13 +84,15 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			path: 'src/second-worker-viewport.ts',
 		});
 		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
+		const viewportCommands = createBridgeFileViewerViewportCommandObserver();
 
-		render(
+		await render(
 			<div style={{ height: '720px', overflow: 'hidden', width: '1280px' }}>
 				<BridgeFileViewerApp
 					fileProductSession={{
 						onWorkerCommand: (message): void => {
 							dispatchedMessages.push(message);
+							viewportCommands.record(message);
 						},
 					}}
 					initialMetadataEvents={makeFileMetadataEvents(firstDescriptor, secondDescriptor)}
@@ -105,19 +107,18 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		if (treeScrollOwner === null) {
 			throw new Error('Expected File View tree scroll owner for worker viewport demand.');
 		}
+		const initialViewportCommand = await viewportCommands.waitForFirst();
 
 		await actUpdate((): void => {
 			treeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
 		});
-		await actFrame();
+		const viewportCommandAfterScroll =
+			await viewportCommands.waitForNewerThan(initialViewportCommand);
 
 		expect(dispatchedMessages.map((message) => message.command)).not.toContain(
 			'fileViewSourceUpdate',
 		);
-		const viewportMessage = dispatchedMessages.find(
-			(message): boolean => message.command === 'viewport',
-		);
-		expect(viewportMessage).toMatchObject({
+		expect(viewportCommandAfterScroll.message).toMatchObject({
 			command: 'viewport',
 			firstVisibleIndex: 0,
 			lastVisibleIndex: 1,
@@ -136,13 +137,15 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			});
 		});
 		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
+		const viewportCommands = createBridgeFileViewerViewportCommandObserver();
 
-		render(
+		await render(
 			<div style={{ height: '720px', overflow: 'hidden', width: '1280px' }}>
 				<BridgeFileViewerApp
 					fileProductSession={{
 						onWorkerCommand: (message): void => {
 							dispatchedMessages.push(message);
+							viewportCommands.record(message);
 						},
 					}}
 					initialMetadataEvents={makeFileMetadataEvents(...descriptors)}
@@ -157,23 +160,14 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		if (treeScrollOwner === null) {
 			throw new Error('Expected File View tree scroll owner for scrolled worker viewport demand.');
 		}
-		await actUpdate((): void => {
-			treeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
-		});
-		await waitForViewportMessageWithFirstVisibleIndex({
-			dispatchedMessages,
-			minimumFirstVisibleIndex: 0,
-		});
+		const initialViewportCommand = await viewportCommands.waitForFirst();
 
 		await actUpdate((): void => {
 			treeScrollOwner.scrollTop = 24 * 30;
 			treeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
 		});
-
-		const viewportMessage = await waitForViewportMessageWithFirstVisibleIndex({
-			dispatchedMessages,
-			minimumFirstVisibleIndex: 1,
-		});
+		const viewportMessage = (await viewportCommands.waitForNewerThan(initialViewportCommand))
+			.message;
 		expect(viewportMessage.firstVisibleIndex).toBeGreaterThan(0);
 		expect(viewportMessage.lastVisibleIndex).toBeGreaterThanOrEqual(
 			viewportMessage.firstVisibleIndex,
@@ -189,7 +183,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		const originalFetch = window.fetch;
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				initialMetadataEvents={makeFileMetadataEvents(descriptor)}
 				fileProductSession={{
@@ -222,7 +216,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		const openedDescriptorIds: string[] = [];
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				initialMetadataEvents={makeFileMetadataEvents(
 					textDescriptor,
@@ -259,7 +253,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 		const openedDescriptorIds: string[] = [];
 
-		render(
+		await render(
 			<BridgeFileViewerApp
 				initialMetadataEvents={makeFileMetadataEvents(visibleDescriptor)}
 				isActive={false}
@@ -286,39 +280,55 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 });
 
-async function waitForViewportMessageWithFirstVisibleIndex(props: {
-	readonly attempt?: number;
-	readonly dispatchedMessages: readonly BridgeWorkerMainToServerMessage[];
-	readonly minimumFirstVisibleIndex: number;
-}): Promise<BridgeWorkerViewportCommand> {
-	const viewportMessage = latestViewportMessage(props.dispatchedMessages);
-	if (
-		viewportMessage !== null &&
-		viewportMessage.firstVisibleIndex >= props.minimumFirstVisibleIndex
-	) {
-		return viewportMessage;
-	}
-	const attempt = props.attempt ?? 0;
-	if (attempt >= 30) {
-		throw new Error(
-			`Expected viewport firstVisibleIndex >= ${props.minimumFirstVisibleIndex}; actual=${viewportMessage?.firstVisibleIndex ?? 'missing'}`,
-		);
-	}
-	await actFrame();
-	return waitForViewportMessageWithFirstVisibleIndex({
-		attempt: attempt + 1,
-		dispatchedMessages: props.dispatchedMessages,
-		minimumFirstVisibleIndex: props.minimumFirstVisibleIndex,
-	});
+interface BridgeFileViewerObservedViewportCommand {
+	readonly message: BridgeWorkerViewportCommand;
+	readonly sequence: number;
 }
 
-function latestViewportMessage(
-	messages: readonly BridgeWorkerMainToServerMessage[],
-): BridgeWorkerViewportCommand | null {
-	for (const message of messages.toReversed()) {
-		if (message.command === 'viewport') {
-			return message;
+interface BridgeFileViewerViewportCommandObserver {
+	record: (message: BridgeWorkerMainToServerMessage) => void;
+	waitForFirst: () => Promise<BridgeFileViewerObservedViewportCommand>;
+	waitForNewerThan: (
+		previous: BridgeFileViewerObservedViewportCommand,
+	) => Promise<BridgeFileViewerObservedViewportCommand>;
+}
+
+function createBridgeFileViewerViewportCommandObserver(): BridgeFileViewerViewportCommandObserver {
+	const commands: BridgeFileViewerObservedViewportCommand[] = [];
+	const waiters: Array<{
+		readonly afterSequence: number;
+		readonly resolve: (command: BridgeFileViewerObservedViewportCommand) => void;
+	}> = [];
+	const waitForCommandAfter = (
+		afterSequence: number,
+	): Promise<BridgeFileViewerObservedViewportCommand> => {
+		const recordedCommand = commands.find((command): boolean => command.sequence > afterSequence);
+		if (recordedCommand !== undefined) {
+			return Promise.resolve(recordedCommand);
 		}
-	}
-	return null;
+		return new Promise<BridgeFileViewerObservedViewportCommand>((resolve): void => {
+			waiters.push({ afterSequence, resolve });
+		});
+	};
+	return {
+		record(message: BridgeWorkerMainToServerMessage): void {
+			if (message.command !== 'viewport') {
+				return;
+			}
+			const command = { message, sequence: commands.length + 1 };
+			commands.push(command);
+			for (let waiterIndex = waiters.length - 1; waiterIndex >= 0; waiterIndex -= 1) {
+				const waiter = waiters[waiterIndex];
+				if (waiter === undefined || command.sequence <= waiter.afterSequence) {
+					continue;
+				}
+				waiters.splice(waiterIndex, 1);
+				waiter.resolve(command);
+			}
+		},
+		waitForFirst: (): Promise<BridgeFileViewerObservedViewportCommand> => waitForCommandAfter(0),
+		waitForNewerThan: (
+			previous: BridgeFileViewerObservedViewportCommand,
+		): Promise<BridgeFileViewerObservedViewportCommand> => waitForCommandAfter(previous.sequence),
+	};
 }

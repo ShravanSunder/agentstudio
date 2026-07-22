@@ -142,18 +142,27 @@ export function useBridgeFileViewerPierreTreeRuntime(
 	useEffect((): (() => void) => {
 		let scrollElement: BridgePierreTreeScrollOwner | null = null;
 		let animationFrameId: number | null = null;
+		const rebindScrollElement = (): void => {
+			const nextScrollElement = pierreFileTreeScrollElementForDemand(model);
+			if (nextScrollElement === scrollElement) {
+				return;
+			}
+			scrollElement?.removeEventListener('scroll', scheduleVisibleFileDemand);
+			scrollElement = nextScrollElement;
+			scrollElement?.addEventListener('scroll', scheduleVisibleFileDemand, { passive: true });
+		};
 		const scheduleVisibleFileDemand = (): void => {
 			if (animationFrameId !== null) {
 				return;
 			}
 			animationFrameId = requestAnimationFrame((): void => {
 				animationFrameId = null;
+				rebindScrollElement();
 				publishVisibleFileDemand();
 			});
 		};
 		const setupFrameId = requestAnimationFrame((): void => {
-			scrollElement = pierreFileTreeScrollElementForDemand(model);
-			scrollElement?.addEventListener('scroll', scheduleVisibleFileDemand, { passive: true });
+			rebindScrollElement();
 			publishVisibleFileDemand();
 			if (!hasRecordedFirstInteractionRef.current && props.fileTreePatchStream.getCursor() > 0) {
 				hasRecordedFirstInteractionRef.current = true;

@@ -64,6 +64,8 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	const previousRenderedPathRef = useRef<string | null>(null);
 	const previousRenderedCacheKeyRef = useRef<string | null>(null);
 	const scrollEffectVersionRef = useRef(0);
+	const openFileStatus = props.openFileState.status;
+	const openFilePath = openFileStatus === 'idle' ? null : props.openFileState.path;
 	const selectedCodeViewCacheKey = props.selectedCodeViewItem?.bridgeMetadata.cacheKey ?? null;
 	const codeViewItems = useMemo(
 		() =>
@@ -105,10 +107,10 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	useLayoutEffect((): void => {
 		const effectVersion = scrollEffectVersionRef.current + 1;
 		scrollEffectVersionRef.current = effectVersion;
-		const currentPath = props.openFileState.status === 'idle' ? null : props.openFileState.path;
+		const currentPath = openFilePath;
 		const currentRenderedPath = props.selectedCodeViewItem?.bridgeMetadata.displayPath ?? null;
 		const currentRenderedCacheKey = selectedCodeViewCacheKey;
-		const currentStatus = props.openFileState.status;
+		const currentStatus = openFileStatus;
 		const previousOpenState = previousOpenStateRef.current;
 		const previousRenderedPath = previousRenderedPathRef.current;
 		const previousRenderedCacheKey = previousRenderedCacheKeyRef.current;
@@ -179,7 +181,8 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		}
 		previousOpenStateRef.current = { path: currentPath, status: currentStatus };
 	}, [
-		props.openFileState,
+		openFilePath,
+		openFileStatus,
 		props.selectedCodeViewItem?.bridgeMetadata.displayPath,
 		selectedCodeViewCacheKey,
 	]);

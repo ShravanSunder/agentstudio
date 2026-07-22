@@ -14,7 +14,7 @@ import {
 
 describe('Bridge Review sustained deep-scroll Browser witness', () => {
 	afterEach(async (): Promise<void> => {
-		cleanup();
+		await cleanup();
 		disposeBridgeReviewRecoveryWitnessHarnesses();
 		await advanceBridgeReviewRecoveryWitnessFrames(2);
 		document.body.replaceChildren();
@@ -33,7 +33,7 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 		if (earlyFile === undefined || middleFile === undefined || finalFile === undefined) {
 			throw new Error('Deep-scroll Review recovery witness requires traversal markers.');
 		}
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 		await expect
 			.element(harness.renderResult.getByTestId('bridge-review-fallback-frame'))
 			.toBeVisible();
@@ -120,7 +120,7 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 			lineCount: 8,
 			markerPrefix: 'REACTIVATED_VISIBLE_HYDRATION',
 		});
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 		await harness.publishDisplay();
 		await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
 		await expect.poll(() => harness.renderedCodeViewItemIds().length).toBeGreaterThan(1);
@@ -201,7 +201,7 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 		if (selectedFile === undefined) {
 			throw new Error('Hidden-generation Review fixture requires a selected item.');
 		}
-		const harness = renderBridgeReviewRecoveryWitness(files);
+		const harness = await renderBridgeReviewRecoveryWitness(files);
 		await harness.publishDisplay();
 		await harness.publishCompleteContent();
 		await expect.poll(() => harness.selectedItemCommandCount()).toBe(1);
@@ -243,24 +243,29 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 		await act(async (): Promise<void> => {
 			const maximumScrollTop =
 				scrollOwnerBeforeReplacement.scrollHeight - scrollOwnerBeforeReplacement.clientHeight;
+			scrollOwnerBeforeReplacement.dispatchEvent(
+				new WheelEvent('wheel', {
+					bubbles: true,
+					deltaY: scrollOwnerBeforeReplacement.clientHeight,
+				}),
+			);
 			scrollOwnerBeforeReplacement.scrollTop = Math.floor(maximumScrollTop * 0.72);
 			scrollOwnerBeforeReplacement.dispatchEvent(new Event('scroll', { bubbles: true }));
 			await Promise.resolve();
 		});
-		await advanceBridgeReviewRecoveryWitnessFrames(4);
-		const rawScrollTopBeforeReplacement = scrollOwnerBeforeReplacement.scrollTop;
-		const scrollProgressBeforeReplacement =
-			rawScrollTopBeforeReplacement /
-			Math.max(
-				scrollOwnerBeforeReplacement.scrollHeight - scrollOwnerBeforeReplacement.clientHeight,
-				1,
-			);
-		const semanticAnchorBeforeReplacement = firstVisibleReviewAnchor(
+		const positionBeforeReplacement = await waitForSettledReviewPosition({
+			expectedItemCount: files.length,
+			expectedMetadataRevision: 1,
+			expectedSelectedItemId: selectedFile.itemId,
 			harness,
-			scrollOwnerBeforeReplacement,
-		);
+			scrollOwner: scrollOwnerBeforeReplacement,
+		});
+		const {
+			rawScrollTop: rawScrollTopBeforeReplacement,
+			scrollProgress: scrollProgressBeforeReplacement,
+			semanticAnchor: semanticAnchorBeforeReplacement,
+		} = positionBeforeReplacement;
 		expect(rawScrollTopBeforeReplacement).toBeGreaterThan(0);
-		expect(semanticAnchorBeforeReplacement).not.toBeNull();
 
 		// Act: loaded-hidden is represented at this browser seam by inactive Review. The same client
 		// and store accept a new authoritative generation while body work remains out of scope.
@@ -278,7 +283,17 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 
 		await harness.setActive(true);
 		await expect.element(harness.renderResult.getByTestId('review-viewer-shell')).toBeVisible();
-		await advanceBridgeReviewRecoveryWitnessFrames(4);
+		const scrollOwnerAfterReplacement = harness.codeScrollOwner();
+		if (scrollOwnerAfterReplacement === null) {
+			throw new Error('Hidden-generation Review replacement lost its CodeView scroll owner.');
+		}
+		const positionAfterReplacement = await waitForSettledReviewPosition({
+			expectedItemCount: files.length,
+			expectedMetadataRevision: 2,
+			expectedSelectedItemId: selectedFile.itemId,
+			harness,
+			scrollOwner: scrollOwnerAfterReplacement,
+		});
 
 		// Assert: no fallback/remount occurred and selection, explicit disclosure, and the same
 		// virtualized scroll region survived the generation replacement.
@@ -289,20 +304,14 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 		const disclosureAfterReplacement = harness
 			.pierreTreePath(collapsedDirectoryPath)
 			?.getAttribute('aria-expanded');
-		const scrollOwnerAfterReplacement = harness.codeScrollOwner();
-		const semanticAnchorAfterReplacement =
-			scrollOwnerAfterReplacement === null
-				? null
-				: firstVisibleReviewAnchor(harness, scrollOwnerAfterReplacement);
-		const rawScrollTopAfterReplacement = scrollOwnerAfterReplacement?.scrollTop ?? null;
-		const scrollProgressAfterReplacement =
-			scrollOwnerAfterReplacement === null
-				? null
-				: scrollOwnerAfterReplacement.scrollTop /
-					Math.max(
-						scrollOwnerAfterReplacement.scrollHeight - scrollOwnerAfterReplacement.clientHeight,
-						1,
-					);
+		const codePanelAfterReplacement = harness.renderResult.container.querySelector(
+			'[data-testid="bridge-code-view-panel"]',
+		);
+		const {
+			rawScrollTop: rawScrollTopAfterReplacement,
+			scrollProgress: scrollProgressAfterReplacement,
+			semanticAnchor: semanticAnchorAfterReplacement,
+		} = positionAfterReplacement;
 		const semanticAnchorRankBeforeReplacement = files.findIndex(
 			(file): boolean => file.itemId === semanticAnchorBeforeReplacement?.itemId,
 		);
@@ -319,6 +328,10 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 			scrollProgressAfterReplacement,
 			scrollProgressBeforeReplacement,
 			selectedItemIdAfterReplacement,
+			selectionScrollDidScroll:
+				codePanelAfterReplacement?.getAttribute('data-selection-scroll-did-scroll') ?? null,
+			selectionScrollReason:
+				codePanelAfterReplacement?.getAttribute('data-selection-scroll-reason') ?? null,
 			semanticAnchorAfterReplacement,
 			semanticAnchorBeforeReplacement,
 			treeRemainedMountedWhileInactive,
@@ -358,8 +371,98 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 	});
 });
 
+interface SettledReviewPositionReceipt {
+	readonly maximumScrollTop: number;
+	readonly rawScrollTop: number;
+	readonly scrollProgress: number;
+	readonly semanticAnchor: {
+		readonly itemId: string;
+		readonly viewportOffsetPixels: number;
+	};
+}
+
+async function waitForSettledReviewPosition(props: {
+	readonly expectedItemCount: number;
+	readonly expectedMetadataRevision: number;
+	readonly expectedSelectedItemId: string;
+	readonly harness: Awaited<ReturnType<typeof renderBridgeReviewRecoveryWitness>>;
+	readonly scrollOwner: HTMLElement;
+}): Promise<SettledReviewPositionReceipt> {
+	let previousReceipt: SettledReviewPositionReceipt | null = null;
+	let lastDiagnostic: Readonly<Record<string, unknown>> = {};
+	for (let attempt = 0; attempt < 30; attempt += 1) {
+		// Each sample crosses a real apply/paint boundary. Two matching samples are the receipt that
+		// revision adoption, the exact manifest, and Pierre's visible geometry have all settled.
+		// oxlint-disable-next-line no-await-in-loop -- Consecutive observed frames are the synchronization contract.
+		await advanceBridgeReviewRecoveryWitnessFrames(1);
+		const reviewShell = props.harness.renderResult.container.querySelector(
+			'[data-testid="review-viewer-shell"]',
+		);
+		const codePanel = props.harness.renderResult.container.querySelector(
+			'[data-testid="bridge-code-view-panel"]',
+		);
+		const semanticAnchor = firstVisibleReviewAnchor(props.harness, props.scrollOwner);
+		const maximumScrollTop = Math.max(
+			props.scrollOwner.scrollHeight - props.scrollOwner.clientHeight,
+			1,
+		);
+		const rawScrollTop = props.scrollOwner.scrollTop;
+		const currentReceipt =
+			semanticAnchor === null
+				? null
+				: {
+						maximumScrollTop,
+						rawScrollTop,
+						scrollProgress: rawScrollTop / maximumScrollTop,
+						semanticAnchor,
+					};
+		const anchorPaintedLineCount =
+			semanticAnchor === null
+				? 0
+				: (props.harness
+						.paintedCodeViewItems()
+						.find((paintedItem): boolean => paintedItem.itemId === semanticAnchor.itemId)
+						?.paintedLineCount ?? 0);
+		const exactRevisionAndManifestArePainted =
+			reviewShell?.getAttribute('data-review-metadata-revision') ===
+				String(props.expectedMetadataRevision) &&
+			codePanel?.getAttribute('data-code-view-item-count') === String(props.expectedItemCount) &&
+			codePanel?.getAttribute('data-selected-item-id') === props.expectedSelectedItemId &&
+			anchorPaintedLineCount > 0;
+		const positionIsStable =
+			currentReceipt !== null &&
+			previousReceipt !== null &&
+			currentReceipt.semanticAnchor.itemId === previousReceipt.semanticAnchor.itemId &&
+			Math.abs(
+				currentReceipt.semanticAnchor.viewportOffsetPixels -
+					previousReceipt.semanticAnchor.viewportOffsetPixels,
+			) <= 1 &&
+			Math.abs(currentReceipt.maximumScrollTop - previousReceipt.maximumScrollTop) <= 1 &&
+			Math.abs(currentReceipt.rawScrollTop - previousReceipt.rawScrollTop) <= 1 &&
+			Math.abs(currentReceipt.scrollProgress - previousReceipt.scrollProgress) <= 0.001;
+		lastDiagnostic = {
+			anchorPaintedLineCount,
+			attempt,
+			codeViewItemCount: codePanel?.getAttribute('data-code-view-item-count') ?? null,
+			currentReceipt,
+			expectedItemCount: props.expectedItemCount,
+			expectedMetadataRevision: props.expectedMetadataRevision,
+			metadataRevision: reviewShell?.getAttribute('data-review-metadata-revision') ?? null,
+			previousReceipt,
+			selectedItemId: codePanel?.getAttribute('data-selected-item-id') ?? null,
+		};
+		if (exactRevisionAndManifestArePainted && positionIsStable && currentReceipt !== null) {
+			return currentReceipt;
+		}
+		previousReceipt = exactRevisionAndManifestArePainted ? currentReceipt : null;
+	}
+	throw new Error(
+		`Review position did not settle after exact revision/manifest paint: ${JSON.stringify(lastDiagnostic)}`,
+	);
+}
+
 function firstVisibleReviewAnchor(
-	harness: ReturnType<typeof renderBridgeReviewRecoveryWitness>,
+	harness: Awaited<ReturnType<typeof renderBridgeReviewRecoveryWitness>>,
 	scrollOwner: HTMLElement,
 ): { readonly itemId: string; readonly viewportOffsetPixels: number } | null {
 	const viewportBounds = scrollOwner.getBoundingClientRect();
