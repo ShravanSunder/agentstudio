@@ -29,6 +29,7 @@ import {
 	bridgeViewerJourneyFailureCode,
 	BridgeViewerProductOnlyJourneyFailure,
 } from './product-only-real-router-failure.ts';
+import { GenerationScopedResponseParsers } from './product-only-real-router-response-parsers.ts';
 import {
 	proveFreshReviewRoute,
 	proveReviewTreeSelection,
@@ -73,6 +74,7 @@ interface MutableObservedWorker extends BridgeViewerObservedWorker {
 }
 
 interface MutableLegacyRouteTranscriptEntry {
+	documentGeneration: number;
 	finalWindow: boolean | null;
 	frameKind: string | null;
 	httpStatus: number | null;
@@ -437,11 +439,10 @@ export class BridgeViewerRealRouterObserver {
 		PlaywrightRequest,
 		MutableLegacyRouteTranscriptEntry
 	>();
-	readonly #responseParserPromises = new Set<Promise<void>>();
+	readonly #responseParsers = new GenerationScopedResponseParsers();
 	readonly #productResponseClosureWaiters = new Set<() => void>();
 	readonly #unfinishedProductRequests = new Set<PlaywrightRequest>();
 	#productActivityRevision = 0;
-	#responseParserFailure: unknown = null;
 	#nextOrdinal = 1;
 	#resolveLegacyCompletion: (() => void) | null = null;
 
@@ -476,12 +477,13 @@ export class BridgeViewerRealRouterObserver {
 	}
 
 	legacyRouteTranscript(): readonly BridgeViewerLegacyRouteTranscriptEntry[] {
-		return this.#legacyEntries.map((entry) => ({ ...entry }));
+		return this.#legacyEntries.map(({ documentGeneration: _documentGeneration, ...entry }) => ({
+			...entry,
+		}));
 	}
 
 	async flushResponseParsers(): Promise<void> {
-		await Promise.allSettled(this.#responseParserPromises);
-		if (this.#responseParserFailure !== null) throw this.#responseParserFailure;
+		await this.#responseParsers.flush(this.#documentGeneration());
 	}
 
 	async waitForObservedLegacyMetadataCompletion(): Promise<void> {
@@ -530,6 +532,7 @@ export class BridgeViewerRealRouterObserver {
 		}
 		if (!requestUrl.pathname.startsWith('/__bridge-worktree/review-')) return;
 		const entry: MutableLegacyRouteTranscriptEntry = {
+			documentGeneration: this.#documentGeneration(),
 			finalWindow: null,
 			frameKind: null,
 			httpStatus: null,
@@ -548,7 +551,10 @@ export class BridgeViewerRealRouterObserver {
 			this.#productActivityRevision += 1;
 			this.#resolveProductResponseClosureWaitersIfQuiescent();
 			if (productEntry.path === '/__bridge-product/command' && response.status() !== 204) {
-				this.#trackResponseParser(this.#parseProductCommandResponse(response, productEntry));
+				this.#responseParsers.track(
+					this.#parseProductCommandResponse(response, productEntry),
+					productEntry.documentGeneration,
+				);
 			}
 			return;
 		}
@@ -557,7 +563,10 @@ export class BridgeViewerRealRouterObserver {
 		legacyEntry.httpStatus = response.status();
 		if (legacyEntry.path === '/__bridge-worktree/review-metadata') {
 			this.#legacyMetadataObserved = true;
-			this.#trackResponseParser(this.#parseLegacyMetadataResponse(response, legacyEntry));
+			this.#responseParsers.track(
+				this.#parseLegacyMetadataResponse(response, legacyEntry),
+				legacyEntry.documentGeneration,
+			);
 		}
 	}
 
@@ -648,19 +657,6 @@ export class BridgeViewerRealRouterObserver {
 			this.#resolveLegacyCompletion?.();
 			this.#resolveLegacyCompletion = null;
 		}
-	}
-
-	#trackResponseParser(promise: Promise<void>): void {
-		this.#responseParserPromises.add(promise);
-		void promise.then(
-			(): void => {
-				this.#responseParserPromises.delete(promise);
-			},
-			(error: unknown): void => {
-				this.#responseParserFailure ??= error;
-				this.#responseParserPromises.delete(promise);
-			},
-		);
 	}
 }
 

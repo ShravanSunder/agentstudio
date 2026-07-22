@@ -136,6 +136,55 @@ describe('BridgeViewerRealRouterObserver', () => {
 		]);
 	});
 
+	test('does not let a retired-document response parser failure poison the active journey', async () => {
+		// Arrange
+		const harness = makeObserverHarness();
+		let documentGeneration = 1;
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			(): number => documentGeneration,
+		);
+		const retiredDocumentRequest = makeProductCallRequest('review.activeViewerMode.update');
+		const retiredDocumentBody = makePendingStringPromise();
+		harness.emit('request', retiredDocumentRequest);
+		harness.emit(
+			'response',
+			makeSuccessfulCommandResponse(retiredDocumentRequest, retiredDocumentBody.promise),
+		);
+
+		// Act: navigation retires the response before Playwright can read its body.
+		documentGeneration = 2;
+		retiredDocumentBody.reject(new Error('Target page, context or browser has been closed'));
+		await flushMicrotasks();
+
+		// Assert
+		await expect(observer.flushResponseParsers()).resolves.toBeUndefined();
+		expect(observer.productRouteTranscript()).toEqual([
+			expect.objectContaining({
+				documentGeneration: 1,
+				httpStatus: 200,
+				responseKind: null,
+			}),
+		]);
+	});
+
+	test('still reports a response parser failure from the active document', async () => {
+		// Arrange
+		const harness = makeObserverHarness();
+		const observer = new BridgeViewerRealRouterObserver(harness.page, (): number => 1);
+		const activeDocumentRequest = makeProductCallRequest('review.activeViewerMode.update');
+		const activeDocumentFailure = new Error('active document response body failed');
+		harness.emit('request', activeDocumentRequest);
+		harness.emit(
+			'response',
+			makeSuccessfulCommandResponse(activeDocumentRequest, Promise.reject(activeDocumentFailure)),
+		);
+		await flushMicrotasks();
+
+		// Act / Assert
+		await expect(observer.flushResponseParsers()).rejects.toBe(activeDocumentFailure);
+	});
+
 	test('treats a failed non-stream request without an HTTP response as terminal', async () => {
 		// Arrange
 		const harness = makeObserverHarness();
@@ -340,6 +389,30 @@ function makeSuccessfulResponse(request: PlaywrightRequest): PlaywrightResponse 
 		request: (): PlaywrightRequest => request,
 		status: (): number => 200,
 	} as unknown as PlaywrightResponse;
+}
+
+function makeSuccessfulCommandResponse(
+	request: PlaywrightRequest,
+	body: Promise<string>,
+): PlaywrightResponse {
+	return {
+		request: (): PlaywrightRequest => request,
+		status: (): number => 200,
+		text: async (): Promise<string> => await body,
+	} as unknown as PlaywrightResponse;
+}
+
+function makePendingStringPromise(): {
+	readonly promise: Promise<string>;
+	readonly reject: (error: Error) => void;
+} {
+	let rejectPromise: (error: Error) => void = (): void => {
+		throw new Error('Pending string promise rejector was not initialized.');
+	};
+	const promise = new Promise<string>((_resolve, reject): void => {
+		rejectPromise = (error): void => reject(error);
+	});
+	return { promise, reject: rejectPromise };
 }
 
 async function flushMicrotasks(): Promise<void> {
