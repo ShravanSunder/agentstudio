@@ -27,6 +27,7 @@ import { makeBridgeWorkerRenderReceiptIdentity } from '../../core/comm-worker/br
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
+import { waitForBridgeViewerCodeHeaderCollapseButton } from '../test-support/bridge-viewer-browser-dom.js';
 import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
 import { BridgeCodeViewPanel } from './bridge-code-view-panel.js';
 import {
@@ -567,8 +568,9 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 
 			// A real user collapse is local presentation state. A changed same-id publication must
 			// preserve it while minting the next main-owned version.
+			const collapseButton = await waitForBridgeViewerCodeHeaderCollapseButton();
 			await act(async (): Promise<void> => {
-				await rendered.getByRole('button', { name: 'Collapse file' }).click();
+				collapseButton.click();
 				await Promise.resolve();
 			});
 			await settleBridgeCodeViewState((): boolean => {

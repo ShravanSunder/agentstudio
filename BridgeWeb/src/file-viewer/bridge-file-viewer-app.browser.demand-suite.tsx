@@ -152,10 +152,14 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		await waitForMetadataTreeRowCount(80);
 		await waitForTreeScrollHeightAtLeast(80 * 24);
+		await waitForBridgeViewerTreeItemButton('File-000.swift');
 		const treeScrollOwner = findBridgeViewerTreeScrollOwner();
 		if (treeScrollOwner === null) {
 			throw new Error('Expected File View tree scroll owner for scrolled worker viewport demand.');
 		}
+		await actUpdate((): void => {
+			treeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		});
 		await waitForViewportMessageWithFirstVisibleIndex({
 			dispatchedMessages,
 			minimumFirstVisibleIndex: 0,

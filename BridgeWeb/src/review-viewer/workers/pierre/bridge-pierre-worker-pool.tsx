@@ -171,6 +171,28 @@ export async function initializeBridgePierreWorkerPoolSingletonForTest(
 	return workerPool.getStats();
 }
 
+export function waitForBridgePierreWorkerPoolActiveTaskPublicationForTest(
+	workerFactory: () => Worker,
+): Promise<void> {
+	const workerPool = getOrCreateWorkerPoolSingleton({
+		highlighterOptions: createBridgePierreWorkerHighlighterOptions(),
+		poolOptions: createBridgePierreWorkerPoolOptions({ workerFactory }),
+	});
+	return new Promise((resolve): void => {
+		let didReceiveInitialSnapshot = false;
+		let unsubscribe: (() => void) | null = null;
+		unsubscribe = workerPool.subscribeToStatChanges((stats): void => {
+			if (!didReceiveInitialSnapshot) {
+				didReceiveInitialSnapshot = true;
+				return;
+			}
+			if (stats.busyWorkers <= 0 || stats.activeTasks <= 0) return;
+			unsubscribe?.();
+			resolve();
+		});
+	});
+}
+
 export function resetBridgePierreWorkerFactoryLoaderForTest(): void {
 	bridgePierreDefaultWorkerFactoryLoaderGeneration += 1;
 	bridgePierreDefaultWorkerFactoryPromise = null;
@@ -752,6 +774,7 @@ function subscribeToBridgePierreWorkerPoolStats(
 	onStats: (stats: BridgePierreWorkerStats) => void,
 ): () => void {
 	let intervalId: number | undefined;
+	let lastPublishedStats: BridgePierreWorkerStats | null = null;
 	const stopPolling = (): void => {
 		if (intervalId !== undefined) {
 			window.clearInterval(intervalId);
@@ -759,6 +782,14 @@ function subscribeToBridgePierreWorkerPoolStats(
 		}
 	};
 	const publishStats = (stats: BridgePierreWorkerStats): void => {
+		if (
+			lastPublishedStats !== null &&
+			bridgePierreWorkerPoolStatsEqual(lastPublishedStats, stats)
+		) {
+			if (!bridgePierreWorkerPoolStatsNeedPolling(stats)) stopPolling();
+			return;
+		}
+		lastPublishedStats = stats;
 		onStats(stats);
 		if (!bridgePierreWorkerPoolStatsNeedPolling(stats)) {
 			stopPolling();
@@ -774,6 +805,23 @@ function subscribeToBridgePierreWorkerPoolStats(
 		stopPolling();
 		unsubscribe();
 	};
+}
+
+function bridgePierreWorkerPoolStatsEqual(
+	left: BridgePierreWorkerStats,
+	right: BridgePierreWorkerStats,
+): boolean {
+	return (
+		left.managerState === right.managerState &&
+		left.workersFailed === right.workersFailed &&
+		left.totalWorkers === right.totalWorkers &&
+		left.busyWorkers === right.busyWorkers &&
+		left.queuedTasks === right.queuedTasks &&
+		left.activeTasks === right.activeTasks &&
+		left.themeSubscribers === right.themeSubscribers &&
+		left.fileCacheSize === right.fileCacheSize &&
+		left.diffCacheSize === right.diffCacheSize
+	);
 }
 
 function bridgePierreWorkerPoolStatsNeedPolling(stats: BridgePierreWorkerStats): boolean {

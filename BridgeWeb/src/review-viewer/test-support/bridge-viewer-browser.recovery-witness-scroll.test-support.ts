@@ -1,5 +1,7 @@
 import { act } from 'react';
 
+import type { BridgeMainRenderSnapshotStore } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
+
 export interface BridgeReviewRecoveryScrollScan {
 	readonly blankPaintSampleCount: number;
 	readonly convergenceSampleCount: number;
@@ -34,6 +36,23 @@ export async function advanceBridgeReviewRecoveryWitnessFrames(frameCount: numbe
 			await Promise.resolve();
 		});
 	}
+}
+
+export function waitForHydratedReviewCodeViewItem(props: {
+	readonly itemId: string;
+	readonly renderStore: BridgeMainRenderSnapshotStore;
+}): Promise<void> {
+	return new Promise((resolve): void => {
+		let unsubscribe: (() => void) | null = null;
+		const resolveWhenHydrated = (): void => {
+			const item = props.renderStore.getReviewCodeViewItemSnapshot(props.itemId);
+			if (item?.bridgeMetadata.contentState !== 'hydrated') return;
+			unsubscribe?.();
+			resolve();
+		};
+		unsubscribe = props.renderStore.subscribeReviewCodeViewItem(props.itemId, resolveWhenHydrated);
+		resolveWhenHydrated();
+	});
 }
 
 export async function scanBridgeReviewRecoveryWitnessDocument(props: {
@@ -159,6 +178,16 @@ export async function scanBridgeReviewRecoveryWitnessDocument(props: {
 				targetItemId !== undefined &&
 				visibleItemIds.includes(targetItemId)
 			) {
+				const markerLineScrollTop = bridgeReviewRecoveryMarkerLineScrollTop({
+					itemId: targetItemId,
+					marker,
+					scrollOwner: props.scrollOwner,
+				});
+				if (markerLineScrollTop !== null) {
+					// oxlint-disable-next-line no-await-in-loop -- The exact marker line replaces stationary host-level convergence.
+					await captureScrollSample(markerLineScrollTop);
+					if (observedMarkers.has(marker)) break;
+				}
 				for (
 					let stationarySampleIndex = 0;
 					stationarySampleIndex < maximumConvergenceSamplesPerMarker;
@@ -192,6 +221,51 @@ export async function scanBridgeReviewRecoveryWitnessDocument(props: {
 		sampleCount: scrollTopSamples.length,
 		scrollTopSamples,
 	};
+}
+
+function bridgeReviewRecoveryMarkerLineScrollTop(props: {
+	readonly itemId: string;
+	readonly marker: string;
+	readonly scrollOwner: HTMLElement;
+}): number | null {
+	const codePanel = props.scrollOwner.closest('[data-testid="bridge-code-view-panel"]');
+	if (codePanel === null) return null;
+	const targetHost = queryElementsIncludingOpenShadowRoots(codePanel, 'diffs-container').find(
+		(host): boolean =>
+			host
+				.querySelector('[data-bridge-code-view-item-id]')
+				?.getAttribute('data-bridge-code-view-item-id') === props.itemId,
+	);
+	const markerLine = [
+		...(targetHost?.shadowRoot?.querySelectorAll('[data-line-index]') ?? []),
+	].find((line): boolean => (line.textContent ?? '').includes(props.marker));
+	if (markerLine === undefined) return null;
+	const viewportBounds = props.scrollOwner.getBoundingClientRect();
+	const markerBounds = markerLine.getBoundingClientRect();
+	const centeredScrollTop =
+		props.scrollOwner.scrollTop +
+		markerBounds.top -
+		viewportBounds.top -
+		(props.scrollOwner.clientHeight - markerBounds.height) / 2;
+	return Math.round(
+		Math.max(
+			0,
+			Math.min(props.scrollOwner.scrollHeight - props.scrollOwner.clientHeight, centeredScrollTop),
+		),
+	);
+}
+
+function queryElementsIncludingOpenShadowRoots(
+	root: Element | ShadowRoot,
+	selector: string,
+): Element[] {
+	const matches = [...root.querySelectorAll(selector)];
+	for (const descendant of root.querySelectorAll('*')) {
+		if (descendant.shadowRoot !== null) {
+			matches.push(...queryElementsIncludingOpenShadowRoots(descendant.shadowRoot, selector));
+		}
+	}
+	return matches;
 }
 
 function markerConvergenceScrollTop(props: {

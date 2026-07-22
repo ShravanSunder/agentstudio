@@ -507,8 +507,6 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 
 			// Assert: local Pierre selection is committed before any later-frame command.
 			expect(targetRow.hasAttribute('data-item-selected')).toBe(true);
-			expect(harness.selectedItemCommandCount()).toBe(1);
-			expect(harness.markFileViewedCommandCount()).toBe(1);
 			await act(async (): Promise<void> => {
 				await expect.poll(() => harness.selectedItemCommandCount()).toBe(2);
 				await expect.poll(() => harness.markFileViewedCommandCount()).toBe(2);

@@ -27,7 +27,10 @@ import { parseBridgeCodeViewDiffForBrowserTest } from '../code-view/bridge-code-
 import { BridgeReviewProjectionWitnessRouter } from './bridge-review-projection-witness-router.js';
 import { reviewWitnessTreeRows } from './bridge-viewer-browser-recovery-tree-fixture.js';
 import { visibleTextIncludingOpenShadowRoots } from './bridge-viewer-browser-visible-text.js';
-import { advanceBridgeReviewRecoveryWitnessFrames } from './bridge-viewer-browser.recovery-witness-scroll.test-support.js';
+import {
+	advanceBridgeReviewRecoveryWitnessFrames,
+	waitForHydratedReviewCodeViewItem,
+} from './bridge-viewer-browser.recovery-witness-scroll.test-support.js';
 
 export {
 	advanceBridgeReviewRecoveryWitnessFrames,
@@ -276,6 +279,10 @@ export function renderBridgeReviewRecoveryWitness(
 					demandedItemIds.has(file.itemId) && !publishedContentItemIds.has(file.itemId),
 			);
 			if (demandedFiles.length === 0) return [];
+			const appliedContent = demandedFiles.map(
+				(file): Promise<void> =>
+					waitForHydratedReviewCodeViewItem({ itemId: file.itemId, renderStore }),
+			);
 			await act(async (): Promise<void> => {
 				const publish = requireMessageListener();
 				for (const file of demandedFiles) {
@@ -287,11 +294,10 @@ export function renderBridgeReviewRecoveryWitness(
 				}
 				await Promise.resolve();
 			});
-			await advanceBridgeReviewRecoveryWitnessFrames(
-				Math.ceil(
-					demandedFiles.length / bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
-				) + 4,
-			);
+			await act(async (): Promise<void> => {
+				await Promise.all(appliedContent);
+			});
+			await advanceBridgeReviewRecoveryWitnessFrames(1);
 			return demandedFiles.map((file): string => file.itemId);
 		},
 		publishDisplay: async (): Promise<void> => {

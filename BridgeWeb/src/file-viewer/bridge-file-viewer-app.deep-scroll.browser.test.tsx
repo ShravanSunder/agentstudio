@@ -24,7 +24,10 @@ import {
 	waitForBridgeViewerVisibleTreeItemPath,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { createBridgePierrePortableBlobWorkerFactory } from '../review-viewer/workers/pierre/bridge-pierre-dev-worker-factory.js';
-import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
+import {
+	terminateBridgePierreWorkerPoolSingletonForTest,
+	waitForBridgePierreWorkerPoolActiveTaskPublicationForTest,
+} from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import { createBridgeCommWorkerModuleWorker } from '../review-viewer/workers/shared-rpc/bridge-comm-worker-dev-factory.js';
 import {
 	BridgeFileViewerBrowserHarnessApp,
@@ -178,8 +181,14 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 			selectedDescriptor,
 			workerCommands,
 		});
+		const activeTaskPublication = waitForBridgePierreWorkerPoolActiveTaskPublicationForTest(
+			routePierreWorkerFactory.workerFactory,
+		);
 		await actUpdate((): void => {
 			deferredContent.resolve(makeFileContent(completeFileDeepScrollFixture.text));
+		});
+		await actUpdate(async (): Promise<void> => {
+			await activeTaskPublication;
 		});
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText(completeFileDeepScrollFixture.firstSourceText);
