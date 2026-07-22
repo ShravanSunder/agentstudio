@@ -13,7 +13,7 @@ case "$mode" in
     ;;
 esac
 
-source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
 PREBUILD_TIMEOUT_SECONDS="${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-$TIMEOUT_SECONDS}"

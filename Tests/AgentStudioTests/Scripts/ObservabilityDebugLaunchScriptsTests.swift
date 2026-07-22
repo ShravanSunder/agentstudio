@@ -21,11 +21,11 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(result.stdout.contains("Agent\\ Studio\\ Debug\\ \(code)"))
         #expect(result.stdout.contains("/.agentstudio-db/\(code)"))
     }
-
     @Test("debug launcher allocates a shared swift build slot by default")
     func debugLauncherAllocatesSharedSwiftBuildSlotByDefault() throws {
         let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
-        #expect(script.contains("source \"$PROJECT_ROOT/scripts/swift-build-slot.sh\" debug"))
+        #expect(script.contains("source \"$PROJECT_ROOT/scripts/swift-build-slot.sh\""))
+        #expect(!script.contains("swift-build-slot.sh\" debug"))
         #expect(script.contains("mise run bridge-web-build"))
         #expect(script.contains("swift build --build-path \"$build_path\""))
     }
@@ -119,7 +119,10 @@ struct ObservabilityDebugLaunchScriptsTests {
 
         let result = try fixture.runScript(
             "scripts/run-debug-observability.sh",
-            arguments: ["--skip-build", "--detach"],
+            arguments: [
+                "--build-path", fixture.url("unused-build").path,
+                "--skip-build", "--detach",
+            ],
             environment: [
                 "AGENTSTUDIO_OPEN_BIN": try fixture.executable(
                     "open",
@@ -163,7 +166,10 @@ struct ObservabilityDebugLaunchScriptsTests {
 
         let result = try fixture.runScript(
             "scripts/run-debug-observability.sh",
-            arguments: ["--skip-build", "--detach"],
+            arguments: [
+                "--build-path", fixture.url("unused-build").path,
+                "--skip-build", "--detach",
+            ],
             environment: [
                 "AGENTSTUDIO_PGREP_BIN": try fixture.executable(
                     "pgrep",
@@ -204,7 +210,10 @@ struct ObservabilityDebugLaunchScriptsTests {
 
         let result = try fixture.runScript(
             "scripts/run-debug-observability.sh",
-            arguments: ["--skip-build", "--detach"],
+            arguments: [
+                "--build-path", fixture.url("unused-build").path,
+                "--skip-build", "--detach",
+            ],
             environment: [
                 "AGENTSTUDIO_CURL_BIN": try fixture.executable(
                     "curl-fail-health",

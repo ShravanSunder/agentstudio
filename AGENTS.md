@@ -760,20 +760,20 @@ mise run test -- --filter "CommandBarState"
 ```
 If you must invoke `swift test` directly, source the slot helper first so you don't collide with another agent's build dir:
 ```bash
-source scripts/swift-build-slot.sh debug
+source scripts/swift-build-slot.sh
 swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState"
 ```
 
 | Env Var | Default | Purpose |
 |---------|---------|---------|
-| `SWIFT_BUILD_DIR` | auto-allocated `.build-agent-{1..4}` via `scripts/swift-build-slot.sh` | Helper claims the first slot whose `.slot-claim` dir doesn't exist (atomic `mkdir`). Pin to a specific slot to override (rare). |
+| `SWIFT_BUILD_DIR` | auto-allocated `.build-agent-1` or `.build-agent-2` via `scripts/swift-build-slot.sh` | Helper claims the first slot whose `.slot-claim` dir doesn't exist (atomic `mkdir`). Local overrides are not supported. |
 | `SWIFT_TEST_PARALLEL` | `1` (enabled) | Set to `0` to disable parallel workers |
 
-**Bounded 4-slot pool.** Every swift-running mise task sources `scripts/swift-build-slot.sh`. The helper iterates `.build-agent-{1..4}` and uses an atomic `mkdir <dir>/.slot-claim` to claim a slot; an EXIT trap on the calling shell removes the claim on normal exit. SwiftPM's own kernel-level flock handles serialization within a slot. Slots are reused by the next agent — disk usage is bounded by 4 × build size. Main agents and subagents share the pool; the helper handles allocation.
+**Bounded 2-slot pool.** Every swift-running mise task sources `scripts/swift-build-slot.sh`. Debug builds, release builds, and tests all share `.build-agent-1` and `.build-agent-2`. The helper uses an atomic `mkdir <dir>/.slot-claim` to claim a slot; an EXIT trap on the calling shell removes the claim on normal exit. SwiftPM's own kernel-level flock handles serialization within a slot. Main agents and subagents share the pool; the helper handles allocation.
 
-**Concurrent agents land on different slots.** Atomic `mkdir` guarantees that 4 agents racing simultaneously each claim a distinct slot. Within one shell, sourcing the helper once gives you one slot held for the lifetime of that shell — repeated `mise run` invocations in the same shell reuse the same slot (warm cache).
+**Concurrent agents land on different slots.** Atomic `mkdir` guarantees that two callers racing simultaneously claim distinct slots. A third caller fails instead of creating another build directory.
 
-**If all 4 slots are busy** the helper aborts with `swift-build-slot: all 4 ... slots are busy`. This is rare; it means 4 other agents are actively building.
+**If both slots are busy** the helper aborts with `swift-build-slot: all 2 slots are busy`.
 
 **SIGKILL leaks.** If a calling shell is `kill -9`'d, the EXIT trap doesn't fire and `.slot-claim` is left behind. Run `mise run clean-agent-builds` to reap stale claims (it removes `.slot-claim` from any slot whose `lsof +D` shows no open file descriptors, so it's safe to run while other agents are working).
 

@@ -557,7 +557,7 @@ fi
 
 if [ -z "$build_path" ]; then
   # shellcheck disable=SC1091
-  source "$PROJECT_ROOT/scripts/swift-build-slot.sh" debug
+  source "$PROJECT_ROOT/scripts/swift-build-slot.sh"
   build_path="$SWIFT_BUILD_DIR"
 fi
 binary_path="$build_path/debug/AgentStudio"

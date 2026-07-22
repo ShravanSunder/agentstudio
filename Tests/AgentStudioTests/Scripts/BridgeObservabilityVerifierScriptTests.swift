@@ -356,6 +356,9 @@ struct BridgeObservabilityVerifierScriptTests {
 
         #expect(scanScript.contains("BridgeWeb/package.json"))
         #expect(scanScript.contains("BridgeWeb/pnpm-lock.yaml"))
+        #expect(scanScript.contains("/^importers:$/"))
+        #expect(scanScript.contains("/^packages:$/"))
+        #expect(scanScript.contains("lockfile_importers"))
         #expect(scanScript.contains("BridgeWeb/src"))
         #expect(scanScript.contains("Sources/AgentStudio/Resources/BridgeWeb/app"))
         #expect(scanScript.contains("BRIDGE_WEB_OTLP_SCAN_TARGETS"))
