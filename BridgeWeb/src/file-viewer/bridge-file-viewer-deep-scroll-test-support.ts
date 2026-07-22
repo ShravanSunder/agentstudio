@@ -47,12 +47,19 @@ export async function settleCompleteFilePierreWorkerPoolInitialization(
 }
 
 export async function waitForCompleteFileInitialPaintReady(): Promise<void> {
-	await waitForCompleteFilePierreWorkerPoolReady({ attempt: 0, requirePaintedPublication: true });
+	await waitForCompleteFilePierreWorkerPoolReady({
+		attempt: 0,
+		previousPaintedPublicationId: null,
+		requirePaintedPublication: true,
+		stableFrameCount: 0,
+	});
 }
 
 async function waitForCompleteFilePierreWorkerPoolReady(props: {
 	readonly attempt: number;
+	readonly previousPaintedPublicationId?: string | null;
 	readonly requirePaintedPublication: boolean;
+	readonly stableFrameCount?: number;
 }): Promise<void> {
 	const managerState = document.documentElement.dataset['bridgePierreWorkerPoolManagerState'];
 	const busyWorkerCount = document.documentElement.dataset['bridgePierreWorkerPoolBusyWorkers'];
@@ -62,10 +69,18 @@ async function waitForCompleteFilePierreWorkerPoolReady(props: {
 	const paintedPublication = document.querySelector(
 		'diffs-container[data-bridge-painted-publication-id]',
 	);
+	const paintedPublicationId =
+		paintedPublication?.getAttribute('data-bridge-painted-publication-id') ?? null;
+	const stableFrameCount =
+		props.requirePaintedPublication &&
+		paintedPublicationId !== null &&
+		paintedPublicationId === props.previousPaintedPublicationId
+			? (props.stableFrameCount ?? 0) + 1
+			: 0;
 	if (
 		managerState === 'initialized' &&
 		loadingStatus === null &&
-		(!props.requirePaintedPublication || paintedPublication !== null)
+		(!props.requirePaintedPublication || stableFrameCount >= 2)
 	) {
 		return;
 	}
@@ -77,7 +92,9 @@ async function waitForCompleteFilePierreWorkerPoolReady(props: {
 	await actFrame();
 	await waitForCompleteFilePierreWorkerPoolReady({
 		attempt: props.attempt + 1,
+		previousPaintedPublicationId: paintedPublicationId,
 		requirePaintedPublication: props.requirePaintedPublication,
+		stableFrameCount,
 	});
 }
 
