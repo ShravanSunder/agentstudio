@@ -1,0 +1,46 @@
+{
+	"valid": [
+		{
+			"name": "unique_top_level_members",
+			"rawJSON": "{\"kind\":\"single\",\"workerEpoch\":1,\"length\":2}"
+		},
+		{
+			"name": "sibling_objects_reuse_member_names",
+			"rawJSON": "{\"left\":{\"kind\":\"left\"},\"right\":{\"kind\":\"right\"}}"
+		},
+		{
+			"name": "unique_escaped_member_name",
+			"rawJSON": "{\"\\u006bind\":\"escaped\",\"workerEpoch\":1}"
+		},
+		{
+			"name": "structural_tokens_inside_string_values",
+			"rawJSON": "{\"text\":\"{\\\"kind\\\":\\\"inside\\\",\\\"kind\\\":\\\"still-inside\\\"}\",\"kind\":\"outside\"}"
+		},
+		{
+			"name": "escaped_quote_and_backslash_member_names",
+			"rawJSON": "{\"quote\\\"key\":1,\"slash\\\\key\":2}"
+		},
+		{
+			"name": "canonically_equivalent_but_distinct_member_names",
+			"rawJSON": "{\"\\u00e9\":1,\"e\\u0301\":2}"
+		}
+	],
+	"invalid": [
+		{
+			"name": "duplicate_discriminant_top_level",
+			"rawJSON": "{\"kind\":\"first\",\"kind\":\"last\"}"
+		},
+		{
+			"name": "duplicate_worker_epoch_nested",
+			"rawJSON": "{\"envelope\":{\"workerEpoch\":1,\"workerEpoch\":2}}"
+		},
+		{
+			"name": "duplicate_length_array_nested",
+			"rawJSON": "{\"frames\":[{\"length\":1,\"length\":2}]}"
+		},
+		{
+			"name": "escaped_equivalent_discriminant",
+			"rawJSON": "{\"kind\":\"first\",\"\\u006bind\":\"last\"}"
+		}
+	]
+}

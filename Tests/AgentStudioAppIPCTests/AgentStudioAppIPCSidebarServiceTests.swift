@@ -6,10 +6,10 @@ import Testing
 
 @testable import AgentStudio
 
-@Suite("AgentStudio App IPC sidebar service", .serialized)
+@Suite("AgentStudio App IPC sidebar service")
 struct AgentStudioAppIPCSidebarServiceTests {
     @Test("debug token automation can read sidebar grouping and surface")
-    func debugTokenAutomationCanReadSidebarGroupingAndSurface() throws {
+    func debugTokenAutomationCanReadSidebarGroupingAndSurface() async throws {
         let fixture = try LiveServerFixture(
             channel: .debug,
             sidebarPort: FakeSidebarPort(
@@ -27,13 +27,13 @@ struct AgentStudioAppIPCSidebarServiceTests {
         }
         try fixture.server.start()
 
-        let connection = try authenticatedConnection(for: fixture, tokenRequestId: 67)
+        let connection = try await authenticatedConnection(for: fixture, tokenRequestId: 67)
         defer {
             connection.close()
         }
         var reader = TestFrameReader()
 
-        let repoGrouping = try getGrouping(
+        let repoGrouping = try await getGrouping(
             connection: connection,
             reader: &reader,
             requestId: 68,
@@ -42,7 +42,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
         #expect(repoGrouping.surface == .repo)
         #expect(repoGrouping.mode == .pane)
 
-        let inboxGrouping = try getGrouping(
+        let inboxGrouping = try await getGrouping(
             connection: connection,
             reader: &reader,
             requestId: 69,
@@ -51,7 +51,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
         #expect(inboxGrouping.surface == .inbox)
         #expect(inboxGrouping.mode == .noGrouping)
 
-        let surfaceGetResult = try getSurface(
+        let surfaceGetResult = try await getSurface(
             connection: connection,
             reader: &reader,
             requestId: 70
@@ -60,7 +60,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
     }
 
     @Test("removed sidebar write routes are not method registry entries")
-    func removedSidebarWriteRoutesAreNotMethodRegistryEntries() throws {
+    func removedSidebarWriteRoutesAreNotMethodRegistryEntries() async throws {
         let fixture = try LiveServerFixture(
             channel: .debug,
             debugTokenEscrowEnabled: true
@@ -70,7 +70,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
         }
         try fixture.server.start()
 
-        let connection = try authenticatedConnection(for: fixture, tokenRequestId: 71)
+        let connection = try await authenticatedConnection(for: fixture, tokenRequestId: 71)
         defer {
             connection.close()
         }
@@ -96,7 +96,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
                     params: params
                 )
             )
-            let response = try reader.receiveResponse(connection: connection)
+            let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
 
             #expect(response.id == .number(requestId))
             #expect(response.error?.code == -32_603)
@@ -105,14 +105,14 @@ struct AgentStudioAppIPCSidebarServiceTests {
     }
 
     @Test("debug unsafe no-auth denies sidebar read methods")
-    func debugUnsafeNoAuthDeniesSidebarReadMethods() throws {
+    func debugUnsafeNoAuthDeniesSidebarReadMethods() async throws {
         let fixture = try LiveServerFixture(accessMode: .unsafeDebug, channel: .debug)
         defer {
             fixture.cleanup()
         }
         try fixture.server.start()
 
-        let response = try sendRequest(
+        let response = try await sendRequestWithoutBlockingMainActor(
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(74),
@@ -131,14 +131,19 @@ struct AgentStudioAppIPCSidebarServiceTests {
     private func authenticatedConnection(
         for fixture: LiveServerFixture,
         tokenRequestId: Int
-    ) throws -> UnixSocketConnection {
+    ) async throws -> UnixSocketConnection {
         let token = AgentStudioIPCSubjectToken(
             rawValue: try String(contentsOf: fixture.paths.debugTokenURL, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         )
         let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
         var reader = TestFrameReader()
-        try login(connection: connection, token: token, requestId: tokenRequestId, reader: &reader)
+        try await loginWithoutBlockingMainActor(
+            connection: connection,
+            token: token,
+            requestId: tokenRequestId,
+            reader: &reader
+        )
         return connection
     }
 
@@ -147,7 +152,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
         reader: inout TestFrameReader,
         requestId: Int,
         surface: IPCSidebarSurface
-    ) throws -> IPCSidebarGroupingResult {
+    ) async throws -> IPCSidebarGroupingResult {
         try sendRequest(
             connection: connection,
             request: JSONRPCClientRequest(
@@ -158,7 +163,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
                 )
             )
         )
-        let response = try reader.receiveResponse(connection: connection)
+        let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
         #expect(response.error == nil)
         return try decodeResponseResult(IPCSidebarGroupingResult.self, from: response)
     }
@@ -167,7 +172,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
         connection: UnixSocketConnection,
         reader: inout TestFrameReader,
         requestId: Int
-    ) throws -> IPCSidebarSurfaceResult {
+    ) async throws -> IPCSidebarSurfaceResult {
         try sendRequest(
             connection: connection,
             request: JSONRPCClientRequest(
@@ -176,7 +181,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
                 params: try JSONRPCCodec.encodeJSONValue(IPCSidebarSurfaceGetParams())
             )
         )
-        let response = try reader.receiveResponse(connection: connection)
+        let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
         #expect(response.error == nil)
         return try decodeResponseResult(IPCSidebarSurfaceResult.self, from: response)
     }

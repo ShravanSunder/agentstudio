@@ -9,9 +9,9 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     @Test("phase-one registry has complete metadata and no deferred namespaces")
     func phaseOneRegistryHasCompleteMetadataAndNoDeferredNamespaces() throws {
         let registry = try AppIPCMethodRegistry.phaseOne()
-        let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "bridge.", "orchestration."]
+        let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "orchestration."]
 
-        #expect(registry.definitions.count == 33)
+        #expect(registry.definitions.count == 49)
         #expect(registry.definition(named: "pane.snapshot") == nil)
         for definition in registry.definitions {
             #expect(!definition.paramsSchema.name.isEmpty)
@@ -46,6 +46,164 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             #expect(definition.privilegeClasses == [.layoutMutate])
             #expect(definition.executionOwner == .workspaceAction)
         }
+
+        let expectedBridgeMethods: [String: (privileges: Set<String>, owner: String)] = [
+            "bridge.diff.load": (["layoutMutate"], "bridgeCapability"),
+            "bridge.fileView.open": (["layoutMutate"], "bridgeCapability"),
+            "bridge.diff.refresh": (["bridgeControl"], "bridgeCapability"),
+            "bridge.diff.getPackage": (["bridgeRead"], "bridgeCapability"),
+            "bridge.diff.renderState": (["bridgeRead"], "bridgeCapability"),
+            "bridge.diff.selectFile": (["bridgeControl"], "bridgeCapability"),
+            "bridge.diff.scrollToFile": (["bridgeControl"], "bridgeCapability"),
+            "bridge.diff.expandFile": (["bridgeControl"], "bridgeCapability"),
+            "bridge.diff.collapseFile": (["bridgeControl"], "bridgeCapability"),
+            "bridge.fileTree.search": (["bridgeControl"], "bridgeCapability"),
+            "bridge.fileTree.setFilter": (["bridgeControl"], "bridgeCapability"),
+            "bridge.fileTree.revealPath": (["bridgeControl"], "bridgeCapability"),
+            "bridge.fileView.getContent": (["bridgeContentRead"], "bridgeCapability"),
+            "bridge.fileView.showMarkdownPreview": (["bridgeControl"], "bridgeCapability"),
+            "bridge.telemetry.snapshot": (["bridgeTelemetryRead"], "bridgeCapability"),
+            "bridge.telemetry.flush": (["bridgeTelemetryFlush"], "bridgeCapability"),
+        ]
+        for (methodName, expected) in expectedBridgeMethods {
+            let definition = try #require(registry.definition(named: methodName))
+            #expect(Set(definition.privilegeClasses.map(\.rawValue)) == expected.privileges)
+            #expect(definition.executionOwner.rawValue == expected.owner)
+        }
+
+        #expect(registry.definition(named: "webview.evaluateJavaScript") == nil)
+        #expect(registry.definition(named: "bridge.rawPostMessage") == nil)
+        #expect(registry.definition(named: "bridge.review.getPackage") == nil)
+        #expect(registry.definition(named: "bridge.content.get") == nil)
+    }
+
+    @Test("Bridge diff load is not a baseline self-pane Bridge control method")
+    func bridgeDiffLoadIsNotBaselineSelfPaneBridgeControl() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: GrantLedger(),
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let principal = makeAuthorizationPrincipal(boundPaneId: "pane-1")
+
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "bridge.diff.load",
+                requestedTarget: .selfPane,
+                activePaneId: nil
+            )
+        }
+    }
+
+    @Test("Bridge grant checks keep read content control and telemetry scopes distinct")
+    func bridgeGrantChecksKeepReadContentControlAndTelemetryScopesDistinct() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let grantLedger = GrantLedger()
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: grantLedger,
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let principal = makeAutomationAuthorizationPrincipal()
+        let target = IPCTargetScope.pane("pane-1")
+
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .bridgeRead, target: target, dataScope: .bridgeReviewPackage),
+            to: principal.principalId
+        )
+
+        try service.authorize(
+            principal: principal,
+            methodName: "bridge.diff.getPackage",
+            requestedTarget: target,
+            activePaneId: nil
+        )
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "bridge.fileView.getContent",
+                requestedTarget: target,
+                activePaneId: nil
+            )
+        }
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "bridge.diff.selectFile",
+                requestedTarget: target,
+                activePaneId: nil
+            )
+        }
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "bridge.telemetry.snapshot",
+                requestedTarget: target,
+                activePaneId: nil
+            )
+        }
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "bridge.telemetry.flush",
+                requestedTarget: target,
+                activePaneId: nil
+            )
+        }
+
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .bridgeContentRead, target: target, dataScope: .bridgeContent),
+            to: principal.principalId
+        )
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .bridgeControl, target: target, dataScope: .bridgeReviewPackage),
+            to: principal.principalId
+        )
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .bridgeTelemetryRead, target: target, dataScope: .bridgeTelemetry),
+            to: principal.principalId
+        )
+
+        try service.authorize(
+            principal: principal,
+            methodName: "bridge.fileView.getContent",
+            requestedTarget: target,
+            activePaneId: nil
+        )
+        try service.authorize(
+            principal: principal,
+            methodName: "bridge.diff.selectFile",
+            requestedTarget: target,
+            activePaneId: nil
+        )
+        try service.authorize(
+            principal: principal,
+            methodName: "bridge.telemetry.snapshot",
+            requestedTarget: target,
+            activePaneId: nil
+        )
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "bridge.telemetry.flush",
+                requestedTarget: target,
+                activePaneId: nil
+            )
+        }
+
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .bridgeTelemetryFlush, target: target, dataScope: .bridgeTelemetry),
+            to: principal.principalId
+        )
+
+        try service.authorize(
+            principal: principal,
+            methodName: "bridge.telemetry.flush",
+            requestedTarget: target,
+            activePaneId: nil
+        )
     }
 
     @Test("contributed methods merge with base definitions before capability export")
@@ -112,6 +270,18 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         }
     }
 
+    @Test("registry rejects contributed execution owners outside query reader")
+    func registryRejectsContributedExecutionOwnersOutsideQueryReader() throws {
+        let contribution = try makeTestContribution(
+            methodName: "pane.workspaceAction",
+            executionOwner: .workspaceAction
+        )
+
+        #expect(throws: AppIPCMethodRegistryError.self) {
+            _ = try AppIPCMethodRegistry(baseDefinitions: [], contributions: [contribution])
+        }
+    }
+
     @Test("contributed method security contract must be explicit")
     func contributedMethodSecurityContractMustBeExplicit() throws {
         #expect(throws: AppIPCMethodContributionError.self) {
@@ -131,6 +301,18 @@ struct AgentStudioIPCRegistryAuthorizationTests {
                 methodName: "pane.noSensitiveDataExclusions",
                 sensitiveDataExclusions: []
             )
+        }
+    }
+
+    @Test("registry rejects contributed data scopes outside security contract")
+    func registryRejectsContributedDataScopesOutsideSecurityContract() throws {
+        let contribution = try makeTestContribution(
+            methodName: "pane.badScope",
+            dataScopes: [.bridgeContent]
+        )
+
+        #expect(throws: AppIPCMethodRegistryError.self) {
+            _ = try AppIPCMethodRegistry(baseDefinitions: [], contributions: [contribution])
         }
     }
 
@@ -455,9 +637,20 @@ private func makeAuthorizationPrincipal(boundPaneId: String) -> IPCPrincipal {
     )
 }
 
+private func makeAutomationAuthorizationPrincipal() -> IPCPrincipal {
+    IPCPrincipal(
+        principalId: UUID(),
+        runtimeId: UUID(),
+        accessMode: .agentStudioOnly,
+        kind: .automationClient,
+        approvalAuthority: .noApprovalAuthority
+    )
+}
+
 private func makeTestMethodDefinition(
     name: String,
-    principalAvailability: IPCPrincipalAvailability = .authenticated
+    principalAvailability: IPCPrincipalAvailability = .authenticated,
+    executionOwner: IPCExecutionOwner = .queryReader
 ) throws -> IPCMethodDefinition {
     try IPCMethodDefinition(
         name: name,
@@ -465,7 +658,7 @@ private func makeTestMethodDefinition(
         resultSchema: IPCSchemaDescription(name: "\(name).result"),
         privilegeClasses: [.paneContextRead],
         principalAvailability: principalAvailability,
-        executionOwner: .queryReader,
+        executionOwner: executionOwner,
         resultSemantics: .applied
     )
 }
@@ -473,6 +666,7 @@ private func makeTestMethodDefinition(
 private func makeTestContribution(
     methodName: String,
     principalAvailability: IPCPrincipalAvailability = .authenticated,
+    executionOwner: IPCExecutionOwner = .queryReader,
     targetVocabulary: Set<AppIPCContributionTargetVocabulary> = [.pane],
     dataScopes: Set<IPCDataScope> = [.paneContext],
     sensitiveDataExclusions: Set<String> = [
@@ -482,7 +676,11 @@ private func makeTestContribution(
     ]
 ) throws -> AppIPCMethodContribution {
     try AppIPCMethodContribution(
-        definition: makeTestMethodDefinition(name: methodName, principalAvailability: principalAvailability),
+        definition: makeTestMethodDefinition(
+            name: methodName,
+            principalAvailability: principalAvailability,
+            executionOwner: executionOwner
+        ),
         securityContract: AppIPCContributionSecurityContract(
             targetVocabulary: targetVocabulary,
             dataScopes: dataScopes,

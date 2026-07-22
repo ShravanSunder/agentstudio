@@ -79,8 +79,8 @@ Write surfaces:
   serialized tests as needed.
 
 Read-only context:
-- `docs/architecture/swift_react_bridge_design.md` §6 (push pipeline) — how
-  package metadata rides the existing push plane.
+- `docs/architecture/bridge_native_runtime_architecture.md` — Review build,
+  publication, and product transport boundaries.
 - `Sources/AgentStudio/Features/Bridge/State/Push/` — PushPlan/Slice
   infrastructure the package publication must reuse.
 

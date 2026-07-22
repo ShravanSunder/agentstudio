@@ -19,6 +19,9 @@ struct BridgeReviewFoundationContractTests {
         #expect(package.orderedItemIds == ["item-file-source-1"])
         #expect(package.itemsById["item-file-source-1"]?.fileClass == .source)
         #expect(package.itemsById["item-file-generated-1"]?.isHiddenByDefault == true)
+        #expect(package.itemsById["item-file-source-1"]?.contentRoles.base?.handleId == "handle-source-base")
+        #expect(package.itemsById["item-file-source-1"]?.contentRoles.head?.handleId == "handle-source-head")
+        #expect(package.itemsById["item-file-generated-1"]?.contentRoles.head?.handleId == "handle-generated-head")
         try assertRoundTrip(package)
     }
 
@@ -64,6 +67,31 @@ struct BridgeReviewFoundationContractTests {
         #expect(delta.operations.removeItems == ["item-file-generated-1"])
         #expect(delta.operations.updateGroups == nil)
         try assertRoundTrip(delta)
+    }
+
+    @Test("bridge content handle preserves inexact size through codable round trip")
+    func bridgeContentHandlePreservesInexactSizeThroughCodableRoundTrip() throws {
+        let handle = BridgeContentHandle(
+            handleId: "handle-source-base",
+            itemId: "item-source",
+            role: .base,
+            endpointId: "baseline",
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("old source"),
+            contentHashAlgorithm: "sha256",
+            cacheKey: "baseline:item-source:base",
+            mimeType: "text/plain",
+            language: nil,
+            sizeBytes: 12,
+            sizeBytesIsExact: false,
+            isBinary: false
+        )
+
+        let encoded = try JSONEncoder().encode(handle)
+        let decoded = try JSONDecoder().decode(BridgeContentHandle.self, from: encoded)
+
+        #expect(decoded == handle)
+        #expect(decoded.sizeBytesIsExact == false)
     }
 
     @Test("bridge review package fixture missing generation is rejected")

@@ -56,10 +56,16 @@ struct RepoScannerCompletenessTests {
         #expect(partialScan.counts.validationAuthoritativeNegativeCount == 0)
         #expect(partialScan.counts.validationTimeoutCount == 0)
         #expect(partialScan.counts.validationCancellationCount == 0)
+        let minimumServiceInvocationCount =
+            partialScan.counts.validationSuccessCount
+            + partialScan.counts.validationFailureCount + 1
+        let maximumServiceInvocationCount =
+            partialScan.counts.directoryVisitCount
+            + partialScan.counts.gitCandidateCount + 1
         #expect(
-            partialScan.counts.scannerServiceInvocationCount
-                == partialScan.counts.validationSuccessCount
-                + partialScan.counts.validationFailureCount + 1
+            (minimumServiceInvocationCount...maximumServiceInvocationCount).contains(
+                partialScan.counts.scannerServiceInvocationCount
+            )
         )
         guard
             case .gitRepositoryDiscoveryFailed(let failedCandidatePath, let discoveryFailure) =

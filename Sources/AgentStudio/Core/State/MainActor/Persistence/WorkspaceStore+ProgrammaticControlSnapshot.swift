@@ -20,6 +20,7 @@ struct ProgrammaticControlWorkspaceSnapshot: Equatable, Sendable {
     let name: String
     let tabs: [ProgrammaticControlTabSnapshot]
     let panes: [ProgrammaticControlPaneSnapshot]
+    let repositories: [ProgrammaticControlRepositorySnapshot]
     let activeTabId: UUID?
 
     var activeTab: ProgrammaticControlTabSnapshot? {
@@ -45,6 +46,21 @@ struct ProgrammaticControlPaneSnapshot: Equatable, Sendable {
     let worktreeId: UUID?
     let isActive: Bool
     let isDrawerChild: Bool
+}
+
+struct ProgrammaticControlRepositorySnapshot: Equatable, Sendable {
+    let id: UUID
+    let name: String
+    let path: String
+    let worktrees: [ProgrammaticControlWorktreeSnapshot]
+}
+
+struct ProgrammaticControlWorktreeSnapshot: Equatable, Sendable {
+    let id: UUID
+    let repoId: UUID
+    let name: String
+    let path: String
+    let isMainWorktree: Bool
 }
 
 @MainActor
@@ -79,11 +95,29 @@ extension WorkspaceStore {
             )
         }
 
+        let repositorySnapshots = repositoryTopologyAtom.repos.map { repo in
+            ProgrammaticControlRepositorySnapshot(
+                id: repo.id,
+                name: repo.name,
+                path: repo.repoPath.path,
+                worktrees: repo.worktrees.map { worktree in
+                    ProgrammaticControlWorktreeSnapshot(
+                        id: worktree.id,
+                        repoId: worktree.repoId,
+                        name: worktree.name,
+                        path: worktree.path.path,
+                        isMainWorktree: worktree.isMainWorktree
+                    )
+                }
+            )
+        }
+
         return ProgrammaticControlWorkspaceSnapshot(
             id: identityAtom.workspaceId,
             name: identityAtom.workspaceName,
             tabs: tabSnapshots,
             panes: paneSnapshots,
+            repositories: repositorySnapshots,
             activeTabId: tabLayoutAtom.activeTabId
         )
     }

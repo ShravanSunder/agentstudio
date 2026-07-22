@@ -45,9 +45,10 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
         self.activeReadRegistry = activeReadRegistry
     }
 
-    func statusResult(for rootPath: URL) async -> GitWorkingTreeStatusResult {
+    func statusResult(for rootPath: URL, pathspecs: [String]?) async -> GitWorkingTreeStatusResult {
         await Self.computeStatusResult(
             rootPath: rootPath,
+            pathspecs: pathspecs,
             timeout: timeout,
             timeoutScheduler: timeoutScheduler,
             activeReadRegistry: activeReadRegistry,
@@ -58,20 +59,30 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     @concurrent
     nonisolated private static func computeStatusResult(
         rootPath: URL,
+        pathspecs: [String]?,
         timeout: Duration,
         timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler,
         activeReadRegistry: AgentStudioGitActiveStatusReadRegistry,
         statusReader: @escaping AgentStudioGitStatusReader
     ) async -> GitWorkingTreeStatusResult {
         let readKey = AgentStudioGitActiveStatusReadKey(rootPath)
-        guard activeReadRegistry.start(readKey) else {
+        switch activeReadRegistry.start(readKey) {
+        case .started:
+            break
+        case .sameRootAlreadyInFlight:
             return .unavailable(GitWorkingTreeStatusUnavailable(reason: .readAlreadyInFlight))
+        case .capacityExceeded:
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .readCapacityExceeded))
         }
         do {
             let snapshot = try await readWithHardTimeout(timeout, timeoutScheduler: timeoutScheduler) {
                 try await statusReader(
                     rootPath,
-                    AgentStudioGit.GitStatusOptions(includeIgnored: false, includeUntracked: true)
+                    AgentStudioGit.GitStatusOptions(
+                        includeIgnored: false,
+                        includeUntracked: true,
+                        pathspecs: pathspecs
+                    )
                 )
             } onOperationFinished: {
                 activeReadRegistry.finish(readKey)
@@ -159,7 +170,21 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
         GitWorkingTreeStatus(
             summary: mapSummary(snapshot.summary, headKind: snapshot.head.kind),
             branch: mapBranch(snapshot.head),
-            originResolution: mapOrigin(snapshot.originResolution)
+            originResolution: mapOrigin(snapshot.originResolution),
+            entries: snapshot.entries.map(mapEntry)
+        )
+    }
+
+    nonisolated private static func mapEntry(
+        _ entry: AgentStudioGit.GitStatusEntry
+    ) -> GitWorkingTreeStatusEntry {
+        GitWorkingTreeStatusEntry(
+            path: entry.path,
+            previousPath: entry.previousPath,
+            hasStagedChange: entry.indexState != nil,
+            hasUnstagedChange: entry.worktreeState != nil,
+            isUntracked: entry.untracked,
+            isRename: entry.indexState == .renamed || entry.worktreeState == .renamed
         )
     }
 
@@ -255,20 +280,43 @@ struct AgentStudioGitActiveStatusReadKey: Hashable, Sendable {
 
 final class AgentStudioGitActiveStatusReadRegistry: @unchecked Sendable {
     private let lock = NSLock()
+    private let maxActiveReadCount: Int
+    /// Root in-flight marker. Prevents a duplicate concurrent read of the same root.
+    /// Cleared only on true completion of the detached read (`finish`), even after the
+    /// caller has abandoned the wait — so an orphaned libgit2 read is never double-started.
     private var activeReadKeys: Set<AgentStudioGitActiveStatusReadKey> = []
+    /// Physical-operation slot accounting. Bounds the number of detached native reads that
+    /// are still running, including reads whose caller timed out or cancelled. Released only
+    /// on true completion of the detached read (`finish`).
+    private var capacityHeldKeys: Set<AgentStudioGitActiveStatusReadKey> = []
     private var inactiveWaiters: [AgentStudioGitActiveStatusReadKey: [CheckedContinuation<Void, Never>]] = [:]
 
-    func start(_ key: AgentStudioGitActiveStatusReadKey) -> Bool {
+    init(maxActiveReadCount: Int = AppPolicies.GitRefresh.defaultDetachedStatusReadLimit) {
+        precondition(maxActiveReadCount > 0)
+        self.maxActiveReadCount = maxActiveReadCount
+    }
+
+    func start(_ key: AgentStudioGitActiveStatusReadKey) -> AgentStudioGitActiveStatusReadStartResult {
         lock.lock()
-        let inserted = activeReadKeys.insert(key).inserted
+        if activeReadKeys.contains(key) {
+            lock.unlock()
+            return .sameRootAlreadyInFlight
+        }
+        guard capacityHeldKeys.count < maxActiveReadCount else {
+            lock.unlock()
+            return .capacityExceeded
+        }
+        activeReadKeys.insert(key)
+        capacityHeldKeys.insert(key)
         lock.unlock()
-        return inserted
+        return .started
     }
 
     func finish(_ key: AgentStudioGitActiveStatusReadKey) {
         let waiters: [CheckedContinuation<Void, Never>]
         lock.lock()
         activeReadKeys.remove(key)
+        capacityHeldKeys.remove(key)
         waiters = inactiveWaiters.removeValue(forKey: key) ?? []
         lock.unlock()
 
@@ -289,6 +337,12 @@ final class AgentStudioGitActiveStatusReadRegistry: @unchecked Sendable {
             lock.unlock()
         }
     }
+}
+
+enum AgentStudioGitActiveStatusReadStartResult: Equatable, Sendable {
+    case started
+    case sameRootAlreadyInFlight
+    case capacityExceeded
 }
 
 protocol AgentStudioGitStatusTimeoutScheduler: Sendable {

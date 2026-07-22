@@ -11,6 +11,7 @@ LSOF_BIN="${AGENTSTUDIO_LSOF_BIN:-/usr/sbin/lsof}"
 CURL_BIN="${AGENTSTUDIO_CURL_BIN:-/usr/bin/curl}"
 DITTO_BIN="${AGENTSTUDIO_DITTO_BIN:-/usr/bin/ditto}"
 CODESIGN_BIN="${AGENTSTUDIO_CODESIGN_BIN:-/usr/bin/codesign}"
+SECURITY_BIN="${AGENTSTUDIO_SECURITY_BIN:-/usr/bin/security}"
 
 fail_on_legacy_observability_env() {
   local legacy_prefix="SHRAVAN_""OBSERVABILITY_"
@@ -174,6 +175,42 @@ bundle_identifier_for_executable() {
   /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$bundle_path/Contents/Info.plist" 2>/dev/null || true
 }
 
+debug_signing_identity() {
+  if [ -n "${AGENTSTUDIO_DEBUG_SIGNING_IDENTITY:-}" ]; then
+    printf '%s\n' "$AGENTSTUDIO_DEBUG_SIGNING_IDENTITY"
+    return 0
+  fi
+  if [ -n "${SIGNING_IDENTITY:-}" ]; then
+    printf '%s\n' "$SIGNING_IDENTITY"
+    return 0
+  fi
+
+  "$SECURITY_BIN" find-identity -v -p codesigning 2>/dev/null |
+    awk -F'"' '/Developer ID Application/ { print $2; exit }'
+}
+
+codesign_debug_item() {
+  local item_path="${1:?missing item path}"
+  local signing_identity="${2:-}"
+  local entitlements="${3:-}"
+
+  if [ -n "$signing_identity" ]; then
+    if [ -n "$entitlements" ]; then
+      "$CODESIGN_BIN" --force --sign "$signing_identity" --options runtime \
+        --entitlements "$entitlements" "$item_path" >/dev/null
+    else
+      "$CODESIGN_BIN" --force --sign "$signing_identity" --options runtime "$item_path" >/dev/null
+    fi
+    return
+  fi
+
+  if [ -n "$entitlements" ]; then
+    "$CODESIGN_BIN" --force --sign - --entitlements "$entitlements" "$item_path" >/dev/null
+  else
+    "$CODESIGN_BIN" --force --sign - "$item_path" >/dev/null
+  fi
+}
+
 app_pid_for_binary() {
   local binary_path="${1:?missing binary path}"
   agentstudio_pids_for_binary "$binary_path" | tail -1
@@ -253,6 +290,7 @@ write_launch_failed_state() {
     write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "${launch_data_root:-${debug_root:-}}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "${launch_zmx_dir:-${debug_zmx_dir:-}}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION "${startup_diagnostic_action:-}"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_WATCH_FOLDER "${startup_watch_folder:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE "${launch_activation_mode:-unknown}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE "${ipc_auth_mode:-authenticated}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_REPEAT_COUNT "${tcc_probe_repeat_count:-}"
@@ -283,6 +321,7 @@ write_running_state() {
     write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$launch_data_root"
     write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$launch_zmx_dir"
     write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION "$startup_diagnostic_action"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_WATCH_FOLDER "$startup_watch_folder"
     write_state_value AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE "$launch_activation_mode"
     write_state_value AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE "$ipc_auth_mode"
     write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_REPEAT_COUNT "$tcc_probe_repeat_count"
@@ -395,6 +434,7 @@ copy_debug_bundle() {
   local app_dir="$app_path/Contents"
   local plist_path="$app_dir/Info.plist"
   local entitlements="Sources/AgentStudio/Resources/AgentStudio.entitlements"
+  local signing_identity
   local marketing_version="${APP_MARKETING_VERSION:-0.0.1-debug+$code}"
   local build_version="${APP_BUILD_VERSION:-$(git rev-list --count HEAD)}"
 
@@ -427,10 +467,16 @@ copy_debug_bundle() {
   resource_bundle="$(find "$build_root" -path '*/debug/AgentStudio_AgentStudio.bundle' -type d | head -1)"
   [ -n "$resource_bundle" ] && "$DITTO_BIN" "$resource_bundle" "$app_dir/Resources/AgentStudio_AgentStudio.bundle"
 
-  if [ -f "$app_dir/MacOS/zmx" ]; then
-    "$CODESIGN_BIN" --force --sign - --entitlements "$entitlements" "$app_dir/MacOS/zmx" >/dev/null
+  signing_identity="$(debug_signing_identity)"
+  if [ -n "$signing_identity" ]; then
+    echo "debug signing identity: $signing_identity" >&2
+  else
+    echo "debug signing identity: ad-hoc" >&2
   fi
-  "$CODESIGN_BIN" --force --deep --sign - "$app_path" >/dev/null
+  if [ -f "$app_dir/MacOS/zmx" ]; then
+    codesign_debug_item "$app_dir/MacOS/zmx" "$signing_identity" "$entitlements"
+  fi
+  codesign_debug_item "$app_path" "$signing_identity" "$entitlements"
   "$CODESIGN_BIN" --verify --deep --strict "$app_path"
 
   printf '%s\n' "$app_path"
@@ -699,6 +745,13 @@ if [ -n "$existing_pids" ]; then
 fi
 
 if [ "$skip_build" = false ]; then
+  if ! mise run bridge-web-build; then
+    mkdir -p "$(dirname "$state_file")"
+    write_launch_failed_state bridge_web_build_failed
+    echo "BridgeWeb packaged resource build failed" >&2
+    echo "observability state: $state_file" >&2
+    exit 1
+  fi
   if ! swift build --build-path "$build_path"; then
     mkdir -p "$(dirname "$state_file")"
     write_launch_failed_state swift_build_failed
@@ -716,12 +769,24 @@ if [ ! -x "$binary_path" ]; then
   exit 1
 fi
 
-trace_tags="${AGENTSTUDIO_TRACE_TAGS:-*}"
+startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}"
+if [ -n "${AGENTSTUDIO_TRACE_TAGS:-}" ]; then
+  trace_tags="$AGENTSTUDIO_TRACE_TAGS"
+elif [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "bridge-file-view-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "bridge-file-view-command-route-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "bridge-file-view-targeted-route-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "bridge-review-to-file-view-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "bridge-product-paint-correlation" ]; then
+  trace_tags="app.startup,bridge.performance.*"
+else
+  trace_tags="*"
+fi
 trace_flush="${AGENTSTUDIO_TRACE_FLUSH:-immediate}"
 trace_backend=otlp
 trace_name="${AGENTSTUDIO_TRACE_NAME:-debug-observability-$debug_code-$(date +%s)-$$}"
 trace_proof_token="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}"
+startup_watch_folder="${AGENTSTUDIO_STARTUP_WATCH_FOLDER:-}"
 ipc_auth_mode=authenticated
 if [ -n "${AGENTSTUDIO_IPC_UNSAFE_NO_AUTH:-}" ]; then
   ipc_auth_mode=unsafe_no_auth
@@ -816,6 +881,9 @@ fi
 if [ -n "$startup_diagnostic_action" ]; then
   open_env_args+=(--env "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$startup_diagnostic_action")
 fi
+if [ -n "$startup_watch_folder" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_STARTUP_WATCH_FOLDER=$startup_watch_folder")
+fi
 if [ -n "$tcc_probe_repeat_count" ]; then
   open_env_args+=(--env "AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT=$tcc_probe_repeat_count")
 fi
@@ -863,6 +931,9 @@ else
 fi
 if [ -n "$startup_diagnostic_action" ]; then
   direct_launch_env+=("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$startup_diagnostic_action")
+fi
+if [ -n "$startup_watch_folder" ]; then
+  direct_launch_env+=("AGENTSTUDIO_STARTUP_WATCH_FOLDER=$startup_watch_folder")
 fi
 if [ -n "$tcc_probe_repeat_count" ]; then
   direct_launch_env+=("AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT=$tcc_probe_repeat_count")

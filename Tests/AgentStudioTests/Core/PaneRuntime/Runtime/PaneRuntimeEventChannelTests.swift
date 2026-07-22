@@ -1,4 +1,3 @@
-import Dispatch
 import Foundation
 import Testing
 
@@ -50,30 +49,28 @@ struct PaneRuntimeEventChannelTests {
     func outboundDebtTransfersToEventBusDebt() async {
         let reporter = RuntimeDeliveryPerformanceReporter()
         reporter.enable()
-        let sourceKeyGate = BlockingRuntimeEnvelopeSourceKey()
-        let bus = EventBus<RuntimeEnvelope>(
-            replayConfiguration: .init(
-                capacityPerSource: 1,
-                sourceKey: sourceKeyGate.sourceKey
-            ),
-            performanceReporter: reporter
-        )
+        let bus = EventBus<RuntimeEnvelope>(performanceReporter: reporter)
+        let outboundPostGate = RuntimeEnvelopeOutboundPostGate(paneEventBus: bus)
         let subscription = await bus.subscribe(
             policy: .criticalUnbounded,
             subscriberName: "runtimeChannelTransfer"
         )
         var iterator = subscription.makeAsyncIterator()
-        let channel = makeChannel(paneEventBus: bus, reporter: reporter)
+        let channel = makeChannel(
+            paneEventBus: bus,
+            reporter: reporter,
+            outboundPost: outboundPostGate.post
+        )
 
         emitBell(on: channel)
-        await sourceKeyGate.waitUntilPostEntered()
+        await outboundPostGate.waitUntilPostEntered()
 
         let outboundSnapshot = reporter.snapshot()
         #expect(outboundSnapshot.runtimeChannelOutboundPendingCount == 1)
         #expect(outboundSnapshot.eventBusActiveDeliveryDebt == 0)
         #expect(outboundSnapshot.totalPendingCount == 1)
 
-        sourceKeyGate.allowPostToFinish()
+        await outboundPostGate.allowPostToFinish()
         await assertEventuallyAsync("outbound custody should transfer to EventBus") {
             let snapshot = reporter.snapshot()
             return snapshot.runtimeChannelOutboundPendingCount == 0
@@ -90,18 +87,16 @@ struct PaneRuntimeEventChannelTests {
     func finishKeepsInFlightOutboundDebtPendingUntilPostCompletes() async {
         let reporter = RuntimeDeliveryPerformanceReporter()
         reporter.enable()
-        let sourceKeyGate = BlockingRuntimeEnvelopeSourceKey()
-        let bus = EventBus<RuntimeEnvelope>(
-            replayConfiguration: .init(
-                capacityPerSource: 1,
-                sourceKey: sourceKeyGate.sourceKey
-            ),
-            performanceReporter: reporter
+        let bus = EventBus<RuntimeEnvelope>(performanceReporter: reporter)
+        let outboundPostGate = RuntimeEnvelopeOutboundPostGate(paneEventBus: bus)
+        let channel = makeChannel(
+            paneEventBus: bus,
+            reporter: reporter,
+            outboundPost: outboundPostGate.post
         )
-        let channel = makeChannel(paneEventBus: bus, reporter: reporter)
 
         emitBell(on: channel)
-        await sourceKeyGate.waitUntilPostEntered()
+        await outboundPostGate.waitUntilPostEntered()
         #expect(reporter.snapshot().runtimeChannelOutboundPendingCount == 1)
 
         channel.finishSubscribers()
@@ -110,7 +105,7 @@ struct PaneRuntimeEventChannelTests {
         #expect(finishingSnapshot.runtimeChannelRetiredUndeliveredCount == 0)
         #expect(finishingSnapshot.totalPendingCount == 1)
 
-        sourceKeyGate.allowPostToFinish()
+        await outboundPostGate.allowPostToFinish()
         await assertEventuallyAsync("completed in-flight post should leave no retired debt") {
             let snapshot = reporter.snapshot()
             return snapshot.runtimeChannelOutboundPendingCount == 0
@@ -122,25 +117,23 @@ struct PaneRuntimeEventChannelTests {
     func finishRetiresOnlyBufferedOutboundDebt() async {
         let reporter = RuntimeDeliveryPerformanceReporter()
         reporter.enable()
-        let sourceKeyGate = BlockingRuntimeEnvelopeSourceKey()
-        let bus = EventBus<RuntimeEnvelope>(
-            replayConfiguration: .init(
-                capacityPerSource: 1,
-                sourceKey: sourceKeyGate.sourceKey
-            ),
-            performanceReporter: reporter
+        let bus = EventBus<RuntimeEnvelope>(performanceReporter: reporter)
+        let outboundPostGate = RuntimeEnvelopeOutboundPostGate(paneEventBus: bus)
+        let channel = makeChannel(
+            paneEventBus: bus,
+            reporter: reporter,
+            outboundPost: outboundPostGate.post
         )
-        let channel = makeChannel(paneEventBus: bus, reporter: reporter)
 
         emitBell(on: channel)
-        await sourceKeyGate.waitUntilPostEntered()
+        await outboundPostGate.waitUntilPostEntered()
         emitBell(on: channel)
         #expect(reporter.snapshot().runtimeChannelOutboundPendingCount == 2)
 
         channel.finishSubscribers()
         #expect(reporter.snapshot().runtimeChannelOutboundPendingCount == 2)
 
-        sourceKeyGate.allowPostToFinish()
+        await outboundPostGate.allowPostToFinish()
         await assertEventuallyAsync("only the cancelled buffered envelope should retire") {
             let snapshot = reporter.snapshot()
             return snapshot.runtimeChannelOutboundPendingCount == 0
@@ -150,11 +143,13 @@ struct PaneRuntimeEventChannelTests {
 
     private func makeChannel(
         paneEventBus: EventBus<RuntimeEnvelope>,
-        reporter: RuntimeDeliveryPerformanceReporter
+        reporter: RuntimeDeliveryPerformanceReporter,
+        outboundPost: @escaping PaneRuntimeEventChannel.OutboundPost
     ) -> PaneRuntimeEventChannel {
         PaneRuntimeEventChannel(
             paneEventBus: paneEventBus,
-            performanceReporter: reporter
+            performanceReporter: reporter,
+            outboundPost: outboundPost
         )
     }
 
@@ -174,32 +169,50 @@ struct PaneRuntimeEventChannelTests {
     }
 }
 
-private final class BlockingRuntimeEnvelopeSourceKey: @unchecked Sendable {
-    private let postEnteredStream: AsyncStream<Void>
-    private let postEnteredContinuation: AsyncStream<Void>.Continuation
-    private let finishPostSemaphore = DispatchSemaphore(value: 0)
+private actor RuntimeEnvelopeOutboundPostGate {
+    private let paneEventBus: EventBus<RuntimeEnvelope>
+    private var postEntryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var postReleaseWaiters: [CheckedContinuation<Void, Never>] = []
+    private var hasPostEntered = false
+    private var isPostReleased = false
 
-    init() {
-        (postEnteredStream, postEnteredContinuation) = AsyncStream.makeStream(of: Void.self)
+    init(paneEventBus: EventBus<RuntimeEnvelope>) {
+        self.paneEventBus = paneEventBus
     }
 
-    deinit {
-        postEnteredContinuation.finish()
-        finishPostSemaphore.signal()
-    }
+    func post(_ envelope: RuntimeEnvelope) async -> EventBus<RuntimeEnvelope>.PostResult {
+        if !hasPostEntered {
+            hasPostEntered = true
+            let entryWaiters = postEntryWaiters
+            postEntryWaiters.removeAll(keepingCapacity: false)
+            for entryWaiter in entryWaiters {
+                entryWaiter.resume()
+            }
 
-    func sourceKey(_: RuntimeEnvelope) -> String {
-        postEnteredContinuation.yield(())
-        finishPostSemaphore.wait()
-        return "blocked-runtime-channel-test"
+            if !isPostReleased {
+                await withCheckedContinuation { continuation in
+                    postReleaseWaiters.append(continuation)
+                }
+            }
+        }
+
+        return await paneEventBus.post(envelope)
     }
 
     func waitUntilPostEntered() async {
-        var iterator = postEnteredStream.makeAsyncIterator()
-        _ = await iterator.next()
+        guard !hasPostEntered else { return }
+        await withCheckedContinuation { continuation in
+            postEntryWaiters.append(continuation)
+        }
     }
 
     func allowPostToFinish() {
-        finishPostSemaphore.signal()
+        guard !isPostReleased else { return }
+        isPostReleased = true
+        let releaseWaiters = postReleaseWaiters
+        postReleaseWaiters.removeAll(keepingCapacity: false)
+        for releaseWaiter in releaseWaiters {
+            releaseWaiter.resume()
+        }
     }
 }

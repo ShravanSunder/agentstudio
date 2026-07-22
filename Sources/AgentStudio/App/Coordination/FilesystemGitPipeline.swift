@@ -28,9 +28,9 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
         forgeStatusProvider: any ForgeStatusProvider = GitHubCLIForgeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
-        filesystemDebounceWindow: Duration = .milliseconds(500),
-        filesystemMaxFlushLatency: Duration = .seconds(2),
-        gitCoalescingWindow: Duration = .milliseconds(200),
+        filesystemDebounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
+        filesystemMaxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency,
+        gitCoalescingWindow: Duration = AppPolicies.GitRefresh.filesystemDerivedCoalescingWindow,
         gitPeriodicRefreshInterval: Duration? = nil,
         gitRefreshPolicy: AppPolicies.GitRefresh.Policy = AppPolicies.GitRefresh.defaultPolicy,
         gitSleepClock: any Clock<Duration> & Sendable = ContinuousClock(),
@@ -50,7 +50,8 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             periodicRefreshInterval: gitPeriodicRefreshInterval ?? gitRefreshPolicy.activeCadence,
             sleepClock: gitSleepClock,
             refreshPolicy: gitRefreshPolicy,
-            performanceTraceRecorder: performanceTraceRecorder
+            performanceTraceRecorder: performanceTraceRecorder,
+            pathExistenceProbe: GitWorkingDirectoryProjector.liveRootPathProbe
         )
         self.forgeActor = ForgeActor(
             bus: bus,
@@ -110,12 +111,18 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         await gitWorkingDirectoryProjector.setActivePaneWorktree(worktreeId: worktreeId)
     }
 
+    func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) async {
+        await gitWorkingDirectoryProjector.setSidebarVisibleWorktrees(worktreeIds)
+    }
+
     func enqueueRawPathsForTesting(worktreeId: UUID, paths: [String]) async {
         await filesystemActor.enqueueRawPaths(worktreeId: worktreeId, paths: paths)
     }
 
     func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary {
-        await filesystemActor.refreshWatchedFolders(watchedPaths)
+        let summary = await filesystemActor.refreshWatchedFolders(watchedPaths)
+        await gitWorkingDirectoryProjector.refreshRegisteredWorktreesImmediately()
+        return summary
     }
 
     func applyScopeChange(_ change: ScopeChange) async {

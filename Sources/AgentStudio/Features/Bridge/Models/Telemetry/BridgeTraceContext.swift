@@ -13,6 +13,13 @@ struct BridgeTraceContext: Codable, Equatable, Sendable {
     let parentSpanId: String?
     let sampled: Bool
 
+    private enum CodingKeys: String, CodingKey {
+        case traceId
+        case spanId
+        case parentSpanId
+        case sampled
+    }
+
     init(
         traceId: String,
         spanId: String,
@@ -43,6 +50,14 @@ struct BridgeTraceContext: Codable, Equatable, Sendable {
             parentSpanId: try container.decodeIfPresent(String.self, forKey: .parentSpanId),
             sampled: try container.decode(Bool.self, forKey: .sampled)
         )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(traceId, forKey: .traceId)
+        try container.encode(spanId, forKey: .spanId)
+        try container.encode(parentSpanId, forKey: .parentSpanId)
+        try container.encode(sampled, forKey: .sampled)
     }
 
     var traceparent: String {

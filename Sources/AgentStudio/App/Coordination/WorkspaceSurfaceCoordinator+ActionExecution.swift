@@ -797,24 +797,36 @@ extension WorkspaceSurfaceCoordinator {
 
     private func executeCloseTab(_ tabId: UUID) {
         syncWebviewStates()
-
-        if let snapshot = store.mutationCoordinator.snapshotForClose(tabId: tabId) {
+        let snapshot = store.mutationCoordinator.snapshotForClose(tabId: tabId)
+        if let snapshot {
             appendUndoEntry(.tab(snapshot))
         } else {
             Self.logger.warning("closeTab: snapshot failed for tab \(tabId); undo will be unavailable")
         }
-
+        let closingPaneIds: [UUID]
         if let tab = store.tabLayoutAtom.tab(tabId) {
-            // Close-tab keeps pane models alive for undo snapshots, so teardown only
-            // unregisters hosts. Slots are intentionally preserved until the panes
-            // are permanently purged from the store.
+            // Pane models remain alive for undo; only their hosts are torn down.
+            closingPaneIds = tab.allPaneIds
             for paneId in tab.allPaneIds {
                 teardownDrawerPanes(for: paneId)
                 teardownView(for: paneId)
             }
+        } else {
+            closingPaneIds = []
         }
-
+        if let snapshot {
+            // The distant deadline marks capacity-bounded, in-memory undo state.
+            for pane in snapshot.panes {
+                store.paneAtom.setResidency(.pendingUndo(expiresAt: .distantFuture), for: pane.id)
+            }
+        }
         store.tabLayoutAtom.removeTab(tabId)
+        if snapshot == nil {
+            for paneId in closingPaneIds where currentOwnedPaneIds().contains(paneId) == false {
+                store.mutationCoordinator.removePane(paneId)
+                viewRegistry.retireSlot(for: paneId)
+            }
+        }
         expireOldUndoEntries()
     }
 

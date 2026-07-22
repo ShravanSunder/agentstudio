@@ -29,6 +29,7 @@ public struct AppIPCMethodRegistry: Sendable {
         for contribution in contributions {
             let definition = contribution.definition
             try Self.validateContributionDefinition(definition)
+            try Self.validateContributionSecurityContract(contribution)
             guard definitionsByMethodName[definition.name] == nil else {
                 throw AppIPCMethodRegistryError.duplicateMethodName(definition.name)
             }
@@ -67,6 +68,22 @@ public struct AppIPCMethodRegistry: Sendable {
             Self.method("terminal.send", .terminalInputWrite, .runtimeCommand),
             Self.method("terminal.snapshot", .terminalSnapshotRead, .runtimeCommand),
             Self.method("terminal.wait", .terminalWait, .runtimeCommand, resultSemantics: .accepted),
+            Self.method("bridge.diff.load", .layoutMutate, .bridgeCapability),
+            Self.method("bridge.fileView.open", .layoutMutate, .bridgeCapability),
+            Self.method("bridge.diff.refresh", .bridgeControl, .bridgeCapability),
+            Self.method("bridge.diff.getPackage", .bridgeRead, .bridgeCapability),
+            Self.method("bridge.diff.renderState", .bridgeRead, .bridgeCapability),
+            Self.method("bridge.diff.selectFile", .bridgeControl, .bridgeCapability),
+            Self.method("bridge.diff.scrollToFile", .bridgeControl, .bridgeCapability),
+            Self.method("bridge.diff.expandFile", .bridgeControl, .bridgeCapability),
+            Self.method("bridge.diff.collapseFile", .bridgeControl, .bridgeCapability),
+            Self.method("bridge.fileTree.search", .bridgeControl, .bridgeCapability),
+            Self.method("bridge.fileTree.setFilter", .bridgeControl, .bridgeCapability),
+            Self.method("bridge.fileTree.revealPath", .bridgeControl, .bridgeCapability),
+            Self.method("bridge.fileView.getContent", .bridgeContentRead, .bridgeCapability),
+            Self.method("bridge.fileView.showMarkdownPreview", .bridgeControl, .bridgeCapability),
+            Self.method("bridge.telemetry.snapshot", .bridgeTelemetryRead, .bridgeCapability),
+            Self.method("bridge.telemetry.flush", .bridgeTelemetryFlush, .bridgeCapability),
             Self.method("command.list", .systemRead, .queryReader),
             Self.method("command.execute", .appCommandExecute, .appCommand),
             Self.method("ui.commandBar.open", .uiPresent, .uiPresentation),
@@ -99,6 +116,24 @@ public struct AppIPCMethodRegistry: Sendable {
         guard definition.principalAvailability == .authenticated else {
             throw AppIPCMethodRegistryError.preAuthenticationContributor(definition.name)
         }
+        guard definition.executionOwner == .queryReader else {
+            throw AppIPCMethodRegistryError.unsupportedContributorExecutionOwner(
+                definition.name,
+                definition.executionOwner
+            )
+        }
+    }
+
+    private static func validateContributionSecurityContract(_ contribution: AppIPCMethodContribution) throws {
+        for privilege in contribution.definition.privilegeClasses {
+            let dataScope = PermissionScopeCanonicalizer.dataScope(for: privilege)
+            guard contribution.securityContract.dataScopes.contains(dataScope) else {
+                throw AppIPCMethodRegistryError.contributionDataScopeOutsideSecurityContract(
+                    contribution.definition.name,
+                    dataScope
+                )
+            }
+        }
     }
 
     private static func method(
@@ -124,6 +159,8 @@ package enum AppIPCMethodRegistryError: Error, Equatable, Sendable {
     case duplicateMethodName(String)
     case disallowedContributorNamespace(String)
     case preAuthenticationContributor(String)
+    case contributionDataScopeOutsideSecurityContract(String, IPCDataScope)
+    case unsupportedContributorExecutionOwner(String, IPCExecutionOwner)
 }
 
 public struct AuthorizationError: Error, Equatable, Sendable {
@@ -258,6 +295,12 @@ public struct PermissionScopeCanonicalizer: Sendable {
             .unspecified
         case .paneContextRead, .layoutMutate:
             .paneContext
+        case .bridgeRead, .bridgeControl:
+            .bridgeReviewPackage
+        case .bridgeContentRead:
+            .bridgeContent
+        case .bridgeTelemetryRead, .bridgeTelemetryFlush:
+            .bridgeTelemetry
         case .uiPresent:
             .uiSurface
         case .terminalRead, .terminalSnapshotRead:
@@ -411,6 +454,11 @@ public struct AuthorizationService: Sendable {
     private static let baselineSelfPanePrivileges: Set<IPCPrivilegeClass> = [
         .eventsRead,
         .paneContextRead,
+        .bridgeRead,
+        .bridgeContentRead,
+        .bridgeControl,
+        .bridgeTelemetryRead,
+        .bridgeTelemetryFlush,
         .permissionRead,
         .permissionRequest,
         .systemRead,
@@ -440,6 +488,22 @@ public struct AuthorizationService: Sendable {
         "terminal.send",
         "terminal.snapshot",
         "terminal.wait",
+        "bridge.diff.load",
+        "bridge.fileView.open",
+        "bridge.diff.refresh",
+        "bridge.diff.getPackage",
+        "bridge.diff.renderState",
+        "bridge.diff.selectFile",
+        "bridge.diff.scrollToFile",
+        "bridge.diff.expandFile",
+        "bridge.diff.collapseFile",
+        "bridge.fileTree.search",
+        "bridge.fileTree.setFilter",
+        "bridge.fileTree.revealPath",
+        "bridge.fileView.getContent",
+        "bridge.fileView.showMarkdownPreview",
+        "bridge.telemetry.snapshot",
+        "bridge.telemetry.flush",
         "command.list",
         "ui.commandBar.open",
     ]

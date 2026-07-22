@@ -520,6 +520,57 @@ struct RepositoryTopologyAtomTests {
         #expect(acceptance.delta.didChange)
     }
 
+    @Test("ensure main worktree repairs with UUIDv7 without rewriting persisted identities")
+    func ensureMainWorktreeRepairsEmptyUnavailableRepository() throws {
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-ensure-main-repair")
+        let persistedRepositoryID = UUID(uuidString: "10000000-0000-4000-8000-000000000001")!
+        let persistedSiblingRepositoryID = UUID(uuidString: "10000000-0000-4000-8000-000000000002")!
+        let persistedSiblingWorktreeID = UUID(uuidString: "10000000-0000-4000-8000-000000000003")!
+        let siblingPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-ensure-main-sibling")
+        installTopology(
+            atom: atom,
+            repositories: [
+                Repo(
+                    id: persistedRepositoryID,
+                    name: repoPath.lastPathComponent,
+                    repoPath: repoPath
+                ),
+                Repo(
+                    id: persistedSiblingRepositoryID,
+                    name: siblingPath.lastPathComponent,
+                    repoPath: siblingPath,
+                    worktrees: [
+                        Worktree(
+                            id: persistedSiblingWorktreeID,
+                            repoId: persistedSiblingRepositoryID,
+                            name: siblingPath.lastPathComponent,
+                            path: siblingPath,
+                            isMainWorktree: true
+                        )
+                    ]
+                ),
+            ]
+        )
+        coordinator.markRepoUnavailable(persistedRepositoryID)
+        let generationBeforeRepair = atom.worktreePathIndexGeneration
+
+        let repairedWorktree = coordinator.ensureMainWorktree(at: repoPath)
+
+        let repairedRepository = try #require(atom.repo(persistedRepositoryID))
+        #expect(repairedRepository.worktrees == [repairedWorktree])
+        #expect(UUIDv7.isV7(repairedWorktree.id))
+        #expect(repairedRepository.id == persistedRepositoryID)
+        #expect(atom.repo(persistedSiblingRepositoryID)?.worktrees.single?.id == persistedSiblingWorktreeID)
+        #expect(repairedWorktree.repoId == persistedRepositoryID)
+        #expect(repairedWorktree.path == repoPath.standardizedFileURL)
+        #expect(repairedWorktree.isMainWorktree)
+        #expect(!atom.isRepoUnavailable(persistedRepositoryID))
+        #expect(atom.worktreePathIndexGeneration == generationBeforeRepair + 1)
+        #expect(atom.repoAndWorktree(containing: repoPath)?.worktree.id == repairedWorktree.id)
+    }
+
     @Test(
         "scanned reconciliation preserves identity by path, main-worktree role, and name",
         arguments: [

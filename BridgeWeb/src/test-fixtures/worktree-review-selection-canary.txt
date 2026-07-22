@@ -1,0 +1,4 @@
+BridgeViewer worktree review selection canary.
+
+This tracked fixture exists so the Vite worktree verifier can create a
+temporary dirty diff without touching product or test source files.

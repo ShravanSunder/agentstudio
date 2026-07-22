@@ -260,6 +260,18 @@ extension AppDelegate {
         runtime = SessionRuntime(atom: atomStore.sessionRuntime, store: store)
         viewRegistry = ViewRegistry()
         closeTransitionCoordinator = PaneCloseTransitionCoordinator()
+        bridgeGitReadScheduler = BridgeGitReadScheduler(
+            topology: .recoveryBaseline,
+            eventSink: BridgeNativeCapacityTraceRecorder.schedulerEventSink(
+                performanceTraceRecorder: performanceTraceRecorder
+            )
+        )
+        bridgeWorktreeProductConstructionCoordinator =
+            BridgeWorktreeProductConstructionCoordinator(
+                eventSink: BridgeNativeCapacityTraceRecorder.constructionEventSink(
+                    performanceTraceRecorder: performanceTraceRecorder
+                )
+            )
         seedSlotsForInstalledPanes()
         let pipeline = FilesystemGitPipeline(
             bus: paneRuntimeBus,
@@ -278,39 +290,18 @@ extension AppDelegate {
             runtimeRegistry: .shared,
             paneEventBus: paneRuntimeBus,
             closeTransitionCoordinator: closeTransitionCoordinator,
+            bridgeGitReadScheduler: bridgeGitReadScheduler,
+            worktreeProductConstructionCoordinator: bridgeWorktreeProductConstructionCoordinator,
             filesystemSource: pipeline,
             windowLifecycleStore: windowLifecycleStore,
+            appLifecycleStore: appLifecycleStore,
             traceRuntime: traceRuntime,
             performanceTraceRecorder: performanceTraceRecorder,
             traceIdentityRefreshHandler: { [weak self] in
                 self?.requestTraceIdentityRefresh()
             }
         )
-        let contentMountCohort = acceptedWorkspacePreparedContentMountCohort
-        let terminalAdmissionPort = PreparedTerminalMountAdmissionPort(
-            generation: contentMountCohort.generation,
-            viewRegistry: viewRegistry,
-            mountHandler: workspaceSurfaceCoordinator
-        )
-        let contentMountCoordinator = WorkspacePreparedContentMountCoordinator(
-            cohort: contentMountCohort,
-            viewRegistry: viewRegistry,
-            terminalAdmissionPort: terminalAdmissionPort,
-            nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
-                generation: contentMountCohort.generation,
-                coordinator: workspaceSurfaceCoordinator
-            )
-        )
-        installWorkspacePreparedContentMountOwners(
-            InstalledWorkspacePreparedContentMountOwners(
-                cohort: contentMountCohort,
-                terminalAdmissionPort: terminalAdmissionPort,
-                coordinator: contentMountCoordinator
-            )
-        )
-        workspaceSurfaceCoordinator.preparedContentVisibilitySignalHandler = { [weak contentMountCoordinator] paneIDs in
-            contentMountCoordinator?.handleVisibilitySignals(for: paneIDs) ?? []
-        }
+        bootInstallPreparedContentMountOwners(coordinator: workspaceSurfaceCoordinator)
         workspaceCacheCoordinator = WorkspaceCacheCoordinator(
             bus: paneRuntimeBus,
             workspaceStore: store,
@@ -357,6 +348,34 @@ extension AppDelegate {
         oauthService = OAuthService()
     }
 
+    private func bootInstallPreparedContentMountOwners(coordinator: WorkspaceSurfaceCoordinator) {
+        let contentMountCohort = acceptedWorkspacePreparedContentMountCohort
+        let terminalAdmissionPort = PreparedTerminalMountAdmissionPort(
+            generation: contentMountCohort.generation,
+            viewRegistry: viewRegistry,
+            mountHandler: coordinator
+        )
+        let contentMountCoordinator = WorkspacePreparedContentMountCoordinator(
+            cohort: contentMountCohort,
+            viewRegistry: viewRegistry,
+            terminalAdmissionPort: terminalAdmissionPort,
+            nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
+                generation: contentMountCohort.generation,
+                coordinator: coordinator
+            )
+        )
+        installWorkspacePreparedContentMountOwners(
+            InstalledWorkspacePreparedContentMountOwners(
+                cohort: contentMountCohort,
+                terminalAdmissionPort: terminalAdmissionPort,
+                coordinator: contentMountCoordinator
+            )
+        )
+        coordinator.preparedContentVisibilitySignalHandler = { [weak contentMountCoordinator] paneIDs in
+            contentMountCoordinator?.handleVisibilitySignals(for: paneIDs) ?? []
+        }
+    }
+
     private func bootChainPipelineStep(
         _ filesystemSource: FilesystemGitPipeline?,
         action: @escaping @Sendable (FilesystemGitPipeline) async -> Void
@@ -389,6 +408,7 @@ extension AppDelegate {
             guard let self else { return }
             await repositoryTopologyLoadTask.value
             await self.replayBootTopology(store: self.store, coordinator: self.workspaceCacheCoordinator)
+            self.workspaceSurfaceCoordinator.repairRestoredBridgePanesAfterInitialTopologyReplay()
             if let filesystemPipelineBootTask = self.filesystemPipelineBootTask {
                 await filesystemPipelineBootTask.value
             }

@@ -895,12 +895,43 @@ extension AppCommand {
                 commandBarGroupName: "Webview",
                 commandBarGroupPriority: CommandBarGroupPriority.webview
             )
-        case .openBridgeReview:
+        case .showBridgeReview:
             return AppCommandSpec(
                 command: self,
-                label: "Open Bridge Review",
+                label: "Review",
                 icon: .system(.rectangleSplit2x1),
-                helpText: "Open the read-only Bridge review pane",
+                helpText: "Open the read-only review in a tab",
+                appliesTo: [.worktree],
+                commandBarGroupName: "Bridge",
+                commandBarGroupPriority: CommandBarGroupPriority.webview
+            )
+        case .showBridgeFiles:
+            return AppCommandSpec(
+                command: self,
+                label: "Files",
+                icon: .system(.folder),
+                helpText: "Open the worktree file viewer in a tab",
+                appliesTo: [.worktree],
+                commandBarGroupName: "Bridge",
+                commandBarGroupPriority: CommandBarGroupPriority.webview
+            )
+        case .openBridgeReviewInNewTab:
+            return AppCommandSpec(
+                command: self,
+                label: "Open Review in New Tab",
+                icon: .system(.rectangleSplit2x1),
+                helpText: "Open an independent read-only review in a new tab",
+                appliesTo: [.worktree],
+                commandBarGroupName: "Bridge",
+                commandBarGroupPriority: CommandBarGroupPriority.webview
+            )
+        case .openBridgeFilesInNewTab:
+            return AppCommandSpec(
+                command: self,
+                label: "Open Files in New Tab",
+                icon: .system(.folder),
+                helpText: "Open an independent worktree file viewer in a new tab",
+                appliesTo: [.worktree],
                 commandBarGroupName: "Bridge",
                 commandBarGroupPriority: CommandBarGroupPriority.webview
             )
@@ -941,58 +972,6 @@ extension AppCommand {
                 helpText: "Open a worktree in a fresh terminal tab"
             )
         }
-    }
-
-    private func hiddenTabSelectionDefinition(index: Int) -> AppCommandSpec {
-        AppCommandSpec(
-            command: self,
-            shortcut: Self.selectTabShortcut(index: index),
-            label: "Select Tab \(index)",
-            icon: .system(.rectangleStack),
-            helpText: "Select tab \(index)",
-            visibleWhen: [.hasActiveTab],
-            commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-            isHiddenInCommandBar: true
-        )
-    }
-
-    private func hiddenFocusPaneDefinition(index: Int) -> AppCommandSpec {
-        AppCommandSpec(
-            command: self,
-            shortcut: Self.focusPaneShortcut(index: index),
-            label: "Focus Pane \(index)",
-            icon: .system(.rectangleSplit2x1),
-            helpText: "Focus pane \(index)",
-            visibleWhen: [.hasActiveTab],
-            commandBarGroupName: "Focus",
-            commandBarGroupPriority: CommandBarGroupPriority.focus,
-            isHiddenInCommandBar: true
-        )
-    }
-
-    private func hiddenFocusDrawerPaneDefinition(index: Int) -> AppCommandSpec {
-        AppCommandSpec(
-            command: self,
-            label: "Focus Drawer Pane \(index)",
-            icon: .system(.rectangleBottomhalfInsetFilled),
-            helpText: "Focus drawer pane \(index)",
-            visibleWhen: [.hasActivePane],
-            commandBarGroupName: "Focus",
-            commandBarGroupPriority: CommandBarGroupPriority.focus,
-            isHiddenInCommandBar: true
-        )
-    }
-
-    private func focusDefinition(label: String, icon: CommandIcon, helpText: String) -> AppCommandSpec {
-        AppCommandSpec(
-            command: self,
-            label: label,
-            icon: icon,
-            helpText: helpText,
-            visibleWhen: [.hasActiveTab, .hasMultiplePanes],
-            commandBarGroupName: "Focus",
-            commandBarGroupPriority: CommandBarGroupPriority.focus
-        )
     }
 
 }

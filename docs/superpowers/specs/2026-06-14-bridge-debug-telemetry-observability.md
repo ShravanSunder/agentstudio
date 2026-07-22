@@ -6,7 +6,7 @@
 > Created: 2026-06-14
 > Depends on: [Bridge Review Foundation Spec](2026-06-10-bridge-review-foundation.md)
 > Depends on: [AgentStudio OTLP Shared Observability Design](2026-06-11-agentstudio-otlp-shared-observability-design.md)
-> Architecture companion: [Swift-React Bridge Architecture](../../architecture/swift_react_bridge_design.md)
+> Architecture companions: [Bridge Viewer Architecture](../../architecture/bridge_viewer_architecture.md) and [Bridge Native Runtime Architecture](../../architecture/bridge_native_runtime_architecture.md)
 
 This spec defines how Bridge performance and lifecycle telemetry should work for
 the pre-Pierre Bridge foundation and the future Pierre/Shiki/Trees viewer. It

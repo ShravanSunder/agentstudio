@@ -6,17 +6,13 @@
   "store": "diff",
   "op": "merge",
   "level": "warm",
-  "slice": "diff_package_delta",
+  "slice": "diff_files",
   "data": {
-    "delta": {
-      "packageId": "package-33733733-7337-4337-9337-337337337337",
-      "reviewGeneration": 1,
-      "revision": 2,
-      "operations": {
-        "addItems": [],
-        "updateItems": [],
-        "removeItems": []
+    "files": [
+      {
+        "path": "Sources/AgentStudio/Bridge.swift",
+        "status": "modified"
       }
-    }
+    ]
   }
 }

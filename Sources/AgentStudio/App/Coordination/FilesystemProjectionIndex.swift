@@ -184,6 +184,8 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
             }
 
         let shouldUpdateActivePaneWorktree = request.appliedActivePaneWorktreeId != request.activePaneWorktreeId
+        let shouldUpdateSidebarVisibleWorktrees =
+            request.appliedSidebarVisibleWorktreeIds != request.sidebarVisibleWorktreeIds
 
         pendingSourceSyncsByRequestGeneration = pendingSourceSyncsByRequestGeneration.filter { requestGeneration, _ in
             requestGeneration >= request.requestGeneration
@@ -206,6 +208,8 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
             activityByWorktreeId: nextActivityByWorktreeId,
             activePaneWorktreeId: request.activePaneWorktreeId,
             shouldUpdateActivePaneWorktree: shouldUpdateActivePaneWorktree,
+            sidebarVisibleWorktreeIds: request.sidebarVisibleWorktreeIds,
+            shouldUpdateSidebarVisibleWorktrees: shouldUpdateSidebarVisibleWorktrees,
             validPaneIds: Set(nextPanesById.keys),
             validWorktreeIds: nextWorktreeIds
         )

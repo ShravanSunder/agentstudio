@@ -9,6 +9,8 @@ struct WebKitTestIsolationArchitectureTests {
         "WebviewPaneController(",
         "BridgePaneMountView(",
         "WebviewPaneMountView(",
+        "createBridgePaneView(",
+        "installBridgeControllerAndEnterForeground(",
     ]
 
     @Test("real WebKit runtime tests stay in the retry-isolated WebKit suite")

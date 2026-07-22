@@ -1,0 +1,2 @@
+Bridge worktree stale-refresh canary.
+This tracked fixture is safe for the Vite verifier to mutate.

@@ -4,24 +4,17 @@ import WebKit
 import os.log
 
 private let bridgeControllerLogger = Logger(subsystem: "com.agentstudio", category: "BridgePaneController")
-enum BridgeReadyMethod: RPCMethod {
-    struct Params: Decodable {}
-    typealias Result = RPCNoResponse
-
-    static let method = "bridge.ready"
-}
 
 /// Per-pane controller for bridge-backed panels (diff viewer, code review, etc.).
 ///
 /// Each bridge pane gets its own `WebPage.Configuration` with:
 /// - Non-persistent data store (no cookies/history needed for internal panels)
-/// - `RPCMessageHandler` in a dedicated bridge content world (isolated from page scripts)
+/// - `BridgeReadyMessageHandler` in a dedicated bridge content world for one-shot ready bootstrap
 /// - Bootstrap `WKUserScript` injected at document start in the bridge world
 /// - `BridgeSchemeHandler` registered for the `agentstudio://` custom URL scheme
 ///
-/// The controller owns the `RPCRouter` that dispatches incoming JSON-RPC messages
-/// from the bridge world to registered handlers. Push plans are started
-/// only after the `bridge.ready` handshake completes.
+/// The `bridge.ready` script-message handshake is bootstrap-only. File and Review
+/// control and product data use the pane product session and its direct comm-worker streams.
 ///
 /// Unlike `WebviewPaneController` which uses a shared static configuration,
 /// `BridgePaneController` creates a **per-pane** configuration because each pane
@@ -40,54 +33,57 @@ final class BridgePaneController {
     var paneState: PaneDomainState { runtime.paneState }
 
     /// Whether the bridge handshake has completed.
-    /// No state pushes or commands are allowed before this becomes `true`.
+    /// No bootstrap-gated commands are allowed before this becomes `true`.
     /// Gated and idempotent — once set, subsequent `bridge.ready` messages are ignored.
     private(set) var isBridgeReady = false
 
     // MARK: - Runtime Hooks
 
     var onRuntimeEvent: (@MainActor @Sendable (PaneRuntimeEvent, UUID?, UUID?) -> Void)?
-    var onRuntimeCommandAck: (@MainActor @Sendable (CommandAck) -> Void)?
-
     // MARK: - Domain State
 
-    let revisionClock = RevisionClock()
-    let reviewContentStore: BridgeContentStore
+    let reviewContentLoaderCache: BridgeReviewContentLoaderCache
+    let productAdmissionGate: BridgeProductAdmissionGate
+    let refreshAdmissionCoordinator: BridgePaneRefreshAdmissionCoordinator
+    let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
+    let productSessionOwner: BridgePaneProductSessionOwner
+    let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
+    let productSchemeProvider: BridgePaneProductSchemeProvider?
     let reviewPipeline: BridgeReviewPipeline
+    let reviewSharedConstructionBinder: BridgePaneReviewSharedConstructionBinder?
     let reviewChangeIndex = BridgeChangeIndex()
     let bridgePaneState: BridgePaneState
     var nextReviewGeneration: BridgeReviewGeneration = 0
+    var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
-    var hasPendingReviewRefresh = false
-
-    // MARK: - Push Plans
-
-    private var diffPushPlan: PushPlan<DiffState>?
-    private var reviewPushPlan: PushPlan<ReviewState>?
-    private var connectionPushPlan: PushPlan<PaneDomainState>?
-    private var agentPushPlan: PushPlan<PaneDomainState>?
+    var productPresentationTransitionGeneration: UInt64 = 0
+    var productPresentationTransitionTail: Task<Void, Never>?
+    var surfaceSelectionTransitionTail: Task<Void, Never>?
+    var pendingReviewPackageBuildReasons: Set<BridgeReviewPackageBuildReason> = []
+    var activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
+    var surfaceSelectionAuthority = BridgePaneSurfaceSelectionAuthority()
 
     // MARK: - Private State
 
-    let router: RPCRouter
-    private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
+    let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
+    let productSessionBootstrapSink: BridgeProductSessionBootstrapSink
+    let telemetrySessionBootstrapSink: BridgeTelemetrySessionBootstrapSink
     private let userContentController: WKUserContentController
     private let bootstrapScript: WKUserScript
     private var managementScript: WKUserScript
     private(set) var isContentInteractionEnabled: Bool
     private var interactionApplyTask: Task<Void, Never>?
-    private var inboxPostTimestamps: [Date] = []
-    private let telemetryScopeGate: BridgeTelemetryScopeGate
-    private let telemetryRecorder: (any BridgePerformanceTraceRecording)?
-    private let traceContextFactory: BridgeTraceContextFactory
+    private var isTeardownStarted = false
+    private var lifecycleRetirementTask: Task<Bool, Never>?
+    var productSessionBootstrapTransitionTail: Task<Void, Never>?
+    var hasPublishedProductSessionBootstrap = false
+    var telemetrySessionBootstrapTransitionTail: Task<Void, Never>?
+    var hasPublishedTelemetrySessionBootstrap = false
+    private var teardownCleanupTask: Task<Void, Never>?
+    let telemetryScopeGate: BridgeTelemetryScopeGate
+    let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+    let traceContextFactory: BridgeTraceContextFactory
     var lastReviewPackageTraceContext: BridgeTraceContext?
-
-    /// Per store+op dedup cache. Bounded at O(StoreKey × PushOp) — currently 8 entries max.
-    /// Each entry stores the epoch it was pushed in + the payload bytes. Dedup only matches
-    /// within the same epoch — a new epoch always goes through even with identical bytes.
-    /// This avoids cross-store thrash that a global epoch tracker would cause (connection
-    /// uses epoch=0, diff uses diff.epoch, etc.)
-    private var lastPushed: [String: DedupEntry] = [:]
 
     // MARK: - Init
 
@@ -102,12 +98,20 @@ final class BridgePaneController {
         state: BridgePaneState,
         metadata: PaneMetadata? = nil,
         reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil,
+        gitReadContext: BridgeGitReadContext? = nil,
+        worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator? = nil,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy = .live,
         telemetryScopeGate: BridgeTelemetryScopeGate? = nil,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
-        telemetryIngestor: (any BridgeTelemetryBatchIngesting)? = nil,
-        traceContextFactory: BridgeTraceContextFactory = .live
+        traceContextFactory: BridgeTraceContextFactory = .live,
+        initialPaneActivity: BridgePaneActivity,
+        productSessionDependencies: BridgePaneProductSessionDependencies? = nil,
+        telemetrySessionDependencies: BridgePaneTelemetrySessionDependencies? = nil,
+        productSessionBootstrapSink: @escaping BridgeProductSessionBootstrapSink =
+            BridgePaneController.dispatchProductSessionBootstrap,
+        telemetrySessionBootstrapSink: @escaping BridgeTelemetrySessionBootstrapSink =
+            BridgePaneController.dispatchTelemetrySessionBootstrap
     ) {
         self.paneId = paneId
         self.bridgePaneState = state
@@ -116,27 +120,52 @@ final class BridgePaneController {
             telemetryRuntimePolicy: telemetryRuntimePolicy,
             telemetryScopeGate: telemetryScopeGate,
             telemetryRecorder: telemetryRecorder,
-            telemetryIngestor: telemetryIngestor
+            telemetrySessionDependencies: telemetrySessionDependencies
         )
-        let resolvedTelemetryScopeGate = telemetryDependencies.scopeGate
-        let resolvedTelemetryRecorder = telemetryDependencies.recorder
-        let resolvedTelemetryIngestor = telemetryDependencies.ingestor
-        self.telemetryScopeGate = resolvedTelemetryScopeGate
-        self.telemetryRecorder = resolvedTelemetryRecorder
+        self.telemetryScopeGate = telemetryDependencies.scopeGate
+        self.telemetryRecorder = telemetryDependencies.recorder
+        self.telemetrySessionOwner = telemetryDependencies.sessionDependencies?.owner
         self.traceContextFactory = traceContextFactory
         let resolvedReviewSourceProvider = reviewSourceProvider ?? BridgeUnavailableReviewSourceProvider()
-        self.reviewContentStore = BridgeContentStore(provider: resolvedReviewSourceProvider)
-        self.reviewPipeline = BridgeReviewPipeline(provider: resolvedReviewSourceProvider)
-        let runtimePaneId = PaneId(existingUUID: paneId)
-        let defaultMetadata = Self.makeDefaultRuntimeMetadata(paneId: runtimePaneId, state: state)
-        let resolvedMetadata = (metadata ?? defaultMetadata).canonicalizedIdentity(
-            paneId: runtimePaneId,
-            contentType: Self.contentType(for: state)
+        let resolvedReviewContentLoaderCache = BridgeReviewContentLoaderCache(
+            provider: resolvedReviewSourceProvider
         )
-        self.runtime = BridgeRuntime(
-            paneId: runtimePaneId,
-            metadata: resolvedMetadata
+        self.reviewContentLoaderCache = resolvedReviewContentLoaderCache
+        let resolvedRefreshAdmissionCoordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: initialPaneActivity
         )
+        self.refreshAdmissionCoordinator = resolvedRefreshAdmissionCoordinator
+        let resolvedReviewPublicationCoordinator = BridgeReviewPublicationCoordinator()
+        self.reviewPublicationCoordinator = resolvedReviewPublicationCoordinator
+        let resolvedReviewPipeline = BridgeReviewPipeline(provider: resolvedReviewSourceProvider)
+        self.reviewPipeline = resolvedReviewPipeline
+        self.reviewSharedConstructionBinder = Self.makeReviewSharedConstructionBinder(
+            coordinator: worktreeProductConstructionCoordinator,
+            pipeline: resolvedReviewPipeline,
+            provider: resolvedReviewSourceProvider,
+            state: state
+        )
+        let resolvedRuntime = Self.makeRuntime(paneId, for: state, overriding: metadata)
+        self.runtime = resolvedRuntime
+        let resolvedProductSessionDependencies =
+            productSessionDependencies
+            ?? Self.makeProductSessionDependencies(
+                BridgeProductSessionDependencyInput(
+                    paneSessionId: paneId.uuidString,
+                    runtime: resolvedRuntime,
+                    state: state,
+                    gitReadContext: gitReadContext,
+                    worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
+                    reviewContentLoaderCache: resolvedReviewContentLoaderCache,
+                    reviewPublicationCoordinator: resolvedReviewPublicationCoordinator,
+                    refreshWorkAdmissionSource: resolvedRefreshAdmissionCoordinator.workAdmissionSource,
+                    initialProductPresentation: resolvedRefreshAdmissionCoordinator.productPresentationSnapshot,
+                    telemetryRecorder: telemetryDependencies.recorder
+                )
+            )
+        self.productSessionOwner = resolvedProductSessionDependencies.owner
+        self.productAdmissionGate = resolvedProductSessionDependencies.owner.productAdmissionGate
+        self.productSchemeProvider = resolvedProductSessionDependencies.productProvider
         let blockInteraction = atom(\.managementLayer).isActive
         let initialManagementScript = WebInteractionManagementScript.makeUserScript(
             blockInteraction: blockInteraction
@@ -145,55 +174,43 @@ final class BridgePaneController {
         self.isContentInteractionEnabled = !blockInteraction
 
         // Per-pane configuration — NOT shared (unlike WebviewPaneController.sharedConfiguration).
-        // Each bridge pane needs its own userContentController for message handler and bootstrap script
+        // Each bridge pane needs its own userContentController for ready bootstrap and script
         // registration, and its own urlSchemeHandlers for the agentstudio:// scheme.
         var config = WebPage.Configuration()
         config.websiteDataStore = .nonPersistent()
         self.userContentController = config.userContentController
 
-        // Register message handler in bridge content world only.
-        // Page world scripts cannot access this handler — content world isolation enforced by WebKit.
-        let messageHandler = RPCMessageHandler()
+        // Register only the closed bootstrap handler in the bridge content world.
+        let readyMessageHandler = BridgeReadyMessageHandler()
         userContentController.add(
-            messageHandler,
+            readyMessageHandler,
             contentWorld: bridgeWorld,
             name: "rpc"
         )
 
-        // Bootstrap script — installs __bridgeInternal relay in bridge world,
-        // sets up nonce-validated command forwarding, and dispatches handshake event.
-        let bridgeNonce = UUID().uuidString
-        let pushNonce = UUID().uuidString
-        let webTelemetryScopes = resolvedTelemetryScopeGate.browserExposedScopes
-        let telemetryConfig =
-            !webTelemetryScopes.isEmpty
-            ? BridgeTelemetryBootstrapConfig.enabled(
-                scopes: webTelemetryScopes,
-                scenario: BridgeTelemetryBootstrapConfig.packageApplyContentFetchScenario
-            )
-            : nil
-        let bootstrapScript = WKUserScript(
-            source: BridgeBootstrap.generateScript(
-                bridgeNonce: bridgeNonce,
-                pushNonce: pushNonce,
-                telemetryConfig: telemetryConfig
-            ),
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: true,
-            in: bridgeWorld
+        let bootstrapArtifacts = Self.makeBootstrapArtifacts(
+            paneId: paneId,
+            state: bridgePaneState,
+            telemetryScopeGate: telemetryDependencies.scopeGate,
+            bridgeWorld: bridgeWorld
         )
-        self.bootstrapScript = bootstrapScript
-        userContentController.addUserScript(bootstrapScript)
-        userContentController.addUserScript(initialManagementScript)
+        self.productSessionBootstrapSink = productSessionBootstrapSink
+        self.telemetrySessionBootstrapSink = telemetrySessionBootstrapSink
+        self.bootstrapScript = bootstrapArtifacts.script
+        Self.installInitialUserScripts(
+            in: userContentController,
+            bootstrapScript: bootstrapArtifacts.script,
+            managementScript: initialManagementScript
+        )
 
-        // Register scheme handler for agentstudio:// URLs (bundled React app assets + resources).
-        if let scheme = URLScheme("agentstudio") {
-            config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(
+        Self.registerAgentStudioSchemeHandler(
+            in: &config,
+            input: BridgeSchemeHandlerRegistrationInput(
                 paneId: paneId,
-                contentStore: reviewContentStore,
-                telemetryRecorder: resolvedTelemetryRecorder
+                telemetrySessionOwner: telemetryDependencies.sessionDependencies?.owner,
+                productSessionRouter: resolvedProductSessionDependencies.owner.schemeRouter
             )
-        }
+        )
 
         // Create WebPage with bridge-specific navigation and dialog policies.
         self.page = WebPage(
@@ -202,89 +219,44 @@ final class BridgePaneController {
             dialogPresenter: WebviewDialogHandler()
         )
 
-        self.router = RPCRouter()
-        configureRouter(
-            router,
-            messageHandler: messageHandler,
-            telemetryRecorder: resolvedTelemetryRecorder,
-            telemetryIngestor: resolvedTelemetryIngestor
-        )
-
-        onRuntimeEvent = { [weak self] event, commandId, correlationId in
-            self?.runtime.ingestBridgeEvent(event, commandId: commandId, correlationId: correlationId)
-        }
-        onRuntimeCommandAck = { [weak self] ack in
-            self?.runtime.recordCommandAck(ack)
-        }
-        runtime.commandHandler = self
-
-        registerNamespaceHandlers()
+        configureReadyMessageHandler(readyMessageHandler)
+        configureRuntimeCallbacks()
+        resolvedProductSessionDependencies.committedCallTarget?.controller = self
     }
 
-    private nonisolated static func resolveTelemetryDependencies(
-        traceRuntime: AgentStudioTraceRuntime?,
-        telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy,
-        telemetryScopeGate: BridgeTelemetryScopeGate?,
-        telemetryRecorder: (any BridgePerformanceTraceRecording)?,
-        telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
-    ) -> (
-        scopeGate: BridgeTelemetryScopeGate,
-        recorder: (any BridgePerformanceTraceRecording)?,
-        ingestor: (any BridgeTelemetryBatchIngesting)?
-    ) {
-        guard telemetryRuntimePolicy.allowsTelemetry else {
-            return (BridgeTelemetryScopeGate(enabledScopes: []), nil, nil)
+    private func configureReadyMessageHandler(_ readyMessageHandler: BridgeReadyMessageHandler) {
+        readyMessageHandler.onBootstrapRequest = { [weak self] bootstrapMessage in
+            guard let self else { return }
+            switch bootstrapMessage {
+            case .ready(let requestId):
+                if handleBridgeReady() || isBridgeReady {
+                    await emitBridgeReadyAcknowledgement(id: requestId, result: nil, error: nil)
+                } else {
+                    await emitBridgeReadyAcknowledgement(
+                        id: requestId,
+                        result: nil,
+                        error: (code: -32_000, message: "bridge.ready failed")
+                    )
+                }
+            case .productSessionBootstrap(let requestId, let reason):
+                await enqueueProductSessionBootstrapRequest(
+                    requestId: requestId,
+                    reason: reason
+                )
+            case .telemetrySessionBootstrap(let requestId, let reason):
+                await enqueueTelemetrySessionBootstrapRequest(
+                    requestId: requestId,
+                    reason: reason
+                )
+            case .invalid(let id, let message):
+                await emitBridgeReadyAcknowledgement(
+                    id: id,
+                    result: nil,
+                    error: (code: -32_600, message: message)
+                )
+            }
         }
 
-        let resolvedScopeGate = telemetryScopeGate ?? BridgeTelemetryScopeGate(traceRuntime: traceRuntime)
-        let resolvedRecorder =
-            telemetryRecorder
-            ?? (resolvedScopeGate.isEnabled ? BridgePerformanceTraceRecorder(traceRuntime: traceRuntime) : nil)
-        let resolvedIngestor =
-            resolvedScopeGate.isEnabled(.web)
-            ? (telemetryIngestor
-                ?? resolvedRecorder.map {
-                    BridgeTelemetryIngestor(scopeGate: resolvedScopeGate, recorder: $0)
-                })
-            : nil
-        return (resolvedScopeGate, resolvedRecorder, resolvedIngestor)
-    }
-
-    private func configureRouter(
-        _ router: RPCRouter,
-        messageHandler: RPCMessageHandler,
-        telemetryRecorder: (any BridgePerformanceTraceRecording)?,
-        telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
-    ) {
-        router.telemetryRecorder = telemetryRecorder
-        router.telemetryIngestor = telemetryIngestor
-
-        // Log all RPC errors (parse errors, unknown methods, batch rejection, handler failures).
-        // All error codes are reported through this single callback.
-        router.onError = { code, message, id in
-            bridgeControllerLogger.warning(
-                "[BridgePaneController] RPC error code=\(code) msg=\(message) id=\(String(describing: id))"
-            )
-        }
-
-        router.onCommandAck = { [weak self] ack in
-            self?.handleRuntimeCommandAck(ack)
-        }
-        router.onResponse = { [weak self] responseJSON in
-            await self?.emitRPCResponse(responseJSON)
-        }
-
-        // Wire message handler → router: validated JSON from postMessage is dispatched to handlers.
-        messageHandler.onValidJSON = { [weak self] json in
-            await self?.handleIncomingRPC(json)
-        }
-
-        // Register bridge.ready handler — the ONLY trigger for starting push plans.
-        // The closure is @Sendable and async — awaits the @MainActor-isolated handleBridgeReady.
-        router.register(method: BridgeReadyMethod.self) { [weak self] _ in
-            self?.handleBridgeReady()
-            return nil
-        }
     }
 
     // MARK: - Content Interaction
@@ -350,158 +322,101 @@ final class BridgePaneController {
         }
     }
 
-    /// Register stub handlers for command namespaces until behavior wiring is fully implemented.
-    ///
-    /// Keeps non-`bridge.ready` production command names discoverable and avoids `-32601`:
-    /// diff.*, review.*, agent.*, and system.*. Each stub logs at `.info` level so calls
-    /// are observable (prevents silent false-positive acks from hiding wiring gaps).
-    private func registerNamespaceHandlers() {
-        // diff namespace
-        router.register(method: DiffMethods.LoadDiffMethod.self) { @MainActor [weak self] params in
-            try await self?.handleLoadDiffRPC(params)
-            return nil
-        }
-
-        // review namespace
-        registerStub(ReviewMethods.AddCommentMethod.self)
-        registerStub(ReviewMethods.ResolveThreadMethod.self)
-        registerStub(ReviewMethods.UnresolveThreadMethod.self)
-        registerStub(ReviewMethods.DeleteCommentMethod.self)
-        router.register(method: ReviewMethods.MarkFileViewedMethod.self) { @MainActor [weak self] params in
-            self?.paneState.review.markFileViewed(params.fileId)
-            return nil
-        }
-        router.register(method: ReviewMethods.UnmarkFileViewedMethod.self) { @MainActor [weak self] params in
-            self?.paneState.review.unmarkFileViewed(params.fileId)
-            return nil
-        }
-
-        // agent namespace
-        registerStub(AgentMethods.RequestRewriteMethod.self)
-        registerStub(AgentMethods.CancelTaskMethod.self)
-        registerStub(AgentMethods.InjectPromptMethod.self)
-
-        // inbox namespace
-        router.register(method: InboxMethods.PostMethod.self) { @MainActor [weak self] params in
-            guard let self else { return nil }
-            let sanitizedParams = try self.sanitizeInboxPostParams(params)
-            // Pane identity comes from this controller, not RPC params, so web content cannot spoof another pane.
-            self.ingestRuntimeEvent(
-                .agentNotificationRequested(title: sanitizedParams.title, body: sanitizedParams.body)
-            )
-            return nil
-        }
-
-        // system namespace
-        registerStub(SystemMethods.HealthMethod.self)
-        registerStub(SystemMethods.CapabilitiesMethod.self)
-        registerStub(SystemMethods.ResyncAgentEventsMethod.self)
-    }
-
-    /// Register a no-op stub handler that logs when called.
-    /// Prevents -32601 for known methods while behavior wiring is pending.
-    private func registerStub<M: RPCMethod>(_ method: M.Type) {
-        router.register(method: method) { _ in
-            bridgeControllerLogger.info("[BridgePaneController] stub: \(M.method) called (not yet wired)")
-            throw BridgeMethodUnimplementedError(method: M.method)
-        }
-    }
-
-    private func handleLoadDiffRPC(_ params: DiffMethods.LoadDiffMethod.Params) async throws {
-        let commandId = UUID()
-        let result = await handleDiffCommand(
-            .loadDiff(
-                DiffArtifact(
-                    diffId: params.diffId ?? UUIDv7.generate(),
-                    worktreeId: params.worktreeId,
-                    patchData: Data()
-                )
-            ),
-            commandId: commandId,
-            correlationId: nil
-        )
-
-        switch result {
-        case .success, .queued:
-            return
-        case .failure(let error):
-            throw rpcDispatchError(from: error)
-        }
-    }
-
-    private func rpcDispatchError(from error: ActionError) -> RPCMethodDispatchError {
-        switch error {
-        case .invalidPayload(let description):
-            return .invalidParams(description)
-        case .backendUnavailable(let backend):
-            return .handlerFailure("Backend unavailable: \(backend)")
-        case .runtimeNotReady(let lifecycle):
-            return .handlerFailure("Runtime not ready: \(lifecycle)")
-        case .unsupportedCommand(let command, let required):
-            return .handlerFailure("Unsupported command \(command); requires \(required)")
-        case .timeout(let commandId):
-            return .handlerFailure("Command timed out: \(commandId.uuidString)")
-        }
-    }
-
-    private func sanitizeInboxPostParams(
-        _ params: InboxMethods.PostMethod.Params
-    ) throws -> InboxMethods.PostMethod.Params {
-        let now = Date()
-        let windowStart = now.addingTimeInterval(-AppPolicies.InboxNotification.rpcPostRateLimitWindowSeconds)
-        inboxPostTimestamps.removeAll { $0 < windowStart }
-        guard inboxPostTimestamps.count < AppPolicies.InboxNotification.maxRPCPostsPerWindow else {
-            throw RPCMethodDispatchError.invalidParams("inbox.post rate limit exceeded")
-        }
-
-        let title = params.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else {
-            throw RPCMethodDispatchError.invalidParams("inbox.post title is required")
-        }
-        inboxPostTimestamps.append(now)
-
-        let body = params.body?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nilIfEmpty
-        let boundedText = InboxNotificationTextPolicy.bounded(title: title, body: body)
-
-        return .init(
-            title: boundedText.title,
-            body: boundedText.body
-        )
-    }
-
     // MARK: - Lifecycle
 
     /// Load the bundled React application via the custom scheme.
     ///
-    /// Push plans do NOT start here — they start when `bridge.ready` is received.
-    /// `page.isLoading == false` does not guarantee React has mounted and listeners
-    /// are attached.
-    func loadApp() {
-        guard let appURL = URL(string: "agentstudio://app/index.html") else { return }
-        _ = page.load(appURL)
+    /// `page.isLoading == false` does not guarantee React has mounted.
+    @discardableResult
+    func loadApp() -> some AsyncSequence<WebPage.NavigationEvent, any Error> {
+        page.load(URL(string: "agentstudio://app/index.html"))
     }
 
-    /// Tear down all active push plans and reset bridge state.
-    ///
     /// Called when the pane is being removed or the controller is being deallocated.
-    func teardown() {
-        page.stopLoading()
-        diffPushPlan?.stop()
-        reviewPushPlan?.stop()
-        connectionPushPlan?.stop()
-        agentPushPlan?.stop()
-        activeReviewRefreshTask?.cancel()
-        diffPushPlan = nil
-        reviewPushPlan = nil
-        connectionPushPlan = nil
-        agentPushPlan = nil
-        activeReviewRefreshTask = nil
-        hasPendingReviewRefresh = false
-        runtime.resetForControllerTeardown()
-        lastPushed.removeAll()
-        isBridgeReady = false
+    @discardableResult
+    func teardown() -> Task<Bool, Never> {
+        if let lifecycleRetirementTask {
+            return lifecycleRetirementTask
+        }
+        if !isTeardownStarted {
+            isTeardownStarted = true
+            refreshAdmissionCoordinator.close()
+            productAdmissionGate.close()
+            let reviewPublicationCloseDrain = reviewPublicationCoordinator.close()
+            let reviewRefreshTask = activeReviewRefreshTask
+            reviewRefreshTask?.cancel()
+            activeReviewRefreshTask = nil
+            let reviewContentLoaderCache = reviewContentLoaderCache
+            let productSchemeProvider = productSchemeProvider
+            let productPresentationTransitionTail = productPresentationTransitionTail
+            let surfaceSelectionTransitionTail = surfaceSelectionTransitionTail
+            teardownCleanupTask = Task {
+                await productPresentationTransitionTail?.value
+                await surfaceSelectionTransitionTail?.value
+                async let contentDemandDrain: Void? = productSchemeProvider?.closeAndDrain()
+                await reviewContentLoaderCache.closeAndDrain()
+                _ = await contentDemandDrain
+                async let closePublicationDrain: Void = reviewPublicationCloseDrain.releaseAndWait()
+                await reviewRefreshTask?.value
+                let lateArtifactPinReleaseTask = reviewPublicationCoordinator.takeArtifactPinReleaseTask()
+                await closePublicationDrain
+                await lateArtifactPinReleaseTask?.value
+            }
+            runtime.resetForControllerTeardown()
+            isBridgeReady = false
+            activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
+            pendingReviewPackageBuildReasons.removeAll()
+            // Fence in-flight review jobs synchronously before asynchronous retirement.
+            nextReviewGeneration = nextReviewGeneration.next()
+        }
+
+        guard let teardownCleanupTask else {
+            preconditionFailure("Bridge teardown cleanup task was not installed")
+        }
+        let productSessionOwner = productSessionOwner
+        let lifecycleRetirementTask = Task { @MainActor [weak self] in
+            if let telemetrySessionOwner = self?.telemetrySessionOwner {
+                do {
+                    let terminalDrain = try await self?.drainTelemetrySidecar(closeAfterDrain: true)
+                    guard
+                        terminalDrain?.kind == .report,
+                        let telemetrySessionId = terminalDrain?.telemetrySessionId,
+                        let sidecarReport = terminalDrain?.sidecar,
+                        sidecarReport.type == .drained
+                    else {
+                        throw BridgeTelemetrySidecarControlError.invalidResponse
+                    }
+                    let native = await telemetrySessionOwner.snapshot
+                    let report = BridgeTelemetryProofReport.drain(
+                        telemetrySessionId: telemetrySessionId,
+                        sidecar: sidecarReport,
+                        expectedSettlementDisposition: .closed,
+                        native: native
+                    )
+                    try await self?.recordTelemetrySidecarProof(
+                        report: report,
+                        phase: .terminalClosed,
+                        expectedSettlementDisposition: .closed
+                    )
+                    if !report.proofEligible {
+                        await telemetrySessionOwner.markProofFailure()
+                    }
+                } catch {
+                    await telemetrySessionOwner.markProofFailure()
+                }
+                await telemetrySessionOwner.revoke()
+            }
+            self?.page.stopLoading()
+            let productSessionRetired =
+                await productSessionOwner.retire(reason: .paneDisposal) == .retired
+            await teardownCleanupTask.value
+            if !productSessionRetired {
+                self?.lifecycleRetirementTask = nil
+            }
+            return productSessionRetired
+        }
+        self.lifecycleRetirementTask = lifecycleRetirementTask
+        return lifecycleRetirementTask
     }
 
     // MARK: - Bridge Handshake
@@ -509,19 +424,21 @@ final class BridgePaneController {
     /// Handle the `bridge.ready` message from the bridge world.
     ///
     /// This is gated and idempotent:
-    /// - First call sets `isBridgeReady = true` and starts push plans.
+    /// - First call sets `isBridgeReady = true`.
     /// - Subsequent calls are silently ignored.
     ///
     /// `internal` (not `private`) for testability — allows integration tests to
     /// invoke the handshake directly without routing through WebKit message handlers.
-    func handleBridgeReady() {
-        guard !isBridgeReady else { return }
+    @discardableResult
+    func handleBridgeReady() -> Bool {
+        guard !isTeardownStarted else { return false }
+        guard !isBridgeReady else { return false }
         if runtime.lifecycle == .created {
             guard runtime.transitionToReady() else {
                 bridgeControllerLogger.error(
                     "Bridge ready handshake failed runtime transition for pane \(self.paneId.uuidString, privacy: .public)"
                 )
-                return
+                return false
             }
         } else if runtime.lifecycle != .ready {
             bridgeControllerLogger.error(
@@ -530,28 +447,37 @@ final class BridgePaneController {
                 runtime lifecycle \(String(describing: self.runtime.lifecycle), privacy: .public)
                 """
             )
-            return
+            return false
         }
         isBridgeReady = true
 
-        diffPushPlan = makeDiffPushPlan()
-        reviewPushPlan = makeReviewPushPlan()
-        connectionPushPlan = makeConnectionPushPlan()
-        agentPushPlan = makeAgentPushPlan()
-
-        diffPushPlan?.start()
-        reviewPushPlan?.start()
-        connectionPushPlan?.start()
-        agentPushPlan?.start()
+        return true
     }
 
-    // MARK: - Test/entrypoint utility
-
-    /// Entry point for valid command payloads.
-    ///
-    /// Separated for tests and command-handler reuse.
-    func handleIncomingRPC(_ json: String) async {
-        await router.dispatch(json: json, isBridgeReady: isBridgeReady)
+    func recordReviewIntakeReadyTelemetry(phase: String) async {
+        guard let telemetryRecorder else {
+            return
+        }
+        await telemetryRecorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .webKit,
+                name: "performance.bridge.webkit.review_intake_ready",
+                durationMilliseconds: nil,
+                traceContext: nil,
+                stringAttributes: [
+                    "agentstudio.bridge.phase": phase,
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.control.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.warm.rawValue,
+                    "agentstudio.bridge.slice": BridgeTelemetrySlice.reviewMetadata.rawValue,
+                    "agentstudio.bridge.transport": "product_control",
+                ],
+                numericAttributes: [:],
+                booleanAttributes: [
+                    "agentstudio.bridge.header_supported": isBridgeReady
+                ]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
     }
 
     /// Runtime-facing typed event ingress for bridge domain events.
@@ -563,119 +489,61 @@ final class BridgePaneController {
         onRuntimeEvent?(event, commandId, correlationId)
     }
 
-    // MARK: - Push Plan Factories
-
-    private func makeDiffPushPlan() -> PushPlan<DiffState> {
-        PushPlan(
-            state: paneState.diff,
-            transport: self,
-            revisions: revisionClock,
-            epoch: { [paneState] in paneState.diff.epoch },
-            slices: {
-                Slice("diffStatus", telemetrySlice: .diffStatus, store: .diff, level: .hot) { state in
-                    DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
-                }
-                Slice(
-                    "diffPackageMetadata",
-                    telemetrySlice: .diffPackageMetadata,
-                    store: .diff,
-                    level: .cold,
-                    op: .replace
-                ) { state in
-                    DiffPackageMetadataSlice(package: state.packageMetadata)
-                }
-                Slice(
-                    "diffPackageDelta",
-                    telemetrySlice: .diffPackageDelta,
-                    store: .diff,
-                    level: .warm,
-                    op: .merge
-                ) { state in
-                    DiffPackageDeltaSlice(delta: state.packageDelta)
-                }
-                EntitySlice(
-                    "diffFiles", telemetrySlice: .diffFiles, store: .diff, level: .cold,
-                    capture: { state in state.files },
-                    version: { file in file.version },
-                    keyToString: { $0 }
-                )
-            }
-        )
-    }
-
-    private func makeReviewPushPlan() -> PushPlan<ReviewState> {
-        PushPlan(
-            state: paneState.review,
-            transport: self,
-            revisions: revisionClock,
-            // Review epoch tracks diff epoch until review data has its own
-            // version timeline separate from diffs.
-            epoch: { [paneState] in paneState.diff.epoch },
-            slices: {
-                EntitySlice(
-                    "reviewThreads", telemetrySlice: .reviewThreads, store: .review, level: .warm,
-                    capture: { state in state.threads },
-                    version: { thread in thread.version },
-                    keyToString: { $0.uuidString }
-                )
-                Slice(
-                    "reviewViewedFiles",
-                    telemetrySlice: .reviewViewedFiles,
-                    store: .review,
-                    level: .warm
-                ) { state in
-                    state.viewedFiles.sorted()
-                }
-            }
-        )
-    }
-
-    private func makeConnectionPushPlan() -> PushPlan<PaneDomainState> {
-        PushPlan(
-            state: paneState,
-            transport: self,
-            revisions: revisionClock,
-            epoch: { 0 },
-            slices: {
-                Slice("connectionHealth", telemetrySlice: .connectionHealth, store: .connection, level: .hot) { state in
-                    ConnectionSlice(health: state.connection.health, latencyMs: state.connection.latencyMs)
-                }
-            }
-        )
-    }
-
-    private func makeAgentPushPlan() -> PushPlan<PaneDomainState> {
-        PushPlan(
-            state: paneState,
-            transport: self,
-            revisions: revisionClock,
-            epoch: { 0 },
-            slices: {
-                Slice("commandAcks", telemetrySlice: .commandAcks, store: .agent, level: .warm) { state in
-                    state.commandAcks
-                }
-            }
-        )
-    }
-
-    private func handleRuntimeCommandAck(_ ack: CommandAck) {
-        onRuntimeCommandAck?(ack)
-    }
-
-    private func emitRPCResponse(_ responseJSON: String) async {
+    private func emitBridgeReadyAcknowledgement(
+        id: String?,
+        result: Any?,
+        error: (code: Int, message: String)?
+    ) async {
+        guard
+            let responseJSON = Self.makeBridgeReadyAcknowledgementJSON(
+                id: id,
+                result: result,
+                error: error
+            )
+        else {
+            bridgeControllerLogger.warning("[Bridge] ready acknowledgement encoding failed")
+            paneState.connection.setHealth(.error)
+            return
+        }
         do {
             try await page.callJavaScript(
                 """
-                const payload = JSON.parse(json);
-                window.__bridgeInternal.response(payload.id, payload.result, payload.error);
+                document.dispatchEvent(new CustomEvent('__bridge_ready_ack', {
+                    detail: JSON.parse(json)
+                }));
                 """,
                 arguments: ["json": responseJSON],
                 contentWorld: bridgeWorld
             )
         } catch {
-            bridgeControllerLogger.warning("[Bridge] JS response transport failed: \(error)")
+            bridgeControllerLogger.warning("[Bridge] ready acknowledgement transport failed: \(error)")
             paneState.connection.setHealth(.error)
         }
+    }
+
+    private nonisolated static func makeBridgeReadyAcknowledgementJSON(
+        id: String?,
+        result: Any?,
+        error: (code: Int, message: String)?
+    ) -> String? {
+        var envelope: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": id ?? NSNull(),
+        ]
+        if let error {
+            envelope["error"] = [
+                "code": error.code,
+                "message": error.message,
+            ]
+        } else {
+            envelope["result"] = result ?? NSNull()
+        }
+        guard JSONSerialization.isValidJSONObject(envelope),
+            let data = try? JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
+        else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
     }
 
     private static func makeDefaultRuntimeMetadata(
@@ -687,6 +555,8 @@ final class BridgePaneController {
         switch state.panelKind {
         case .diffViewer:
             title = "Diff"
+        case .fileViewer:
+            title = "Files"
         }
 
         return PaneMetadata(
@@ -696,288 +566,32 @@ final class BridgePaneController {
         )
     }
 
+    private static func makeRuntime(
+        _ paneId: UUID,
+        for state: BridgePaneState,
+        overriding metadata: PaneMetadata?
+    ) -> BridgeRuntime {
+        let runtimePaneId = PaneId(existingUUID: paneId)
+        let defaultMetadata = makeDefaultRuntimeMetadata(paneId: runtimePaneId, state: state)
+        let resolvedMetadata = (metadata ?? defaultMetadata).canonicalizedIdentity(
+            paneId: runtimePaneId,
+            contentType: contentType(for: state)
+        )
+        return BridgeRuntime(
+            paneId: runtimePaneId,
+            metadata: resolvedMetadata
+        )
+    }
+
     private static func contentType(for state: BridgePaneState) -> PaneContentType {
         switch state.panelKind {
-        case .diffViewer:
+        case .diffViewer, .fileViewer:
             return .diff
         }
     }
 
 }
 
-// MARK: - DedupEntry
-
-/// Cache entry for transport-level content dedup.
-/// Stores the epoch + payload for a given store+op key.
-/// Dedup only matches within the same epoch — epoch transitions always push through.
-private struct DedupEntry {
-    let epoch: Int
-    let payload: Data
-}
-
-// MARK: - PushTransport Conformance
-
-extension BridgePaneController: PushTransport {
-    func pushJSON(
-        metadata: BridgePushEnvelopeMetadata,
-        json: Data
-    ) async {
-        // Content guard — skip identical pushes to same store+op within the same epoch.
-        // Keyed by store+op (not epoch) so the cache is bounded at O(StoreKey × PushOp).
-        // Epoch is stored in the entry value — a new epoch always goes through even with
-        // identical bytes, because React needs to see epoch transitions for tracking.
-        // Including op ensures .replace and .merge with identical bytes are not
-        // deduplicated (they have different semantics).
-        let dedupKey = "\(metadata.store.rawValue):\(metadata.op.rawValue)"
-        if let previous = lastPushed[dedupKey],
-            previous.epoch == metadata.epoch,
-            previous.payload == json
-        {
-            return
-        }
-
-        // Phase 1: encode the push envelope (encoding bugs are NOT connection errors).
-        let envelopeString: String
-        let traceContext = makePushTraceContext(for: metadata.store)
-        do {
-            let payload = try JSONSerialization.jsonObject(with: json)
-            var envelope: [String: Any] = [
-                "__v": 1,
-                "__revision": metadata.revision,
-                "__epoch": metadata.epoch,
-                "__pushId": UUID().uuidString,
-                "store": metadata.store.rawValue,
-                "op": metadata.op.rawValue,
-                "level": metadata.level.rawValue,
-                "slice": metadata.slice.rawValue,
-                "payload": payload,
-            ]
-            if let traceContext {
-                let traceContextData = try JSONEncoder().encode(traceContext)
-                envelope["__traceContext"] = try JSONSerialization.jsonObject(with: traceContextData)
-            }
-            let envelopeJSON = try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
-            guard let encoded = String(data: envelopeJSON, encoding: .utf8) else {
-                throw BridgeError.encoding("Unable to encode push envelope as UTF-8")
-            }
-            envelopeString = encoded
-        } catch {
-            bridgeControllerLogger.error(
-                "[Bridge] envelope encoding bug store=\(metadata.store.rawValue) rev=\(metadata.revision): \(error)"
-            )
-            return
-        }
-        // Transport the envelope to React; transport failures are connection errors.
-        let pushStart = ContinuousClock.now
-        do {
-            try await page.callJavaScript(
-                "window.__bridgeInternal.applyEnvelope(JSON.parse(json))",
-                arguments: ["json": envelopeString],
-                contentWorld: bridgeWorld
-            )
-            lastPushed[dedupKey] = DedupEntry(epoch: metadata.epoch, payload: json)
-            await recordPackagePushTelemetry(
-                slice: metadata.slice,
-                traceContext: traceContext,
-                durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
-                    from: pushStart.duration(to: ContinuousClock.now)
-                )
-            )
-            bridgeControllerLogger.debug(
-                "[BridgePaneController] pushJSON store=\(metadata.store.rawValue) op=\(metadata.op.rawValue) level=\(String(describing: metadata.level)) rev=\(metadata.revision) epoch=\(metadata.epoch) bytes=\(json.count)"
-            )
-        } catch {
-            bridgeControllerLogger.warning(
-                "[Bridge] JS transport failed store=\(metadata.store.rawValue) rev=\(metadata.revision) epoch=\(metadata.epoch): \(error)"
-            )
-            paneState.connection.setHealth(.error)
-        }
-    }
-
-    func makeRootTraceContext() -> BridgeTraceContext? {
-        guard telemetryScopeGate.isEnabled else {
-            return nil
-        }
-        return traceContextFactory.makeRootContext()
-    }
-
-    func makeChildTraceContext(parent: BridgeTraceContext?) -> BridgeTraceContext? {
-        guard telemetryScopeGate.isEnabled else {
-            return nil
-        }
-        return traceContextFactory.makeChildContext(parent: parent)
-    }
-
-    private func makePushTraceContext(for store: StoreKey) -> BridgeTraceContext? {
-        guard telemetryScopeGate.isEnabled else {
-            return nil
-        }
-        guard store == .diff else {
-            return traceContextFactory.makeRootContext()
-        }
-        return traceContextFactory.makeChildContext(parent: lastReviewPackageTraceContext)
-    }
-
-    func recordSwiftTelemetry(
-        name: String,
-        phase: String,
-        priorityHint: PushLevel,
-        traceContext: BridgeTraceContext?,
-        durationMilliseconds: Double?
-    ) async {
-        guard let telemetryRecorder else {
-            return
-        }
-        await telemetryRecorder.record(
-            sample: BridgeTelemetrySample(
-                scope: .swift,
-                name: name,
-                durationMilliseconds: durationMilliseconds,
-                traceContext: traceContext,
-                stringAttributes: [
-                    "agentstudio.bridge.phase": phase,
-                    "agentstudio.bridge.plane": nativeTelemetryPlane(
-                        for: name
-                    ).rawValue,
-                    "agentstudio.bridge.priority": nativeTelemetryPriority(
-                        for: name,
-                        fallback: priorityHint
-                    ).rawValue,
-                    "agentstudio.bridge.slice": nativeTelemetrySlice(for: name).rawValue,
-                    "agentstudio.bridge.transport": "swift",
-                ],
-                numericAttributes: [:],
-                booleanAttributes: [:]
-            ),
-            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
-        )
-    }
-
-    private func recordPackagePushTelemetry(
-        slice: BridgeTelemetrySlice,
-        traceContext: BridgeTraceContext?,
-        durationMilliseconds: Double
-    ) async {
-        guard let telemetryRecorder else {
-            return
-        }
-        await telemetryRecorder.record(
-            sample: BridgeTelemetrySample(
-                scope: .webKit,
-                name: "performance.bridge.webkit.package_push",
-                durationMilliseconds: durationMilliseconds,
-                traceContext: traceContext,
-                stringAttributes: [
-                    "agentstudio.bridge.phase": "transport",
-                    "agentstudio.bridge.plane": pushTelemetryPlane(for: slice).rawValue,
-                    "agentstudio.bridge.priority": pushTelemetryPriority(for: slice).rawValue,
-                    "agentstudio.bridge.slice": slice.rawValue,
-                    "agentstudio.bridge.transport": "push",
-                ],
-                numericAttributes: [:],
-                booleanAttributes: [:]
-            ),
-            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
-        )
-    }
-
-    private func nativeTelemetryPlane(for name: String) -> BridgeTelemetryPlane {
-        switch name {
-        case "performance.bridge.swift.telemetry_ingest":
-            .observability
-        default:
-            .data
-        }
-    }
-
-    private func nativeTelemetryPriority(
-        for name: String,
-        fallback: PushLevel
-    ) -> BridgeTelemetryPriority {
-        switch name {
-        case "performance.bridge.swift.content_load":
-            .hot
-        case "performance.bridge.swift.delta_build":
-            .warm
-        case "performance.bridge.swift.package_build",
-            "performance.bridge.swift.content_register":
-            .cold
-        case "performance.bridge.swift.telemetry_ingest":
-            .bestEffort
-        default:
-            switch fallback {
-            case .hot:
-                .hot
-            case .warm:
-                .warm
-            case .cold:
-                .cold
-            }
-        }
-    }
-
-    private func nativeTelemetrySlice(for name: String) -> BridgeTelemetrySlice {
-        switch name {
-        case "performance.bridge.swift.package_build",
-            "performance.bridge.swift.content_register":
-            .diffPackageMetadata
-        case "performance.bridge.swift.delta_build":
-            .diffPackageDelta
-        case "performance.bridge.swift.content_load":
-            .contentFetch
-        case "performance.bridge.swift.telemetry_ingest":
-            .telemetryIngest
-        default:
-            .unknown
-        }
-    }
-
-    private func pushTelemetryPlane(for slice: BridgeTelemetrySlice) -> BridgeTelemetryPlane {
-        switch slice {
-        case .connectionHealth, .commandAcks, .reviewRPC:
-            .control
-        case .telemetryBatch, .telemetryDrop, .telemetryIngest:
-            .observability
-        default:
-            .data
-        }
-    }
-
-    private func pushTelemetryPriority(for slice: BridgeTelemetrySlice) -> BridgeTelemetryPriority {
-        switch slice {
-        case .diffStatus, .connectionHealth:
-            .hot
-        case .diffPackageDelta, .reviewThreads, .reviewViewedFiles, .commandAcks, .reviewRPC:
-            .warm
-        case .diffPackageMetadata, .diffFiles, .contentFetch, .unknown:
-            .cold
-        case .telemetryBatch, .telemetryDrop, .telemetryIngest:
-            .bestEffort
-        }
-    }
-}
-
-private enum BridgeError: Error, LocalizedError, Sendable {
-    case encoding(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .encoding(let message):
-            return message
-        }
-    }
-}
-
-struct BridgeMethodUnimplementedError: Error, LocalizedError, Sendable {
-    let method: String
-
-    var errorDescription: String? {
-        "Unimplemented bridge method: \(method)"
-    }
-}
-
-extension String {
-    fileprivate var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
+extension BridgePaneController {
+    var bootstrapScriptSourceForTesting: String { bootstrapScript.source }
 }

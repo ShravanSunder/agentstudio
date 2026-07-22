@@ -5,6 +5,10 @@ public enum IPCEventName: String, Codable, CaseIterable, Equatable, Sendable {
     case permissionRequestResolved = "permission.requestResolved"
     case permissionGrantRevoked = "permission.grantRevoked"
     case permissionGrantExpired = "permission.grantExpired"
+    case bridgeReviewUpdated = "bridge.review.updated"
+    case bridgeFileSelected = "bridge.file.selected"
+    case bridgeContentReady = "bridge.content.ready"
+    case bridgeTelemetrySampled = "bridge.telemetry.sampled"
     case terminalAttachReady = "terminal.attachReady"
     case terminalCommandFinished = "terminal.commandFinished"
     case terminalRendererHealthy = "terminal.rendererHealthy"
@@ -51,6 +55,28 @@ public struct IPCTerminalEventPayload: Codable, Equatable, Sendable {
     }
 }
 
+public struct IPCBridgeEventPayload: Codable, Equatable, Sendable {
+    public let paneId: UUID
+    public let packageId: String?
+    public let itemId: String?
+    public let contentHandleId: String?
+    public let correlationId: UUID?
+
+    public init(
+        paneId: UUID,
+        packageId: String? = nil,
+        itemId: String? = nil,
+        contentHandleId: String? = nil,
+        correlationId: UUID? = nil
+    ) {
+        self.paneId = paneId
+        self.packageId = packageId
+        self.itemId = itemId
+        self.contentHandleId = contentHandleId
+        self.correlationId = correlationId
+    }
+}
+
 public struct IPCPermissionEventPayload: Codable, Equatable, Sendable {
     public let requestId: UUID
     public let state: IPCPermissionRequestState
@@ -74,16 +100,19 @@ public struct IPCPermissionEventPayload: Codable, Equatable, Sendable {
 }
 
 public enum IPCEventPayload: Codable, Equatable, Sendable {
+    case bridge(IPCBridgeEventPayload)
     case permission(IPCPermissionEventPayload)
     case terminal(IPCTerminalEventPayload)
 
     private enum CodingKeys: String, CodingKey {
         case kind
+        case bridge
         case permission
         case terminal
     }
 
     private enum Kind: String, Codable {
+        case bridge
         case permission
         case terminal
     }
@@ -91,6 +120,8 @@ public enum IPCEventPayload: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(Kind.self, forKey: .kind) {
+        case .bridge:
+            self = .bridge(try container.decode(IPCBridgeEventPayload.self, forKey: .bridge))
         case .permission:
             self = .permission(try container.decode(IPCPermissionEventPayload.self, forKey: .permission))
         case .terminal:
@@ -101,6 +132,9 @@ public enum IPCEventPayload: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .bridge(let payload):
+            try container.encode(Kind.bridge, forKey: .kind)
+            try container.encode(payload, forKey: .bridge)
         case .permission(let payload):
             try container.encode(Kind.permission, forKey: .kind)
             try container.encode(payload, forKey: .permission)

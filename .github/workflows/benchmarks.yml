@@ -1,0 +1,150 @@
+name: CI / Post-merge Benchmarks
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  benchmarks:
+    runs-on: macos-26
+    env:
+      SWIFT_BUILD_DIR: .build-benchmark
+      XCB_EXTRA_ARGS: "--renderer github-actions"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup mise
+        uses: jdx/mise-action@v3
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.14.0
+
+      - name: Setup Node for BridgeWeb
+        uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+          cache: pnpm
+          cache-dependency-path: BridgeWeb/pnpm-lock.yaml
+
+      - name: Install BridgeWeb dependencies
+        run: mise run bridge-web-install
+
+      - name: BridgeWeb Vitest stress tests
+        run: mise run bridge-web-browser-stress-test
+
+      - name: Get submodule SHAs
+        id: submodules
+        run: |
+          GHOSTTY_SHA=$(git -C vendor/ghostty rev-parse HEAD)
+          ZMX_SHA=$(git -C vendor/zmx rev-parse HEAD)
+          echo "ghostty_sha=$GHOSTTY_SHA" >> "$GITHUB_OUTPUT"
+          echo "zmx_sha=$ZMX_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Zig compilation
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zig
+            vendor/ghostty/.zig-cache
+            vendor/zmx/.zig-cache
+          key: benchmark-zig-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
+          restore-keys: |
+            benchmark-zig-${{ runner.os }}-
+            zig-compile-${{ runner.os }}-
+
+      - name: Cache Ghostty artifacts
+        id: cache-ghostty
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/ghostty/macos/GhosttyKit.xcframework
+            vendor/ghostty/zig-out/share
+          key: ghostty-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}
+
+      - name: Build Ghostty XCFramework
+        if: steps.cache-ghostty.outputs.cache-hit != 'true'
+        run: |
+          cd vendor/ghostty
+          zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native
+
+      - name: Cache zmx artifacts
+        id: cache-zmx
+        uses: actions/cache@v4
+        with:
+          path: vendor/zmx/zig-out
+          key: zmx-${{ runner.os }}-${{ steps.submodules.outputs.zmx_sha }}
+
+      - name: Build zmx
+        if: steps.cache-zmx.outputs.cache-hit != 'true'
+        run: |
+          cd vendor/zmx
+          zig build -Doptimize=ReleaseFast
+
+      - name: Copy XCFramework
+        run: |
+          mkdir -p Frameworks
+          if [ ! -d "Frameworks/GhosttyKit.xcframework" ]; then
+            cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
+          fi
+
+      - name: Setup dev resources
+        run: |
+          SHELL_SRC="vendor/ghostty/zig-out/share/ghostty/shell-integration"
+          SHELL_DST="Sources/AgentStudio/Resources/ghostty/shell-integration"
+          if [ ! -d "$SHELL_DST" ]; then
+            mkdir -p "$(dirname "$SHELL_DST")"
+            cp -R "$SHELL_SRC" "$SHELL_DST"
+          fi
+          TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
+          TERMINFO_DST="Sources/AgentStudio/Resources/terminfo"
+          if [ ! -d "$TERMINFO_DST/78" ]; then
+            mkdir -p "$TERMINFO_DST/78" "$TERMINFO_DST/67"
+            [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DST/78/"
+            [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
+          fi
+
+      - name: Cache Swift benchmark build
+        uses: actions/cache@v4
+        with:
+          path: .build-benchmark
+          key: swift-benchmark-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            swift-benchmark-${{ runner.os }}-
+            swift-${{ runner.os }}-
+
+      - name: Test large non-WebKit lane
+        env:
+          SWIFT_TEST_TIMEOUT_SECONDS: "600"
+          _XCB_BYPASS: "1"
+        run: mise run test-large
+
+      - name: Swift benchmark tests
+        run: |
+          set -o pipefail
+          mise run test-benchmark 2>&1 | tee benchmark.log
+          grep -E "\[PushBenchmark\]" benchmark.log > benchmark-lines.txt || true
+          if [ ! -s benchmark-lines.txt ]; then
+            echo "[PushBenchmark] No benchmark threshold lines emitted in this run." > benchmark-lines.txt
+          fi
+          cat benchmark-lines.txt
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            benchmark.log
+            benchmark-lines.txt
+            test-results-*.xml
+          if-no-files-found: warn

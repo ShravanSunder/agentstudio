@@ -1,0 +1,207 @@
+{
+	"schemaVersion": 1,
+	"cases": [
+		{
+			"name": "ordinary_nested_file",
+			"fixtureKind": "ordinary-nested-file",
+			"relativePath": "nested/ordinary.txt",
+			"expectedDisposition": "allow",
+			"expectedFailure": null,
+			"expectedContents": "ordinary nested file"
+		},
+		{
+			"name": "precomposed_unicode_file",
+			"fixtureKind": "ordinary-nested-file",
+			"relativePath": "unicode/caf\u00e9.txt",
+			"expectedDisposition": "allow",
+			"expectedFailure": null,
+			"expectedContents": "precomposed unicode file"
+		},
+		{
+			"name": "unicode_dot_lookalike_is_distinct",
+			"fixtureKind": "ordinary-nested-file",
+			"relativePath": "\uff0egit/config.txt",
+			"expectedDisposition": "allow",
+			"expectedFailure": null,
+			"expectedContents": "unicode dot lookalike file"
+		},
+		{
+			"name": "gitignore_is_distinct",
+			"fixtureKind": "ordinary-nested-file",
+			"relativePath": ".gitignore",
+			"expectedDisposition": "allow",
+			"expectedFailure": null,
+			"expectedContents": "gitignore remains readable"
+		},
+		{
+			"name": "internal_file_symlink",
+			"fixtureKind": "internal-file-symlink",
+			"relativePath": "links/internal-file.txt",
+			"expectedDisposition": "allow",
+			"expectedFailure": null,
+			"expectedContents": "internal symlink target"
+		},
+		{
+			"name": "empty_path",
+			"fixtureKind": "lexical",
+			"relativePath": "",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "absolute_path",
+			"fixtureKind": "lexical",
+			"relativePath": "/etc/passwd",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "current_directory_path",
+			"fixtureKind": "lexical",
+			"relativePath": ".",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "current_directory_component",
+			"fixtureKind": "lexical",
+			"relativePath": "nested/./ordinary.txt",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "parent_directory_path",
+			"fixtureKind": "lexical",
+			"relativePath": "..",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "parent_directory_component",
+			"fixtureKind": "lexical",
+			"relativePath": "nested/../ordinary.txt",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "empty_middle_component",
+			"fixtureKind": "lexical",
+			"relativePath": "nested//ordinary.txt",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "empty_trailing_component",
+			"fixtureKind": "lexical",
+			"relativePath": "nested/ordinary.txt/",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "git_root",
+			"fixtureKind": "lexical",
+			"relativePath": ".git",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "git_descendant",
+			"fixtureKind": "lexical",
+			"relativePath": ".git/config",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "nested_git_descendant",
+			"fixtureKind": "lexical",
+			"relativePath": "nested/.git/config",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "mixed_case_git_descendant",
+			"fixtureKind": "lexical",
+			"relativePath": ".GIT/config",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "nul_component",
+			"fixtureKind": "lexical",
+			"relativePath": "nested/ordinary.txt\u0000ignored",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "decomposed_canonical_alias",
+			"fixtureKind": "lexical",
+			"relativePath": "unicode/cafe\u0301.txt",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "external_file_symlink",
+			"fixtureKind": "external-file-symlink",
+			"relativePath": "links/external-file.txt",
+			"expectedDisposition": "reject",
+			"expectedFailure": "outside-root",
+			"expectedContents": null
+		},
+		{
+			"name": "external_directory_symlink",
+			"fixtureKind": "external-directory-symlink",
+			"relativePath": "links/external-directory/secret.txt",
+			"expectedDisposition": "reject",
+			"expectedFailure": "outside-root",
+			"expectedContents": null
+		},
+		{
+			"name": "internal_git_file_symlink",
+			"fixtureKind": "internal-git-file-symlink",
+			"relativePath": "links/internal-git-config",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "case_alias_of_existing_file",
+			"fixtureKind": "case-alias",
+			"relativePath": "case-sensitive/ACTUAL.txt",
+			"fixtureTargetPath": "case-sensitive/actual.txt",
+			"fixtureTargetContents": "case alias target",
+			"expectedDisposition": "reject",
+			"expectedFailure": "invalid-selector",
+			"expectedContents": null
+		},
+		{
+			"name": "directory_is_not_a_regular_file",
+			"fixtureKind": "directory",
+			"relativePath": "ordinary-directory",
+			"expectedDisposition": "reject",
+			"expectedFailure": "not-regular-file",
+			"expectedContents": null
+		},
+		{
+			"name": "missing_file_is_not_a_regular_file",
+			"fixtureKind": "missing-file",
+			"relativePath": "missing/file.txt",
+			"expectedDisposition": "reject",
+			"expectedFailure": "not-regular-file",
+			"expectedContents": null
+		}
+	]
+}

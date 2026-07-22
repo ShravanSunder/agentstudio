@@ -1,0 +1,2 @@
+Bridge worktree recently-updated demand canary.
+This tracked fixture is safe for the Vite verifier to mutate.

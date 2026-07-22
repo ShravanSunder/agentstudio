@@ -71,11 +71,52 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
         let after = fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
         #expect(after == before)
     }
+
+    @Test("save bundle omits panes explicitly held for pending undo")
+    func saveBundleOmitsExplicitPendingUndoPanes() throws {
+        // Arrange
+        let fixture = try makeFixture()
+        let pendingUndoPane = makeUnownedPane(
+            title: "Pending undo",
+            residency: .pendingUndo(expiresAt: Date(timeIntervalSince1970: 1_784_000_300))
+        )
+        fixture.workspacePaneAtom.addPane(pendingUndoPane)
+
+        // Act
+        let bundle = fixture.coordinator.captureCurrentSaveBundle(
+            persistedAt: Date(timeIntervalSince1970: 1_784_000_003)
+        )
+
+        // Assert
+        #expect(!bundle.workspace.panes.contains(where: { $0.id == pendingUndoPane.id }))
+    }
+
+    @Test("pending undo projection preserves strict rejection for an active unowned pane")
+    func pendingUndoProjectionPreservesStrictRejectionForActiveUnownedPane() async throws {
+        // Arrange
+        let fixture = try makeFixture()
+        let activeUnownedPane = makeUnownedPane(title: "Active unowned", residency: .active)
+        fixture.workspacePaneAtom.addPane(activeUnownedPane)
+
+        // Act
+        do {
+            _ = try await fixture.coordinator.save(
+                persistedAt: Date(timeIntervalSince1970: 1_784_000_004)
+            )
+            Issue.record("Expected active unowned pane rejection")
+        } catch {
+            #expect(error == .compositionRejected(.paneNotOwnedByTab(activeUnownedPane.id)))
+        }
+
+        // Assert
+        #expect(!(await fixture.probe.events.contains(.saveWorkspaceSnapshot)))
+    }
 }
 
 @MainActor
 private struct WorkspaceSQLiteSaveCoordinatorFixture {
     let workspaceID: UUID
+    let workspacePaneAtom: WorkspacePaneAtom
     let tabLayoutAtom: WorkspaceTabLayoutAtom
     let datastore: WorkspaceSQLiteDatastore
     let coordinator: WorkspaceSQLiteSaveCoordinator
@@ -150,6 +191,7 @@ private func makeFixture() throws -> WorkspaceSQLiteSaveCoordinatorFixture {
     )
     return WorkspaceSQLiteSaveCoordinatorFixture(
         workspaceID: workspaceID,
+        workspacePaneAtom: workspacePaneAtom,
         tabLayoutAtom: tabLayoutAtom,
         datastore: datastore,
         coordinator: WorkspaceSQLiteSaveCoordinator(
@@ -161,6 +203,20 @@ private func makeFixture() throws -> WorkspaceSQLiteSaveCoordinatorFixture {
             sqliteDatastore: datastore
         ),
         probe: probe
+    )
+}
+
+private func makeUnownedPane(title: String, residency: SessionResidency) -> Pane {
+    Pane(
+        content: .terminal(
+            TerminalState(
+                provider: .zmx,
+                lifetime: .persistent,
+                zmxSessionID: .generateUUIDv7()
+            )
+        ),
+        metadata: PaneMetadata(title: title),
+        residency: residency
     )
 }
 

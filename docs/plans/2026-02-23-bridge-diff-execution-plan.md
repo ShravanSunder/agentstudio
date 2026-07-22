@@ -5,7 +5,7 @@
 > Retired: 2026-06-10
 > Current foundation spec: [Bridge Review Foundation Spec](../superpowers/specs/2026-06-10-bridge-review-foundation.md)
 > Current execution plan: [Bridge Agent Review Foundation Implementation Plan](2026-06-08-bridge-agent-review-foundation.md)
-> Architecture companion: [Swift-React Bridge Architecture](../architecture/swift_react_bridge_design.md)
+> Architecture companion: [Bridge Viewer Architecture](../architecture/bridge_viewer_architecture.md)
 
 This file used to contain the old Bridge + diff viewer execution plan. It is no
 longer an executable plan and must not be used for LUNA-337 implementation.

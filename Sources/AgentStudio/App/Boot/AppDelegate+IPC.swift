@@ -55,6 +55,11 @@ extension AppDelegate {
                         runtimeRegistry: workspaceSurfaceCoordinator.runtimeRegistry,
                         commandDispatcher: workspaceSurfaceCoordinator
                     ),
+                    bridgePort: AgentStudioIPCBridgeAdapter(
+                        workspaceStore: store,
+                        viewRegistry: viewRegistry,
+                        actionExecutor: executor
+                    ),
                     commandPort: AgentStudioIPCCommandAdapter(
                         workspaceId: store.identityAtom.workspaceId,
                         repositoryTargetAuthorizer: WorkspaceRepositoryTargetAuthorizationPort(

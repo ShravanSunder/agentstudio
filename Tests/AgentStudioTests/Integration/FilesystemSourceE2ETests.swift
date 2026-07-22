@@ -10,6 +10,7 @@ extension E2ESerializedTests {
     struct FilesystemSourceE2ETests {
         @Test("filesystem actor events flow through coordinator into workspace stores")
         func filesystemEventsFlowThroughCoordinatorIntoStores() async throws {
+            installTestAtomRegistryIfNeeded()
             let repoURL = try FilesystemTestGitRepo.create(named: "filesystem-e2e")
             defer { FilesystemTestGitRepo.destroy(repoURL) }
             try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)

@@ -24,5 +24,8 @@ export function contentHandlesForItem(
 		item.contentRoles.head,
 		item.contentRoles.diff,
 		item.contentRoles.file,
-	].filter((handle: BridgeContentHandle | null): handle is BridgeContentHandle => handle !== null);
+	].filter(
+		(handle: BridgeContentHandle | null | undefined): handle is BridgeContentHandle =>
+			handle !== null && handle !== undefined,
+	);
 }

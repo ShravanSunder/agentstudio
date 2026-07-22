@@ -1,0 +1,234 @@
+{
+  "schemaVersion": 1,
+  "maximumPayloadBytes": 2097152,
+  "maximumPayloadLines": 10000,
+  "cases": [
+    {
+      "name": "empty",
+      "sourceSegments": [],
+      "productAvailability": "available",
+      "expectedReader": {
+        "didReachEnd": true,
+        "endsMidLine": false,
+        "endsWithNewline": false,
+        "isBinary": false,
+        "isValidUTF8": true,
+        "payloadByteCount": 0,
+        "payloadLineCount": 0,
+        "payloadSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "truncationKind": "none"
+      }
+    },
+    {
+      "name": "lf",
+      "sourceSegments": [{ "kind": "utf8", "value": "a\nb\nc" }],
+      "productAvailability": "available",
+      "expectedReader": {
+        "didReachEnd": true,
+        "endsMidLine": false,
+        "endsWithNewline": false,
+        "isBinary": false,
+        "isValidUTF8": true,
+        "payloadByteCount": 5,
+        "payloadLineCount": 3,
+        "payloadSha256": "ea7fb08b7a2dc4619ffb7c7bb38d95a2047935fa165d71b12efd3852a2e6d0cc",
+        "truncationKind": "none"
+      }
+    },
+    {
+      "name": "crlf",
+      "sourceSegments": [{ "kind": "utf8", "value": "a\r\nb\r\nc" }],
+      "productAvailability": "available",
+      "expectedReader": {
+        "didReachEnd": true,
+        "endsMidLine": false,
+        "endsWithNewline": false,
+        "isBinary": false,
+        "isValidUTF8": true,
+        "payloadByteCount": 7,
+        "payloadLineCount": 3,
+        "payloadSha256": "d37a6c0b581046eec04a3d815bcd9fadbce89bd21784279deff41836a766d570",
+        "truncationKind": "none"
+      }
+    },
+    {
+      "name": "trailing_lf",
+      "sourceSegments": [{ "kind": "hex", "value": "610a" }],
+      "productAvailability": "available",
+      "expectedReader": {
+        "didReachEnd": true,
+        "endsMidLine": false,
+        "endsWithNewline": true,
+        "isBinary": false,
+        "isValidUTF8": true,
+        "payloadByteCount": 2,
+        "payloadLineCount": 1,
+        "payloadSha256": "87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7",
+        "truncationKind": "none"
+      }
+    },
+    {
+      "name": "partial_final_line",
+      "sourceSegments": [{ "kind": "utf8", "value": "partial" }],
+      "productAvailability": "available",
+      "expectedReader": {
+        "didReachEnd": true,
+        "endsMidLine": false,
+        "endsWithNewline": false,
+        "isBinary": false,
+        "isValidUTF8": true,
+        "payloadByteCount": 7,
+        "payloadLineCount": 1,
+        "payloadSha256": "9834a14ab9bcaa0f6a8da71073617eac8f004e596a3fa11d807b84631b825d9d",
+        "truncationKind": "none"
+      }
+    },
+    {
+      "name": "nul",
+      "sourceSegments": [{ "kind": "hex", "value": "610062" }],
+      "productAvailability": "binary",
+      "expectedReader": {
+        "didReachEnd": true,
+        "endsMidLine": false,
+        "endsWithNewline": false,
+        "isBinary": true,
+        "isValidUTF8": true,
+        "payloadByteCount": 3,
+        "payloadLineCount": 1,
+        "payloadSha256": null,
+        "truncationKind": "none"
+      }
+    },
+    {
+      "name": "invalid_utf8",
+      "sourceSegments": [{ "kind": "hex", "value": "e08061" }],
+      "productAvailability": "unsupported_encoding",
+      "expectedReader": {
+        "didReachEnd": true,
+        "endsMidLine": false,
+        "endsWithNewline": false,
+        "isBinary": false,
+        "isValidUTF8": false,
+        "payloadByteCount": 3,
+        "payloadLineCount": 1,
+        "payloadSha256": null,
+        "truncationKind": "none"
+      }
+    },
+    {
+      "name": "exact_2_mib_malformed_eof",
+      "sourceSegments": [
+        { "kind": "repeatHex", "count": 2097150, "value": "61" },
+        { "kind": "hex", "value": "e282" }
+      ],
+      "productAvailability": "unsupported_encoding",
+      "expectedReader": {
+        "didReachEnd": true,
+        "endsMidLine": false,
+        "endsWithNewline": false,
+        "isBinary": false,
+        "isValidUTF8": false,
+        "payloadByteCount": 2097152,
+        "payloadLineCount": 1,
+        "payloadSha256": null,
+        "truncationKind": "none"
+      }
+    },
+    {
+      "name": "valid_scalar_split_at_byte_cap",
+      "sourceSegments": [
+        { "kind": "repeatHex", "count": 2097150, "value": "61" },
+        { "kind": "hex", "value": "e282ac62" }
+      ],
+      "productAvailability": "available",
+      "expectedReader": {
+        "didReachEnd": false,
+        "endsMidLine": true,
+        "endsWithNewline": false,
+        "isBinary": false,
+        "isValidUTF8": true,
+        "payloadByteCount": 2097150,
+        "payloadLineCount": 1,
+        "payloadSha256": "cb1fbacb317abf5931440a148a868f33154f2d3798c743c55d913fde6d55ea18",
+        "truncationKind": "byteLimit"
+      }
+    },
+    {
+      "name": "invalid_continuation_after_byte_cap",
+      "sourceSegments": [
+        { "kind": "repeatHex", "count": 2097151, "value": "61" },
+        { "kind": "hex", "value": "e228a1" }
+      ],
+      "productAvailability": "unsupported_encoding",
+      "expectedReader": {
+        "didReachEnd": false,
+        "endsMidLine": true,
+        "endsWithNewline": false,
+        "isBinary": false,
+        "isValidUTF8": false,
+        "payloadByteCount": 2097152,
+        "payloadLineCount": 1,
+        "payloadSha256": null,
+        "truncationKind": "byteLimit"
+      }
+    },
+    {
+      "name": "line_limit",
+      "sourceSegments": [
+        { "kind": "repeatHex", "count": 10000, "value": "610a" },
+        { "kind": "utf8", "value": "tail" }
+      ],
+      "productAvailability": "available",
+      "expectedReader": {
+        "didReachEnd": false,
+        "endsMidLine": false,
+        "endsWithNewline": true,
+        "isBinary": false,
+        "isValidUTF8": true,
+        "payloadByteCount": 20000,
+        "payloadLineCount": 10000,
+        "payloadSha256": "3cae8eb31cef21a43ec335176dd7428071d2998e4bb70cff3aea80286fa9bee4",
+        "truncationKind": "lineLimit"
+      }
+    },
+    {
+      "name": "both_limits_partial_final_line",
+      "sourceSegments": [
+        { "kind": "repeatHex", "count": 9999, "value": "610a" },
+        { "kind": "repeatHex", "count": 2077155, "value": "61" }
+      ],
+      "productAvailability": "available",
+      "expectedReader": {
+        "didReachEnd": false,
+        "endsMidLine": true,
+        "endsWithNewline": false,
+        "isBinary": false,
+        "isValidUTF8": true,
+        "payloadByteCount": 2097152,
+        "payloadLineCount": 10000,
+        "payloadSha256": "f9e351cd37107ea450af32363e7777fd12d52d45eb5ec11db62cff4736733326",
+        "truncationKind": "both"
+      }
+    },
+    {
+      "name": "both_limits_lf_at_byte_cap",
+      "sourceSegments": [
+        { "kind": "repeatHex", "count": 9999, "value": "610a" },
+        { "kind": "repeatHex", "count": 2077153, "value": "61" },
+        { "kind": "hex", "value": "0a62" }
+      ],
+      "productAvailability": "available",
+      "expectedReader": {
+        "didReachEnd": false,
+        "endsMidLine": false,
+        "endsWithNewline": true,
+        "isBinary": false,
+        "isValidUTF8": true,
+        "payloadByteCount": 2097152,
+        "payloadLineCount": 10000,
+        "payloadSha256": "add568075293700b7b773663ee0da61761590b23fa920a59353a726249eb3e8b",
+        "truncationKind": "both"
+      }
+    }
+  ]
+}

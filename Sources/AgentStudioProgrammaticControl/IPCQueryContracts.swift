@@ -90,15 +90,55 @@ public struct IPCWorkspaceSummary: Codable, Equatable, Sendable {
     public let name: String
     public let tabCount: Int
     public let paneCount: Int
+    public let repositories: [IPCWorkspaceRepositorySummary]
     public let isCurrent: Bool
 
-    public init(id: UUID, ordinal: Int, name: String, tabCount: Int, paneCount: Int, isCurrent: Bool) {
+    public init(
+        id: UUID,
+        ordinal: Int,
+        name: String,
+        tabCount: Int,
+        paneCount: Int,
+        repositories: [IPCWorkspaceRepositorySummary] = [],
+        isCurrent: Bool
+    ) {
         self.id = id
         self.ordinal = ordinal
         self.name = name
         self.tabCount = tabCount
         self.paneCount = paneCount
+        self.repositories = repositories
         self.isCurrent = isCurrent
+    }
+}
+
+public struct IPCWorkspaceRepositorySummary: Codable, Equatable, Sendable {
+    public let id: UUID
+    public let name: String
+    public let path: String
+    public let worktrees: [IPCWorkspaceWorktreeSummary]
+
+    public init(id: UUID, name: String, path: String, worktrees: [IPCWorkspaceWorktreeSummary]) {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.worktrees = worktrees
+    }
+}
+
+public struct IPCWorkspaceWorktreeSummary: Codable, Equatable, Sendable {
+    public let id: UUID
+    public let repoId: UUID
+    public let name: String
+    public let path: String
+    public let isMainWorktree: Bool
+
+    public init(id: UUID, repoId: UUID, name: String, path: String, isMainWorktree: Bool) {
+        self.id = id
+        self.repoId = repoId
+        self.name = name
+        self.path = path
+        self.isMainWorktree = isMainWorktree
     }
 }
 

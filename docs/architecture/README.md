@@ -20,6 +20,7 @@ and tests.
 | Where are high-rate source signals admitted, contracted, and projected? | [Pane Runtime Architecture — Contract 7](pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction) and [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md#typed-admission-before-multiplexing); for filesystem effects, [Workspace Data Architecture](workspace_data_architecture.md#filesystem-effect-admission-and-projection) | Terminal source routing/projectors and `FilesystemProjectionIndex` |
 | How do I prove telemetry or performance? | [Observability And Traceability](observability_and_traceability.md) | trace tags, proof scripts, Victoria verifier output |
 | How does programmatic control stay out of zmx internals? | [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) | `App/IPC`, app ports, runtime adapters |
+| How does Bridge Viewer split work between native Swift/WebKit and BridgeWeb? | [Bridge Viewer Architecture](bridge_viewer_architecture.md), then [Bridge Native Runtime Architecture](bridge_native_runtime_architecture.md) or [Bridge Web Runtime Architecture](bridge_web_runtime_architecture.md) | `Sources/AgentStudio/Features/Bridge/`, `BridgeWeb/src/` |
 
 For testing and debugging, follow the proof ladder in `AGENTS.md`: focused
 tests first, lint next, shared Victoria proof for telemetry/runtime evidence,
@@ -196,7 +197,9 @@ Each document owns a specific concern. No two documents are authoritative for th
 | [Directory Structure](directory_structure.md) | Module boundaries and file placement | Core vs Features decision process, import rule, component → slice map, placement rationale |
 | [Architecture Lint Inventory](architecture_lint_inventory.md) | Architecture lint enforcement map | SwiftLint rule IDs, former shell-script coverage, blocking/report-only/test/review classifications |
 | [AgentStudio IPC Architecture](agentstudio_ipc_architecture.md) | App-level programmatic-control boundaries | Public contract, AppIPC port, app composition, zmx separation, and lint-rule ownership boundaries |
-| [Swift-React Bridge](swift_react_bridge_design.md) | Bridge architecture and current LUNA-337 status | Three-stream bridge architecture, push pipeline, JSON-RPC command channel, content world isolation, read-only CodeView/Shiki review surface, and explicit implemented-vs-planned bridge delivery boundaries. Canonical review-foundation vocabulary lives in [Bridge Review Foundation Spec](../superpowers/specs/2026-06-10-bridge-review-foundation.md). |
+| [Bridge Viewer Architecture](bridge_viewer_architecture.md) | End-to-end Bridge Viewer ownership | Product boundaries, native/web split, source-to-paint lifecycle, viewer modes, freshness, and proof routing |
+| [Bridge Native Runtime Architecture](bridge_native_runtime_architecture.md) | Swift/WebKit Bridge runtime | Shared construction, `agentstudio-git`, Git scheduling, pane publication, transport, activity, and teardown |
+| [Bridge Web Runtime Architecture](bridge_web_runtime_architecture.md) | BridgeWeb runtime | One comm worker per pane, separate File/Review state, demand, cache, Pierre/Shiki rendering, suspension, and reconvergence |
 | [JTBD & Requirements](jtbd_and_requirements.md) | Product requirements | Jobs to be done, pain points, and requirements for the dynamic window system |
 
 ## Related

@@ -37,24 +37,32 @@ if [[ $# -eq 0 ]]; then
 fi
 
 scoped_paths=("$@")
+swift_scoped_paths=()
 for scoped_path in "${scoped_paths[@]}"; do
   if [[ "$scoped_path" = /* || "$scoped_path" == *".."* || ! -f "$scoped_path" ]]; then
     echo "lint-swift: scoped path must be an existing repository-relative file: $scoped_path" >&2
     exit 2
   fi
+  if [[ "$scoped_path" == *.swift ]]; then
+    swift_scoped_paths+=("$scoped_path")
+  fi
 done
 
-echo "--- swift-format lint (scoped) ---"
-swift-format lint "${scoped_paths[@]}" 2>&1 \
-  && echo "swift-format: OK" \
-  || { echo "swift-format: FAIL"; exit 1; }
+if [[ ${#swift_scoped_paths[@]} -gt 0 ]]; then
+  echo "--- swift-format lint (scoped) ---"
+  swift-format lint "${swift_scoped_paths[@]}" 2>&1 \
+    && echo "swift-format: OK" \
+    || { echo "swift-format: FAIL"; exit 1; }
 
-echo "--- SwiftLint (scoped) ---"
-swiftlint lint --strict "${scoped_paths[@]}" 2>&1 \
-  && echo "swiftlint: OK" \
-  || { echo "swiftlint: FAIL"; exit 1; }
+  echo "--- SwiftLint (scoped) ---"
+  swiftlint lint --strict "${swift_scoped_paths[@]}" 2>&1 \
+    && echo "swiftlint: OK" \
+    || { echo "swiftlint: FAIL"; exit 1; }
 
-run_architecture_lint
+  run_architecture_lint
+else
+  echo "--- Swift checks: no scoped Swift files ---"
+fi
 
 run_release_contract=0
 for scoped_path in "${scoped_paths[@]}"; do

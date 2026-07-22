@@ -2,74 +2,9 @@ import AppKit
 import Foundation
 import SwiftUI
 
-enum RepoExplorerFocus: Hashable {
-    case filter
-}
-
 private enum RepoSidebarToolbarTooltipTarget: Hashable {
     case sort
     case grouping
-}
-
-final class RepoExplorerFocusableView: NSView {
-    var onFocusChange: @MainActor (Bool) -> Void = { _ in }
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func becomeFirstResponder() -> Bool {
-        let didBecomeFirstResponder = super.becomeFirstResponder()
-        if didBecomeFirstResponder {
-            onFocusChange(true)
-        }
-        return didBecomeFirstResponder
-    }
-
-    override func resignFirstResponder() -> Bool {
-        let didResignFirstResponder = super.resignFirstResponder()
-        if didResignFirstResponder {
-            onFocusChange(false)
-        }
-        return didResignFirstResponder
-    }
-
-    override func cancelOperation(_ sender: Any?) {
-        _ = sender
-    }
-}
-
-struct RepoExplorerFocusBridge: NSViewRepresentable {
-    let uiState: WorkspaceSidebarState
-
-    func makeNSView(context: Context) -> RepoExplorerFocusableView {
-        let view = RepoExplorerFocusableView()
-        view.identifier = RepoExplorerView.focusTargetIdentifier
-        view.onFocusChange = { hasFocus in
-            uiState.setSidebarHasFocus(hasFocus)
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: RepoExplorerFocusableView, context: Context) {
-        nsView.onFocusChange = { hasFocus in
-            uiState.setSidebarHasFocus(hasFocus)
-        }
-    }
-
-    static func dismantleNSView(_ nsView: RepoExplorerFocusableView, coordinator: ()) {
-        MainActor.assumeIsolated {
-            nsView.onFocusChange(false)
-        }
-    }
-}
-
-enum RepoExplorerFocusPublisher {
-    @MainActor
-    static func publish(
-        focusedField: RepoExplorerFocus?,
-        into uiState: WorkspaceSidebarState
-    ) {
-        uiState.setSidebarHasFocus(focusedField != nil)
-    }
 }
 
 /// Sidebar content grouped by repository identity (worktree family / remote).
@@ -79,15 +14,13 @@ struct RepoExplorerView: View {
 
     let store: WorkspaceStore
     let onRefocusActivePane: () -> Void
+    let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     let onShowNotificationsForWorktree: (Worktree) -> Void
     let unreadCount: (Worktree) -> Int
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let initialProjectionTrigger: AppPolicies.SidebarProjection.Trigger
     let initialProjectionSequence: Int
     let onInitialProjectionApplied: @MainActor (Int) -> Void
-    static let focusTargetIdentifier = NSUserInterfaceItemIdentifier("repoExplorerFocusTarget")
-    static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
-    static let surfaceBackground = SidebarSurfaceBackground.shellChrome
     static let groupHeaderChromePolicy = SidebarRepoGroupHeader<EmptyView>.chromePolicy
     static let headerLayoutPolicy = SidebarHeaderLayout<EmptyView, EmptyView, EmptyView, EmptyView>.policy
     static let tooltipCoordinateSpaceName = "repoSidebarHeaderTooltips"
@@ -95,6 +28,7 @@ struct RepoExplorerView: View {
     init(
         store: WorkspaceStore,
         onRefocusActivePane: @escaping () -> Void,
+        onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
         onShowNotificationsForWorktree: @escaping (Worktree) -> Void,
         unreadCount: @escaping (Worktree) -> Int,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
@@ -104,6 +38,7 @@ struct RepoExplorerView: View {
     ) {
         self.store = store
         self.onRefocusActivePane = onRefocusActivePane
+        self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
         self.onShowNotificationsForWorktree = onShowNotificationsForWorktree
         self.unreadCount = unreadCount
         self.performanceTraceRecorder = performanceTraceRecorder
@@ -151,20 +86,13 @@ struct RepoExplorerView: View {
     }
 
     private var sidebarSnapshot: RepoExplorerSnapshot {
-        RepoExplorerSnapshot(
+        makeSidebarSnapshot(
             repos: sidebarRepos,
             repoEnrichmentByRepoId: sidebarRepoEnrichmentByRepoId,
             groupingMode: repoExplorerPrefs.groupingMode,
             sortOrder: repoExplorerPrefs.sortOrder,
             visibilityMode: repoExplorerPrefs.repoVisibilityMode,
-            query: debouncedQuery,
-            paneLocationsByWorktreeId: atom(\.workspaceLookup).paneLocationsByWorktreeId(
-                workspacePane: store.paneAtom,
-                workspaceTab: WorkspaceTabLayoutDerived(
-                    shellAtom: store.tabShellAtom,
-                    arrangementAtom: store.tabArrangementAtom
-                )
-            )
+            query: debouncedQuery
         )
     }
 
@@ -216,6 +144,9 @@ struct RepoExplorerView: View {
 
             if currentProjection.emptyState != .content {
                 RepoExplorerEmptyStateView(emptyState: currentProjection.emptyState)
+                    .onAppear {
+                        updateSidebarVisibleWorktrees([])
+                    }
             } else {
                 groupList
             }
@@ -230,6 +161,7 @@ struct RepoExplorerView: View {
             debounceTask?.cancel()
             projectionTask?.cancel()
             projectionTask = nil
+            updateSidebarVisibleWorktrees([])
             RepoExplorerFocusPublisher.publish(
                 focusedField: nil,
                 into: uiState
@@ -504,6 +436,10 @@ struct RepoExplorerView: View {
                                 resolvedWorktreeContext.worktree.id
                             ] ?? .unknown,
                             unreadCount: unreadCount(resolvedWorktreeContext.worktree),
+                            bridgeCommandResolution: cachedProjectionResult.snapshot
+                                .bridgeCommandResolutionByWorktreeId[
+                                    resolvedWorktreeContext.worktree.id
+                                ] ?? .create,
                             isFavorite: currentRepoFavoriteState(
                                 repoId: resolvedWorktreeContext.repo.id,
                                 projectedFallback: resolvedWorktreeContext.repo.isFavorite
@@ -524,6 +460,34 @@ struct RepoExplorerView: View {
                             onOpenNew: {
                                 AppCommandDispatcher.shared.dispatch(
                                     .openNewTerminalInTab,
+                                    target: resolvedWorktreeContext.worktree.id,
+                                    targetType: .worktree
+                                )
+                            },
+                            onReview: {
+                                AppCommandDispatcher.shared.dispatch(
+                                    .showBridgeReview,
+                                    target: resolvedWorktreeContext.worktree.id,
+                                    targetType: .worktree
+                                )
+                            },
+                            onOpenFiles: {
+                                AppCommandDispatcher.shared.dispatch(
+                                    .showBridgeFiles,
+                                    target: resolvedWorktreeContext.worktree.id,
+                                    targetType: .worktree
+                                )
+                            },
+                            onOpenReviewInNewTab: {
+                                AppCommandDispatcher.shared.dispatch(
+                                    .openBridgeReviewInNewTab,
+                                    target: resolvedWorktreeContext.worktree.id,
+                                    targetType: .worktree
+                                )
+                            },
+                            onOpenFilesInNewTab: {
+                                AppCommandDispatcher.shared.dispatch(
+                                    .openBridgeFilesInNewTab,
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
                                 )
@@ -584,6 +548,12 @@ struct RepoExplorerView: View {
         .sidebarSurfaceListStyle(Self.surfaceListPolicy)
         .scrollContentBackground(.hidden)
         .background(Self.surfaceBackground.color)
+        .background(
+            RepoExplorerVisibleRowsBridge(
+                entries: rowIndex.entries,
+                onVisibleWorktreeIdsChange: updateSidebarVisibleWorktrees
+            )
+        )
         .transition(
             .opacity.animation(.easeInOut(duration: AppStyles.General.Animation.standard))
         )

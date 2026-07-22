@@ -31,7 +31,8 @@ final class WorkspaceSQLiteSaveCoordinator {
     }
 
     func captureCurrentSaveBundle(persistedAt: Date) -> WorkspaceSQLiteSaveBundle {
-        let panes = workspacePaneAtom.graphAtom.paneStates.values.map { paneState in
+        let panes = workspacePaneAtom.graphAtom.paneStates.values.compactMap { paneState -> Pane? in
+            guard !paneState.residency.isPendingUndo else { return nil }
             let drawerID = paneState.drawer?.drawerId
             return paneState.pane(
                 isDrawerExpanded: drawerID.map {

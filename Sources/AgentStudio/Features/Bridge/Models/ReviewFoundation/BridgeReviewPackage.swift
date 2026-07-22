@@ -14,6 +14,39 @@ struct BridgeReviewPackage: Codable, Equatable, Sendable {
     let summary: BridgeReviewPackageSummary
     let filterState: BridgeViewFilter
     let generatedAtUnixMilliseconds: Int64
+    let changesetCluster: BridgeReviewChangesetClusterMetadata?
+
+    init(
+        packageId: String,
+        schemaVersion: Int,
+        reviewGeneration: BridgeReviewGeneration,
+        revision: Int,
+        query: BridgeReviewQuery,
+        baseEndpoint: BridgeSourceEndpoint,
+        headEndpoint: BridgeSourceEndpoint,
+        orderedItemIds: [String],
+        itemsById: [String: BridgeReviewItemDescriptor],
+        groups: [BridgeReviewGroup],
+        summary: BridgeReviewPackageSummary,
+        filterState: BridgeViewFilter,
+        generatedAtUnixMilliseconds: Int64,
+        changesetCluster: BridgeReviewChangesetClusterMetadata? = nil
+    ) {
+        self.packageId = packageId
+        self.schemaVersion = schemaVersion
+        self.reviewGeneration = reviewGeneration
+        self.revision = revision
+        self.query = query
+        self.baseEndpoint = baseEndpoint
+        self.headEndpoint = headEndpoint
+        self.orderedItemIds = orderedItemIds
+        self.itemsById = itemsById
+        self.groups = groups
+        self.summary = summary
+        self.filterState = filterState
+        self.generatedAtUnixMilliseconds = generatedAtUnixMilliseconds
+        self.changesetCluster = changesetCluster
+    }
 }
 
 struct BridgeReviewPackageSummary: Codable, Equatable, Sendable {

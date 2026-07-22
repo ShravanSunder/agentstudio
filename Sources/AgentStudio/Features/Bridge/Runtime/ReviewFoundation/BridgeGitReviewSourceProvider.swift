@@ -8,6 +8,39 @@ protocol BridgeGitReviewDataClient: Sendable {
         -> BridgeReviewItemDescriptor
     func resolveCheckpointEndpoint(_ request: BridgeCheckpointEndpointRequest) async throws -> BridgeSourceEndpoint
     func loadContent(_ request: BridgeContentLoadRequest) async throws -> BridgeContentLoadResult
+    func streamContent(
+        _ request: BridgeContentStreamRequest,
+        chunkByteCount: Int,
+        emitChunk: BridgeContentStreamEmitter
+    ) async throws -> BridgeContentStreamResult
+}
+
+extension BridgeGitReviewDataClient {
+    func streamContent(
+        _ request: BridgeContentStreamRequest,
+        chunkByteCount: Int,
+        emitChunk: BridgeContentStreamEmitter
+    ) async throws -> BridgeContentStreamResult {
+        let result = try await loadContent(
+            BridgeContentLoadRequest(
+                handle: request.handle,
+                requestedGeneration: request.requestedGeneration
+            )
+        )
+        var offset = 0
+        while offset < result.data.count {
+            let endOffset = min(offset + chunkByteCount, result.data.count)
+            try await emitChunk(result.data.subdata(in: offset..<endOffset))
+            offset = endOffset
+        }
+        return BridgeContentStreamResult(
+            handle: result.handle,
+            byteCount: result.data.count,
+            mimeType: result.mimeType,
+            contentHash: result.contentHash,
+            contentHashAlgorithm: result.contentHashAlgorithm
+        )
+    }
 }
 
 actor BridgeGitReviewSourceProvider: BridgeReviewSourceProvider {
@@ -41,5 +74,88 @@ actor BridgeGitReviewSourceProvider: BridgeReviewSourceProvider {
 
     func loadContent(_ request: BridgeContentLoadRequest) async throws -> BridgeContentLoadResult {
         try await client.loadContent(request)
+    }
+
+    func streamContent(
+        _ request: BridgeContentStreamRequest,
+        chunkByteCount: Int,
+        emitChunk: BridgeContentStreamEmitter
+    ) async throws -> BridgeContentStreamResult {
+        try await client.streamContent(
+            request,
+            chunkByteCount: chunkByteCount,
+            emitChunk: emitChunk
+        )
+    }
+}
+
+extension BridgeGitReviewSourceProvider: BridgeSharedReviewConstructionSourceProvider {
+    func resolveEndpoint(
+        _ request: BridgeEndpointResolutionRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeSourceEndpoint {
+        guard let client = client as? any BridgeSharedReviewConstructionClient else {
+            throw unsupportedSharedConstruction()
+        }
+        return try await client.resolveEndpoint(request, freshnessKey: freshnessKey)
+    }
+
+    func compareEndpoints(
+        _ request: BridgeEndpointComparisonRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeEndpointComparison {
+        guard let client = client as? any BridgeSharedReviewConstructionClient else {
+            throw unsupportedSharedConstruction()
+        }
+        return try await client.compareEndpoints(request, freshnessKey: freshnessKey)
+    }
+
+    func readTree(
+        _ request: BridgeTreeReadRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeTreeReadResult {
+        guard let client = client as? any BridgeSharedReviewConstructionClient else {
+            throw unsupportedSharedConstruction()
+        }
+        return try await client.readTree(request, freshnessKey: freshnessKey)
+    }
+
+    func readReviewItemDescriptor(
+        _ request: BridgeReviewItemDescriptorRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeReviewItemDescriptor {
+        guard let client = client as? any BridgeSharedReviewConstructionClient else {
+            throw unsupportedSharedConstruction()
+        }
+        return try await client.readReviewItemDescriptor(request, freshnessKey: freshnessKey)
+    }
+
+    func captureSharedContent(
+        handles: [BridgeContentHandle],
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> BridgeSharedReviewContentBacking {
+        guard let client = client as? any BridgeSharedReviewConstructionClient else {
+            throw unsupportedSharedConstruction()
+        }
+        return try await client.captureSharedContent(
+            handles: handles,
+            freshnessKey: freshnessKey
+        )
+    }
+
+    func installSharedContent(
+        backing: BridgeSharedReviewContentBacking,
+        handles: [BridgeContentHandle]
+    ) async throws {
+        guard let client = client as? any BridgeSharedReviewConstructionClient else {
+            throw unsupportedSharedConstruction()
+        }
+        try await client.installSharedContent(backing: backing, handles: handles)
+    }
+
+    private func unsupportedSharedConstruction() -> BridgeProviderFailure {
+        BridgeProviderFailure.providerFailed(
+            message: "Review provider does not support shared immutable content"
+        )
     }
 }
