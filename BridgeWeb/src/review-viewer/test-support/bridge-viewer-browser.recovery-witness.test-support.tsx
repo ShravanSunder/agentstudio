@@ -361,6 +361,7 @@ export async function renderBridgeReviewRecoveryWitness(
 				publishRawReviewDisplayEvent(reviewDisplayAppendEvent(files, initialItemCount));
 				await Promise.resolve();
 			});
+			await advanceBridgeReviewRecoveryWitnessFrames(4);
 		},
 		publishFileContentForItemId: async (itemId: string): Promise<void> => {
 			const file = files.find((candidate): boolean => candidate.itemId === itemId);
