@@ -67,10 +67,20 @@ jobs:
       - name: Install BridgeWeb dependencies
         run: mise run bridge-web-install
 
-      - name: BridgeWeb check, test, and packaged build
+      - name: BridgeWeb check
+        run: mise run bridge-web-check
+
+      - name: BridgeWeb Vitest unit tests
+        run: mise run bridge-web-unit-test
+
+      - name: BridgeWeb Vitest integration tests
+        run: mise run bridge-web-integration-test
+
+      - name: BridgeWeb Vitest E2E tests
+        run: mise run bridge-web-e2e-test
+
+      - name: BridgeWeb packaged build
         run: |
-          mise run bridge-web-check
-          mise run bridge-web-test
           mise run bridge-web-build
           test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
           ls -la Sources/AgentStudio/Resources/BridgeWeb/app

@@ -16,7 +16,11 @@ export default defineConfig({
 	test: {
 		environment: 'node',
 		globals: true,
-		include: ['scripts/**/*.unit.test.ts', 'src/**/*.unit.test.ts', 'src/**/*.unit.test.tsx'],
+		include: [
+			'scripts/**/*.integration.test.ts',
+			'src/**/*.integration.test.ts',
+			'src/**/*.integration.test.tsx',
+		],
 		exclude: ['**/node_modules/**', '**/dist/**'],
 	},
 });

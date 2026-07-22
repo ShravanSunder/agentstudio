@@ -129,16 +129,34 @@ description = "Verify BridgeWeb JSON contract fixtures match Swift source fixtur
 run = "bash scripts/bridge-web-sync-fixtures.sh"
 
 [tasks.bridge-web-test]
-description = "Run BridgeWeb Vitest suites"
+description = "Run all BridgeWeb Vitest unit, integration, and E2E tests"
 depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test"
+
+[tasks.bridge-web-unit-test]
+description = "Run BridgeWeb Vitest unit tests"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run test:unit"
+
+[tasks.bridge-web-integration-test]
+description = "Run BridgeWeb Vitest Node and Browser Mode integration tests"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run test:integration"
 
 [tasks.bridge-web-browser-test]
 description = "Run BridgeWeb Vitest Browser Mode integration tests"
 depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test:browser"
+
+[tasks.bridge-web-e2e-test]
+description = "Run BridgeWeb Vitest Vite product E2E tests"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run test:e2e"
 
 [tasks.verify-bridge-review-controlled-composition]
 description = "Verify Review product-only authority and controlled Browser Mode composition"
