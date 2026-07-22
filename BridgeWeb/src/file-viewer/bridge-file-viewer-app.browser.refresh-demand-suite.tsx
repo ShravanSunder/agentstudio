@@ -388,8 +388,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileBodyPreview('export const refreshedScrollLine001 = true;');
 		await waitForVisibleCodeText(`export const refreshedScrollLine${visibleInitialLine} = true;`);
 		await waitForOpenFileState('ready');
-		await actFrame();
-		await actFrame();
+		await waitForBridgeFileViewerWorkerMessageDrain();
 		const refreshedScrollOwner = await waitForFileCodeViewScrollOwner();
 
 		expect(openFileBodyPreview()).toContain('export const refreshedScrollLine001 = true;');
