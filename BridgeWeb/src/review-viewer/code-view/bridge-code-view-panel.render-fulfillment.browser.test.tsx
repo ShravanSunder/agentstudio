@@ -207,6 +207,12 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 		const originalSetup = CodeView.prototype.setup;
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
 		const originalSetOptions = CodeView.prototype.setOptions;
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalUpdateItem = CodeView.prototype.updateItem;
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalSetItems = CodeView.prototype.setItems;
+		const pierreUpdatedItems: CodeViewItem[] = [];
+		const pierreSetItemsCalls: Array<readonly CodeViewItem[]> = [];
 		CodeView.prototype.setup = function captureMountedCodeView(root: HTMLElement): void {
 			mountedCodeView.current = this;
 			originalSetup.call(this, root);
@@ -230,6 +236,14 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 				},
 			} satisfies CodeViewOptions<undefined>;
 			originalSetOptions.call(this, capturedOptions);
+		};
+		CodeView.prototype.updateItem = function captureUpdatedItem(item: CodeViewItem): boolean {
+			pierreUpdatedItems.push(item);
+			return originalUpdateItem.call(this, item);
+		};
+		CodeView.prototype.setItems = function captureSetItems(items: readonly CodeViewItem[]): void {
+			pierreSetItemsCalls.push(items);
+			originalSetItems.call(this, items);
 		};
 
 		const dispositions: BridgeWorkerRenderDispositionReceipt[] = [];
@@ -671,10 +685,8 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			const retryPublicationItem = requireExactReviewPierreDiffItem(
 				retryPublication.job.payload.item,
 			);
-			const secondFinalPostRenderCount = postRenderCountForItem(
-				capturedPostRenders,
-				secondFinalItem,
-			);
+			const pierreUpdateItemCountBeforeRetry = pierreUpdatedItems.length;
+			const pierreSetItemsCountBeforeRetry = pierreSetItemsCalls.length;
 			expect(retryPublicationItem).not.toBe(secondPublicationItem);
 			renderFulfillmentCoordinator.acceptPublication(retryPublication);
 			renderFulfillmentCoordinator.markPublicationQueued(retryPublication);
@@ -699,9 +711,8 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 					.getRenderedItems()
 					.find((renderedItem): boolean => renderedItem.id === secondFinalItem.id)?.item,
 			).toBe(secondFinalItem);
-			expect(postRenderCountForItem(capturedPostRenders, secondFinalItem)).toBe(
-				secondFinalPostRenderCount,
-			);
+			expect(pierreUpdatedItems).toHaveLength(pierreUpdateItemCountBeforeRetry);
+			expect(pierreSetItemsCalls).toHaveLength(pierreSetItemsCountBeforeRetry);
 			expect(pendingAnimationFrames).toHaveLength(1);
 			const retryPendingPaintFrame = pendingAnimationFrames.shift();
 			if (retryPendingPaintFrame === undefined) {
@@ -717,6 +728,8 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 		} finally {
 			CodeView.prototype.setup = originalSetup;
 			CodeView.prototype.setOptions = originalSetOptions;
+			CodeView.prototype.updateItem = originalUpdateItem;
+			CodeView.prototype.setItems = originalSetItems;
 			renderFulfillmentCoordinator.dispose();
 		}
 	});
@@ -871,13 +884,6 @@ function requirePostRenderForItem(
 		throw new Error(`Expected Pierre onPostRender callback for exact item ${item.id}.`);
 	}
 	return invocation;
-}
-
-function postRenderCountForItem(
-	invocations: readonly CapturedBridgeCodeViewPostRender[],
-	item: CodeViewItem,
-): number {
-	return invocations.filter((candidate): boolean => candidate.contextItem === item).length;
 }
 
 function captureBridgeCodeViewPostRender(props: {
