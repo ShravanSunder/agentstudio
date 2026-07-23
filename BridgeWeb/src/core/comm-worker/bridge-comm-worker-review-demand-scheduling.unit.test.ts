@@ -233,6 +233,55 @@ describe('Bridge comm worker Review logical-position ledger', () => {
 		expect(startCountsByItemId.get('background-10')).toBe(1);
 	});
 
+	test('lets departed active work settle before refilling its physical position', () => {
+		const admissions: TestDemandAdmission[] = [];
+		const cancelledItemIds: string[] = [];
+		const ledger = createBridgeCommWorkerReviewDemandLedger({
+			start: (admission) => {
+				admissions.push(admission);
+				return {
+					cancel: () => cancelledItemIds.push(admission.itemId),
+					updateRole: () => {},
+				};
+			},
+		});
+		const membership = [
+			visibleMember('visible-1'),
+			visibleMember('visible-2'),
+			visibleMember('visible-3'),
+			...Array.from(
+				{ length: 10 },
+				(_, index): BridgeCommWorkerDemandMember => ({
+					itemId: `background-${index + 1}`,
+					role: 'background',
+				}),
+			),
+		];
+		const initialResult = ledger.reconcile(membership);
+		const departingAdmission = initialResult.active.find(({ itemId }) => itemId === 'background-1');
+		if (departingAdmission === undefined) {
+			throw new Error('Expected the first background Review admission.');
+		}
+
+		const afterDeparture = ledger.reconcile(
+			membership.filter(({ itemId }) => itemId !== departingAdmission.itemId),
+		);
+
+		expect(departingAdmission.signal.aborted).toBe(false);
+		expect(cancelledItemIds).toEqual([]);
+		expect(admissions).toHaveLength(12);
+		expect(afterDeparture.active.map(({ itemId }) => itemId)).toContain(departingAdmission.itemId);
+		expect(afterDeparture.wanted.map(({ itemId }) => itemId)).toEqual(['background-10']);
+
+		expect(
+			ledger.release(departingAdmission.itemId, departingAdmission.attemptToken, 'resident'),
+		).toBe(true);
+		expect(admissions.map(({ itemId }) => itemId)).toEqual([
+			...membership.slice(0, 12).map(({ itemId }) => itemId),
+			'background-10',
+		]);
+	});
+
 	test('retains terminal background progress and restarts retry-wait only after retry-ready', () => {
 		const admissions: TestDemandAdmission[] = [];
 		const ledger = createBridgeCommWorkerReviewDemandLedger({
@@ -381,6 +430,80 @@ describe('Bridge comm worker Review logical-position ledger', () => {
 });
 
 describe('Bridge comm worker Review production demand scheduling', () => {
+	test('retains departed current-generation bodies without publishing stale Review UI', async () => {
+		const itemId = 'departed-item';
+		const contentItems = [makeWorkerReviewContentMetadata({ itemId })];
+		const contentRequestDescriptors = [
+			makeContentRequestDescriptor({ itemId, role: 'base', text: 'base body\n' }),
+			makeContentRequestDescriptor({ itemId, role: 'head', text: 'head body\n' }),
+		];
+		const renderSemantics = [makeRenderSemantics({ itemId })];
+		const rows = [{ id: itemId, index: 0, parentId: null }];
+		const deferredStreams: DeferredReviewContentStream[] = [];
+		const signals: AbortSignal[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const pump = createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => 0 });
+		const store = createBridgeCommWorkerStore({ contentItems, rows, surface: 'review' });
+		store.actions.applyViewportFact({
+			firstVisibleIndex: 0,
+			lastVisibleIndex: 0,
+			visibleItemIds: [itemId],
+		});
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 1 });
+		const scheduling = createBridgeCommWorkerReviewDemandScheduling({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 1024, maxWindowLines: 50 },
+			createSequence: (() => {
+				let sequence = 0;
+				return (): number => (sequence += 1);
+			})(),
+			markPreparationDrainRequired: () => {},
+			openReviewContent: (descriptor, signal) => {
+				const deferredStream = createDeferredReviewContentStream(descriptor);
+				deferredStreams.push(deferredStream);
+				signals.push(signal);
+				return deferredStream.stream;
+			},
+			port: dispatch.port,
+			pump,
+			recordPreparationCompletion: () => {},
+			requestPreparationDrain: () => {},
+			usesProductTransport: false,
+		});
+		scheduling.updateRuntimeSource({
+			contentItems,
+			contentRequestDescriptors,
+			renderSemantics,
+			rows,
+		});
+		scheduling.resume();
+		scheduling.scheduleDemandExecution({ cause: 'viewport', epoch: 7, store });
+		pump.runUntilBudget();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(deferredStreams).toHaveLength(2);
+
+		scheduling.updateRuntimeSource({
+			contentItems: [],
+			contentRequestDescriptors: [],
+			renderSemantics: [],
+			rows: [],
+		});
+		scheduling.scheduleDemandExecution({ cause: 'viewport', epoch: 7, store });
+		for (const deferredStream of deferredStreams) {
+			deferredStream.resolve('departed body\n');
+		}
+		await flushBridgeWorkerRuntimeContinuations();
+		for (let drainIndex = 0; drainIndex < 8; drainIndex += 1) {
+			pump.runUntilBudget();
+			// oxlint-disable-next-line no-await-in-loop -- Each publication stage schedules the next owned continuation.
+			await flushBridgeWorkerRuntimeContinuations();
+		}
+
+		expect(signals.every((signal) => !signal.aborted)).toBe(true);
+		expect(store.reviewBodyRegistry.snapshot().entryCount).toBe(2);
+		expect(postedMessages).toEqual([]);
+	});
+
 	test('replaces one active composite when Review metadata changes its preparation identity', async () => {
 		const itemId = 'item-1';
 		const contentItems = [makeWorkerReviewContentMetadata({ itemId })];

@@ -189,9 +189,6 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 		for (const [itemId, activeRecord] of activeRecordsByItemId) {
 			const currentMember = memberByItemId.get(itemId);
 			if (currentMember === undefined) {
-				activeRecord.abortController.abort('review_demand_identity_invalidated');
-				activeRecord.handle.cancel();
-				activeRecordsByItemId.delete(itemId);
 				continue;
 			}
 			if (currentMember.role !== activeRecord.role) {
@@ -501,7 +498,8 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 							...(props.openReviewContent === undefined
 								? {}
 								: { openContent: props.openReviewContent }),
-							isDemandCurrent: (): boolean => !admission.signal.aborted,
+							isDemandCurrent: (): boolean =>
+								!admission.signal.aborted && currentMembershipByItemId.has(admission.itemId),
 							itemId: admission.itemId,
 							port: props.port,
 							preparationRank: member.role,
