@@ -107,8 +107,12 @@ function nearbyReviewDemandItemIds(
 	const direction = props.viewportDirection ?? 'unknown';
 	const behindCount = viewportLength * (direction === 'backward' ? 2 : 1);
 	const aheadCount = viewportLength * (direction === 'forward' ? 2 : 1);
-	const firstVisibleIndex = Math.min(...visibleIndexes);
-	const lastVisibleIndex = Math.max(...visibleIndexes);
+	const firstVisibleIndex = visibleIndexes.reduce((minimumIndex, visibleIndex) =>
+		Math.min(minimumIndex, visibleIndex),
+	);
+	const lastVisibleIndex = visibleIndexes.reduce((maximumIndex, visibleIndex) =>
+		Math.max(maximumIndex, visibleIndex),
+	);
 	const nearbyItemIds = [
 		...orderedItemIds.slice(Math.max(0, firstVisibleIndex - behindCount), firstVisibleIndex),
 		...orderedItemIds.slice(lastVisibleIndex + 1, lastVisibleIndex + 1 + aheadCount),

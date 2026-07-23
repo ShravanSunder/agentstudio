@@ -26,7 +26,6 @@ const productJourneyTimeoutMilliseconds = 120_000;
 const productCompositionSettleTimeoutMilliseconds = 10_000;
 const freshReviewSettledBottomTurnCount = 3;
 const maximumFreshReviewHydrationWindowFailures = 32;
-
 interface FreshReviewViewportState {
 	readonly codeScroll: {
 		readonly clientHeight: number;

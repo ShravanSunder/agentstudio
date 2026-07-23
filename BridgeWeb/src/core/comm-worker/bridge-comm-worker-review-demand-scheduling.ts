@@ -657,10 +657,13 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		latestSchedulingEpoch = epoch;
 		const state = store.getState();
 		const orderedItemIds = reviewRuntimeSource.contentItems.map(({ itemId }) => itemId);
+		const orderedIndexByItemIdForDirection = new Map(
+			orderedItemIds.map((itemId, orderedIndex) => [itemId, orderedIndex]),
+		);
 		const firstVisibleOrderedIndex = state.visibleIds.reduce<number | null>(
 			(currentIndex, itemId) => {
-				const orderedIndex = orderedItemIds.indexOf(itemId);
-				if (orderedIndex < 0) return currentIndex;
+				const orderedIndex = orderedIndexByItemIdForDirection.get(itemId);
+				if (orderedIndex === undefined) return currentIndex;
 				return currentIndex === null ? orderedIndex : Math.min(currentIndex, orderedIndex);
 			},
 			null,
