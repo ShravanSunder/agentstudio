@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
-import { errors, type Page } from 'playwright';
+import type { Page } from 'playwright';
+import { errors } from 'playwright';
 
 import {
 	bridgeViewerProductOnlySelectors,
@@ -16,6 +17,7 @@ import {
 import {
 	type FreshReviewHydrationWindowSnapshot,
 	type FreshReviewPaintIdentity,
+	hasCompleteFreshReviewPaintIdentityCoverage,
 	waitForFreshReviewHydrationWindowSnapshot,
 } from './product-only-real-router-review-hydration-window.ts';
 import { waitForProductBrowserFrameSettlement } from './product-only-real-router-settlement.ts';
@@ -235,11 +237,6 @@ export async function proveFreshReviewRoute(props: {
 			mountedHeaderOrderViolations: backwardMountedHeaderOrderViolations,
 			mountedHeaderOrderViolationSignatures: backwardMountedHeaderOrderViolationSignatures,
 		});
-		recordReusedFreshReviewPaintIdentities({
-			forwardPaintIdentityByItemId,
-			paintIdentities: settledHydrationWindow.visiblePaintIdentities,
-			reusedPaintIdentityItemIdSet,
-		});
 		if (viewportState.codeScroll.scrollTop <= 1) break;
 		await scrollFreshReviewCodeView({
 			direction: 'backward',
@@ -252,6 +249,7 @@ export async function proveFreshReviewRoute(props: {
 	reusedPaintIdentityItemIdSet.clear();
 	await traverseFreshReviewPaintIdentities({
 		direction: 'forward',
+		expectedItemIds: props.expectedItemIds,
 		forwardPaintIdentityByItemId,
 		page: props.page,
 		reusedPaintIdentityItemIdSet,
@@ -260,6 +258,7 @@ export async function proveFreshReviewRoute(props: {
 	});
 	await traverseFreshReviewPaintIdentities({
 		direction: 'backward',
+		expectedItemIds: props.expectedItemIds,
 		forwardPaintIdentityByItemId,
 		page: props.page,
 		reusedPaintIdentityItemIdSet,
@@ -599,11 +598,11 @@ async function captureFreshReviewHydrationWindow(props: {
 	readonly page: Page;
 	readonly selectedItemId: string | null;
 }): Promise<FreshReviewHydrationWindowSnapshot> {
-	const readyWindow = await waitForFreshReviewHydrationWindowSnapshot({
+	const settledWindow = await waitForFreshReviewHydrationWindowSnapshot({
 		...props,
 		timeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
 	});
-	if (readyWindow === null) {
+	if (settledWindow === null) {
 		const state = await readFreshReviewViewportState(props.page);
 		throw new Error(
 			`REVIEW_FRESH_ROUTE_HYDRATION_WINDOW_TIMEOUT:${JSON.stringify({
@@ -615,13 +614,9 @@ async function captureFreshReviewHydrationWindow(props: {
 		);
 	}
 	await waitForFreshReviewFrameSettlement({ page: props.page, stage: 'hydration-window' });
-	const settledWindow = await waitForFreshReviewHydrationWindowSnapshot({
-		...props,
-		timeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
-	});
-	if (settledWindow === null) throw new Error('REVIEW_FRESH_ROUTE_POST_SETTLEMENT_TIMEOUT');
 	return settledWindow;
 }
+
 function createFreshReviewHydrationCoverageAccumulator(): FreshReviewHydrationCoverageAccumulator {
 	return {
 		missingHydratedVisibleWindows: [],
@@ -719,6 +714,7 @@ function recordReusedFreshReviewPaintIdentities(props: {
 
 async function traverseFreshReviewPaintIdentities(props: {
 	readonly direction: 'backward' | 'forward';
+	readonly expectedItemIds: readonly string[];
 	readonly forwardPaintIdentityByItemId: Map<string, string>;
 	readonly page: Page;
 	readonly reusedPaintIdentityItemIdSet: Set<string>;
@@ -757,7 +753,11 @@ async function traverseFreshReviewPaintIdentities(props: {
 			settledBoundaryTurnCount += 1;
 			if (
 				props.direction === 'backward' ||
-				settledBoundaryTurnCount >= freshReviewSettledBottomTurnCount
+				(settledBoundaryTurnCount >= freshReviewSettledBottomTurnCount &&
+					hasCompleteFreshReviewPaintIdentityCoverage({
+						expectedItemIds: props.expectedItemIds,
+						paintIdentityByItemId: props.forwardPaintIdentityByItemId,
+					}))
 			) {
 				break;
 			}

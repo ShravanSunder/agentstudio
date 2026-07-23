@@ -14,6 +14,13 @@ export interface FreshReviewHydrationWindowSnapshot {
 	readonly visiblePaintIdentities: readonly FreshReviewPaintIdentity[];
 }
 
+export function hasCompleteFreshReviewPaintIdentityCoverage(props: {
+	readonly expectedItemIds: readonly string[];
+	readonly paintIdentityByItemId: ReadonlyMap<string, string>;
+}): boolean {
+	return props.expectedItemIds.every((itemId): boolean => props.paintIdentityByItemId.has(itemId));
+}
+
 export async function waitForFreshReviewHydrationWindowSnapshot(props: {
 	readonly excludedItemIds: readonly string[];
 	readonly page: Page;
