@@ -1,5 +1,6 @@
 import type { BridgeBodyRegistry } from '../demand/bridge-body-registry.js';
 import type {
+	BridgeProductContentTerminal,
 	BridgeProductContentResponseStartControl,
 	BridgeProductContentStream,
 } from './bridge-product-transport-contract.js';
@@ -18,7 +19,7 @@ export interface BridgeWorkerReviewContentResourceFetch {
 		registerResponseStartControl?: (
 			control: BridgeProductContentResponseStartControl,
 		) => () => void,
-	): Promise<BridgeWorkerFetchedReviewContentResource>;
+	): Promise<BridgeWorkerReviewContentResourceFetchResult>;
 }
 
 export interface FetchBridgeWorkerReviewContentResourceProps {
@@ -52,7 +53,53 @@ export type BridgeWorkerResidentReviewContentBody = Pick<
 	'byteLength' | 'observedSha256' | 'sourcePosition' | 'text' | 'textBytes'
 >;
 
-export class BridgeWorkerReviewContentRetryWaitError extends Error {}
+type BridgeWorkerReviewContentCompleteTerminal = Extract<
+	BridgeProductContentTerminal<'review.content'>,
+	{ readonly kind: 'complete' }
+>;
+type BridgeWorkerReviewContentErrorTerminal = Extract<
+	BridgeProductContentTerminal<'review.content'>,
+	{ readonly kind: 'error' }
+>;
+type BridgeWorkerReviewContentResetTerminal = Extract<
+	BridgeProductContentTerminal<'review.content'>,
+	{ readonly kind: 'reset' }
+>;
+
+export interface BridgeWorkerReviewContentLocalFailure {
+	readonly code:
+		| 'aborted'
+		| 'descriptor_invalid'
+		| 'internal_failure'
+		| 'terminal_descriptor_mismatch'
+		| 'utf8_invalid';
+	readonly descriptorId: string;
+	readonly kind: 'abort' | 'internal' | 'validation';
+	readonly safeMessage: string;
+}
+
+export type BridgeWorkerReviewContentResourceFetchResult =
+	| (BridgeWorkerFetchedReviewContentResource & {
+			readonly contentRequestId: string;
+			readonly disposition: 'ready';
+			readonly terminal: BridgeWorkerReviewContentCompleteTerminal;
+	  })
+	| {
+			readonly contentRequestId: string;
+			readonly disposition: 'retryWait';
+			readonly terminal:
+				| BridgeWorkerReviewContentErrorTerminal
+				| BridgeWorkerReviewContentResetTerminal;
+	  }
+	| {
+			readonly contentRequestId: string;
+			readonly disposition: 'terminal';
+			readonly terminal: BridgeWorkerReviewContentErrorTerminal;
+	  }
+	| {
+			readonly disposition: 'discarded' | 'terminal';
+			readonly localFailure: BridgeWorkerReviewContentLocalFailure;
+	  };
 
 export function createSharedBridgeWorkerReviewContentResourceFetch(props: {
 	readonly bodyRegistry?: BridgeBodyRegistry<BridgeWorkerResidentReviewContentBody>;
@@ -73,7 +120,9 @@ export function createSharedBridgeWorkerReviewContentResourceFetch(props: {
 			control: BridgeProductContentResponseStartControl,
 		) => () => void,
 	) => {
-		signal?.throwIfAborted();
+		if (signal?.aborted === true) {
+			return abortedBridgeWorkerReviewContentFetchResult(descriptor);
+		}
 		const bodyRegistry = props.bodyRegistry ?? props.resolveBodyRegistry?.();
 		const residentCacheKey = residentBridgeWorkerReviewContentResourceCacheKey(descriptor);
 		const residentFreshnessKey = residentBridgeWorkerReviewContentResourceFreshnessKey(descriptor);
@@ -82,10 +131,23 @@ export function createSharedBridgeWorkerReviewContentResourceFetch(props: {
 			freshnessKey: residentFreshnessKey,
 		});
 		if (residentResource !== null && residentResource !== undefined) {
-			return fetchedBridgeWorkerReviewContentResourceFromResidentBody({
+			const resource = fetchedBridgeWorkerReviewContentResourceFromResidentBody({
 				body: residentResource,
 				descriptor,
 			});
+			return {
+				...resource,
+				contentRequestId: resource.requestId,
+				disposition: 'ready',
+				terminal: {
+					bytes: resource.textBytes,
+					contentKind: 'review.content',
+					descriptorId: descriptor.descriptorId,
+					endOfSource: resource.sourcePosition === 'whole',
+					kind: 'complete',
+					observedSha256: resource.observedSha256,
+				},
+			};
 		}
 		const resourceKey = sharedBridgeWorkerReviewContentResourceKey(descriptor);
 		const existingResource = inFlightResourcesByIdentity.get(resourceKey);
@@ -96,7 +158,7 @@ export function createSharedBridgeWorkerReviewContentResourceFetch(props: {
 			inFlightResourcesByIdentity.delete(resourceKey);
 		}
 		if (props.openContent === undefined) {
-			throw new Error('Bridge worker Review content requires the shared product transport.');
+			return internalBridgeWorkerReviewContentFetchResult(descriptor);
 		}
 		const resourcePromise = fetchBridgeWorkerReviewContentResource({
 			descriptor,
@@ -116,25 +178,30 @@ export function createSharedBridgeWorkerReviewContentResourceFetch(props: {
 		signal?.addEventListener('abort', evictAbortedResource, { once: true });
 		inFlightResourcesByIdentity.set(resourceKey, resourceEntry);
 		try {
-			const resource = await resourcePromise;
-			signal?.throwIfAborted();
+			const result = await resourcePromise;
+			if (isAbortSignalAborted(signal)) {
+				return abortedBridgeWorkerReviewContentFetchResult(descriptor);
+			}
+			if (result.disposition !== 'ready') {
+				return result;
+			}
 			bodyRegistry?.evictStale({
 				cacheKey: residentCacheKey,
 				keepFreshnessKey: residentFreshnessKey,
 			});
 			bodyRegistry?.put({
 				body: {
-					byteLength: resource.byteLength,
-					observedSha256: resource.observedSha256,
-					sourcePosition: resource.sourcePosition,
-					text: resource.text,
-					textBytes: resource.textBytes,
+					byteLength: result.byteLength,
+					observedSha256: result.observedSha256,
+					sourcePosition: result.sourcePosition,
+					text: result.text,
+					textBytes: result.textBytes,
 				},
-				byteLength: resource.byteLength,
+				byteLength: result.byteLength,
 				cacheKey: residentCacheKey,
 				freshnessKey: residentFreshnessKey,
 			});
-			return resource;
+			return result;
 		} finally {
 			signal?.removeEventListener('abort', evictAbortedResource);
 			evictAbortedResource();
@@ -162,13 +229,28 @@ function fetchedBridgeWorkerReviewContentResourceFromResidentBody(props: {
 
 export async function fetchBridgeWorkerReviewContentResource(
 	props: FetchBridgeWorkerReviewContentResourceProps,
-): Promise<BridgeWorkerFetchedReviewContentResource> {
-	const descriptor = bridgeWorkerReviewContentRequestDescriptorSchema.parse(props.descriptor);
-	if (descriptor.isBinary) {
-		throw new Error('Bridge worker review content fetch cannot load binary descriptors.');
+): Promise<BridgeWorkerReviewContentResourceFetchResult> {
+	const descriptorResult = bridgeWorkerReviewContentRequestDescriptorSchema.safeParse(
+		props.descriptor,
+	);
+	if (!descriptorResult.success) {
+		return validationBridgeWorkerReviewContentFetchResult({
+			code: 'descriptor_invalid',
+			descriptorId: props.descriptor.descriptorId,
+			safeMessage: 'Bridge worker Review content descriptor is invalid.',
+		});
 	}
+	const descriptor = descriptorResult.data;
 	const abortSignal = props.signal ?? new AbortController().signal;
-	const contentStream = props.openContent(descriptor, abortSignal);
+	if (abortSignal.aborted) {
+		return abortedBridgeWorkerReviewContentFetchResult(descriptor);
+	}
+	let contentStream: BridgeProductContentStream<'review.content'>;
+	try {
+		contentStream = props.openContent(descriptor, abortSignal);
+	} catch {
+		return internalBridgeWorkerReviewContentFetchResult(descriptor);
+	}
 	const unregisterResponseStartControl =
 		contentStream.responseStartControl === undefined
 			? undefined
@@ -178,31 +260,54 @@ export async function fetchBridgeWorkerReviewContentResource(
 			drainBridgeProductReviewContentFrames(contentStream),
 			contentStream.terminal,
 		]);
+		if (abortSignal.aborted) {
+			return abortedBridgeWorkerReviewContentFetchResult(descriptor);
+		}
 		if (terminal.kind === 'error') {
-			if (terminal.retryable) {
-				throw new BridgeWorkerReviewContentRetryWaitError(
-					terminal.safeMessage ?? `Bridge worker Review content failed: ${terminal.code}.`,
-				);
-			}
-			throw new Error(
-				terminal.safeMessage ?? `Bridge worker Review content failed: ${terminal.code}.`,
-			);
+			return terminal.retryable
+				? {
+						contentRequestId: contentStream.contentRequestId,
+						disposition: 'retryWait',
+						terminal,
+					}
+				: {
+						contentRequestId: contentStream.contentRequestId,
+						disposition: 'terminal',
+						terminal,
+					};
 		}
 		if (terminal.kind === 'reset') {
-			throw new BridgeWorkerReviewContentRetryWaitError(
-				`Bridge worker Review content reset: ${terminal.reason}.`,
-			);
+			return {
+				contentRequestId: contentStream.contentRequestId,
+				disposition: 'retryWait',
+				terminal,
+			};
 		}
 		if (terminal.descriptorId !== descriptor.descriptorId) {
-			throw new Error('Bridge worker Review content terminal descriptor does not match demand.');
+			return validationBridgeWorkerReviewContentFetchResult({
+				code: 'terminal_descriptor_mismatch',
+				descriptorId: descriptor.descriptorId,
+				safeMessage: 'Bridge worker Review content terminal descriptor is invalid.',
+			});
 		}
-		const text = new TextDecoder('utf-8', { fatal: true }).decode(terminal.bytes);
+		let text: string;
+		try {
+			text = new TextDecoder('utf-8', { fatal: true }).decode(terminal.bytes);
+		} catch {
+			return validationBridgeWorkerReviewContentFetchResult({
+				code: 'utf8_invalid',
+				descriptorId: descriptor.descriptorId,
+				safeMessage: 'Bridge worker Review content is not valid UTF-8.',
+			});
+		}
 		return {
+			contentRequestId: contentStream.contentRequestId,
 			itemId: descriptor.itemId,
 			role: descriptor.role,
 			contentHash: descriptor.contentDigest.value,
 			contentHashAlgorithm: descriptor.contentDigest.algorithm,
 			descriptorId: descriptor.descriptorId,
+			disposition: 'ready',
 			language: descriptor.language,
 			byteLength: terminal.bytes.byteLength,
 			observedSha256: terminal.observedSha256,
@@ -215,10 +320,64 @@ export async function fetchBridgeWorkerReviewContentResource(
 					: `byteRange:${descriptor.window.startByte}:${terminal.bytes.byteLength}`,
 			text,
 			textBytes: terminal.bytes,
+			terminal,
 		};
+	} catch {
+		return abortSignal.aborted
+			? abortedBridgeWorkerReviewContentFetchResult(descriptor)
+			: internalBridgeWorkerReviewContentFetchResult(descriptor);
 	} finally {
 		unregisterResponseStartControl?.();
 	}
+}
+
+export function internalBridgeWorkerReviewContentFetchResult(
+	descriptor: Pick<BridgeWorkerReviewContentRequestDescriptor, 'descriptorId'>,
+): BridgeWorkerReviewContentResourceFetchResult {
+	return {
+		disposition: 'terminal',
+		localFailure: {
+			code: 'internal_failure',
+			descriptorId: descriptor.descriptorId,
+			kind: 'internal',
+			safeMessage: 'Bridge worker Review content failed internally.',
+		},
+	};
+}
+
+function abortedBridgeWorkerReviewContentFetchResult(
+	descriptor: Pick<BridgeWorkerReviewContentRequestDescriptor, 'descriptorId'>,
+): BridgeWorkerReviewContentResourceFetchResult {
+	return {
+		disposition: 'discarded',
+		localFailure: {
+			code: 'aborted',
+			descriptorId: descriptor.descriptorId,
+			kind: 'abort',
+			safeMessage: 'Bridge worker Review content fetch was aborted.',
+		},
+	};
+}
+
+function validationBridgeWorkerReviewContentFetchResult(props: {
+	readonly code: Extract<
+		BridgeWorkerReviewContentLocalFailure['code'],
+		'descriptor_invalid' | 'terminal_descriptor_mismatch' | 'utf8_invalid'
+	>;
+	readonly descriptorId: string;
+	readonly safeMessage: string;
+}): BridgeWorkerReviewContentResourceFetchResult {
+	return {
+		disposition: 'terminal',
+		localFailure: {
+			...props,
+			kind: 'validation',
+		},
+	};
+}
+
+function isAbortSignalAborted(signal: AbortSignal | undefined): boolean {
+	return signal?.aborted === true;
 }
 
 async function drainBridgeProductReviewContentFrames(

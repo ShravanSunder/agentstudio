@@ -35,7 +35,9 @@ describe('Bridge worker review content fetch', () => {
 			byteLength: 19,
 			contentHash: 'sha256:item-1:head:generation-4',
 			contentHashAlgorithm: 'fixture-preview',
+			contentRequestId: `content-request-${descriptor.descriptorId}`,
 			descriptorId: descriptor.descriptorId,
+			disposition: 'ready',
 			itemId: descriptor.itemId,
 			language: 'swift',
 			observedSha256: 'a'.repeat(64),
@@ -44,7 +46,14 @@ describe('Bridge worker review content fetch', () => {
 			sourceGeneration: descriptor.reviewGeneration,
 			sourceIdentity: descriptor.sourceIdentity,
 			sourcePosition: 'whole',
+			terminal: {
+				descriptorId: descriptor.descriptorId,
+				kind: 'complete',
+			},
 		});
+		if (result.disposition !== 'ready') {
+			throw new Error('Expected ready Review content.');
+		}
 		expect(result.textBytes.byteLength).toBe(19);
 		expect(new TextDecoder().decode(result.textBytes)).toBe('hello bridge worker');
 	});
@@ -80,16 +89,68 @@ describe('Bridge worker review content fetch', () => {
 		});
 	});
 
-	test('rejects an error terminal from the Review content transport', async () => {
+	test('preserves a non-retryable transport error beside its terminal disposition', async () => {
 		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'fixture' });
 
-		await expect(
-			fetchBridgeWorkerReviewContentResource({
-				descriptor,
-				openContent: (openedDescriptor) =>
-					makeReviewContentErrorStream(openedDescriptor, 'Review content length mismatch.'),
-			}),
-		).rejects.toThrow(/length mismatch/i);
+		const result = await fetchBridgeWorkerReviewContentResource({
+			descriptor,
+			openContent: (openedDescriptor) =>
+				makeReviewContentErrorStream(openedDescriptor, 'Review content length mismatch.', false),
+		});
+
+		expect(result).toMatchObject({
+			contentRequestId: 'content-request-error',
+			disposition: 'terminal',
+			terminal: {
+				code: 'invalid_request',
+				descriptorId: descriptor.descriptorId,
+				kind: 'error',
+				retryable: false,
+				safeMessage: 'Review content length mismatch.',
+			},
+		});
+	});
+
+	test('preserves a retryable transport error beside its retry-wait disposition', async () => {
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'fixture' });
+
+		const result = await fetchBridgeWorkerReviewContentResource({
+			descriptor,
+			openContent: (openedDescriptor) =>
+				makeReviewContentErrorStream(openedDescriptor, 'Review content is temporarily busy.', true),
+		});
+
+		expect(result).toMatchObject({
+			contentRequestId: 'content-request-error',
+			disposition: 'retryWait',
+			terminal: {
+				code: 'invalid_request',
+				descriptorId: descriptor.descriptorId,
+				kind: 'error',
+				retryable: true,
+				safeMessage: 'Review content is temporarily busy.',
+			},
+		});
+	});
+
+	test('preserves a transport reset reason beside its retry-wait disposition', async () => {
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'fixture' });
+
+		const result = await fetchBridgeWorkerReviewContentResource({
+			descriptor,
+			openContent: makeReviewContentResetStream,
+		});
+
+		expect(result).toMatchObject({
+			contentRequestId: 'content-request-reset',
+			disposition: 'retryWait',
+			terminal: {
+				descriptorId: descriptor.descriptorId,
+				kind: 'reset',
+				reason: 'stale_source',
+				retryable: true,
+			},
+		});
 	});
 
 	test('rejects a completed stream whose descriptor identity does not match demand', async () => {
@@ -104,27 +165,61 @@ describe('Bridge worker review content fetch', () => {
 				descriptor,
 				openContent: () => makeImmediateReviewContentStream(mismatchedDescriptor, 'stale'),
 			}),
-		).rejects.toThrow(/terminal descriptor does not match demand/i);
+		).resolves.toMatchObject({
+			disposition: 'terminal',
+			localFailure: {
+				code: 'terminal_descriptor_mismatch',
+				kind: 'validation',
+			},
+		});
 	});
 
-	test('rejects binary descriptors before opening a text content stream', async () => {
+	test('returns a bounded validation outcome before opening an invalid text descriptor', async () => {
 		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'fixture' });
 		let openCallCount = 0;
 
-		await expect(
-			fetchBridgeWorkerReviewContentResource({
-				descriptor: {
-					...descriptor,
-					encoding: null,
-					isBinary: true,
-				} as unknown as BridgeWorkerReviewContentRequestDescriptor,
-				openContent: (openedDescriptor) => {
-					openCallCount += 1;
-					return makeImmediateReviewContentStream(openedDescriptor, 'must not open');
-				},
-			}),
-		).rejects.toThrow();
+		const result = await fetchBridgeWorkerReviewContentResource({
+			descriptor: {
+				...descriptor,
+				encoding: null,
+				isBinary: true,
+			} as unknown as BridgeWorkerReviewContentRequestDescriptor,
+			openContent: (openedDescriptor) => {
+				openCallCount += 1;
+				return makeImmediateReviewContentStream(openedDescriptor, 'must not open');
+			},
+		});
+
+		expect(result).toMatchObject({
+			disposition: 'terminal',
+			localFailure: {
+				code: 'descriptor_invalid',
+				descriptorId: descriptor.descriptorId,
+				kind: 'validation',
+			},
+		});
 		expect(openCallCount).toBe(0);
+	});
+
+	test('returns a bounded internal outcome when opening the local transport fails', async () => {
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'fixture' });
+
+		const result = await fetchBridgeWorkerReviewContentResource({
+			descriptor,
+			openContent: () => {
+				throw new Error('unbounded local failure detail');
+			},
+		});
+
+		expect(result).toMatchObject({
+			disposition: 'terminal',
+			localFailure: {
+				code: 'internal_failure',
+				descriptorId: descriptor.descriptorId,
+				kind: 'internal',
+				safeMessage: 'Bridge worker Review content failed internally.',
+			},
+		});
 	});
 
 	test('does not reuse an aborted shared fetch for a new activity signal', async () => {
@@ -155,7 +250,13 @@ describe('Bridge worker review content fetch', () => {
 
 		// Assert
 		expect(openedSignals).toEqual([hiddenActivity.signal, foregroundActivity.signal]);
-		expect(hiddenResult.status).toBe('rejected');
+		expect(hiddenResult).toMatchObject({
+			status: 'fulfilled',
+			value: {
+				disposition: 'discarded',
+				localFailure: { code: 'aborted', kind: 'abort' },
+			},
+		});
 		expect(foregroundResult.status).toBe('fulfilled');
 	});
 
@@ -198,7 +299,13 @@ describe('Bridge worker review content fetch', () => {
 			generationADescriptor.reviewGeneration,
 			generationBDescriptor.reviewGeneration,
 		]);
-		expect(generationAResult.status).toBe('rejected');
+		expect(generationAResult).toMatchObject({
+			status: 'fulfilled',
+			value: {
+				disposition: 'terminal',
+				terminal: { kind: 'error', retryable: false },
+			},
+		});
 		expect(generationBResult).toMatchObject({
 			status: 'fulfilled',
 			value: {
@@ -227,6 +334,9 @@ describe('Bridge worker review content fetch', () => {
 
 		const firstResource = await fetchReviewContentResource(descriptor);
 		const reissuedResource = await fetchReviewContentResource(reissuedDescriptor);
+		if (firstResource.disposition !== 'ready' || reissuedResource.disposition !== 'ready') {
+			throw new Error('Expected resident Review content.');
+		}
 
 		expect(openCallCount).toBe(1);
 		expect(reissuedResource).toMatchObject({
@@ -252,6 +362,9 @@ describe('Bridge worker review content fetch', () => {
 
 		await fetchReviewContentResource(descriptor);
 		const residentResource = await fetchReviewContentResource(descriptor);
+		if (residentResource.disposition !== 'ready') {
+			throw new Error('Expected exact resident Review content.');
+		}
 
 		expect(openCallCount).toBe(1);
 		expect(residentResource.text).toBe('exact resident body');
@@ -291,6 +404,9 @@ describe('Bridge worker review content fetch', () => {
 			fetchReviewContentResource(baseDescriptor),
 			fetchReviewContentResource(changedHeadDescriptor),
 		]);
+		if (baseResource.disposition !== 'ready' || headResource.disposition !== 'ready') {
+			throw new Error('Expected reusable Review diff content.');
+		}
 
 		expect(openedRoles).toEqual(['head']);
 		expect(baseResource.text).toBe('resident base');
@@ -344,14 +460,23 @@ describe('Bridge worker review content fetch', () => {
 		});
 		const abortedFetchController = new AbortController();
 
-		await expect(fetchReviewContentResource(resetDescriptor)).rejects.toThrow(/reset/i);
-		await expect(fetchReviewContentResource(resetDescriptor)).rejects.toThrow(/reset/i);
+		await expect(fetchReviewContentResource(resetDescriptor)).resolves.toMatchObject({
+			disposition: 'retryWait',
+			terminal: { kind: 'reset', reason: 'stale_source' },
+		});
+		await expect(fetchReviewContentResource(resetDescriptor)).resolves.toMatchObject({
+			disposition: 'retryWait',
+			terminal: { kind: 'reset', reason: 'stale_source' },
+		});
 		const abortedFetch = fetchReviewContentResource(
 			abortedDescriptor,
 			abortedFetchController.signal,
 		);
 		abortedFetchController.abort('pane-hidden');
-		await expect(abortedFetch).rejects.toBe('pane-hidden');
+		await expect(abortedFetch).resolves.toMatchObject({
+			disposition: 'discarded',
+			localFailure: { code: 'aborted', kind: 'abort' },
+		});
 
 		expect(resetOpenCount).toBe(2);
 		expect(abortedOpenCount).toBe(1);
@@ -380,7 +505,10 @@ describe('Bridge worker review content fetch', () => {
 		staleDemand.abort('review-invalidated');
 		lateStream.resolve('late stale body');
 
-		await expect(staleFetch).rejects.toBe('review-invalidated');
+		await expect(staleFetch).resolves.toMatchObject({
+			disposition: 'discarded',
+			localFailure: { code: 'aborted', kind: 'abort' },
+		});
 		expect(registry.snapshot()).toEqual({ entryCount: 0, totalBytes: 0 });
 		await expect(fetchReviewContentResource(descriptor)).resolves.toMatchObject({
 			text: 'fresh body',
@@ -402,9 +530,12 @@ describe('Bridge worker review content fetch', () => {
 		const abortedDemand = new AbortController();
 		abortedDemand.abort('pane-hidden');
 
-		await expect(fetchReviewContentResource(descriptor, abortedDemand.signal)).rejects.toBe(
-			'pane-hidden',
-		);
+		await expect(
+			fetchReviewContentResource(descriptor, abortedDemand.signal),
+		).resolves.toMatchObject({
+			disposition: 'discarded',
+			localFailure: { code: 'aborted', kind: 'abort' },
+		});
 		expect(openCallCount).toBe(1);
 	});
 });
@@ -467,6 +598,7 @@ function makeAbortRejectedReviewContentStream(
 function makeReviewContentErrorStream(
 	descriptor: BridgeWorkerReviewContentRequestDescriptor,
 	safeMessage: string,
+	retryable = false,
 ): BridgeProductContentStream<'review.content'> {
 	return {
 		contentKind: 'review.content',
@@ -477,7 +609,7 @@ function makeReviewContentErrorStream(
 			contentKind: 'review.content',
 			descriptorId: descriptor.descriptorId,
 			kind: 'error',
-			retryable: false,
+			retryable,
 			safeMessage,
 		}),
 	};

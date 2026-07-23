@@ -21,11 +21,12 @@ import type {
 	BridgeWorkerPierreRenderJob,
 } from './bridge-worker-pierre-render-job.js';
 import {
-	BridgeWorkerReviewContentRetryWaitError,
 	type BridgeWorkerFetchedReviewContentResource,
 	fetchBridgeWorkerReviewContentResource,
+	internalBridgeWorkerReviewContentFetchResult,
 	type BridgeWorkerReviewContentOpen,
 	type BridgeWorkerReviewContentResourceFetch,
+	type BridgeWorkerReviewContentResourceFetchResult,
 } from './bridge-worker-review-content-fetch.js';
 import {
 	bridgeWorkerReviewRenderPatchesFromSlicePatchEvent,
@@ -65,20 +66,24 @@ export interface DispatchBridgeWorkerReviewContentReadyProps extends DispatchSel
 
 export type BridgeWorkerReviewContentReadyFetchResult =
 	| {
+			readonly outcomes: readonly BridgeWorkerReviewContentResourceFetchResult[];
 			readonly status: 'ready';
 			readonly resources: readonly BridgeWorkerFetchedReviewContentResource[];
 			readonly semantics: BridgeWorkerReviewRenderSemantics;
 	  }
 	| {
+			readonly outcomes: readonly BridgeWorkerReviewContentResourceFetchResult[];
 			readonly status: 'terminal';
 			readonly reason: BridgeWorkerTerminalContentAvailabilityReason;
 			readonly state: BridgeWorkerTerminalContentAvailabilityState;
 	  }
 	| {
+			readonly outcomes: readonly BridgeWorkerReviewContentResourceFetchResult[];
 			readonly reason: BridgeCommWorkerSelectedContentDropReason;
 			readonly status: 'stale';
 	  }
 	| {
+			readonly outcomes: readonly BridgeWorkerReviewContentResourceFetchResult[];
 			readonly status: 'retryWait';
 	  };
 
@@ -120,34 +125,56 @@ export async function fetchBridgeWorkerReviewContentReadyResources(
 	props: DispatchBridgeWorkerReviewContentReadyProps,
 ): Promise<BridgeWorkerReviewContentReadyFetchResult> {
 	if (!isReviewContentReadyDemandCurrent(props)) {
-		return { reason: 'stale_before_fetch', status: 'stale' };
+		return { outcomes: [], reason: 'stale_before_fetch', status: 'stale' };
 	}
 	const semantics = props.renderSemantics.find((candidate) => candidate.itemId === props.itemId);
 	if (semantics === undefined) {
-		return { reason: 'descriptor_missing', status: 'terminal', state: 'unavailable' };
+		return {
+			outcomes: [],
+			reason: 'descriptor_missing',
+			status: 'terminal',
+			state: 'unavailable',
+		};
 	}
-	let resources: readonly BridgeWorkerFetchedReviewContentResource[];
-	try {
-		const fetchReviewContentResource =
-			props.fetchReviewContentResource ?? createBridgeWorkerReviewContentResourceFetch(props);
-		resources = await Promise.all(
-			selectReviewContentRequestDescriptorsForSemantics({
-				descriptors: props.contentRequestDescriptors,
-				semantics,
-			}).map((descriptor) =>
-				fetchReviewContentResource(descriptor, props.signal, props.registerResponseStartControl),
-			),
-		);
-	} catch (error) {
-		if (error instanceof BridgeWorkerReviewContentRetryWaitError) {
-			return { status: 'retryWait' };
-		}
-		return { reason: 'load_failed', status: 'terminal', state: 'failed' };
-	}
+	const fetchReviewContentResource =
+		props.fetchReviewContentResource ?? createBridgeWorkerReviewContentResourceFetch(props);
+	const outcomes = await Promise.all(
+		selectReviewContentRequestDescriptorsForSemantics({
+			descriptors: props.contentRequestDescriptors,
+			semantics,
+		}).map(async (descriptor): Promise<BridgeWorkerReviewContentResourceFetchResult> => {
+			try {
+				return await fetchReviewContentResource(
+					descriptor,
+					props.signal,
+					props.registerResponseStartControl,
+				);
+			} catch {
+				return internalBridgeWorkerReviewContentFetchResult(descriptor);
+			}
+		}),
+	);
 	if (!isReviewContentReadyDemandCurrent(props)) {
-		return { reason: 'stale_after_fetch', status: 'stale' };
+		return { outcomes, reason: 'stale_after_fetch', status: 'stale' };
 	}
-	return { status: 'ready', resources, semantics };
+	if (outcomes.some(({ disposition }) => disposition === 'discarded')) {
+		return { outcomes, reason: 'stale_after_fetch', status: 'stale' };
+	}
+	if (outcomes.some(({ disposition }) => disposition === 'terminal')) {
+		return { outcomes, reason: 'load_failed', status: 'terminal', state: 'failed' };
+	}
+	if (outcomes.some(({ disposition }) => disposition === 'retryWait')) {
+		return { outcomes, status: 'retryWait' };
+	}
+	const resources = outcomes.filter(
+		(
+			outcome,
+		): outcome is Extract<
+			BridgeWorkerReviewContentResourceFetchResult,
+			{ readonly disposition: 'ready' }
+		> => outcome.disposition === 'ready',
+	);
+	return { outcomes, status: 'ready', resources, semantics };
 }
 
 export function publishSelectedBridgeWorkerReviewContentReadyFetchResult(
@@ -442,12 +469,13 @@ function createBridgeWorkerReviewContentResourceFetch(
 			control: BridgeProductContentResponseStartControl,
 		) => () => void,
 	) => {
-		if (props.openContent === undefined) {
-			throw new Error('Bridge worker Review content requires the shared product transport.');
-		}
 		return fetchBridgeWorkerReviewContentResource({
 			descriptor,
-			openContent: props.openContent,
+			openContent:
+				props.openContent ??
+				(() => {
+					throw new Error('Bridge worker Review content transport is unavailable.');
+				}),
 			...(registerResponseStartControl === undefined ? {} : { registerResponseStartControl }),
 			...(signal === undefined ? {} : { signal }),
 		});
