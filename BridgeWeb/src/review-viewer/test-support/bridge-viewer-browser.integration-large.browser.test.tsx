@@ -53,9 +53,12 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 		const scrollOwner = harness.codeScrollOwner();
 		if (scrollOwner === null) throw new Error('Production Review CodeView has no scroll owner.');
 		const scan = await scanBridgeReviewRecoveryWitnessDocument({
+			markerItemIds: [earlyFile.itemId, middleFile.itemId, finalFile.itemId],
 			markers: [earlyFile.contentMarker, middleFile.contentMarker, finalFile.contentMarker],
+			orderedItemIds: files.map((file): string => file.itemId),
 			sampleCount: 17,
 			scrollOwner,
+			visibleItemIds: harness.renderedCodeViewItemIds,
 			visibleCodeText: harness.visibleCodeText,
 		});
 
