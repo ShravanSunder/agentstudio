@@ -138,7 +138,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 
 			const reviewFiles = selectedReviewOracleFiles(oracle.reviewFiles);
 			const reviewTreeScrollTopByPath = await reviewTreeReachablePathScrollTopMap(page);
-			let residentReuseCount = 0;
+			const paintedDescriptorIds = new Set<string>();
 			for (const reviewFile of reviewFiles) {
 				const scrollTopHint = reviewTreeScrollTopByPath.get(reviewFile.path);
 				if (scrollTopHint === undefined) {
@@ -172,6 +172,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 					);
 					expect(correlation?.sourceGeneration).toBeGreaterThan(0);
 					expect(correlation?.sourceIdentity).toMatch(/\S/u);
+					if (correlation !== undefined) paintedDescriptorIds.add(correlation.descriptorId);
 					const descriptorRequests = contentRequests.filter(
 						(candidate): boolean =>
 							candidate.descriptor['descriptorId'] === correlation?.descriptorId,
@@ -181,7 +182,6 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 						(candidate): boolean => candidate.contentRequestId === correlation?.requestId,
 					);
 					if (correlation?.requestId === `resident-${correlation.descriptorId}`) {
-						residentReuseCount += 1;
 						expect(request).toBeUndefined();
 						continue;
 					}
@@ -203,7 +203,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 					);
 				}
 			}
-			expect(residentReuseCount).toBeGreaterThan(0);
+			expect(paintedDescriptorIds.size).toBe(reviewFiles.length * 2);
 		} finally {
 			await page?.close();
 			await browser.close();

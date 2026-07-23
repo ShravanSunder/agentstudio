@@ -374,7 +374,8 @@ function selectedDiffPresentationFromOneVisiblePublication(): Extract<
 	if (selectedPresentationItem?.type !== 'diff') {
 		throw new Error('Expected selected Review presentation to remain a diff.');
 	}
-	expect(storedVisibleItem.fileDiff.bridgeDemandRank).toBe(1);
+	expect(selectedPresentationItem).toBe(storedVisibleItem);
+	expect(storedVisibleItem.fileDiff.bridgeDemandRank).toBe(0);
 	expect(selectedPresentationItem.fileDiff.bridgeDemandRank).toBe(0);
 	expect(selectedPresentationItem.fileDiff.cacheKey).toBe(storedVisibleItem.fileDiff.cacheKey);
 	return selectedPresentationItem;

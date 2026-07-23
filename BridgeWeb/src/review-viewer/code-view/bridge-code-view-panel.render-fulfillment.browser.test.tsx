@@ -451,7 +451,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			});
 			expect(dispositionKinds(dispositions)).toEqual(['queued']);
 
-			// Exact callback context alone is insufficient when public Pierre readback disagrees.
+			// A connected callback node cannot override a contradictory live current-item identity.
 			await act(async (): Promise<void> => {
 				firstCodeView.updateItem(wrongContextItem);
 				await Promise.resolve();
@@ -468,25 +468,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 				'Expected Pierre current item identity to restore after wrong-current readback.',
 			);
 
-			const originalGetRenderedItems = firstCodeView.getRenderedItems.bind(firstCodeView);
-			firstCodeView.getRenderedItems = (): [] => [];
-			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
-			expect(dispositionKinds(dispositions)).toEqual(['queued']);
-			const connectedRenderedItems = originalGetRenderedItems();
-			const matchingRenderedItem = connectedRenderedItems.find(
-				(renderedItem): boolean => renderedItem.item === firstFinalItem,
-			);
-			if (matchingRenderedItem === undefined) {
-				throw new Error('Expected real Pierre rendered membership for the first publication.');
-			}
-			firstCodeView.getRenderedItems = () => [
-				{ ...matchingRenderedItem, element: document.createElement('div') },
-			];
-			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
-			expect(dispositionKinds(dispositions)).toEqual(['queued']);
-			firstCodeView.getRenderedItems = originalGetRenderedItems;
-
-			// Only the exact final callback plus connected public readback advances fulfillment.
+			// Only the exact final callback plus its connected post-render node advances fulfillment.
 			const initialRenderedRows = requireCurrentRenderedReviewRows(firstCodeView, firstFinalItem);
 			if (initialRenderedRows.baseLines.length !== 0 || initialRenderedRows.headLines.length < 2) {
 				throw new Error('Expected added-only Pierre head rows and no base rows.');

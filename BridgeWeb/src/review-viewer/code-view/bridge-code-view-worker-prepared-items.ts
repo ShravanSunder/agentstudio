@@ -85,9 +85,12 @@ function bridgeCodeViewItemWithSelectedDemandRank(item: BridgeCodeViewItem): Bri
 	if (currentDemandRank === undefined || currentDemandRank <= 0) {
 		return item;
 	}
-	return item.type === 'file'
-		? { ...item, file: { ...item.file, bridgeDemandRank: 0 } }
-		: { ...item, fileDiff: { ...item.fileDiff, bridgeDemandRank: 0 } };
+	if (item.type === 'file') {
+		Object.assign(item.file, { bridgeDemandRank: 0 });
+	} else {
+		Object.assign(item.fileDiff, { bridgeDemandRank: 0 });
+	}
+	return item;
 }
 
 export type BridgeCodeViewMetadataDeltaItemsForPanelSelector = (props: {
