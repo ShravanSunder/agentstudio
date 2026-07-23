@@ -7,7 +7,7 @@ enum BridgePaneProductMetadataCoordinatorError: Error, Equatable {
 }
 
 actor BridgePaneProductMetadataCoordinator {
-    private struct ActiveStream: Sendable {
+    struct ActiveStream: Sendable {
         let correlation: BridgeProductMetadataStreamCorrelation
         let lease: BridgeProductProducerLease
         let productAdmission: BridgeProductAdmissionContext
@@ -16,15 +16,15 @@ actor BridgePaneProductMetadataCoordinator {
 
     private let contentDemandAuthority: BridgePaneProductContentDemandAuthority
     private let fileMetadataSource: any BridgePaneProductFileMetadataProducing
-    private let lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
+    let lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
     private let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
-    private let isReviewPublicationCurrent: @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool
-    private let reviewPublicationReplay:
+    let isReviewPublicationCurrent: @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool
+    let reviewPublicationReplay:
         @MainActor @Sendable (BridgeProductAdmissionContext) -> BridgeReviewCommittedPublication?
-    private let reviewMetadataSource: any BridgePaneProductReviewMetadataProducing
+    let reviewMetadataSource: any BridgePaneProductReviewMetadataProducing
     private var latestPanePresentation: BridgePaneProductPresentationSnapshot?
     private var latestPaneSurfaceSelectionRequest: BridgePaneSurfaceSelectionRequest?
-    private var activeStream: ActiveStream?
+    private(set) var activeStream: ActiveStream?
     private var producerTaskLifecycle: BridgePaneProductMetadataProducerTaskLifecycle
     private var isClosed = false
     private var lifecycleTransitionTail: Task<Void, Never>?
@@ -777,154 +777,6 @@ actor BridgePaneProductMetadataCoordinator {
 }
 
 extension BridgePaneProductMetadataCoordinator {
-    func reserveReviewPublication(
-        package: BridgeReviewPackage,
-        publicationId: UUID,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
-    ) async throws -> BridgeReviewMetadataPublicationReservation {
-        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-            throw CancellationError()
-        }
-        return try await reviewMetadataSource.reserve(
-            package: package,
-            publicationId: publicationId,
-            productAdmission: productAdmission
-        )
-    }
-
-    private func replayCommittedReviewPublicationIfPresent(
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        traceContext: BridgeTraceContext?
-    ) async {
-        guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
-            let publication = await reviewPublicationReplay(productAdmission),
-            foregroundWorkAdmission.withValidAdmission({ true }) == true,
-            let reservation = try? await reviewMetadataSource.reserve(
-                package: publication.package,
-                publicationId: publication.publicationId,
-                productAdmission: productAdmission
-            )
-        else { return }
-        _ = await deliverReviewPublication(
-            publication,
-            reservation: reservation,
-            productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission,
-            traceContext: traceContext
-        )
-    }
-
-    func deliverReviewPublication(
-        _ publication: BridgeReviewCommittedPublication,
-        reservation: BridgeReviewMetadataPublicationReservation,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        traceContext: BridgeTraceContext? = nil
-    ) async -> BridgeReviewPublicationDeliveryDisposition {
-        guard let publishingStream = activeStream,
-            publishingStream.productAdmission.matches(productAdmission),
-            reservation.publicationId == publication.publicationId,
-            foregroundWorkAdmission.withValidAdmission({ true }) == true,
-            (productAdmission.withValidAdmission { true }) == true
-        else { return .deferred }
-        let retainedSubscriptionCount = reviewSubscriptionIds.count
-        await lifecycleTraceRecorder?.record(
-            .started(
-                retainedSubscriptions: retainedSubscriptionCount,
-                traceContext: traceContext
-            )
-        )
-        for attempt in 0...1 {
-            guard activeStream?.lease == publishingStream.lease,
-                foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                await isReviewPublicationCurrent(
-                    publication.publicationId,
-                    productAdmission
-                ),
-                (productAdmission.withValidAdmission { true }) == true
-            else { return .deferred }
-            do {
-                let outcome = try await reviewMetadataSource.deliver(
-                    package: publication.package,
-                    reservation: reservation,
-                    productAdmission: productAdmission
-                )
-                switch outcome {
-                case .delivered(let receipt):
-                    guard activeStream?.lease == publishingStream.lease,
-                        foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                        await isReviewPublicationCurrent(
-                            publication.publicationId,
-                            productAdmission
-                        )
-                    else { return .deferred }
-                    if let maximumFinalSequence = receipt.finalFrames.map(\.sequence).max() {
-                        guard
-                            await publishingStream.session.waitUntilProducerFrameSequenceObserved(
-                                for: publishingStream.lease,
-                                sequence: maximumFinalSequence,
-                                productAdmission: productAdmission
-                            )
-                        else {
-                            guard activeStream?.lease == publishingStream.lease,
-                                foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                                await isReviewPublicationCurrent(
-                                    publication.publicationId,
-                                    productAdmission
-                                ),
-                                (productAdmission.withValidAdmission { true }) == true
-                            else { return .deferred }
-                            return .failed
-                        }
-                    }
-                    guard activeStream?.lease == publishingStream.lease,
-                        foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                        await isReviewPublicationCurrent(
-                            publication.publicationId,
-                            productAdmission
-                        )
-                    else { return .deferred }
-                    await lifecycleTraceRecorder?.record(
-                        .completed(receipt: receipt, traceContext: traceContext)
-                    )
-                    return receipt.publishedSubscriptions > 0
-                        ? .transportAcknowledged
-                        : .deferred
-                case .deferred:
-                    return .deferred
-                }
-            } catch {
-                guard activeStream?.lease == publishingStream.lease,
-                    foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                    await isReviewPublicationCurrent(
-                        publication.publicationId,
-                        productAdmission
-                    )
-                else { return .deferred }
-                await recordReviewPublicationFailure(
-                    Self.reviewPublicationFailure(for: error),
-                    retainedSubscriptions: retainedSubscriptionCount,
-                    traceContext: traceContext
-                )
-                guard attempt == 0,
-                    Self.isRetryableReviewDeliveryFailure(error),
-                    activeStream?.lease == publishingStream.lease,
-                    foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                    await isReviewPublicationCurrent(
-                        publication.publicationId,
-                        productAdmission
-                    ),
-                    (productAdmission.withValidAdmission { true }) == true
-                else { return .failed }
-            }
-        }
-        return .failed
-    }
-}
-
-extension BridgePaneProductMetadataCoordinator {
     func contentReadPlan(
         for request: BridgeProductFileContentRequest,
         productAdmission: BridgeProductAdmissionContext
@@ -978,23 +830,18 @@ extension BridgePaneProductMetadataCoordinator {
         deferredUpdateSubscriptionIds.remove(subscriptionId)
         openedSourceSubscriptionIds.remove(subscriptionId)
     }
-    private var reviewSubscriptionIds: [String] {
+    var reviewSubscriptionIds: [String] {
         subscriptionKindById.compactMap { subscriptionId, kind in
             kind == .reviewMetadata ? subscriptionId : nil
         }.sorted()
     }
 
-    private func recordReviewPublicationFailure(
-        _ failure: BridgeProductReviewMetadataPublicationFailure,
-        retainedSubscriptions: Int,
-        traceContext: BridgeTraceContext?
-    ) async {
-        await lifecycleTraceRecorder?.record(
-            .failed(
-                failure: failure,
-                retainedSubscriptions: retainedSubscriptions,
-                traceContext: traceContext
-            )
+    func retireReviewSubscriptionAfterReset(subscriptionId: String) async {
+        let producerTasks = producerTaskLifecycle.takeAndCancelProducerTasks(
+            subscriptionId: subscriptionId
         )
+        await reviewMetadataSource.cancel(subscriptionId: subscriptionId)
+        await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
+        removeSubscriptionLifecycleState(subscriptionId: subscriptionId)
     }
 }

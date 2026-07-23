@@ -201,6 +201,35 @@ struct RefreshAdmissionIntegrationFixture {
         }
     }
 
+    func openReviewMetadataSubscription() async throws {
+        let request = try refreshAdmissionReviewSubscriptionOpenRequest(
+            installation: productInstallation
+        )
+        let dispatcher = BridgeProductSchemeControlDispatcher(
+            session: productInstallation.session,
+            provider: productProvider,
+            productAdmission: productAdmission
+        )
+        let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
+            productInstallation.capabilityBytes
+        )
+        guard
+            case .response(let responseBytes) = try await dispatcher.dispatch(
+                exactRequestBytes: try JSONEncoder().encode(request),
+                presentedCapability: capabilityHeader
+            ),
+            case .subscriptionOpenAccepted = try BridgeProductStrictJSON.decode(
+                BridgeProductControlResponse.self,
+                from: responseBytes
+            )
+        else {
+            throw RefreshAdmissionIntegrationError.reviewSubscriptionDidNotOpen
+        }
+        guard case .subscriptionAccepted = try await consumeNextMetadataFrame() else {
+            throw RefreshAdmissionIntegrationError.expectedSubscriptionAcceptedFrame
+        }
+    }
+
     func finish() async {
         _ = await controller.teardown().value
     }
@@ -210,6 +239,7 @@ struct RefreshAdmissionIntegrationFixture {
 func makeRefreshAdmissionIntegrationFixture(
     comparisonGate: BridgeComparisonGate? = nil,
     failsChangesetPublication: Bool = false,
+    failsReviewDelivery: Bool = false,
     fileMetadataProducerGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
     reviewMetadataReservationGate: RefreshAdmissionReviewReservationGate? = nil
 ) async throws -> RefreshAdmissionIntegrationFixture {
@@ -239,6 +269,7 @@ func makeRefreshAdmissionIntegrationFixture(
         metadataProducerGate: fileMetadataProducerGate
     )
     let reviewMetadataSource = RefreshAdmissionGatedReviewMetadataSource(
+        failsDelivery: failsReviewDelivery,
         reservationGate: reviewMetadataReservationGate
     )
     let refreshWorkAdmission = BridgePaneRefreshWorkAdmissionTestContext.foregroundOnMainActor()
@@ -564,10 +595,15 @@ actor RefreshAdmissionReviewReservationGate {
 }
 
 private actor RefreshAdmissionGatedReviewMetadataSource: BridgePaneProductReviewMetadataProducing {
+    private let failsDelivery: Bool
     private let reservationGate: RefreshAdmissionReviewReservationGate?
     private let source = BridgePaneProductReviewMetadataSource()
 
-    init(reservationGate: RefreshAdmissionReviewReservationGate?) {
+    init(
+        failsDelivery: Bool,
+        reservationGate: RefreshAdmissionReviewReservationGate?
+    ) {
+        self.failsDelivery = failsDelivery
         self.reservationGate = reservationGate
     }
 
@@ -613,7 +649,10 @@ private actor RefreshAdmissionGatedReviewMetadataSource: BridgePaneProductReview
         reservation: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
-        try await source.deliver(
+        if failsDelivery {
+            throw RefreshAdmissionInjectedReviewMetadataFailure.delivery
+        }
+        return try await source.deliver(
             package: package,
             reservation: reservation,
             productAdmission: productAdmission
@@ -629,6 +668,10 @@ private enum RefreshAdmissionInjectedFileMetadataFailure: Error {
     case changesetPublication
 }
 
+private enum RefreshAdmissionInjectedReviewMetadataFailure: Error {
+    case delivery
+}
+
 private enum RefreshAdmissionIntegrationError: Error {
     case expectedMetadataProducerRegistration
     case expectedMetadataFrame
@@ -636,6 +679,7 @@ private enum RefreshAdmissionIntegrationError: Error {
     case expectedWorkerSessionExecution
     case fileSubscriptionDidNotOpen
     case metadataStreamDidNotInstall
+    case reviewSubscriptionDidNotOpen
 }
 
 private func installRefreshAdmissionMetadataProducer(
@@ -773,6 +817,37 @@ private func refreshAdmissionFileSubscriptionOpenRequest(
         "workerDerivationEpoch": 1,
         "workerInstanceId": installation.bootstrap.workerInstanceId,
     ])
+}
+
+private func refreshAdmissionReviewSubscriptionOpenRequest(
+    installation: BridgeProductSessionInstallation
+) throws -> BridgeProductControlRequest {
+    try refreshAdmissionControlRequest([
+        "kind": "subscription.open",
+        "paneSessionId": installation.bootstrap.paneSessionId,
+        "requestId": "request-review-open-refresh-admission",
+        "requestSequence": 3,
+        "subscription": ["subscriptionKind": "review.metadata"],
+        "subscriptionId": "review-subscription-refresh-admission",
+        "wireVersion": BridgeProductWireContract.version,
+        "workerDerivationEpoch": 1,
+        "workerInstanceId": installation.bootstrap.workerInstanceId,
+    ])
+}
+
+func refreshAdmissionFileSourceAcceptedEvent() throws -> BridgeProductFileMetadataEvent {
+    .sourceAccepted(
+        .init(
+            source: try .init(
+                repoId: "00000000-0000-4000-8000-000000000001",
+                rootRevisionToken: "root-token-refresh-admission",
+                sourceCursor: "source-cursor-refresh-admission",
+                sourceId: "file-source-refresh-admission",
+                subscriptionGeneration: 1,
+                worktreeId: "00000000-0000-4000-8000-000000000002"
+            )
+        )
+    )
 }
 
 func waitForRefreshAdmissionQueuedMetadataFrame(

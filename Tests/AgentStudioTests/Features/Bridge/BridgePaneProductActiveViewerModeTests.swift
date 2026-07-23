@@ -78,7 +78,7 @@ extension WebKitSerializedTests {
                     productAdmission: productAdmission,
                     traceContext: nil,
                     foregroundWorkAdmission: foregroundWorkAdmission
-                ) == .committed
+                ) == .committed(delivery: .deferred)
             )
             let activeSource = BridgeActiveViewerSource(
                 protocolId: .review,
@@ -115,7 +115,7 @@ extension WebKitSerializedTests {
                     productAdmission: productAdmission,
                     traceContext: nil,
                     foregroundWorkAdmission: foregroundWorkAdmission
-                ) == .committed
+                ) == .committed(delivery: .deferred)
             )
 
             await controller.handleCommittedProductActiveViewerModeUpdate(
@@ -149,7 +149,7 @@ extension WebKitSerializedTests {
                     productAdmission: productAdmission,
                     traceContext: nil,
                     foregroundWorkAdmission: foregroundWorkAdmission
-                ) == .committed
+                ) == .committed(delivery: .deferred)
             )
 
             await controller.handleCommittedProductActiveViewerModeUpdate(
@@ -197,7 +197,7 @@ extension WebKitSerializedTests {
             let observations = await harness.reviewMetadataRecorder.observations
 
             // Assert
-            #expect(commitDisposition == .committed)
+            #expect(commitDisposition == .committed(delivery: .deferred))
             let observation = try #require(observations.last)
             #expect(observations.count == 1)
             #expect(observation.deliveredPackage == load.package)

@@ -306,6 +306,12 @@ function reviewPresentationState(props: {
 		return { error: 'Review metadata is unavailable', status: 'metadataFailed' };
 	}
 	if (props.reviewSourceSlice.status === 'loading') return { status: 'metadataLoading' };
+	if (
+		props.reviewSourceSlice.totalItemCount === 0 &&
+		props.reviewSourceSlice.totalTreeRowCount === 0
+	) {
+		return { status: 'readyEmpty' };
+	}
 	if (props.presentationSnapshot === null) return { status: 'projectionPending' };
 	const selectedUnavailablePath = reviewSelectedUnavailablePath(props);
 	const selectedContentIsLoading =

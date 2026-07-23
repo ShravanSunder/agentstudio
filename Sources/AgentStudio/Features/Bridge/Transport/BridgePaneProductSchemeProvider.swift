@@ -791,6 +791,16 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         )
     }
 
+    func resetCurrentReviewSubscriptionsForUnavailableSource(
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) async {
+        await metadataCoordinator.resetCurrentReviewSubscriptionsForUnavailableSource(
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission
+        )
+    }
+
     func acknowledgeLifecycle(
         _ acknowledgement: BridgeProductProducerLifecycleAcknowledgement
     ) async -> Bool {

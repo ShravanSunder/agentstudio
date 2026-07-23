@@ -122,6 +122,72 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		).toHaveLength(1);
 	});
 
+	test('shows No changes to review for a ready zero-item source', async () => {
+		// Arrange
+		const harness = makeReviewSurfaceHarness();
+		const rendered = await render(
+			<BridgeReviewViewerMode
+				isActive
+				onActiveSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerHeaderControls={<div />}
+			/>,
+		);
+		await expect.element(rendered.getByTestId('bridge-review-empty-shell')).toBeVisible();
+
+		// Act
+		await act(async (): Promise<void> => {
+			harness.publish({
+				direction: 'serverWorkerToMain',
+				epoch: 1,
+				kind: 'reviewDisplayPatch',
+				patches: [
+					{
+						operation: 'upsert',
+						payload: {
+							metadataWindowIdentity: 'review-window-empty',
+							reviewGeneration: 1,
+							status: 'ready',
+							summary: {
+								additions: 0,
+								deletions: 0,
+								filesChanged: 0,
+								hiddenFileCount: 0,
+								visibleFileCount: 0,
+							},
+							totalItemCount: 0,
+							totalTreeRowCount: 0,
+						},
+						slice: 'reviewSource',
+					},
+					{
+						operation: 'batch',
+						payload: { items: [], operations: [], reset: true, startIndex: 0 },
+						slice: 'reviewItem',
+					},
+					{
+						operation: 'batch',
+						payload: { reset: true, windows: [] },
+						slice: 'reviewTree',
+					},
+				],
+				projectionRevision: 1,
+				sequence: 1,
+				surface: 'review',
+				transferDescriptors: [],
+				wireVersion: 1,
+			});
+			await settleRenderedReviewFrame();
+		});
+
+		// Assert
+		await expect.element(rendered.getByTestId('bridge-review-no-changes-shell')).toBeVisible();
+		expect(
+			document.querySelector('[data-testid="bridge-review-projection-pending-shell"]'),
+		).toBeNull();
+	});
+
 	test('retries timed-out Review intake-ready delivery until acknowledgement with newer shared epochs', async () => {
 		// Arrange
 		const harness = makeReviewSurfaceHarness();

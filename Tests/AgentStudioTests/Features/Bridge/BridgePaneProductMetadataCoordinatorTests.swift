@@ -542,6 +542,89 @@ struct BridgePaneProductMetadataCoordinatorTests {
         #expect(await pump.cancel())
     }
 
+    @Test("current Review failure resets Review subscription and leaves File active")
+    func currentReviewFailureResetsOnlyReviewSubscription() async throws {
+        // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        let pump = BridgeProductSchemeFramePump(
+            session: harness.session,
+            producerLease: lease,
+            productAdmission: harness.productAdmission.context,
+            acknowledgeLifecycle: { _ in true }
+        )
+        let coordinator = BridgePaneProductMetadataCoordinator(
+            fileMetadataSource: CoordinatorFileMetadataSource(),
+            reviewMetadataSource: CoordinatorReviewMetadataSource(
+                event: try coordinatorReviewSourceAcceptedEvent()
+            ),
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
+        )
+        await coordinator.install(
+            request: try coordinatorMetadataStreamRequest(),
+            lease: lease,
+            productAdmission: harness.productAdmission.context,
+            session: harness.session
+        )
+        for (request, expectedInterestState) in [
+            (
+                try bridgeProductLifecycleControlRequest(
+                    bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 1)
+                ),
+                BridgeProductSubscriptionInterestState.fileMetadata(interests: [], pathScope: [])
+            ),
+            (
+                try bridgeProductLifecycleControlRequest(
+                    bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 3, epoch: 1)
+                ),
+                BridgeProductSubscriptionInterestState.reviewMetadata(interests: [])
+            ),
+        ] {
+            let token = try #require(controlExecutionToken(try await harness.begin(request)))
+            #expect(await harness.session.claimControlProviderDispatch(token: token))
+            let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
+                correlating: request,
+                interestSha256: expectedInterestState.sha256Hex()
+            )
+            let effect = try await harness.session.completeControl(
+                token: token,
+                exactResponseBytes: try JSONEncoder().encode(response)
+            )
+            _ = try await pullMetadataFrame(from: pump)
+            await coordinator.apply(effect, productAdmission: harness.productAdmission.context)
+            _ = try await pullMetadataFrame(from: pump)
+            await harness.session.settleControlProviderDispatch(token: token)
+        }
+
+        // Act
+        await coordinator.resetCurrentReviewSubscriptionsForUnavailableSource(
+            productAdmission: harness.productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
+        )
+        let resetFrame = try await pullMetadataFrame(from: pump)
+        let fileDataResult = try await harness.session.enqueueSubscriptionData(
+            subscriptionId: "file-subscription-1",
+            data: .fileMetadata(try coordinatorSourceAcceptedEvent()),
+            productAdmission: harness.productAdmission.context,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
+        )
+
+        // Assert
+        guard case .subscriptionReset(let reset) = resetFrame else {
+            Issue.record("Expected a Review subscription reset")
+            return
+        }
+        #expect(reset.identity.subscriptionIdentity.subscriptionId == "review-subscription-1")
+        #expect(reset.reason == .staleSource)
+        guard case .enqueued = fileDataResult else {
+            Issue.record("Expected File subscription to remain active")
+            return
+        }
+        await coordinator.uninstall(lease: lease)
+        #expect(await pump.cancel())
+    }
+
     @Test("foreground resume skips a missing deferred subscription and replays the next one")
     @MainActor
     func foregroundResumeContinuesAfterMissingSubscriptionSnapshot() async throws {
@@ -758,199 +841,4 @@ private func coordinatorReviewUpdateRequest(
             "workerInstanceId": "worker-instance-1",
         ]
     )
-}
-
-private func pullMetadataFrame(
-    from pump: BridgeProductSchemeFramePump
-) async throws -> BridgeProductMetadataFrame {
-    guard case .frame(let delivery) = await pump.nextFrame() else {
-        throw BridgePaneProductMetadataCoordinatorTestError.expectedFrame
-    }
-    #expect(await pump.acknowledgeFrameConsumed(delivery.receipt))
-    let decoder = try BridgeProductMetadataFrameDecoder()
-    let frames = try decoder.append(delivery.frame.data)
-    return try #require(frames.first)
-}
-
-private func controlExecutionToken(
-    _ admission: BridgeProductSessionControlAdmission
-) -> BridgeProductControlAdmissionToken? {
-    guard case .execute(let token, _) = admission else { return nil }
-    return token
-}
-
-private enum BridgePaneProductMetadataCoordinatorTestError: Error {
-    case expectedFrame
-    case invalidFileSubscriptionLifecycle
-}
-
-private func coordinatorFileSubscriptionLifecycle() throws -> (
-    opened: BridgeProductSubscriptionSnapshot,
-    updated: BridgeProductSubscriptionSnapshot,
-    commitBarrier: BridgeProductSubscriptionCommitBarrierIntent
-) {
-    let controlRequest = try bridgeProductLifecycleControlRequest(
-        bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 1)
-    )
-    guard case .subscriptionOpen(let openRequest) = controlRequest else {
-        throw BridgePaneProductMetadataCoordinatorTestError.invalidFileSubscriptionLifecycle
-    }
-    var state = BridgeProductSubscriptionState()
-    _ = try state.open(openRequest)
-    guard let opened = state.snapshot(subscriptionId: openRequest.subscriptionId) else {
-        throw BridgePaneProductMetadataCoordinatorTestError.invalidFileSubscriptionLifecycle
-    }
-    let interestState = BridgeProductSubscriptionInterestState.fileMetadata(
-        interests: [try .init(lane: .foreground, paths: ["Sources/App.swift"])],
-        pathScope: []
-    )
-    let interestSha256 = try interestState.sha256Hex()
-    let updated = BridgeProductSubscriptionSnapshot(
-        subscription: opened.subscription,
-        subscriptionId: opened.subscriptionId,
-        subscriptionKind: opened.subscriptionKind,
-        workerDerivationEpoch: opened.workerDerivationEpoch,
-        interestRevision: 1,
-        interestSha256: interestSha256,
-        interestState: interestState,
-        hasStagedUpdate: false
-    )
-    return (
-        opened: opened,
-        updated: updated,
-        commitBarrier: .init(
-            subscriptionId: opened.subscriptionId,
-            subscriptionKind: opened.subscriptionKind,
-            workerDerivationEpoch: opened.workerDerivationEpoch,
-            interestRevision: 1,
-            interestSha256: interestSha256,
-            updateId: "file-update-1"
-        )
-    )
-}
-
-private enum CoordinatorReviewMetadataSourceError: Error {
-    case unavailable
-    case unknownSubscription
-}
-
-private actor CoordinatorReviewMetadataSource: BridgePaneProductReviewMetadataProducing {
-    private let event: BridgeProductReviewMetadataEvent?
-    private var activeSubscriptionIds: Set<String> = []
-    private(set) var cancelledSubscriptionIds: [String] = []
-    private(set) var updatedItemIds: [String] = []
-
-    init(event: BridgeProductReviewMetadataEvent?) {
-        self.event = event
-    }
-
-    func open(
-        subscription: BridgeProductSubscriptionSnapshot,
-        productAdmission: BridgeProductAdmissionContext,
-        emit: @escaping BridgePaneProductReviewMetadataEventSink
-    ) async throws {
-        guard let event else { throw CoordinatorReviewMetadataSourceError.unavailable }
-        activeSubscriptionIds.insert(subscription.subscriptionId)
-        _ = try await emit(event, productAdmission)
-    }
-
-    func update(
-        subscription: BridgeProductSubscriptionSnapshot,
-        productAdmission: BridgeProductAdmissionContext,
-        emit: @escaping BridgePaneProductReviewMetadataEventSink
-    ) async throws {
-        guard activeSubscriptionIds.contains(subscription.subscriptionId) else {
-            throw CoordinatorReviewMetadataSourceError.unknownSubscription
-        }
-        guard case .reviewMetadata(let interests) = subscription.interestState,
-            let event
-        else {
-            throw CoordinatorReviewMetadataSourceError.unavailable
-        }
-        updatedItemIds = interests.flatMap(\.itemIds)
-        _ = try await emit(event, productAdmission)
-    }
-
-    func reserve(
-        package: BridgeReviewPackage,
-        publicationId: UUID,
-        productAdmission: BridgeProductAdmissionContext
-    ) async throws -> BridgeReviewMetadataPublicationReservation {
-        guard (productAdmission.withValidAdmission { true }) == true else {
-            throw CancellationError()
-        }
-        return coordinatorReviewReservation(for: package, publicationId: publicationId)
-    }
-
-    func deliver(
-        package: BridgeReviewPackage,
-        reservation: BridgeReviewMetadataPublicationReservation,
-        productAdmission: BridgeProductAdmissionContext
-    ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
-        guard reservation.packageId == package.packageId,
-            reservation.reviewGeneration == package.reviewGeneration,
-            reservation.revision == package.revision,
-            (productAdmission.withValidAdmission { true }) == true
-        else { throw CoordinatorReviewMetadataSourceError.unavailable }
-        return .deferred(retained: activeSubscriptionIds.count)
-    }
-
-    func cancel(subscriptionId: String) {
-        activeSubscriptionIds.remove(subscriptionId)
-        cancelledSubscriptionIds.append(subscriptionId)
-    }
-}
-
-private func coordinatorSourceAcceptedEvent() throws -> BridgeProductFileMetadataEvent {
-    .sourceAccepted(
-        .init(
-            source: try .init(
-                repoId: "00000000-0000-4000-8000-000000000001",
-                rootRevisionToken: "root-token-1",
-                sourceCursor: "source-cursor-1",
-                sourceId: "file-source-1",
-                subscriptionGeneration: 1,
-                worktreeId: "00000000-0000-4000-8000-000000000002"
-            )
-        )
-    )
-}
-
-private func coordinatorReviewSourceAcceptedEvent() throws -> BridgeProductReviewMetadataEvent {
-    try .init(
-        generation: 7,
-        packageId: "review-package-1",
-        publicationId: UUID(uuidString: "11111111-1111-7111-8111-111111111111")!,
-        revision: 11,
-        sourceIdentity: "review-query-1"
-    )
-}
-
-extension BridgeProductMetadataFrame {
-    fileprivate var streamSequenceForTest: Int {
-        switch self {
-        case .metadataStreamAccepted(let frame): frame.frameIdentity.streamSequence
-        case .subscriptionAccepted(let frame): frame.frameIdentity.streamSequence
-        case .subscriptionInterestsCommitted(let frame): frame.identity.frameIdentity.streamSequence
-        case .subscriptionData(let frame): frame.frameIdentity.streamSequence
-        case .subscriptionReset(let frame): frame.identity.frameIdentity.streamSequence
-        case .subscriptionCancelled(let frame): frame.identity.frameIdentity.streamSequence
-        default: fatalError("Unexpected frame in contiguous stream assertion")
-        }
-    }
-}
-
-private func coordinatorMetadataStreamRequest() throws -> BridgeProductMetadataStreamRequest {
-    let data = try JSONSerialization.data(
-        withJSONObject: [
-            "kind": "metadataStream.open",
-            "metadataStreamId": "metadata-stream-1",
-            "paneSessionId": "pane-session-1",
-            "resumeFromStreamSequence": NSNull(),
-            "wireVersion": BridgeProductWireContract.version,
-            "workerInstanceId": "worker-instance-1",
-        ],
-        options: [.sortedKeys]
-    )
-    return try BridgeProductStrictJSON.decode(BridgeProductMetadataStreamRequest.self, from: data)
 }
