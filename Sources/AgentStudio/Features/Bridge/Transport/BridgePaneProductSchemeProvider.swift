@@ -27,7 +27,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     private let markReviewItemViewed: @MainActor @Sendable (String, BridgeProductAdmissionContext) -> Void
     private let metadataCoordinator: BridgePaneProductMetadataCoordinator
     private let recordReviewPublicationApplication: @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool
-    private let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
+    private nonisolated let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     private let reviewContentSource: any BridgePaneProductReviewContentProducing
 
     init(
@@ -303,19 +303,13 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         }
     }
 
-    func runContentProducer(
+    private func runContentProducer(
         request: BridgeProductContentRequest,
         lease: BridgeProductProducerLease,
         productAdmission: BridgeProductAdmissionContext,
-        session: BridgeProductSession
+        session: BridgeProductSession,
+        contentWorkAdmission: BridgePaneRefreshWorkAdmission?
     ) async {
-        let contentWorkAdmission: BridgePaneRefreshWorkAdmission?
-        switch request {
-        case .fileContent:
-            contentWorkAdmission = refreshWorkAdmissionSource.acquire()
-        case .reviewContent:
-            contentWorkAdmission = refreshWorkAdmissionSource.acquireReviewContentContinuation()
-        }
         guard let foregroundWorkAdmission = contentWorkAdmission else {
             _ = await beginActivityInvalidatedProducerRetirement(
                 lease: lease,
@@ -828,4 +822,58 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         )
     }
 
+}
+
+extension BridgePaneProductSchemeProvider {
+    func runContentProducer(
+        request: BridgeProductContentRequest,
+        lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
+        session: BridgeProductSession
+    ) async {
+        let contentWorkAdmission: BridgePaneRefreshWorkAdmission?
+        switch request {
+        case .fileContent:
+            contentWorkAdmission = refreshWorkAdmissionSource.acquire()
+        case .reviewContent:
+            contentWorkAdmission = refreshWorkAdmissionSource.acquireReviewContentContinuation()
+        }
+        await runContentProducer(
+            request: request,
+            lease: lease,
+            productAdmission: productAdmission,
+            session: session,
+            contentWorkAdmission: contentWorkAdmission
+        )
+    }
+
+    nonisolated func makeContentProducerOperation(
+        request: BridgeProductContentRequest,
+        productAdmission: BridgeProductAdmissionContext,
+        session: BridgeProductSession
+    ) -> BridgeProductProducerRegistry.ProducerOperation {
+        switch request {
+        case .fileContent:
+            return { lease in
+                await self.runContentProducer(
+                    request: request,
+                    lease: lease,
+                    productAdmission: productAdmission,
+                    session: session
+                )
+            }
+        case .reviewContent:
+            let contentWorkAdmission =
+                refreshWorkAdmissionSource.acquireReviewContentContinuation()
+            return { lease in
+                await self.runContentProducer(
+                    request: request,
+                    lease: lease,
+                    productAdmission: productAdmission,
+                    session: session,
+                    contentWorkAdmission: contentWorkAdmission
+                )
+            }
+        }
+    }
 }
