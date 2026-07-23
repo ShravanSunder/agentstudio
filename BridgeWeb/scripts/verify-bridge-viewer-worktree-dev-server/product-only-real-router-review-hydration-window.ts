@@ -2,23 +2,10 @@ import { errors, type Page } from 'playwright';
 
 import { bridgeViewerProductOnlySelectors } from './product-only-real-router-contract.ts';
 
-export interface FreshReviewPaintIdentity {
-	readonly itemId: string;
-	readonly paintIdentity: string;
-}
-
 export interface FreshReviewHydrationWindowSnapshot {
 	readonly hydratedNonSelectedItemIds: readonly string[];
 	readonly scrollTop: number;
 	readonly visibleNonSelectedItemIds: readonly string[];
-	readonly visiblePaintIdentities: readonly FreshReviewPaintIdentity[];
-}
-
-export function hasCompleteFreshReviewPaintIdentityCoverage(props: {
-	readonly expectedItemIds: readonly string[];
-	readonly paintIdentityByItemId: ReadonlyMap<string, string>;
-}): boolean {
-	return props.expectedItemIds.every((itemId): boolean => props.paintIdentityByItemId.has(itemId));
 }
 
 export function previousFreshReviewTraversalScrollTop(props: {
@@ -116,10 +103,6 @@ export async function waitForFreshReviewHydrationWindowSnapshot(props: {
 					hydratedNonSelectedItemIds: visibleCandidates.map((item) => item.itemId),
 					scrollTop: codeScrollOwner.scrollTop,
 					visibleNonSelectedItemIds: visibleCandidates.map((item) => item.itemId),
-					visiblePaintIdentities: visibleItems.map((item) => ({
-						itemId: item.itemId,
-						paintIdentity: JSON.stringify([item.publicationId, item.sourceCorrelations]),
-					})),
 				};
 
 				function bridgeReviewHostElement(host: Element, selector: string): Element | null {

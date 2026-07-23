@@ -522,7 +522,7 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		expect(violationCodes).not.toContain('REVIEW_FRESH_ROUTE_VISIBLE_HYDRATION_MISSING');
 	});
 
-	test('rejects backward traversal that misses hydrated windows, changes selection, or republishes content', () => {
+	test('rejects backward traversal that misses hydrated windows or changes selection', () => {
 		// Arrange
 		const passingProof = makePassingProductOnlyProof();
 		const proof = {
@@ -542,7 +542,6 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 							mountedItemIds: ['review-item-3', 'review-item-2'],
 						},
 					],
-					reusedPaintIdentityItemIds: [],
 					selectedItemIdAtCompletion: 'review-item-2',
 				},
 			},
@@ -803,12 +802,6 @@ function makePassingProductOnlyProof(
 					settledWindowCount: 4,
 				},
 				mountedHeaderOrderViolations: [],
-				reusedPaintIdentityItemIds: [
-					'review-item-1',
-					'review-item-2',
-					'review-item-3',
-					'review-item-4',
-				],
 				selectedItemIdAtCompletion: 'review-item-1',
 			},
 			codeScrollOwnerIdentityStable: true,

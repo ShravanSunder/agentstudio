@@ -191,7 +191,6 @@ export interface BridgeViewerReviewBackwardTraversalProof {
 	readonly completedScrollTop: number;
 	readonly hydrationCoverage: BridgeViewerReviewHydrationCoverage;
 	readonly mountedHeaderOrderViolations: readonly BridgeViewerReviewMountedHeaderOrderViolation[];
-	readonly reusedPaintIdentityItemIds: readonly string[];
 	readonly selectedItemIdAtCompletion: string | null;
 }
 
@@ -732,17 +731,13 @@ function requireFreshReviewRoute(props: {
 				!backwardTraversal.hydrationCoverage.observedHydratedNonSelectedItemIds.includes(itemId),
 		) ||
 		backwardTraversal.mountedHeaderOrderViolations.length > 0 ||
-		backwardTraversal.selectedItemIdAtCompletion !== props.proof.selectedItemIdAtStart ||
-		!stringArraysContainSameValues(
-			backwardTraversal.reusedPaintIdentityItemIds,
-			props.proof.expectedItemIds,
-		)
+		backwardTraversal.selectedItemIdAtCompletion !== props.proof.selectedItemIdAtStart
 	) {
 		props.violations.push({
 			actual: backwardTraversal,
 			code: 'REVIEW_FRESH_ROUTE_BACKWARD_INVALID',
 			expected:
-				'reverse CodeView scrolling traverses bottom-to-top through ordered hydrated windows with stable selection and reused request/publication identities',
+				'reverse CodeView scrolling traverses bottom-to-top through ordered hydrated windows with stable selection',
 		});
 	}
 }

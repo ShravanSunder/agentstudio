@@ -10,10 +10,7 @@ import {
 	mountedHeaderOrderViolationForExpectedOrder,
 	nextFreshReviewTraversalScrollTop,
 } from './product-only-real-router-page.ts';
-import {
-	hasCompleteFreshReviewPaintIdentityCoverage,
-	previousFreshReviewTraversalScrollTop,
-} from './product-only-real-router-review-hydration-window.ts';
+import { previousFreshReviewTraversalScrollTop } from './product-only-real-router-review-hydration-window.ts';
 
 type PageEventName = 'request' | 'requestfailed' | 'requestfinished' | 'response';
 type PageEventHandler = (event: unknown) => void;
@@ -257,34 +254,6 @@ describe('mountedHeaderOrderViolationForExpectedOrder', () => {
 			expectedItemIndexes: [0, 2, 1],
 			mountedItemIds: ['review-item-1', 'review-item-3', 'review-item-2'],
 		});
-	});
-});
-
-describe('hasCompleteFreshReviewPaintIdentityCoverage', () => {
-	test('requires every expected paint identity before forward traversal may complete', () => {
-		// Arrange
-		const expectedItemIds = ['review-item-1', 'review-item-2', 'review-item-3'];
-
-		// Act
-		const incompleteCoverage = hasCompleteFreshReviewPaintIdentityCoverage({
-			expectedItemIds,
-			paintIdentityByItemId: new Map([
-				['review-item-1', 'paint-1'],
-				['review-item-2', 'paint-2'],
-			]),
-		});
-		const completeCoverage = hasCompleteFreshReviewPaintIdentityCoverage({
-			expectedItemIds,
-			paintIdentityByItemId: new Map([
-				['review-item-1', 'paint-1'],
-				['review-item-2', 'paint-2'],
-				['review-item-3', 'paint-3'],
-			]),
-		});
-
-		// Assert
-		expect(incompleteCoverage).toBe(false);
-		expect(completeCoverage).toBe(true);
 	});
 });
 

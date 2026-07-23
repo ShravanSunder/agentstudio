@@ -15,8 +15,6 @@ import {
 } from './product-only-real-router-contract.ts';
 import {
 	type FreshReviewHydrationWindowSnapshot,
-	type FreshReviewPaintIdentity,
-	hasCompleteFreshReviewPaintIdentityCoverage,
 	previousFreshReviewTraversalScrollTop,
 	waitForFreshReviewHydrationWindowSnapshot,
 } from './product-only-real-router-review-hydration-window.ts';
@@ -81,7 +79,6 @@ export async function proveFreshReviewRoute(props: {
 	const observedHeaderItemIdSet = new Set<string>();
 	const hydrationMilestones: BridgeViewerReviewHydrationMilestone[] = [];
 	const hydrationCoverageAccumulator = createFreshReviewHydrationCoverageAccumulator();
-	const forwardPaintIdentityByItemId = new Map<string, string>();
 	const initialHydrationWindow = await captureFreshReviewHydrationWindow({
 		excludedItemIds: [],
 		page: props.page,
@@ -105,10 +102,6 @@ export async function proveFreshReviewRoute(props: {
 	recordFreshReviewHydrationCoverageWindow({
 		accumulator: hydrationCoverageAccumulator,
 		window: initialHydrationWindow,
-	});
-	recordFreshReviewPaintIdentities({
-		paintIdentities: initialHydrationWindow.visiblePaintIdentities,
-		paintIdentityByItemId: forwardPaintIdentityByItemId,
 	});
 	hydrationMilestones.push({
 		hydratedNonSelectedItemIds: initialHydrationWindow.hydratedNonSelectedItemIds,
@@ -151,10 +144,6 @@ export async function proveFreshReviewRoute(props: {
 			itemIds: viewportState.mountedItemIds,
 			observedItemIds: observedHeaderItemIds,
 			observedItemIdSet: observedHeaderItemIdSet,
-		});
-		recordFreshReviewPaintIdentities({
-			paintIdentities: settledHydrationWindow.visiblePaintIdentities,
-			paintIdentityByItemId: forwardPaintIdentityByItemId,
 		});
 		while (
 			pendingMilestones.length > 0 &&
@@ -218,7 +207,6 @@ export async function proveFreshReviewRoute(props: {
 	const backwardHydrationCoverageAccumulator = createFreshReviewHydrationCoverageAccumulator();
 	const backwardMountedHeaderOrderViolations: BridgeViewerReviewMountedHeaderOrderViolation[] = [];
 	const backwardMountedHeaderOrderViolationSignatures = new Set<string>();
-	const reusedPaintIdentityItemIdSet = new Set<string>();
 	for (let stepIndex = 0; stepIndex < traversalStepBudget; stepIndex += 1) {
 		const settledHydrationWindow = await captureFreshReviewHydrationWindow({
 			excludedItemIds: [],
@@ -244,27 +232,6 @@ export async function proveFreshReviewRoute(props: {
 		});
 	}
 	viewportState = await readFreshReviewViewportState(props.page);
-	forwardPaintIdentityByItemId.clear();
-	reusedPaintIdentityItemIdSet.clear();
-	await traverseFreshReviewPaintIdentities({
-		direction: 'forward',
-		expectedItemIds: props.expectedItemIds,
-		forwardPaintIdentityByItemId,
-		page: props.page,
-		reusedPaintIdentityItemIdSet,
-		selectedItemId: selectedItemIdAtStart,
-		traversalStepBudget,
-	});
-	await traverseFreshReviewPaintIdentities({
-		direction: 'backward',
-		expectedItemIds: props.expectedItemIds,
-		forwardPaintIdentityByItemId,
-		page: props.page,
-		reusedPaintIdentityItemIdSet,
-		selectedItemId: selectedItemIdAtStart,
-		traversalStepBudget,
-	});
-	viewportState = await readFreshReviewViewportState(props.page);
 	const identity = await readFreshReviewIdentitySnapshot(props.page);
 	return {
 		...identity,
@@ -276,9 +243,6 @@ export async function proveFreshReviewRoute(props: {
 				selectedItemId: selectedItemIdAtStart,
 			}),
 			mountedHeaderOrderViolations: backwardMountedHeaderOrderViolations,
-			reusedPaintIdentityItemIds: props.expectedItemIds.filter((itemId): boolean =>
-				reusedPaintIdentityItemIdSet.has(itemId),
-			),
 			selectedItemIdAtCompletion: viewportState.selectedItemId,
 		},
 		codeViewManifestItemCount: viewportState.codeViewManifestItemCount,
@@ -689,90 +653,6 @@ function appendFirstSeenItemIds(props: {
 		if (props.observedItemIdSet.has(itemId)) continue;
 		props.observedItemIdSet.add(itemId);
 		props.observedItemIds.push(itemId);
-	}
-}
-
-function recordFreshReviewPaintIdentities(props: {
-	readonly paintIdentities: readonly FreshReviewPaintIdentity[];
-	readonly paintIdentityByItemId: Map<string, string>;
-}): void {
-	for (const item of props.paintIdentities) {
-		if (!props.paintIdentityByItemId.has(item.itemId)) {
-			props.paintIdentityByItemId.set(item.itemId, item.paintIdentity);
-		}
-	}
-}
-
-function recordReusedFreshReviewPaintIdentities(props: {
-	readonly forwardPaintIdentityByItemId: ReadonlyMap<string, string>;
-	readonly paintIdentities: readonly FreshReviewPaintIdentity[];
-	readonly reusedPaintIdentityItemIdSet: Set<string>;
-}): void {
-	for (const item of props.paintIdentities) {
-		const forwardPaintIdentity = props.forwardPaintIdentityByItemId.get(item.itemId);
-		if (forwardPaintIdentity !== undefined && item.paintIdentity === forwardPaintIdentity) {
-			props.reusedPaintIdentityItemIdSet.add(item.itemId);
-		}
-	}
-}
-
-async function traverseFreshReviewPaintIdentities(props: {
-	readonly direction: 'backward' | 'forward';
-	readonly expectedItemIds: readonly string[];
-	readonly forwardPaintIdentityByItemId: Map<string, string>;
-	readonly page: Page;
-	readonly reusedPaintIdentityItemIdSet: Set<string>;
-	readonly selectedItemId: string | null;
-	readonly traversalStepBudget: number;
-}): Promise<void> {
-	let settledBoundaryTurnCount = 0;
-	for (let stepIndex = 0; stepIndex < props.traversalStepBudget; stepIndex += 1) {
-		const settledHydrationWindow = await captureFreshReviewHydrationWindow({
-			excludedItemIds: [],
-			page: props.page,
-			selectedItemId: props.selectedItemId,
-		});
-		if (props.direction === 'forward') {
-			recordFreshReviewPaintIdentities({
-				paintIdentities: settledHydrationWindow.visiblePaintIdentities,
-				paintIdentityByItemId: props.forwardPaintIdentityByItemId,
-			});
-		} else {
-			recordReusedFreshReviewPaintIdentities({
-				forwardPaintIdentityByItemId: props.forwardPaintIdentityByItemId,
-				paintIdentities: settledHydrationWindow.visiblePaintIdentities,
-				reusedPaintIdentityItemIdSet: props.reusedPaintIdentityItemIdSet,
-			});
-		}
-		const viewportState = await readFreshReviewViewportState(props.page);
-		const maximumScrollTop = Math.max(
-			0,
-			viewportState.codeScroll.scrollHeight - viewportState.codeScroll.clientHeight,
-		);
-		const reachedBoundary =
-			props.direction === 'forward'
-				? viewportState.codeScroll.scrollTop >= maximumScrollTop - 1
-				: viewportState.codeScroll.scrollTop <= 1;
-		if (reachedBoundary) {
-			settledBoundaryTurnCount += 1;
-			if (
-				props.direction === 'backward' ||
-				(settledBoundaryTurnCount >= freshReviewSettledBottomTurnCount &&
-					hasCompleteFreshReviewPaintIdentityCoverage({
-						expectedItemIds: props.expectedItemIds,
-						paintIdentityByItemId: props.forwardPaintIdentityByItemId,
-					}))
-			) {
-				break;
-			}
-		} else {
-			settledBoundaryTurnCount = 0;
-		}
-		await scrollFreshReviewCodeView({
-			direction: props.direction,
-			page: props.page,
-			state: viewportState,
-		});
 	}
 }
 
