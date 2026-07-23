@@ -52,7 +52,7 @@ struct UnixSocketTransportTests {
             }
 
             credentials.set(
-                try DarwinPeerCredentialProvider().credentials(forAcceptedSocket: connection.fileDescriptor))
+                try connection.peerCredentials(using: DarwinPeerCredentialProvider()))
         }
         defer { listener.stop() }
 
@@ -95,6 +95,49 @@ struct UnixSocketTransportTests {
                 try connection.send(Data("reply\n".utf8))
             }
         #endif
+    }
+
+    @Test("closed connection rejects operations before descriptor access")
+    func closedConnectionRejectsOperationsBeforeDescriptorAccess() throws {
+        #if canImport(Darwin)
+            var descriptors: [Int32] = [0, 0]
+            guard socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0 else {
+                throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
+            }
+
+            let connection = UnixSocketConnection(fileDescriptor: descriptors[0])
+            connection.close()
+            _ = Darwin.close(descriptors[1])
+
+            let credentialProvider = RecordingPeerCredentialProvider()
+            #expect(throws: UnixSocketTransportError(reason: .connectionClosed)) {
+                _ = try connection.peerCredentials(using: credentialProvider)
+            }
+            #expect(credentialProvider.invocationCount == 0)
+
+            #expect(throws: UnixSocketTransportError(reason: .connectionClosed)) {
+                try connection.send(Data("stale\n".utf8))
+            }
+            #expect(throws: UnixSocketTransportError(reason: .connectionClosed)) {
+                _ = try connection.receive(maxBytes: 64)
+            }
+        #endif
+    }
+}
+
+private final class RecordingPeerCredentialProvider: PeerCredentialProviding, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedInvocationCount = 0
+
+    var invocationCount: Int {
+        lock.withLock { storedInvocationCount }
+    }
+
+    func credentials(forAcceptedSocket _: Int32) throws -> PeerCredentials {
+        lock.withLock {
+            storedInvocationCount += 1
+        }
+        return PeerCredentials(userIdentifier: getuid(), groupIdentifier: getgid())
     }
 }
 

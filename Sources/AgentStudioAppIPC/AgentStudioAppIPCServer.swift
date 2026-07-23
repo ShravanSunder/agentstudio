@@ -56,8 +56,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private let lifecycleLock = NSLock()
     private let debugEscrowLock = NSLock()
     private var isRunning = false
-    private var activeConnections: [Int32: UnixSocketConnection] = [:]
-    private var activeConnectionPrincipals: [Int32: IPCPrincipal] = [:]
+    private var activeConnections: [ObjectIdentifier: UnixSocketConnection] = [:]
+    private var activeConnectionPrincipals: [ObjectIdentifier: IPCPrincipal] = [:]
     private var debugEscrowPrincipalId: UUID?
 
     public init(
@@ -169,15 +169,15 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     public func invalidatePrincipals(boundToPaneId paneId: String) {
         principalRegistry.invalidatePrincipals(boundToPaneId: paneId)
         let connections = lifecycleLock.withLock {
-            let matchingFileDescriptors =
+            let matchingConnectionIdentifiers =
                 activeConnectionPrincipals
                 .filter { _, principal in principal.isBound(toPaneId: paneId) }
                 .map(\.key)
-            for fileDescriptor in matchingFileDescriptors {
-                activeConnectionPrincipals.removeValue(forKey: fileDescriptor)
+            for connectionIdentifier in matchingConnectionIdentifiers {
+                activeConnectionPrincipals.removeValue(forKey: connectionIdentifier)
             }
-            return matchingFileDescriptors.compactMap { fileDescriptor in
-                activeConnections.removeValue(forKey: fileDescriptor)
+            return matchingConnectionIdentifiers.compactMap { connectionIdentifier in
+                activeConnections.removeValue(forKey: connectionIdentifier)
             }
         }
         for connection in connections {
@@ -192,7 +192,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         }
 
         do {
-            let credentials = try peerCredentialProvider.credentials(forAcceptedSocket: connection.fileDescriptor)
+            let credentials = try connection.peerCredentials(using: peerCredentialProvider)
             try peerCredentialGate.validate(credentials)
         } catch {
             return
@@ -229,7 +229,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                     do {
                         let result = try await process(
                             request,
-                            connectionFileDescriptor: connection.fileDescriptor,
+                            connection: connection,
                             connectionState: &connectionState,
                             socketSubscriber: socketSubscriber
                         )
@@ -249,7 +249,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
 
     private func process(
         _ request: JSONRPCRequest,
-        connectionFileDescriptor: Int32,
+        connection: UnixSocketConnection,
         connectionState: inout AgentStudioAppIPCConnectionState,
         socketSubscriber: any IPCEventSubscriber
     ) async throws -> JSONValue {
@@ -270,7 +270,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 approvalAuthority: .noApprovalAuthority
             )
             if let principal = connectionState.principal {
-                recordPrincipal(principal, forConnectionFileDescriptor: connectionFileDescriptor)
+                recordPrincipal(principal, for: connection)
             }
         }
 
@@ -302,7 +302,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             }
             connectionState.principal = result.principal
             connectionState.authenticationFailed = false
-            recordPrincipal(result.principal, forConnectionFileDescriptor: connectionFileDescriptor)
+            recordPrincipal(result.principal, for: connection)
             consumeDebugEscrowIfNeeded(for: result.principal)
             return principalResult(result.principal)
 
@@ -603,15 +603,17 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             guard isRunning else {
                 return false
             }
-            activeConnections[connection.fileDescriptor] = connection
+            activeConnections[ObjectIdentifier(connection)] = connection
             return true
         }
     }
 
     private func unregisterConnection(_ connection: UnixSocketConnection) {
         lifecycleLock.withLock {
-            _ = activeConnections.removeValue(forKey: connection.fileDescriptor)
-            _ = activeConnectionPrincipals.removeValue(forKey: connection.fileDescriptor)
+            let connectionIdentifier = ObjectIdentifier(connection)
+            guard activeConnections[connectionIdentifier] === connection else { return }
+            _ = activeConnections.removeValue(forKey: connectionIdentifier)
+            _ = activeConnectionPrincipals.removeValue(forKey: connectionIdentifier)
         }
     }
 
@@ -628,10 +630,11 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         }
     }
 
-    private func recordPrincipal(_ principal: IPCPrincipal, forConnectionFileDescriptor fileDescriptor: Int32) {
+    private func recordPrincipal(_ principal: IPCPrincipal, for connection: UnixSocketConnection) {
         lifecycleLock.withLock {
-            guard activeConnections[fileDescriptor] != nil else { return }
-            activeConnectionPrincipals[fileDescriptor] = principal
+            let connectionIdentifier = ObjectIdentifier(connection)
+            guard activeConnections[connectionIdentifier] === connection else { return }
+            activeConnectionPrincipals[connectionIdentifier] = principal
         }
     }
 

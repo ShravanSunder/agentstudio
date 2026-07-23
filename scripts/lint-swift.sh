@@ -44,12 +44,12 @@ for scoped_path in "${scoped_paths[@]}"; do
   fi
 done
 
-scoped_swift_paths=()
+swift_scoped_paths=()
 run_release_contract=0
 for scoped_path in "${scoped_paths[@]}"; do
   case "$scoped_path" in
     *.swift)
-      scoped_swift_paths+=("$scoped_path")
+      swift_scoped_paths+=("$scoped_path")
       ;;
     .github/workflows/release.yml|scripts/release-*|scripts/verify-release-scripts.sh)
       run_release_contract=1
@@ -64,14 +64,14 @@ for scoped_path in "${scoped_paths[@]}"; do
   esac
 done
 
-if [[ ${#scoped_swift_paths[@]} -gt 0 ]]; then
+if [[ ${#swift_scoped_paths[@]} -gt 0 ]]; then
   echo "--- swift-format lint (scoped) ---"
-  swift-format lint "${scoped_swift_paths[@]}" 2>&1 \
+  swift-format lint "${swift_scoped_paths[@]}" 2>&1 \
     && echo "swift-format: OK" \
     || { echo "swift-format: FAIL"; exit 1; }
 
   echo "--- SwiftLint (scoped) ---"
-  swiftlint lint --strict "${scoped_swift_paths[@]}" 2>&1 \
+  swiftlint lint --strict "${swift_scoped_paths[@]}" 2>&1 \
     && echo "swiftlint: OK" \
     || { echo "swiftlint: FAIL"; exit 1; }
 

@@ -25,6 +25,8 @@ public struct UnixSocketTransportError: Error, Equatable, Sendable {
         case writeFailed
         case receiveLimitExceeded
         case closeFailed
+        case connectionClosed
+        case descriptorDuplicationFailed
         case peerCredentialsUnavailable
     }
 
@@ -70,10 +72,8 @@ public struct DarwinPeerCredentialProvider: PeerCredentialProviding {
 }
 
 public final class UnixSocketConnection: @unchecked Sendable {
-    public let fileDescriptor: Int32
-
-    private let closeLock = NSLock()
-    private var isClosed = false
+    private let stateLock = NSLock()
+    private var fileDescriptor: Int32?
 
     public init(fileDescriptor: Int32) {
         self.fileDescriptor = fileDescriptor
@@ -85,27 +85,29 @@ public final class UnixSocketConnection: @unchecked Sendable {
 
     public func send(_ data: Data) throws {
         #if canImport(Darwin)
-            try data.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.baseAddress else {
-                    return
-                }
-
-                var writtenByteCount = 0
-                while writtenByteCount < rawBuffer.count {
-                    let result = Darwin.write(
-                        fileDescriptor,
-                        baseAddress.advanced(by: writtenByteCount),
-                        rawBuffer.count - writtenByteCount
-                    )
-
-                    if result < 0 {
-                        if errno == EINTR {
-                            continue
-                        }
-                        throw UnixSocketTransportError(reason: .writeFailed, errnoCode: errno)
+            try withOperationDescriptor { operationDescriptor in
+                try data.withUnsafeBytes { rawBuffer in
+                    guard let baseAddress = rawBuffer.baseAddress else {
+                        return
                     }
 
-                    writtenByteCount += result
+                    var writtenByteCount = 0
+                    while writtenByteCount < rawBuffer.count {
+                        let result = Darwin.write(
+                            operationDescriptor,
+                            baseAddress.advanced(by: writtenByteCount),
+                            rawBuffer.count - writtenByteCount
+                        )
+
+                        if result < 0 {
+                            if errno == EINTR {
+                                continue
+                            }
+                            throw UnixSocketTransportError(reason: .writeFailed, errnoCode: errno)
+                        }
+
+                        writtenByteCount += result
+                    }
                 }
             }
         #else
@@ -117,39 +119,73 @@ public final class UnixSocketConnection: @unchecked Sendable {
         #if canImport(Darwin)
             precondition(maxBytes > 0, "maxBytes must be positive")
 
-            var buffer = [UInt8](repeating: 0, count: maxBytes)
-            let readByteCount = buffer.withUnsafeMutableBytes { rawBuffer in
-                Darwin.read(fileDescriptor, rawBuffer.baseAddress, rawBuffer.count)
-            }
-
-            if readByteCount < 0 {
-                if errno == EINTR {
-                    return try receive(maxBytes: maxBytes)
+            return try withOperationDescriptor { operationDescriptor in
+                var buffer = [UInt8](repeating: 0, count: maxBytes)
+                let readByteCount: Int
+                while true {
+                    let result = buffer.withUnsafeMutableBytes { rawBuffer in
+                        Darwin.read(operationDescriptor, rawBuffer.baseAddress, rawBuffer.count)
+                    }
+                    if result < 0, errno == EINTR {
+                        continue
+                    }
+                    readByteCount = result
+                    break
                 }
-                throw UnixSocketTransportError(reason: .readFailed, errnoCode: errno)
-            }
 
-            if readByteCount > maxBytes {
-                throw UnixSocketTransportError(reason: .receiveLimitExceeded)
-            }
+                if readByteCount < 0 {
+                    throw UnixSocketTransportError(reason: .readFailed, errnoCode: errno)
+                }
 
-            return Data(buffer.prefix(readByteCount))
+                if readByteCount > maxBytes {
+                    throw UnixSocketTransportError(reason: .receiveLimitExceeded)
+                }
+
+                return Data(buffer.prefix(readByteCount))
+            }
         #else
             throw UnixSocketTransportError(reason: .unsupportedPlatform)
         #endif
     }
 
+    public func peerCredentials(using provider: any PeerCredentialProviding) throws -> PeerCredentials {
+        try withOperationDescriptor { operationDescriptor in
+            try provider.credentials(forAcceptedSocket: operationDescriptor)
+        }
+    }
+
     public func close() {
         #if canImport(Darwin)
-            closeLock.withLock {
-                guard !isClosed else {
-                    return
-                }
-
-                _ = Darwin.shutdown(fileDescriptor, SHUT_RDWR)
-                _ = Darwin.close(fileDescriptor)
-                isClosed = true
+            let ownedDescriptor = stateLock.withLock {
+                let ownedDescriptor = fileDescriptor
+                fileDescriptor = nil
+                return ownedDescriptor
             }
+            guard let ownedDescriptor else { return }
+
+            _ = Darwin.shutdown(ownedDescriptor, SHUT_RDWR)
+            _ = Darwin.close(ownedDescriptor)
+        #endif
+    }
+
+    private func withOperationDescriptor<Result>(
+        _ operation: (Int32) throws -> Result
+    ) throws -> Result {
+        #if canImport(Darwin)
+            let operationDescriptor = try stateLock.withLock {
+                guard let fileDescriptor else {
+                    throw UnixSocketTransportError(reason: .connectionClosed)
+                }
+                let operationDescriptor = Darwin.dup(fileDescriptor)
+                guard operationDescriptor >= 0 else {
+                    throw UnixSocketTransportError(reason: .descriptorDuplicationFailed, errnoCode: errno)
+                }
+                return operationDescriptor
+            }
+            defer { _ = Darwin.close(operationDescriptor) }
+            return try operation(operationDescriptor)
+        #else
+            throw UnixSocketTransportError(reason: .unsupportedPlatform)
         #endif
     }
 }
