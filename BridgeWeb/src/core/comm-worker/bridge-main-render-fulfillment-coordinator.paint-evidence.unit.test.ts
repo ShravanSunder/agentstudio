@@ -230,7 +230,7 @@ describe('Bridge main render fulfillment coordinator paint evidence', () => {
 			expectedDisposition(publication, 'applied', 150),
 			expectedDisposition(publication, 'painted', 160),
 		]);
-		expect(harness.coordinator.isBoundFinalItem(publicationItem)).toBe(false);
+		expect(harness.coordinator.isBoundFinalItem(publicationItem)).toBe(true);
 		expect(harness.animationFrames.activeFrameHandles()).toEqual([]);
 
 		// Act: a stale browser callback after terminal cleanup cannot publish twice.

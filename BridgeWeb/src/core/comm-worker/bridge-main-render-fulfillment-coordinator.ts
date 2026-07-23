@@ -305,7 +305,10 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 		isBoundFinalItem: (item): boolean => {
 			if (isDisposed) return false;
 			const entry = pendingByPierreItemId.get(item.id);
-			return entry?.finalItemBound === true && entry.item === item;
+			return (
+				(entry?.finalItemBound === true && entry.item === item) ||
+				retainedPaintedEvidenceByFinalItem.has(item)
+			);
 		},
 		markPublicationQueued: (publication): void => {
 			if (isDisposed) return;
