@@ -313,6 +313,10 @@ private final class BridgePaneRefreshInvalidationCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var storedCount = 0
 
+    var isEmpty: Bool {
+        lock.withLock { storedCount == 0 }
+    }
+
     var count: Int {
         lock.withLock { storedCount }
     }
