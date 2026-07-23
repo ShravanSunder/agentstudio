@@ -204,7 +204,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     foregroundWorkAdmission: foregroundWorkAdmission,
                     traceContext: packageTraceContext
                 ),
-                reset: reset,
                 buildReason: buildReason
             )
         } catch BridgeProviderFailure.providerUnavailable {
@@ -237,19 +236,16 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private func completeReviewPackageLoad(
         _ commit: ReviewPackageLoadCommit,
-        reset: ReviewPackageLoadReset,
         buildReason: BridgeReviewPackageBuildReason
     ) async -> ActionResult {
         guard
             case .committed(let deliveryDisposition) =
                 await commitReviewPackageLoadAndPublishDiffLoaded(commit)
         else {
-            return await reviewPackagePublicationFailureResult(
-                reset: reset,
-                productAdmission: commit.productAdmission,
-                foregroundWorkAdmission: commit.foregroundWorkAdmission,
-                buildReason: buildReason
-            )
+            if commit.foregroundWorkAdmission.withValidAdmission({ true }) == nil {
+                pendingReviewPackageBuildReasons.insert(buildReason)
+            }
+            return .failure(.invalidPayload(description: "Bridge pane is closed"))
         }
         if deliveryDisposition == .failed {
             await productSchemeProvider?.resetCurrentReviewSubscriptionsForUnavailableSource(
@@ -287,29 +283,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             return .failure(.invalidPayload(description: "Bridge pane is closed"))
         }
         return .failure(.invalidPayload(description: "Failed to load bridge review package"))
-    }
-
-    private func reviewPackagePublicationFailureResult(
-        reset: ReviewPackageLoadReset,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        buildReason: BridgeReviewPackageBuildReason
-    ) async -> ActionResult {
-        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-            pendingReviewPackageBuildReasons.insert(buildReason)
-            return .failure(.invalidPayload(description: "Stale bridge review load"))
-        }
-        guard
-            await retainCommittedReviewOrSetInitialFailure(
-                "loadFailed:publication",
-                reset: reset,
-                productAdmission: productAdmission,
-                foregroundWorkAdmission: foregroundWorkAdmission
-            )
-        else {
-            return .failure(.invalidPayload(description: "Stale bridge review load"))
-        }
-        return .failure(.invalidPayload(description: "Failed to publish bridge review package"))
     }
 
     private func acceptReviewPackageLoadResult(
