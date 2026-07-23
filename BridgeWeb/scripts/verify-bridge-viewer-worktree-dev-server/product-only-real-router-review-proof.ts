@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import type { Page } from 'playwright';
-import { errors } from 'playwright';
+import { errors, type Page } from 'playwright';
 
 import {
 	bridgeViewerProductOnlySelectors,
@@ -600,11 +599,11 @@ async function captureFreshReviewHydrationWindow(props: {
 	readonly page: Page;
 	readonly selectedItemId: string | null;
 }): Promise<FreshReviewHydrationWindowSnapshot> {
-	const settledWindow = await waitForFreshReviewHydrationWindowSnapshot({
+	const readyWindow = await waitForFreshReviewHydrationWindowSnapshot({
 		...props,
 		timeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
 	});
-	if (settledWindow === null) {
+	if (readyWindow === null) {
 		const state = await readFreshReviewViewportState(props.page);
 		throw new Error(
 			`REVIEW_FRESH_ROUTE_HYDRATION_WINDOW_TIMEOUT:${JSON.stringify({
@@ -616,9 +615,13 @@ async function captureFreshReviewHydrationWindow(props: {
 		);
 	}
 	await waitForFreshReviewFrameSettlement({ page: props.page, stage: 'hydration-window' });
+	const settledWindow = await waitForFreshReviewHydrationWindowSnapshot({
+		...props,
+		timeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
+	});
+	if (settledWindow === null) throw new Error('REVIEW_FRESH_ROUTE_POST_SETTLEMENT_TIMEOUT');
 	return settledWindow;
 }
-
 function createFreshReviewHydrationCoverageAccumulator(): FreshReviewHydrationCoverageAccumulator {
 	return {
 		missingHydratedVisibleWindows: [],
