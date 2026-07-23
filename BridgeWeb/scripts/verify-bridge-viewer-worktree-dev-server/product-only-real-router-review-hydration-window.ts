@@ -1,0 +1,105 @@
+import { errors, type Page } from 'playwright';
+
+import { bridgeViewerProductOnlySelectors } from './product-only-real-router-contract.ts';
+
+export interface FreshReviewPaintIdentity {
+	readonly itemId: string;
+	readonly paintIdentity: string;
+}
+
+export interface FreshReviewHydrationWindowSnapshot {
+	readonly hydratedNonSelectedItemIds: readonly string[];
+	readonly scrollTop: number;
+	readonly visibleNonSelectedItemIds: readonly string[];
+	readonly visiblePaintIdentities: readonly FreshReviewPaintIdentity[];
+}
+
+export async function waitForFreshReviewHydrationWindowSnapshot(props: {
+	readonly excludedItemIds: readonly string[];
+	readonly page: Page;
+	readonly selectedItemId: string | null;
+	readonly timeoutMilliseconds: number;
+}): Promise<FreshReviewHydrationWindowSnapshot | null> {
+	try {
+		const snapshotHandle = await props.page.waitForFunction(
+			({ excludedItemIds, selectedItemId, selectors }) => {
+				const codePanel = document.querySelector(selectors.reviewCodePanel);
+				const codeScrollOwner = document.querySelector(selectors.reviewCodeScrollOwner);
+				if (!(codeScrollOwner instanceof HTMLElement)) return false;
+				const excludedItemIdSet = new Set(excludedItemIds);
+				const codeScrollRect = codeScrollOwner.getBoundingClientRect();
+				const visibleItems = queryAllInOpenShadowRoots(
+					codePanel ?? document,
+					'diffs-container',
+				).flatMap((reviewItemHost) => {
+					const marker = bridgeReviewHostElement(reviewItemHost, '[data-bridge-code-view-item-id]');
+					const itemId = marker?.getAttribute('data-bridge-code-view-item-id');
+					if (itemId === null || itemId === undefined) return [];
+					const hostRect = reviewItemHost.getBoundingClientRect();
+					if (hostRect.bottom <= codeScrollRect.top || hostRect.top >= codeScrollRect.bottom) {
+						return [];
+					}
+					const contentState = bridgeReviewHostElement(
+						reviewItemHost,
+						'[data-bridge-code-view-content-state]',
+					)?.getAttribute('data-bridge-code-view-content-state');
+					const publicationId = reviewItemHost.getAttribute('data-bridge-painted-publication-id');
+					const sourceCorrelations = reviewItemHost.getAttribute(
+						'data-bridge-painted-source-correlations',
+					);
+					return [{ contentState, itemId, publicationId, sourceCorrelations }];
+				});
+				const visibleCandidates = visibleItems.filter(
+					(item) => item.itemId !== selectedItemId && !excludedItemIdSet.has(item.itemId),
+				);
+				if (
+					visibleCandidates.length === 0 ||
+					visibleCandidates.some(
+						(item) => item.contentState !== 'hydrated' && item.contentState !== 'windowed',
+					) ||
+					visibleItems.some(
+						(item) => item.publicationId === null || item.sourceCorrelations === null,
+					)
+				) {
+					return false;
+				}
+				return {
+					hydratedNonSelectedItemIds: visibleCandidates.map((item) => item.itemId),
+					scrollTop: codeScrollOwner.scrollTop,
+					visibleNonSelectedItemIds: visibleCandidates.map((item) => item.itemId),
+					visiblePaintIdentities: visibleItems.map((item) => ({
+						itemId: item.itemId,
+						paintIdentity: JSON.stringify([item.publicationId, item.sourceCorrelations]),
+					})),
+				};
+
+				function bridgeReviewHostElement(host: Element, selector: string): Element | null {
+					return host.querySelector(selector) ?? host.shadowRoot?.querySelector(selector) ?? null;
+				}
+
+				function queryAllInOpenShadowRoots(
+					root: Document | Element | ShadowRoot,
+					selector: string,
+				): Element[] {
+					const matches = [...root.querySelectorAll(selector)];
+					for (const descendant of root.querySelectorAll('*')) {
+						if (descendant.shadowRoot === null) continue;
+						matches.push(...queryAllInOpenShadowRoots(descendant.shadowRoot, selector));
+					}
+					return matches;
+				}
+			},
+			{
+				excludedItemIds: props.excludedItemIds,
+				selectedItemId: props.selectedItemId,
+				selectors: bridgeViewerProductOnlySelectors,
+			},
+			{ timeout: props.timeoutMilliseconds },
+		);
+		const snapshot = await snapshotHandle.jsonValue();
+		return snapshot === false ? null : snapshot;
+	} catch (error: unknown) {
+		if (error instanceof errors.TimeoutError) return null;
+		throw error;
+	}
+}

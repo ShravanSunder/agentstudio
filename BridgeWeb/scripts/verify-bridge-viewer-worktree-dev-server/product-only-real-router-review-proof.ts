@@ -14,6 +14,11 @@ import {
 	type BridgeViewerReviewFailureSnapshot,
 	type BridgeViewerReviewTreeSelectionProof,
 } from './product-only-real-router-contract.ts';
+import {
+	type FreshReviewHydrationWindowSnapshot,
+	type FreshReviewPaintIdentity,
+	waitForFreshReviewHydrationWindowSnapshot,
+} from './product-only-real-router-review-hydration-window.ts';
 import { waitForProductBrowserFrameSettlement } from './product-only-real-router-settlement.ts';
 
 const productJourneyTimeoutMilliseconds = 120_000;
@@ -39,12 +44,6 @@ interface FreshReviewViewportState {
 		readonly itemId: string;
 		readonly paintIdentity: string | null;
 	}[];
-}
-
-interface FreshReviewHydrationWindowSnapshot {
-	readonly hydratedNonSelectedItemIds: readonly string[];
-	readonly scrollTop: number;
-	readonly visibleNonSelectedItemIds: readonly string[];
 }
 
 interface FreshReviewHydrationCoverageAccumulator {
@@ -108,8 +107,8 @@ export async function proveFreshReviewRoute(props: {
 		window: initialHydrationWindow,
 	});
 	recordFreshReviewPaintIdentities({
+		paintIdentities: initialHydrationWindow.visiblePaintIdentities,
 		paintIdentityByItemId: forwardPaintIdentityByItemId,
-		visibleItems: viewportState.visibleItems,
 	});
 	hydrationMilestones.push({
 		hydratedNonSelectedItemIds: initialHydrationWindow.hydratedNonSelectedItemIds,
@@ -154,8 +153,8 @@ export async function proveFreshReviewRoute(props: {
 			observedItemIdSet: observedHeaderItemIdSet,
 		});
 		recordFreshReviewPaintIdentities({
+			paintIdentities: settledHydrationWindow.visiblePaintIdentities,
 			paintIdentityByItemId: forwardPaintIdentityByItemId,
-			visibleItems: viewportState.visibleItems,
 		});
 		while (
 			pendingMilestones.length > 0 &&
@@ -215,10 +214,6 @@ export async function proveFreshReviewRoute(props: {
 		observedItemIds: observedHeaderItemIds,
 		observedItemIdSet: observedHeaderItemIdSet,
 	});
-	recordFreshReviewPaintIdentities({
-		paintIdentityByItemId: forwardPaintIdentityByItemId,
-		visibleItems: viewportState.visibleItems,
-	});
 	const forwardCompletedScroll = viewportState.codeScroll;
 	const backwardHydrationCoverageAccumulator = createFreshReviewHydrationCoverageAccumulator();
 	const backwardMountedHeaderOrderViolations: BridgeViewerReviewMountedHeaderOrderViolation[] = [];
@@ -243,8 +238,8 @@ export async function proveFreshReviewRoute(props: {
 		});
 		recordReusedFreshReviewPaintIdentities({
 			forwardPaintIdentityByItemId,
+			paintIdentities: settledHydrationWindow.visiblePaintIdentities,
 			reusedPaintIdentityItemIdSet,
-			visibleItems: viewportState.visibleItems,
 		});
 		if (viewportState.codeScroll.scrollTop <= 1) break;
 		await scrollFreshReviewCodeView({
@@ -586,68 +581,11 @@ async function captureFreshReviewHydrationWindow(props: {
 	readonly page: Page;
 	readonly selectedItemId: string | null;
 }): Promise<FreshReviewHydrationWindowSnapshot> {
-	const hydrationWindowSettled = await waitForProductCompositionState(async (): Promise<void> => {
-		await props.page.waitForFunction(
-			({ excludedItemIds, selectedItemId, selectors }): boolean => {
-				const codePanel = document.querySelector(selectors.reviewCodePanel);
-				const codeScrollOwner = document.querySelector(selectors.reviewCodeScrollOwner);
-				if (!(codeScrollOwner instanceof HTMLElement)) return false;
-				const excludedItemIdSet = new Set(excludedItemIds);
-				const reviewItemHosts = queryAllInOpenShadowRoots(codePanel ?? document, 'diffs-container');
-				const codeScrollRect = codeScrollOwner.getBoundingClientRect();
-				const visibleCandidateReadiness = reviewItemHosts.flatMap(
-					(reviewItemHost): readonly boolean[] => {
-						const itemMarker = bridgeReviewHostElement(
-							reviewItemHost,
-							'[data-bridge-code-view-item-id]',
-						);
-						if (itemMarker === null) return [];
-						const itemId = itemMarker.getAttribute('data-bridge-code-view-item-id');
-						if (itemId === null || itemId === selectedItemId || excludedItemIdSet.has(itemId)) {
-							return [];
-						}
-						const hostRect = reviewItemHost.getBoundingClientRect();
-						if (hostRect.bottom <= codeScrollRect.top || hostRect.top >= codeScrollRect.bottom) {
-							return [];
-						}
-						const contentState = bridgeReviewHostElement(
-							reviewItemHost,
-							'[data-bridge-code-view-content-state]',
-						)?.getAttribute('data-bridge-code-view-content-state');
-						return [
-							(contentState === 'hydrated' || contentState === 'windowed') &&
-								reviewItemHost.hasAttribute('data-bridge-painted-publication-id') &&
-								reviewItemHost.hasAttribute('data-bridge-painted-source-correlations'),
-						];
-					},
-				);
-				return visibleCandidateReadiness.length > 0 && visibleCandidateReadiness.every(Boolean);
-
-				function bridgeReviewHostElement(host: Element, selector: string): Element | null {
-					return host.querySelector(selector) ?? host.shadowRoot?.querySelector(selector) ?? null;
-				}
-
-				function queryAllInOpenShadowRoots(
-					root: Document | Element | ShadowRoot,
-					selector: string,
-				): Element[] {
-					const matches = [...root.querySelectorAll(selector)];
-					for (const descendant of root.querySelectorAll('*')) {
-						if (descendant.shadowRoot === null) continue;
-						matches.push(...queryAllInOpenShadowRoots(descendant.shadowRoot, selector));
-					}
-					return matches;
-				}
-			},
-			{
-				excludedItemIds: props.excludedItemIds,
-				selectedItemId: props.selectedItemId,
-				selectors: bridgeViewerProductOnlySelectors,
-			},
-			{ timeout: productCompositionSettleTimeoutMilliseconds },
-		);
+	const settledWindow = await waitForFreshReviewHydrationWindowSnapshot({
+		...props,
+		timeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
 	});
-	if (!hydrationWindowSettled) {
+	if (settledWindow === null) {
 		const state = await readFreshReviewViewportState(props.page);
 		throw new Error(
 			`REVIEW_FRESH_ROUTE_HYDRATION_WINDOW_TIMEOUT:${JSON.stringify({
@@ -659,20 +597,7 @@ async function captureFreshReviewHydrationWindow(props: {
 		);
 	}
 	await waitForFreshReviewFrameSettlement({ page: props.page, stage: 'hydration-window' });
-	const excludedItemIdSet = new Set(props.excludedItemIds);
-	const state = await readFreshReviewViewportState(props.page);
-	const visibleNonSelectedItems = state.visibleItems.filter(
-		(item): boolean => item.itemId !== props.selectedItemId && !excludedItemIdSet.has(item.itemId),
-	);
-	return {
-		hydratedNonSelectedItemIds: visibleNonSelectedItems
-			.filter(
-				(item): boolean => item.contentState === 'hydrated' || item.contentState === 'windowed',
-			)
-			.map((item): string => item.itemId),
-		scrollTop: state.codeScroll.scrollTop,
-		visibleNonSelectedItemIds: visibleNonSelectedItems.map((item): string => item.itemId),
-	};
+	return settledWindow;
 }
 
 function createFreshReviewHydrationCoverageAccumulator(): FreshReviewHydrationCoverageAccumulator {
@@ -747,11 +672,11 @@ function appendFirstSeenItemIds(props: {
 }
 
 function recordFreshReviewPaintIdentities(props: {
+	readonly paintIdentities: readonly FreshReviewPaintIdentity[];
 	readonly paintIdentityByItemId: Map<string, string>;
-	readonly visibleItems: FreshReviewViewportState['visibleItems'];
 }): void {
-	for (const item of props.visibleItems) {
-		if (item.paintIdentity !== null && !props.paintIdentityByItemId.has(item.itemId)) {
+	for (const item of props.paintIdentities) {
+		if (!props.paintIdentityByItemId.has(item.itemId)) {
 			props.paintIdentityByItemId.set(item.itemId, item.paintIdentity);
 		}
 	}
@@ -759,10 +684,10 @@ function recordFreshReviewPaintIdentities(props: {
 
 function recordReusedFreshReviewPaintIdentities(props: {
 	readonly forwardPaintIdentityByItemId: ReadonlyMap<string, string>;
+	readonly paintIdentities: readonly FreshReviewPaintIdentity[];
 	readonly reusedPaintIdentityItemIdSet: Set<string>;
-	readonly visibleItems: FreshReviewViewportState['visibleItems'];
 }): void {
-	for (const item of props.visibleItems) {
+	for (const item of props.paintIdentities) {
 		const forwardPaintIdentity = props.forwardPaintIdentityByItemId.get(item.itemId);
 		if (forwardPaintIdentity !== undefined && item.paintIdentity === forwardPaintIdentity) {
 			props.reusedPaintIdentityItemIdSet.add(item.itemId);
