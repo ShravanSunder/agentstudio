@@ -73,10 +73,6 @@ struct AppDataPathsTests {
             environment: env,
             isDebugBuild: false
         )
-        let workspaces = AppDataPaths.workspacesDirectory(
-            environment: env,
-            isDebugBuild: false
-        )
         let zmx = AppDataPaths.zmxDirectory(
             environment: env,
             isDebugBuild: false
@@ -87,7 +83,6 @@ struct AppDataPathsTests {
         )
 
         #expect(root.path == "\(homeDir)/state-root")
-        #expect(workspaces.path == "\(homeDir)/state-root/workspaces")
         #expect(zmx.path == "\(homeDir)/state-root/z")
         #expect(checkpoint.path == "\(homeDir)/state-root/surface-checkpoint.json")
     }
@@ -106,23 +101,21 @@ struct AppDataPathsTests {
     }
 
     @Test
-    func test_sqlitePathsFollowRootAndWorkspaceDirectory() {
+    func test_sqlitePathsFollowApplicationRoot() {
         let env = ["AGENTSTUDIO_DATA_DIR": "~/sqlite-root"]
         let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
-        let workspaceId = UUID(uuidString: "00000000-0000-7000-8000-000000000001")!
 
         let coreURL = AppDataPaths.coreSQLiteURL(
             environment: env,
             isDebugBuild: false
         )
-        let localURL = AppDataPaths.workspaceLocalSQLiteURL(
-            workspaceId: workspaceId,
+        let localURL = AppDataPaths.localSQLiteURL(
             environment: env,
             isDebugBuild: false
         )
 
         #expect(coreURL.path == "\(homeDir)/sqlite-root/core.sqlite")
-        #expect(localURL.path == "\(homeDir)/sqlite-root/workspaces/\(workspaceId.uuidString).local.sqlite")
+        #expect(localURL.path == "\(homeDir)/sqlite-root/local.sqlite")
     }
 
     @Test

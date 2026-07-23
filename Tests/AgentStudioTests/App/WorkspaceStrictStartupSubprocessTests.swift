@@ -107,12 +107,11 @@ struct WorkspaceStrictStartupSubprocessTests {
 private enum StrictStartupFailureScenario: String, CaseIterable {
     case preexistingEmptyDatabase = "preexisting-empty-database"
     case corruptCoreDatabase = "corrupt-core-database"
-    case localCompletionTokenMismatch = "local-completion-token-mismatch"
     case invalidComposition = "invalid-composition"
 
     var expectedDiagnosticCode: String {
         switch self {
-        case .preexistingEmptyDatabase, .corruptCoreDatabase, .localCompletionTokenMismatch:
+        case .preexistingEmptyDatabase, .corruptCoreDatabase:
             "sqlite_unavailable"
         case .invalidComposition:
             "composition_rejected"
@@ -133,7 +132,6 @@ private final class StrictStartupSubprocessFixture {
     let legacyWorkspaceURL: URL
     let legacySentinel: String
     let workspaceID: UUID?
-    let localDatabaseURL: URL?
     let heldDatabasePools: [DatabasePool]
 
     var processEnvironment: [String: String] {
@@ -178,7 +176,6 @@ private final class StrictStartupSubprocessFixture {
                 legacyWorkspaceURL: legacyWorkspaceURL,
                 legacySentinel: legacySentinel,
                 workspaceID: nil,
-                localDatabaseURL: nil,
                 heldDatabasePools: [corePool]
             )
 
@@ -190,67 +187,118 @@ private final class StrictStartupSubprocessFixture {
                 legacyWorkspaceURL: legacyWorkspaceURL,
                 legacySentinel: legacySentinel,
                 workspaceID: nil,
-                localDatabaseURL: nil,
                 heldDatabasePools: []
             )
 
-        case .localCompletionTokenMismatch, .invalidComposition:
-            let workspaceID = UUIDv7.generate()
-            let localDatabaseURL = workspaceDirectory.appending(path: "\(workspaceID.uuidString).local.sqlite")
-            let corePool = try SQLiteDatabaseFactory.makeFileBackedPool(
-                at: coreDatabaseURL,
-                label: "AgentStudio.sqlite.strict-subprocess.\(scenario.rawValue).core"
-            )
-            let localPool = try SQLiteDatabaseFactory.makeFileBackedPool(
-                at: localDatabaseURL,
-                label: "AgentStudio.sqlite.strict-subprocess.\(scenario.rawValue).local"
-            )
-            try WorkspaceCoreMigrations.migrate(corePool)
-            try WorkspaceLocalMigrations.migrate(localPool)
-            let coreRepository = WorkspaceCoreRepository(databaseWriter: corePool)
-            let localRepository = WorkspaceLocalRepository(
-                workspaceId: workspaceID,
-                databaseWriter: localPool
-            )
-            let backend = WorkspaceSQLiteStoreBackend(
-                coreRepository: coreRepository,
-                makeLocalRepository: { _ in localRepository }
-            )
-            try backend.save(
-                .emptyTopologyFixture(
-                    workspace: .emptyFixture(
-                        id: workspaceID,
-                        name: "Strict subprocess \(scenario.rawValue)"
-                    )
-                )
-            )
-
-            switch scenario {
-            case .localCompletionTokenMismatch:
-                try localPool.write { database in
-                    try database.execute(
-                        sql: "UPDATE local_workspace_sqlite_snapshot_status SET completed_at = completed_at + 1"
-                    )
-                }
-            case .invalidComposition:
-                try localPool.write { database in
-                    try database.execute(
-                        sql: "UPDATE local_workspace_cursor SET active_tab_id = ? WHERE workspace_id = ?",
-                        arguments: [UUIDv7.generate().uuidString, workspaceID.uuidString]
-                    )
-                }
-            case .preexistingEmptyDatabase, .corruptCoreDatabase:
-                preconditionFailure("Scenario does not use a completed workspace fixture")
-            }
-
-            return StrictStartupSubprocessFixture(
+        case .invalidComposition:
+            return try makeInvalidCompositionFixture(
                 rootDirectory: rootDirectory,
                 workspaceDirectory: workspaceDirectory,
                 legacyWorkspaceURL: legacyWorkspaceURL,
                 legacySentinel: legacySentinel,
-                workspaceID: workspaceID,
-                localDatabaseURL: localDatabaseURL,
-                heldDatabasePools: [corePool, localPool]
+                coreDatabaseURL: coreDatabaseURL
+            )
+        }
+    }
+
+    private static func makeInvalidCompositionFixture(
+        rootDirectory: URL,
+        workspaceDirectory: URL,
+        legacyWorkspaceURL: URL,
+        legacySentinel: String,
+        coreDatabaseURL: URL
+    ) throws -> StrictStartupSubprocessFixture {
+        let workspaceID = UUIDv7.generate()
+        let corePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: coreDatabaseURL,
+            label: "AgentStudio.sqlite.strict-subprocess.invalid-composition.core"
+        )
+        let localPool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: rootDirectory.appending(path: "local.sqlite"),
+            label: "AgentStudio.sqlite.strict-subprocess.invalid-composition.local"
+        )
+        try WorkspaceCoreMigrations.migrate(corePool)
+        try WorkspaceLocalMigrations.migrate(localPool)
+        let backend = WorkspaceSQLiteStoreBackend(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: corePool),
+            makeLocalRepository: { workspaceID in
+                WorkspaceLocalRepository(workspaceId: workspaceID, databaseWriter: localPool)
+            }
+        )
+        let ownedPane = makePane(id: UUIDv7.generate(), title: "Owned pane")
+        let tab = Tab(id: UUIDv7.generate(), paneId: ownedPane.id, name: "Strict startup tab")
+        try backend.save(
+            .emptyTopologyFixture(
+                workspace: WorkspaceSQLiteSnapshot(
+                    id: workspaceID,
+                    name: "Strict subprocess invalid composition",
+                    panes: [ownedPane],
+                    tabs: [tab],
+                    activeTabId: tab.id,
+                    createdAt: Date(timeIntervalSince1970: 100),
+                    updatedAt: Date(timeIntervalSince1970: 101)
+                )
+            )
+        )
+        try insertUnownedPersistedPane(
+            into: corePool,
+            ownedPaneID: ownedPane.id,
+            unownedPaneID: UUIDv7.generate()
+        )
+
+        return StrictStartupSubprocessFixture(
+            rootDirectory: rootDirectory,
+            workspaceDirectory: workspaceDirectory,
+            legacyWorkspaceURL: legacyWorkspaceURL,
+            legacySentinel: legacySentinel,
+            workspaceID: workspaceID,
+            heldDatabasePools: [corePool, localPool]
+        )
+    }
+
+    private static func insertUnownedPersistedPane(
+        into corePool: DatabasePool,
+        ownedPaneID: UUID,
+        unownedPaneID: UUID
+    ) throws {
+        try corePool.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO pane(
+                        id, workspace_id, content_type, execution_backend,
+                        facet_repo_id, facet_worktree_id, launch_directory, title, note,
+                        cwd, checkout_ref, residency_kind, pending_undo_expires_at,
+                        orphan_reason_kind, orphan_worktree_path, kind, parent_pane_id,
+                        created_at, updated_at
+                    )
+                    SELECT
+                        ?, workspace_id, content_type, execution_backend,
+                        facet_repo_id, facet_worktree_id, launch_directory, ?, note,
+                        cwd, checkout_ref, residency_kind, pending_undo_expires_at,
+                        orphan_reason_kind, orphan_worktree_path, 'drawerChild', ?,
+                        created_at + 1, updated_at + 1
+                    FROM pane
+                    WHERE id = ?
+                    """,
+                arguments: [
+                    unownedPaneID.uuidString,
+                    "Unowned persisted pane",
+                    ownedPaneID.uuidString,
+                    ownedPaneID.uuidString,
+                ]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO pane_content_terminal(pane_id, provider, lifetime, zmx_session_id)
+                    SELECT ?, provider, lifetime, ?
+                    FROM pane_content_terminal
+                    WHERE pane_id = ?
+                    """,
+                arguments: [
+                    unownedPaneID.uuidString,
+                    ZmxSessionID.generateUUIDv7().rawValue,
+                    ownedPaneID.uuidString,
+                ]
             )
         }
     }
@@ -281,7 +329,6 @@ private final class StrictStartupSubprocessFixture {
         legacyWorkspaceURL: URL,
         legacySentinel: String,
         workspaceID: UUID?,
-        localDatabaseURL: URL?,
         heldDatabasePools: [DatabasePool]
     ) {
         self.rootDirectory = rootDirectory
@@ -289,15 +336,11 @@ private final class StrictStartupSubprocessFixture {
         self.legacyWorkspaceURL = legacyWorkspaceURL
         self.legacySentinel = legacySentinel
         self.workspaceID = workspaceID
-        self.localDatabaseURL = localDatabaseURL
         self.heldDatabasePools = heldDatabasePools
     }
 
     func durableFileDigests() throws -> [String: StrictStartupFileDigest] {
-        var databaseURLs = [rootDirectory.appending(path: "core.sqlite")]
-        if let localDatabaseURL {
-            databaseURLs.append(localDatabaseURL)
-        }
+        let databaseURLs = [rootDirectory.appending(path: "core.sqlite")]
         let durableURLs =
             databaseURLs.flatMap { databaseURL in
                 [

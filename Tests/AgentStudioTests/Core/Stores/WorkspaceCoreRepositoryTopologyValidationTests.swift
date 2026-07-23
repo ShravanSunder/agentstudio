@@ -21,8 +21,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
 
         #expect(throws: WorkspaceCoreRepositoryError.unavailableRepoNotInTopology(missingRepoId)) {
             try repository.replaceRepositoryTopology(
-                workspaceId: workspaceId,
-                topology: .init(watchedPaths: [], repos: [], unavailableRepoIds: [missingRepoId])
+                .init(watchedPaths: [], repos: [], unavailableRepoIds: [missingRepoId])
             )
         }
     }
@@ -51,8 +50,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
             )
         ) {
             try repository.replaceRepositoryTopology(
-                workspaceId: workspaceId,
-                topology: .init(
+                .init(
                     watchedPaths: [],
                     repos: [
                         .init(
@@ -95,8 +93,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -133,8 +130,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
             )
         ) {
             try repository.replaceRepositoryTopology(
-                workspaceId: workspaceId,
-                topology: .init(
+                .init(
                     watchedPaths: [],
                     repos: [
                         .init(
@@ -179,8 +175,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
 
         #expect(throws: WorkspaceCoreRepositoryError.duplicateRepoId(duplicateRepoId)) {
             try repository.replaceRepositoryTopology(
-                workspaceId: workspaceId,
-                topology: .init(
+                .init(
                     watchedPaths: [],
                     repos: [
                         .init(
@@ -220,8 +215,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
 
         #expect(throws: WorkspaceCoreRepositoryError.duplicateWatchedPathStableKey(duplicateStableKey)) {
             try repository.replaceRepositoryTopology(
-                workspaceId: workspaceId,
-                topology: .init(
+                .init(
                     watchedPaths: [
                         .init(
                             id: UUID(uuidString: "00000000-0000-0000-0000-000000000403")!,
@@ -259,8 +253,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
 
         #expect(throws: WorkspaceCoreRepositoryError.duplicateRepoStableKey(duplicateStableKey)) {
             try repository.replaceRepositoryTopology(
-                workspaceId: workspaceId,
-                topology: .init(
+                .init(
                     watchedPaths: [],
                     repos: [
                         .init(
@@ -304,8 +297,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
 
         #expect(throws: WorkspaceCoreRepositoryError.duplicateWorktreeId(duplicateWorktreeId)) {
             try repository.replaceRepositoryTopology(
-                workspaceId: workspaceId,
-                topology: .init(
+                .init(
                     watchedPaths: [],
                     repos: [
                         .init(
@@ -363,8 +355,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
 
         #expect(throws: WorkspaceCoreRepositoryError.duplicateWorktreeStableKey(duplicateStableKey)) {
             try repository.replaceRepositoryTopology(
-                workspaceId: workspaceId,
-                topology: .init(
+                .init(
                     watchedPaths: [],
                     repos: [
                         .init(
@@ -425,8 +416,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -443,7 +433,6 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
 
         #expect(throws: WorkspaceCoreRepositoryError.duplicateWorktreeId(duplicateWorktreeId)) {
             try repository.reconcileRepoWorktrees(
-                workspaceId: workspaceId,
                 repoId: repoId,
                 worktrees: [
                     .init(
@@ -480,8 +469,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -498,7 +486,6 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
 
         #expect(throws: WorkspaceCoreRepositoryError.duplicateWorktreeStableKey(duplicateStableKey)) {
             try repository.reconcileRepoWorktrees(
-                workspaceId: workspaceId,
                 repoId: repoId,
                 worktrees: [
                     .init(
@@ -538,8 +525,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -572,7 +558,6 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
 
         #expect(throws: WorkspaceCoreRepositoryError.duplicateWorktreeStableKey(collidingStableKey)) {
             try repository.reconcileRepoWorktrees(
-                workspaceId: workspaceId,
                 repoId: targetRepoId,
                 worktrees: [
                     .init(
@@ -581,94 +566,6 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
                         name: "target",
                         path: URL(fileURLWithPath: "/tmp/agentstudio/foreign-stable-key-target"),
                         stableKey: collidingStableKey,
-                        isMainWorktree: true
-                    )
-                ]
-            )
-        }
-    }
-
-    @Test("worktree reconciliation rejects worktree id owned by another workspace")
-    func worktreeReconciliationRejectsWorktreeIdOwnedByAnotherWorkspace() throws {
-        let repository = try makeWorkspaceCoreRepositoryFixture().repository
-        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000126")!
-        let otherWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000127")!
-        let targetRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000233")!
-        let otherRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000234")!
-        let foreignWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000328")!
-        try repository.upsertWorkspace(
-            .init(
-                id: workspaceId,
-                name: "Target Workspace",
-                createdAt: Date(timeIntervalSince1970: 100),
-                updatedAt: Date(timeIntervalSince1970: 100)
-            )
-        )
-        try repository.upsertWorkspace(
-            .init(
-                id: otherWorkspaceId,
-                name: "Other Workspace",
-                createdAt: Date(timeIntervalSince1970: 100),
-                updatedAt: Date(timeIntervalSince1970: 100)
-            )
-        )
-        try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
-                watchedPaths: [],
-                repos: [
-                    .init(
-                        id: targetRepoId,
-                        name: "target",
-                        repoPath: URL(fileURLWithPath: "/tmp/agentstudio/foreign-worktree-target"),
-                        createdAt: Date(timeIntervalSince1970: 200),
-                        worktrees: []
-                    )
-                ],
-                unavailableRepoIds: []
-            )
-        )
-        try repository.replaceRepositoryTopology(
-            workspaceId: otherWorkspaceId,
-            topology: .init(
-                watchedPaths: [],
-                repos: [
-                    .init(
-                        id: otherRepoId,
-                        name: "other",
-                        repoPath: URL(fileURLWithPath: "/tmp/agentstudio/foreign-worktree-other"),
-                        createdAt: Date(timeIntervalSince1970: 250),
-                        worktrees: [
-                            .init(
-                                id: foreignWorktreeId,
-                                repoId: otherRepoId,
-                                name: "other",
-                                path: URL(fileURLWithPath: "/tmp/agentstudio/foreign-worktree-other"),
-                                isMainWorktree: true
-                            )
-                        ]
-                    )
-                ],
-                unavailableRepoIds: []
-            )
-        )
-
-        #expect(
-            throws: WorkspaceCoreRepositoryError.worktreeBelongsToDifferentWorkspace(
-                worktreeId: foreignWorktreeId,
-                expectedWorkspaceId: workspaceId,
-                actualWorkspaceId: otherWorkspaceId
-            )
-        ) {
-            try repository.reconcileRepoWorktrees(
-                workspaceId: workspaceId,
-                repoId: targetRepoId,
-                worktrees: [
-                    .init(
-                        id: foreignWorktreeId,
-                        repoId: targetRepoId,
-                        name: "target",
-                        path: URL(fileURLWithPath: "/tmp/agentstudio/foreign-worktree-target"),
                         isMainWorktree: true
                     )
                 ]
@@ -692,8 +589,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
 
         #expect(throws: WorkspaceCoreRepositoryError.invalidRepositoryTag(" leading")) {
             try repository.replaceRepositoryTopology(
-                workspaceId: workspaceId,
-                topology: .init(
+                .init(
                     watchedPaths: [],
                     repos: [
                         .init(
@@ -711,8 +607,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
         }
         #expect(throws: WorkspaceCoreRepositoryError.invalidRepositoryTag("spoof\u{2066}tag")) {
             try repository.replaceRepositoryTopology(
-                workspaceId: workspaceId,
-                topology: .init(
+                .init(
                     watchedPaths: [],
                     repos: [
                         .init(
@@ -746,8 +641,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
 
         #expect(throws: WorkspaceCoreRepositoryError.duplicateRepositoryTag("wip")) {
             try repository.replaceRepositoryTopology(
-                workspaceId: workspaceId,
-                topology: .init(
+                .init(
                     watchedPaths: [],
                     repos: [
                         .init(

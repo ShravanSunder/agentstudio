@@ -22,7 +22,6 @@ struct WorkspaceSurfaceCoordinatorTests {
     private func makeHarnessCoordinator() -> WorkspaceSurfaceCoordinatorHarness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
@@ -418,7 +417,6 @@ struct WorkspaceSurfaceCoordinatorTests {
             .appending(path: "agentstudio-pane-coordinator-sync-roots-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-roots-\(UUID().uuidString)"))
         guard let primaryWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
@@ -527,7 +525,6 @@ struct WorkspaceSurfaceCoordinatorTests {
             .appending(path: "agentstudio-pane-coordinator-sync-unavailable-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-unavailable-\(UUID().uuidString)"))
         store.markRepoUnavailable(repo.id)
@@ -563,7 +560,6 @@ struct WorkspaceSurfaceCoordinatorTests {
             .appending(path: "agentstudio-pane-coordinator-sync-converge-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-sync-converge-\(UUID().uuidString)"))
         guard let mainWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
@@ -644,7 +640,6 @@ struct WorkspaceSurfaceCoordinatorTests {
             .appending(path: "agentstudio-pane-coordinator-empty-delta-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-empty-delta-\(UUID().uuidString)"))
         guard let mainWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {

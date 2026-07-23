@@ -7,9 +7,6 @@ import Testing
 @Suite("RuntimeTargetResolver")
 struct RuntimeTargetResolverTests {
     private func makeStore() -> WorkspaceStore {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-pane-target-resolver-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore()
         return store
     }

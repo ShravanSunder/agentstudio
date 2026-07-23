@@ -107,23 +107,30 @@ extension WorkspaceCoreRepository {
 
     func fetchPaneGraph(workspaceId: UUID) throws -> PaneGraphRecord {
         try databaseWriter.read { database in
-            try requireWorkspaceExists(database, id: workspaceId)
-            let rows = try Row.fetchAll(
-                database,
-                sql: """
-                    SELECT *
-                    FROM pane
-                    WHERE workspace_id = ?
-                    ORDER BY created_at ASC, id ASC
-                    """,
-                arguments: [workspaceId.uuidString]
-            )
-            let panes = try rows.map { row in
-                try decodePaneRecord(database, row: row)
-            }
-            return .init(panes: panes)
+            try readPaneGraph(database, workspaceId: workspaceId)
         }
     }
+}
+
+func readPaneGraph(
+    _ database: Database,
+    workspaceId: UUID
+) throws -> WorkspaceCoreRepository.PaneGraphRecord {
+    try requireWorkspaceExists(database, id: workspaceId)
+    let rows = try Row.fetchAll(
+        database,
+        sql: """
+            SELECT *
+            FROM pane
+            WHERE workspace_id = ?
+            ORDER BY created_at ASC, id ASC
+            """,
+        arguments: [workspaceId.uuidString]
+    )
+    let panes = try rows.map { row in
+        try decodePaneRecord(database, row: row)
+    }
+    return .init(panes: panes)
 }
 
 private func decodePaneRecord(_ database: Database, row: Row) throws -> WorkspaceCoreRepository.PaneRecord {

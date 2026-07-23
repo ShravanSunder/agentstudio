@@ -40,7 +40,7 @@ extension AppDelegate {
         }
 
         do {
-            try await repositoryTopologyStore.flushAsync(for: store.identityAtom.workspaceId)
+            try await repositoryTopologyStore.flushAsync()
         } catch {
             appLogger.warning("Repository topology flush failed at termination: \(error.localizedDescription)")
         }
@@ -58,7 +58,7 @@ extension AppDelegate {
         }
 
         do {
-            try workspaceSettingsStore.flush(for: store.identityAtom.workspaceId)
+            try await workspaceSettingsStore.flush(for: store.identityAtom.workspaceId)
         } catch {
             appLogger.warning("Workspace settings flush failed at termination: \(error.localizedDescription)")
         }

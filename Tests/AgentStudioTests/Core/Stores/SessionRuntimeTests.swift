@@ -130,9 +130,6 @@ final class SessionRuntimeTests {
     @Test
 
     func test_syncWithStore_addsNewPanes() {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "runtime-test-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore()
         let runtime = makeRuntime(store: store)
 
@@ -144,15 +141,11 @@ final class SessionRuntimeTests {
         #expect(status == .initializing)
         #expect(runtime.statuses.keys.contains(pane.id))
 
-        try? FileManager.default.removeItem(at: tempDir)
     }
 
     @Test
 
     func test_syncWithStore_removesStalePanes() {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "runtime-test-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore()
         let runtime = makeRuntime(store: store)
 
@@ -164,7 +157,6 @@ final class SessionRuntimeTests {
         let hasStale = runtime.statuses.keys.contains(staleId)
         #expect(!hasStale)
 
-        try? FileManager.default.removeItem(at: tempDir)
     }
 
     // MARK: - Backend Registration

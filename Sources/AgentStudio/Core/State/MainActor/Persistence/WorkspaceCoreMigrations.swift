@@ -28,6 +28,7 @@ enum WorkspaceCoreMigrations {
         ("010_repository_topology_tags_and_tab_color", repositoryTopologyTagsAndTabColorStatements),
         ("011_add_repo_sidebar_metadata", addRepoSidebarMetadataStatements),
         ("012_background_active_unowned_layout_panes", backgroundActiveUnownedLayoutPanesStatements),
+        ("013_globalize_repository_topology", globalizeRepositoryTopologyStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {

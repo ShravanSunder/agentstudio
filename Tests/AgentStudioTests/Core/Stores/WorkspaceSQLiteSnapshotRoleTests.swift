@@ -6,8 +6,8 @@ import Testing
 @MainActor
 @Suite("WorkspaceSQLiteSnapshotRoleTests")
 struct WorkspaceSQLiteSnapshotRoleTests {
-    @Test("live SQLite snapshot is not the legacy JSON persistable state type")
-    func liveSQLiteSnapshotIsNotLegacyPersistableState() {
+    @Test("live SQLite snapshot keeps the workspace composition identity")
+    func liveSQLiteSnapshotKeepsWorkspaceCompositionIdentity() {
         let workspaceId = UUID()
         let snapshot = WorkspaceSQLiteSnapshot(
             id: workspaceId,
@@ -23,7 +23,6 @@ struct WorkspaceSQLiteSnapshotRoleTests {
 
         #expect(snapshot.id == workspaceId)
         #expect(String(describing: type(of: snapshot)) == "WorkspaceSQLiteSnapshot")
-        #expect(String(describing: WorkspacePersistor.PersistableState.self) != String(describing: type(of: snapshot)))
     }
 
     @Test("live SQLite snapshot carries no repository topology fields")

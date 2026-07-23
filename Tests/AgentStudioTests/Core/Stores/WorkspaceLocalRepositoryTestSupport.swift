@@ -22,16 +22,6 @@ func failingWorkspaceLocalSQLiteBackend() -> WorkspaceLocalSQLiteStoreBackend {
 }
 
 @MainActor
-func workspaceLocalSQLiteBackendWithImportedLegacyLanes(
-    repository: WorkspaceLocalRepository
-) -> WorkspaceLocalSQLiteStoreBackend {
-    WorkspaceLocalSQLiteStoreBackend(
-        makeLocalRepository: { _ in repository },
-        legacyImportDecision: { _, _ in .blockReplayAllowArchive }
-    )
-}
-
-@MainActor
 func workspaceSQLiteDatastore(from backend: WorkspaceSQLiteStoreBackend) -> WorkspaceSQLiteDatastore {
     WorkspaceSQLiteDatastore(
         coreRepository: backend.coreRepository,
@@ -55,9 +45,6 @@ func workspaceSQLiteDatastore(from localBackend: WorkspaceLocalSQLiteStoreBacken
         },
         makeLocalRestoreRepository: { workspaceId in
             try localBackend.restoreRepository(for: workspaceId)
-        },
-        makeLocalLegacyImportDecision: { workspaceId, lane in
-            try localBackend.legacyImportDecision(for: workspaceId, lane: lane)
         }
     )
 }

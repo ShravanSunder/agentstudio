@@ -191,9 +191,18 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
             workspaceName: "Deferred Drawer Restore",
             createdAt: Date(timeIntervalSince1970: 1_700_000_088)
         )
+        try fixture.coreRepository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: identityAtom.workspaceName,
+                createdAt: identityAtom.createdAt,
+                updatedAt: identityAtom.createdAt
+            )
+        )
+        let sqliteDatastore = workspaceSQLiteDatastore(from: fixture.backend)
         let store = WorkspaceStore(
             identityAtom: identityAtom,
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+            sqliteDatastore: sqliteDatastore
         )
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
@@ -208,6 +217,11 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
             windowLifecycleStore: WindowLifecycleAtom()
         )
         let (repo, worktree) = makeRepoAndWorktree(store, root: tempDir)
+        let topologyStore = RepositoryTopologyStore(
+            atom: store.repositoryTopologyAtom,
+            sqliteDatastore: sqliteDatastore
+        )
+        try await topologyStore.flushAsync()
         let parentPane = makeWorktreePane(store, repo: repo, worktree: worktree, title: "Parent")
         let tab = Tab(paneId: parentPane.id)
         store.appendTab(tab)

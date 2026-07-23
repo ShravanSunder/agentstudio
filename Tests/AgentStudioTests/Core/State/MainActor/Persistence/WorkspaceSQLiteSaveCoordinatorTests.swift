@@ -7,19 +7,36 @@ import Testing
 @MainActor
 @Suite("Workspace SQLite save coordinator", .serialized)
 struct WorkspaceSQLiteSaveCoordinatorTests {
-    @Test("valid save writes the exact current bundle")
-    func validSaveWritesExactCurrentBundle() async throws {
+    @Test("shallow capture prepares the exact current composition off-main")
+    func shallowCapturePreparesExactCurrentCompositionOffMain() async throws {
+        // Arrange
+        let fixture = try makeFixture()
+        let persistedAt = Date(timeIntervalSince1970: 1_784_000_004)
+        let expectedTabs = fixture.tabLayoutAtom.tabs
+
+        // Act
+        let capture = fixture.coordinator.captureCurrentSaveState(persistedAt: persistedAt)
+        let prepared = await WorkspaceSQLiteSavePreparation.prepareOffMain(capture)
+
+        // Assert
+        #expect(
+            prepared.workspace.id
+                == fixture.coordinator.captureCurrentSaveState(persistedAt: persistedAt).workspaceID
+        )
+        #expect(prepared.workspace.panes.count == 1)
+        #expect(prepared.workspace.tabs == expectedTabs)
+    }
+
+    @Test("valid save writes the exact current composition bundle")
+    func validSaveWritesExactCurrentCompositionBundle() async throws {
         // Arrange
         let fixture = try makeFixture()
         let persistedAt = Date(timeIntervalSince1970: 1_784_000_000)
-        let expected = fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
+        let expected = await fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
 
         // Act
         let saved = try await fixture.coordinator.save(persistedAt: persistedAt)
         let loadedWorkspace = await fixture.datastore.loadWorkspaceSnapshot()
-        let loadedTopology = await fixture.datastore.loadRepositoryTopologySnapshot(
-            workspaceId: fixture.workspaceID
-        )
 
         // Assert
         #expect(saved == expected)
@@ -27,13 +44,41 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
             Issue.record("Expected saved workspace to load")
             return
         }
-        guard case .loaded(let topology) = loadedTopology else {
-            Issue.record("Expected saved repository topology to load")
+        #expect(workspace == expected.workspace)
+        #expect(await fixture.probe.events.contains(.saveWorkspaceSnapshot))
+    }
+
+    @Test("topology changes cannot change captured composition")
+    func topologyChangesCannotChangeCapturedComposition() async throws {
+        // Arrange
+        let fixture = try makeFixture()
+        let persistedAt = Date(timeIntervalSince1970: 1_784_000_003)
+        let beforeTopologyChange = await fixture.coordinator.captureCurrentSaveBundle(
+            persistedAt: persistedAt
+        )
+
+        // Act
+        let preparation = RepositoryTopologyReplacement.prepare(
+            repositories: [],
+            watchedPaths: [
+                WatchedPath(
+                    id: UUIDv7.generate(),
+                    path: URL(filePath: "/tmp/topology-only-change")
+                )
+            ],
+            unavailableRepositoryIDs: []
+        )
+        guard case .prepared(let replacement) = preparation else {
+            Issue.record("Expected valid topology-only replacement")
             return
         }
-        #expect(workspace == expected.workspace)
-        #expect(topology == expected.repositoryTopology)
-        #expect(await fixture.probe.events.contains(.saveWorkspaceSnapshot))
+        fixture.repositoryTopologyAtom.replaceTopology(replacement)
+        let afterTopologyChange = await fixture.coordinator.captureCurrentSaveBundle(
+            persistedAt: persistedAt
+        )
+
+        // Assert
+        #expect(afterTopologyChange == beforeTopologyChange)
     }
 
     @Test("invalid current composition is rejected before datastore write")
@@ -62,18 +107,18 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
         // Arrange
         let fixture = try makeFixture()
         let persistedAt = Date(timeIntervalSince1970: 1_784_000_002)
-        let before = fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
+        let before = await fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
 
         // Act
         _ = try await fixture.coordinator.save(persistedAt: persistedAt)
 
         // Assert
-        let after = fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
+        let after = await fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
         #expect(after == before)
     }
 
     @Test("save bundle omits panes explicitly held for pending undo")
-    func saveBundleOmitsExplicitPendingUndoPanes() throws {
+    func saveBundleOmitsExplicitPendingUndoPanes() async throws {
         // Arrange
         let fixture = try makeFixture()
         let pendingUndoPane = makeUnownedPane(
@@ -83,7 +128,7 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
         fixture.workspacePaneAtom.addPane(pendingUndoPane)
 
         // Act
-        let bundle = fixture.coordinator.captureCurrentSaveBundle(
+        let bundle = await fixture.coordinator.captureCurrentSaveBundle(
             persistedAt: Date(timeIntervalSince1970: 1_784_000_003)
         )
 
@@ -115,7 +160,7 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
 
 @MainActor
 private struct WorkspaceSQLiteSaveCoordinatorFixture {
-    let workspaceID: UUID
+    let repositoryTopologyAtom: RepositoryTopologyAtom
     let workspacePaneAtom: WorkspacePaneAtom
     let tabLayoutAtom: WorkspaceTabLayoutAtom
     let datastore: WorkspaceSQLiteDatastore
@@ -190,14 +235,13 @@ private func makeFixture() throws -> WorkspaceSQLiteSaveCoordinatorFixture {
         probe: { event in await probe.record(event) }
     )
     return WorkspaceSQLiteSaveCoordinatorFixture(
-        workspaceID: workspaceID,
+        repositoryTopologyAtom: repositoryTopologyAtom,
         workspacePaneAtom: workspacePaneAtom,
         tabLayoutAtom: tabLayoutAtom,
         datastore: datastore,
         coordinator: WorkspaceSQLiteSaveCoordinator(
             identityAtom: identityAtom,
             windowMemoryAtom: windowMemoryAtom,
-            repositoryTopologyAtom: repositoryTopologyAtom,
             workspacePaneAtom: workspacePaneAtom,
             workspaceTabLayoutAtom: tabLayoutAtom,
             sqliteDatastore: datastore

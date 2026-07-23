@@ -2,50 +2,44 @@ import Foundation
 import GRDB
 
 extension WorkspaceCoreRepository {
-    func updateRepoFavorite(workspaceId: UUID, repoId: UUID, isFavorite: Bool) throws {
+    func updateRepoFavorite(repoId: UUID, isFavorite: Bool) throws {
         try databaseWriter.write { database in
-            try requireWorkspaceExists(database, id: workspaceId)
-            try requireRepoExists(database, repoId: repoId, workspaceId: workspaceId)
+            try requireRepoExists(database, repoId: repoId)
             try database.execute(
                 sql: """
                     UPDATE repo
                     SET is_favorite = ?
-                    WHERE workspace_id = ?
-                    AND id = ?
+                    WHERE id = ?
                     """,
-                arguments: [isFavorite ? 1 : 0, workspaceId.uuidString, repoId.uuidString]
+                arguments: [isFavorite ? 1 : 0, repoId.uuidString]
             )
         }
     }
 
-    func updateRepoNote(workspaceId: UUID, repoId: UUID, note: String?) throws {
+    func updateRepoNote(repoId: UUID, note: String?) throws {
         try databaseWriter.write { database in
-            try requireWorkspaceExists(database, id: workspaceId)
-            try requireRepoExists(database, repoId: repoId, workspaceId: workspaceId)
+            try requireRepoExists(database, repoId: repoId)
             try database.execute(
                 sql: """
                     UPDATE repo
                     SET note = ?
-                    WHERE workspace_id = ?
-                    AND id = ?
+                    WHERE id = ?
                     """,
-                arguments: [normalizedSidebarNote(note), workspaceId.uuidString, repoId.uuidString]
+                arguments: [normalizedSidebarNote(note), repoId.uuidString]
             )
         }
     }
 
-    func updateWorktreeNote(workspaceId: UUID, worktreeId: UUID, note: String?) throws {
+    func updateWorktreeNote(worktreeId: UUID, note: String?) throws {
         try databaseWriter.write { database in
-            try requireWorkspaceExists(database, id: workspaceId)
-            try requireWorktreeExists(database, worktreeId: worktreeId, workspaceId: workspaceId)
+            try requireWorktreeExists(database, worktreeId: worktreeId)
             try database.execute(
                 sql: """
                     UPDATE worktree
                     SET note = ?
-                    WHERE workspace_id = ?
-                    AND id = ?
+                    WHERE id = ?
                     """,
-                arguments: [normalizedSidebarNote(note), workspaceId.uuidString, worktreeId.uuidString]
+                arguments: [normalizedSidebarNote(note), worktreeId.uuidString]
             )
         }
     }
@@ -66,65 +60,60 @@ extension WorkspaceCoreRepository {
         }
     }
 
-    func replaceRepoTags(workspaceId: UUID, repoId: UUID, tags: Set<String>) throws {
+    func replaceRepoTags(repoId: UUID, tags: Set<String>) throws {
         try databaseWriter.write { database in
-            try requireWorkspaceExists(database, id: workspaceId)
-            try requireRepoExists(database, repoId: repoId, workspaceId: workspaceId)
+            try requireRepoExists(database, repoId: repoId)
             try database.execute(
                 sql: """
                     DELETE FROM repo_tag
-                    WHERE workspace_id = ?
-                    AND repo_id = ?
+                    WHERE repo_id = ?
                     """,
-                arguments: [workspaceId.uuidString, repoId.uuidString]
+                arguments: [repoId.uuidString]
             )
             let normalizedTags = normalizedRepoTags(tags)
             try validateRepositoryTags(normalizedTags)
             for tag in normalizedTags {
                 try database.execute(
                     sql: """
-                        INSERT INTO repo_tag(repo_id, workspace_id, tag)
-                        VALUES (?, ?, ?)
+                        INSERT INTO repo_tag(repo_id, tag)
+                        VALUES (?, ?)
                         """,
-                    arguments: [repoId.uuidString, workspaceId.uuidString, tag]
+                    arguments: [repoId.uuidString, tag]
                 )
             }
         }
     }
 
-    func fetchRepoTags(workspaceId: UUID, repoId: UUID) throws -> Set<String> {
+    func fetchRepoTags(repoId: UUID) throws -> Set<String> {
         try databaseWriter.read { database in
-            try requireWorkspaceExists(database, id: workspaceId)
-            try requireRepoExists(database, repoId: repoId, workspaceId: workspaceId)
+            try requireRepoExists(database, repoId: repoId)
             let tags = try String.fetchAll(
                 database,
                 sql: """
                     SELECT tag
                     FROM repo_tag
-                    WHERE workspace_id = ?
-                    AND repo_id = ?
+                    WHERE repo_id = ?
                     ORDER BY tag ASC
                     """,
-                arguments: [workspaceId.uuidString, repoId.uuidString]
+                arguments: [repoId.uuidString]
             )
             return Set(tags)
         }
     }
 }
 
-private func requireWorktreeExists(_ database: Database, worktreeId: UUID, workspaceId: UUID) throws {
+private func requireWorktreeExists(_ database: Database, worktreeId: UUID) throws {
     let matchingCount = try Int.fetchOne(
         database,
         sql: """
             SELECT count(*)
             FROM worktree
             WHERE id = ?
-            AND workspace_id = ?
             """,
-        arguments: [worktreeId.uuidString, workspaceId.uuidString]
+        arguments: [worktreeId.uuidString]
     )
     guard matchingCount == 1 else {
-        throw WorkspaceCoreRepositoryError.worktreeNotFoundInWorkspace(worktreeId, workspaceId)
+        throw WorkspaceCoreRepositoryError.worktreeNotFound(worktreeId)
     }
 }
 

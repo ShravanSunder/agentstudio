@@ -64,18 +64,7 @@ extension WorkspaceCoreRepository {
 
     func fetchTabShells(workspaceId: UUID) throws -> [TabShellRecord] {
         try databaseWriter.read { database in
-            try requireWorkspaceExists(database, id: workspaceId)
-            let rows = try Row.fetchAll(
-                database,
-                sql: """
-                    SELECT id, name, color_hex
-                    FROM tab_shell
-                    WHERE workspace_id = ?
-                    ORDER BY sort_index ASC
-                    """,
-                arguments: [workspaceId.uuidString]
-            )
-            return try rows.map(decodeTabShellRecord)
+            try readTabShells(database, workspaceId: workspaceId)
         }
     }
 
@@ -89,26 +78,51 @@ extension WorkspaceCoreRepository {
 
     func fetchTabGraph(workspaceId: UUID) throws -> TabGraphRecord {
         try databaseWriter.read { database in
-            try requireWorkspaceExists(database, id: workspaceId)
-            let tabRows = try Row.fetchAll(
-                database,
-                sql: """
-                    SELECT id
-                    FROM tab_shell
-                    WHERE workspace_id = ?
-                    ORDER BY sort_index ASC
-                    """,
-                arguments: [workspaceId.uuidString]
-            )
-            let tabs = try tabRows.map { row in
-                let tabId = try decodeTabId(row["id"])
-                return try decodeTabGraphState(database, tabId: tabId)
-            }
-            let graph = TabGraphRecord(tabs: tabs)
-            try validateTabGraph(database, workspaceId: workspaceId, graph: graph)
-            return graph
+            try readTabGraph(database, workspaceId: workspaceId)
         }
     }
+}
+
+func readTabShells(
+    _ database: Database,
+    workspaceId: UUID
+) throws -> [WorkspaceCoreRepository.TabShellRecord] {
+    try requireWorkspaceExists(database, id: workspaceId)
+    let rows = try Row.fetchAll(
+        database,
+        sql: """
+            SELECT id, name, color_hex
+            FROM tab_shell
+            WHERE workspace_id = ?
+            ORDER BY sort_index ASC
+            """,
+        arguments: [workspaceId.uuidString]
+    )
+    return try rows.map(decodeTabShellRecord)
+}
+
+func readTabGraph(
+    _ database: Database,
+    workspaceId: UUID
+) throws -> WorkspaceCoreRepository.TabGraphRecord {
+    try requireWorkspaceExists(database, id: workspaceId)
+    let tabRows = try Row.fetchAll(
+        database,
+        sql: """
+            SELECT id
+            FROM tab_shell
+            WHERE workspace_id = ?
+            ORDER BY sort_index ASC
+            """,
+        arguments: [workspaceId.uuidString]
+    )
+    let tabs = try tabRows.map { row in
+        let tabId = try decodeTabId(row["id"])
+        return try decodeTabGraphState(database, tabId: tabId)
+    }
+    let graph = WorkspaceCoreRepository.TabGraphRecord(tabs: tabs)
+    try validateTabGraph(database, workspaceId: workspaceId, graph: graph)
+    return graph
 }
 
 private func decodeTabShellRecord(_ row: Row) throws -> WorkspaceCoreRepository.TabShellRecord {

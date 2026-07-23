@@ -54,9 +54,7 @@ extension WorkspaceStore {
             sqliteDatastore
             ?? WorkspaceSQLiteDatastoreFactory(
                 coreDatabaseURL: testSQLiteRoot.appending(path: "core.sqlite"),
-                localDatabaseURL: { workspaceId in
-                    testSQLiteRoot.appending(path: "\(workspaceId.uuidString).local.sqlite")
-                }
+                localDatabaseURL: testSQLiteRoot.appending(path: "local.sqlite")
             ).makeDatastore()
         self.init(
             identityAtom: identityAtom,

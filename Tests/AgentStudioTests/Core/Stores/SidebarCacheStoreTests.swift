@@ -1,5 +1,4 @@
 import Foundation
-import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -7,384 +6,148 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SidebarCacheStoreTests {
-    private let tempDir: URL
-    private let persistor: WorkspacePersistor
-
-    init() {
-        tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "sidebar-cache-store-tests-\(UUID().uuidString)")
-        persistor = WorkspacePersistor(workspacesDir: tempDir)
-        persistor.ensureDirectory()
-    }
-
     @Test
-    func flushAndRestore_roundTripsExpandedGroupsOnly() async throws {
+    func flushAndRestoreRoundTripsMainWindowExpandedGroups() async throws {
         let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let datastore = try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         let atom = SidebarCacheState()
-        let store = SidebarCacheStore(atom: atom, persistor: persistor)
+        let expandedGroup = SidebarGroupKey("repo:agent-studio")
+        atom.setGroupExpanded(expandedGroup, isExpanded: true)
 
-        atom.setGroupExpanded("repo:agent-studio", isExpanded: true)
-        try await store.flushAsync(for: workspaceId)
-
+        try await SidebarCacheStore(atom: atom, sqliteDatastore: datastore).flushAsync(for: workspaceId)
         let restoredAtom = SidebarCacheState()
-        await SidebarCacheStore(atom: restoredAtom, persistor: persistor).restoreAsync(for: workspaceId)
+        await SidebarCacheStore(atom: restoredAtom, sqliteDatastore: datastore).restoreAsync(for: workspaceId)
 
-        #expect(restoredAtom.expandedGroups == [SidebarGroupKey("repo:agent-studio")])
+        #expect(restoredAtom.expandedGroups == [expandedGroup])
     }
 
     @Test
-    func flushAndRestore_roundTripsExpandedGroupsThroughLocalSQLite() async throws {
+    func missingSQLiteRowsResetExistingStateToTypedDefaults() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let atom = SidebarCacheState()
-        let store = SidebarCacheStore(
-            atom: atom,
-            persistor: persistor,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
-        )
+        atom.setGroupExpanded(SidebarGroupKey("repo:stale"), isExpanded: true)
 
-        atom.setGroupExpanded("repo:agent-studio", isExpanded: true)
-        try await store.flushAsync(for: workspaceId)
-
-        #expect(try fixture.repository.fetchExpandedGroups() == [SidebarGroupKey("repo:agent-studio")])
-        guard case .missing = persistor.loadSidebarCache(for: workspaceId) else {
-            Issue.record("SQLite-backed sidebar cache flush should not write the legacy JSON sidecar")
-            return
-        }
-
-        let restoredAtom = SidebarCacheState()
         await SidebarCacheStore(
-            atom: restoredAtom,
-            persistor: persistor,
+            atom: atom,
             sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         ).restoreAsync(for: workspaceId)
 
-        #expect(restoredAtom.expandedGroups == [SidebarGroupKey("repo:agent-studio")])
+        #expect(atom.expandedGroups.isEmpty)
     }
 
     @Test
-    func restoreWithSQLiteBackendImportsLegacyJSONWhenLaneIsMissing() async throws {
+    func unavailableSQLiteResetsDefaultsAndReportsRecovery() async throws {
         let workspaceId = UUID()
-        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
-        try persistor.saveSidebarCache(
-            .init(
-                workspaceId: workspaceId,
-                expandedGroups: [SidebarGroupKey("repo:legacy")]
-            )
-        )
         let atom = SidebarCacheState()
-        let store = SidebarCacheStore(
+        atom.setGroupExpanded(SidebarGroupKey("repo:stale"), isExpanded: true)
+        var reportedRecoveries: [PersistenceRecoveryEvent] = []
+
+        await SidebarCacheStore(
             atom: atom,
-            persistor: persistor,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
-        )
-
-        await store.restoreAsync(for: workspaceId)
-
-        #expect(atom.expandedGroups == [SidebarGroupKey("repo:legacy")])
-        #expect(try fixture.repository.fetchExpandedGroups() == [SidebarGroupKey("repo:legacy")])
-        #expect(try fixture.repository.hasExpandedGroupsState())
-    }
-
-    @Test
-    func unavailableSQLiteBackendResetsSidebarCacheAndBlocksLegacyArchiveReadiness() async throws {
-        let workspaceId = UUID()
-        try persistor.saveSidebarCache(
-            .init(
-                workspaceId: workspaceId,
-                expandedGroups: [SidebarGroupKey("repo:legacy")]
-            )
-        )
-        let atom = SidebarCacheState()
-        let store = SidebarCacheStore(
-            atom: atom,
-            persistor: persistor,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: failingWorkspaceLocalSQLiteBackend())
-        )
-
-        await store.restoreAsync(for: workspaceId)
+            sqliteDatastore: try workspaceSQLiteDatastore(from: failingWorkspaceLocalSQLiteBackend()),
+            recoveryReporter: { reportedRecoveries.append($0) }
+        ).restoreAsync(for: workspaceId)
 
         #expect(atom.expandedGroups.isEmpty)
-        #expect(!atom.expandedGroups.contains(SidebarGroupKey("repo:legacy")))
-        #expect(!store.canArchiveLegacySidebarCacheFile)
+        #expect(
+            reportedRecoveries.contains { recovery in
+                recovery.store == .sidebarCache
+                    && recovery.workspaceId == workspaceId
+                    && recovery.recovery == .resetToDefaults
+            })
     }
 
     @Test
-    func restoreWithSQLiteBackendDoesNotResurrectLegacyJSONAfterEmptyLaneFlush() async throws {
-        let workspaceId = UUID()
-        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
-        try persistor.saveSidebarCache(
-            .init(
-                workspaceId: workspaceId,
-                expandedGroups: [SidebarGroupKey("repo:stale")]
-            )
-        )
-        let atom = SidebarCacheState()
-        let store = SidebarCacheStore(
-            atom: atom,
-            persistor: persistor,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
-        )
-
-        try await store.flushAsync(for: workspaceId)
-        await store.restoreAsync(for: workspaceId)
-
-        #expect(atom.expandedGroups.isEmpty)
-        #expect(try fixture.repository.hasExpandedGroupsState())
-    }
-
-    @Test
-    func missingSQLiteExpandedGroupsLaneAfterImportResetsInsteadOfReplayingLegacyJSON() async throws {
-        let workspaceId = UUID()
-        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
-        try persistor.saveSidebarCache(
-            .init(
-                workspaceId: workspaceId,
-                expandedGroups: [SidebarGroupKey("repo:stale")]
-            )
-        )
-        let atom = SidebarCacheState()
-        atom.setExpandedGroups([SidebarGroupKey("repo:sqlite")])
-        let store = SidebarCacheStore(
-            atom: atom,
-            persistor: persistor,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
-        )
-        try await store.flushAsync(for: workspaceId)
-        try await fixture.databaseQueue.write { database in
-            try database.execute(
-                sql: """
-                    DELETE FROM local_persistence_lane_marker
-                    WHERE workspace_id = ? AND lane = 'sidebar_expanded_groups'
-                    """,
-                arguments: [workspaceId.uuidString]
-            )
-            try database.execute(
-                sql: "DELETE FROM local_sidebar_expanded_group WHERE workspace_id = ?",
-                arguments: [workspaceId.uuidString]
-            )
-        }
-        let restoredAtom = SidebarCacheState()
-        let restoredStore = SidebarCacheStore(
-            atom: restoredAtom,
-            persistor: persistor,
-            sqliteDatastore: try workspaceSQLiteDatastore(
-                from: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository))
-        )
-
-        await restoredStore.restoreAsync(for: workspaceId)
-
-        #expect(restoredAtom.expandedGroups.isEmpty)
-        #expect(!restoredAtom.expandedGroups.contains(SidebarGroupKey("repo:stale")))
-        #expect(!restoredStore.canArchiveLegacySidebarCacheFile)
-    }
-
-    @Test
-    func missingSQLiteExpandedGroupsLaneAfterImportDoesNotBlockArchiveWhenLegacySidebarFileIsAbsent() async throws {
-        let workspaceId = UUID()
-        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
-        let restoredAtom = SidebarCacheState()
-        let restoredStore = SidebarCacheStore(
-            atom: restoredAtom,
-            persistor: persistor,
-            sqliteDatastore: try workspaceSQLiteDatastore(
-                from: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository))
-        )
-
-        await restoredStore.restoreAsync(for: workspaceId)
-
-        #expect(restoredAtom.expandedGroups.isEmpty)
-        #expect(restoredStore.canArchiveLegacySidebarCacheFile)
-    }
-
-    @Test
-    func restoreWithSQLiteBackendResetsWhenSQLiteExpandedGroupLaneFailsInsteadOfReplayingLegacyJSON() async throws {
+    func observedExpansionChangeAutosavesSQLite() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let atom = SidebarCacheState()
+        let clock = TestPushClock()
+        let expandedGroup = SidebarGroupKey("repo:agent-studio")
         let store = SidebarCacheStore(
             atom: atom,
-            persistor: persistor,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
-        )
-        atom.setGroupExpanded("repo:sqlite", isExpanded: true)
-        try await store.flushAsync(for: workspaceId)
-        try persistor.saveSidebarCache(
-            .init(
-                workspaceId: workspaceId,
-                expandedGroups: [SidebarGroupKey("repo:stale")]
-            )
-        )
-        try await fixture.databaseQueue.write { database in
-            try database.drop(table: "local_sidebar_expanded_group")
-        }
-
-        let restoredAtom = SidebarCacheState()
-        let restoredStore = SidebarCacheStore(
-            atom: restoredAtom,
-            persistor: persistor,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
-        )
-        await restoredStore.restoreAsync(for: workspaceId)
-
-        #expect(restoredAtom.expandedGroups.isEmpty)
-        #expect(!restoredAtom.expandedGroups.contains(SidebarGroupKey("repo:stale")))
-        #expect(!restoredStore.canArchiveLegacySidebarCacheFile)
-    }
-
-    @Test
-    func observedExpansionChange_autosavesSidebarCache() async throws {
-        let workspaceId = UUID()
-        let atom = SidebarCacheState()
-        let store = SidebarCacheStore(
-            atom: atom,
-            persistor: persistor,
-            persistDebounceDuration: .zero
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            persistDebounceDuration: .milliseconds(10),
+            clock: clock
         )
         await store.restoreAsync(for: workspaceId)
         store.startObserving()
 
-        atom.setGroupExpanded(SidebarGroupKey("repo:agent-studio"), isExpanded: true)
+        atom.setGroupExpanded(expandedGroup, isExpanded: true)
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(10))
 
-        await assertEventuallyMain("expanded repo group should autosave") {
-            switch persistor.loadSidebarCache(for: workspaceId) {
-            case .loaded(let cache):
-                return cache.expandedGroups == [SidebarGroupKey("repo:agent-studio")]
-            case .missing, .corrupt:
-                return false
-            }
+        await assertEventuallyMain("expanded group should autosave") {
+            (try? fixture.repository.fetchExpandedGroups()) == [expandedGroup]
         }
     }
 
     @Test
-    func directExpandedGroupMutation_autosavesThroughComposedState() async throws {
+    func directWriteOwnerMutationAutosavesThroughComposedState() async throws {
         let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let expandedGroupAtom = SidebarExpandedGroupAtom()
-        let atom = SidebarCacheState(
-            expandedGroupAtom: expandedGroupAtom
-        )
+        let atom = SidebarCacheState(expandedGroupAtom: expandedGroupAtom)
+        let clock = TestPushClock()
+        let expandedGroup = SidebarGroupKey("repo:agent-studio")
         let store = SidebarCacheStore(
             atom: atom,
-            persistor: persistor,
-            persistDebounceDuration: .zero
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            persistDebounceDuration: .milliseconds(10),
+            clock: clock
         )
         await store.restoreAsync(for: workspaceId)
         store.startObserving()
 
-        expandedGroupAtom.setGroupExpanded(SidebarGroupKey("repo:agent-studio"), isExpanded: true)
+        expandedGroupAtom.setGroupExpanded(expandedGroup, isExpanded: true)
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(10))
 
-        await assertEventuallyMain("write-owner mutations should autosave through composed state") {
-            switch persistor.loadSidebarCache(for: workspaceId) {
-            case .loaded(let cache):
-                return cache.expandedGroups == [SidebarGroupKey("repo:agent-studio")]
-            case .missing, .corrupt:
-                return false
-            }
+        await assertEventuallyMain("write-owner mutation should autosave") {
+            (try? fixture.repository.fetchExpandedGroups()) == [expandedGroup]
         }
     }
 
     @Test
-    func restore_cancelsPendingDebouncedSaveForPreviousWorkspace() async throws {
+    func restoreCancelsPendingSaveFromPreviousWorkspaceContext() async throws {
         let workspaceAId = UUID()
         let workspaceBId = UUID()
-        try persistor.saveSidebarCache(
-            .init(
-                workspaceId: workspaceBId,
-                expandedGroups: [SidebarGroupKey("repo:workspace-b")]
-            )
-        )
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceAId)
         let atom = SidebarCacheState()
         let clock = TestPushClock()
         let store = SidebarCacheStore(
             atom: atom,
-            persistor: persistor,
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend),
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
-
         await store.restoreAsync(for: workspaceAId)
         store.startObserving()
-        atom.setGroupExpanded(SidebarGroupKey("repo:workspace-a"), isExpanded: true)
+        atom.setGroupExpanded(SidebarGroupKey("repo:stale-workspace"), isExpanded: true)
         await clock.waitForPendingSleepCount()
+
         await store.restoreAsync(for: workspaceBId)
         clock.advance(by: .milliseconds(10))
         await Task.yield()
 
-        guard case .missing = persistor.loadSidebarCache(for: workspaceAId) else {
-            Issue.record("Expected stale workspace A debounce to be cancelled")
-            return
-        }
+        #expect(try fixture.repository.hasExpandedGroupsState() == false)
     }
 
     @Test
-    func restore_corruptSidebarCacheFile_fallsBackToDefaultsAndQuarantines() async throws {
+    func observationIsExplicitlyArmed() async throws {
         let workspaceId = UUID()
-        let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
-        try Data("not-json".utf8).write(to: cacheURL, options: .atomic)
-        var reportedRecovery: PersistenceRecoveryEvent?
-
-        let atom = SidebarCacheState()
-        await SidebarCacheStore(
-            atom: atom,
-            persistor: persistor,
-            recoveryReporter: { reportedRecovery = $0 }
-        ).restoreAsync(for: workspaceId)
-
-        #expect(atom.expandedGroups.isEmpty)
-        #expect(reportedRecovery?.store == .sidebarCache)
-        #expect(reportedRecovery?.workspaceId == workspaceId)
-        #expect(reportedRecovery?.recovery == .quarantinedAndReset)
-
-        let quarantinedFiles = try FileManager.default.contentsOfDirectory(
-            at: tempDir,
-            includingPropertiesForKeys: nil
-        ).filter {
-            $0.lastPathComponent.hasPrefix("\(workspaceId.uuidString).workspace.sidebar-cache.corrupt-")
-        }
-        #expect(quarantinedFiles.count == 1)
-    }
-
-    @Test
-    func restore_missingSidebarCacheFile_keepsDefaults() async {
-        let workspaceId = UUID()
-        let atom = SidebarCacheState()
-
-        await SidebarCacheStore(atom: atom, persistor: persistor).restoreAsync(for: workspaceId)
-
-        #expect(atom.expandedGroups.isEmpty)
-    }
-
-    @Test
-    func autosaveObservationStateIsExplicitlyArmed() async {
-        let workspaceId = UUID()
-        let store = SidebarCacheStore(atom: SidebarCacheState(), persistor: persistor)
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let store = SidebarCacheStore(
+            atom: SidebarCacheState(),
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        )
 
         #expect(store.isAutosaveObservationActive == false)
         await store.restoreAsync(for: workspaceId)
         #expect(store.isAutosaveObservationActive == false)
         store.startObserving()
-        #expect(store.isAutosaveObservationActive == true)
-    }
-
-    @Test
-    func restoreLegacyCheckoutColorsIgnoresRemovedManualColorState() async throws {
-        let workspaceId = UUID()
-        let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
-        let json = """
-            {
-                "schemaVersion": 1,
-                "workspaceId": "\(workspaceId.uuidString)",
-                "checkoutColors": {"repo:agent-studio": "#ff6600"}
-            }
-            """
-        try Data(json.utf8).write(to: cacheURL, options: .atomic)
-
-        let atom = SidebarCacheState()
-        await SidebarCacheStore(atom: atom, persistor: persistor).restoreAsync(for: workspaceId)
-
-        #expect(atom.expandedGroups.isEmpty)
-        try await SidebarCacheStore(atom: atom, persistor: persistor).flushAsync(for: workspaceId)
-        let rawCache = try String(contentsOf: cacheURL, encoding: .utf8)
-        #expect(!rawCache.contains("checkoutColors"))
+        #expect(store.isAutosaveObservationActive)
     }
 }

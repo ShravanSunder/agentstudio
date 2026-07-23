@@ -9,14 +9,25 @@ struct WorkspaceCoreRepository: Sendable {
         let updatedAt: Date
     }
 
-    private struct WorkspaceSnapshotReplacement {
+    struct AuthoritativeSnapshot: Equatable, Sendable {
         var workspace: WorkspaceRecord
         var topology: RepositoryTopologyRecord
         var paneGraph: PaneGraphRecord
         var tabShells: [TabShellRecord]
         var tabGraph: TabGraphRecord
-        var stagedAt: Date
-        var completedAt: Date?
+    }
+
+    enum AuthoritativeSnapshotRead: Equatable, Sendable {
+        case noWorkspaces
+        case missingActiveSelection
+        case loaded(AuthoritativeSnapshot)
+    }
+
+    private struct WorkspaceSnapshotReplacement {
+        var workspace: WorkspaceRecord
+        var paneGraph: PaneGraphRecord
+        var tabShells: [TabShellRecord]
+        var tabGraph: TabGraphRecord
         var updatesActiveSelection: Bool
     }
 
@@ -114,47 +125,52 @@ struct WorkspaceCoreRepository: Sendable {
         }
     }
 
-    func replaceWorkspaceSnapshot(
-        workspace: WorkspaceRecord,
-        topology: RepositoryTopologyRecord,
-        paneGraph: PaneGraphRecord,
-        tabShells: [TabShellRecord],
-        tabGraph: TabGraphRecord,
-        completedAt: Date,
-        updatesActiveSelection: Bool = true
-    ) throws {
-        try replaceWorkspaceSnapshot(
-            .init(
-                workspace: workspace,
-                topology: topology,
-                paneGraph: paneGraph,
-                tabShells: tabShells,
-                tabGraph: tabGraph,
-                stagedAt: completedAt,
-                completedAt: completedAt,
-                updatesActiveSelection: updatesActiveSelection
+    func fetchAuthoritativeSnapshot() throws -> AuthoritativeSnapshotRead {
+        try databaseWriter.read { database in
+            guard try workspaceCount(database) > 0 else {
+                return .noWorkspaces
+            }
+            guard let activeWorkspaceId = try fetchActiveWorkspaceIdFromDatabase(database) else {
+                return .missingActiveSelection
+            }
+            guard
+                let workspaceRow = try Row.fetchOne(
+                    database,
+                    sql: """
+                        SELECT id, name, created_at, updated_at
+                        FROM workspace
+                        WHERE id = ?
+                        """,
+                    arguments: [activeWorkspaceId.uuidString]
+                )
+            else {
+                throw WorkspaceCoreRepositoryError.activeWorkspaceSelectionDangling(activeWorkspaceId)
+            }
+            return .loaded(
+                .init(
+                    workspace: try decodeWorkspaceRecord(workspaceRow),
+                    topology: try readRepositoryTopology(database),
+                    paneGraph: try readPaneGraph(database, workspaceId: activeWorkspaceId),
+                    tabShells: try readTabShells(database, workspaceId: activeWorkspaceId),
+                    tabGraph: try readTabGraph(database, workspaceId: activeWorkspaceId)
+                )
             )
-        )
+        }
     }
 
-    func replaceWorkspaceSnapshotStaged(
+    func replaceWorkspaceSnapshot(
         workspace: WorkspaceRecord,
-        topology: RepositoryTopologyRecord,
         paneGraph: PaneGraphRecord,
         tabShells: [TabShellRecord],
         tabGraph: TabGraphRecord,
-        stagedAt: Date,
         updatesActiveSelection: Bool = true
     ) throws {
         try replaceWorkspaceSnapshot(
             .init(
                 workspace: workspace,
-                topology: topology,
                 paneGraph: paneGraph,
                 tabShells: tabShells,
                 tabGraph: tabGraph,
-                stagedAt: stagedAt,
-                completedAt: nil,
                 updatesActiveSelection: updatesActiveSelection
             )
         )
@@ -184,136 +200,12 @@ struct WorkspaceCoreRepository: Sendable {
                     updatedAt: replacement.workspace.updatedAt
                 )
             }
-            try validateTopology(replacement.topology, for: replacement.workspace.id)
-            try replaceRepositoryTopologyRows(
-                database,
-                workspaceId: replacement.workspace.id,
-                topology: replacement.topology
-            )
             try validatePaneGraph(database, workspaceId: replacement.workspace.id, graph: replacement.paneGraph)
             try replacePaneGraphRows(database, workspaceId: replacement.workspace.id, graph: replacement.paneGraph)
             try validateTabShells(database, workspaceId: replacement.workspace.id, shells: replacement.tabShells)
             try replaceTabShellRows(database, workspaceId: replacement.workspace.id, shells: replacement.tabShells)
             try validateTabGraph(database, workspaceId: replacement.workspace.id, graph: replacement.tabGraph)
             try replaceTabGraphRows(database, workspaceId: replacement.workspace.id, graph: replacement.tabGraph)
-            try database.execute(
-                sql: """
-                    INSERT INTO workspace_sqlite_snapshot_status(workspace_id, staged_at, completed_at)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(workspace_id) DO UPDATE SET
-                        staged_at = excluded.staged_at,
-                        completed_at = excluded.completed_at
-                    """,
-                arguments: [
-                    replacement.workspace.id.uuidString,
-                    replacement.stagedAt.timeIntervalSince1970,
-                    replacement.completedAt?.timeIntervalSince1970,
-                ]
-            )
-        }
-    }
-
-    func markWorkspaceSQLiteSnapshotComplete(workspaceId: UUID, completedAt: Date) throws {
-        try markWorkspaceSQLiteSnapshotCommitted(workspaceId: workspaceId, committedAt: completedAt)
-    }
-
-    func markWorkspaceSQLiteSnapshotStaged(workspaceId: UUID, stagedAt: Date) throws {
-        try databaseWriter.write { database in
-            try requireWorkspaceExists(database, id: workspaceId)
-            try database.execute(
-                sql: """
-                    INSERT INTO workspace_sqlite_snapshot_status(workspace_id, staged_at, completed_at)
-                    VALUES (?, ?, NULL)
-                    ON CONFLICT(workspace_id) DO UPDATE SET
-                        staged_at = excluded.staged_at,
-                        completed_at = NULL
-                    """,
-                arguments: [
-                    workspaceId.uuidString,
-                    stagedAt.timeIntervalSince1970,
-                ]
-            )
-        }
-    }
-
-    func markWorkspaceSQLiteSnapshotCommitted(workspaceId: UUID, committedAt: Date) throws {
-        try databaseWriter.write { database in
-            try requireWorkspaceExists(database, id: workspaceId)
-            try database.execute(
-                sql: """
-                    INSERT INTO workspace_sqlite_snapshot_status(workspace_id, staged_at, completed_at)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(workspace_id) DO UPDATE SET
-                        staged_at = excluded.staged_at,
-                        completed_at = excluded.completed_at
-                    """,
-                arguments: [
-                    workspaceId.uuidString,
-                    committedAt.timeIntervalSince1970,
-                    committedAt.timeIntervalSince1970,
-                ]
-            )
-        }
-    }
-
-    func clearWorkspaceSQLiteSnapshotComplete(workspaceId: UUID) throws {
-        try databaseWriter.write { database in
-            try database.execute(
-                sql: """
-                    DELETE FROM workspace_sqlite_snapshot_status
-                    WHERE workspace_id = ?
-                    """,
-                arguments: [workspaceId.uuidString]
-            )
-        }
-    }
-
-    func hasCompletedWorkspaceSQLiteSnapshot(workspaceId: UUID) throws -> Bool {
-        try fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) != nil
-    }
-
-    func fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: UUID) throws -> Date? {
-        try databaseWriter.read { database in
-            guard
-                let completedAt = try Double.fetchOne(
-                    database,
-                    sql: """
-                        SELECT completed_at
-                        FROM workspace_sqlite_snapshot_status
-                        WHERE workspace_id = ?
-                          AND completed_at IS NOT NULL
-                        """,
-                    arguments: [workspaceId.uuidString]
-                )
-            else {
-                return nil
-            }
-            return Date(timeIntervalSince1970: completedAt)
-        }
-    }
-
-    func localLegacyImportDecision(
-        workspaceId: UUID,
-        lane: WorkspaceLocalSQLiteLegacyLane
-    ) throws -> WorkspaceLocalSQLiteLegacyImportDecision {
-        try databaseWriter.read { database in
-            let importedAtColumn: String
-            switch lane {
-            case .local:
-                importedAtColumn = "local_imported_at"
-            case .cache:
-                importedAtColumn = "cache_imported_at"
-            }
-            let importedAt = try Double.fetchOne(
-                database,
-                sql: """
-                    SELECT \(importedAtColumn)
-                    FROM legacy_workspace_import_status
-                    WHERE workspace_id = ?
-                    """,
-                arguments: [workspaceId.uuidString]
-            )
-            return importedAt == nil ? .allowImport : .blockReplayAllowArchive
         }
     }
 
@@ -351,7 +243,7 @@ struct WorkspaceCoreRepository: Sendable {
 
 enum WorkspaceCoreRepositoryError: Error, Equatable {
     case workspaceNotFound(UUID)
-    case repoNotFoundInWorkspace(UUID, UUID)
+    case repoNotFound(UUID)
     case duplicateRepoId(UUID)
     case duplicateWorktreeId(UUID)
     case duplicateRepositoryTag(String)
@@ -375,7 +267,7 @@ enum WorkspaceCoreRepositoryError: Error, Equatable {
         actualWorkspaceId: UUID
     )
     case paneNotFoundInWorkspace(UUID, UUID)
-    case worktreeNotFoundInWorkspace(UUID, UUID)
+    case worktreeNotFound(UUID)
     case tabNotFoundInWorkspace(UUID, UUID)
     case drawerNotFoundInWorkspace(UUID, UUID)
     case drawerParentPaneMissing(drawerId: UUID, parentPaneId: UUID)
@@ -409,11 +301,6 @@ enum WorkspaceCoreRepositoryError: Error, Equatable {
     case malformedArrangementId(String)
     case malformedLayout(String)
     case unavailableRepoNotInTopology(UUID)
-    case worktreeBelongsToDifferentWorkspace(
-        worktreeId: UUID,
-        expectedWorkspaceId: UUID,
-        actualWorkspaceId: UUID
-    )
     case worktreeRepoMismatch(worktreeId: UUID, expectedRepoId: UUID, actualRepoId: UUID)
     case activeWorkspaceSelectionDangling(UUID)
     case cannotClearActiveWorkspaceWhileWorkspacesExist
@@ -426,7 +313,7 @@ enum WorkspaceCoreRepositoryError: Error, Equatable {
     case malformedPaneContent(String)
 }
 
-private func decodeWorkspaceRecord(_ row: Row) throws -> WorkspaceCoreRepository.WorkspaceRecord {
+func decodeWorkspaceRecord(_ row: Row) throws -> WorkspaceCoreRepository.WorkspaceRecord {
     let idString: String = row["id"]
     guard let id = UUID(uuidString: idString) else {
         throw WorkspaceCoreRepositoryError.malformedWorkspaceId(idString)

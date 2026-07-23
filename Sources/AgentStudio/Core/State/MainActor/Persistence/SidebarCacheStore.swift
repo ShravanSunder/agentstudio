@@ -7,8 +7,7 @@ private let sidebarCacheStoreLogger = Logger(subsystem: "com.agentstudio", categ
 @MainActor
 final class SidebarCacheStore {
     private let atom: SidebarCacheState
-    private let persistor: WorkspacePersistor
-    private let sqliteDatastore: WorkspaceSQLiteDatastore?
+    private let sqliteDatastore: WorkspaceSQLiteDatastore
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
     private let recoveryReporter: PersistenceRecoveryReporter?
@@ -16,22 +15,18 @@ final class SidebarCacheStore {
     private var isObservingCacheState = false
     private var isRestoringState = false
     private var activeWorkspaceId: UUID?
-    private(set) var canArchiveLegacySidebarCacheFile = true
-
     var isAutosaveObservationActive: Bool {
         isObservingCacheState
     }
 
     init(
         atom: SidebarCacheState,
-        persistor: WorkspacePersistor = WorkspacePersistor(),
-        sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
+        sqliteDatastore: WorkspaceSQLiteDatastore,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
-        self.persistor = persistor
         self.sqliteDatastore = sqliteDatastore
         self.persistDebounceDuration = persistDebounceDuration
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
@@ -46,92 +41,29 @@ final class SidebarCacheStore {
         observeCacheState()
     }
 
-    func restore(for workspaceId: UUID) {
-        guard sqliteDatastore == nil else {
-            preconditionFailure("Use await restoreAsync(for:) when SQLite datastore is enabled")
-        }
-        restoreFromLegacyFiles(workspaceId: workspaceId, legacyImportDecision: .allowImport)
-    }
-
     func restoreAsync(for workspaceId: UUID) async {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
-        canArchiveLegacySidebarCacheFile = true
-        if let sqliteDatastore {
-            switch await restoreFromSQLite(for: workspaceId, sqliteDatastore: sqliteDatastore) {
-            case .restored:
-                return
-            case .missing(let legacyImportDecision, let recoveryEvents):
-                reportRecoveryEvents(recoveryEvents)
-                await restoreFromLegacyFilesAsync(workspaceId: workspaceId, legacyImportDecision: legacyImportDecision)
-                return
-            case .unavailable(let recoveryEvents):
-                reportRecoveryEvents(recoveryEvents)
-                atom.clear()
-                canArchiveLegacySidebarCacheFile = false
-                recoveryReporter?(
-                    .init(store: .sidebarCache, workspaceId: workspaceId, recovery: .resetToDefaults)
-                )
-                return
-            }
-        }
-        restoreFromLegacyFiles(workspaceId: workspaceId, legacyImportDecision: .allowImport)
-    }
-
-    private func restoreFromLegacyFiles(
-        workspaceId: UUID,
-        legacyImportDecision: WorkspaceLocalSQLiteLegacyImportDecision
-    ) {
-        guard legacyImportDecision.allowsLegacyImport else {
-            atom.clear()
-            canArchiveLegacySidebarCacheFile = !persistor.hasLegacySidebarCacheFile(for: workspaceId)
-            recoveryReporter?(
-                .init(store: .sidebarCache, workspaceId: workspaceId, recovery: .resetToDefaults)
-            )
-            return
-        }
-        switch persistor.loadSidebarCache(for: workspaceId) {
-        case .loaded(let state):
+        switch await sqliteDatastore.loadSidebarState(workspaceContextId: workspaceId) {
+        case .loaded(let payload):
             isRestoringState = true
-            atom.setExpandedGroups(state.expandedGroups)
+            atom.setExpandedGroups(payload.expandedGroups)
             isRestoringState = false
-            canArchiveLegacySidebarCacheFile = sqliteDatastore == nil
-        case .missing:
-            break
-        case .corrupt(let error):
-            let quarantinedURL = persistor.quarantineCorruptSidebarCacheFile(for: workspaceId)
-            sidebarCacheStoreLogger.warning("Sidebar cache file corrupt, using defaults: \(error)")
+            reportRecoveryEvents(payload.recoveryEvents)
+        case .unavailable(let failure, let recoveryEvents):
+            isRestoringState = false
+            atom.clear()
+            reportRecoveryEvents(recoveryEvents)
+            sidebarCacheStoreLogger.warning("Sidebar cache SQLite restore failed: \(failure.description)")
             recoveryReporter?(
                 .init(
                     store: .sidebarCache,
                     workspaceId: workspaceId,
-                    recovery: quarantinedURL == nil ? .quarantineFailed : .quarantinedAndReset,
-                    quarantinedFilename: quarantinedURL?.lastPathComponent
+                    recovery: .resetToDefaults
                 )
             )
         }
-    }
-
-    private func restoreFromLegacyFilesAsync(
-        workspaceId: UUID,
-        legacyImportDecision: WorkspaceLocalSQLiteLegacyImportDecision
-    ) async {
-        restoreFromLegacyFiles(workspaceId: workspaceId, legacyImportDecision: legacyImportDecision)
-        guard legacyImportDecision.allowsLegacyImport, persistor.hasLegacySidebarCacheFile(for: workspaceId) else {
-            return
-        }
-        canArchiveLegacySidebarCacheFile = await materializeSQLiteIfNeeded(for: workspaceId)
-    }
-
-    func flush(for workspaceId: UUID) throws {
-        guard sqliteDatastore == nil else {
-            preconditionFailure("Use await flushAsync(for:) when SQLite datastore is enabled")
-        }
-        activeWorkspaceId = workspaceId
-        debouncedSaveTask?.cancel()
-        debouncedSaveTask = nil
-        try persistLegacyJSONNow(for: workspaceId)
     }
 
     func flushAsync(for workspaceId: UUID) async throws {
@@ -178,66 +110,13 @@ final class SidebarCacheStore {
 
     private func persistNow(for workspaceId: UUID) async throws {
         do {
-            if let sqliteDatastore {
-                try await sqliteDatastore.saveSidebarState(
-                    expandedGroups: atom.expandedGroups, workspaceId: workspaceId)
-                return
-            }
-            try persistLegacyJSONNow(for: workspaceId)
+            try await sqliteDatastore.saveSidebarState(
+                expandedGroups: atom.expandedGroups,
+                workspaceContextId: workspaceId
+            )
         } catch {
             reportSaveFailed(workspaceId: workspaceId)
             throw error
-        }
-    }
-
-    private func persistLegacyJSONNow(for workspaceId: UUID) throws {
-        guard persistor.ensureDirectory() else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        try persistor.saveSidebarCache(
-            .init(
-                workspaceId: workspaceId,
-                expandedGroups: atom.expandedGroups
-            )
-        )
-    }
-
-    private enum SQLiteRestoreOutcome {
-        case restored
-        case missing(WorkspaceLocalSQLiteLegacyImportDecision, recoveryEvents: [PersistenceRecoveryEvent])
-        case unavailable(recoveryEvents: [PersistenceRecoveryEvent])
-    }
-
-    private func restoreFromSQLite(
-        for workspaceId: UUID,
-        sqliteDatastore: WorkspaceSQLiteDatastore
-    ) async -> SQLiteRestoreOutcome {
-        switch await sqliteDatastore.loadSidebarState(workspaceId: workspaceId) {
-        case .loaded(let payload):
-            guard let expandedGroups = payload.expandedGroups else {
-                return .missing(payload.legacyDecision, recoveryEvents: payload.recoveryEvents)
-            }
-            isRestoringState = true
-            atom.setExpandedGroups(expandedGroups)
-            isRestoringState = false
-            return .restored
-        case .unavailable(let failure, let recoveryEvents):
-            isRestoringState = false
-            sidebarCacheStoreLogger.warning("Sidebar cache SQLite restore failed: \(failure.description)")
-            return .unavailable(recoveryEvents: recoveryEvents)
-        }
-    }
-
-    private func materializeSQLiteIfNeeded(for workspaceId: UUID) async -> Bool {
-        guard sqliteDatastore != nil else { return true }
-        do {
-            try await persistNow(for: workspaceId)
-            return true
-        } catch {
-            sidebarCacheStoreLogger.warning(
-                "Sidebar cache legacy import materialization failed: \(error.localizedDescription)"
-            )
-            return false
         }
     }
 

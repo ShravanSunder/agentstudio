@@ -6,33 +6,31 @@ import Testing
 
 @Suite("WorkspaceLocalCacheMigrationTests")
 struct WorkspaceLocalCacheMigrationTests {
-    @Test("cache rows round trip without local rows")
-    func cacheRowsRoundTripWithoutLocalRows() throws {
+    @Test("global cache rows round trip")
+    func globalCacheRowsRoundTrip() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrate(databaseQueue)
-        let workspaceId = UUID().uuidString
         let repoId = UUID().uuidString
         let worktreeId = UUID().uuidString
 
         let restored = try databaseQueue.write { database in
             try database.execute(
                 sql: """
-                    INSERT INTO cache_metadata(workspace_id, source_revision, last_rebuilt_at)
+                    INSERT INTO cache_metadata(singleton_id, source_revision, last_rebuilt_at)
                     VALUES (?, ?, ?)
                     """,
-                arguments: [workspaceId, 7, 1.0]
+                arguments: [1, 7, 1.0]
             )
             try database.execute(
                 sql: """
                     INSERT INTO cache_repo_enrichment(
-                        repo_id, workspace_id, state, origin, upstream, group_key, remote_slug,
+                        repo_id, state, origin, upstream, group_key, remote_slug,
                         organization_name, display_name, updated_at, payload_json
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 arguments: [
                     repoId,
-                    workspaceId,
                     "available",
                     "git@github.com:example/project.git",
                     "origin/main",
@@ -47,13 +45,12 @@ struct WorkspaceLocalCacheMigrationTests {
             try database.execute(
                 sql: """
                     INSERT INTO cache_worktree_enrichment(
-                        worktree_id, workspace_id, repo_id, branch, is_main_worktree, updated_at, payload_json
+                        worktree_id, repo_id, branch, is_main_worktree, updated_at, payload_json
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
                 arguments: [
                     worktreeId,
-                    workspaceId,
                     repoId,
                     "main",
                     1,
@@ -63,10 +60,10 @@ struct WorkspaceLocalCacheMigrationTests {
             )
             try database.execute(
                 sql: """
-                    INSERT INTO cache_pull_request_count(worktree_id, workspace_id, repo_id, count, updated_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO cache_pull_request_count(worktree_id, repo_id, count, updated_at)
+                    VALUES (?, ?, ?, ?)
                     """,
-                arguments: [worktreeId, workspaceId, repoId, 5, 4.0]
+                arguments: [worktreeId, repoId, 5, 4.0]
             )
             return try Row.fetchOne(
                 database,
@@ -74,12 +71,12 @@ struct WorkspaceLocalCacheMigrationTests {
                     SELECT metadata.source_revision, repo.display_name, worktree.branch,
                            pull_request.count AS pull_request_count
                     FROM cache_metadata metadata
-                    JOIN cache_repo_enrichment repo ON repo.workspace_id = metadata.workspace_id
+                    JOIN cache_repo_enrichment repo
                     JOIN cache_worktree_enrichment worktree ON worktree.repo_id = repo.repo_id
                     JOIN cache_pull_request_count pull_request ON pull_request.worktree_id = worktree.worktree_id
-                    WHERE metadata.workspace_id = ?
+                    WHERE metadata.singleton_id = 1
                     """,
-                arguments: [workspaceId]
+                arguments: []
             )
         }
 
@@ -93,16 +90,14 @@ struct WorkspaceLocalCacheMigrationTests {
     func cacheCountersRejectNegativeValues() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrate(databaseQueue)
-        let workspaceId = UUID().uuidString
-
         expectLocalCacheDatabaseError(containing: "CHECK constraint failed") {
             try databaseQueue.write { database in
                 try database.execute(
                     sql: """
-                        INSERT INTO cache_metadata(workspace_id, source_revision, last_rebuilt_at)
+                        INSERT INTO cache_metadata(singleton_id, source_revision, last_rebuilt_at)
                         VALUES (?, ?, ?)
                         """,
-                    arguments: [workspaceId, -1, nil]
+                    arguments: [1, -1, nil]
                 )
             }
         }
@@ -111,10 +106,10 @@ struct WorkspaceLocalCacheMigrationTests {
             try databaseQueue.write { database in
                 try database.execute(
                     sql: """
-                        INSERT INTO cache_pull_request_count(worktree_id, workspace_id, repo_id, count, updated_at)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO cache_pull_request_count(worktree_id, repo_id, count, updated_at)
+                        VALUES (?, ?, ?, ?)
                         """,
-                    arguments: [UUID().uuidString, workspaceId, nil, -1, 1.0]
+                    arguments: [UUID().uuidString, nil, -1, 1.0]
                 )
             }
         }
@@ -130,12 +125,11 @@ struct WorkspaceLocalCacheMigrationTests {
                 try database.execute(
                     sql: """
                         INSERT INTO cache_worktree_enrichment(
-                            worktree_id, workspace_id, repo_id, branch, is_main_worktree, updated_at, payload_json
+                            worktree_id, repo_id, branch, is_main_worktree, updated_at, payload_json
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """,
                     arguments: [
-                        UUID().uuidString,
                         UUID().uuidString,
                         UUID().uuidString,
                         "main",

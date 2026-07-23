@@ -372,8 +372,8 @@ struct WorkspaceLocalRepositoryTests {
         #expect(restoredState.recentTargets == replacementTargets)
     }
 
-    @Test("empty local memory lanes are still marked initialized")
-    func emptyLocalMemoryLanesAreStillMarkedInitialized() throws {
+    @Test("empty row sets remain empty without marker rows")
+    func emptyRowSetsRemainEmptyWithoutMarkerRows() throws {
         let workspaceId = UUID(uuidString: "10000000-0000-0000-0000-000000000207")!
         let repository = try makeWorkspaceLocalRepositoryFixture(workspaceId: workspaceId).repository
 
@@ -386,7 +386,7 @@ struct WorkspaceLocalRepositoryTests {
         #expect(try repository.fetchExpandedGroups().isEmpty)
         #expect(try repository.fetchRecentTargets().isEmpty)
         #expect(try repository.hasExpandedGroupsState())
-        #expect(try repository.hasRecentTargetsState())
+        #expect(try repository.hasRecentTargetsState() == false)
     }
 
     @Test("cache state round trips through cache rows")
@@ -431,7 +431,6 @@ struct WorkspaceLocalRepositoryTests {
         #expect(restoredState == cacheState)
         try assertCacheQueryColumns(
             databaseQueue: fixture.databaseQueue,
-            workspaceId: workspaceId,
             repoId: repoId,
             worktreeId: worktreeId
         )
@@ -536,7 +535,6 @@ private func readWorkspaceMemoryLanes(
 
 private func assertCacheQueryColumns(
     databaseQueue: DatabaseQueue,
-    workspaceId: UUID,
     repoId: UUID,
     worktreeId: UUID
 ) throws {
@@ -558,17 +556,14 @@ private func assertCacheQueryColumns(
                     pull_request.count AS pull_request_count
                 FROM cache_metadata metadata
                 JOIN cache_repo_enrichment repo
-                    ON repo.workspace_id = metadata.workspace_id
-                    AND repo.repo_id = ?
+                    ON repo.repo_id = ?
                 JOIN cache_worktree_enrichment worktree
-                    ON worktree.workspace_id = metadata.workspace_id
-                    AND worktree.worktree_id = ?
+                    ON worktree.worktree_id = ?
                 JOIN cache_pull_request_count pull_request
-                    ON pull_request.workspace_id = metadata.workspace_id
-                    AND pull_request.worktree_id = worktree.worktree_id
-                WHERE metadata.workspace_id = ?
+                    ON pull_request.worktree_id = worktree.worktree_id
+                WHERE metadata.singleton_id = 1
                 """,
-            arguments: [repoId.uuidString, worktreeId.uuidString, workspaceId.uuidString]
+            arguments: [repoId.uuidString, worktreeId.uuidString]
         )
         return try #require(fetchedRow)
     }

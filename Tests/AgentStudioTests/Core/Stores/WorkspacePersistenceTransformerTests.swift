@@ -13,7 +13,6 @@ struct WorkspacePersistenceTransformerTests {
         let worktreeID = UUIDv7.generate()
         let topologyAtom = RepositoryTopologyAtom()
         let snapshot = RepositoryTopologySQLiteSnapshot(
-            id: UUIDv7.generate(),
             repos: [
                 CanonicalRepo(
                     id: repositoryID,
@@ -50,8 +49,8 @@ struct WorkspacePersistenceTransformerTests {
         #expect(topologyAtom.worktree(worktreeID)?.note == "worktree note")
     }
 
-    @Test("SQLite DTO conversion preserves canonical values exactly")
-    func sqliteDTOConversionPreservesCanonicalValuesExactly() {
+    @Test("composition conversion excludes repository topology")
+    func compositionConversionExcludesRepositoryTopology() {
         // Arrange
         let pane = Pane(
             id: UUIDv7.generate(),
@@ -64,7 +63,7 @@ struct WorkspacePersistenceTransformerTests {
             metadata: PaneMetadata(title: "Exact")
         )
         let tab = Tab(paneId: pane.id, name: "Exact tab")
-        let state = WorkspacePersistor.PersistableState(
+        let snapshot = WorkspaceSQLiteSnapshot(
             id: UUIDv7.generate(),
             name: "Exact workspace",
             panes: [pane],
@@ -76,23 +75,9 @@ struct WorkspacePersistenceTransformerTests {
         )
 
         // Act
-        let bundle = WorkspacePersistenceTransformer.sqliteSaveBundle(from: state)
-        let roundTrip = WorkspacePersistenceTransformer.persistableState(from: bundle)
+        let bundle = WorkspaceSQLiteSaveBundle(workspace: snapshot)
 
         // Assert
-        #expect(roundTrip.schemaVersion == state.schemaVersion)
-        #expect(roundTrip.id == state.id)
-        #expect(roundTrip.name == state.name)
-        #expect(roundTrip.repos == state.repos)
-        #expect(roundTrip.worktrees == state.worktrees)
-        #expect(roundTrip.unavailableRepoIds == state.unavailableRepoIds)
-        #expect(roundTrip.panes == state.panes)
-        #expect(roundTrip.tabs == state.tabs)
-        #expect(roundTrip.activeTabId == state.activeTabId)
-        #expect(roundTrip.sidebarWidth == state.sidebarWidth)
-        #expect(roundTrip.windowFrame == state.windowFrame)
-        #expect(roundTrip.watchedPaths == state.watchedPaths)
-        #expect(roundTrip.createdAt == state.createdAt)
-        #expect(roundTrip.updatedAt == state.updatedAt)
+        #expect(bundle.workspace == snapshot)
     }
 }

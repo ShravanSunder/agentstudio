@@ -7,66 +7,13 @@ import Testing
 @MainActor
 @Suite("WorkspaceStore strict SQLite load", .serialized)
 struct WorkspaceStoreStrictSQLiteLoadTests {
-    @Test("valid SQLite composition loads exactly without loading repository topology")
-    func validSQLiteCompositionLoadsExactlyWithoutLoadingRepositoryTopology() async throws {
+    @Test("valid SQLite composition loads persisted authoritative repository topology")
+    func validSQLiteCompositionLoadsPersistedAuthoritativeRepositoryTopology() async throws {
         let harness = try StrictSQLiteCompositionLoadHarness.make(testName: "valid-composition")
         defer { harness.removeTemporaryFiles() }
-        let workspaceID = UUIDv7.generate()
-        let storedZmxSessionID = try #require(
-            ZmxSessionID(restoring: "0197F6A4-opaque existing zmx identity ! '$`\\")
-        )
-        let paneID = UUID(uuidString: "10000000-0000-4000-8000-000000000001")!
-        let drawerID = UUID(uuidString: "10000000-0000-4000-8000-000000000002")!
-        let arrangementID = UUID(uuidString: "10000000-0000-4000-8000-000000000003")!
-        let tabID = UUID(uuidString: "10000000-0000-4000-8000-000000000004")!
-        let pane = Pane(
-            id: paneID,
-            content: .terminal(
-                TerminalState(
-                    provider: .zmx,
-                    lifetime: .persistent,
-                    zmxSessionID: storedZmxSessionID
-                )
-            ),
-            metadata: PaneMetadata(
-                launchDirectory: URL(filePath: "/tmp/strict-sqlite-composition-load"),
-                createdAt: Date(timeIntervalSince1970: 1_700_100_000),
-                title: "Stored terminal"
-            ),
-            residency: .active,
-            kind: .layout(drawer: Drawer(drawerId: drawerID, parentPaneId: paneID))
-        )
-        let arrangement = PaneArrangement(
-            id: arrangementID,
-            layout: Layout(paneId: paneID),
-            activePaneId: paneID
-        )
-        let tab = Tab(
-            id: tabID,
-            name: "Stored tab",
-            allPaneIds: [paneID],
-            arrangements: [arrangement],
-            activeArrangementId: arrangement.id
-        )
-        let snapshot = WorkspaceSQLiteSnapshot(
-            id: workspaceID,
-            name: "Stored workspace",
-            panes: [pane],
-            tabs: [tab],
-            activeTabId: tab.id,
-            sidebarWidth: 344,
-            windowFrame: nil,
-            createdAt: Date(timeIntervalSince1970: 1_700_100_000),
-            updatedAt: Date(timeIntervalSince1970: 1_700_100_001)
-        )
-        try await harness.datastore.saveWorkspaceSnapshotBundle(.emptyTopologyFixture(workspace: snapshot))
+        let fixture = try await PersistedAuthoritativeTopologyFixture.seed(in: harness)
         let repositoryTopologyAtom = RepositoryTopologyAtom()
-        let store = harness.makeStore(
-            repositoryTopologyAtom: repositoryTopologyAtom
-        )
-        let preservedRepository = store.mutationCoordinator.addRepo(
-            at: URL(filePath: "/tmp/topology-must-remain-independent")
-        )
+        let store = harness.makeStore(repositoryTopologyAtom: repositoryTopologyAtom)
 
         let result = await store.loadCanonicalComposition()
 
@@ -74,26 +21,35 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
             Issue.record("Expected loaded result, got \(result)")
             return
         }
-        #expect(store.workspaceId == workspaceID)
-        #expect(store.workspaceName == snapshot.name)
-        #expect(store.panes == [paneID: pane])
-        #expect(store.tabs == [tab])
-        #expect(store.activeTabId == tab.id)
+        #expect(store.workspaceId == fixture.workspaceID)
+        #expect(store.workspaceName == fixture.snapshot.name)
+        #expect(store.panes == [fixture.paneID: fixture.pane])
+        #expect(store.tabs == [fixture.tab])
+        #expect(store.activeTabId == fixture.tab.id)
         #expect(UUIDv7.isV7(acceptance.contentMountCohort.generation.id))
         #expect(acceptance.terminalActivationInput.entries.count == 1)
         let activation = try #require(acceptance.terminalActivationInput.entries.first)
-        #expect(activation.paneID.uuid == paneID)
+        #expect(activation.paneID.uuid == fixture.paneID)
         guard case .terminal(let activationTerminalState) = activation.pane.content else {
             Issue.record("expected restored terminal pane content")
             return
         }
-        #expect(activationTerminalState.zmxSessionID == storedZmxSessionID)
+        #expect(activationTerminalState.zmxSessionID == fixture.storedZmxSessionID)
         #expect(activationTerminalState.provider == .zmx)
-        #expect(activation.hostPlacement == .tab(tabID: tab.id))
-        #expect(store.panes[paneID]?.drawer?.drawerId == drawerID)
-        #expect(store.tabs.single?.id == tabID)
-        #expect(store.tabs.single?.activeArrangement.id == arrangementID)
-        #expect(repositoryTopologyAtom.repos == [preservedRepository])
+        #expect(activation.hostPlacement == .tab(tabID: fixture.tab.id))
+        #expect(store.panes[fixture.paneID]?.drawer?.drawerId == fixture.drawerID)
+        #expect(store.tabs.single?.id == fixture.tabID)
+        #expect(store.tabs.single?.activeArrangement.id == fixture.arrangementID)
+        let restoredRepository = try #require(repositoryTopologyAtom.repos.single)
+        #expect(restoredRepository.id == fixture.repositoryID)
+        #expect(restoredRepository.name == "Persisted repository")
+        #expect(restoredRepository.repoPath == fixture.repositoryPath.standardizedFileURL)
+        #expect(restoredRepository.worktrees.single?.id == fixture.worktreeID)
+        #expect(repositoryTopologyAtom.unavailableRepoIds == [fixture.repositoryID])
+        #expect(
+            repositoryTopologyAtom.watchedPaths.single?.path.path
+                == fixture.repositoryPath.deletingLastPathComponent().standardizedFileURL.path
+        )
     }
 
     @Test("pristine SQLite initializes one UUIDv7 default workspace that reloads")
@@ -182,8 +138,8 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         #expect(store.tabs.isEmpty)
     }
 
-    @Test("invalid persisted composition is rejected without atom mutation")
-    func invalidPersistedCompositionIsRejectedWithoutMutation() async throws {
+    @Test("invalid local active tab is ignored while authoritative core loads")
+    func invalidLocalActiveTabIsIgnoredWhileAuthoritativeCoreLoads() async throws {
         let harness = try StrictSQLiteCompositionLoadHarness.make(testName: "invalid-composition")
         defer { harness.removeTemporaryFiles() }
         let workspaceID = UUIDv7.generate()
@@ -194,7 +150,7 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         try await harness.datastore.saveWorkspaceSnapshotBundle(.emptyTopologyFixture(workspace: validSnapshot))
         let missingActiveTabID = UUIDv7.generate()
         let localDatabase = try SQLiteDatabaseFactory.makeFileBackedPool(
-            at: harness.localDatabaseURL(for: workspaceID),
+            at: harness.localDatabaseURL(),
             label: "AgentStudio.sqlite.strict-restore.invalid-local"
         )
         try await localDatabase.write { database in
@@ -203,24 +159,20 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
                 arguments: [missingActiveTabID.uuidString, workspaceID.uuidString]
             )
         }
-        let initialWorkspaceID = UUIDv7.generate()
-        let identityAtom = WorkspaceIdentityAtom(
-            workspaceId: initialWorkspaceID,
-            workspaceName: "Initial identity",
-            createdAt: Date(timeIntervalSince1970: 20)
-        )
-        let store = harness.makeStore(
-            identityAtom: identityAtom,
-            datastore: harness.makeFreshDatastore()
-        )
+        try localDatabase.close()
+        let store = harness.makeStore(datastore: harness.makeFreshDatastore())
 
         let result = await store.loadCanonicalComposition()
 
-        #expect(result == .failed(.compositionRejected(.activeTabNotFound(missingActiveTabID))))
-        #expect(store.workspaceId == initialWorkspaceID)
-        #expect(store.workspaceName == "Initial identity")
+        guard case .loaded = result else {
+            Issue.record("Expected loaded result, got \(result)")
+            return
+        }
+        #expect(store.workspaceId == workspaceID)
+        #expect(store.workspaceName == validSnapshot.name)
         #expect(store.panes.isEmpty)
         #expect(store.tabs.isEmpty)
+        #expect(store.activeTabId == nil)
     }
 
     @Test("legacy workspace JSON beside pristine SQLite is ignored and left untouched")
@@ -228,11 +180,12 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         let harness = try StrictSQLiteCompositionLoadHarness.make(testName: "legacy-json-ignored")
         defer { harness.removeTemporaryFiles() }
         let legacyWorkspaceID = UUIDv7.generate()
-        let legacyURL = harness.persistor.workspacesDir.appending(
+        let legacyDirectory = harness.rootDirectory.appending(path: "legacy-workspaces")
+        let legacyURL = legacyDirectory.appending(
             path: "\(legacyWorkspaceID.uuidString).workspace.state.json"
         )
         try FileManager.default.createDirectory(
-            at: harness.persistor.workspacesDir,
+            at: legacyDirectory,
             withIntermediateDirectories: true
         )
         let sentinel = Data("legacy JSON must not be read, rewritten, or archived".utf8)
@@ -248,7 +201,42 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         #expect(store.workspaceId != legacyWorkspaceID)
         #expect(try Data(contentsOf: legacyURL) == sentinel)
         let remainingNames = try FileManager.default.contentsOfDirectory(
-            at: harness.persistor.workspacesDir,
+            at: legacyDirectory,
+            includingPropertiesForKeys: nil
+        ).map(\.lastPathComponent)
+        #expect(remainingNames == [legacyURL.lastPathComponent])
+    }
+
+    @Test("legacy per-workspace local SQLite sidecar is ignored and left untouched")
+    func legacyWorkspaceLocalSQLiteSidecarIsIgnoredAndLeftUntouched() async throws {
+        let harness = try StrictSQLiteCompositionLoadHarness.make(testName: "legacy-local-sidecar-ignored")
+        defer { harness.removeTemporaryFiles() }
+        let legacyWorkspaceID = UUIDv7.generate()
+        let legacyDirectory = harness.rootDirectory.appending(path: "workspaces")
+        let legacyURL = legacyDirectory.appending(
+            path: "\(legacyWorkspaceID.uuidString).local.sqlite"
+        )
+        try FileManager.default.createDirectory(
+            at: legacyDirectory,
+            withIntermediateDirectories: true
+        )
+        let sentinel = Data("legacy local SQLite must not be opened, rewritten, or archived".utf8)
+        try sentinel.write(to: legacyURL)
+        let originalAttributes = try FileManager.default.attributesOfItem(atPath: legacyURL.path)
+        let store = harness.makeStore()
+
+        let result = await store.loadCanonicalComposition()
+
+        guard case .initializedDefaultWorkspace = result else {
+            Issue.record("Expected SQLite default initialization, got \(result)")
+            return
+        }
+        #expect(store.workspaceId != legacyWorkspaceID)
+        #expect(try Data(contentsOf: legacyURL) == sentinel)
+        let currentAttributes = try FileManager.default.attributesOfItem(atPath: legacyURL.path)
+        #expect(currentAttributes[.modificationDate] as? Date == originalAttributes[.modificationDate] as? Date)
+        let remainingNames = try FileManager.default.contentsOfDirectory(
+            at: legacyDirectory,
             includingPropertiesForKeys: nil
         ).map(\.lastPathComponent)
         #expect(remainingNames == [legacyURL.lastPathComponent])
@@ -262,9 +250,7 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         try Data("block nested sqlite path".utf8).write(to: blockingFileURL)
         let unavailableDatastore = WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: blockingFileURL.appending(path: "core.sqlite"),
-            localDatabaseURL: { workspaceID in
-                blockingFileURL.appending(path: "\(workspaceID.uuidString).local.sqlite")
-            }
+            localDatabaseURL: blockingFileURL.appending(path: "local.sqlite")
         ).makeDatastore()
         let initialWorkspaceID = UUIDv7.generate()
         let identityAtom = WorkspaceIdentityAtom(
@@ -292,10 +278,162 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
 }
 
 @MainActor
+private struct PersistedAuthoritativeTopologyFixture {
+    let workspaceID: UUID
+    let storedZmxSessionID: ZmxSessionID
+    let paneID: UUID
+    let drawerID: UUID
+    let arrangementID: UUID
+    let tabID: UUID
+    let pane: Pane
+    let tab: Tab
+    let snapshot: WorkspaceSQLiteSnapshot
+    let repositoryID: UUID
+    let worktreeID: UUID
+    let repositoryPath: URL
+
+    static func seed(in harness: StrictSQLiteCompositionLoadHarness) async throws -> Self {
+        let fixture = try makeFixture()
+        try await harness.datastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(workspace: fixture.snapshot)
+        )
+        try fixture.persistAuthoritativeTopology(to: harness.coreDatabaseURL)
+        return fixture
+    }
+
+    private static func makeFixture() throws -> Self {
+        let workspaceID = UUIDv7.generate()
+        let storedZmxSessionID = try #require(
+            ZmxSessionID(restoring: "0197F6A4-opaque existing zmx identity ! '$`\\")
+        )
+        let paneID = UUID(uuidString: "10000000-0000-4000-8000-000000000001")!
+        let drawerID = UUID(uuidString: "10000000-0000-4000-8000-000000000002")!
+        let arrangementID = UUID(uuidString: "10000000-0000-4000-8000-000000000003")!
+        let tabID = UUID(uuidString: "10000000-0000-4000-8000-000000000004")!
+        let pane = makePane(
+            paneID: paneID,
+            drawerID: drawerID,
+            storedZmxSessionID: storedZmxSessionID
+        )
+        let tab = makeTab(
+            tabID: tabID,
+            paneID: paneID,
+            arrangementID: arrangementID
+        )
+        return Self(
+            workspaceID: workspaceID,
+            storedZmxSessionID: storedZmxSessionID,
+            paneID: paneID,
+            drawerID: drawerID,
+            arrangementID: arrangementID,
+            tabID: tabID,
+            pane: pane,
+            tab: tab,
+            snapshot: makeSnapshot(workspaceID: workspaceID, pane: pane, tab: tab),
+            repositoryID: UUIDv7.generate(),
+            worktreeID: UUIDv7.generate(),
+            repositoryPath: URL(filePath: "/tmp/persisted-authoritative-topology")
+        )
+    }
+
+    private static func makePane(
+        paneID: UUID,
+        drawerID: UUID,
+        storedZmxSessionID: ZmxSessionID
+    ) -> Pane {
+        Pane(
+            id: paneID,
+            content: .terminal(
+                TerminalState(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: storedZmxSessionID
+                )
+            ),
+            metadata: PaneMetadata(
+                launchDirectory: URL(filePath: "/tmp/strict-sqlite-composition-load"),
+                createdAt: Date(timeIntervalSince1970: 1_700_100_000),
+                title: "Stored terminal"
+            ),
+            residency: .active,
+            kind: .layout(drawer: Drawer(drawerId: drawerID, parentPaneId: paneID))
+        )
+    }
+
+    private static func makeTab(tabID: UUID, paneID: UUID, arrangementID: UUID) -> Tab {
+        let arrangement = PaneArrangement(
+            id: arrangementID,
+            layout: Layout(paneId: paneID),
+            activePaneId: paneID
+        )
+        return Tab(
+            id: tabID,
+            name: "Stored tab",
+            allPaneIds: [paneID],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+    }
+
+    private static func makeSnapshot(workspaceID: UUID, pane: Pane, tab: Tab) -> WorkspaceSQLiteSnapshot {
+        WorkspaceSQLiteSnapshot(
+            id: workspaceID,
+            name: "Stored workspace",
+            panes: [pane],
+            tabs: [tab],
+            activeTabId: tab.id,
+            sidebarWidth: 344,
+            windowFrame: nil,
+            createdAt: Date(timeIntervalSince1970: 1_700_100_000),
+            updatedAt: Date(timeIntervalSince1970: 1_700_100_001)
+        )
+    }
+
+    private func persistAuthoritativeTopology(to coreDatabaseURL: URL) throws {
+        let coreDatabase = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: coreDatabaseURL,
+            label: "AgentStudio.sqlite.strict-restore.persisted-topology"
+        )
+        defer { try? coreDatabase.close() }
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabase)
+        try coreRepository.replaceRepositoryTopology(
+            .init(
+                watchedPaths: [
+                    .init(
+                        id: UUIDv7.generate(),
+                        path: repositoryPath.deletingLastPathComponent(),
+                        addedAt: Date(timeIntervalSince1970: 1_700_100_002)
+                    )
+                ],
+                repos: [persistedRepository()],
+                unavailableRepoIds: [repositoryID]
+            )
+        )
+    }
+
+    private func persistedRepository() -> WorkspaceCoreRepository.RepoRecord {
+        WorkspaceCoreRepository.RepoRecord(
+            id: repositoryID,
+            name: "Persisted repository",
+            repoPath: repositoryPath,
+            createdAt: Date(timeIntervalSince1970: 1_700_100_003),
+            worktrees: [
+                WorkspaceCoreRepository.WorktreeRecord(
+                    id: worktreeID,
+                    repoId: repositoryID,
+                    name: "main",
+                    path: repositoryPath,
+                    isMainWorktree: true
+                )
+            ]
+        )
+    }
+}
+
+@MainActor
 private struct StrictSQLiteCompositionLoadHarness {
     let rootDirectory: URL
     let coreDatabaseURL: URL
-    let persistor: WorkspacePersistor
     let datastore: WorkspaceSQLiteDatastore
 
     static func make(testName: String) throws -> Self {
@@ -304,23 +442,19 @@ private struct StrictSQLiteCompositionLoadHarness {
         )
         try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
         let coreDatabaseURL = rootDirectory.appending(path: "core.sqlite")
-        let persistor = WorkspacePersistor(workspacesDir: rootDirectory.appending(path: "legacy-workspaces"))
         let factory = WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: coreDatabaseURL,
-            localDatabaseURL: { workspaceID in
-                rootDirectory.appending(path: "\(workspaceID.uuidString).local.sqlite")
-            }
+            localDatabaseURL: rootDirectory.appending(path: "local.sqlite")
         )
         return Self(
             rootDirectory: rootDirectory,
             coreDatabaseURL: coreDatabaseURL,
-            persistor: persistor,
             datastore: factory.makeDatastore()
         )
     }
 
-    func localDatabaseURL(for workspaceID: UUID) -> URL {
-        rootDirectory.appending(path: "\(workspaceID.uuidString).local.sqlite")
+    func localDatabaseURL() -> URL {
+        rootDirectory.appending(path: "local.sqlite")
     }
 
     func makeFreshDatastore() -> WorkspaceSQLiteDatastore {
@@ -334,9 +468,7 @@ private struct StrictSQLiteCompositionLoadHarness {
         return WorkspaceSQLiteDatastore(
             configuration: WorkspaceSQLiteDatastoreConfiguration(
                 coreDatabaseURL: coreDatabaseURL,
-                localDatabaseURL: { workspaceID in
-                    rootDirectory.appending(path: "\(workspaceID.uuidString).local.sqlite")
-                }
+                localDatabaseURL: rootDirectory.appending(path: "local.sqlite")
             ),
             probe: probe
         )

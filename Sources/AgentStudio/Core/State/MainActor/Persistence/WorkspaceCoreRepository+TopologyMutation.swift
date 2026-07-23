@@ -3,64 +3,44 @@ import GRDB
 
 func replaceRepositoryTopologyRows(
     _ database: Database,
-    workspaceId: UUID,
     topology: WorkspaceCoreRepository.RepositoryTopologyRecord
 ) throws {
     let incomingWorktrees = topology.repos.flatMap(\.worktrees)
-    try preflightIncomingWorktreeOwnership(
-        database,
-        workspaceId: workspaceId,
-        worktrees: incomingWorktrees
-    )
-    try replaceUnavailableRepoRows(database, workspaceId: workspaceId, repoIds: [])
-    try replaceWatchedPathRows(database, workspaceId: workspaceId, watchedPaths: topology.watchedPaths)
-    try reconcileRepoRows(database, workspaceId: workspaceId, repos: topology.repos)
+    try preflightIncomingWorktreeIdentity(database, worktrees: incomingWorktrees)
+    try replaceUnavailableRepoRows(database, repoIds: [])
+    try replaceWatchedPathRows(database, watchedPaths: topology.watchedPaths)
+    try reconcileRepoRows(database, repos: topology.repos)
     try reconcileWorktreeRows(
         database,
-        workspaceId: workspaceId,
         repoId: nil,
         worktrees: incomingWorktrees
     )
-    try replaceRepoTagRows(database, workspaceId: workspaceId, repos: topology.repos)
-    try replaceUnavailableRepoRows(
-        database,
-        workspaceId: workspaceId,
-        repoIds: topology.unavailableRepoIds
-    )
+    try replaceRepoTagRows(database, repos: topology.repos)
+    try replaceUnavailableRepoRows(database, repoIds: topology.unavailableRepoIds)
 }
 
 func replaceUnavailableRepoRows(
     _ database: Database,
-    workspaceId: UUID,
     repoIds: Set<UUID>
 ) throws {
-    try database.execute(
-        sql: """
-            DELETE FROM unavailable_repo
-            WHERE workspace_id = ?
-            """,
-        arguments: [workspaceId.uuidString]
-    )
+    try database.execute(sql: "DELETE FROM unavailable_repo")
     for repoId in repoIds.sorted(by: { $0.uuidString < $1.uuidString }) {
-        try insertUnavailableRepo(database, workspaceId: workspaceId, repoId: repoId)
+        try insertUnavailableRepo(database, repoId: repoId)
     }
 }
 
 func reconcileRepoWorktreeRows(
     _ database: Database,
-    workspaceId: UUID,
     repoId: UUID,
     worktrees: [WorkspaceCoreRepository.WorktreeRecord]
 ) throws {
     try preflightIncomingWorktreeStableKeys(
         database,
-        workspaceId: workspaceId,
         repoId: repoId,
         worktrees: worktrees
     )
     try reconcileWorktreeRows(
         database,
-        workspaceId: workspaceId,
         repoId: repoId,
         worktrees: worktrees
     )
@@ -68,49 +48,33 @@ func reconcileRepoWorktreeRows(
 
 private func replaceWatchedPathRows(
     _ database: Database,
-    workspaceId: UUID,
     watchedPaths: [WorkspaceCoreRepository.WatchedPathRecord]
 ) throws {
-    try database.execute(
-        sql: """
-            DELETE FROM watched_path
-            WHERE workspace_id = ?
-            """,
-        arguments: [workspaceId.uuidString]
-    )
+    try database.execute(sql: "DELETE FROM watched_path")
     for watchedPath in watchedPaths {
-        try insertWatchedPath(database, workspaceId: workspaceId, watchedPath: watchedPath)
+        try insertWatchedPath(database, watchedPath: watchedPath)
     }
 }
 
 private func reconcileRepoRows(
     _ database: Database,
-    workspaceId: UUID,
     repos: [WorkspaceCoreRepository.RepoRecord]
 ) throws {
     let retainedRepoIds = Set(repos.map(\.id))
-    try stageRetainedRepoStableKeys(database, workspaceId: workspaceId, repoIds: retainedRepoIds)
-    try deleteReposNotIn(database, workspaceId: workspaceId, retainedRepoIds: retainedRepoIds)
+    try stageRetainedRepoStableKeys(database, repoIds: retainedRepoIds)
+    try deleteReposNotIn(database, retainedRepoIds: retainedRepoIds)
     for repo in repos {
-        try upsertRepo(database, workspaceId: workspaceId, repo: repo)
+        try upsertRepo(database, repo: repo)
     }
 }
 
-private func preflightIncomingWorktreeOwnership(
+private func preflightIncomingWorktreeIdentity(
     _ database: Database,
-    workspaceId: UUID,
     worktrees: [WorkspaceCoreRepository.WorktreeRecord]
 ) throws {
     for worktree in worktrees {
         guard let currentIdentity = try fetchWorktreeIdentity(database, worktreeId: worktree.id) else {
             continue
-        }
-        guard currentIdentity.workspaceId == workspaceId else {
-            throw WorkspaceCoreRepositoryError.worktreeBelongsToDifferentWorkspace(
-                worktreeId: worktree.id,
-                expectedWorkspaceId: workspaceId,
-                actualWorkspaceId: currentIdentity.workspaceId
-            )
         }
         guard currentIdentity.repoId == worktree.repoId else {
             throw WorkspaceCoreRepositoryError.worktreeRepoMismatch(
@@ -124,7 +88,6 @@ private func preflightIncomingWorktreeOwnership(
 
 private func preflightIncomingWorktreeStableKeys(
     _ database: Database,
-    workspaceId: UUID,
     repoId: UUID,
     worktrees: [WorkspaceCoreRepository.WorktreeRecord]
 ) throws {
@@ -136,15 +99,12 @@ private func preflightIncomingWorktreeStableKeys(
             sql: """
                 SELECT stable_key
                 FROM worktree
-                WHERE workspace_id = ?
-                AND repo_id != ?
+                WHERE repo_id != ?
                 AND stable_key IN (\(placeholders(count: stableKeys.count)))
                 ORDER BY stable_key ASC
                 LIMIT 1
                 """,
-            arguments: StatementArguments(
-                [workspaceId.uuidString, repoId.uuidString] + stableKeys.sorted()
-            )
+            arguments: StatementArguments([repoId.uuidString] + stableKeys.sorted())
         )
     else {
         return
@@ -154,50 +114,39 @@ private func preflightIncomingWorktreeStableKeys(
 
 private func reconcileWorktreeRows(
     _ database: Database,
-    workspaceId: UUID,
     repoId: UUID?,
     worktrees: [WorkspaceCoreRepository.WorktreeRecord]
 ) throws {
     let retainedWorktreeIds = Set(worktrees.map(\.id))
     try stageRetainedWorktreeStableKeys(
         database,
-        workspaceId: workspaceId,
         repoId: repoId,
         worktreeIds: retainedWorktreeIds
     )
     try deleteWorktreesNotIn(
         database,
-        workspaceId: workspaceId,
         repoId: repoId,
         retainedWorktreeIds: retainedWorktreeIds
     )
     for worktree in worktrees {
-        try upsertWorktree(database, workspaceId: workspaceId, worktree: worktree)
+        try upsertWorktree(database, worktree: worktree)
     }
 }
 
 private func replaceRepoTagRows(
     _ database: Database,
-    workspaceId: UUID,
     repos: [WorkspaceCoreRepository.RepoRecord]
 ) throws {
-    try database.execute(
-        sql: """
-            DELETE FROM repo_tag
-            WHERE workspace_id = ?
-            """,
-        arguments: [workspaceId.uuidString]
-    )
+    try database.execute(sql: "DELETE FROM repo_tag")
     for repo in repos {
         for tag in repo.tags.sorted() {
-            try insertRepoTag(database, workspaceId: workspaceId, repoId: repo.id, tag: tag)
+            try insertRepoTag(database, repoId: repo.id, tag: tag)
         }
     }
 }
 
 private func stageRetainedRepoStableKeys(
     _ database: Database,
-    workspaceId: UUID,
     repoIds: Set<UUID>
 ) throws {
     for repoId in repoIds {
@@ -205,12 +154,10 @@ private func stageRetainedRepoStableKeys(
             sql: """
                 UPDATE repo
                 SET stable_key = ?
-                WHERE workspace_id = ?
-                AND id = ?
+                WHERE id = ?
                 """,
             arguments: [
                 temporaryStableKey(prefix: "repo", id: repoId),
-                workspaceId.uuidString,
                 repoId.uuidString,
             ]
         )
@@ -219,15 +166,12 @@ private func stageRetainedRepoStableKeys(
 
 private func stageRetainedWorktreeStableKeys(
     _ database: Database,
-    workspaceId: UUID,
     repoId: UUID?,
     worktreeIds: Set<UUID>
 ) throws {
     for worktreeId in worktreeIds {
-        let repoFilter = repoId == nil ? "" : "AND repo_id = ?"
         var arguments = [
-            temporaryStableKey(prefix: "worktree", id: worktreeId),
-            workspaceId.uuidString,
+            temporaryStableKey(prefix: "worktree", id: worktreeId)
         ]
         if let repoId {
             arguments.append(repoId.uuidString)
@@ -237,9 +181,8 @@ private func stageRetainedWorktreeStableKeys(
             sql: """
                 UPDATE worktree
                 SET stable_key = ?
-                WHERE workspace_id = ?
-                \(repoFilter)
-                AND id = ?
+                WHERE \(requiredRepoPredicate(repoId))
+                id = ?
                 """,
             arguments: StatementArguments(arguments)
         )
@@ -248,35 +191,24 @@ private func stageRetainedWorktreeStableKeys(
 
 private func deleteReposNotIn(
     _ database: Database,
-    workspaceId: UUID,
     retainedRepoIds: Set<UUID>
 ) throws {
     if retainedRepoIds.isEmpty {
-        try database.execute(
-            sql: """
-                DELETE FROM repo
-                WHERE workspace_id = ?
-                """,
-            arguments: [workspaceId.uuidString]
-        )
+        try database.execute(sql: "DELETE FROM repo")
         return
     }
 
     try database.execute(
         sql: """
             DELETE FROM repo
-            WHERE workspace_id = ?
-            AND id NOT IN (\(placeholders(count: retainedRepoIds.count)))
+            WHERE id NOT IN (\(placeholders(count: retainedRepoIds.count)))
             """,
-        arguments: StatementArguments(
-            [workspaceId.uuidString] + retainedRepoIds.sortedByUUIDString().map(\.uuidString)
-        )
+        arguments: StatementArguments(retainedRepoIds.sortedByUUIDString().map(\.uuidString))
     )
 }
 
 private func deleteWorktreesNotIn(
     _ database: Database,
-    workspaceId: UUID,
     repoId: UUID?,
     retainedWorktreeIds: Set<UUID>
 ) throws {
@@ -284,10 +216,9 @@ private func deleteWorktreesNotIn(
         try database.execute(
             sql: """
                 DELETE FROM worktree
-                WHERE workspace_id = ?
-                \(repoPredicate(repoId))
+                \(optionalWhereRepoPredicate(repoId))
                 """,
-            arguments: repoScopedArguments(workspaceId: workspaceId, repoId: repoId)
+            arguments: repoScopedArguments(repoId: repoId)
         )
         return
     }
@@ -295,12 +226,10 @@ private func deleteWorktreesNotIn(
     try database.execute(
         sql: """
             DELETE FROM worktree
-            WHERE workspace_id = ?
-            \(repoPredicate(repoId))
-            AND id NOT IN (\(placeholders(count: retainedWorktreeIds.count)))
+            WHERE \(requiredRepoPredicate(repoId))
+            id NOT IN (\(placeholders(count: retainedWorktreeIds.count)))
             """,
         arguments: repoScopedArguments(
-            workspaceId: workspaceId,
             repoId: repoId,
             extraIds: retainedWorktreeIds.sortedByUUIDString()
         )
@@ -309,30 +238,20 @@ private func deleteWorktreesNotIn(
 
 private func upsertRepo(
     _ database: Database,
-    workspaceId: UUID,
     repo: WorkspaceCoreRepository.RepoRecord
 ) throws {
     if try repoIdExists(database, repoId: repo.id) {
-        try requireRepoExists(database, repoId: repo.id, workspaceId: workspaceId)
-        try updateRepo(database, workspaceId: workspaceId, repo: repo)
+        try updateRepo(database, repo: repo)
     } else {
-        try insertRepo(database, workspaceId: workspaceId, repo: repo)
+        try insertRepo(database, repo: repo)
     }
 }
 
 private func upsertWorktree(
     _ database: Database,
-    workspaceId: UUID,
     worktree: WorkspaceCoreRepository.WorktreeRecord
 ) throws {
     if let currentIdentity = try fetchWorktreeIdentity(database, worktreeId: worktree.id) {
-        guard currentIdentity.workspaceId == workspaceId else {
-            throw WorkspaceCoreRepositoryError.worktreeBelongsToDifferentWorkspace(
-                worktreeId: worktree.id,
-                expectedWorkspaceId: workspaceId,
-                actualWorkspaceId: currentIdentity.workspaceId
-            )
-        }
         guard currentIdentity.repoId == worktree.repoId else {
             throw WorkspaceCoreRepositoryError.worktreeRepoMismatch(
                 worktreeId: worktree.id,
@@ -340,25 +259,23 @@ private func upsertWorktree(
                 actualRepoId: currentIdentity.repoId
             )
         }
-        try updateWorktree(database, workspaceId: workspaceId, worktree: worktree)
+        try updateWorktree(database, worktree: worktree)
     } else {
-        try insertWorktree(database, workspaceId: workspaceId, worktree: worktree)
+        try insertWorktree(database, worktree: worktree)
     }
 }
 
 private func insertWatchedPath(
     _ database: Database,
-    workspaceId: UUID,
     watchedPath: WorkspaceCoreRepository.WatchedPathRecord
 ) throws {
     try database.execute(
         sql: """
-            INSERT INTO watched_path(id, workspace_id, path, stable_key, added_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO watched_path(id, path, stable_key, added_at)
+            VALUES (?, ?, ?, ?)
             """,
         arguments: [
             watchedPath.id.uuidString,
-            workspaceId.uuidString,
             watchedPath.path.path,
             watchedPath.stableKey,
             watchedPath.addedAt.timeIntervalSince1970,
@@ -368,29 +285,26 @@ private func insertWatchedPath(
 
 private func insertRepo(
     _ database: Database,
-    workspaceId: UUID,
     repo: WorkspaceCoreRepository.RepoRecord
 ) throws {
     try database.execute(
         sql: """
-            INSERT INTO repo(id, workspace_id, name, repo_path, stable_key, created_at, is_favorite, note)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO repo(id, name, repo_path, stable_key, created_at, is_favorite, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-        arguments: StatementArguments(repoArguments(workspaceId: workspaceId, repo: repo))
+        arguments: StatementArguments(repoArguments(repo: repo))
     )
 }
 
 private func updateRepo(
     _ database: Database,
-    workspaceId: UUID,
     repo: WorkspaceCoreRepository.RepoRecord
 ) throws {
     try database.execute(
         sql: """
             UPDATE repo
             SET name = ?, repo_path = ?, stable_key = ?, created_at = ?, is_favorite = ?, note = ?
-            WHERE workspace_id = ?
-            AND id = ?
+            WHERE id = ?
             """,
         arguments: [
             repo.name,
@@ -399,7 +313,6 @@ private func updateRepo(
             repo.createdAt.timeIntervalSince1970,
             repo.isFavorite ? 1 : 0,
             repo.note,
-            workspaceId.uuidString,
             repo.id.uuidString,
         ]
     )
@@ -407,29 +320,26 @@ private func updateRepo(
 
 private func insertWorktree(
     _ database: Database,
-    workspaceId: UUID,
     worktree: WorkspaceCoreRepository.WorktreeRecord
 ) throws {
     try database.execute(
         sql: """
-            INSERT INTO worktree(id, workspace_id, repo_id, name, path, stable_key, is_main_worktree, note)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO worktree(id, repo_id, name, path, stable_key, is_main_worktree, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-        arguments: StatementArguments(worktreeArguments(workspaceId: workspaceId, worktree: worktree))
+        arguments: StatementArguments(worktreeArguments(worktree: worktree))
     )
 }
 
 private func updateWorktree(
     _ database: Database,
-    workspaceId: UUID,
     worktree: WorkspaceCoreRepository.WorktreeRecord
 ) throws {
     try database.execute(
         sql: """
             UPDATE worktree
             SET name = ?, path = ?, stable_key = ?, is_main_worktree = ?, note = ?
-            WHERE workspace_id = ?
-            AND repo_id = ?
+            WHERE repo_id = ?
             AND id = ?
             """,
         arguments: [
@@ -438,7 +348,6 @@ private func updateWorktree(
             worktree.stableKey,
             worktree.isMainWorktree ? 1 : 0,
             worktree.note,
-            workspaceId.uuidString,
             worktree.repoId.uuidString,
             worktree.id.uuidString,
         ]
@@ -447,33 +356,28 @@ private func updateWorktree(
 
 private func insertUnavailableRepo(
     _ database: Database,
-    workspaceId: UUID,
     repoId: UUID
 ) throws {
     try database.execute(
         sql: """
-            INSERT INTO unavailable_repo(workspace_id, repo_id)
-            VALUES (?, ?)
+            INSERT INTO unavailable_repo(repo_id)
+            VALUES (?)
             """,
-        arguments: [
-            workspaceId.uuidString,
-            repoId.uuidString,
-        ]
+        arguments: [repoId.uuidString]
     )
 }
 
 private func insertRepoTag(
     _ database: Database,
-    workspaceId: UUID,
     repoId: UUID,
     tag: String
 ) throws {
     try database.execute(
         sql: """
-            INSERT INTO repo_tag(repo_id, workspace_id, tag)
-            VALUES (?, ?, ?)
+            INSERT INTO repo_tag(repo_id, tag)
+            VALUES (?, ?)
             """,
-        arguments: [repoId.uuidString, workspaceId.uuidString, tag]
+        arguments: [repoId.uuidString, tag]
     )
 }
 
@@ -498,7 +402,7 @@ private func fetchWorktreeIdentity(
         let row = try Row.fetchOne(
             database,
             sql: """
-                SELECT workspace_id, repo_id
+                SELECT repo_id
                 FROM worktree
                 WHERE id = ?
                 """,
@@ -507,24 +411,18 @@ private func fetchWorktreeIdentity(
     else {
         return nil
     }
-    let workspaceIdString: String = row["workspace_id"]
     let repoIdString: String = row["repo_id"]
-    guard let workspaceId = UUID(uuidString: workspaceIdString) else {
-        throw WorkspaceCoreRepositoryError.malformedWorkspaceId(workspaceIdString)
-    }
     guard let repoId = UUID(uuidString: repoIdString) else {
         throw WorkspaceCoreRepositoryError.malformedRepoId(repoIdString)
     }
-    return .init(workspaceId: workspaceId, repoId: repoId)
+    return .init(repoId: repoId)
 }
 
 private func repoArguments(
-    workspaceId: UUID,
     repo: WorkspaceCoreRepository.RepoRecord
 ) -> [any DatabaseValueConvertible] {
     [
         repo.id.uuidString,
-        workspaceId.uuidString,
         repo.name,
         repo.repoPath.path,
         repo.stableKey,
@@ -535,12 +433,10 @@ private func repoArguments(
 }
 
 private func worktreeArguments(
-    workspaceId: UUID,
     worktree: WorkspaceCoreRepository.WorktreeRecord
 ) -> [any DatabaseValueConvertible] {
     [
         worktree.id.uuidString,
-        workspaceId.uuidString,
         worktree.repoId.uuidString,
         worktree.name,
         worktree.path.path,
@@ -551,11 +447,10 @@ private func worktreeArguments(
 }
 
 private func repoScopedArguments(
-    workspaceId: UUID,
     repoId: UUID?,
     extraIds: [UUID] = []
 ) -> StatementArguments {
-    var values = [workspaceId.uuidString]
+    var values: [String] = []
     if let repoId {
         values.append(repoId.uuidString)
     }
@@ -563,8 +458,12 @@ private func repoScopedArguments(
     return StatementArguments(values)
 }
 
-private func repoPredicate(_ repoId: UUID?) -> String {
-    repoId == nil ? "" : "AND repo_id = ?"
+private func optionalWhereRepoPredicate(_ repoId: UUID?) -> String {
+    repoId == nil ? "" : "WHERE repo_id = ?"
+}
+
+private func requiredRepoPredicate(_ repoId: UUID?) -> String {
+    repoId == nil ? "" : "repo_id = ? AND "
 }
 
 private func temporaryStableKey(prefix: String, id: UUID) -> String {
@@ -576,7 +475,6 @@ private func placeholders(count: Int) -> String {
 }
 
 private struct WorktreeIdentity {
-    let workspaceId: UUID
     let repoId: UUID
 }
 
