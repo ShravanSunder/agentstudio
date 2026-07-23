@@ -294,12 +294,10 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				phase: 'settled',
 			}),
 		);
-		const readyDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
-		await readyDrain;
+		expect(scheduledDrains).toEqual([]);
 
-		const freshPublicationApplied = reviewProductSource.publishSourceAndWaitForApplication(
+		const stalePublicationApplied = reviewProductSource.publishSourceAndWaitForApplication(
 			{
 				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
 				contentRequestDescriptors: [
@@ -321,10 +319,14 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			},
 			6,
 		);
-		await flushBridgeWorkerRuntimeContinuations();
-		const staleSourceDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
-		await flushBridgeWorkerRuntimeContinuations();
+		await stalePublicationApplied;
+		await drainBridgeWorkerVisibleDemandRuntimeUntil({
+			hasExpectedEvent: () => deferredStreamsByDescriptorId.size === 2,
+			scheduledDrains,
+			startIndex: 0,
+		});
 		expect(deferredStreamsByDescriptorId.size).toBe(2);
+		const freshDrainStartIndex = scheduledDrains.length;
 
 		reviewProductSource.publishSource(
 			{
@@ -348,7 +350,6 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			},
 			7,
 		);
-		await freshPublicationApplied;
 		dispatch.message(
 			encodeBridgeWorkerViewportCommand({
 				requestId: 'request-viewport-after-source-b',
@@ -363,9 +364,6 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 		for (const deferredStream of deferredStreamsByDescriptorId.values()) {
 			deferredStream.resolve('stale body');
 		}
-		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
-		await staleSourceDrain;
 		await drainBridgeWorkerVisibleDemandRuntimeUntil({
 			hasExpectedEvent: () =>
 				postedMessages.some(
@@ -374,7 +372,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 						JSON.stringify(postedMessage.message).includes('fresh head'),
 				),
 			scheduledDrains,
-			startIndex: 4,
+			startIndex: freshDrainStartIndex,
 		});
 
 		const pierreJobMessages = postedMessages.flatMap((postedMessage) =>
@@ -429,10 +427,8 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				phase: 'settled',
 			}),
 		);
-		const readyDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
-		await readyDrain;
+		expect(scheduledDrains).toEqual([]);
 
 		reviewProductSource.publishSource(
 			{
@@ -473,7 +469,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				},
 			],
 		});
-		expect(scheduledDrains).toHaveLength(2);
+		expect(scheduledDrains).toEqual([]);
 	});
 
 	test('clears ready visible Review paint when source update keeps only one required diff side', async () => {
@@ -520,10 +516,8 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				phase: 'settled',
 			}),
 		);
-		const readyDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
-		await readyDrain;
+		expect(scheduledDrains).toEqual([]);
 
 		reviewProductSource.publishSource(
 			{
@@ -566,7 +560,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				},
 			],
 		});
-		expect(scheduledDrains).toHaveLength(2);
+		expect(scheduledDrains).toEqual([]);
 	});
 
 	test('keeps unrelated visible Review fetches current when source update changes one item', async () => {
@@ -647,9 +641,9 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				phase: 'settled',
 			}),
 		);
-		const staleFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(deferredStreamsByDescriptorId.size).toBe(4);
+		expect(scheduledDrains).toEqual([]);
 
 		reviewProductSource.publishSource(
 			{
@@ -701,10 +695,6 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			}
 			deferredStream.resolve(fixture.text);
 		}
-		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
-		await staleFirstDrain;
-		await flushBridgeWorkerRuntimeContinuations();
 		await drainBridgeWorkerVisibleDemandRuntimeUntil({
 			hasExpectedEvent: () =>
 				postedMessages.some(
@@ -714,7 +704,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 						JSON.stringify(postedMessage.message).includes('a fresh head'),
 				),
 			scheduledDrains,
-			startIndex: 2,
+			startIndex: 0,
 		});
 
 		const pierreJobItemIds = postedMessages.flatMap((postedMessage) =>
@@ -779,9 +769,9 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 				phase: 'settled',
 			}),
 		);
-		const staleDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(deferredStreamsByDescriptorId.size).toBe(2);
+		expect(scheduledDrains).toEqual([]);
 
 		dispatch.message(
 			encodeBridgeWorkerReviewInvalidateCommand({
@@ -797,16 +787,13 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 			deferredStream.resolve(descriptorId.includes('-base-') ? 'old base' : 'old head');
 		}
 		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
-		await staleDrain;
-		await flushBridgeWorkerRuntimeContinuations();
 		expect(
 			postedMessages.filter(
 				(postedMessage) => postedMessage.message.kind === 'reviewPierreRenderJob',
 			),
 		).toEqual([]);
 		deferredStreamsByDescriptorId.clear();
-		const rerunDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
+		const rerunDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(deferredStreamsByDescriptorId.size).toBe(2);
 		for (const [descriptorId, deferredStream] of deferredStreamsByDescriptorId) {
@@ -821,7 +808,7 @@ describe('Bridge comm worker runtime visible demand protocol', () => {
 						JSON.stringify(postedMessage.message).includes('fresh body'),
 				),
 			scheduledDrains,
-			startIndex: 3,
+			startIndex: 1,
 		});
 		await rerunDrain;
 

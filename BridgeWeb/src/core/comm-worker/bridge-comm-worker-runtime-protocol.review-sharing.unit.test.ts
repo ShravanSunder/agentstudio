@@ -23,6 +23,7 @@ import {
 	type BridgeCommWorkerReviewProductTestSource,
 	type DeferredReviewContentStream,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
+import { drainBridgeWorkerVisibleDemandRuntimeUntil } from './bridge-comm-worker-runtime-protocol.visible-demand.test-support.js';
 import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 import type { BridgeWorkerReviewContentRequestDescriptor } from './bridge-worker-contracts.js';
@@ -69,6 +70,10 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		const initialBackgroundDrain = assertBridgeCommWorkerPreparationDrain(
+			scheduledDrains.shift(),
+		)();
+		await flushBridgeWorkerRuntimeContinuations();
 
 		dispatch.message(
 			encodeBridgeWorkerViewportCommand({
@@ -81,8 +86,8 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 				phase: 'settled',
 			}),
 		);
-		const visibleDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
+		expect(scheduledDrains).toEqual([]);
 		expect(deferredStreamsByDescriptorId.size).toBe(2);
 		expect(openCallsByDescriptorId.get(baseDescriptor.descriptorId)).toBe(1);
 		expect(openCallsByDescriptorId.get(headDescriptor.descriptorId)).toBe(1);
@@ -97,7 +102,6 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 			}),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		const selectedDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(openCallsByDescriptorId.get(baseDescriptor.descriptorId)).toBe(1);
 		expect(openCallsByDescriptorId.get(headDescriptor.descriptorId)).toBe(1);
@@ -105,10 +109,15 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 			.get(baseDescriptor.descriptorId)
 			?.resolve('let previousValue = 1;\n');
 		deferredStreamsByDescriptorId.get(headDescriptor.descriptorId)?.resolve('let nextValue = 2;\n');
-		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
-		await selectedDrain;
-		await visibleDrain;
+		await drainBridgeWorkerVisibleDemandRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.some(
+					(postedMessage) => postedMessage.message.kind === 'reviewPierreRenderJob',
+				),
+			scheduledDrains,
+			startIndex: 0,
+		});
+		await initialBackgroundDrain;
 
 		const pierreJobMessages = postedMessages.flatMap((postedMessage) =>
 			postedMessage.message.kind === 'reviewPierreRenderJob' ? [postedMessage.message] : [],
@@ -171,6 +180,10 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		const initialBackgroundDrain = assertBridgeCommWorkerPreparationDrain(
+			scheduledDrains.shift(),
+		)();
+		await flushBridgeWorkerRuntimeContinuations();
 
 		dispatch.message(
 			encodeBridgeWorkerViewportCommand({
@@ -183,8 +196,8 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 				phase: 'settled',
 			}),
 		);
-		const visibleDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
+		expect(scheduledDrains).toEqual([]);
 		dispatch.message(
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select-stream-guard',
@@ -195,14 +208,26 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 			}),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		const selectedDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
 		await flushBridgeWorkerRuntimeContinuations();
 		deferredFailuresByDescriptorId.get(baseDescriptor.descriptorId)?.resolve();
 		deferredFailuresByDescriptorId.get(headDescriptor.descriptorId)?.resolve();
-		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
-		await selectedDrain;
-		await visibleDrain;
+		await drainBridgeWorkerVisibleDemandRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.some(
+					(postedMessage) =>
+						postedMessage.message.kind === 'reviewRenderPatch' &&
+						postedMessage.message.patches.some(
+							(patch) =>
+								patch.slice === 'contentAvailability' &&
+								patch.operation === 'upsert' &&
+								patch.itemId === 'item-1' &&
+								patch.payload.state === 'failed',
+						),
+				),
+			scheduledDrains,
+			startIndex: 0,
+		});
+		await initialBackgroundDrain;
 
 		expect(
 			postedMessages.some(
@@ -273,6 +298,10 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 				scheduledDrains.push(drain);
 			},
 		});
+		const initialBackgroundDrain = assertBridgeCommWorkerPreparationDrain(
+			scheduledDrains.shift(),
+		)();
+		await flushBridgeWorkerRuntimeContinuations();
 
 		dispatch.message(
 			encodeBridgeWorkerViewportCommand({
@@ -285,8 +314,8 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 				phase: 'settled',
 			}),
 		);
-		const visibleDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
+		expect(scheduledDrains).toEqual([]);
 		expect(openCallsByDescriptorId.get(baseDescriptor.descriptorId)).toBe(1);
 		expect(openCallsByDescriptorId.get(firstHeadDescriptor.descriptorId)).toBe(1);
 
@@ -310,19 +339,29 @@ describe('Bridge comm worker runtime Review demand sharing', () => {
 			}),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		const selectedDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
-		await flushBridgeWorkerRuntimeContinuations();
-		expect(openCallsByDescriptorId.get(baseDescriptor.descriptorId)).toBe(1);
+		await drainBridgeWorkerVisibleDemandRuntimeUntil({
+			hasExpectedEvent: () => openCallsByDescriptorId.get(updatedHeadDescriptor.descriptorId) === 1,
+			scheduledDrains,
+			startIndex: 0,
+		});
+		expect(openCallsByDescriptorId.get(baseDescriptor.descriptorId)).toBe(2);
 		expect(openCallsByDescriptorId.get(firstHeadDescriptor.descriptorId)).toBe(1);
 		expect(openCallsByDescriptorId.get(updatedHeadDescriptor.descriptorId)).toBe(1);
 
 		deferredStreamsByOpenCall[0]?.resolve('base content');
 		deferredStreamsByOpenCall[1]?.resolve('first content');
-		deferredStreamsByOpenCall[2]?.resolve('let updatedHeadValue = 2;\n');
-		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
-		await selectedDrain;
-		await visibleDrain;
+		deferredStreamsByOpenCall[2]?.resolve('base content');
+		deferredStreamsByOpenCall[3]?.resolve('let updatedHeadValue = 2;\n');
+		const publicationDrainStartIndex = scheduledDrains.length;
+		await drainBridgeWorkerVisibleDemandRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.some(
+					(postedMessage) => postedMessage.message.kind === 'reviewPierreRenderJob',
+				),
+			scheduledDrains,
+			startIndex: publicationDrainStartIndex,
+		});
+		await initialBackgroundDrain;
 
 		const pierreJobMessages = postedMessages.flatMap((postedMessage) =>
 			postedMessage.message.kind === 'reviewPierreRenderJob' ? [postedMessage.message] : [],
@@ -383,15 +422,9 @@ async function registerBridgeRuntimeWithInitialReviewSource(
 		4,
 	);
 	await flushBridgeWorkerRuntimeContinuations();
-	for (let drainRound = 0; drainRound < 16; drainRound += 1) {
-		const drainsForRound = initializationDrains.splice(0);
-		if (drainsForRound.length === 0) break;
-		// oxlint-disable-next-line no-await-in-loop -- Each bounded round exposes source-reset continuation drains.
-		await Promise.all(drainsForRound.map((drain) => drain()));
-		// oxlint-disable-next-line no-await-in-loop -- Continuations publish their next drain at a microtask boundary.
-		await flushBridgeWorkerRuntimeContinuations();
-	}
 	isInitializingSource = false;
+	await assertBridgeCommWorkerPreparationDrain(initializationDrains.shift())();
+	expect(initializationDrains).toEqual([]);
 	return reviewProductSource;
 }
 

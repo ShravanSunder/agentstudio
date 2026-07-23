@@ -19,6 +19,7 @@ import {
 	openReviewContentFromDescriptorMap,
 	type DeferredReviewContentStream,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
+import { drainBridgeWorkerVisibleDemandRuntimeUntil } from './bridge-comm-worker-runtime-protocol.visible-demand.test-support.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 
 describe('Bridge comm worker runtime Review demand rerun', () => {
@@ -80,6 +81,9 @@ describe('Bridge comm worker runtime Review demand rerun', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
+		const staleFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(deferredStreamsByDescriptorId.size).toBe(2);
 		scheduledDrains.length = 0;
 		postedMessages.length = 0;
 
@@ -94,9 +98,8 @@ describe('Bridge comm worker runtime Review demand rerun', () => {
 				phase: 'settled',
 			}),
 		);
-		const staleFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
-		expect(deferredStreamsByDescriptorId.size).toBe(2);
+		expect(scheduledDrains).toEqual([]);
 
 		reviewProductSource.publishSource(
 			{
@@ -125,18 +128,17 @@ describe('Bridge comm worker runtime Review demand rerun', () => {
 		for (const deferredStream of deferredStreamsByDescriptorId.values()) {
 			deferredStream.resolve('old body');
 		}
-		await flushBridgeWorkerRuntimeContinuations();
-		expect(scheduledDrains).toHaveLength(2);
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		await drainBridgeWorkerVisibleDemandRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.some(
+					(postedMessage) =>
+						postedMessage.message.kind === 'reviewPierreRenderJob' &&
+						JSON.stringify(postedMessage.message).includes('fresh head'),
+				),
+			scheduledDrains,
+			startIndex: 0,
+		});
 		await staleFirstDrain;
-		await flushBridgeWorkerRuntimeContinuations();
-		expect(scheduledDrains).toHaveLength(3);
-
-		const freshFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
-		await flushBridgeWorkerRuntimeContinuations();
-		expect(scheduledDrains).toHaveLength(4);
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
-		await freshFirstDrain;
 
 		const pierreJobMessages = postedMessages.flatMap((postedMessage) =>
 			postedMessage.message.kind === 'reviewPierreRenderJob' ? [postedMessage.message] : [],

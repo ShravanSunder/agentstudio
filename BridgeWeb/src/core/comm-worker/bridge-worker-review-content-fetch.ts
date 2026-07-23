@@ -37,6 +37,8 @@ export interface BridgeWorkerFetchedReviewContentResource {
 	readonly textBytes: ArrayBuffer;
 }
 
+export class BridgeWorkerReviewContentRetryWaitError extends Error {}
+
 export function createSharedBridgeWorkerReviewContentResourceFetch(props: {
 	readonly openContent: BridgeWorkerReviewContentOpen | undefined;
 }): BridgeWorkerReviewContentResourceFetch {
@@ -96,12 +98,19 @@ export async function fetchBridgeWorkerReviewContentResource(
 		contentStream.terminal,
 	]);
 	if (terminal.kind === 'error') {
+		if (terminal.retryable) {
+			throw new BridgeWorkerReviewContentRetryWaitError(
+				terminal.safeMessage ?? `Bridge worker Review content failed: ${terminal.code}.`,
+			);
+		}
 		throw new Error(
 			terminal.safeMessage ?? `Bridge worker Review content failed: ${terminal.code}.`,
 		);
 	}
 	if (terminal.kind === 'reset') {
-		throw new Error(`Bridge worker Review content reset: ${terminal.reason}.`);
+		throw new BridgeWorkerReviewContentRetryWaitError(
+			`Bridge worker Review content reset: ${terminal.reason}.`,
+		);
 	}
 	if (terminal.descriptorId !== descriptor.descriptorId) {
 		throw new Error('Bridge worker Review content terminal descriptor does not match demand.');

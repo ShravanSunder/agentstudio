@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
 	encodeBridgeWorkerSelectCommand,
@@ -23,8 +23,13 @@ import {
 import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 
+afterEach((): void => {
+	vi.useRealTimers();
+});
+
 describe('Bridge comm worker runtime protocol Review preparation', () => {
 	test('reissues selected Review preparation once after unexpected EOF', async () => {
+		vi.useFakeTimers();
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const { dispatch } = createRecordingBridgeCommWorkerPort();
 		const reviewProductSource = createBridgeCommWorkerReviewProductTestSource();
@@ -64,9 +69,22 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 				surface: 'review',
 			}),
 		);
-		for (let round = 0; round < 8 && openCount < 4; round += 1) {
+		for (let round = 0; round < 8 && scheduledDrains.length > 0; round += 1) {
 			for (const drain of scheduledDrains.splice(0)) void drain();
+			// oxlint-disable-next-line no-await-in-loop -- Each bounded round exposes event-scheduled follow-up drains.
 			await flushBridgeWorkerRuntimeContinuations();
+		}
+		expect(openCount).toBe(2);
+		await vi.advanceTimersByTimeAsync(499);
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(openCount).toBe(2);
+		await vi.runOnlyPendingTimersAsync();
+		await flushBridgeWorkerRuntimeContinuations();
+		for (let round = 0; round < 8; round += 1) {
+			for (const drain of scheduledDrains.splice(0)) void drain();
+			// oxlint-disable-next-line no-await-in-loop -- Each bounded round exposes retry-scheduled follow-up drains.
+			await flushBridgeWorkerRuntimeContinuations();
+			if (openCount >= 4) break;
 		}
 		expect(openCount).toBe(4);
 		reviewProductSource.close();
@@ -134,7 +152,6 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 
 		expect(scheduledDrains).toHaveLength(1);
 		const firstResetDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
-		await firstResetDrain;
 		dispatch.message(
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select-during-source-reset',
@@ -144,14 +161,23 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 				selectedSource: 'user',
 			}),
 		);
-		await flushBridgeWorkerRuntimeContinuations();
-		const selectedStartDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
-		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
-		await selectedStartDrain;
+		await drainBridgeWorkerRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.some(
+					(postedMessage) =>
+						postedMessage.message.kind === 'reviewPierreRenderJob' &&
+						postedMessage.message.job.itemId === 'item-130',
+				),
+			scheduledDrains,
+			startIndex: 1,
+		});
+		await firstResetDrain;
 
 		const pierreJobs = postedMessages.flatMap((postedMessage) =>
-			postedMessage.message.kind === 'reviewPierreRenderJob' ? [postedMessage.message.job] : [],
+			postedMessage.message.kind === 'reviewPierreRenderJob' &&
+			postedMessage.message.job.itemId === 'item-130'
+				? [postedMessage.message.job]
+				: [],
 		);
 		expect(pierreJobs).toHaveLength(1);
 		expect(pierreJobs[0]?.itemId).toBe('item-130');
@@ -224,7 +250,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			6,
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		const staleResetDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		reviewProductSource.publishSource(
 			{
 				contentItems: freshContentItems,
@@ -247,12 +273,6 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			},
 			7,
 		);
-		await flushBridgeWorkerRuntimeContinuations();
-		await waitBridgeWorkerRuntimeTaskBoundary();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
-		await waitBridgeWorkerRuntimeTaskBoundary();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
-
 		dispatch.message(
 			encodeBridgeWorkerSelectCommand({
 				requestId: 'request-select-after-overlap',
@@ -262,13 +282,23 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 				selectedSource: 'user',
 			}),
 		);
-		const selectedFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
-		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[4])();
-		await selectedFirstDrain;
+		await drainBridgeWorkerRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.some(
+					(postedMessage) =>
+						postedMessage.message.kind === 'reviewPierreRenderJob' &&
+						postedMessage.message.job.itemId === 'item-130',
+				),
+			scheduledDrains,
+			startIndex: 1,
+		});
+		await staleResetDrain;
 
 		const pierreJobs = postedMessages.flatMap((postedMessage) =>
-			postedMessage.message.kind === 'reviewPierreRenderJob' ? [postedMessage.message.job] : [],
+			postedMessage.message.kind === 'reviewPierreRenderJob' &&
+			postedMessage.message.job.itemId === 'item-130'
+				? [postedMessage.message.job]
+				: [],
 		);
 		expect(pierreJobs).toHaveLength(1);
 		expect(pierreJobs[0]?.itemId).toBe('item-130');
@@ -421,8 +451,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
-		scheduledDrains.length = 0;
-		postedMessages.length = 0;
+		scheduledDrains.splice(0, 1);
 
 		dispatch.message(
 			encodeBridgeWorkerSelectCommand({
@@ -552,7 +581,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
-		scheduledDrains.length = 0;
+		scheduledDrains.splice(0, 1);
 		postedMessages.length = 0;
 
 		dispatch.message(
@@ -566,10 +595,8 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 				phase: 'settled',
 			}),
 		);
-		const oldVisibleDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
-		await oldVisibleDrain;
+		expect(scheduledDrains).toHaveLength(1);
 
 		reviewProductSource.publishSource(
 			{
@@ -594,8 +621,6 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			6,
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		const firstSourceUpdateDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
-		await flushBridgeWorkerRuntimeContinuations();
 		await drainBridgeWorkerRuntimeUntil({
 			hasExpectedEvent: () =>
 				postedMessages.some(
@@ -604,9 +629,8 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 						postedMessage.message.job.itemId === 'item-130',
 				),
 			scheduledDrains,
-			startIndex: 3,
+			startIndex: 0,
 		});
-		await firstSourceUpdateDrain;
 
 		const pierreJobItemIds = postedMessages.flatMap((postedMessage) =>
 			postedMessage.message.kind === 'reviewPierreRenderJob'
@@ -663,15 +687,9 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		await publicationApplication;
 		await flushBridgeWorkerRuntimeContinuations();
-		for (let drainIndex = 0; drainIndex < scheduledDrains.length; drainIndex += 1) {
-			const sourcePreparationDrain = scheduledDrains[drainIndex];
-			if (sourcePreparationDrain === undefined) break;
-			// oxlint-disable-next-line no-await-in-loop -- Initial source preparation must settle before the selected-demand assertion.
-			await sourcePreparationDrain();
-			// oxlint-disable-next-line no-await-in-loop -- Each drain can expose one deterministic source-reset continuation.
-			await flushBridgeWorkerRuntimeContinuations();
-		}
-		scheduledDrains.length = 0;
+		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		scheduledDrains.splice(0, 1);
 		postedMessages.length = 0;
 		createSequence = createBridgeWorkerSequenceCounter(41);
 
@@ -692,26 +710,20 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		]);
 		expect(postedMessages[0]?.transferList).toBeUndefined();
 		expect(postedMessages[1]?.transferList).toBeUndefined();
-		const firstDrainCompletion = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
-		await flushBridgeWorkerRuntimeContinuations();
-		expect(scheduledDrains).toHaveLength(2);
 		advanceClockPerRead = true;
-		const yieldedDrainCompletion = assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
-		const continuationScheduledBeforeAwait = scheduledDrains.length === 3;
+		const firstDrainCompletion = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		const continuationScheduledBeforeAwait = scheduledDrains.length === 2;
 		advanceClockPerRead = false;
-		const continuationDrain = assertBridgeCommWorkerPreparationDrain(
-			continuationScheduledBeforeAwait ? scheduledDrains[2] : scheduledDrains[1],
-		);
+		const continuationDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[1]);
 		const continuationDrainResult = await continuationDrain();
-		const yieldedDrainResult = await yieldedDrainCompletion;
 		const firstDrainResult = await firstDrainCompletion;
 
 		expect(continuationScheduledBeforeAwait).toBe(true);
 		expect(firstDrainResult.completedIds).toEqual([]);
-		expect(firstDrainResult.yielded).toBe(false);
-		expect(yieldedDrainResult.completedIds).toEqual([]);
-		expect(yieldedDrainResult.yielded).toBe(true);
-		expect(continuationDrainResult.completedIds).toEqual(['review-content-ready:item-1:7:42']);
+		expect(firstDrainResult.yielded).toBe(true);
+		expect(continuationDrainResult.completedIds).toEqual([
+			'review-content-ready:item-1:review-ledger:item-1:44',
+		]);
 		expect(continuationDrainResult.yielded).toBe(false);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
@@ -744,7 +756,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		]);
 		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 42,
+			publicationSequence: 44,
 			workerDerivationEpoch: 1,
 			patches: [
 				{
@@ -849,7 +861,7 @@ function unexpectedEOFReviewContentStream(
 			contentKind: 'review.content',
 			descriptorId,
 			kind: 'error',
-			retryable: false,
+			retryable: true,
 			safeMessage: 'Unexpected EOF while reading Review content.',
 		}),
 	};
@@ -877,7 +889,7 @@ async function drainBridgeWorkerRuntimeUntilAttempt(props: {
 	readonly scheduledDrains: readonly BridgeCommWorkerPreparationDrain[];
 	readonly startIndex: number;
 }): Promise<void> {
-	if (props.hasExpectedEvent() || props.attempt >= 8) {
+	if (props.hasExpectedEvent() || props.attempt >= 64) {
 		return;
 	}
 	await flushBridgeWorkerRuntimeContinuations();

@@ -303,6 +303,29 @@ describe('Bridge comm worker review runtime', () => {
 			transferList: [],
 		});
 	});
+
+	test('returns retry wait without terminalizing loading availability for a retryable fetch', async () => {
+		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
+		const store = createSelectedReviewRuntimeStore();
+		store.actions.applySelectedFact({ epoch: 7, itemId: 'item-1' });
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
+
+		await dispatchSelectedBridgeWorkerReviewContentReady({
+			...makeDispatchProps({
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({ role: 'base', text: 'base content' }),
+					makeContentRequestDescriptor({ role: 'head', text: 'head content' }),
+				],
+				openContent: (descriptor) => makeFailedReviewContentStream(descriptor, true),
+				postedMessages,
+				renderSemantics: [makeRenderSemantics()],
+				store,
+			}),
+		});
+
+		expect(store.getState().availabilityByItemId.get('item-1')).toBe('loading');
+		expect(postedMessages).toEqual([]);
+	});
 });
 
 interface RuntimeDescriptorSelectionCase {
@@ -452,6 +475,7 @@ function makeRenderSemantics(
 
 function makeFailedReviewContentStream(
 	descriptor: BridgeProductReviewContentDescriptor,
+	retryable = false,
 ): BridgeProductContentStream<'review.content'> {
 	return {
 		contentKind: 'review.content',
@@ -462,7 +486,7 @@ function makeFailedReviewContentStream(
 			contentKind: 'review.content',
 			descriptorId: descriptor.descriptorId,
 			kind: 'error',
-			retryable: true,
+			retryable,
 			safeMessage: 'simulated worker content stream failure',
 		}),
 	};

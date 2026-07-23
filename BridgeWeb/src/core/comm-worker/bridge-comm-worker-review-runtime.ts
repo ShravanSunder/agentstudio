@@ -20,6 +20,7 @@ import type {
 	BridgeWorkerPierreRenderJob,
 } from './bridge-worker-pierre-render-job.js';
 import {
+	BridgeWorkerReviewContentRetryWaitError,
 	type BridgeWorkerFetchedReviewContentResource,
 	fetchBridgeWorkerReviewContentResource,
 	type BridgeWorkerReviewContentOpen,
@@ -71,6 +72,9 @@ export type BridgeWorkerReviewContentReadyFetchResult =
 	| {
 			readonly reason: BridgeCommWorkerSelectedContentDropReason;
 			readonly status: 'stale';
+	  }
+	| {
+			readonly status: 'retryWait';
 	  };
 
 export interface BridgeWorkerReviewContentReadyPublication {
@@ -127,7 +131,10 @@ export async function fetchBridgeWorkerReviewContentReadyResources(
 				semantics,
 			}).map((descriptor) => fetchReviewContentResource(descriptor, props.signal)),
 		);
-	} catch {
+	} catch (error) {
+		if (error instanceof BridgeWorkerReviewContentRetryWaitError) {
+			return { status: 'retryWait' };
+		}
 		return { reason: 'load_failed', status: 'terminal', state: 'failed' };
 	}
 	if (!isReviewContentReadyDemandCurrent(props)) {
@@ -187,6 +194,9 @@ export function createBridgeWorkerReviewContentReadyPublication(
 							recordSelectedContentDrops: props.recordSelectedContentDrops,
 							telemetryClient: props.telemetryClient,
 						});
+						return completeBridgeWorkerReviewContentReadyPublication();
+					}
+					if (props.fetchResult.status === 'retryWait') {
 						return completeBridgeWorkerReviewContentReadyPublication();
 					}
 					if (props.fetchResult.status === 'terminal') {
