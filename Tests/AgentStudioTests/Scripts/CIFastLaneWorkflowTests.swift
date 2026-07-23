@@ -101,6 +101,29 @@ struct CIFastLaneWorkflowTests {
         #expect(!testHelperScript.contains("swift test list ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build"))
     }
 
+    @Test("real Git status parity stays in the large integration lane")
+    func realGitStatusParityStaysInLargeIntegrationLane() throws {
+        let statusTestDirectory = "Tests/AgentStudioTests/Core/PaneRuntime/Sources"
+        let statusTestFiles = try FileManager.default.contentsOfDirectory(atPath: statusTestDirectory)
+        let integrationTestFile = try #require(
+            statusTestFiles.first {
+                $0 == "AgentStudioGitStatusProviderIntegrationTests.swift"
+            }
+        )
+        let integrationTestSource = try String(
+            contentsOfFile: "\(statusTestDirectory)/\(integrationTestFile)",
+            encoding: .utf8
+        )
+        let unitTestSource = try String(
+            contentsOfFile: "\(statusTestDirectory)/AgentStudioGitWorkingTreeStatusProviderTests.swift",
+            encoding: .utf8
+        )
+
+        #expect(integrationTestSource.contains("struct AgentStudioGitStatusProviderIntegrationTests"))
+        #expect(integrationTestSource.contains("real SDK provider matches shell provider"))
+        #expect(!unitTestSource.contains("real SDK provider matches shell provider"))
+    }
+
     @Test("real zmx lifecycle proof stays in its dedicated E2E lane")
     func realZmxLifecycleProofStaysInDedicatedE2ELane() throws {
         let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
