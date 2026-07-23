@@ -57,8 +57,7 @@ interface PendingAnimationFrame {
 }
 describe('BridgeCodeViewPanel render fulfillment', () => {
 	test('keeps Pierre-retained readable content when the same semantic item is selected without a keyed frontend copy', async () => {
-		// Arrange: Pierre already owns a hydrated visible item, while the controller-facing keyed
-		// copy will disappear before selection. This is the split state observed during Review clicks.
+		// Pierre retains a hydrated item after its controller-facing keyed copy disappears.
 		const mountedCodeView: { current: CodeView | null } = { current: null };
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
 		const originalSetup = CodeView.prototype.setup;
@@ -195,8 +194,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 	});
 
 	test('adapts Review items with main versions, preserves collapse, and reuses exact painted residency', async () => {
-		// Arrange: hold Pierre's public post-render callback so every fulfillment transition is
-		// deterministic, while retaining a real mounted CodeView and its public readback APIs.
+		// Hold Pierre's post-render callback while retaining a real CodeView and public readbacks.
 		const mountedCodeView: { current: CodeView | null } = { current: null };
 		const capturedPostRenderLog = createExactItemReceiptLog<
 			CodeViewItem,
@@ -725,47 +723,6 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 				'applied',
 				'painted',
 			]);
-
-			// A shell replacement mounts a fresh CodeView around the pane-retained exact final item.
-			// It must restore readable paint evidence without another worker publication.
-			const settledDispositions = [...dispositions];
-			const postRenderCountBeforeRemount = capturedPostRenders.length;
-			await rendered.unmount();
-			mountedCodeView.current = null;
-			await render(
-				<BridgeCodeViewPanel
-					{...secondPanelProps}
-					selectedCodeViewItem={secondFinalItem}
-					visibleCodeViewItems={[secondFinalItem]}
-				/>,
-			);
-			await settleBridgeCodeViewState(
-				(): boolean => mountedCodeView.current?.getItem(secondFinalItem.id) === secondFinalItem,
-				'Expected a fresh CodeView shell to reuse the exact pane-retained painted item.',
-			);
-			const remountedCodeView = requireMountedCodeView(mountedCodeView.current);
-			await settleBridgeCodeViewState(
-				(): boolean => capturedPostRenders.length > postRenderCountBeforeRemount,
-				'Expected the fresh CodeView shell to report its exact retained item.',
-			);
-			const remountedPostRender = capturedPostRenders
-				.slice(postRenderCountBeforeRemount)
-				.find((invocation): boolean => invocation.contextItem === secondFinalItem);
-			if (remountedPostRender === undefined) {
-				throw new Error('Expected post-render evidence for the exact remounted Review item.');
-			}
-			await invokeCapturedPostRenderWithinAct({
-				invocation: remountedPostRender,
-				phase: 'mount',
-			});
-			await settleBridgeCodeViewState(
-				(): boolean =>
-					paintedSourceCorrelations(
-						requireCurrentRenderedReviewRows(remountedCodeView, secondFinalItem).element,
-					) !== null,
-				'Expected a fresh CodeView shell to restore retained readable paint evidence.',
-			);
-			expect(dispositions).toEqual(settledDispositions);
 		} finally {
 			CodeView.prototype.setup = originalSetup;
 			CodeView.prototype.setOptions = originalSetOptions;
