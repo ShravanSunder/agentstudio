@@ -3,6 +3,18 @@ import Testing
 
 @Suite("CI fast lane workflow")
 struct CIFastLaneWorkflowTests {
+    @Test("CI selects the supported Xcode before toolchain setup")
+    func ciSelectsSupportedXcodeBeforeToolchainSetup() throws {
+        let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let xcodeStep = try workflowStep(named: "Select Xcode 26.3", in: ciWorkflow)
+        let xcodeStepRange = try #require(ciWorkflow.range(of: xcodeStep))
+        let miseStepRange = try #require(ciWorkflow.range(of: "      - name: Setup mise"))
+
+        #expect(xcodeStep.contains("uses: maxim-lobanov/setup-xcode@v1"))
+        #expect(xcodeStep.contains("xcode-version: \"26.3\""))
+        #expect(xcodeStepRange.lowerBound < miseStepRange.lowerBound)
+    }
+
     @Test("fast lane keeps cached parallel default")
     func fastLaneKeepsCachedParallelDefault() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
