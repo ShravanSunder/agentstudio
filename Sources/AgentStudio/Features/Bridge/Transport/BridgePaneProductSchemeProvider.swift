@@ -309,7 +309,14 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async {
-        guard let foregroundWorkAdmission = refreshWorkAdmissionSource.acquire() else {
+        let contentWorkAdmission: BridgePaneRefreshWorkAdmission?
+        switch request {
+        case .fileContent:
+            contentWorkAdmission = refreshWorkAdmissionSource.acquire()
+        case .reviewContent:
+            contentWorkAdmission = refreshWorkAdmissionSource.acquireReviewContentContinuation()
+        }
+        guard let foregroundWorkAdmission = contentWorkAdmission else {
             _ = await beginActivityInvalidatedProducerRetirement(
                 lease: lease,
                 session: session

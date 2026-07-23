@@ -182,7 +182,7 @@ describe('Bridge product content transport', () => {
 	test('reserves request capacity for observations while content remains open', async () => {
 		const harness = createContentTransportHarness();
 		harness.server.holdContentResponses = true;
-		const abortControllers = Array.from({ length: 5 }, () => new AbortController());
+		const abortControllers = Array.from({ length: 13 }, () => new AbortController());
 		const contentStreams = abortControllers.map((abortController, index) =>
 			harness.transport.openContent(
 				fileContentDescriptor(`descriptor-admission-${index}`),
@@ -197,11 +197,19 @@ describe('Bridge product content transport', () => {
 		expect(harness.server.contentRequests).toHaveLength(
 			BRIDGE_PRODUCT_MAXIMUM_CONCURRENT_CONTENT_RESPONSES,
 		);
+		const waitingContentStream = contentStreams[12];
+		expect(waitingContentStream?.responseStartControl).toBeDefined();
+		waitingContentStream?.responseStartControl?.pauseBeforeStart();
 
 		abortControllers[0]?.abort(new DOMException('release active admission', 'AbortError'));
 		await expect(contentStreams[0]?.terminal).rejects.toThrow();
-		await harness.server.waitForContentRequestCount(5);
-		expect(harness.server.contentRequests).toHaveLength(5);
+		expect(BRIDGE_PRODUCT_MAXIMUM_CONCURRENT_CONTENT_RESPONSES).toBe(12);
+		await Promise.resolve();
+		expect(harness.server.contentRequests).toHaveLength(12);
+
+		waitingContentStream?.responseStartControl?.resumeBeforeStart();
+		await harness.server.waitForContentRequestCount(13);
+		expect(harness.server.contentRequests).toHaveLength(13);
 		for (const abortController of abortControllers.slice(1)) {
 			abortController.abort(new DOMException('test cleanup', 'AbortError'));
 		}

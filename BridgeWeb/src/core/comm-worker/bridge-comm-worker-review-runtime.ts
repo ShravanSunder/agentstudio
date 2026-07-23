@@ -8,6 +8,7 @@ import {
 	type BridgeCommWorkerSelectedContentDropReason,
 	type BridgeCommWorkerTelemetryRecorder,
 } from './bridge-comm-worker-telemetry.js';
+import type { BridgeProductContentResponseStartControl } from './bridge-product-transport-contract.js';
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
 	BridgeWorkerReviewPierreRenderJobEvent,
@@ -44,6 +45,9 @@ export interface DispatchSelectedBridgeWorkerReviewContentReadyProps {
 	readonly itemId: string;
 	readonly openContent?: BridgeWorkerReviewContentOpen;
 	readonly port: BridgeCommWorkerPort;
+	readonly registerResponseStartControl?: (
+		control: BridgeProductContentResponseStartControl,
+	) => () => void;
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
 	readonly sequence: number;
 	readonly signal?: AbortSignal;
@@ -130,7 +134,9 @@ export async function fetchBridgeWorkerReviewContentReadyResources(
 			selectReviewContentRequestDescriptorsForSemantics({
 				descriptors: props.contentRequestDescriptors,
 				semantics,
-			}).map((descriptor) => fetchReviewContentResource(descriptor, props.signal)),
+			}).map((descriptor) =>
+				fetchReviewContentResource(descriptor, props.signal, props.registerResponseStartControl),
+			),
 		);
 	} catch (error) {
 		if (error instanceof BridgeWorkerReviewContentRetryWaitError) {
@@ -429,13 +435,20 @@ function selectedReviewContentReadyDemandKey(
 function createBridgeWorkerReviewContentResourceFetch(
 	props: Pick<DispatchBridgeWorkerReviewContentReadyProps, 'openContent'>,
 ): BridgeWorkerReviewContentResourceFetch {
-	return (descriptor: BridgeWorkerReviewContentRequestDescriptor, signal?: AbortSignal) => {
+	return (
+		descriptor: BridgeWorkerReviewContentRequestDescriptor,
+		signal?: AbortSignal,
+		registerResponseStartControl?: (
+			control: BridgeProductContentResponseStartControl,
+		) => () => void,
+	) => {
 		if (props.openContent === undefined) {
 			throw new Error('Bridge worker Review content requires the shared product transport.');
 		}
 		return fetchBridgeWorkerReviewContentResource({
 			descriptor,
 			openContent: props.openContent,
+			...(registerResponseStartControl === undefined ? {} : { registerResponseStartControl }),
 			...(signal === undefined ? {} : { signal }),
 		});
 	};

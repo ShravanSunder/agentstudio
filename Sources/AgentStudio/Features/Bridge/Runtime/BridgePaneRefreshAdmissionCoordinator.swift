@@ -53,7 +53,11 @@ struct BridgePaneRefreshWorkAdmissionSource: Sendable {
     fileprivate let gate: BridgePaneRefreshWorkAdmissionGate
 
     func acquire() -> BridgePaneRefreshWorkAdmission? {
-        gate.acquire()
+        gate.acquire(validity: .foregroundOnly)
+    }
+
+    func acquireReviewContentContinuation() -> BridgePaneRefreshWorkAdmission? {
+        gate.acquire(validity: .foregroundOrLoadedHidden)
     }
 }
 
@@ -161,7 +165,11 @@ final class BridgePaneRefreshAdmissionCoordinator {
     }
 
     func acquireForegroundWork() -> BridgePaneRefreshWorkAdmission? {
-        workAdmissionGate.acquire()
+        workAdmissionGate.acquire(validity: .foregroundOnly)
+    }
+
+    func acquireReviewContentContinuation() -> BridgePaneRefreshWorkAdmission? {
+        workAdmissionGate.acquire(validity: .foregroundOrLoadedHidden)
     }
 
     func completeRefreshPass(
@@ -226,7 +234,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
     private func reserveCatchUpIfPossible() -> BridgePaneRefreshCatchUpReservation? {
         guard activeRefreshPass == nil,
             let dirtyFact,
-            let activityAdmission = workAdmissionGate.acquire()
+            let activityAdmission = workAdmissionGate.acquire(validity: .foregroundOnly)
         else { return nil }
         self.dirtyFact = nil
         let lanes: Set<BridgePaneRefreshLane> =
@@ -320,11 +328,22 @@ final class BridgePaneRefreshAdmissionCoordinator {
 }
 
 private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
+    fileprivate enum Validity: Sendable {
+        case foregroundOnly
+        case foregroundOrLoadedHidden
+    }
+
     fileprivate final class Identity: Sendable {}
 
     fileprivate struct Token: Sendable {
         let identity: Identity
         let epoch: UInt64
+        let validity: Validity
+    }
+
+    private struct InvalidationHandler {
+        let handler: @Sendable () -> Void
+        let token: Token
     }
 
     struct DiagnosticSnapshot: Sendable {
@@ -334,23 +353,30 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
     private let lock = NSLock()
     private let identity = Identity()
     private var activity: BridgePaneActivity
-    private var epoch: UInt64 = 0
-    private var invalidationHandlerById: [UUID: @Sendable () -> Void] = [:]
+    private var foregroundEpoch: UInt64 = 0
+    private var reviewContinuationEpoch: UInt64 = 0
+    private var invalidationHandlerById: [UUID: InvalidationHandler] = [:]
 
     init(initialActivity: BridgePaneActivity) {
         activity = initialActivity
     }
 
     var diagnosticSnapshot: DiagnosticSnapshot {
-        lock.withLock { DiagnosticSnapshot(epoch: epoch) }
+        lock.withLock { DiagnosticSnapshot(epoch: foregroundEpoch) }
     }
 
-    func acquire() -> BridgePaneRefreshWorkAdmission? {
+    func acquire(validity: Validity) -> BridgePaneRefreshWorkAdmission? {
         lock.withLock {
             guard activity == .foreground else { return nil }
             return BridgePaneRefreshWorkAdmission(
                 gate: self,
-                token: Token(identity: identity, epoch: epoch)
+                token: Token(
+                    identity: identity,
+                    epoch: validity == .foregroundOnly
+                        ? foregroundEpoch
+                        : reviewContinuationEpoch,
+                    validity: validity
+                )
             )
         }
     }
@@ -359,8 +385,11 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
         let invalidationHandlers: [@Sendable () -> Void] = lock.withLock {
             guard activity != .closed, activity != nextActivity else { return [] }
             activity = nextActivity
-            epoch &+= 1
-            return takeInvalidationHandlers()
+            foregroundEpoch &+= 1
+            if nextActivity == .dormant {
+                reviewContinuationEpoch &+= 1
+            }
+            return takeInvalidationHandlersInvalidatedByCurrentActivity()
         }
         for invalidationHandler in invalidationHandlers {
             invalidationHandler()
@@ -371,8 +400,9 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
         let invalidationHandlers: [@Sendable () -> Void] = lock.withLock {
             guard activity != .closed else { return [] }
             activity = .closed
-            epoch &+= 1
-            return takeInvalidationHandlers()
+            foregroundEpoch &+= 1
+            reviewContinuationEpoch &+= 1
+            return takeInvalidationHandlersInvalidatedByCurrentActivity()
         }
         for invalidationHandler in invalidationHandlers {
             invalidationHandler()
@@ -384,10 +414,7 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
         perform mutation: () throws -> MutationResult
     ) rethrows -> MutationResult? {
         try lock.withLock {
-            guard activity == .foreground,
-                token.identity === identity,
-                token.epoch == epoch
-            else { return nil }
+            guard isValid(token) else { return nil }
             return try mutation()
         }
     }
@@ -397,12 +424,12 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
         handler: @escaping @Sendable () -> Void
     ) -> UUID? {
         lock.withLock {
-            guard activity == .foreground,
-                token.identity === identity,
-                token.epoch == epoch
-            else { return nil }
+            guard isValid(token) else { return nil }
             let handlerId = UUID()
-            invalidationHandlerById[handlerId] = handler
+            invalidationHandlerById[handlerId] = InvalidationHandler(
+                handler: handler,
+                token: token
+            )
             return handlerId
         }
     }
@@ -413,9 +440,23 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
         }
     }
 
-    private func takeInvalidationHandlers() -> [@Sendable () -> Void] {
-        let handlers = Array(invalidationHandlerById.values)
-        invalidationHandlerById.removeAll(keepingCapacity: false)
-        return handlers
+    private func isValid(_ token: Token) -> Bool {
+        guard token.identity === identity else { return false }
+        switch token.validity {
+        case .foregroundOnly:
+            return activity == .foreground && token.epoch == foregroundEpoch
+        case .foregroundOrLoadedHidden:
+            return (activity == .foreground || activity == .loadedHidden)
+                && token.epoch == reviewContinuationEpoch
+        }
+    }
+
+    private func takeInvalidationHandlersInvalidatedByCurrentActivity() -> [@Sendable () -> Void] {
+        let invalidatedHandlerIds = invalidationHandlerById.compactMap { handlerId, registration in
+            isValid(registration.token) ? nil : handlerId
+        }
+        return invalidatedHandlerIds.compactMap { handlerId in
+            invalidationHandlerById.removeValue(forKey: handlerId)?.handler
+        }
     }
 }

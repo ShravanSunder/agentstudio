@@ -9,6 +9,7 @@ import {
 } from './bridge-comm-worker-review-runtime.js';
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import { recordBridgeCommWorkerSelectedContentDroppedTelemetry } from './bridge-comm-worker-telemetry.js';
+import type { BridgeProductContentResponseStartControl } from './bridge-product-transport-contract.js';
 import type {
 	BridgeWorkerContentPreparationRank,
 	BridgeWorkerContentPreparationWork,
@@ -116,6 +117,16 @@ export function enqueueBridgeWorkerReviewContentReadyPreparation(
 	let fetchResult: BridgeWorkerReviewContentReadyFetchResult | null = null;
 	let publication: BridgeWorkerReviewContentReadyPublication | null = null;
 	let lifecycle: BridgeWorkerReviewContentReadyPreparationLifecycle = 'active';
+	const activeResponseStartControls = new Set<BridgeProductContentResponseStartControl>();
+	const registerResponseStartControl = (
+		control: BridgeProductContentResponseStartControl,
+	): (() => void) => {
+		activeResponseStartControls.add(control);
+		if (lifecycle === 'paused') control.pauseBeforeStart();
+		return (): void => {
+			activeResponseStartControls.delete(control);
+		};
+	};
 	const resolveCompletion = (
 		settlement: BridgeWorkerReviewContentReadyPreparationSettlement,
 	): void => {
@@ -172,7 +183,10 @@ export function enqueueBridgeWorkerReviewContentReadyPreparation(
 					return { complete: true };
 				}
 				fetchStarted = true;
-				void fetchBridgeWorkerReviewContentReadyResources(dispatchProps)
+				void fetchBridgeWorkerReviewContentReadyResources({
+					...dispatchProps,
+					registerResponseStartControl,
+				})
 					.then((result) => {
 						if (lifecycle === 'cancelled' || lifecycle === 'settled') return;
 						fetchResult = result;
@@ -223,11 +237,17 @@ export function enqueueBridgeWorkerReviewContentReadyPreparation(
 		pause: (): void => {
 			if (lifecycle !== 'active') return;
 			lifecycle = 'paused';
+			for (const responseStartControl of activeResponseStartControls) {
+				responseStartControl.pauseBeforeStart();
+			}
 			pump.cancel(workId);
 		},
 		resume: (): void => {
 			if (lifecycle !== 'paused') return;
 			lifecycle = 'active';
+			for (const responseStartControl of activeResponseStartControls) {
+				responseStartControl.resumeBeforeStart();
+			}
 			if (fetchStarted && fetchResult === null) return;
 			pump.enqueueOrPromote(work);
 			props.requestPreparationDrain?.();

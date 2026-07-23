@@ -1,5 +1,8 @@
 import type { BridgeBodyRegistry } from '../demand/bridge-body-registry.js';
-import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
+import type {
+	BridgeProductContentResponseStartControl,
+	BridgeProductContentStream,
+} from './bridge-product-transport-contract.js';
 import type { BridgeWorkerReviewContentRequestDescriptor } from './bridge-worker-contracts.js';
 import { bridgeWorkerReviewContentRequestDescriptorSchema } from './bridge-worker-contracts.js';
 
@@ -12,12 +15,18 @@ export interface BridgeWorkerReviewContentResourceFetch {
 	(
 		descriptor: BridgeWorkerReviewContentRequestDescriptor,
 		signal?: AbortSignal,
+		registerResponseStartControl?: (
+			control: BridgeProductContentResponseStartControl,
+		) => () => void,
 	): Promise<BridgeWorkerFetchedReviewContentResource>;
 }
 
 export interface FetchBridgeWorkerReviewContentResourceProps {
 	readonly descriptor: BridgeWorkerReviewContentRequestDescriptor;
 	readonly openContent: BridgeWorkerReviewContentOpen;
+	readonly registerResponseStartControl?: (
+		control: BridgeProductContentResponseStartControl,
+	) => () => void;
 	readonly signal?: AbortSignal;
 }
 
@@ -57,7 +66,13 @@ export function createSharedBridgeWorkerReviewContentResourceFetch(props: {
 		readonly sourceSignal: AbortSignal | undefined;
 	}
 	const inFlightResourcesByIdentity = new Map<string, InFlightReviewContentResource>();
-	return async (descriptor: BridgeWorkerReviewContentRequestDescriptor, signal?: AbortSignal) => {
+	return async (
+		descriptor: BridgeWorkerReviewContentRequestDescriptor,
+		signal?: AbortSignal,
+		registerResponseStartControl?: (
+			control: BridgeProductContentResponseStartControl,
+		) => () => void,
+	) => {
 		signal?.throwIfAborted();
 		const bodyRegistry = props.bodyRegistry ?? props.resolveBodyRegistry?.();
 		const residentCacheKey = residentBridgeWorkerReviewContentResourceCacheKey(descriptor);
@@ -86,6 +101,7 @@ export function createSharedBridgeWorkerReviewContentResourceFetch(props: {
 		const resourcePromise = fetchBridgeWorkerReviewContentResource({
 			descriptor,
 			openContent: props.openContent,
+			...(registerResponseStartControl === undefined ? {} : { registerResponseStartControl }),
 			...(signal === undefined ? {} : { signal }),
 		});
 		const resourceEntry: InFlightReviewContentResource = {
@@ -153,48 +169,56 @@ export async function fetchBridgeWorkerReviewContentResource(
 	}
 	const abortSignal = props.signal ?? new AbortController().signal;
 	const contentStream = props.openContent(descriptor, abortSignal);
-	const [, terminal] = await Promise.all([
-		drainBridgeProductReviewContentFrames(contentStream),
-		contentStream.terminal,
-	]);
-	if (terminal.kind === 'error') {
-		if (terminal.retryable) {
-			throw new BridgeWorkerReviewContentRetryWaitError(
+	const unregisterResponseStartControl =
+		contentStream.responseStartControl === undefined
+			? undefined
+			: props.registerResponseStartControl?.(contentStream.responseStartControl);
+	try {
+		const [, terminal] = await Promise.all([
+			drainBridgeProductReviewContentFrames(contentStream),
+			contentStream.terminal,
+		]);
+		if (terminal.kind === 'error') {
+			if (terminal.retryable) {
+				throw new BridgeWorkerReviewContentRetryWaitError(
+					terminal.safeMessage ?? `Bridge worker Review content failed: ${terminal.code}.`,
+				);
+			}
+			throw new Error(
 				terminal.safeMessage ?? `Bridge worker Review content failed: ${terminal.code}.`,
 			);
 		}
-		throw new Error(
-			terminal.safeMessage ?? `Bridge worker Review content failed: ${terminal.code}.`,
-		);
+		if (terminal.kind === 'reset') {
+			throw new BridgeWorkerReviewContentRetryWaitError(
+				`Bridge worker Review content reset: ${terminal.reason}.`,
+			);
+		}
+		if (terminal.descriptorId !== descriptor.descriptorId) {
+			throw new Error('Bridge worker Review content terminal descriptor does not match demand.');
+		}
+		const text = new TextDecoder('utf-8', { fatal: true }).decode(terminal.bytes);
+		return {
+			itemId: descriptor.itemId,
+			role: descriptor.role,
+			contentHash: descriptor.contentDigest.value,
+			contentHashAlgorithm: descriptor.contentDigest.algorithm,
+			descriptorId: descriptor.descriptorId,
+			language: descriptor.language,
+			byteLength: terminal.bytes.byteLength,
+			observedSha256: terminal.observedSha256,
+			requestId: contentStream.contentRequestId,
+			sourceGeneration: descriptor.reviewGeneration,
+			sourceIdentity: descriptor.sourceIdentity,
+			sourcePosition:
+				terminal.endOfSource && descriptor.window.startByte === 0
+					? 'whole'
+					: `byteRange:${descriptor.window.startByte}:${terminal.bytes.byteLength}`,
+			text,
+			textBytes: terminal.bytes,
+		};
+	} finally {
+		unregisterResponseStartControl?.();
 	}
-	if (terminal.kind === 'reset') {
-		throw new BridgeWorkerReviewContentRetryWaitError(
-			`Bridge worker Review content reset: ${terminal.reason}.`,
-		);
-	}
-	if (terminal.descriptorId !== descriptor.descriptorId) {
-		throw new Error('Bridge worker Review content terminal descriptor does not match demand.');
-	}
-	const text = new TextDecoder('utf-8', { fatal: true }).decode(terminal.bytes);
-	return {
-		itemId: descriptor.itemId,
-		role: descriptor.role,
-		contentHash: descriptor.contentDigest.value,
-		contentHashAlgorithm: descriptor.contentDigest.algorithm,
-		descriptorId: descriptor.descriptorId,
-		language: descriptor.language,
-		byteLength: terminal.bytes.byteLength,
-		observedSha256: terminal.observedSha256,
-		requestId: contentStream.contentRequestId,
-		sourceGeneration: descriptor.reviewGeneration,
-		sourceIdentity: descriptor.sourceIdentity,
-		sourcePosition:
-			terminal.endOfSource && descriptor.window.startByte === 0
-				? 'whole'
-				: `byteRange:${descriptor.window.startByte}:${terminal.bytes.byteLength}`,
-		text,
-		textBytes: terminal.bytes,
-	};
 }
 
 async function drainBridgeProductReviewContentFrames(

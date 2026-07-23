@@ -211,6 +211,36 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
         #expect(coordinator.acquireForegroundWork() == nil)
     }
 
+    @Test("started Review continuation remains valid while hidden and invalidates on close")
+    func startedReviewContinuationSurvivesLoadedHiddenOnly() throws {
+        // Arrange
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+        let reviewContinuation = try #require(coordinator.acquireReviewContentContinuation())
+        let invalidationCounter = BridgePaneRefreshInvalidationCounter()
+        let handlerId = try #require(
+            reviewContinuation.registerInvalidationHandler {
+                invalidationCounter.record()
+            }
+        )
+
+        // Act
+        coordinator.applyActivity(.loadedHidden)
+        let hiddenMutation = reviewContinuation.withValidAdmission { true }
+
+        // Assert
+        #expect(hiddenMutation == true)
+        #expect(invalidationCounter.isEmpty)
+
+        // Act
+        coordinator.close()
+        let closedMutation = reviewContinuation.withValidAdmission { true }
+
+        // Assert
+        #expect(closedMutation == nil)
+        #expect(invalidationCounter.count == 1)
+        reviewContinuation.removeInvalidationHandler(handlerId)
+    }
+
     @Test("stale completion retains dirty after its activity epoch is invalidated")
     func staleCompletionRetainsDirtyForLaterExplicitRetry() throws {
         // Arrange
@@ -276,6 +306,19 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
         coordinator.applyActivity(.foreground)
         #expect(coordinator.reserveForegroundRefreshPass() == nil)
         #expect(coordinator.acquireForegroundWork() == nil)
+    }
+}
+
+private final class BridgePaneRefreshInvalidationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedCount = 0
+
+    var count: Int {
+        lock.withLock { storedCount }
+    }
+
+    func record() {
+        lock.withLock { storedCount += 1 }
     }
 }
 

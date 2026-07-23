@@ -1,4 +1,6 @@
-export const BRIDGE_PRODUCT_MAXIMUM_CONCURRENT_CONTENT_RESPONSES = 4;
+import type { BridgeProductContentResponseStartControl } from './bridge-product-transport-contract.js';
+
+export const BRIDGE_PRODUCT_MAXIMUM_CONCURRENT_CONTENT_RESPONSES = 12;
 
 export interface BridgeProductContentResponseAdmissionLease {
 	release(): void;
@@ -78,5 +80,101 @@ export class BridgeProductContentResponseAdmission {
 			this.#activeResponseCount += 1;
 			waiter.resolve(this.#createLease());
 		}
+	}
+}
+
+type BridgeProductContentResponseStartState = 'paused' | 'started' | 'waiting';
+
+interface BridgeProductContentResponseResumeWaiter {
+	readonly resume: () => void;
+}
+
+const bridgeProductContentResponseStartPaused = Symbol(
+	'bridge-product-content-response-start-paused',
+);
+
+export class BridgeProductContentResponseStartAdmission {
+	readonly control: BridgeProductContentResponseStartControl = {
+		pauseBeforeStart: (): void => {
+			if (this.#state !== 'waiting') return;
+			this.#state = 'paused';
+			this.#admissionAbortController?.abort(bridgeProductContentResponseStartPaused);
+		},
+		resumeBeforeStart: (): void => {
+			if (this.#state !== 'paused') return;
+			this.#state = 'waiting';
+			this.#resumeWaiter?.resume();
+		},
+	};
+	#admissionAbortController: AbortController | null = null;
+	#resumeWaiter: BridgeProductContentResponseResumeWaiter | null = null;
+	#state: BridgeProductContentResponseStartState = 'waiting';
+
+	async acquire(
+		admission: BridgeProductContentResponseAdmission,
+		abortSignal: AbortSignal,
+	): Promise<BridgeProductContentResponseAdmissionLease> {
+		while (true) {
+			abortSignal.throwIfAborted();
+			// eslint-disable-next-line no-await-in-loop -- A paused logical stream waits for its own resume before reacquiring.
+			await this.#waitUntilResumed(abortSignal);
+			abortSignal.throwIfAborted();
+			const admissionAbortController = new AbortController();
+			const abortAdmission = (): void => {
+				admissionAbortController.abort(abortSignal.reason);
+			};
+			this.#admissionAbortController = admissionAbortController;
+			abortSignal.addEventListener('abort', abortAdmission, { once: true });
+			if (this.#state === 'paused') {
+				admissionAbortController.abort(bridgeProductContentResponseStartPaused);
+			}
+			let lease: BridgeProductContentResponseAdmissionLease;
+			try {
+				// eslint-disable-next-line no-await-in-loop -- A resumed logical stream reacquires one withdrawn admission waiter.
+				lease = await admission.acquire(admissionAbortController.signal);
+			} catch (error) {
+				if (abortSignal.aborted) abortSignal.throwIfAborted();
+				if (error === bridgeProductContentResponseStartPaused) continue;
+				throw error;
+			} finally {
+				abortSignal.removeEventListener('abort', abortAdmission);
+				if (this.#admissionAbortController === admissionAbortController) {
+					this.#admissionAbortController = null;
+				}
+			}
+			if (this.#state === 'paused') {
+				lease.release();
+				continue;
+			}
+			this.#state = 'started';
+			return lease;
+		}
+	}
+
+	async #waitUntilResumed(abortSignal: AbortSignal): Promise<void> {
+		if (this.#state !== 'paused') return;
+		await new Promise<void>((resolve, reject): void => {
+			const abortWaiter = (): void => {
+				clearWaiter();
+				reject(abortSignal.reason);
+			};
+			const resumeWaiter: BridgeProductContentResponseResumeWaiter = {
+				resume: (): void => {
+					clearWaiter();
+					resolve();
+				},
+			};
+			const clearWaiter = (): void => {
+				abortSignal.removeEventListener('abort', abortWaiter);
+				if (this.#resumeWaiter === resumeWaiter) this.#resumeWaiter = null;
+			};
+			this.#resumeWaiter = resumeWaiter;
+			abortSignal.addEventListener('abort', abortWaiter, { once: true });
+			if (abortSignal.aborted) {
+				abortWaiter();
+			} else if (this.#state !== 'paused') {
+				resumeWaiter.resume();
+			}
+		});
 	}
 }
