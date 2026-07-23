@@ -2,6 +2,7 @@
 set -euo pipefail
 
 project_root="${PROJECT_ROOT:-$(pwd)}"
+bash "$project_root/scripts/vendor-worktree.sh" require-producer
 ghostty_root="$project_root/vendor/ghostty"
 libtool_step="$ghostty_root/src/build/LibtoolStep.zig"
 backup_file="$(mktemp)"

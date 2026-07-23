@@ -13,6 +13,7 @@ description = "Populate git submodules required for vendored builds"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
+bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" require-producer
 echo "[setup] hydrating git submodules..."
 git submodule update --init --recursive
 if [ -f "vendor/ghostty/build.zig" ]; then
@@ -31,13 +32,21 @@ run = "bash \"${PROJECT_ROOT}/scripts/build-ghostty-local.sh\""
 [tasks.build-zmx]
 description = "Build zmx session multiplexer"
 depends = ["init-submodules"]
-run = "bash \"${PROJECT_ROOT}/scripts/zig.sh\" build -Doptimize=ReleaseFast"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" require-producer
+bash "${PROJECT_ROOT}/scripts/zig.sh" build -Doptimize=ReleaseFast
+"""
 dir = "vendor/zmx"
 
 [tasks.copy-xcframework]
 description = "Copy GhosttyKit.xcframework to Frameworks/"
 depends = ["build-ghostty"]
 run = """
+#!/usr/bin/env bash
+set -euo pipefail
+bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" require-producer
 rm -rf Frameworks/GhosttyKit.xcframework
 mkdir -p Frameworks
 cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
@@ -55,7 +64,8 @@ description = "Copy shell-integration and terminfo for SPM resource bundling"
 depends = ["build-ghostty"]
 run = """
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
+bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" require-producer
 
 # --- Shell Integration ---
 SHELL_INTEGRATION_ZIG="vendor/ghostty/zig-out/share/ghostty/shell-integration"
@@ -81,12 +91,14 @@ fi
 # --- Terminfo (Ghostty entries only, preserve custom xterm-256color) ---
 TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
 TERMINFO_DEV="Sources/AgentStudio/Resources/terminfo"
-if [ -d "$TERMINFO_DEV/78" ] && [ -d "$TERMINFO_DEV/67" ]; then
-  echo "terminfo already exists, skipping copy (use mise run refresh-vendors to force)"
-elif [ -d "$TERMINFO_SRC" ]; then
+if [ -d "$TERMINFO_SRC" ]; then
   mkdir -p "$TERMINFO_DEV/78" "$TERMINFO_DEV/67"
-  [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DEV/78/"
-  [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DEV/67/"
+  if [ ! -f "$TERMINFO_DEV/78/xterm-ghostty" ] && [ -f "$TERMINFO_SRC/78/xterm-ghostty" ]; then
+    cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DEV/78/"
+  fi
+  if [ ! -f "$TERMINFO_DEV/67/ghostty" ] && [ -f "$TERMINFO_SRC/67/ghostty" ]; then
+    cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DEV/67/"
+  fi
   echo "terminfo updated (custom xterm-256color preserved)"
 fi
 """
@@ -224,9 +236,28 @@ bash scripts/doctor-mac.sh
 # --- Setup (first-time / after clean) ---
 
 [tasks.setup]
-description = "First-time setup: build zig deps, copy frameworks and resources"
-depends = ["copy-xcframework", "setup-dev-resources", "build-zmx", "bridge-web-install", "install-hooks"]
-run = "echo 'Setup complete. Run mise run build or mise run test.'"
+description = "Prepare shared vendors, or explicitly hydrate and build local vendors"
+depends = ["bridge-web-install", "install-hooks"]
+usage = '''
+flag "--use-local-vendors" help="Hydrate and build Ghostty and zmx in this worktree"
+'''
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${usage_use_local_vendors:-false}" == "true" ]]; then
+  bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" setup-local
+else
+  role="$(bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" role)"
+  if [[ "$role" == "primary" ]]; then
+    mise run copy-xcframework
+    mise run --skip-deps setup-dev-resources
+    mise run build-zmx
+  else
+    bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" setup-shared
+  fi
+fi
+echo "Setup complete. Run mise run build or mise run test."
+"""
 
 [tasks.install-hooks]
 description = "Configure git to use repo-managed hooks"
@@ -242,9 +273,13 @@ echo "Installed pre-push hook: .githooks/pre-push"
 
 # --- Composite build tasks ---
 
+[tasks.verify-vendors]
+description = "Verify this worktree's prepared Ghostty and zmx inputs"
+run = "bash \"${PROJECT_ROOT}/scripts/vendor-worktree.sh\" verify"
+
 [tasks.build]
 description = "Debug build (run mise run setup first time)"
-depends = ["bridge-web-build"]
+depends = ["verify-vendors", "bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -258,7 +293,7 @@ swift build --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 
 [tasks.build-release]
 description = "Release build (run mise run setup first time)"
-depends = ["bridge-web-build"]
+depends = ["verify-vendors", "bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -272,32 +307,32 @@ swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 
 [tasks.test]
 description = "Run default test suite; real zmx lifecycle proof stays in test-zmx-e2e"
-depends = ["bridge-web-build"]
+depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test"
 
 [tasks.test-fast]
 description = "Run fast lane: fast non-WebKit tests, excluding large script/smoke/integration/benchmark proof"
-depends = ["bridge-web-build"]
+depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-fast"
 
 [tasks.test-large]
 description = "Run large non-WebKit script, smoke, and integration tests"
-depends = ["bridge-web-build"]
+depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-large"
 
 [tasks.test-prebuild]
 description = "Prebuild Swift test bundles for cached CI test lanes"
-depends = ["bridge-web-build"]
+depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-prebuild"
 
 [tasks.test-webkit]
 description = "Run real WebKit runtime tests in isolated serial processes with crash retry"
-depends = ["bridge-web-build"]
+depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-webkit"
 
 [tasks.test-coverage]
 description = "Run test suite with code coverage and print coverage JSON path"
-depends = ["bridge-web-build"]
+depends = ["verify-vendors", "bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -344,7 +379,7 @@ fi
 
 [tasks.test-e2e]
 description = "Run general E2E serialized tests only; excludes the dedicated zmx lifecycle lane"
-depends = ["bridge-web-build"]
+depends = ["verify-vendors", "bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -358,7 +393,7 @@ AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTe
 
 [tasks.test-zmx-e2e]
 description = "Run zmx E2E tests only (opt-in; may stall)"
-depends = ["bridge-web-build"]
+depends = ["verify-vendors", "bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -400,9 +435,10 @@ description = "Re-copy vendor-derived resources from vendor/ghostty (forces over
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
+bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" require-producer
 rm -rf "${PROJECT_ROOT}/Frameworks/GhosttyKit.xcframework"
 rm -rf "${PROJECT_ROOT}/Sources/AgentStudio/Resources/ghostty"
-rm -rf "${PROJECT_ROOT}/Sources/AgentStudio/Resources/terminfo"
+rm -f "${PROJECT_ROOT}/Sources/AgentStudio/Resources/terminfo/67/ghostty"
 mise run copy-xcframework
 mise run setup-dev-resources
 echo "Refreshed vendor-derived resources"
@@ -470,7 +506,11 @@ mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
 cp "$BUILD_PATH/release/AgentStudio" "$APP_DIR/MacOS/"
 
 # zmx
-[ -f "vendor/zmx/zig-out/bin/zmx" ] && cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
+if [ ! -x "vendor/zmx/zig-out/bin/zmx" ] || [ -L "vendor/zmx/zig-out/bin/zmx" ]; then
+  echo "create-app-bundle: verified zmx executable is missing or unsafe" >&2
+  exit 1
+fi
+cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
 
 # Info.plist + icon
 cp Sources/AgentStudio/Resources/Info.plist "$APP_DIR/"

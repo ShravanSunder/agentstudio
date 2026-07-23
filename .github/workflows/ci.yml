@@ -190,6 +190,7 @@ jobs:
         env:
           # WebKit teardown can crash swiftpm-testing-helper after assertions pass;
           # this lane isolates real WebKit runtime suites and retries signal crashes.
+          SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           XCB_EXTRA_ARGS: "--renderer github-actions"
         run: mise run test-webkit
