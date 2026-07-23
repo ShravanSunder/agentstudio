@@ -431,8 +431,7 @@ describe('Bridge comm worker Review product runtime', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
-		expect(attempts).toHaveLength(2);
-		expect(attempts.every(({ abortSignal }) => !abortSignal.aborted)).toBe(true);
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 		expect(
 			postedMessages
 				.slice(messageCountBeforeSuppression)
@@ -447,10 +446,7 @@ describe('Bridge comm worker Review product runtime', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
-		expect(activeReviewContentAttempts(attempts).map(({ descriptorId }) => descriptorId)).toEqual([
-			'review-descriptor-item-1-base',
-			'review-descriptor-item-1-head',
-		]);
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 	});
 
 	test('pauses active Review content while File is accepted and resumes the same transport', async () => {
@@ -521,6 +517,7 @@ describe('Bridge comm worker Review product runtime', () => {
 			}),
 		);
 		await drainUntilReviewAttemptCount({ attempts, expectedCount: 2, scheduledDrains });
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 
 		// Act
 		dispatch.message(
@@ -539,7 +536,7 @@ describe('Bridge comm worker Review product runtime', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
-		expect(activeReviewContentAttempts(attempts)).toHaveLength(2);
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 
 		// Act
 		dispatch.message(
@@ -555,7 +552,7 @@ describe('Bridge comm worker Review product runtime', () => {
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 
-		expect(activeReviewContentAttempts(attempts)).toHaveLength(2);
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 
 		dispatch.message(
 			encodeBridgeWorkerActiveViewerModeUpdateCommand({
@@ -572,7 +569,7 @@ describe('Bridge comm worker Review product runtime', () => {
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 
-		expect(activeReviewContentAttempts(attempts)).toHaveLength(2);
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 
 		dispatch.message(
 			encodeBridgeWorkerActiveViewerModeUpdateCommand({
@@ -602,7 +599,7 @@ describe('Bridge comm worker Review product runtime', () => {
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 
-		expect(activeReviewContentAttempts(attempts)).toHaveLength(2);
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 	});
 
 	test('resumes the held Review stream when hidden and foreground frames arrive back-to-back', async () => {
@@ -676,10 +673,7 @@ describe('Bridge comm worker Review product runtime', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
-		expect(activeReviewContentAttempts(attempts).map(({ descriptorId }) => descriptorId)).toEqual([
-			'review-descriptor-item-1-base',
-			'review-descriptor-item-1-head',
-		]);
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 		expect(
 			postedMessages
 				.slice(messageCountBeforeNativeCycle)
@@ -768,7 +762,7 @@ async function drainUntilReviewAttemptCount(props: {
 	readonly expectedCount: number;
 	readonly scheduledDrains: BridgeCommWorkerPreparationDrain[];
 }): Promise<void> {
-	const activeAttempts = activeReviewContentAttempts(props.attempts);
+	const activeAttempts = props.attempts.filter(({ abortSignal }) => !abortSignal.aborted);
 	if (activeAttempts.length >= props.expectedCount || props.scheduledDrains.length === 0) {
 		expect(activeAttempts).toHaveLength(props.expectedCount);
 		return;
@@ -780,10 +774,14 @@ async function drainUntilReviewAttemptCount(props: {
 	await drainUntilReviewAttemptCount(props);
 }
 
-function activeReviewContentAttempts(
+function expectOriginalReviewContentAttemptsRemainActive(
 	attempts: readonly PendingReviewContentAttempt[],
-): readonly PendingReviewContentAttempt[] {
-	return attempts.filter(({ abortSignal }) => !abortSignal.aborted);
+): void {
+	expect(attempts.map(({ descriptorId }) => descriptorId)).toEqual([
+		'review-descriptor-item-1-base',
+		'review-descriptor-item-1-head',
+	]);
+	expect(attempts.every(({ abortSignal }) => !abortSignal.aborted)).toBe(true);
 }
 
 function requirePanePresentationSink(

@@ -20,6 +20,7 @@ import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 
 interface TestDemandAdmission {
+	readonly attemptToken: number;
 	readonly itemId: string;
 	readonly positionKind: 'dynamic' | 'reserved';
 	readonly role: BridgeCommWorkerDemandMember['role'];
@@ -206,12 +207,20 @@ describe('Bridge comm worker Review logical-position ledger', () => {
 				}),
 			),
 		];
-		ledger.reconcile(initialMembership);
+		const initialResult = ledger.reconcile(initialMembership);
+		const releasedAdmission = initialResult.active.find(({ itemId }) => itemId === 'background-1');
+		if (releasedAdmission === undefined) {
+			throw new Error('Expected the first background Review admission.');
+		}
 
 		ledger.reconcile([selectedMember('held'), ...initialMembership.slice(1)]);
 		ledger.reconcile(initialMembership);
-		const firstRelease = ledger.release('background-1', 'resident');
-		const repeatedRelease = ledger.release('background-1', 'resident');
+		const firstRelease = ledger.release('background-1', releasedAdmission.attemptToken, 'resident');
+		const repeatedRelease = ledger.release(
+			'background-1',
+			releasedAdmission.attemptToken,
+			'resident',
+		);
 
 		expect(startCountsByItemId.get('held')).toBe(1);
 		expect(cancelledItemIds).toEqual([]);
@@ -225,10 +234,10 @@ describe('Bridge comm worker Review logical-position ledger', () => {
 	});
 
 	test('retains terminal background progress and restarts retry-wait only after retry-ready', () => {
-		const startedItemIds: string[] = [];
+		const admissions: TestDemandAdmission[] = [];
 		const ledger = createBridgeCommWorkerReviewDemandLedger({
 			start: (admission) => {
-				startedItemIds.push(admission.itemId);
+				admissions.push(admission);
 				return { cancel: () => {}, updateRole: () => {} };
 			},
 		});
@@ -238,14 +247,16 @@ describe('Bridge comm worker Review logical-position ledger', () => {
 			{ itemId: 'added', role: 'background' },
 		] satisfies readonly BridgeCommWorkerDemandMember[];
 		ledger.reconcile(membership.slice(0, 2));
-		ledger.release('terminal', 'terminal');
-		ledger.release('retry', 'retryWait');
+		const terminalAttempt = requireTestDemandAdmission(admissions, 0);
+		const retryAttempt = requireTestDemandAdmission(admissions, 1);
+		ledger.release('terminal', terminalAttempt.attemptToken, 'terminal');
+		ledger.release('retry', retryAttempt.attemptToken, 'retryWait');
 
 		ledger.reconcile(membership);
-		ledger.markRetryReady('retry');
+		ledger.markRetryReady('retry', retryAttempt.attemptToken);
 		ledger.reconcile(membership.toReversed());
 
-		expect(startedItemIds).toEqual(['terminal', 'retry', 'added', 'retry']);
+		expect(admissions.map(({ itemId }) => itemId)).toEqual(['terminal', 'retry', 'added', 'retry']);
 	});
 
 	test('waits for a fresh membership reconciliation before restarting an invalidated identity', () => {
@@ -278,8 +289,12 @@ describe('Bridge comm worker Review logical-position ledger', () => {
 			},
 		});
 		ledger.updateGeneration(41);
-		ledger.reconcile([visibleMember('resident'), visibleMember('active')]);
-		ledger.release('resident', 'resident');
+		const initialResult = ledger.reconcile([visibleMember('resident'), visibleMember('active')]);
+		const residentAdmission = initialResult.active.find(({ itemId }) => itemId === 'resident');
+		if (residentAdmission === undefined) {
+			throw new Error('Expected the resident Review admission.');
+		}
+		ledger.release('resident', residentAdmission.attemptToken, 'resident');
 
 		ledger.updateGeneration(41);
 		ledger.reconcile([visibleMember('active'), visibleMember('resident'), visibleMember('added')]);
@@ -293,9 +308,165 @@ describe('Bridge comm worker Review logical-position ledger', () => {
 		expect(cancelledItemIds).toEqual(['active', 'added']);
 		expect(startedItemIds).toEqual(['resident', 'active', 'added', 'resident', 'active', 'added']);
 	});
+
+	test('ignores a cancelled attempt settlement after its replacement starts', () => {
+		const admissions: TestDemandAdmission[] = [];
+		const ledger = createBridgeCommWorkerReviewDemandLedger({
+			start: (admission) => {
+				admissions.push(admission);
+				return { cancel: () => {}, updateRole: () => {} };
+			},
+		});
+		ledger.reconcile([visibleMember('item')]);
+		const firstAttempt = requireTestDemandAdmission(admissions, 0);
+		ledger.invalidate('item');
+		ledger.reconcile([visibleMember('item')]);
+		const replacementAttempt = requireTestDemandAdmission(admissions, 1);
+
+		const staleReleaseAccepted = ledger.release('item', firstAttempt.attemptToken, 'resident');
+		const result = ledger.reconcile([visibleMember('item')]);
+
+		expect(staleReleaseAccepted).toBe(false);
+		expect(admissions).toHaveLength(2);
+		expect(result.active.map(({ attemptToken }) => attemptToken)).toEqual([
+			replacementAttempt.attemptToken,
+		]);
+	});
+
+	test('ignores a stale retry wake after a newer attempt enters retry wait', () => {
+		const admissions: TestDemandAdmission[] = [];
+		const ledger = createBridgeCommWorkerReviewDemandLedger({
+			start: (admission) => {
+				admissions.push(admission);
+				return { cancel: () => {}, updateRole: () => {} };
+			},
+		});
+		ledger.reconcile([visibleMember('retry')]);
+		const firstAttempt = requireTestDemandAdmission(admissions, 0);
+		ledger.release('retry', firstAttempt.attemptToken, 'retryWait');
+		expect(ledger.markRetryReady('retry', firstAttempt.attemptToken)).toBe(true);
+		ledger.reconcile([visibleMember('retry')]);
+		const replacementAttempt = requireTestDemandAdmission(admissions, 1);
+		ledger.release('retry', replacementAttempt.attemptToken, 'retryWait');
+
+		expect(ledger.markRetryReady('retry', firstAttempt.attemptToken)).toBe(false);
+		ledger.reconcile([visibleMember('retry')]);
+		expect(admissions).toHaveLength(2);
+	});
+
+	test('refills one vacant position after a rejected preparation', () => {
+		const admissions: TestDemandAdmission[] = [];
+		const ledger = createBridgeCommWorkerReviewDemandLedger({
+			start: (admission) => {
+				admissions.push(admission);
+				return { cancel: () => {}, updateRole: () => {} };
+			},
+		});
+		const membership = Array.from(
+			{ length: 13 },
+			(_, index): BridgeCommWorkerDemandMember => ({
+				itemId: `background-${index + 1}`,
+				role: 'background',
+			}),
+		);
+		ledger.reconcile(membership);
+		const rejectedAttempt = requireTestDemandAdmission(admissions, 0);
+
+		expect(ledger.releaseRejected(rejectedAttempt.itemId, rejectedAttempt.attemptToken)).toBe(true);
+		expect(admissions.map(({ itemId }) => itemId)).toEqual([
+			...membership.slice(0, 9).map(({ itemId }) => itemId),
+			'background-10',
+		]);
+	});
 });
 
 describe('Bridge comm worker Review production demand scheduling', () => {
+	test('replaces one active composite when Review metadata changes its preparation identity', async () => {
+		const itemId = 'item-1';
+		const contentItems = [makeWorkerReviewContentMetadata({ itemId })];
+		const initialBaseDescriptor = makeContentRequestDescriptor({
+			itemId,
+			role: 'base',
+			text: 'base body\n',
+		});
+		const initialHeadDescriptor = makeContentRequestDescriptor({
+			itemId,
+			role: 'head',
+			text: 'initial head body\n',
+		});
+		const replacementHeadDescriptor = makeContentRequestDescriptor({
+			generation: initialHeadDescriptor.reviewGeneration,
+			itemId,
+			role: 'head',
+			text: 'replacement head body\n',
+		});
+		const renderSemantics = [makeRenderSemantics({ itemId })];
+		const rows = [{ id: itemId, index: 0, parentId: null }];
+		const attempts: Array<{
+			readonly descriptorId: string;
+			readonly signal: AbortSignal;
+		}> = [];
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		const pump = createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => 0 });
+		const store = createBridgeCommWorkerStore({ contentItems, rows, surface: 'review' });
+		store.actions.applyViewportFact({
+			firstVisibleIndex: 0,
+			lastVisibleIndex: 0,
+			visibleItemIds: [itemId],
+		});
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 1 });
+		const scheduling = createBridgeCommWorkerReviewDemandScheduling({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 1024, maxWindowLines: 50 },
+			createSequence: (() => {
+				let sequence = 0;
+				return (): number => (sequence += 1);
+			})(),
+			markPreparationDrainRequired: () => {},
+			openReviewContent: (descriptor, signal) => {
+				attempts.push({ descriptorId: descriptor.descriptorId, signal });
+				return createDeferredReviewContentStream(descriptor).stream;
+			},
+			port: dispatch.port,
+			pump,
+			recordPreparationCompletion: () => {},
+			requestPreparationDrain: () => {},
+			usesProductTransport: false,
+		});
+		scheduling.updateRuntimeSource({
+			contentItems,
+			contentRequestDescriptors: [initialBaseDescriptor, initialHeadDescriptor],
+			renderSemantics,
+			rows,
+		});
+		scheduling.resume();
+		scheduling.scheduleDemandExecution({ cause: 'viewport', epoch: 7, store });
+		pump.runUntilBudget();
+		await flushBridgeWorkerRuntimeContinuations();
+
+		scheduling.updateRuntimeSource({
+			contentItems,
+			contentRequestDescriptors: [initialBaseDescriptor, replacementHeadDescriptor],
+			renderSemantics,
+			rows,
+		});
+		scheduling.scheduleDemandExecution({
+			cause: 'reviewMetadata',
+			epoch: 7,
+			forceExecutionItemIds: [itemId],
+			store,
+		});
+		pump.runUntilBudget();
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(attempts.map(({ descriptorId, signal }) => [descriptorId, signal.aborted])).toEqual([
+			[initialBaseDescriptor.descriptorId, true],
+			[initialHeadDescriptor.descriptorId, true],
+			[initialBaseDescriptor.descriptorId, false],
+			[replacementHeadDescriptor.descriptorId, false],
+		]);
+	});
+
 	test('promotes and demotes one held fetch without cancellation or a second start, then refills once', async () => {
 		const itemIds = Array.from({ length: 13 }, (_, index) => `item-${index + 1}`);
 		const contentItems = itemIds.map((itemId) => makeWorkerReviewContentMetadata({ itemId }));
@@ -395,4 +566,15 @@ function selectedMember(itemId: string): BridgeCommWorkerDemandMember {
 
 function visibleMember(itemId: string): BridgeCommWorkerDemandMember {
 	return { itemId, role: 'visible' };
+}
+
+function requireTestDemandAdmission(
+	admissions: readonly TestDemandAdmission[],
+	index: number,
+): TestDemandAdmission {
+	const admission = admissions[index];
+	if (admission === undefined) {
+		throw new Error(`Expected Review demand admission at index ${index}.`);
+	}
+	return admission;
 }

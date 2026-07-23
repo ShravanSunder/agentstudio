@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest';
 
+import { createBridgeBodyRegistry } from '../demand/bridge-body-registry.js';
 import {
+	createDeferredReviewContentStream,
 	makeContentRequestDescriptor,
 	makeImmediateReviewContentStream,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
@@ -9,6 +11,7 @@ import type { BridgeWorkerReviewContentRequestDescriptor } from './bridge-worker
 import {
 	createSharedBridgeWorkerReviewContentResourceFetch,
 	fetchBridgeWorkerReviewContentResource,
+	type BridgeWorkerResidentReviewContentBody,
 } from './bridge-worker-review-content-fetch.js';
 
 describe('Bridge worker review content fetch', () => {
@@ -204,6 +207,206 @@ describe('Bridge worker review content fetch', () => {
 			},
 		});
 	});
+
+	test('reuses one resident body across metadata-only authorization reissue', async () => {
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'resident body' });
+		const reissuedDescriptor: BridgeWorkerReviewContentRequestDescriptor = {
+			...descriptor,
+			descriptorId: 'descriptor-reissued-authorization',
+			endpointId: 'endpoint-reissued-authorization',
+			handleId: 'handle-reissued-authorization',
+		};
+		let openCallCount = 0;
+		const fetchReviewContentResource = createSharedBridgeWorkerReviewContentResourceFetch({
+			bodyRegistry: createBridgeBodyRegistry({ maxBytes: 1024 }),
+			openContent: (openedDescriptor) => {
+				openCallCount += 1;
+				return makeImmediateReviewContentStream(openedDescriptor, 'resident body');
+			},
+		});
+
+		const firstResource = await fetchReviewContentResource(descriptor);
+		const reissuedResource = await fetchReviewContentResource(reissuedDescriptor);
+
+		expect(openCallCount).toBe(1);
+		expect(reissuedResource).toMatchObject({
+			descriptorId: reissuedDescriptor.descriptorId,
+			sourceGeneration: reissuedDescriptor.reviewGeneration,
+			sourceIdentity: reissuedDescriptor.sourceIdentity,
+			text: firstResource.text,
+		});
+		expect(reissuedResource.requestId).not.toBe(firstResource.requestId);
+		expect(reissuedResource.textBytes).toBe(firstResource.textBytes);
+	});
+
+	test('serves an exact resident body without reopening the native content stream', async () => {
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'exact resident body' });
+		let openCallCount = 0;
+		const fetchReviewContentResource = createSharedBridgeWorkerReviewContentResourceFetch({
+			bodyRegistry: createBridgeBodyRegistry({ maxBytes: 1024 }),
+			openContent: (openedDescriptor) => {
+				openCallCount += 1;
+				return makeImmediateReviewContentStream(openedDescriptor, 'exact resident body');
+			},
+		});
+
+		await fetchReviewContentResource(descriptor);
+		const residentResource = await fetchReviewContentResource(descriptor);
+
+		expect(openCallCount).toBe(1);
+		expect(residentResource.text).toBe('exact resident body');
+	});
+
+	test('reuses one resident diff side and fetches only the changed side', async () => {
+		const baseDescriptor = makeContentRequestDescriptor({ role: 'base', text: 'resident base' });
+		const originalHeadDescriptor = makeContentRequestDescriptor({
+			role: 'head',
+			text: 'original head',
+		});
+		const changedHeadDescriptor: BridgeWorkerReviewContentRequestDescriptor = {
+			...originalHeadDescriptor,
+			contentDigest: {
+				...originalHeadDescriptor.contentDigest,
+				value: 'sha256:item-1:head:changed',
+			},
+		};
+		const openedRoles: BridgeWorkerReviewContentRequestDescriptor['role'][] = [];
+		const fetchReviewContentResource = createSharedBridgeWorkerReviewContentResourceFetch({
+			bodyRegistry: createBridgeBodyRegistry({ maxBytes: 1024 }),
+			openContent: (openedDescriptor) => {
+				openedRoles.push(openedDescriptor.role);
+				return makeImmediateReviewContentStream(
+					openedDescriptor,
+					openedDescriptor.role === 'base' ? 'resident base' : 'changed head',
+				);
+			},
+		});
+
+		await Promise.all([
+			fetchReviewContentResource(baseDescriptor),
+			fetchReviewContentResource(originalHeadDescriptor),
+		]);
+		openedRoles.splice(0);
+		const [baseResource, headResource] = await Promise.all([
+			fetchReviewContentResource(baseDescriptor),
+			fetchReviewContentResource(changedHeadDescriptor),
+		]);
+
+		expect(openedRoles).toEqual(['head']);
+		expect(baseResource.text).toBe('resident base');
+		expect(headResource.text).toBe('changed head');
+	});
+
+	test('does not reuse a resident body after freshness changes', async () => {
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'generation four' });
+		const changedDescriptor: BridgeWorkerReviewContentRequestDescriptor = {
+			...descriptor,
+			contentDigest: {
+				...descriptor.contentDigest,
+				value: 'sha256:item-1:head:generation-5',
+			},
+			reviewGeneration: descriptor.reviewGeneration + 1,
+			sourceIdentity: 'source-item-1-generation-5',
+		};
+		const openedGenerations: number[] = [];
+		const fetchReviewContentResource = createSharedBridgeWorkerReviewContentResourceFetch({
+			bodyRegistry: createBridgeBodyRegistry({ maxBytes: 1024 }),
+			openContent: (openedDescriptor) => {
+				openedGenerations.push(openedDescriptor.reviewGeneration);
+				return makeImmediateReviewContentStream(openedDescriptor, 'fresh body');
+			},
+		});
+
+		await fetchReviewContentResource(descriptor);
+		await fetchReviewContentResource(changedDescriptor);
+
+		expect(openedGenerations).toEqual([4, 5]);
+	});
+
+	test('does not retain reset or aborted fetches as resident bodies', async () => {
+		const resetDescriptor = makeContentRequestDescriptor({ role: 'base', text: 'reset body' });
+		const abortedDescriptor = makeContentRequestDescriptor({ role: 'head', text: 'aborted body' });
+		const registry = createBridgeBodyRegistry<BridgeWorkerResidentReviewContentBody>({
+			maxBytes: 1024,
+		});
+		let resetOpenCount = 0;
+		let abortedOpenCount = 0;
+		const fetchReviewContentResource = createSharedBridgeWorkerReviewContentResourceFetch({
+			bodyRegistry: registry,
+			openContent: (openedDescriptor, abortSignal) => {
+				if (openedDescriptor.role === 'base') {
+					resetOpenCount += 1;
+					return makeReviewContentResetStream(openedDescriptor);
+				}
+				abortedOpenCount += 1;
+				return makeAbortRejectedReviewContentStream(abortSignal);
+			},
+		});
+		const abortedFetchController = new AbortController();
+
+		await expect(fetchReviewContentResource(resetDescriptor)).rejects.toThrow(/reset/i);
+		await expect(fetchReviewContentResource(resetDescriptor)).rejects.toThrow(/reset/i);
+		const abortedFetch = fetchReviewContentResource(
+			abortedDescriptor,
+			abortedFetchController.signal,
+		);
+		abortedFetchController.abort('pane-hidden');
+		await expect(abortedFetch).rejects.toBe('pane-hidden');
+
+		expect(resetOpenCount).toBe(2);
+		expect(abortedOpenCount).toBe(1);
+		expect(registry.snapshot()).toEqual({ entryCount: 0, totalBytes: 0 });
+	});
+
+	test('does not retain an abort-insensitive late completion as a resident body', async () => {
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'late stale body' });
+		const registry = createBridgeBodyRegistry<BridgeWorkerResidentReviewContentBody>({
+			maxBytes: 1024,
+		});
+		const lateStream = createDeferredReviewContentStream(descriptor);
+		let openCallCount = 0;
+		const fetchReviewContentResource = createSharedBridgeWorkerReviewContentResourceFetch({
+			bodyRegistry: registry,
+			openContent: (openedDescriptor) => {
+				openCallCount += 1;
+				return openCallCount === 1
+					? lateStream.stream
+					: makeImmediateReviewContentStream(openedDescriptor, 'fresh body');
+			},
+		});
+		const staleDemand = new AbortController();
+		const staleFetch = fetchReviewContentResource(descriptor, staleDemand.signal);
+
+		staleDemand.abort('review-invalidated');
+		lateStream.resolve('late stale body');
+
+		await expect(staleFetch).rejects.toBe('review-invalidated');
+		expect(registry.snapshot()).toEqual({ entryCount: 0, totalBytes: 0 });
+		await expect(fetchReviewContentResource(descriptor)).resolves.toMatchObject({
+			text: 'fresh body',
+		});
+		expect(openCallCount).toBe(2);
+	});
+
+	test('does not serve a resident body to an already-aborted demand', async () => {
+		const descriptor = makeContentRequestDescriptor({ role: 'head', text: 'resident body' });
+		let openCallCount = 0;
+		const fetchReviewContentResource = createSharedBridgeWorkerReviewContentResourceFetch({
+			bodyRegistry: createBridgeBodyRegistry({ maxBytes: 1024 }),
+			openContent: (openedDescriptor) => {
+				openCallCount += 1;
+				return makeImmediateReviewContentStream(openedDescriptor, 'resident body');
+			},
+		});
+		await fetchReviewContentResource(descriptor);
+		const abortedDemand = new AbortController();
+		abortedDemand.abort('pane-hidden');
+
+		await expect(fetchReviewContentResource(descriptor, abortedDemand.signal)).rejects.toBe(
+			'pane-hidden',
+		);
+		expect(openCallCount).toBe(1);
+	});
 });
 
 interface DeferredReviewContentErrorStream {
@@ -276,6 +479,23 @@ function makeReviewContentErrorStream(
 			kind: 'error',
 			retryable: false,
 			safeMessage,
+		}),
+	};
+}
+
+function makeReviewContentResetStream(
+	descriptor: BridgeWorkerReviewContentRequestDescriptor,
+): BridgeProductContentStream<'review.content'> {
+	return {
+		contentKind: 'review.content',
+		contentRequestId: 'content-request-reset',
+		frames: emptyContentFrames(),
+		terminal: Promise.resolve({
+			contentKind: 'review.content',
+			descriptorId: descriptor.descriptorId,
+			kind: 'reset',
+			reason: 'stale_source',
+			retryable: true,
 		}),
 	};
 }

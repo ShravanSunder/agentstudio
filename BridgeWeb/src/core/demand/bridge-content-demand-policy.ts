@@ -34,6 +34,8 @@ export const bridgeContentDemandMembershipPolicy = {
 } as const;
 
 export const bridgeContentDemandRetentionPolicy = {
+	/** Bounds one pane-local Review body registry independently from per-body admission. */
+	reviewBodyRegistryMaxBytes: 128 * 1024 * 1024,
 	/** Protects re-entry latency; validated by cache hit ratio on re-entry. */
 	reviewContentRegistryMaxEntries: 2048,
 } as const;

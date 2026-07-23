@@ -70,22 +70,24 @@ export function selectedReviewPreparationIdentity(props: {
 	readonly source: BridgeCommWorkerReviewRuntimeSource;
 	readonly workerDerivationEpoch: number;
 }): string {
-	const selectedContentMetadata =
-		props.source.contentItems.find((metadata) => metadata.itemId === props.itemId) ?? null;
-	const selectedContentRequestDescriptors = props.source.contentRequestDescriptors.filter(
-		(descriptor) => descriptor.itemId === props.itemId,
-	);
-	const selectedRenderSemantics =
-		props.source.renderSemantics.find((semantics) => semantics.itemId === props.itemId) ?? null;
 	return JSON.stringify(
 		canonicalReviewPreparationIdentityValue([
 			'selected-review-preparation-v1',
 			props.epoch,
 			props.workerDerivationEpoch,
-			props.itemId,
-			selectedContentMetadata,
-			selectedContentRequestDescriptors,
-			selectedRenderSemantics,
+			...reviewItemPreparationIdentityParts(props),
+		]),
+	);
+}
+
+export function reviewItemPreparationIdentity(props: {
+	readonly itemId: string;
+	readonly source: BridgeCommWorkerReviewRuntimeSource;
+}): string {
+	return JSON.stringify(
+		canonicalReviewPreparationIdentityValue([
+			'review-item-preparation-v1',
+			...reviewItemPreparationIdentityParts(props),
 		]),
 	);
 }
@@ -315,6 +317,20 @@ function noopBridgeWorkerReviewContentReadyPreparationRejection(_reason: unknown
 function noopBridgeWorkerReviewContentReadyPreparationControl(): void {}
 
 function noopBridgeWorkerReviewContentReadyPreparationUpdate(): void {}
+
+function reviewItemPreparationIdentityParts(props: {
+	readonly itemId: string;
+	readonly source: BridgeCommWorkerReviewRuntimeSource;
+}): readonly unknown[] {
+	const contentMetadata =
+		props.source.contentItems.find((metadata) => metadata.itemId === props.itemId) ?? null;
+	const contentRequestDescriptors = props.source.contentRequestDescriptors.filter(
+		(descriptor) => descriptor.itemId === props.itemId,
+	);
+	const renderSemantics =
+		props.source.renderSemantics.find((semantics) => semantics.itemId === props.itemId) ?? null;
+	return [props.itemId, contentMetadata, contentRequestDescriptors, renderSemantics];
+}
 
 function canonicalReviewPreparationIdentityValue(value: unknown): unknown {
 	if (Array.isArray(value)) {
