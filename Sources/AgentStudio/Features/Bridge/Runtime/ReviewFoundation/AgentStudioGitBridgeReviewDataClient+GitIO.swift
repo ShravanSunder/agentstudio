@@ -213,8 +213,10 @@ extension AgentStudioGitBridgeReviewDataClient {
                 message:
                     "gitDataPlane:libgit2Failure:code=\(code):klass=\(klass):reason=\(libGit2FailureReason(message))"
             )
-        case .unsupported(let message), .locked(let message):
-            return .providerFailed(message: message)
+        case .unsupported:
+            return .providerFailed(message: "gitDataPlane:unsupported")
+        case .locked:
+            return .providerFailed(message: "gitDataPlane:locked")
         case .worktreeNotFound:
             return .providerFailed(message: "gitDataPlane:worktreeNotFound")
         case .worktreeNotPrunable:

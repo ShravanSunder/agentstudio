@@ -517,6 +517,8 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
             oldContentHash: file.oldContentHash,
             newContentHash: file.newContentHash,
             contentHashAlgorithm: file.contentHashAlgorithm,
+            oldMode: file.oldMode,
+            newMode: file.newMode,
             additions: file.additions,
             deletions: file.deletions,
             isBinary: file.isBinary,
@@ -599,6 +601,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         role: BridgeContentHandle.Role,
         reviewGeneration: BridgeReviewGeneration
     ) {
+        guard !changedFile.isGitlink(role: role) else { return }
         let handle = BridgeReviewPackageBuilder.contentHandle(
             for: changedFile,
             endpoint: endpoint,

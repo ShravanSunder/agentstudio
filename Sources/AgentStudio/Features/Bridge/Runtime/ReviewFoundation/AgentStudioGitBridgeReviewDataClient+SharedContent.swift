@@ -56,15 +56,30 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
                             declaredContentHashAlgorithm: handle.contentHashAlgorithm
                         )
                     } else {
-                        let payload = try await loadGitContentPayload(
-                            GitContentRequest(
-                                repositoryPath: repositoryPath,
-                                target: target,
-                                path: path,
-                                maxSizeBytes: Int64(AppPolicies.Bridge.contentMaxBytesPerItem)
-                            ),
-                            freshnessKey: freshnessKey
-                        )
+                        let payload: GitContentPayload
+                        do {
+                            payload = try await loadGitContentPayload(
+                                GitContentRequest(
+                                    repositoryPath: repositoryPath,
+                                    target: target,
+                                    path: path,
+                                    maxSizeBytes: Int64(AppPolicies.Bridge.contentMaxBytesPerItem)
+                                ),
+                                freshnessKey: freshnessKey
+                            )
+                        } catch BridgeGitReadSchedulerError.timedOut {
+                            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+                        } catch BridgeGitReadSchedulerError.capacityReached {
+                            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch let error as GitDataPlaneError {
+                            throw bridgeFailure(for: error, handle: handle)
+                        } catch {
+                            throw BridgeProviderFailure.providerFailed(
+                                message: unexpectedGitDataPlaneErrorMessage(error)
+                            )
+                        }
                         try Self.validate(payload: payload, handle: handle)
                         let fileName = UUIDv7.generate().uuidString
                         try await Self.writeCapturedContent(
