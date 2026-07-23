@@ -614,6 +614,8 @@ if [ "$preflight_idle" = true ]; then
   exit 0
 fi
 
+bash "$PROJECT_ROOT/scripts/vendor-worktree.sh" verify
+
 debug_launch_lock="$debug_root/.launch.lock"
 mkdir -p "$debug_root" "$(dirname "$state_file")"
 chmod 700 "$debug_root"

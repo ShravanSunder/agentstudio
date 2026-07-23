@@ -3,8 +3,8 @@
 # Added: RGB true color (Tc), styled underlines (Smulx, Setulc),
 #        synchronized output (Sync), SGR mouse (kmous), bracketed paste,
 #        clipboard (Ms), cursor styles (Ss, Se).
-# Source: Ghostty terminfo capabilities from vendor/ghostty/src/terminfo/ghostty.zig
-# This file is hand-maintained and NOT overwritten by build-ghostty.sh.
+# Source: Ghostty terminfo capabilities from the pinned primary vendor source.
+# This tracked file is hand-maintained; vendor setup only generates other entries.
 #
 xterm-256color|xterm with 256 colors,
 	OTbs, am, bce, ccc, km, mc5i, mir, msgr, npc, xenl, AX, Su, Tc, XT,

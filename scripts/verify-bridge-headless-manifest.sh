@@ -310,6 +310,7 @@ if [ "$VALIDATE_ONLY" != "1" ]; then
     exit 1
   fi
   source "$PROJECT_ROOT/scripts/swift-build-slot.sh" debug
+  bash "$PROJECT_ROOT/scripts/vendor-worktree.sh" verify
   swift build --build-path "$SWIFT_BUILD_DIR" --build-tests
   PROJECT_ROOT="$PROJECT_ROOT" \
     AGENTSTUDIO_BRIDGE_HEADLESS_PROOF_DIR="$PROOF_ROOT" \
