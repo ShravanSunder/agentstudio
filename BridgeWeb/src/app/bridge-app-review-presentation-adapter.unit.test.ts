@@ -157,7 +157,7 @@ describe('Bridge Review presentation adapter', () => {
 		},
 	);
 
-	test('returns no recovered-shell snapshot for a ready but empty display', () => {
+	test('builds an empty presentation snapshot for a ready zero-item display', () => {
 		// Arrange / Act
 		const presentationSnapshot = bridgeReviewPresentationSnapshotForDisplay({
 			catalogSnapshot: catalogSnapshot({ itemCount: 0, revision: 1, treeRowCount: 0 }),
@@ -166,7 +166,10 @@ describe('Bridge Review presentation adapter', () => {
 		});
 
 		// Assert
-		expect(presentationSnapshot).toBeNull();
+		expect(presentationSnapshot).not.toBeNull();
+		expect(presentationSnapshot?.reviewPackage.orderedItemIds).toEqual([]);
+		expect(presentationSnapshot?.reviewTreeRows).toEqual([]);
+		expect(presentationSnapshot?.projection.orderedPaths).toEqual([]);
 	});
 
 	test('rotates presentation identity across worker epochs without changing native Review generation', () => {

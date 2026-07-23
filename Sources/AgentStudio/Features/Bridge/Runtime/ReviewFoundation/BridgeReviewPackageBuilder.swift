@@ -171,36 +171,44 @@ enum BridgeReviewPackageBuilder {
         switch changedFile.changeKind {
         case .added, .copied:
             return BridgeReviewItemDescriptor.ContentRoles(
-                head: contentHandle(
-                    for: changedFile,
-                    endpoint: headEndpoint,
-                    role: .head,
-                    reviewGeneration: reviewGeneration
-                )
+                head: changedFile.isGitlink(role: .head)
+                    ? nil
+                    : contentHandle(
+                        for: changedFile,
+                        endpoint: headEndpoint,
+                        role: .head,
+                        reviewGeneration: reviewGeneration
+                    )
             )
         case .deleted:
             return BridgeReviewItemDescriptor.ContentRoles(
-                base: contentHandle(
-                    for: changedFile,
-                    endpoint: baseEndpoint,
-                    role: .base,
-                    reviewGeneration: reviewGeneration
-                )
+                base: changedFile.isGitlink(role: .base)
+                    ? nil
+                    : contentHandle(
+                        for: changedFile,
+                        endpoint: baseEndpoint,
+                        role: .base,
+                        reviewGeneration: reviewGeneration
+                    )
             )
         case .modified, .renamed:
             return BridgeReviewItemDescriptor.ContentRoles(
-                base: contentHandle(
-                    for: changedFile,
-                    endpoint: baseEndpoint,
-                    role: .base,
-                    reviewGeneration: reviewGeneration
-                ),
-                head: contentHandle(
-                    for: changedFile,
-                    endpoint: headEndpoint,
-                    role: .head,
-                    reviewGeneration: reviewGeneration
-                )
+                base: changedFile.isGitlink(role: .base)
+                    ? nil
+                    : contentHandle(
+                        for: changedFile,
+                        endpoint: baseEndpoint,
+                        role: .base,
+                        reviewGeneration: reviewGeneration
+                    ),
+                head: changedFile.isGitlink(role: .head)
+                    ? nil
+                    : contentHandle(
+                        for: changedFile,
+                        endpoint: headEndpoint,
+                        role: .head,
+                        reviewGeneration: reviewGeneration
+                    )
             )
         }
     }

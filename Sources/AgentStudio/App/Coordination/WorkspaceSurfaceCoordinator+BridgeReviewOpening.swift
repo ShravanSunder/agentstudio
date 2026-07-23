@@ -28,7 +28,12 @@ extension WorkspaceSurfaceCoordinator {
         let activePane = store.tabLayoutAtom.activeTabId
             .flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
             .flatMap { store.paneAtom.pane($0) }
-        guard let context = bridgeReviewMetadata(from: activePane, worktreeId: worktreeId),
+        guard
+            let context = bridgeReviewMetadata(
+                from: activePane,
+                worktreeId: worktreeId,
+                panelKind: .fileViewer
+            ),
             let resolvedWorktreeId = context.metadata.facets.worktreeId
         else {
             return nil
@@ -94,7 +99,13 @@ extension WorkspaceSurfaceCoordinator {
         let activePane = store.tabLayoutAtom.activeTabId
             .flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
             .flatMap { store.paneAtom.pane($0) }
-        guard let context = bridgeReviewMetadata(from: activePane, worktreeId: worktreeId) else {
+        guard
+            let context = bridgeReviewMetadata(
+                from: activePane,
+                worktreeId: worktreeId,
+                panelKind: panelKind
+            )
+        else {
             return nil
         }
         let state = BridgePaneState(panelKind: panelKind, source: context.source)
@@ -157,7 +168,8 @@ extension WorkspaceSurfaceCoordinator {
 
     private func bridgeReviewMetadata(
         from activePane: Pane?,
-        worktreeId: UUID?
+        worktreeId: UUID?,
+        panelKind: BridgePanelKind
     ) -> (metadata: PaneMetadata, source: BridgePaneSource?)? {
         if let worktreeId {
             guard
@@ -166,7 +178,7 @@ extension WorkspaceSurfaceCoordinator {
             else {
                 return nil
             }
-            return bridgeReviewMetadata(repo: repo, worktree: worktree, cwd: worktree.path)
+            return bridgeReviewMetadata(repo: repo, worktree: worktree, cwd: worktree.path, panelKind: panelKind)
         }
 
         guard let resolved = resolvedWorktreeContext(for: activePane) else {
@@ -176,12 +188,13 @@ extension WorkspaceSurfaceCoordinator {
             return bridgeReviewMetadata(
                 repo: onlyRegisteredContext.repo,
                 worktree: onlyRegisteredContext.worktree,
-                cwd: onlyRegisteredContext.worktree.path
+                cwd: onlyRegisteredContext.worktree.path,
+                panelKind: panelKind
             )
         }
 
         let cwd = activePane?.metadata.cwd ?? resolved.worktree.path
-        return bridgeReviewMetadata(repo: resolved.repo, worktree: resolved.worktree, cwd: cwd)
+        return bridgeReviewMetadata(repo: resolved.repo, worktree: resolved.worktree, cwd: cwd, panelKind: panelKind)
     }
 
     private func onlyRegisteredWorktreeContext() -> (repo: Repo, worktree: Worktree)? {
@@ -196,7 +209,8 @@ extension WorkspaceSurfaceCoordinator {
     private func bridgeReviewMetadata(
         repo: Repo,
         worktree: Worktree,
-        cwd: URL
+        cwd: URL,
+        panelKind: BridgePanelKind
     ) -> (metadata: PaneMetadata, source: BridgePaneSource?) {
         let metadata = PaneMetadata(
             contentType: .diff,
@@ -210,13 +224,28 @@ extension WorkspaceSurfaceCoordinator {
                 cwd: cwd
             )
         )
+        let baseline: WorkspaceBaseline =
+            switch panelKind {
+            case .diffViewer:
+                defaultBridgeReviewBaseline(for: repo)
+            case .fileViewer:
+                .localDefaultBranch(branchName: "main")
+            }
         return (
             metadata,
-            .workspace(rootPath: worktree.path.path, baseline: defaultBridgeReviewBaseline(for: repo))
+            .workspace(rootPath: worktree.path.path, baseline: baseline)
         )
     }
 
-    private func defaultBridgeReviewBaseline(for _: Repo) -> WorkspaceBaseline {
-        .localDefaultBranch(branchName: "main")
+    private func defaultBridgeReviewBaseline(for repo: Repo) -> WorkspaceBaseline {
+        guard let mainWorktree = repo.worktrees.first(where: \.isMainWorktree),
+            let cachedBranch = atom(\.repoCache).worktreeEnrichment(for: mainWorktree.id)?.branch
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !cachedBranch.isEmpty,
+            cachedBranch != "detached HEAD"
+        else {
+            return .ref(name: "HEAD")
+        }
+        return .localDefaultBranch(branchName: cachedBranch)
     }
 }

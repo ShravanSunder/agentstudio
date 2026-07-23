@@ -122,6 +122,88 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		).toHaveLength(1);
 	});
 
+	test('shows loaded Review chrome and explicit empty states for a ready zero-item source', async () => {
+		// Arrange
+		const harness = makeReviewSurfaceHarness();
+		const rendered = await render(
+			<BridgeReviewViewerMode
+				isActive
+				onActiveSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerHeaderControls={<div />}
+			/>,
+		);
+		await expect.element(rendered.getByTestId('bridge-review-empty-shell')).toBeVisible();
+
+		// Act
+		await act(async (): Promise<void> => {
+			harness.publish({
+				direction: 'serverWorkerToMain',
+				epoch: 1,
+				kind: 'reviewDisplayPatch',
+				patches: [
+					{
+						operation: 'upsert',
+						payload: {
+							metadataWindowIdentity: 'review-window-empty',
+							reviewGeneration: 1,
+							status: 'ready',
+							summary: {
+								additions: 0,
+								deletions: 0,
+								filesChanged: 0,
+								hiddenFileCount: 0,
+								visibleFileCount: 0,
+							},
+							totalItemCount: 0,
+							totalTreeRowCount: 0,
+						},
+						slice: 'reviewSource',
+					},
+					{
+						operation: 'batch',
+						payload: { items: [], operations: [], reset: true, startIndex: 0 },
+						slice: 'reviewItem',
+					},
+					{
+						operation: 'batch',
+						payload: { reset: true, windows: [] },
+						slice: 'reviewTree',
+					},
+				],
+				projectionRevision: 1,
+				sequence: 1,
+				surface: 'review',
+				transferDescriptors: [],
+				wireVersion: 1,
+			});
+			await import('../review-viewer/shell/review-viewer-shell.js');
+			await settleRenderedReviewFrame();
+		});
+
+		// Assert
+		await expect.element(rendered.getByTestId('review-viewer-shell')).toBeVisible();
+		await expect.element(rendered.getByText('Nothing to review')).toBeVisible();
+		await expect.element(rendered.getByText('No changed files')).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-mode-segmented-control'))
+			.toBeVisible();
+		await expect.element(rendered.getByTestId('bridge-review-facet-menu-control')).toBeVisible();
+		await expect.element(rendered.getByTestId('bridge-review-search-control')).toBeVisible();
+		expect(document.querySelector('[data-testid="bridge-review-fallback-frame"]')).toBeNull();
+		expect(
+			document.querySelector('[data-testid="bridge-review-projection-pending-shell"]'),
+		).toBeNull();
+		expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
+		expect(
+			rendered
+				.getByTestId('bridge-review-rail-tree-slot')
+				.element()
+				.querySelectorAll('[data-item-path]'),
+		).toHaveLength(0);
+	});
+
 	test('retries timed-out Review intake-ready delivery until acknowledgement with newer shared epochs', async () => {
 		// Arrange
 		const harness = makeReviewSurfaceHarness();

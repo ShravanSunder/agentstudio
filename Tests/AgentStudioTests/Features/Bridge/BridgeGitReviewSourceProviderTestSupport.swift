@@ -22,6 +22,7 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     private let statusFailureByOptions: [GitStatusOptions: GitDataPlaneError]
     private let contentReadGateByLocator: [GitContentLocator: BridgeGitContentReadGate]
     private let revisionResolutionGate: BridgeGitContentReadGate?
+    private let revisionResolutionFailure: GitDataPlaneError?
     private var diffRequests: [GitDiffRequest] = []
     private var contentRequests: [GitContentRequest] = []
     private var treeRequests: [GitTreeReadRequest] = []
@@ -41,7 +42,8 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         statusFailureByOptions: [GitStatusOptions: GitDataPlaneError] = [:],
         resolvedRevisionByTarget: [GitRevisionTarget: GitResolvedRevision] = [:],
         contentReadGateByLocator: [GitContentLocator: BridgeGitContentReadGate] = [:],
-        revisionResolutionGate: BridgeGitContentReadGate? = nil
+        revisionResolutionGate: BridgeGitContentReadGate? = nil,
+        revisionResolutionFailure: GitDataPlaneError? = nil
     ) {
         self.diffSnapshot = diffSnapshot
         self.diffFailure = diffFailure
@@ -56,6 +58,7 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         self.resolvedRevisionByTarget = resolvedRevisionByTarget
         self.contentReadGateByLocator = contentReadGateByLocator
         self.revisionResolutionGate = revisionResolutionGate
+        self.revisionResolutionFailure = revisionResolutionFailure
     }
 
     func repositoryIdentity(for worktreePath: URL) async throws(GitDataPlaneError) -> GitRepositoryIdentity {
@@ -129,6 +132,9 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         -> GitResolvedRevision
     {
         revisionResolutionRequests.append(request)
+        if let revisionResolutionFailure {
+            throw revisionResolutionFailure
+        }
         guard let revision = resolvedRevisionByTarget[request.target] else {
             throw GitDataPlaneError.unsupported(message: "missing revision")
         }

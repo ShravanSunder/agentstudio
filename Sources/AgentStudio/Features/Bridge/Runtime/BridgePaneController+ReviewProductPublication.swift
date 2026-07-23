@@ -1,7 +1,7 @@
 import Foundation
 
 enum BridgeReviewPackageLoadCommitDisposition: Equatable, Sendable {
-    case committed
+    case committed(delivery: BridgeReviewPublicationDeliveryDisposition)
     case rejected
 }
 
@@ -81,7 +81,7 @@ extension BridgePaneController {
         // Native B is already committed. A closed admission may suppress this
         // rebuildable index update, but cannot turn the commit into rejection.
         guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-            return .committed
+            return .committed(delivery: .deferred)
         }
         _ = await reviewChangeIndex.recordCommittedLoad(
             load.changeIndexLoad,
@@ -94,7 +94,7 @@ extension BridgePaneController {
                 productAdmission: productAdmission
             )
         else {
-            return .committed
+            return .committed(delivery: .deferred)
         }
 
         let deliveryDisposition: BridgeReviewPublicationDeliveryDisposition
@@ -114,6 +114,6 @@ extension BridgePaneController {
             publicationId: committedPublication.publicationId,
             productAdmission: productAdmission
         )
-        return .committed
+        return .committed(delivery: deliveryDisposition)
     }
 }

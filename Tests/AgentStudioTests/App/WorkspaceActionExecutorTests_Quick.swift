@@ -145,11 +145,11 @@ extension WebKitSerializedTests {
                 return
             }
             #expect(rootPath == worktree.path.path)
-            #expect(baseline == .localDefaultBranch(branchName: "main"))
+            #expect(baseline == .ref(name: "HEAD"))
         }
 
-        @Test("openBridgeReviewInNewTab falls back to the only registered worktree when no pane has context")
-        func openBridgeReviewInNewTab_usesOnlyRegisteredWorktreeWithoutActivePaneContext() {
+        @Test("openBridgeReviewInNewTab uses HEAD when default branch enrichment is unavailable")
+        func openBridgeReviewInNewTab_usesHEADWhenDefaultBranchEnrichmentIsUnavailable() {
             let harness = makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let viewRegistry = harness.viewRegistry
@@ -180,7 +180,36 @@ extension WebKitSerializedTests {
                 return
             }
             #expect(rootPath == worktree.path.path)
-            #expect(baseline == .localDefaultBranch(branchName: "main"))
+            #expect(baseline == .ref(name: "HEAD"))
+        }
+
+        @Test("openBridgeReviewInNewTab uses the cached main-worktree branch as its baseline")
+        func openBridgeReviewInNewTab_usesCachedMainWorktreeBranchAsBaseline() {
+            let harness = makeWorkspaceActionExecutorHarness()
+            let store = harness.store
+            let executor = harness.executor
+            let tempDir = harness.tempDir
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+
+            let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+            guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
+                Issue.record("Expected main worktree")
+                return
+            }
+            atom(\.repoCache).setWorktreeEnrichment(
+                WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "master")
+            )
+            defer { atom(\.repoCache).removeWorktree(worktree.id) }
+
+            let pane = executor.openBridgeReviewInNewTab(worktreeId: worktree.id)
+
+            guard case .bridgePanel(let state) = pane?.content,
+                case .workspace(_, let baseline) = state.source
+            else {
+                Issue.record("Expected Bridge workspace source")
+                return
+            }
+            #expect(baseline == .localDefaultBranch(branchName: "master"))
         }
 
         @Test("openBridgeReviewInNewTab can target a registered worktree without an active source pane")
@@ -217,7 +246,7 @@ extension WebKitSerializedTests {
                 return
             }
             #expect(rootPath == worktree.path.path)
-            #expect(baseline == .localDefaultBranch(branchName: "main"))
+            #expect(baseline == .ref(name: "HEAD"))
         }
 
         @Test("openBridgeFilesInNewTab can target a registered worktree without an active source pane")

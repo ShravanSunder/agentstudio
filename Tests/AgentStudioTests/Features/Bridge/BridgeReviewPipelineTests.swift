@@ -471,7 +471,9 @@ func makeBridgeEndpointChangedFile(
     sizeBytes: Int,
     changeKind: BridgeFileChangeKind = .modified,
     oldContentHash: String? = nil,
-    newContentHash: String? = nil
+    newContentHash: String? = nil,
+    oldMode: Int32? = nil,
+    newMode: Int32? = nil
 ) -> BridgeEndpointChangedFile {
     BridgeEndpointChangedFile(
         fileId: fileId,
@@ -484,6 +486,8 @@ func makeBridgeEndpointChangedFile(
         oldContentHash: changeKind == .added ? nil : (oldContentHash ?? "sha256:old-\(fileId)"),
         newContentHash: changeKind == .deleted ? nil : (newContentHash ?? "sha256:new-\(fileId)"),
         contentHashAlgorithm: "sha256",
+        oldMode: oldMode,
+        newMode: newMode,
         additions: changeKind == .deleted ? 0 : 1,
         deletions: changeKind == .added ? 0 : 1,
         isBinary: false,
