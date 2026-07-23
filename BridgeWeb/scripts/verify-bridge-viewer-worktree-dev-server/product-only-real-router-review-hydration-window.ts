@@ -57,9 +57,27 @@ export async function waitForFreshReviewHydrationWindowSnapshot(props: {
 					visibleCandidates.some(
 						(item) => item.contentState !== 'hydrated' && item.contentState !== 'windowed',
 					) ||
-					visibleItems.some(
-						(item) => item.publicationId === null || item.sourceCorrelations === null,
-					)
+					visibleItems.some((item) => {
+						if (item.publicationId === null || item.sourceCorrelations === null) return true;
+						try {
+							const sourceCorrelations: unknown = JSON.parse(item.sourceCorrelations);
+							return (
+								!Array.isArray(sourceCorrelations) ||
+								sourceCorrelations.length === 0 ||
+								sourceCorrelations.some(
+									(sourceCorrelation): boolean =>
+										typeof sourceCorrelation !== 'object' ||
+										sourceCorrelation === null ||
+										Reflect.get(sourceCorrelation, 'itemId') !== item.itemId ||
+										Reflect.get(sourceCorrelation, 'pierreItemId') !== item.itemId ||
+										Reflect.get(sourceCorrelation, 'semanticItemId') !== item.itemId ||
+										Reflect.get(sourceCorrelation, 'publicationId') !== item.publicationId,
+								)
+							);
+						} catch {
+							return true;
+						}
+					})
 				) {
 					return false;
 				}
