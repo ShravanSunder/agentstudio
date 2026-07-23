@@ -6,9 +6,7 @@ struct WorkspaceSQLiteDatastoreFactory {
 
     init(
         coreDatabaseURL: URL = AppDataPaths.coreSQLiteURL(),
-        localDatabaseURL: @escaping @Sendable (UUID) -> URL = { workspaceId in
-            AppDataPaths.workspaceLocalSQLiteURL(workspaceId: workspaceId)
-        },
+        localDatabaseURL: URL = AppDataPaths.localSQLiteURL(),
         traceRuntime: AgentStudioTraceRuntime? = nil
     ) {
         self.configuration = WorkspaceSQLiteDatastoreConfiguration(

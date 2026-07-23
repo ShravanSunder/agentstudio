@@ -28,102 +28,42 @@ enum WorkspacePersistenceTransformer {
         repositoryTopologyAtom.replaceTopology(replacement)
     }
 
-    static func makeRepositoryTopologySQLiteSnapshot(
-        identityAtom: WorkspaceIdentityAtom,
-        repositoryTopologyAtom: RepositoryTopologyAtom,
+    @concurrent nonisolated static func prepareRepositoryTopologyOffMain(
+        _ snapshot: RepositoryTopologySQLiteSnapshot
+    ) async -> RepositoryTopologyReplacementPreparation {
+        RepositoryTopologyReplacement.prepare(
+            repositories: runtimeRepos(
+                canonicalRepos: snapshot.repos,
+                canonicalWorktrees: snapshot.worktrees
+            ),
+            watchedPaths: snapshot.watchedPaths,
+            unavailableRepositoryIDs: snapshot.unavailableRepoIds
+        )
+    }
+
+    static func applyPreparedRepositoryTopology(
+        _ replacement: RepositoryTopologyReplacement,
+        repositoryTopologyAtom: RepositoryTopologyAtom
+    ) {
+        repositoryTopologyAtom.replaceTopology(replacement)
+    }
+
+    @concurrent nonisolated static func makeRepositoryTopologySQLiteSnapshotOffMain(
+        repositories: [Repo],
+        unavailableRepositoryIDs: Set<UUID>,
+        watchedPaths: [WatchedPath],
         persistedAt: Date
-    ) -> RepositoryTopologySQLiteSnapshot {
+    ) async -> RepositoryTopologySQLiteSnapshot {
         RepositoryTopologySQLiteSnapshot(
-            id: identityAtom.workspaceId,
-            repos: canonicalRepos(from: repositoryTopologyAtom.repos),
-            worktrees: canonicalWorktrees(from: repositoryTopologyAtom.repos),
-            unavailableRepoIds: repositoryTopologyAtom.unavailableRepoIds,
-            watchedPaths: repositoryTopologyAtom.watchedPaths,
+            repos: canonicalRepos(from: repositories),
+            worktrees: canonicalWorktrees(from: repositories),
+            unavailableRepoIds: unavailableRepositoryIDs,
+            watchedPaths: watchedPaths,
             updatedAt: persistedAt
         )
     }
 
-    nonisolated static func sqliteSnapshot(
-        from state: WorkspacePersistor.PersistableState
-    ) -> WorkspaceSQLiteSnapshot {
-        WorkspaceSQLiteSnapshot(
-            id: state.id,
-            name: state.name,
-            panes: state.panes,
-            tabs: state.tabs,
-            activeTabId: state.activeTabId,
-            sidebarWidth: state.sidebarWidth,
-            windowFrame: state.windowFrame,
-            createdAt: state.createdAt,
-            updatedAt: state.updatedAt
-        )
-    }
-
-    nonisolated static func repositoryTopologySQLiteSnapshot(
-        from state: WorkspacePersistor.PersistableState
-    ) -> RepositoryTopologySQLiteSnapshot {
-        RepositoryTopologySQLiteSnapshot(
-            id: state.id,
-            repos: state.repos,
-            worktrees: state.worktrees,
-            unavailableRepoIds: state.unavailableRepoIds,
-            watchedPaths: state.watchedPaths,
-            updatedAt: state.updatedAt
-        )
-    }
-
-    nonisolated static func sqliteSaveBundle(
-        from state: WorkspacePersistor.PersistableState
-    ) -> WorkspaceSQLiteSaveBundle {
-        WorkspaceSQLiteSaveBundle(
-            workspace: sqliteSnapshot(from: state),
-            repositoryTopology: repositoryTopologySQLiteSnapshot(from: state)
-        )
-    }
-
-    nonisolated static func persistableState(
-        from snapshot: WorkspaceSQLiteSnapshot
-    ) -> WorkspacePersistor.PersistableState {
-        WorkspacePersistor.PersistableState(
-            id: snapshot.id,
-            name: snapshot.name,
-            repos: [],
-            worktrees: [],
-            unavailableRepoIds: [],
-            panes: snapshot.panes,
-            tabs: snapshot.tabs,
-            activeTabId: snapshot.activeTabId,
-            sidebarWidth: snapshot.sidebarWidth,
-            windowFrame: snapshot.windowFrame,
-            watchedPaths: [],
-            createdAt: snapshot.createdAt,
-            updatedAt: snapshot.updatedAt
-        )
-    }
-
-    nonisolated static func persistableState(
-        from bundle: WorkspaceSQLiteSaveBundle
-    ) -> WorkspacePersistor.PersistableState {
-        let snapshot = bundle.workspace
-        let topology = bundle.repositoryTopology
-        return WorkspacePersistor.PersistableState(
-            id: snapshot.id,
-            name: snapshot.name,
-            repos: topology.repos,
-            worktrees: topology.worktrees,
-            unavailableRepoIds: topology.unavailableRepoIds,
-            panes: snapshot.panes,
-            tabs: snapshot.tabs,
-            activeTabId: snapshot.activeTabId,
-            sidebarWidth: snapshot.sidebarWidth,
-            windowFrame: snapshot.windowFrame,
-            watchedPaths: topology.watchedPaths,
-            createdAt: snapshot.createdAt,
-            updatedAt: snapshot.updatedAt
-        )
-    }
-
-    private static func canonicalRepos(from repos: [Repo]) -> [CanonicalRepo] {
+    private nonisolated static func canonicalRepos(from repos: [Repo]) -> [CanonicalRepo] {
         repos.map { repo in
             CanonicalRepo(
                 id: repo.id,
@@ -137,7 +77,7 @@ enum WorkspacePersistenceTransformer {
         }
     }
 
-    private static func canonicalWorktrees(from repos: [Repo]) -> [CanonicalWorktree] {
+    private nonisolated static func canonicalWorktrees(from repos: [Repo]) -> [CanonicalWorktree] {
         repos.flatMap { repo in
             repo.worktrees.map { worktree in
                 CanonicalWorktree(
@@ -152,7 +92,7 @@ enum WorkspacePersistenceTransformer {
         }
     }
 
-    private static func runtimeRepos(
+    private nonisolated static func runtimeRepos(
         canonicalRepos: [CanonicalRepo],
         canonicalWorktrees: [CanonicalWorktree]
     ) -> [Repo] {
@@ -181,7 +121,7 @@ enum WorkspacePersistenceTransformer {
         }
     }
 
-    private static func preparedTopologyReplacement(
+    private nonisolated static func preparedTopologyReplacement(
         canonicalRepos: [CanonicalRepo],
         canonicalWorktrees: [CanonicalWorktree],
         watchedPaths: [WatchedPath],

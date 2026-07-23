@@ -41,12 +41,11 @@ final class WorkspaceStoreDrawerTests {
         let saveCoordinator = WorkspaceSQLiteSaveCoordinator(
             identityAtom: store.identityAtom,
             windowMemoryAtom: store.windowMemoryAtom,
-            repositoryTopologyAtom: store.repositoryTopologyAtom,
             workspacePaneAtom: store.paneAtom,
             workspaceTabLayoutAtom: store.tabLayoutAtom,
             sqliteDatastore: datastore
         )
-        let bundle = saveCoordinator.captureCurrentSaveBundle(
+        let bundle = await saveCoordinator.captureCurrentSaveBundle(
             persistedAt: Date(timeIntervalSince1970: 1_780_000_000)
         )
         try await datastore.saveWorkspaceSnapshotBundle(bundle)

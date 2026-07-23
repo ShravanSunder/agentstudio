@@ -307,9 +307,18 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             workspaceName: "Composed Drawer Restore",
             createdAt: Date(timeIntervalSince1970: 1_700_000_089)
         )
+        try fixture.coreRepository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: identityAtom.workspaceName,
+                createdAt: identityAtom.createdAt,
+                updatedAt: identityAtom.createdAt
+            )
+        )
+        let sqliteDatastore = workspaceSQLiteDatastore(from: fixture.backend)
         let store = WorkspaceStore(
             identityAtom: identityAtom,
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+            sqliteDatastore: sqliteDatastore
         )
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
@@ -329,6 +338,11 @@ struct WorkspaceDrawerRestoreIntegrationTests {
         )
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
+        let topologyStore = RepositoryTopologyStore(
+            atom: store.repositoryTopologyAtom,
+            sqliteDatastore: sqliteDatastore
+        )
+        try await topologyStore.flushAsync()
         let parentPane = store.createPane(
             launchDirectory: worktree.path,
             provider: .zmx,

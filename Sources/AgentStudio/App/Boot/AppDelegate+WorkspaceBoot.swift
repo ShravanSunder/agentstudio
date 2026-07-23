@@ -20,7 +20,6 @@ extension AppDelegate {
     }
 
     func bootWorkspacePresentationPrerequisites(
-        persistor: WorkspacePersistor,
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
     ) async {
@@ -28,7 +27,6 @@ extension AppDelegate {
             recordBootStep(step)
             await executeBootStep(
                 step,
-                persistor: persistor,
                 paneRuntimeBus: paneRuntimeBus,
                 filesystemSource: &filesystemSource
             )
@@ -36,7 +34,6 @@ extension AppDelegate {
     }
 
     func bootWorkspacePostPresentationServices(
-        persistor: WorkspacePersistor,
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
     ) async {
@@ -44,7 +41,6 @@ extension AppDelegate {
             recordBootStep(step)
             await executeBootStep(
                 step,
-                persistor: persistor,
                 paneRuntimeBus: paneRuntimeBus,
                 filesystemSource: &filesystemSource
             )
@@ -107,7 +103,6 @@ extension AppDelegate {
 
     private func executeBootStep(
         _ step: WorkspaceBootStep,
-        persistor: WorkspacePersistor,
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
     ) async {
@@ -115,9 +110,9 @@ extension AppDelegate {
         case .loadCanonicalStore:
             await bootLoadCanonicalStore()
         case .loadCacheStore:
-            await bootLoadCacheStore(persistor: persistor)
+            await bootLoadCacheStore()
         case .loadUIStore:
-            await bootLoadUIStore(persistor: persistor)
+            await bootLoadUIStore()
         case .establishRuntimeBus:
             await bootEstablishRuntimeBus(paneRuntimeBus: paneRuntimeBus, filesystemSource: &filesystemSource)
         case .startFilesystemActor:
@@ -148,18 +143,13 @@ extension AppDelegate {
         let workspaceSQLiteSaveCoordinator = WorkspaceSQLiteSaveCoordinator(
             identityAtom: atomStore.workspaceIdentity,
             windowMemoryAtom: atomStore.workspaceWindowMemory,
-            repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
             workspacePaneAtom: atomStore.workspacePane,
             workspaceTabLayoutAtom: atomStore.workspaceTabLayout,
             sqliteDatastore: sqliteDatastore
         )
         let topologyStore = RepositoryTopologyStore(
             atom: atomStore.workspaceRepositoryTopology,
-            sqliteDatastore: sqliteDatastore,
-            saveCoordinator: workspaceSQLiteSaveCoordinator,
-            recoveryReporter: { [weak self] event in
-                self?.recordPersistenceRecovery(event)
-            }
+            sqliteDatastore: sqliteDatastore
         )
         repositoryTopologyStore = topologyStore
         store = WorkspaceStore(
@@ -178,14 +168,14 @@ extension AppDelegate {
         repoCacheStore = RepoCacheStore(
             cacheAtom: atomStore.repoEnrichmentCache,
             recentTargetAtom: atomStore.recentWorkspaceTarget,
-            sqliteDatastore: workspaceSQLiteDatastore,
+            sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
         )
         sidebarCacheStore = SidebarCacheStore(
             atom: atomStore.sidebarCache,
-            sqliteDatastore: workspaceSQLiteDatastore,
+            sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
@@ -193,7 +183,7 @@ extension AppDelegate {
         uiStateStore = UIStateStore(
             atom: atomStore.workspaceSidebarState,
             editorChooserState: atomStore.editorChooser,
-            sqliteDatastore: workspaceSQLiteDatastore,
+            sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
@@ -202,6 +192,7 @@ extension AppDelegate {
             editorPreferenceAtom: atomStore.editorPreference,
             repoExplorerSidebarPrefsAtom: atomStore.repoExplorerSidebarPrefs,
             inboxNotificationPrefsAtom: atomStore.inboxNotificationPrefs,
+            sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
@@ -240,17 +231,16 @@ extension AppDelegate {
         WorkspaceSQLiteDatastoreFactory(traceRuntime: traceRuntime).makeDatastore()
     }
 
-    private func bootLoadCacheStore(persistor: WorkspacePersistor) async {
-        _ = persistor
+    private func bootLoadCacheStore() async {
         await repoCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
         await refreshTraceIdentitySnapshot()
         await sidebarCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
     }
 
-    private func bootLoadUIStore(persistor: WorkspacePersistor) async {
-        workspaceSettingsStore.restore(for: store.identityAtom.workspaceId)
+    private func bootLoadUIStore() async {
+        await workspaceSettingsStore.restoreAsync(for: store.identityAtom.workspaceId)
         await uiStateStore.restoreAsync(for: store.identityAtom.workspaceId)
-        await bootLoadInboxNotificationStore(persistor: persistor)
+        await bootLoadInboxNotificationStore()
     }
 
     private func bootEstablishRuntimeBus(
@@ -398,15 +388,8 @@ extension AppDelegate {
     func startDeferredRepositoryTopologyLaneIfRequested() {
         guard shouldStartRepositoryTopologyAfterWindowPresentation else { return }
         shouldStartRepositoryTopologyAfterWindowPresentation = false
-        let loadedWorkspaceID = store.identityAtom.workspaceId
-        let topologyStore = repositoryTopologyStore!
-        let repositoryTopologyLoadTask = Task { @MainActor in
-            await topologyStore.restoreAsync(for: loadedWorkspaceID)
-        }
-        self.repositoryTopologyLoadTask = repositoryTopologyLoadTask
         initialTopologySyncTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await repositoryTopologyLoadTask.value
             await self.replayBootTopology(store: self.store, coordinator: self.workspaceCacheCoordinator)
             self.workspaceSurfaceCoordinator.repairRestoredBridgePanesAfterInitialTopologyReplay()
             if let filesystemPipelineBootTask = self.filesystemPipelineBootTask {

@@ -5,29 +5,20 @@ import Testing
 
 @Suite("WorkspaceCoreRepositoryTopologyRollbackTests")
 struct WorkspaceCoreRepositoryTopologyRollbackTests {
-    @Test("repository topology replace rolls back after foreign repo conflict")
-    func repositoryTopologyReplaceRollsBackAfterForeignRepoConflict() throws {
+    @Test("unavailable repository replacement rolls back after a missing global repo")
+    func unavailableRepositoryReplacementRollsBackAfterMissingGlobalRepo() throws {
         let fixture = try makeWorkspaceCoreRepositoryFixture()
         let repository = fixture.repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000118")!
-        let otherWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000119")!
         let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000000507")!
         let watchedPathId = UUID(uuidString: "00000000-0000-0000-0000-000000000402")!
         let originalRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
-        let foreignRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000223")!
+        let missingRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000223")!
         let originalWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000318")!
         try repository.upsertWorkspace(
             .init(
                 id: workspaceId,
                 name: "Rollback Source",
-                createdAt: Date(timeIntervalSince1970: 100),
-                updatedAt: Date(timeIntervalSince1970: 100)
-            )
-        )
-        try repository.upsertWorkspace(
-            .init(
-                id: otherWorkspaceId,
-                name: "Rollback Other",
                 createdAt: Date(timeIntervalSince1970: 100),
                 updatedAt: Date(timeIntervalSince1970: 100)
             )
@@ -59,23 +50,7 @@ struct WorkspaceCoreRepositoryTopologyRollbackTests {
             ],
             unavailableRepoIds: [originalRepoId]
         )
-        try repository.replaceRepositoryTopology(workspaceId: workspaceId, topology: originalTopology)
-        try repository.replaceRepositoryTopology(
-            workspaceId: otherWorkspaceId,
-            topology: .init(
-                watchedPaths: [],
-                repos: [
-                    .init(
-                        id: foreignRepoId,
-                        name: "foreign",
-                        repoPath: URL(fileURLWithPath: "/tmp/agentstudio/rollback-foreign"),
-                        createdAt: Date(timeIntervalSince1970: 250),
-                        worktrees: []
-                    )
-                ],
-                unavailableRepoIds: []
-            )
-        )
+        try repository.replaceRepositoryTopology(originalTopology)
         try fixture.insertPane(
             workspaceId: workspaceId,
             paneId: paneId,
@@ -83,25 +58,10 @@ struct WorkspaceCoreRepositoryTopologyRollbackTests {
             sourceWorktreeId: originalWorktreeId
         )
 
-        #expect(throws: WorkspaceCoreRepositoryError.repoNotFoundInWorkspace(foreignRepoId, workspaceId)) {
-            try repository.replaceRepositoryTopology(
-                workspaceId: workspaceId,
-                topology: .init(
-                    watchedPaths: [],
-                    repos: [
-                        .init(
-                            id: foreignRepoId,
-                            name: "foreign",
-                            repoPath: URL(fileURLWithPath: "/tmp/agentstudio/rollback-foreign"),
-                            createdAt: Date(timeIntervalSince1970: 250),
-                            worktrees: []
-                        )
-                    ],
-                    unavailableRepoIds: []
-                )
-            )
+        #expect(throws: WorkspaceCoreRepositoryError.repoNotFound(missingRepoId)) {
+            try repository.setUnavailableRepoIds([originalRepoId, missingRepoId])
         }
-        let restoredTopology = try repository.fetchRepositoryTopology(workspaceId: workspaceId)
+        let restoredTopology = try repository.fetchRepositoryTopology()
         let paneSource = try fixture.fetchPaneSource(paneId: paneId)
 
         #expect(restoredTopology == originalTopology)
@@ -109,8 +69,8 @@ struct WorkspaceCoreRepositoryTopologyRollbackTests {
         #expect(paneSource?.worktreeId == originalWorktreeId)
     }
 
-    @Test("worktree reconciliation rolls back after foreign worktree conflict")
-    func worktreeReconciliationRollsBackAfterForeignWorktreeConflict() throws {
+    @Test("worktree reconciliation rolls back after existing worktree reparenting")
+    func worktreeReconciliationRollsBackAfterExistingWorktreeReparenting() throws {
         let fixture = try makeWorkspaceCoreRepositoryFixture()
         let repository = fixture.repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000120")!
@@ -171,7 +131,7 @@ struct WorkspaceCoreRepositoryTopologyRollbackTests {
             ],
             unavailableRepoIds: []
         )
-        try repository.replaceRepositoryTopology(workspaceId: workspaceId, topology: originalTopology)
+        try repository.replaceRepositoryTopology(originalTopology)
         try fixture.insertPane(
             workspaceId: workspaceId,
             paneId: paneId,
@@ -187,7 +147,6 @@ struct WorkspaceCoreRepositoryTopologyRollbackTests {
             )
         ) {
             try repository.reconcileRepoWorktrees(
-                workspaceId: workspaceId,
                 repoId: targetRepoId,
                 worktrees: [
                     .init(
@@ -207,7 +166,7 @@ struct WorkspaceCoreRepositoryTopologyRollbackTests {
                 ]
             )
         }
-        let restoredTopology = try repository.fetchRepositoryTopology(workspaceId: workspaceId)
+        let restoredTopology = try repository.fetchRepositoryTopology()
         let paneSource = try fixture.fetchPaneSource(paneId: paneId)
 
         #expect(restoredTopology == originalTopology)

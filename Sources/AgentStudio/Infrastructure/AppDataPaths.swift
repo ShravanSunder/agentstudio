@@ -59,16 +59,6 @@ enum AppDataPaths {
             .standardizedFileURL
     }
 
-    static func workspacesDirectory(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        releaseChannel: ReleaseChannel = .current,
-        isDebugBuild: Bool = Self.isDebugBuild
-    ) -> URL {
-        rootDirectory(environment: environment, releaseChannel: releaseChannel, isDebugBuild: isDebugBuild)
-            .appending(path: "workspaces")
-            .standardizedFileURL
-    }
-
     static func globalPreferencesURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         releaseChannel: ReleaseChannel = .current,
@@ -88,13 +78,12 @@ enum AppDataPaths {
             .standardizedFileURL
     }
 
-    static func workspaceLocalSQLiteURL(
-        workspaceId: UUID,
+    static func localSQLiteURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         isDebugBuild: Bool = Self.isDebugBuild
     ) -> URL {
-        workspacesDirectory(environment: environment, isDebugBuild: isDebugBuild)
-            .appending(path: "\(workspaceId.uuidString).local.sqlite")
+        rootDirectory(environment: environment, isDebugBuild: isDebugBuild)
+            .appending(path: "local.sqlite")
             .standardizedFileURL
     }
 

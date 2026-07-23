@@ -7,10 +7,6 @@ import Testing
 @MainActor
 struct GitHubWebviewLaunchResolverTests {
     private func makeStore() -> WorkspaceStore {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "github-webview-launch-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        persistor.ensureDirectory()
         let store = WorkspaceStore()
         return store
     }

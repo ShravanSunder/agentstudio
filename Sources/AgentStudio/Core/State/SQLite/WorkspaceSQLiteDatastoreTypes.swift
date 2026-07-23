@@ -2,12 +2,12 @@ import Foundation
 
 struct WorkspaceSQLiteDatastoreConfiguration: Sendable {
     var coreDatabaseURL: URL
-    var localDatabaseURL: @Sendable (UUID) -> URL
+    var localDatabaseURL: URL
 }
 
 enum WorkspaceSQLiteDatastoreError: Error, Equatable, Sendable {
     case missingConfiguration
-    case useDatastoreLocalRepositoryCache
+    case useDatastoreApplicationLocalRepositoryBundle
 }
 
 struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {
@@ -38,14 +38,15 @@ extension WorkspaceSQLiteDatastore {
         case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
-    enum RepositoryTopologyLoadResult: Equatable, Sendable {
-        case loaded(RepositoryTopologySQLiteSnapshot)
+    enum CoreLoadResult: Equatable, Sendable {
+        case loaded(WorkspaceCoreLoadSnapshot)
         case uninitialized
         case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
-    enum LocalLegacyImportDecisionResult: Equatable, Sendable {
-        case found(WorkspaceLocalSQLiteLegacyImportDecision)
+    enum RepositoryTopologyLoadResult: Equatable, Sendable {
+        case loaded(RepositoryTopologySQLiteSnapshot)
+        case uninitialized
         case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
@@ -55,10 +56,8 @@ extension WorkspaceSQLiteDatastore {
     }
 
     struct LocalCacheLoadPayload: Equatable, Sendable {
-        var cacheState: WorkspaceLocalRepository.CacheStateRecord?
-        var recentTargets: [RecentWorkspaceTarget]?
-        var cacheLegacyDecision: WorkspaceLocalSQLiteLegacyImportDecision
-        var recentTargetLegacyDecision: WorkspaceLocalSQLiteLegacyImportDecision
+        var cacheState: WorkspaceLocalRepository.CacheStateRecord
+        var recentTargets: [RecentWorkspaceTarget]
         var recoveryEvents: [PersistenceRecoveryEvent]
     }
 
@@ -69,7 +68,6 @@ extension WorkspaceSQLiteDatastore {
 
     struct LocalUILoadPayload: Equatable, Sendable {
         var state: WorkspaceLocalRepository.SidebarStateRecord?
-        var legacyDecision: WorkspaceLocalSQLiteLegacyImportDecision
         var recoveryEvents: [PersistenceRecoveryEvent]
     }
 
@@ -79,8 +77,19 @@ extension WorkspaceSQLiteDatastore {
     }
 
     struct LocalSidebarLoadPayload: Equatable, Sendable {
-        var expandedGroups: Set<SidebarGroupKey>?
-        var legacyDecision: WorkspaceLocalSQLiteLegacyImportDecision
+        var expandedGroups: Set<SidebarGroupKey>
+        var recoveryEvents: [PersistenceRecoveryEvent]
+    }
+
+    enum LocalSettingsLoadResult: Equatable, Sendable {
+        case loaded(LocalSettingsLoadPayload)
+        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
+    }
+
+    struct LocalSettingsLoadPayload: Equatable, Sendable {
+        var editor: WorkspaceLocalRepository.EditorPreferencesRecord
+        var repoExplorer: WorkspaceLocalRepository.RepoExplorerPreferencesRecord
+        var inboxNotification: WorkspaceLocalRepository.InboxNotificationPreferencesRecord
         var recoveryEvents: [PersistenceRecoveryEvent]
     }
 

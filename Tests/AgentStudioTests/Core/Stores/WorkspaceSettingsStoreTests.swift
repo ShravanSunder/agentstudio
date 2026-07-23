@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -6,675 +7,339 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WorkspaceSettingsStoreTests {
-    private let tempDir: URL
-
-    init() {
-        tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "workspace-settings-store-tests-\(UUID().uuidString)")
-        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-    }
-
     @Test
-    func flushAndRestoreRoundTripsSettings() throws {
+    func flushAndRestoreRoundTripsTypedSQLiteSettings() async throws {
         let workspaceId = UUID()
+        let fixture = try makeFixture()
         let editorPreference = EditorPreferenceAtom()
-        let repoExplorerPrefs = RepoExplorerSidebarPrefsAtom()
-        let inboxPrefs = InboxNotificationPrefsAtom()
+        let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
+        let inboxPreferences = InboxNotificationPrefsAtom()
         let store = makeStore(
+            datastore: fixture.datastore,
             editorPreference: editorPreference,
-            repoExplorerPrefs: repoExplorerPrefs,
-            inboxPrefs: inboxPrefs
+            repoExplorerPreferences: repoExplorerPreferences,
+            inboxPreferences: inboxPreferences
         )
         editorPreference.setBookmarkedEditor("cursor")
-        repoExplorerPrefs.setGroupingMode(.tab)
-        inboxPrefs.setGrouping(.byRepo)
-        inboxPrefs.setSort(.oldestFirst)
-        inboxPrefs.setBellEnabled(true)
-        inboxPrefs.setGlobalInboxContentMode(.activity)
-        inboxPrefs.setGlobalInboxRowStateFilter(.all)
-        inboxPrefs.setPaneInboxContentMode(.all)
-        inboxPrefs.setPaneInboxRowStateFilter(.unreadOnly)
-        repoExplorerPrefs.setSortOrder(.descending)
-        repoExplorerPrefs.setRepoVisibilityMode(.favoritesOnly)
+        repoExplorerPreferences.setGroupingMode(.tab)
+        repoExplorerPreferences.setSortOrder(.descending)
+        repoExplorerPreferences.setRepoVisibilityMode(.favoritesOnly)
+        inboxPreferences.setGrouping(.byRepo)
+        inboxPreferences.setSort(.oldestFirst)
+        inboxPreferences.setBellEnabled(true)
+        inboxPreferences.setGlobalInboxContentMode(.activity)
+        inboxPreferences.setGlobalInboxRowStateFilter(.all)
+        inboxPreferences.setPaneInboxContentMode(.all)
+        inboxPreferences.setPaneInboxRowStateFilter(.unreadOnly)
 
-        try store.flush(for: workspaceId)
+        try await store.flush(for: workspaceId)
 
         let restoredEditorPreference = EditorPreferenceAtom()
-        let restoredRepoExplorerPrefs = RepoExplorerSidebarPrefsAtom()
-        let restoredInboxPrefs = InboxNotificationPrefsAtom()
-        makeStore(
+        let restoredRepoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
+        let restoredInboxPreferences = InboxNotificationPrefsAtom()
+        await makeStore(
+            datastore: fixture.datastore,
             editorPreference: restoredEditorPreference,
-            repoExplorerPrefs: restoredRepoExplorerPrefs,
-            inboxPrefs: restoredInboxPrefs
-        ).restore(for: workspaceId)
+            repoExplorerPreferences: restoredRepoExplorerPreferences,
+            inboxPreferences: restoredInboxPreferences
+        ).restoreAsync(for: workspaceId)
 
         #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
-        #expect(restoredRepoExplorerPrefs.groupingMode == .tab)
-        #expect(restoredRepoExplorerPrefs.sortOrder == .descending)
-        #expect(restoredRepoExplorerPrefs.repoVisibilityMode == .favoritesOnly)
-        #expect(restoredInboxPrefs.grouping == .byRepo)
-        #expect(restoredInboxPrefs.sort == .oldestFirst)
-        #expect(restoredInboxPrefs.bellEnabled)
-        #expect(restoredInboxPrefs.globalInboxContentMode == .activity)
-        #expect(restoredInboxPrefs.globalInboxRowStateFilter == .all)
-        #expect(restoredInboxPrefs.paneInboxContentMode == .all)
-        #expect(restoredInboxPrefs.paneInboxRowStateFilter == .unreadOnly)
+        #expect(restoredRepoExplorerPreferences.groupingMode == .tab)
+        #expect(restoredRepoExplorerPreferences.sortOrder == .descending)
+        #expect(restoredRepoExplorerPreferences.repoVisibilityMode == .favoritesOnly)
+        #expect(restoredInboxPreferences.grouping == .byRepo)
+        #expect(restoredInboxPreferences.sort == .oldestFirst)
+        #expect(restoredInboxPreferences.bellEnabled)
+        #expect(restoredInboxPreferences.globalInboxContentMode == .activity)
+        #expect(restoredInboxPreferences.globalInboxRowStateFilter == .all)
+        #expect(restoredInboxPreferences.paneInboxContentMode == .all)
+        #expect(restoredInboxPreferences.paneInboxRowStateFilter == .unreadOnly)
     }
 
     @Test
-    func restoreMissingSettingsFileAppliesDefaults() {
-        let workspaceId = UUID()
+    func restoreMissingRowsAppliesTypedDefaults() async throws {
+        let fixture = try makeFixture()
         let editorPreference = EditorPreferenceAtom()
-        let repoExplorerPrefs = RepoExplorerSidebarPrefsAtom()
-        let inboxPrefs = InboxNotificationPrefsAtom()
-        let store = makeStore(
-            editorPreference: editorPreference,
-            repoExplorerPrefs: repoExplorerPrefs,
-            inboxPrefs: inboxPrefs
-        )
+        let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
+        let inboxPreferences = InboxNotificationPrefsAtom()
         editorPreference.setBookmarkedEditor("cursor")
-        repoExplorerPrefs.setGroupingMode(.pane)
-        repoExplorerPrefs.setSortOrder(.descending)
-        repoExplorerPrefs.setRepoVisibilityMode(.favoritesOnly)
-        inboxPrefs.setGrouping(.byRepo)
-        inboxPrefs.setSort(.oldestFirst)
-        inboxPrefs.setBellEnabled(true)
+        repoExplorerPreferences.setGroupingMode(.pane)
+        repoExplorerPreferences.setSortOrder(.descending)
+        repoExplorerPreferences.setRepoVisibilityMode(.favoritesOnly)
+        inboxPreferences.setGrouping(.byRepo)
+        inboxPreferences.setSort(.oldestFirst)
+        inboxPreferences.setBellEnabled(true)
 
-        store.restore(for: workspaceId)
+        await makeStore(
+            datastore: fixture.datastore,
+            editorPreference: editorPreference,
+            repoExplorerPreferences: repoExplorerPreferences,
+            inboxPreferences: inboxPreferences
+        ).restoreAsync(for: UUID())
 
-        #expect(editorPreference.bookmarkedEditorId == nil)
-        #expect(repoExplorerPrefs.groupingMode == .repo)
-        #expect(repoExplorerPrefs.sortOrder == .ascending)
-        #expect(repoExplorerPrefs.repoVisibilityMode == .all)
-        #expect(inboxPrefs.grouping == .byTab)
-        #expect(inboxPrefs.sort == .newestFirst)
-        #expect(!inboxPrefs.bellEnabled)
-        #expect(inboxPrefs.globalInboxContentMode == .rollUpAlerts)
-        #expect(inboxPrefs.globalInboxRowStateFilter == .unreadOnly)
-        #expect(inboxPrefs.paneInboxContentMode == .rollUpAlerts)
-        #expect(inboxPrefs.paneInboxRowStateFilter == .unreadOnly)
+        assertDefaultSettings(
+            editorPreference: editorPreference,
+            repoExplorerPreferences: repoExplorerPreferences,
+            inboxPreferences: inboxPreferences
+        )
     }
 
     @Test
-    func restoreMissingSettingsFileImportsLegacySettingsSlices() throws {
+    func restoreInvalidProductVocabularyDefaultsEachTypedPreferenceLane() async throws {
         let workspaceId = UUID()
+        let fixture = try makeFixture()
+        try await fixture.localDatabaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO local_editor_preferences(workspace_id, bookmarked_editor_id, updated_at)
+                    VALUES (?, ?, ?)
+                    """,
+                arguments: [workspaceId.uuidString, "cursor", 1]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_repo_explorer_preferences(
+                        workspace_id, grouping_mode, sort_order, visibility_mode, updated_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                arguments: [workspaceId.uuidString, "unsupported", "descending", "favoritesOnly", 1]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_inbox_notification_preferences(
+                        workspace_id, grouping, sort_order, bell_enabled, global_content_mode,
+                        global_row_state_filter, pane_content_mode, pane_row_state_filter, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    workspaceId.uuidString, "unsupported", "oldestFirst", 1,
+                    "activity", "all", "all", "unreadOnly", 1,
+                ]
+            )
+        }
         let editorPreference = EditorPreferenceAtom()
-        let repoExplorerPrefs = RepoExplorerSidebarPrefsAtom()
-        let inboxPrefs = InboxNotificationPrefsAtom()
-        let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
-        try legacyPersistor.saveUI(
-            .init(
-                workspaceId: workspaceId,
-                editorChooserState: .init(bookmarkedEditorId: "cursor")
+        let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
+        let inboxPreferences = InboxNotificationPrefsAtom()
+
+        await makeStore(
+            datastore: fixture.datastore,
+            editorPreference: editorPreference,
+            repoExplorerPreferences: repoExplorerPreferences,
+            inboxPreferences: inboxPreferences
+        ).restoreAsync(for: workspaceId)
+
+        #expect(editorPreference.bookmarkedEditorId == "cursor")
+        #expect(repoExplorerPreferences.groupingMode == .repo)
+        #expect(repoExplorerPreferences.sortOrder == .ascending)
+        #expect(repoExplorerPreferences.repoVisibilityMode == .all)
+        #expect(inboxPreferences.grouping == .byTab)
+        #expect(inboxPreferences.sort == .newestFirst)
+        #expect(!inboxPreferences.bellEnabled)
+        #expect(inboxPreferences.globalInboxContentMode == .rollUpAlerts)
+        #expect(inboxPreferences.globalInboxRowStateFilter == .unreadOnly)
+        #expect(inboxPreferences.paneInboxContentMode == .rollUpAlerts)
+        #expect(inboxPreferences.paneInboxRowStateFilter == .unreadOnly)
+    }
+
+    @Test
+    func unavailableLocalDatabaseDefaultsWithoutBlockingAndReportsRecovery() async throws {
+        let workspaceId = UUID()
+        let datastore = try makeFailingDatastore()
+        let editorPreference = EditorPreferenceAtom()
+        let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
+        let inboxPreferences = InboxNotificationPrefsAtom()
+        editorPreference.setBookmarkedEditor("cursor")
+        repoExplorerPreferences.setGroupingMode(.pane)
+        inboxPreferences.setBellEnabled(true)
+        var recoveryEvents: [PersistenceRecoveryEvent] = []
+
+        await makeStore(
+            datastore: datastore,
+            editorPreference: editorPreference,
+            repoExplorerPreferences: repoExplorerPreferences,
+            inboxPreferences: inboxPreferences,
+            recoveryReporter: { recoveryEvents.append($0) }
+        ).restoreAsync(for: workspaceId)
+
+        assertDefaultSettings(
+            editorPreference: editorPreference,
+            repoExplorerPreferences: repoExplorerPreferences,
+            inboxPreferences: inboxPreferences
+        )
+        #expect(
+            recoveryEvents.contains(
+                .init(store: .workspaceSettings, workspaceId: workspaceId, recovery: .resetToDefaults)
             )
         )
-        let legacySidebarCacheURL = tempDir.appending(
-            path: "\(workspaceId.uuidString).workspace.sidebar-cache.json"
-        )
-        try Data(
-            """
-            {
-              "schemaVersion": 1,
-              "workspaceId": "\(workspaceId.uuidString)",
-              "expandedGroups": [],
-              "groupingMode": "pane",
-              "sortOrder": "descending",
-              "repoVisibilityMode": "favoritesOnly"
-            }
-            """.utf8
-        ).write(to: legacySidebarCacheURL, options: .atomic)
-        let legacyInboxURL = legacyPersistor.notificationInboxFileURL(for: workspaceId)
-        let legacyInboxJSON = """
-            {
-                "schemaVersion": 3,
-                "notifications": [],
-                "prefs": {
-                    "grouping": "byRepo",
-                    "sort": "oldestFirst",
-                    "bellEnabled": true
-                },
-                "sidebarState": {
-                    "collapsedGroups": []
-                }
-            }
-            """
-        try Data(legacyInboxJSON.utf8).write(to: legacyInboxURL, options: .atomic)
-        let store = makeStore(
-            editorPreference: editorPreference,
-            repoExplorerPrefs: repoExplorerPrefs,
-            inboxPrefs: inboxPrefs
-        )
-
-        store.restore(for: workspaceId)
-
-        #expect(editorPreference.bookmarkedEditorId == "cursor")
-        #expect(repoExplorerPrefs.groupingMode == .pane)
-        #expect(repoExplorerPrefs.sortOrder == .descending)
-        #expect(repoExplorerPrefs.repoVisibilityMode == .favoritesOnly)
-        #expect(inboxPrefs.grouping == .byRepo)
-        #expect(inboxPrefs.sort == .oldestFirst)
-        #expect(inboxPrefs.bellEnabled)
     }
 
     @Test
-    func failedLegacyMaterializationBlocksSettingsArchiveReadiness() throws {
+    func observedSettingsMutationsAutosaveSettledTypedValues() async throws {
         let workspaceId = UUID()
+        let fixture = try makeFixture()
         let editorPreference = EditorPreferenceAtom()
-        let inboxPrefs = InboxNotificationPrefsAtom()
-        let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
-        _ = try seedLegacySettingsSidecars(workspaceId: workspaceId, legacyPersistor: legacyPersistor)
-        let blockedDirectoryURL = FileManager.default.temporaryDirectory
-            .appending(path: "workspace-settings-blocked-\(UUID().uuidString)")
-        try Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
-        let store = makeStore(
-            editorPreference: editorPreference,
-            inboxPrefs: inboxPrefs,
-            workspacesDir: blockedDirectoryURL,
-            legacyPersistor: legacyPersistor
-        )
-
-        store.restore(for: workspaceId)
-
-        #expect(editorPreference.bookmarkedEditorId == "cursor")
-        #expect(inboxPrefs.grouping == .byRepo)
-        #expect(!store.canArchiveLegacySettingsFiles)
-    }
-
-    @Test
-    func restoreMissingSettingsFileMaterializesLegacySettingsBeforeSidecarSaves() async throws {
-        let workspaceId = UUID()
-        let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
-        let legacyInboxURL = try seedLegacySettingsSidecars(
-            workspaceId: workspaceId,
-            legacyPersistor: legacyPersistor
-        )
-
-        makeStore().restore(for: workspaceId)
-        try await scrubLegacySettingsSidecars(
-            workspaceId: workspaceId,
-            legacyPersistor: legacyPersistor,
-            legacyInboxURL: legacyInboxURL
-        )
-
-        let restoredEditorPreference = EditorPreferenceAtom()
-        let restoredInboxPrefs = InboxNotificationPrefsAtom()
-        makeStore(
-            editorPreference: restoredEditorPreference,
-            inboxPrefs: restoredInboxPrefs
-        ).restore(for: workspaceId)
-
-        #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
-        #expect(restoredInboxPrefs.grouping == .byRepo)
-        #expect(restoredInboxPrefs.sort == .oldestFirst)
-        #expect(restoredInboxPrefs.bellEnabled)
-    }
-
-    @Test
-    func restoreCorruptSettingsFileAfterSidecarScrubUsesSettingsBackup() async throws {
-        let workspaceId = UUID()
-        let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
-        let legacyInboxURL = try seedLegacySettingsSidecars(
-            workspaceId: workspaceId,
-            legacyPersistor: legacyPersistor
-        )
-        makeStore().restore(for: workspaceId)
-        try await scrubLegacySettingsSidecars(
-            workspaceId: workspaceId,
-            legacyPersistor: legacyPersistor,
-            legacyInboxURL: legacyInboxURL
-        )
-        try Data("not-json".utf8).write(to: settingsFileURL(for: workspaceId), options: .atomic)
-
-        let restoredEditorPreference = EditorPreferenceAtom()
-        let restoredInboxPrefs = InboxNotificationPrefsAtom()
-        makeStore(
-            editorPreference: restoredEditorPreference,
-            inboxPrefs: restoredInboxPrefs
-        ).restore(for: workspaceId)
-
-        #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
-        #expect(restoredInboxPrefs.grouping == .byRepo)
-        #expect(restoredInboxPrefs.sort == .oldestFirst)
-        #expect(restoredInboxPrefs.bellEnabled)
-    }
-
-    @Test
-    func restoreMissingSettingsFileAfterSidecarScrubUsesSettingsBackup() async throws {
-        let workspaceId = UUID()
-        let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
-        let legacyInboxURL = try seedLegacySettingsSidecars(
-            workspaceId: workspaceId,
-            legacyPersistor: legacyPersistor
-        )
-        makeStore().restore(for: workspaceId)
-        try await scrubLegacySettingsSidecars(
-            workspaceId: workspaceId,
-            legacyPersistor: legacyPersistor,
-            legacyInboxURL: legacyInboxURL
-        )
-        try FileManager.default.removeItem(at: settingsFileURL(for: workspaceId))
-
-        let restoredEditorPreference = EditorPreferenceAtom()
-        let restoredInboxPrefs = InboxNotificationPrefsAtom()
-        makeStore(
-            editorPreference: restoredEditorPreference,
-            inboxPrefs: restoredInboxPrefs
-        ).restore(for: workspaceId)
-
-        #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
-        #expect(restoredInboxPrefs.grouping == .byRepo)
-        #expect(restoredInboxPrefs.sort == .oldestFirst)
-        #expect(restoredInboxPrefs.bellEnabled)
-    }
-
-    @Test
-    func restoreMissingSettingsFileRecoversValidLegacyInboxPreferenceFields() throws {
-        let workspaceId = UUID()
-        let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
-        let legacyInboxURL = legacyPersistor.notificationInboxFileURL(for: workspaceId)
-        try Data(
-            """
-            {
-                "schemaVersion": 3,
-                "notifications": [],
-                "prefs": {
-                    "grouping": "not-a-group",
-                    "sort": "oldestFirst",
-                    "bellEnabled": true
-                },
-                "sidebarState": {
-                    "collapsedGroups": []
-                }
-            }
-            """.utf8
-        ).write(to: legacyInboxURL, options: .atomic)
-        let inboxPrefs = InboxNotificationPrefsAtom()
-
-        makeStore(inboxPrefs: inboxPrefs).restore(for: workspaceId)
-
-        #expect(inboxPrefs.grouping == .byTab)
-        #expect(inboxPrefs.sort == .oldestFirst)
-        #expect(inboxPrefs.bellEnabled)
-    }
-
-    @Test
-    func restoreCorruptSettingsFileFallsBackToLegacySettingsSlices() throws {
-        let workspaceId = UUID()
-        try Data("not-json".utf8).write(to: settingsFileURL(for: workspaceId), options: .atomic)
-        let store = makeStore()
-
-        store.restore(for: workspaceId)
-
-        #expect(FileManager.default.fileExists(atPath: settingsFileURL(for: workspaceId).path) == false)
-    }
-
-    @Test
-    func flushWritesPrettySortedSettingsAndStripsUnknownKeys() throws {
-        let workspaceId = UUID()
-        let settingsURL = settingsFileURL(for: workspaceId)
-        try Data(
-            """
-            {
-              "unknown": true,
-              "schemaVersion": 1,
-              "workspaceId": "\(workspaceId.uuidString)",
-              "editorChooser": {"bookmarkedEditorId": "vscode", "runtimePane": "bad"},
-              "sidebar": {"checkoutColors": {"repo:old": "#111111"}, "unknown": true},
-              "notifications": {"grouping": "byRepo", "sort": "newestFirst", "bellEnabled": true}
-            }
-            """.utf8
-        ).write(to: settingsURL, options: .atomic)
-        let editorPreference = EditorPreferenceAtom()
-        let inboxPrefs = InboxNotificationPrefsAtom()
-        let store = makeStore(
-            editorPreference: editorPreference,
-            inboxPrefs: inboxPrefs
-        )
-
-        store.restore(for: workspaceId)
-        try store.flush(for: workspaceId)
-
-        let rawSettings = try String(contentsOf: settingsURL, encoding: .utf8)
-        #expect(rawSettings.contains("\n  \"editorChooser\""))
-        #expect(!rawSettings.contains("\"unknown\""))
-        #expect(!rawSettings.contains("runtimePane"))
-        #expect(!rawSettings.contains("checkoutColors"))
-        let editorChooserIndex = rawSettings.firstRange(of: "\"editorChooser\"")!.lowerBound
-        let notificationsIndex = rawSettings.firstRange(of: "\"notifications\"")!.lowerBound
-        let schemaVersionIndex = rawSettings.firstRange(of: "\"schemaVersion\"")!.lowerBound
-        let sidebarIndex = rawSettings.firstRange(of: "\"sidebar\"")!.lowerBound
-        let workspaceIdIndex = rawSettings.firstRange(of: "\"workspaceId\"")!.lowerBound
-        #expect(editorChooserIndex < notificationsIndex)
-        #expect(notificationsIndex < schemaVersionIndex)
-        #expect(schemaVersionIndex < sidebarIndex)
-        #expect(sidebarIndex < workspaceIdIndex)
-    }
-
-    @Test
-    func restoreRepoExplorerSettingsMissingVisibilityModeDefaultsToAll() throws {
-        let workspaceId = UUID()
-        let settingsURL = settingsFileURL(for: workspaceId)
-        try Data(
-            """
-            {
-              "schemaVersion": 1,
-              "workspaceId": "\(workspaceId.uuidString)",
-              "repoExplorer": {
-                "groupingMode": "pane",
-                "sortOrder": "descending"
-              }
-            }
-            """.utf8
-        ).write(to: settingsURL, options: .atomic)
-        let repoExplorerPrefs = RepoExplorerSidebarPrefsAtom()
-        repoExplorerPrefs.setRepoVisibilityMode(.favoritesOnly)
-
-        makeStore(repoExplorerPrefs: repoExplorerPrefs).restore(for: workspaceId)
-
-        #expect(repoExplorerPrefs.groupingMode == .pane)
-        #expect(repoExplorerPrefs.sortOrder == .descending)
-        #expect(repoExplorerPrefs.repoVisibilityMode == .all)
-    }
-
-    @Test
-    func editorChooserRuntimeStateIsNotWrittenToSettings() throws {
-        let workspaceId = UUID()
-        let editorPreference = EditorPreferenceAtom()
-        let editorRuntime = EditorChooserRuntimeAtom()
-        let editorChooser = EditorChooserState(
-            preferenceAtom: editorPreference,
-            runtimeAtom: editorRuntime
-        )
-        let store = makeStore(editorPreference: editorPreference)
-
-        editorChooser.setBookmarkedEditor("cursor")
-        editorChooser.setOpenEditorPane(UUID())
-        editorChooser.setAvailableTargets(ExternalEditorTarget.curatedOrder)
-
-        try store.flush(for: workspaceId)
-
-        let rawSettings = try String(contentsOf: settingsFileURL(for: workspaceId), encoding: .utf8)
-        #expect(rawSettings.contains("\"bookmarkedEditorId\" : \"cursor\""))
-        #expect(!rawSettings.contains("openForPaneId"))
-        #expect(!rawSettings.contains("availableTargets"))
-    }
-
-    @Test
-    func restoreCorruptSettingsFileQuarantinesAndDoesNotDeleteLocalDatabase() throws {
-        let workspaceId = UUID()
-        let settingsURL = settingsFileURL(for: workspaceId)
-        let localURL = tempDir.appending(path: "\(workspaceId.uuidString).local.sqlite")
-        try Data("not-json".utf8).write(to: settingsURL, options: .atomic)
-        try Data("local-db-placeholder".utf8).write(to: localURL, options: .atomic)
-        var reportedRecovery: PersistenceRecoveryEvent?
-
-        let editorPreference = EditorPreferenceAtom()
-        let inboxPrefs = InboxNotificationPrefsAtom()
-        editorPreference.setBookmarkedEditor("cursor")
-        inboxPrefs.setBellEnabled(true)
-        makeStore(
-            editorPreference: editorPreference,
-            inboxPrefs: inboxPrefs,
-            recoveryReporter: { reportedRecovery = $0 }
-        ).restore(for: workspaceId)
-
-        #expect(editorPreference.bookmarkedEditorId == nil)
-        #expect(!inboxPrefs.bellEnabled)
-        #expect(FileManager.default.fileExists(atPath: localURL.path))
-        #expect(reportedRecovery?.store == .workspaceSettings)
-        #expect(reportedRecovery?.workspaceId == workspaceId)
-        #expect(reportedRecovery?.recovery == .quarantinedAndReset)
-
-        let quarantinedFiles = try FileManager.default.contentsOfDirectory(
-            at: tempDir,
-            includingPropertiesForKeys: nil
-        ).filter {
-            $0.lastPathComponent.hasPrefix("\(workspaceId.uuidString).settings.corrupt-")
-        }
-        #expect(quarantinedFiles.count == 1)
-    }
-
-    @Test
-    func restoreSettingsFileWithMismatchedWorkspaceIdQuarantinesAndResets() throws {
-        let workspaceId = UUID()
-        let otherWorkspaceId = UUID()
-        let settingsURL = settingsFileURL(for: workspaceId)
-        try Data(
-            """
-            {
-              "schemaVersion": 1,
-              "workspaceId": "\(otherWorkspaceId.uuidString)",
-              "editorChooser": {"bookmarkedEditorId": "cursor"},
-              "sidebar": {"checkoutColors": {"repo:agent-studio": "#22cc88"}},
-              "notifications": {"grouping": "byRepo", "sort": "oldestFirst", "bellEnabled": true}
-            }
-            """.utf8
-        ).write(to: settingsURL, options: .atomic)
-        var reportedRecovery: PersistenceRecoveryEvent?
-
-        let editorPreference = EditorPreferenceAtom()
-        let inboxPrefs = InboxNotificationPrefsAtom()
-        makeStore(
-            editorPreference: editorPreference,
-            inboxPrefs: inboxPrefs,
-            recoveryReporter: { reportedRecovery = $0 }
-        ).restore(for: workspaceId)
-
-        #expect(editorPreference.bookmarkedEditorId == nil)
-        #expect(inboxPrefs.grouping == .byTab)
-        #expect(inboxPrefs.sort == .newestFirst)
-        #expect(!inboxPrefs.bellEnabled)
-        #expect(reportedRecovery?.store == .workspaceSettings)
-        #expect(reportedRecovery?.recovery == .quarantinedAndReset)
-        #expect(!FileManager.default.fileExists(atPath: settingsURL.path))
-    }
-
-    @Test
-    func restoreCorruptSettingsFileReportsQuarantineFailedWhenMoveFails() throws {
-        let workspaceId = UUID()
-        let settingsURL = settingsFileURL(for: workspaceId)
-        try Data("not-json".utf8).write(to: settingsURL, options: .atomic)
-        var reportedRecovery: PersistenceRecoveryEvent?
-
-        makeStore(
-            quarantineCorruptSettingsFile: { _ in nil },
-            recoveryReporter: { reportedRecovery = $0 }
-        ).restore(for: workspaceId)
-
-        #expect(reportedRecovery?.store == .workspaceSettings)
-        #expect(reportedRecovery?.workspaceId == workspaceId)
-        #expect(reportedRecovery?.recovery == .quarantineFailed)
-        #expect(reportedRecovery?.quarantinedFilename == nil)
-        #expect(FileManager.default.fileExists(atPath: settingsURL.path))
-    }
-
-    @Test
-    func autosaveObservationStateIsExplicitlyArmed() {
-        let workspaceId = UUID()
-        let store = makeStore()
-
-        #expect(store.isAutosaveObservationActive == false)
-        store.restore(for: workspaceId)
-        #expect(store.isAutosaveObservationActive == false)
-        store.startObserving()
-        #expect(store.isAutosaveObservationActive == true)
-    }
-
-    @Test
-    func observedSettingsMutationsAutosaveAllSettingsSlices() async throws {
-        let workspaceId = UUID()
-        let editorPreference = EditorPreferenceAtom()
-        let repoExplorerPrefs = RepoExplorerSidebarPrefsAtom()
-        let inboxPrefs = InboxNotificationPrefsAtom()
+        let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
+        let inboxPreferences = InboxNotificationPrefsAtom()
         let clock = TestPushClock()
         let store = makeStore(
+            datastore: fixture.datastore,
             editorPreference: editorPreference,
-            repoExplorerPrefs: repoExplorerPrefs,
-            inboxPrefs: inboxPrefs,
+            repoExplorerPreferences: repoExplorerPreferences,
+            inboxPreferences: inboxPreferences,
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
-
-        store.restore(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
         store.startObserving()
+
         editorPreference.setBookmarkedEditor("cursor")
-        repoExplorerPrefs.setGroupingMode(.pane)
-        repoExplorerPrefs.setSortOrder(.descending)
-        repoExplorerPrefs.setRepoVisibilityMode(.favoritesOnly)
-        inboxPrefs.setGrouping(.byRepo)
-        inboxPrefs.setSort(.oldestFirst)
-        inboxPrefs.setBellEnabled(true)
+        repoExplorerPreferences.setGroupingMode(.pane)
+        repoExplorerPreferences.setSortOrder(.descending)
+        inboxPreferences.setGrouping(.byRepo)
+        inboxPreferences.setBellEnabled(true)
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(10))
         await store.waitForPendingAutosave()
 
-        guard let settings = readSettingsJSON(for: workspaceId) else {
-            Issue.record("Expected settings autosave to write JSON")
-            return
-        }
-        let editorChooser = settings["editorChooser"] as? [String: Any]
-        let repoExplorer = settings["repoExplorer"] as? [String: Any]
-        let sidebar = settings["sidebar"] as? [String: Any]
-        let notifications = settings["notifications"] as? [String: Any]
-        #expect(editorChooser?["bookmarkedEditorId"] as? String == "cursor")
-        #expect(repoExplorer?["groupingMode"] as? String == "pane")
-        #expect(repoExplorer?["sortOrder"] as? String == "descending")
-        #expect(repoExplorer?["repoVisibilityMode"] as? String == "favoritesOnly")
-        #expect(sidebar?["checkoutColors"] == nil)
-        #expect(notifications?["grouping"] as? String == "byRepo")
-        #expect(notifications?["sort"] as? String == "oldestFirst")
-        #expect(notifications?["bellEnabled"] as? Bool == true)
+        let repository = WorkspaceLocalRepository(
+            workspaceId: workspaceId,
+            databaseWriter: fixture.localDatabaseQueue
+        )
+        #expect(try repository.fetchEditorPreferences().bookmarkedEditorId == "cursor")
+        #expect(try repository.fetchRepoExplorerPreferences().groupingMode == .pane)
+        #expect(try repository.fetchRepoExplorerPreferences().sortOrder == .descending)
+        #expect(try repository.fetchInboxNotificationPreferences().grouping == .byRepo)
+        #expect(try repository.fetchInboxNotificationPreferences().bellEnabled)
     }
 
     @Test
     func restoreCancelsPendingDebouncedSaveForPreviousWorkspace() async throws {
         let workspaceAId = UUID()
         let workspaceBId = UUID()
+        let fixture = try makeFixture()
         let editorPreference = EditorPreferenceAtom()
         let clock = TestPushClock()
         let store = makeStore(
+            datastore: fixture.datastore,
             editorPreference: editorPreference,
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
-
-        store.restore(for: workspaceAId)
+        await store.restoreAsync(for: workspaceAId)
         store.startObserving()
         editorPreference.setBookmarkedEditor("workspace-a")
         await clock.waitForPendingSleepCount()
-        store.restore(for: workspaceBId)
-        clock.advance(by: .milliseconds(10))
 
-        #expect(!FileManager.default.fileExists(atPath: settingsFileURL(for: workspaceAId).path))
+        await store.restoreAsync(for: workspaceBId)
+        clock.advance(by: .milliseconds(10))
+        await store.waitForPendingAutosave()
+
+        let workspaceARepository = WorkspaceLocalRepository(
+            workspaceId: workspaceAId,
+            databaseWriter: fixture.localDatabaseQueue
+        )
+        #expect(try workspaceARepository.fetchEditorPreferences() == .default)
     }
 
     @Test
-    func flushFailureReportsSaveFailedRecovery() {
+    func flushFailureReportsSaveFailedRecovery() async throws {
         let workspaceId = UUID()
-        let blockedDirectoryURL = FileManager.default.temporaryDirectory
-            .appending(path: "workspace-settings-blocked-\(UUID().uuidString)")
-        try? Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
-        var reportedRecovery: PersistenceRecoveryEvent?
+        let datastore = try makeFailingDatastore()
+        var recoveryEvents: [PersistenceRecoveryEvent] = []
         let store = makeStore(
-            workspacesDir: blockedDirectoryURL,
-            recoveryReporter: { reportedRecovery = $0 }
+            datastore: datastore,
+            recoveryReporter: { recoveryEvents.append($0) }
         )
 
-        #expect(throws: Error.self) {
-            try store.flush(for: workspaceId)
+        await #expect(throws: Error.self) {
+            try await store.flush(for: workspaceId)
         }
 
-        #expect(reportedRecovery?.store == .workspaceSettings)
-        #expect(reportedRecovery?.workspaceId == workspaceId)
-        #expect(reportedRecovery?.recovery == .saveFailed)
+        #expect(
+            recoveryEvents.contains(
+                .init(store: .workspaceSettings, workspaceId: workspaceId, recovery: .saveFailed)
+            )
+        )
+    }
+
+    @Test
+    func autosaveObservationStateIsExplicitlyArmed() async throws {
+        let fixture = try makeFixture()
+        let store = makeStore(datastore: fixture.datastore)
+
+        #expect(!store.isAutosaveObservationActive)
+        await store.restoreAsync(for: UUID())
+        #expect(!store.isAutosaveObservationActive)
+        store.startObserving()
+        #expect(store.isAutosaveObservationActive)
     }
 
     private func makeStore(
+        datastore: WorkspaceSQLiteDatastore,
         editorPreference: EditorPreferenceAtom = EditorPreferenceAtom(),
-        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom = RepoExplorerSidebarPrefsAtom(),
-        inboxPrefs: InboxNotificationPrefsAtom = InboxNotificationPrefsAtom(),
-        workspacesDir: URL? = nil,
-        legacyPersistor: WorkspacePersistor? = nil,
+        repoExplorerPreferences: RepoExplorerSidebarPrefsAtom = RepoExplorerSidebarPrefsAtom(),
+        inboxPreferences: InboxNotificationPrefsAtom = InboxNotificationPrefsAtom(),
         persistDebounceDuration: Duration = .zero,
         clock: (any Clock<Duration> & Sendable)? = ContinuousClock(),
-        quarantineCorruptSettingsFile: (@MainActor (UUID) -> URL?)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) -> WorkspaceSettingsStore {
         WorkspaceSettingsStore(
             editorPreferenceAtom: editorPreference,
-            repoExplorerSidebarPrefsAtom: repoExplorerPrefs,
-            inboxNotificationPrefsAtom: inboxPrefs,
-            workspacesDir: workspacesDir ?? tempDir,
-            legacyPersistor: legacyPersistor,
+            repoExplorerSidebarPrefsAtom: repoExplorerPreferences,
+            inboxNotificationPrefsAtom: inboxPreferences,
+            sqliteDatastore: datastore,
             persistDebounceDuration: persistDebounceDuration,
             clock: clock,
-            quarantineCorruptSettingsFile: quarantineCorruptSettingsFile,
             recoveryReporter: recoveryReporter
         )
     }
 
-    private func settingsFileURL(for workspaceId: UUID) -> URL {
-        tempDir.appending(path: "\(workspaceId.uuidString).settings.json")
-    }
-
-    private func readSettingsJSON(for workspaceId: UUID) -> [String: Any]? {
-        let settingsURL = settingsFileURL(for: workspaceId)
-        guard
-            let data = try? Data(contentsOf: settingsURL),
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return nil
-        }
-        return object
-    }
-
-    private func seedLegacySettingsSidecars(
-        workspaceId: UUID,
-        legacyPersistor: WorkspacePersistor
-    ) throws -> URL {
-        try legacyPersistor.saveUI(
-            .init(
-                workspaceId: workspaceId,
-                editorChooserState: .init(bookmarkedEditorId: "cursor")
-            )
-        )
-        let legacyInboxURL = legacyPersistor.notificationInboxFileURL(for: workspaceId)
-        try Data(
-            """
-            {
-                "schemaVersion": 3,
-                "notifications": [],
-                "prefs": {
-                    "grouping": "byRepo",
-                    "sort": "oldestFirst",
-                    "bellEnabled": true
-                },
-                "sidebarState": {
-                    "collapsedGroups": []
-                }
+    private func makeFixture() throws -> SettingsFixture {
+        let localDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrate(localDatabaseQueue)
+        let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
+        try coreRepository.migrate()
+        let datastore = WorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            makeLocalRepository: { workspaceId in
+                WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localDatabaseQueue)
             }
-            """.utf8
-        ).write(to: legacyInboxURL, options: .atomic)
-        return legacyInboxURL
+        )
+        return .init(datastore: datastore, localDatabaseQueue: localDatabaseQueue)
     }
 
-    private func scrubLegacySettingsSidecars(
-        workspaceId: UUID,
-        legacyPersistor: WorkspacePersistor,
-        legacyInboxURL: URL
-    ) async throws {
-        try UIStateStore(
-            atom: WorkspaceSidebarState(),
-            persistor: legacyPersistor
-        ).flush(for: workspaceId)
-        try SidebarCacheStore(
-            atom: SidebarCacheState(),
-            persistor: legacyPersistor
-        ).flush(for: workspaceId)
-        try await InboxNotificationStore(
-            inboxAtom: InboxNotificationAtom(),
-            prefsAtom: InboxNotificationPrefsAtom(),
-            fileURL: legacyInboxURL
-        ).save()
+    private func makeFailingDatastore() throws -> WorkspaceSQLiteDatastore {
+        let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
+        try coreRepository.migrate()
+        return WorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            makeLocalRepository: { _ in throw CocoaError(.fileNoSuchFile) }
+        )
     }
+
+    private func assertDefaultSettings(
+        editorPreference: EditorPreferenceAtom,
+        repoExplorerPreferences: RepoExplorerSidebarPrefsAtom,
+        inboxPreferences: InboxNotificationPrefsAtom
+    ) {
+        #expect(editorPreference.bookmarkedEditorId == nil)
+        #expect(repoExplorerPreferences.groupingMode == .repo)
+        #expect(repoExplorerPreferences.sortOrder == .ascending)
+        #expect(repoExplorerPreferences.repoVisibilityMode == .all)
+        #expect(inboxPreferences.grouping == .byTab)
+        #expect(inboxPreferences.sort == .newestFirst)
+        #expect(!inboxPreferences.bellEnabled)
+        #expect(inboxPreferences.globalInboxContentMode == .rollUpAlerts)
+        #expect(inboxPreferences.globalInboxRowStateFilter == .unreadOnly)
+        #expect(inboxPreferences.paneInboxContentMode == .rollUpAlerts)
+        #expect(inboxPreferences.paneInboxRowStateFilter == .unreadOnly)
+    }
+}
+
+private struct SettingsFixture {
+    let datastore: WorkspaceSQLiteDatastore
+    let localDatabaseQueue: DatabaseQueue
 }

@@ -1,22 +1,19 @@
 import Foundation
 
 struct RepositoryTopologySQLiteSnapshot: Equatable, Sendable {
-    var id: UUID
-    var repos: [CanonicalRepo]
-    var worktrees: [CanonicalWorktree]
-    var unavailableRepoIds: Set<UUID>
-    var watchedPaths: [WatchedPath]
-    var updatedAt: Date
+    let repos: [CanonicalRepo]
+    let worktrees: [CanonicalWorktree]
+    let unavailableRepoIds: Set<UUID>
+    let watchedPaths: [WatchedPath]
+    let updatedAt: Date
 
     init(
-        id: UUID,
         repos: [CanonicalRepo] = [],
         worktrees: [CanonicalWorktree] = [],
         unavailableRepoIds: Set<UUID> = [],
         watchedPaths: [WatchedPath] = [],
         updatedAt: Date
     ) {
-        self.id = id
         self.repos = repos
         self.worktrees = worktrees
         self.unavailableRepoIds = unavailableRepoIds
@@ -26,25 +23,17 @@ struct RepositoryTopologySQLiteSnapshot: Equatable, Sendable {
 }
 
 struct WorkspaceSQLiteSaveBundle: Equatable, Sendable {
-    var workspace: WorkspaceSQLiteSnapshot
-    var repositoryTopology: RepositoryTopologySQLiteSnapshot
+    let workspace: WorkspaceSQLiteSnapshot
 
     var id: UUID { workspace.id }
     var updatedAt: Date { workspace.updatedAt }
 
-    init(
-        workspace: WorkspaceSQLiteSnapshot,
-        repositoryTopology: RepositoryTopologySQLiteSnapshot
-    ) {
-        precondition(
-            workspace.id == repositoryTopology.id,
-            "Workspace and repository topology snapshots must share one workspace id"
-        )
-        precondition(
-            workspace.updatedAt == repositoryTopology.updatedAt,
-            "Workspace and repository topology snapshots must share one persistedAt generation"
-        )
+    init(workspace: WorkspaceSQLiteSnapshot) {
         self.workspace = workspace
-        self.repositoryTopology = repositoryTopology
     }
+}
+
+struct WorkspaceCoreLoadSnapshot: Equatable, Sendable {
+    let workspace: WorkspaceSQLiteSnapshot
+    let repositoryTopology: RepositoryTopologySQLiteSnapshot
 }

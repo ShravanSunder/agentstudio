@@ -94,7 +94,9 @@ struct AppBootSequenceTests {
         )
 
         #expect(appDelegateSource.contains("workspaceSettingsStore = WorkspaceSettingsStore("))
-        #expect(appDelegateSource.contains("workspaceSettingsStore.restore(for: store.identityAtom.workspaceId)"))
+        #expect(
+            appDelegateSource.contains("await workspaceSettingsStore.restoreAsync(for: store.identityAtom.workspaceId)")
+        )
     }
 
     @Test("boot injects SQLite datastore into canonical stores")
@@ -113,7 +115,8 @@ struct AppBootSequenceTests {
 
         #expect(!appDelegateSource.contains("traceRuntime = .fromEnvironment()"))
         #expect(appDelegateSource.contains("makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)"))
-        #expect(appDelegateSource.contains("sqliteDatastore: workspaceSQLiteDatastore"))
+        #expect(appDelegateSource.contains("workspaceSQLiteDatastore = sqliteDatastore"))
+        #expect(appDelegateSource.contains("sqliteDatastore: sqliteDatastore"))
         #expect(appDelegateSource.contains("await store.loadCanonicalComposition()"))
         #expect(appDelegateSource.contains("await repoCacheStore.restoreAsync("))
         #expect(appDelegateSource.contains("await sidebarCacheStore.restoreAsync("))
@@ -144,19 +147,13 @@ struct AppBootSequenceTests {
         #expect(appDelegateSource.contains("var workspaceSQLiteDatastore: WorkspaceSQLiteDatastore?"))
         #expect(!appDelegateSource.contains("var workspaceLocalSQLiteStoreBackend"))
         #expect(!appDelegateSource.contains("var workspaceSQLiteStoreBackend"))
-        #expect(appDelegateSource.contains("var canArchiveLegacyInboxFile = true"))
         #expect(inboxBootSource.contains("InboxNotificationSQLiteDatastoreAdapter("))
         #expect(inboxBootSource.contains("workspaceId: workspaceId"))
         #expect(inboxBootSource.contains("sqliteAdapter: sqliteAdapter"))
-        #expect(inboxBootSource.contains("allowLegacyFilePersistence: sqliteBootDecision.allowLegacyFilePersistence"))
-        #expect(inboxBootSource.contains("allowLegacyFileImport: sqliteBootDecision.allowLegacyFileImport"))
         #expect(!inboxBootSource.contains("workspaceLocalSQLiteStoreBackend"))
-        #expect(inboxBootSource.contains("canArchiveLegacyInboxFileAfterBlockedImport"))
-        #expect(inboxBootSource.contains("await adapter.bootDecision()"))
-        #expect(inboxBootSource.contains("InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile("))
         #expect(!inboxBootSource.contains("InboxNotificationSQLiteRepository("))
-        #expect(inboxBootSource.contains("hadLegacyInboxFile"))
-        #expect(inboxBootSource.contains("canArchiveLegacyInboxFile"))
+        #expect(!inboxBootSource.contains("Legacy"))
+        #expect(!inboxBootSource.contains("legacy"))
     }
 
     @Test("pre-boot reopen reports missing main-window dependencies without force-unwrapping them")
@@ -204,60 +201,6 @@ struct AppBootSequenceTests {
         #expect(!reopenFunctionBody.contains("workspaceActionExecutor: executor"))
     }
 
-    @Test("legacy inbox archive readiness requires actual materialization proof")
-    func legacyInboxArchiveReadinessRequiresActualMaterializationProof() {
-        #expect(
-            !InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
-                hadLegacyFile: true,
-                didLoadStore: true,
-                hasSQLiteRepository: true,
-                hasWorkspaceLocalSQLiteBackend: true,
-                loadOutcome: .sqliteSnapshot,
-                canArchiveAfterBlockedImport: false
-            )
-        )
-        #expect(
-            InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
-                hadLegacyFile: true,
-                didLoadStore: true,
-                hasSQLiteRepository: true,
-                hasWorkspaceLocalSQLiteBackend: true,
-                loadOutcome: .legacyFileImportedIntoSQLite,
-                canArchiveAfterBlockedImport: false
-            )
-        )
-        #expect(
-            InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
-                hadLegacyFile: true,
-                didLoadStore: true,
-                hasSQLiteRepository: true,
-                hasWorkspaceLocalSQLiteBackend: true,
-                loadOutcome: .materializedLegacySQLiteSnapshot,
-                canArchiveAfterBlockedImport: false
-            )
-        )
-        #expect(
-            InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
-                hadLegacyFile: true,
-                didLoadStore: true,
-                hasSQLiteRepository: true,
-                hasWorkspaceLocalSQLiteBackend: true,
-                loadOutcome: .sqliteSnapshot,
-                canArchiveAfterBlockedImport: true
-            )
-        )
-        #expect(
-            InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
-                hadLegacyFile: false,
-                didLoadStore: false,
-                hasSQLiteRepository: false,
-                hasWorkspaceLocalSQLiteBackend: true,
-                loadOutcome: nil,
-                canArchiveAfterBlockedImport: false
-            )
-        )
-    }
-
     @Test("canonical boot exhaustively handles strict SQLite load results")
     func canonicalBootExhaustivelyHandlesStrictSQLiteLoadResults() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
@@ -296,26 +239,34 @@ struct AppBootSequenceTests {
         #expect(!workspaceBootSource.contains("WorkspaceLegacyArchiveCoordinator"))
     }
 
-    @Test("repository topology restore is independent until initial topology replay")
-    func repositoryTopologyRestoreIsIndependentUntilInitialTopologyReplay() throws {
+    @Test("authoritative core load installs topology before deferred topology replay")
+    func authoritativeCoreLoadInstallsTopologyBeforeDeferredTopologyReplay() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let workspaceBootSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
             encoding: .utf8
         )
-        let topologyTaskCreation = try #require(
-            workspaceBootSource.range(of: "repositoryTopologyLoadTask = Task { @MainActor in")
+        let workspaceStoreSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift"
+            ),
+            encoding: .utf8
         )
-        let topologyTaskAwait = try #require(
-            workspaceBootSource.range(of: "await repositoryTopologyLoadTask.value")
+        let canonicalLoad = try #require(
+            workspaceBootSource.range(of: "switch await store.loadCanonicalComposition()")
+        )
+        let deferredTopologyTask = try #require(
+            workspaceBootSource.range(of: "initialTopologySyncTask = Task { @MainActor [weak self] in")
         )
         let initialReplay = try #require(
             workspaceBootSource.range(of: "await self.replayBootTopology(")
         )
 
-        #expect(topologyTaskCreation.lowerBound < topologyTaskAwait.lowerBound)
-        #expect(topologyTaskAwait.lowerBound < initialReplay.lowerBound)
-        #expect(workspaceBootSource.components(separatedBy: "await repositoryTopologyLoadTask.value").count == 2)
+        #expect(workspaceStoreSource.contains("loadAuthoritativeCoreSnapshot()"))
+        #expect(workspaceStoreSource.contains("applyPreparedRepositoryTopology("))
+        #expect(canonicalLoad.lowerBound < deferredTopologyTask.lowerBound)
+        #expect(deferredTopologyTask.lowerBound < initialReplay.lowerBound)
+        #expect(!workspaceBootSource.contains("repositoryTopologyLoadTask"))
     }
 
     @Test("initial topology trigger starts the persistence observation barrier")

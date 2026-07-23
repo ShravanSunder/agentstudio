@@ -23,8 +23,7 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -76,10 +75,9 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
         )
 
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(watchedPaths: [], repos: [reconciledRepo], unavailableRepoIds: [])
+            .init(watchedPaths: [], repos: [reconciledRepo], unavailableRepoIds: [])
         )
-        let restoredTopology = try repository.fetchRepositoryTopology(workspaceId: workspaceId)
+        let restoredTopology = try repository.fetchRepositoryTopology()
         let paneSource = try fixture.fetchPaneSource(paneId: paneId)
 
         #expect(restoredTopology.repos == [reconciledRepo])
@@ -102,8 +100,7 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -149,18 +146,20 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
             unavailableRepoIds: []
         )
 
-        try repository.replaceRepositoryTopology(workspaceId: workspaceId, topology: swappedTopology)
-        let restoredTopology = try repository.fetchRepositoryTopology(workspaceId: workspaceId)
+        try repository.replaceRepositoryTopology(swappedTopology)
+        let restoredTopology = try repository.fetchRepositoryTopology()
 
         #expect(restoredTopology == swappedTopology)
     }
 
-    @Test("repository topology replace preserves pane source references for retained repo and worktree")
-    func repositoryTopologyReplacePreservesPaneSourceReferencesForRetainedRepoAndWorktree() throws {
+    @Test("two workspace compositions may reference the same global repo and worktree")
+    func twoWorkspaceCompositionsMayReferenceSameGlobalRepoAndWorktree() throws {
         let fixture = try makeWorkspaceCoreRepositoryFixture()
         let repository = fixture.repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000107")!
+        let secondWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000108")!
         let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000000501")!
+        let secondPaneId = UUID(uuidString: "00000000-0000-0000-0000-000000000509")!
         let repoId = UUID(uuidString: "00000000-0000-0000-0000-000000000206")!
         let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000307")!
         try repository.upsertWorkspace(
@@ -171,9 +170,16 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
                 updatedAt: Date(timeIntervalSince1970: 100)
             )
         )
+        try repository.upsertWorkspace(
+            .init(
+                id: secondWorkspaceId,
+                name: "Second Source References",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -201,10 +207,15 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
             sourceRepoId: repoId,
             sourceWorktreeId: worktreeId
         )
+        try fixture.insertPane(
+            workspaceId: secondWorkspaceId,
+            paneId: secondPaneId,
+            sourceRepoId: repoId,
+            sourceWorktreeId: worktreeId
+        )
 
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -226,10 +237,13 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
                 unavailableRepoIds: []
             )
         )
-        let paneSource = try fixture.fetchPaneSource(paneId: paneId)
+        let firstPaneSource = try fixture.fetchPaneSource(paneId: paneId)
+        let secondPaneSource = try fixture.fetchPaneSource(paneId: secondPaneId)
 
-        #expect(paneSource?.repoId == repoId)
-        #expect(paneSource?.worktreeId == worktreeId)
+        #expect(firstPaneSource?.repoId == repoId)
+        #expect(firstPaneSource?.worktreeId == worktreeId)
+        #expect(secondPaneSource?.repoId == repoId)
+        #expect(secondPaneSource?.worktreeId == worktreeId)
     }
 
     @Test("worktree reconciliation preserves pane source worktree for retained worktree")
@@ -250,8 +264,7 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -288,7 +301,6 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
         )
 
         try repository.reconcileRepoWorktrees(
-            workspaceId: workspaceId,
             repoId: repoId,
             worktrees: [
                 .init(
@@ -324,8 +336,7 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -362,7 +373,6 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
         )
 
         try repository.reconcileRepoWorktrees(
-            workspaceId: workspaceId,
             repoId: repoId,
             worktrees: [
                 .init(
@@ -398,8 +408,7 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -436,8 +445,7 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
         )
 
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(

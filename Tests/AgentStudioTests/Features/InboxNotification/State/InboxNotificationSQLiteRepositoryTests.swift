@@ -103,31 +103,15 @@ struct InboxNotificationSQLiteRepositoryTests {
         #expect(try fixture.repository.fetchCollapsedGroups() == groups)
     }
 
-    @Test("empty inbox snapshots mark the SQLite lane as initialized")
-    func emptyInboxSnapshotsMarkTheSQLiteLaneAsInitialized() throws {
+    @Test("empty inbox snapshots remain a valid empty SQLite lane")
+    func emptyInboxSnapshotsRemainAValidEmptySQLiteLane() throws {
         let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000009")!
         let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
-
-        #expect(try fixture.repository.hasPersistedState() == false)
-        #expect(try fixture.repository.hasMaterializedLegacyImport() == false)
 
         try fixture.repository.replaceSnapshot(notifications: [], collapsedGroups: [])
 
         #expect(try fixture.repository.fetchNotifications().isEmpty)
         #expect(try fixture.repository.fetchCollapsedGroups().isEmpty)
-        #expect(try fixture.repository.hasPersistedState())
-        #expect(try fixture.repository.hasMaterializedLegacyImport() == false)
-    }
-
-    @Test("legacy import snapshots mark an archive-safe materialization proof")
-    func legacyImportSnapshotsMarkArchiveSafeMaterializationProof() throws {
-        let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000019")!
-        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
-
-        try fixture.repository.replaceLegacyImportSnapshot(notifications: [], collapsedGroups: [])
-
-        #expect(try fixture.repository.hasPersistedState())
-        #expect(try fixture.repository.hasMaterializedLegacyImport())
     }
 
     @Test("upsert by claim mirrors InboxNotificationAtom coalescence rules")
@@ -156,8 +140,8 @@ struct InboxNotificationSQLiteRepositoryTests {
         #expect(try fixture.repository.fetchNotifications() == atom.notifications)
     }
 
-    @Test("migrated legacy storage tokens decode into current notification models")
-    func migratedLegacyStorageTokensDecodeIntoCurrentNotificationModels() throws {
+    @Test("legacy storage token rows disappear from the fresh local contract")
+    func legacyStorageTokenRowsDisappearFromTheFreshLocalContract() throws {
         let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000006")!
         let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
         let paneId = UUID(uuidString: "20000000-0000-0000-0000-000000000061")!
@@ -198,14 +182,60 @@ struct InboxNotificationSQLiteRepositoryTests {
         )
 
         let notifications = try fixture.repository.fetchNotifications()
+        let physicalRowCount = try fixture.databaseQueue.read { database in
+            try Int.fetchOne(
+                database,
+                sql: "SELECT COUNT(*) FROM local_notification_inbox_item WHERE workspace_id = ?",
+                arguments: [workspaceId.uuidString]
+            ) ?? -1
+        }
 
-        #expect(notifications.map(\.id) == [actionId, activityId])
-        #expect(notifications[0].kind == .approvalRequested)
-        #expect(notifications[0].source == .pane(.init(paneId: paneId, paneRole: .main)))
-        #expect(notifications[0].claimKey?.semantic == .approvalRequested)
-        #expect(notifications[1].kind == .unseenActivity)
-        #expect(notifications[1].source == .pane(.init(paneId: paneId, paneRole: .main)))
-        #expect(notifications[1].claimKey?.semantic == .unseenActivity)
+        #expect(notifications.isEmpty)
+        #expect(physicalRowCount == 0)
+    }
+
+    @Test("malformed rows cannot consume physical retention capacity")
+    func malformedRowsCannotConsumePhysicalRetentionCapacity() throws {
+        let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000076")!
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+        let cap = AppPolicies.InboxNotification.maxRetained
+        let validNotifications = (0..<cap).map { index in
+            makeRepositoryNotification(
+                id: UUID(uuidString: "20000000-0000-0000-0000-\(String(format: "%012d", 300 + index))")!,
+                timestamp: Date(timeIntervalSince1970: TimeInterval(index)),
+                title: "Valid \(index)"
+            )
+        }
+        try fixture.repository.replaceAll(validNotifications)
+        try insertRawNotificationRow(
+            databaseQueue: fixture.databaseQueue,
+            row: .init(
+                workspaceId: workspaceId,
+                id: UUID(uuidString: "20000000-0000-0000-0000-000000000077")!,
+                timestamp: TimeInterval(cap + 1),
+                kind: "unsupportedKind",
+                title: "Malformed",
+                sourceKind: "global"
+            )
+        )
+
+        _ = try fixture.repository.append(
+            makeRepositoryNotification(
+                id: UUID(uuidString: "20000000-0000-0000-0000-000000000078")!,
+                timestamp: Date(timeIntervalSince1970: TimeInterval(cap + 2)),
+                title: "Incoming"
+            )
+        )
+
+        let physicalRows = try fixture.databaseQueue.read { database in
+            try Row.fetchAll(
+                database,
+                sql: "SELECT id, kind FROM local_notification_inbox_item WHERE workspace_id = ?",
+                arguments: [workspaceId.uuidString]
+            )
+        }
+        #expect(physicalRows.count == cap)
+        #expect(physicalRows.contains { ($0["kind"] as String) == "unsupportedKind" } == false)
     }
 
     @Test("upsert by claim prefers exact claim match before session fallback")

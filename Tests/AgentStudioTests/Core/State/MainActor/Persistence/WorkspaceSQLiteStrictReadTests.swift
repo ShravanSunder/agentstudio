@@ -13,9 +13,7 @@ struct WorkspaceSQLiteStrictReadTests {
         let coreDatabaseURL = rootDirectory.appending(path: "core.sqlite")
         let datastore = WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: coreDatabaseURL,
-            localDatabaseURL: { workspaceId in
-                rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
-            }
+            localDatabaseURL: rootDirectory.appending(path: "local.sqlite")
         ).makeDatastore()
 
         let result = await datastore.loadWorkspaceSnapshot()
@@ -40,9 +38,7 @@ struct WorkspaceSQLiteStrictReadTests {
         let bytesBeforeLoad = try Data(contentsOf: coreDatabaseURL)
         let datastore = WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: coreDatabaseURL,
-            localDatabaseURL: { workspaceId in
-                rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
-            }
+            localDatabaseURL: rootDirectory.appending(path: "local.sqlite")
         ).makeDatastore()
 
         let result = await datastore.loadWorkspaceSnapshot()
@@ -64,9 +60,7 @@ struct WorkspaceSQLiteStrictReadTests {
         try corruptBytes.write(to: coreDatabaseURL)
         let datastore = WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: coreDatabaseURL,
-            localDatabaseURL: { workspaceId in
-                rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
-            }
+            localDatabaseURL: rootDirectory.appending(path: "local.sqlite")
         ).makeDatastore()
 
         let result = await datastore.loadWorkspaceSnapshot()
@@ -79,20 +73,18 @@ struct WorkspaceSQLiteStrictReadTests {
         #expect(try !containsQuarantineArtifact(in: rootDirectory))
     }
 
-    @Test("corrupt local database remains byte-for-byte unchanged after strict startup failure")
-    func corruptLocalDatabaseIsUnchangedAfterStrictStartupFailure() async throws {
+    @Test("corrupt local database is quarantined while authoritative core loads with local defaults")
+    func corruptLocalDatabaseDefaultsWithoutBlockingAuthoritativeCore() async throws {
         let workspaceId = UUIDv7.generate()
         let rootDirectory = try makeStrictReadTemporaryDirectory(prefix: "corrupt-local")
         let coreDatabaseURL = rootDirectory.appending(path: "core.sqlite")
-        let localDatabaseURL = rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
+        let localDatabaseURL = rootDirectory.appending(path: "local.sqlite")
         let factory = WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: coreDatabaseURL,
-            localDatabaseURL: { _ in localDatabaseURL }
+            localDatabaseURL: localDatabaseURL
         )
-        try await seedStrictReadWorkspace(
-            workspaceId: workspaceId,
-            factory: factory
-        )
+        let seededSnapshot = makeStrictReadNonemptySnapshot(workspaceId: workspaceId)
+        try await seedStrictReadWorkspace(workspace: seededSnapshot, factory: factory)
         try removeSQLiteSidecarsIfPresent(for: localDatabaseURL)
         let corruptBytes = Data("strict startup must not replace corrupt local SQLite".utf8)
         try corruptBytes.write(to: localDatabaseURL)
@@ -100,11 +92,57 @@ struct WorkspaceSQLiteStrictReadTests {
 
         let result = await datastore.loadWorkspaceSnapshot()
 
-        guard case .unavailable = result else {
-            Issue.record("Expected corrupt local SQLite to be unavailable, got \(result)")
+        guard case .loaded(let snapshot) = result else {
+            Issue.record("Expected authoritative core with local defaults, got \(result)")
             return
         }
-        #expect(try Data(contentsOf: localDatabaseURL) == corruptBytes)
+        #expect(snapshot.id == workspaceId)
+        #expect(snapshot.activeTabId == seededSnapshot.tabs.single?.id)
+        #expect(snapshot.tabs.single?.activeArrangementId == seededSnapshot.tabs.single?.defaultArrangement.id)
+        #expect(snapshot.tabs.single?.activePaneId == seededSnapshot.panes.single?.id)
+        #expect(snapshot.panes.single?.drawer?.isExpanded == false)
+        #expect(snapshot.sidebarWidth == 250)
+        #expect(try containsQuarantineArtifact(in: rootDirectory))
+
+        guard case .loaded(let settings) = await datastore.loadWorkspaceSettings(workspaceId: workspaceId) else {
+            Issue.record("Expected the reset local database to remain readable")
+            return
+        }
+        #expect(
+            settings.recoveryEvents.contains { event in
+                event.workspaceId == workspaceId && event.recovery == .quarantinedAndReset
+            }
+        )
+    }
+
+    @Test("missing local database is recreated while authoritative core loads with local defaults")
+    func missingLocalDatabaseDefaultsWithoutBlockingAuthoritativeCore() async throws {
+        let workspaceId = UUIDv7.generate()
+        let rootDirectory = try makeStrictReadTemporaryDirectory(prefix: "missing-local")
+        let coreDatabaseURL = rootDirectory.appending(path: "core.sqlite")
+        let localDatabaseURL = rootDirectory.appending(path: "local.sqlite")
+        let factory = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: coreDatabaseURL,
+            localDatabaseURL: localDatabaseURL
+        )
+        let seededSnapshot = makeStrictReadNonemptySnapshot(workspaceId: workspaceId)
+        try await seedStrictReadWorkspace(workspace: seededSnapshot, factory: factory)
+        try removeSQLiteDatabaseAndSidecars(for: localDatabaseURL)
+        let datastore = factory.makeDatastore()
+
+        let result = await datastore.loadWorkspaceSnapshot()
+
+        guard case .loaded(let snapshot) = result else {
+            Issue.record("Expected authoritative core with local defaults, got \(result)")
+            return
+        }
+        #expect(snapshot.id == workspaceId)
+        #expect(snapshot.activeTabId == seededSnapshot.tabs.single?.id)
+        #expect(snapshot.tabs.single?.activeArrangementId == seededSnapshot.tabs.single?.defaultArrangement.id)
+        #expect(snapshot.tabs.single?.activePaneId == seededSnapshot.panes.single?.id)
+        #expect(snapshot.panes.single?.drawer?.isExpanded == false)
+        #expect(snapshot.sidebarWidth == 250)
+        #expect(FileManager.default.fileExists(atPath: localDatabaseURL.path))
         #expect(try !containsQuarantineArtifact(in: rootDirectory))
     }
 
@@ -128,9 +166,7 @@ struct WorkspaceSQLiteStrictReadTests {
         let postMigrationInventory = try strictReadDirectoryInventory(rootDirectory)
         let datastore = WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: coreDatabaseURL,
-            localDatabaseURL: { workspaceId in
-                rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
-            }
+            localDatabaseURL: rootDirectory.appending(path: "local.sqlite")
         ).makeDatastore()
 
         // Act
@@ -143,48 +179,6 @@ struct WorkspaceSQLiteStrictReadTests {
         }
         #expect(failure.description.contains("preexistingDatabaseHasNoWorkspaceRows"))
         #expect(try strictReadDatabaseFiles(at: coreDatabaseURL) == postMigrationBaseline)
-        #expect(try strictReadDirectoryInventory(rootDirectory) == postMigrationInventory)
-    }
-
-    @Test("older local schema migrates then rejection is byte-preserving")
-    func olderLocalSchemaMigratesThenRejectionIsBytePreserving() async throws {
-        // Arrange
-        let workspaceId = UUIDv7.generate()
-        let rootDirectory = try makeStrictReadTemporaryDirectory(prefix: "older-local")
-        let coreDatabaseURL = rootDirectory.appending(path: "core.sqlite")
-        let localDatabaseURL = rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
-        let factory = WorkspaceSQLiteDatastoreFactory(
-            coreDatabaseURL: coreDatabaseURL,
-            localDatabaseURL: { _ in localDatabaseURL }
-        )
-        try await seedStrictReadWorkspace(workspaceId: workspaceId, factory: factory)
-        try removeSQLiteDatabaseAndSidecars(for: localDatabaseURL)
-        let migrationPool = try SQLiteDatabaseFactory.makeFileBackedPool(
-            at: localDatabaseURL,
-            label: "AgentStudio.sqlite.strict-read.older-local.setup"
-        )
-        try WorkspaceLocalMigrations.migrator.migrate(
-            migrationPool,
-            upTo: "006_create_local_persistence_lane_markers"
-        )
-        try migrationPool.close()
-        try WorkspaceSQLiteStartupSchemaPreparer.migratePreexistingDatabaseIfRequired(
-            at: localDatabaseURL,
-            label: "AgentStudio.sqlite.strict-read.older-local.preparer",
-            migrator: WorkspaceLocalMigrations.migrator
-        )
-        let postMigrationBaseline = try strictReadDatabaseFiles(at: localDatabaseURL)
-        let postMigrationInventory = try strictReadDirectoryInventory(rootDirectory)
-
-        // Act
-        let result = await factory.makeDatastore().loadWorkspaceSnapshot()
-
-        // Assert
-        guard case .unavailable = result else {
-            Issue.record("Expected migrated local SQLite without a completion token to be rejected, got \(result)")
-            return
-        }
-        #expect(try strictReadDatabaseFiles(at: localDatabaseURL) == postMigrationBaseline)
         #expect(try strictReadDirectoryInventory(rootDirectory) == postMigrationInventory)
     }
 
@@ -226,99 +220,172 @@ struct WorkspaceSQLiteStrictReadTests {
         #expect(try activeWorkspaceSelection(in: coreQueue) == selectionBeforeLoad)
     }
 
-    @Test("staged core snapshot is rejected without synthesizing local state or completing core")
-    func stagedCoreSnapshotIsRejectedWithoutCompletingIt() async throws {
+    @Test("core committed before a local open failure remains readable")
+    func coreCommittedBeforeLocalOpenFailureRemainsReadable() async throws {
         let workspaceId = UUIDv7.generate()
         let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.strict-read.staged.core"
+            label: "AgentStudio.sqlite.strict-read.local-open-failure.core"
         )
         let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.strict-read.staged.local"
+            label: "AgentStudio.sqlite.strict-read.local-open-failure.local"
         )
         try WorkspaceCoreMigrations.migrate(coreQueue)
         try WorkspaceLocalMigrations.migrate(localQueue)
         let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
-        let failingDatastore = WorkspaceSQLiteDatastore(
-            coreRepository: coreRepository,
-            makeLocalRepository: { _ in throw CocoaError(.fileNoSuchFile) }
-        )
-        do {
-            try await failingDatastore.saveWorkspaceSnapshotBundle(
-                .emptyTopologyFixture(
-                    workspace: .emptyFixture(
-                        id: workspaceId,
-                        name: "Incomplete Save",
-                        updatedAt: Date(timeIntervalSince1970: 20)
-                    )
-                )
-            )
-            Issue.record("Expected the arranged local save to fail")
-        } catch is CocoaError {
-        }
         let localRepository = WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
-        let datastore = WorkspaceSQLiteDatastore(
+        let seededSnapshot = makeStrictReadNonemptySnapshot(workspaceId: workspaceId)
+        let backend = WorkspaceSQLiteStoreBackend(
             coreRepository: coreRepository,
             makeLocalRepository: { _ in localRepository }
         )
-        #expect(try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) == nil)
-        #expect(try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == nil)
-
+        try backend.save(.emptyTopologyFixture(workspace: seededSnapshot))
+        let datastore = WorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            makeLocalRepository: { _ in localRepository },
+            makeLocalRestoreRepository: { _ in throw CocoaError(.fileReadNoPermission) }
+        )
         let result = await datastore.loadWorkspaceSnapshot()
 
-        guard case .unavailable = result else {
-            Issue.record("Expected strict failure for staged core state, got \(result)")
+        guard case .loaded(let snapshot) = result else {
+            Issue.record("Expected committed core state to load after local failure, got \(result)")
             return
         }
-        #expect(try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) == nil)
-        #expect(try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == nil)
+        #expect(snapshot.id == workspaceId)
+        #expect(snapshot.name == seededSnapshot.name)
+        #expect(snapshot.activeTabId == seededSnapshot.tabs.single?.id)
+        #expect(snapshot.tabs.single?.activePaneId == seededSnapshot.panes.single?.id)
+        #expect(snapshot.panes.single?.drawer?.isExpanded == false)
+        #expect(snapshot.sidebarWidth == 250)
     }
 
-    @Test("completed core snapshot with missing local state is rejected without local synthesis")
-    func completedCoreSnapshotWithMissingLocalStateIsRejectedWithoutSynthesis() async throws {
+    @Test("core load accepts independently updated local rows")
+    func coreLoadAcceptsIndependentlyUpdatedLocalRows() async throws {
         let workspaceId = UUIDv7.generate()
         let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
             label: "AgentStudio.sqlite.strict-read.missing-local.core"
         )
-        let completedLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.strict-read.missing-local.completed"
+        let seedLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.strict-read.independent-local.seed"
         )
         let emptyLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.strict-read.missing-local.empty"
+            label: "AgentStudio.sqlite.strict-read.independent-local.current"
         )
         try WorkspaceCoreMigrations.migrate(coreQueue)
-        try WorkspaceLocalMigrations.migrate(completedLocalQueue)
+        try WorkspaceLocalMigrations.migrate(seedLocalQueue)
         try WorkspaceLocalMigrations.migrate(emptyLocalQueue)
         let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
         let seedBackend = WorkspaceSQLiteStoreBackend(
             coreRepository: coreRepository,
             makeLocalRepository: { workspaceId in
-                WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: completedLocalQueue)
+                WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: seedLocalQueue)
             }
         )
         try seedBackend.save(
-            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Missing Local"))
+            .emptyFixture(id: workspaceId, name: "Authoritative Core", sidebarWidth: 260)
         )
-        let emptyLocalRepository = WorkspaceLocalRepository(
+        let independentLocalRepository = WorkspaceLocalRepository(
             workspaceId: workspaceId,
             databaseWriter: emptyLocalQueue
         )
+        try independentLocalRepository.replaceWindowState(
+            .init(sidebarWidth: 420, windowFrame: nil),
+            updatedAt: Date(timeIntervalSince1970: 200)
+        )
         let datastore = WorkspaceSQLiteDatastore(
             coreRepository: coreRepository,
-            makeLocalRepository: { _ in emptyLocalRepository }
+            makeLocalRepository: { _ in independentLocalRepository }
         )
-        #expect(try emptyLocalRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == nil)
 
         let result = await datastore.loadWorkspaceSnapshot()
 
-        guard case .unavailable = result else {
-            Issue.record("Expected strict failure for missing local state, got \(result)")
+        guard case .loaded(let snapshot) = result else {
+            Issue.record("Expected core to load with independent local rows, got \(result)")
             return
         }
-        #expect(try emptyLocalRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == nil)
+        #expect(snapshot.id == workspaceId)
+        #expect(snapshot.name == "Authoritative Core")
+        #expect(snapshot.sidebarWidth == 420)
     }
 
-    @Test("valid completed snapshot loads exactly without changing selection or completion tokens")
-    func validCompletedSnapshotLoadsWithoutMutation() async throws {
+    @Test("async core load defaults malformed cursor rows without discarding valid window state")
+    func asyncCoreLoadDefaultsMalformedCursorWithoutDiscardingValidWindowState() async throws {
+        let workspaceId = UUIDv7.generate()
+        let rootDirectory = try makeStrictReadTemporaryDirectory(prefix: "independent-cursor-default")
+        let localDatabaseURL = rootDirectory.appending(path: "local.sqlite")
+        let factory = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: rootDirectory.appending(path: "core.sqlite"),
+            localDatabaseURL: localDatabaseURL
+        )
+        let seededSnapshot = makeStrictReadNonemptySnapshot(workspaceId: workspaceId)
+        try await seedStrictReadWorkspace(workspace: seededSnapshot, factory: factory)
+        let localPool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: localDatabaseURL,
+            label: "AgentStudio.sqlite.strict-read.independent-cursor-default.local"
+        )
+        try await localPool.write { database in
+            try database.execute(
+                sql: "UPDATE local_workspace_cursor SET active_tab_id = 'malformed' WHERE workspace_id = ?",
+                arguments: [workspaceId.uuidString]
+            )
+        }
+        try localPool.close()
+
+        let result = await factory.makeDatastore().loadWorkspaceSnapshot()
+
+        guard case .loaded(let snapshot) = result else {
+            Issue.record("Expected core with independently defaulted cursor state, got \(result)")
+            return
+        }
+        #expect(snapshot.activeTabId == seededSnapshot.tabs.single?.id)
+        #expect(snapshot.sidebarWidth == seededSnapshot.sidebarWidth)
+    }
+
+    @Test("synchronous core load defaults malformed window rows without discarding valid cursor state")
+    func synchronousCoreLoadDefaultsMalformedWindowWithoutDiscardingValidCursorState() throws {
+        let workspaceId = UUIDv7.generate()
+        let firstPane = makePane(title: "First")
+        let secondPane = makePane(title: "Second")
+        let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: secondPane.id)
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: workspaceId,
+            name: "Independent Window Default",
+            panes: [firstPane, secondPane],
+            tabs: [tab],
+            activeTabId: tab.id,
+            sidebarWidth: 420,
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 2)
+        )
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.strict-read.independent-window-default.core"
+        )
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.strict-read.independent-window-default.local"
+        )
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let backend = WorkspaceSQLiteStoreBackend(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
+            makeLocalRepository: { workspaceId in
+                WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
+            }
+        )
+        try backend.save(.emptyTopologyFixture(workspace: snapshot))
+        try localQueue.write { database in
+            try database.execute(
+                sql: "UPDATE local_window_state SET window_frame_json = 'malformed' WHERE window_role = 'main'"
+            )
+        }
+
+        let loadedSnapshot = try backend.load()
+        let loaded = try #require(loadedSnapshot)
+
+        #expect(loaded.tabs.single?.defaultArrangement.activePaneId == secondPane.id)
+        #expect(loaded.sidebarWidth == 250)
+    }
+
+    @Test("valid core and local rows load exactly without mutation")
+    func validCoreAndLocalRowsLoadWithoutMutation() async throws {
         let workspaceId = UUIDv7.generate()
         let completedAt = Date(timeIntervalSince1970: 42)
         let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
@@ -341,45 +408,37 @@ struct WorkspaceSQLiteStrictReadTests {
             )
         )
         let selectionBeforeLoad = try activeWorkspaceSelection(in: coreQueue)
-        let coreCompletionBeforeLoad = try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(
-            workspaceId: workspaceId
-        )
-        let localCompletionBeforeLoad = try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt()
+        let localCursorBeforeLoad = try localRepository.fetchCursorState()
+        let localWindowBeforeLoad = try localRepository.fetchWindowState()
         let datastore = workspaceSQLiteDatastore(from: backend)
 
         let result = await datastore.loadWorkspaceSnapshot()
 
         guard case .loaded(let snapshot) = result else {
-            Issue.record("Expected exact completed snapshot load, got \(result)")
+            Issue.record("Expected exact core and local row load, got \(result)")
             return
         }
         #expect(snapshot.id == workspaceId)
         #expect(snapshot.name == "Exact Snapshot")
         #expect(snapshot.updatedAt == completedAt)
         #expect(try activeWorkspaceSelection(in: coreQueue) == selectionBeforeLoad)
-        #expect(
-            try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId)
-                == coreCompletionBeforeLoad
-        )
-        #expect(try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == localCompletionBeforeLoad)
+        #expect(try localRepository.fetchCursorState() == localCursorBeforeLoad)
+        #expect(try localRepository.fetchWindowState() == localWindowBeforeLoad)
     }
 
-    @Test("preexisting valid snapshot loads byte-preserving then opens a writable steady backend")
+    @Test("preexisting valid snapshot preserves core bytes then opens a writable steady backend")
     func preexistingValidSnapshotLoadsBytePreservingThenSavesThroughWritableBackend() async throws {
         // Arrange
         let workspaceId = UUIDv7.generate()
         let rootDirectory = try makeStrictReadTemporaryDirectory(prefix: "valid-file-backed")
         let coreDatabaseURL = rootDirectory.appending(path: "core.sqlite")
-        let localDatabaseURL = rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
+        let localDatabaseURL = rootDirectory.appending(path: "local.sqlite")
         let factory = WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: coreDatabaseURL,
-            localDatabaseURL: { _ in localDatabaseURL }
+            localDatabaseURL: localDatabaseURL
         )
         try await seedStrictReadWorkspace(workspaceId: workspaceId, factory: factory)
-        let durableFilesBeforeLoad = try StrictReadDurableFiles(
-            core: strictReadDatabaseFiles(at: coreDatabaseURL),
-            local: strictReadDatabaseFiles(at: localDatabaseURL)
-        )
+        let coreFilesBeforeLoad = try strictReadDatabaseFiles(at: coreDatabaseURL)
         let datastore = factory.makeDatastore()
 
         // Act
@@ -391,12 +450,7 @@ struct WorkspaceSQLiteStrictReadTests {
             return
         }
         #expect(loadedSnapshot.id == workspaceId)
-        #expect(
-            try StrictReadDurableFiles(
-                core: strictReadDatabaseFiles(at: coreDatabaseURL),
-                local: strictReadDatabaseFiles(at: localDatabaseURL)
-            ) == durableFilesBeforeLoad
-        )
+        #expect(try strictReadDatabaseFiles(at: coreDatabaseURL) == coreFilesBeforeLoad)
 
         let updatedAt = Date()
         let updatedSnapshot = WorkspaceSQLiteSnapshot.emptyFixture(
@@ -412,11 +466,6 @@ struct WorkspaceSQLiteStrictReadTests {
         #expect(reloadedSnapshot.name == "Saved After Byte-Preserving Startup")
         #expect(reloadedSnapshot.updatedAt.timeIntervalSince1970 == updatedAt.timeIntervalSince1970)
     }
-}
-
-private struct StrictReadDurableFiles: Equatable {
-    let core: StrictReadDatabaseFiles
-    let local: StrictReadDatabaseFiles
 }
 
 private struct StrictReadDatabaseFiles: Equatable {
@@ -466,14 +515,37 @@ private func makeStrictReadTemporaryDirectory(prefix: String) throws -> URL {
 }
 
 private func seedStrictReadWorkspace(
-    workspaceId: UUID,
+    workspace: WorkspaceSQLiteSnapshot,
     factory: WorkspaceSQLiteDatastoreFactory
 ) async throws {
     let datastore = factory.makeDatastore()
     try await datastore.saveWorkspaceSnapshotBundle(
-        .emptyTopologyFixture(
-            workspace: .emptyFixture(id: workspaceId, name: "Strict Local Corruption")
-        )
+        .emptyTopologyFixture(workspace: workspace)
+    )
+}
+
+private func seedStrictReadWorkspace(
+    workspaceId: UUID,
+    factory: WorkspaceSQLiteDatastoreFactory
+) async throws {
+    try await seedStrictReadWorkspace(
+        workspace: .emptyFixture(id: workspaceId, name: "Strict Local Corruption"),
+        factory: factory
+    )
+}
+
+private func makeStrictReadNonemptySnapshot(workspaceId: UUID) -> WorkspaceSQLiteSnapshot {
+    let pane = makePane(id: UUIDv7.generate(), title: "Strict restored pane")
+    let tab = Tab(id: UUIDv7.generate(), paneId: pane.id, name: "Strict restored tab")
+    return WorkspaceSQLiteSnapshot(
+        id: workspaceId,
+        name: "Committed Core",
+        panes: [pane],
+        tabs: [tab],
+        activeTabId: tab.id,
+        sidebarWidth: 420,
+        createdAt: Date(timeIntervalSince1970: 10),
+        updatedAt: Date(timeIntervalSince1970: 20)
     )
 }
 
