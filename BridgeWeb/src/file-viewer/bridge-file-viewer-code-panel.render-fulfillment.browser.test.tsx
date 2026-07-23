@@ -357,6 +357,9 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 		const originalSubscribeToScroll = CodeView.prototype.subscribeToScroll;
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
 		const originalScrollTo = CodeView.prototype.scrollTo;
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalSetItems = CodeView.prototype.setItems;
+		let emitProgrammaticResetDuringReplacement = false;
 		CodeView.prototype.setup = function captureMountedCodeView(root: HTMLElement): void {
 			mountedCodeView.current = this;
 			originalSetup.call(this, root);
@@ -371,6 +374,14 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			target: CodeViewScrollTarget,
 		): void {
 			scrollToReceipts.push(target);
+		};
+		CodeView.prototype.setItems = function publishReplacementReset(
+			items: readonly CodeViewItem[],
+		): void {
+			originalSetItems.call(this, items);
+			if (emitProgrammaticResetDuringReplacement) {
+				codeViewScrollListener.current?.(0, this);
+			}
 		};
 
 		const renderFulfillmentCoordinator = {
@@ -423,6 +434,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			capturedScrollListener(247, capturedCodeView);
 
 			const pendingAnimationFrames: PendingAnimationFrame[] = [];
+			emitProgrammaticResetDuringReplacement = true;
 			let nextFrameHandle = 1;
 			const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 			globalThis.requestAnimationFrame = (callback): number => {
@@ -466,6 +478,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			CodeView.prototype.setup = originalSetup;
 			CodeView.prototype.subscribeToScroll = originalSubscribeToScroll;
 			CodeView.prototype.scrollTo = originalScrollTo;
+			CodeView.prototype.setItems = originalSetItems;
 		}
 	});
 });
