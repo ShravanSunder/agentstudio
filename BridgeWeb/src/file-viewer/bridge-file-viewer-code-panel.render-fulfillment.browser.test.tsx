@@ -393,6 +393,13 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				version: 2,
 			}).job.payload.item,
 		);
+		const secondRefreshedItem = requireExactFilePierreItem(
+			makeFilePublication({
+				contentsMarker: 'scroll-refreshed-again',
+				publicationSequence: 3,
+				version: 3,
+			}).job.payload.item,
+		);
 		const initialOpenFileState = {
 			displayItem: null,
 			fileId: 'file-1',
@@ -496,6 +503,44 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 					await Promise.resolve();
 				});
 				expect(scrollToReceipts.length).toBeGreaterThan(restoreCountBeforeLatePierreReset);
+
+				await rendered.rerender(
+					<BridgeFileViewerCodePanel
+						codeViewWorkerPoolEnabled={false}
+						openFileState={{ ...initialOpenFileState, status: 'loading' }}
+						renderFulfillmentCoordinator={renderFulfillmentCoordinator}
+						selectedCodeViewItem={null}
+						totalHeightPixels={null}
+					/>,
+				);
+				await rendered.rerender(
+					<BridgeFileViewerCodePanel
+						codeViewWorkerPoolEnabled={false}
+						openFileState={{ ...initialOpenFileState }}
+						renderFulfillmentCoordinator={renderFulfillmentCoordinator}
+						selectedCodeViewItem={secondRefreshedItem}
+						totalHeightPixels={null}
+					/>,
+				);
+				await act(async (): Promise<void> => {
+					while (pendingAnimationFrames.length > 0) {
+						const pendingFrame = pendingAnimationFrames.shift();
+						pendingFrame?.callback(performance.now());
+					}
+					await Promise.resolve();
+				});
+				const restoreCountBeforeUserScrollToTop = scrollToReceipts.length;
+				await act(async (): Promise<void> => {
+					capturedCodeViewRoot.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
+					capturedCodeViewRoot.scrollTop = 0;
+					capturedCodeViewRoot.dispatchEvent(new Event('scroll'));
+					while (pendingAnimationFrames.length > 0) {
+						const pendingFrame = pendingAnimationFrames.shift();
+						pendingFrame?.callback(performance.now());
+					}
+					await Promise.resolve();
+				});
+				expect(scrollToReceipts).toHaveLength(restoreCountBeforeUserScrollToTop);
 			} finally {
 				globalThis.requestAnimationFrame = originalRequestAnimationFrame;
 			}

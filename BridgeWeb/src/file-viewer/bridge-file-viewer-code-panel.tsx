@@ -109,6 +109,9 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		() => ({ ...bridgeFileViewerCodeViewOptions, onPostRender: handleCodeViewPostRender }),
 		[handleCodeViewPostRender],
 	);
+	const clearPendingSameFileScrollRestore = useCallback((): void => {
+		pendingSameFileScrollRestoreRef.current = null;
+	}, []);
 	const handleCodeViewScroll = useCallback(
 		(scrollTop: number): void => {
 			const pendingScrollRestore = pendingSameFileScrollRestoreRef.current;
@@ -271,7 +274,14 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 					? {}
 					: { workerFactory: props.codeViewWorkerFactory })}
 			>
-				<div className="h-full min-h-0 min-w-0" data-testid="bridge-file-viewer-code-view">
+				<div
+					className="h-full min-h-0 min-w-0"
+					data-testid="bridge-file-viewer-code-view"
+					onKeyDownCapture={clearPendingSameFileScrollRestore}
+					onPointerDownCapture={clearPendingSameFileScrollRestore}
+					onTouchStartCapture={clearPendingSameFileScrollRestore}
+					onWheelCapture={clearPendingSameFileScrollRestore}
+				>
 					<CodeView
 						className="bridge-code-view-scroll-owner bridge-scrollbar cv-scrollbar relative h-full min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] [will-change:scroll-position] [&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]"
 						items={codeViewItems}
