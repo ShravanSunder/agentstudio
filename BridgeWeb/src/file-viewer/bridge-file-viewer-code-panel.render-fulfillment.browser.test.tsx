@@ -347,6 +347,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 		// Arrange: retain the real React CodeView subscription seam while capturing the exact
 		// public scrollTo command received by Pierre.
 		const mountedCodeView: { current: CodeView | null } = { current: null };
+		const mountedCodeViewRoot: { current: HTMLElement | null } = { current: null };
 		const codeViewScrollListener: { current: CodeViewScrollListener<undefined> | null } = {
 			current: null,
 		};
@@ -359,6 +360,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 		const originalScrollTo = CodeView.prototype.scrollTo;
 		CodeView.prototype.setup = function captureMountedCodeView(root: HTMLElement): void {
 			mountedCodeView.current = this;
+			mountedCodeViewRoot.current = root;
 			originalSetup.call(this, root);
 		};
 		CodeView.prototype.subscribeToScroll = function captureCodeViewScrollListener(
@@ -471,16 +473,38 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 					/>,
 				);
 
-				const scheduledFrames = pendingAnimationFrames.splice(0);
 				await act(async (): Promise<void> => {
-					for (const frame of scheduledFrames) frame.callback(performance.now());
+					while (pendingAnimationFrames.length > 0) {
+						const pendingFrame = pendingAnimationFrames.shift();
+						pendingFrame?.callback(performance.now());
+					}
 					await Promise.resolve();
 				});
+
+				const restoreCountBeforeLatePierreReset = scrollToReceipts.length;
+				const capturedCodeViewRoot = mountedCodeViewRoot.current;
+				if (capturedCodeViewRoot === null) {
+					throw new Error('Expected the mounted CodeView root.');
+				}
+				await act(async (): Promise<void> => {
+					capturedCodeViewRoot.scrollTop = 0;
+					capturedCodeViewRoot.dispatchEvent(new Event('scroll'));
+					while (pendingAnimationFrames.length > 0) {
+						const pendingFrame = pendingAnimationFrames.shift();
+						pendingFrame?.callback(performance.now());
+					}
+					await Promise.resolve();
+				});
+				expect(scrollToReceipts.length).toBeGreaterThan(restoreCountBeforeLatePierreReset);
 			} finally {
 				globalThis.requestAnimationFrame = originalRequestAnimationFrame;
 			}
 
-			expect(scrollToReceipts).toEqual([{ behavior: 'instant', position: 247, type: 'position' }]);
+			expect(scrollToReceipts.at(-1)).toEqual({
+				behavior: 'instant',
+				position: 247,
+				type: 'position',
+			});
 		} finally {
 			CodeView.prototype.setup = originalSetup;
 			CodeView.prototype.subscribeToScroll = originalSubscribeToScroll;

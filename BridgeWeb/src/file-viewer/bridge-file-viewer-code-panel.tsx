@@ -63,6 +63,10 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	}>({ path: null, status: 'idle' });
 	const previousRenderedPathRef = useRef<string | null>(null);
 	const previousRenderedCacheKeyRef = useRef<string | null>(null);
+	const pendingSameFileScrollRestoreRef = useRef<{
+		readonly cacheKey: string;
+		readonly position: number;
+	} | null>(null);
 	const scrollEffectVersionRef = useRef(0);
 	const openFileStatus = props.openFileState.status;
 	const openFilePath = openFileStatus === 'idle' ? null : props.openFileState.path;
@@ -107,6 +111,25 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	);
 	const handleCodeViewScroll = useCallback(
 		(scrollTop: number): void => {
+			const pendingScrollRestore = pendingSameFileScrollRestoreRef.current;
+			if (
+				scrollTop === 0 &&
+				pendingScrollRestore !== null &&
+				selectedCodeViewCacheKey === pendingScrollRestore.cacheKey
+			) {
+				requestAnimationFrame((): void => {
+					if (pendingSameFileScrollRestoreRef.current !== pendingScrollRestore) {
+						return;
+					}
+					codeViewHandleRef.current?.scrollTo({
+						type: 'position',
+						position: pendingScrollRestore.position,
+						behavior: 'instant',
+					});
+					pendingSameFileScrollRestoreRef.current = null;
+				});
+				return;
+			}
 			const sameFileContentUnavailableTransition =
 				openFileStatus === 'loading' &&
 				openFilePath !== null &&
@@ -156,6 +179,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			currentRenderedPath !== previousRenderedPath &&
 			!shouldRestoreSameFileScroll
 		) {
+			pendingSameFileScrollRestoreRef.current = null;
 			previousRenderedPathRef.current = currentRenderedPath;
 			previousRenderedCacheKeyRef.current = currentRenderedCacheKey;
 			lastScrollTopRef.current = 0;
@@ -176,6 +200,12 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 				previousRenderedCacheKeyRef.current = currentRenderedCacheKey;
 			}
 			const scrollTop = lastScrollTopRef.current;
+			if (currentRenderedCacheKey !== null && scrollTop > 0) {
+				pendingSameFileScrollRestoreRef.current = {
+					cacheKey: currentRenderedCacheKey,
+					position: scrollTop,
+				};
+			}
 			requestAnimationFrame((): void => {
 				if (scrollEffectVersionRef.current !== effectVersion) {
 					return;
