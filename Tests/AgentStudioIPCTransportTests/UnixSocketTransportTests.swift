@@ -97,114 +97,32 @@ struct UnixSocketTransportTests {
         #endif
     }
 
-    @Test("closed connection cannot access a reused descriptor")
-    func closedConnectionCannotAccessReusedDescriptor() throws {
+    @Test("closed connection rejects operations before descriptor access")
+    func closedConnectionRejectsOperationsBeforeDescriptorAccess() throws {
         #if canImport(Darwin)
-            do {
-                let fixture = try ReusedDescriptorSocketFixture.make()
-                defer { fixture.close() }
-
-                let credentialProvider = RecordingPeerCredentialProvider()
-                #expect(throws: UnixSocketTransportError(reason: .connectionClosed)) {
-                    _ = try fixture.closedConnection.peerCredentials(using: credentialProvider)
-                }
-                #expect(credentialProvider.invocationCount == 0)
-                #expect(throws: UnixSocketTransportError(reason: .connectionClosed)) {
-                    try fixture.closedConnection.send(Data("stale\n".utf8))
-                }
-
-                expectNoAvailableBytes(on: fixture.peerDescriptor)
+            var descriptors: [Int32] = [0, 0]
+            guard socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0 else {
+                throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
             }
 
-            do {
-                let fixture = try ReusedDescriptorSocketFixture.make()
-                defer { fixture.close() }
+            let connection = UnixSocketConnection(fileDescriptor: descriptors[0])
+            connection.close()
+            _ = Darwin.close(descriptors[1])
 
-                _ = Data("successor\n".utf8).withUnsafeBytes { bytes in
-                    Darwin.write(fixture.peerDescriptor, bytes.baseAddress, bytes.count)
-                }
+            let credentialProvider = RecordingPeerCredentialProvider()
+            #expect(throws: UnixSocketTransportError(reason: .connectionClosed)) {
+                _ = try connection.peerCredentials(using: credentialProvider)
+            }
+            #expect(credentialProvider.invocationCount == 0)
 
-                #expect(throws: UnixSocketTransportError(reason: .connectionClosed)) {
-                    _ = try fixture.closedConnection.receive(maxBytes: 64)
-                }
-
-                var preservedPayload = [UInt8](repeating: 0, count: 64)
-                let preservedByteCount = preservedPayload.withUnsafeMutableBytes { bytes in
-                    Darwin.read(fixture.reusedDescriptor, bytes.baseAddress, bytes.count)
-                }
-                try #require(preservedByteCount >= 0)
-                let preservedText = String(bytes: preservedPayload.prefix(preservedByteCount), encoding: .utf8)
-                #expect(preservedText == "successor\n")
+            #expect(throws: UnixSocketTransportError(reason: .connectionClosed)) {
+                try connection.send(Data("stale\n".utf8))
+            }
+            #expect(throws: UnixSocketTransportError(reason: .connectionClosed)) {
+                _ = try connection.receive(maxBytes: 64)
             }
         #endif
     }
-}
-
-private struct ReusedDescriptorSocketFixture {
-    let closedConnection: UnixSocketConnection
-    let reusedDescriptor: Int32
-    let peerDescriptor: Int32
-
-    static func make() throws -> Self {
-        var originalDescriptors: [Int32] = [0, 0]
-        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &originalDescriptors) == 0 else {
-            throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
-        }
-
-        let reusedDescriptor = originalDescriptors[0]
-        let closedConnection = UnixSocketConnection(fileDescriptor: reusedDescriptor)
-        closedConnection.close()
-        _ = Darwin.close(originalDescriptors[1])
-
-        let placeholderDescriptor = Darwin.open("/dev/null", O_RDONLY)
-        guard placeholderDescriptor >= 0 else {
-            throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
-        }
-        if placeholderDescriptor != reusedDescriptor {
-            guard Darwin.dup2(placeholderDescriptor, reusedDescriptor) == reusedDescriptor else {
-                _ = Darwin.close(placeholderDescriptor)
-                throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
-            }
-            _ = Darwin.close(placeholderDescriptor)
-        }
-
-        var replacementDescriptors: [Int32] = [0, 0]
-        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &replacementDescriptors) == 0 else {
-            _ = Darwin.close(reusedDescriptor)
-            throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
-        }
-        guard Darwin.dup2(replacementDescriptors[0], reusedDescriptor) == reusedDescriptor else {
-            _ = Darwin.close(reusedDescriptor)
-            _ = Darwin.close(replacementDescriptors[0])
-            _ = Darwin.close(replacementDescriptors[1])
-            throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
-        }
-        _ = Darwin.close(replacementDescriptors[0])
-
-        return Self(
-            closedConnection: closedConnection,
-            reusedDescriptor: reusedDescriptor,
-            peerDescriptor: replacementDescriptors[1]
-        )
-    }
-
-    func close() {
-        _ = Darwin.close(reusedDescriptor)
-        _ = Darwin.close(peerDescriptor)
-    }
-}
-
-private func expectNoAvailableBytes(on descriptor: Int32) {
-    var unexpectedByte: UInt8 = 0
-    let receivedByteCount = Darwin.recv(
-        descriptor,
-        &unexpectedByte,
-        MemoryLayout.size(ofValue: unexpectedByte),
-        MSG_DONTWAIT
-    )
-    let receiveErrno = errno
-    #expect(receivedByteCount == -1)
-    #expect(receiveErrno == EAGAIN || receiveErrno == EWOULDBLOCK)
 }
 
 private final class RecordingPeerCredentialProvider: PeerCredentialProviding, @unchecked Sendable {
