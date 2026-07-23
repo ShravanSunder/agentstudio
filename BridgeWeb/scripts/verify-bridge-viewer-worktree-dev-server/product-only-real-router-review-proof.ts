@@ -37,6 +37,7 @@ interface FreshReviewViewportState {
 		readonly hostBottomOffset: number;
 		readonly hostTopOffset: number;
 		readonly itemId: string;
+		readonly paintIdentity: string | null;
 	}[];
 }
 
@@ -81,6 +82,7 @@ export async function proveFreshReviewRoute(props: {
 	const observedHeaderItemIdSet = new Set<string>();
 	const hydrationMilestones: BridgeViewerReviewHydrationMilestone[] = [];
 	const hydrationCoverageAccumulator = createFreshReviewHydrationCoverageAccumulator();
+	const forwardPaintIdentityByItemId = new Map<string, string>();
 	const initialHydrationWindow = await captureFreshReviewHydrationWindow({
 		excludedItemIds: [],
 		page: props.page,
@@ -104,6 +106,10 @@ export async function proveFreshReviewRoute(props: {
 	recordFreshReviewHydrationCoverageWindow({
 		accumulator: hydrationCoverageAccumulator,
 		window: initialHydrationWindow,
+	});
+	recordFreshReviewPaintIdentities({
+		paintIdentityByItemId: forwardPaintIdentityByItemId,
+		visibleItems: viewportState.visibleItems,
 	});
 	hydrationMilestones.push({
 		hydratedNonSelectedItemIds: initialHydrationWindow.hydratedNonSelectedItemIds,
@@ -147,6 +153,10 @@ export async function proveFreshReviewRoute(props: {
 			observedItemIds: observedHeaderItemIds,
 			observedItemIdSet: observedHeaderItemIdSet,
 		});
+		recordFreshReviewPaintIdentities({
+			paintIdentityByItemId: forwardPaintIdentityByItemId,
+			visibleItems: viewportState.visibleItems,
+		});
 		while (
 			pendingMilestones.length > 0 &&
 			observedHeaderItemIds.length >= (pendingMilestones[0]?.minimumObservedItemCount ?? Infinity)
@@ -177,7 +187,11 @@ export async function proveFreshReviewRoute(props: {
 		} else {
 			settledBottomTurnCount = 0;
 		}
-		await scrollFreshReviewCodeView({ page: props.page, state: viewportState });
+		await scrollFreshReviewCodeView({
+			direction: 'forward',
+			page: props.page,
+			state: viewportState,
+		});
 	}
 	for (const milestone of pendingMilestones) {
 		hydrationMilestones.push(
@@ -201,11 +215,63 @@ export async function proveFreshReviewRoute(props: {
 		observedItemIds: observedHeaderItemIds,
 		observedItemIdSet: observedHeaderItemIdSet,
 	});
+	recordFreshReviewPaintIdentities({
+		paintIdentityByItemId: forwardPaintIdentityByItemId,
+		visibleItems: viewportState.visibleItems,
+	});
+	const forwardCompletedScroll = viewportState.codeScroll;
+	const backwardHydrationCoverageAccumulator = createFreshReviewHydrationCoverageAccumulator();
+	const backwardMountedHeaderOrderViolations: BridgeViewerReviewMountedHeaderOrderViolation[] = [];
+	const backwardMountedHeaderOrderViolationSignatures = new Set<string>();
+	const reusedPaintIdentityItemIdSet = new Set<string>();
+	for (let stepIndex = 0; stepIndex < traversalStepBudget; stepIndex += 1) {
+		const settledHydrationWindow = await captureFreshReviewHydrationWindow({
+			excludedItemIds: [],
+			page: props.page,
+			selectedItemId: selectedItemIdAtStart,
+		});
+		recordFreshReviewHydrationCoverageWindow({
+			accumulator: backwardHydrationCoverageAccumulator,
+			window: settledHydrationWindow,
+		});
+		viewportState = await readFreshReviewViewportState(props.page);
+		recordMountedHeaderOrderViolation({
+			expectedItemIndexById,
+			mountedItemIds: viewportState.mountedItemIds,
+			mountedHeaderOrderViolations: backwardMountedHeaderOrderViolations,
+			mountedHeaderOrderViolationSignatures: backwardMountedHeaderOrderViolationSignatures,
+		});
+		recordReusedFreshReviewPaintIdentities({
+			forwardPaintIdentityByItemId,
+			reusedPaintIdentityItemIdSet,
+			visibleItems: viewportState.visibleItems,
+		});
+		if (viewportState.codeScroll.scrollTop <= 1) break;
+		await scrollFreshReviewCodeView({
+			direction: 'backward',
+			page: props.page,
+			state: viewportState,
+		});
+	}
+	viewportState = await readFreshReviewViewportState(props.page);
 	const identity = await readFreshReviewIdentitySnapshot(props.page);
 	return {
 		...identity,
+		backwardTraversal: {
+			completedScrollTop: viewportState.codeScroll.scrollTop,
+			hydrationCoverage: freshReviewHydrationCoverage({
+				accumulator: backwardHydrationCoverageAccumulator,
+				expectedItemIds: props.expectedItemIds,
+				selectedItemId: selectedItemIdAtStart,
+			}),
+			mountedHeaderOrderViolations: backwardMountedHeaderOrderViolations,
+			reusedPaintIdentityItemIds: props.expectedItemIds.filter((itemId): boolean =>
+				reusedPaintIdentityItemIdSet.has(itemId),
+			),
+			selectedItemIdAtCompletion: viewportState.selectedItemId,
+		},
 		codeViewManifestItemCount: viewportState.codeViewManifestItemCount,
-		completedScroll: viewportState.codeScroll,
+		completedScroll: forwardCompletedScroll,
 		expectedItemIds: props.expectedItemIds,
 		finalDirectoryDisclosure: viewportState.directoryDisclosure,
 		hydrationCoverage: freshReviewHydrationCoverage({
@@ -428,6 +494,7 @@ async function readFreshReviewViewportState(page: Page): Promise<FreshReviewView
 			readonly hostBottomOffset: number;
 			readonly hostTopOffset: number;
 			readonly itemId: string;
+			readonly paintIdentity: string | null;
 		}> = [];
 		for (const reviewItemHost of reviewItemHosts) {
 			const itemMarker = bridgeReviewHostElement(reviewItemHost, '[data-bridge-code-view-item-id]');
@@ -446,6 +513,7 @@ async function readFreshReviewViewportState(page: Page): Promise<FreshReviewView
 				hostBottomOffset: hostRect.bottom - codeScrollRect.top,
 				hostTopOffset: hostRect.top - codeScrollRect.top,
 				itemId,
+				paintIdentity: paintedReviewIdentity(reviewItemHost),
 			});
 		}
 		const directoryDisclosure =
@@ -475,6 +543,14 @@ async function readFreshReviewViewportState(page: Page): Promise<FreshReviewView
 
 		function bridgeReviewHostElement(host: Element, selector: string): Element | null {
 			return host.querySelector(selector) ?? host.shadowRoot?.querySelector(selector) ?? null;
+		}
+
+		function paintedReviewIdentity(host: Element): string | null {
+			const publicationId = host.getAttribute('data-bridge-painted-publication-id');
+			const sourceCorrelations = host.getAttribute('data-bridge-painted-source-correlations');
+			return publicationId === null || sourceCorrelations === null
+				? null
+				: JSON.stringify([publicationId, sourceCorrelations]);
 		}
 
 		function queryAllInOpenShadowRoots(
@@ -672,6 +748,30 @@ function appendFirstSeenItemIds(props: {
 	}
 }
 
+function recordFreshReviewPaintIdentities(props: {
+	readonly paintIdentityByItemId: Map<string, string>;
+	readonly visibleItems: FreshReviewViewportState['visibleItems'];
+}): void {
+	for (const item of props.visibleItems) {
+		if (item.paintIdentity !== null && !props.paintIdentityByItemId.has(item.itemId)) {
+			props.paintIdentityByItemId.set(item.itemId, item.paintIdentity);
+		}
+	}
+}
+
+function recordReusedFreshReviewPaintIdentities(props: {
+	readonly forwardPaintIdentityByItemId: ReadonlyMap<string, string>;
+	readonly reusedPaintIdentityItemIdSet: Set<string>;
+	readonly visibleItems: FreshReviewViewportState['visibleItems'];
+}): void {
+	for (const item of props.visibleItems) {
+		const forwardPaintIdentity = props.forwardPaintIdentityByItemId.get(item.itemId);
+		if (forwardPaintIdentity !== undefined && item.paintIdentity === forwardPaintIdentity) {
+			props.reusedPaintIdentityItemIdSet.add(item.itemId);
+		}
+	}
+}
+
 export function mountedHeaderOrderViolationForExpectedOrder(props: {
 	readonly expectedItemIndexById: ReadonlyMap<string, number>;
 	readonly mountedItemIds: readonly string[];
@@ -711,13 +811,23 @@ function recordMountedHeaderOrderViolation(props: {
 }
 
 async function scrollFreshReviewCodeView(props: {
+	readonly direction: 'backward' | 'forward';
 	readonly page: Page;
 	readonly state: FreshReviewViewportState;
 }): Promise<void> {
-	const nextScrollTop = nextFreshReviewTraversalScrollTop({
-		codeScroll: props.state.codeScroll,
-		visibleItems: props.state.visibleItems,
-	});
+	const nextScrollTop =
+		props.direction === 'forward'
+			? nextFreshReviewTraversalScrollTop({
+					codeScroll: props.state.codeScroll,
+					visibleItems: props.state.visibleItems,
+				})
+			: Math.max(
+					0,
+					Math.floor(
+						props.state.codeScroll.scrollTop -
+							Math.max(1, props.state.codeScroll.clientHeight * 0.8),
+					),
+				);
 	await props.page.evaluate(
 		({ nextScrollTop, selector }): void => {
 			const codeScrollOwner = document.querySelector(selector);
@@ -725,7 +835,7 @@ async function scrollFreshReviewCodeView(props: {
 			codeScrollOwner.dispatchEvent(
 				new WheelEvent('wheel', {
 					bubbles: true,
-					deltaY: Math.max(1, nextScrollTop - codeScrollOwner.scrollTop),
+					deltaY: nextScrollTop - codeScrollOwner.scrollTop,
 				}),
 			);
 			codeScrollOwner.scrollTop = Math.floor(nextScrollTop);
@@ -756,7 +866,7 @@ async function scrollFreshReviewCodeView(props: {
 	}
 	await waitForFreshReviewFrameSettlement({
 		page: props.page,
-		stage: `scroll:${nextScrollTop}`,
+		stage: `${props.direction}-scroll:${nextScrollTop}`,
 	});
 }
 

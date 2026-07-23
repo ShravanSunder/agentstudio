@@ -522,6 +522,41 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		expect(violationCodes).not.toContain('REVIEW_FRESH_ROUTE_VISIBLE_HYDRATION_MISSING');
 	});
 
+	test('rejects backward traversal that misses hydrated windows, changes selection, or republishes content', () => {
+		// Arrange
+		const passingProof = makePassingProductOnlyProof();
+		const proof = {
+			...passingProof,
+			reviewFreshRoute: {
+				...passingProof.reviewFreshRoute,
+				backwardTraversal: {
+					completedScrollTop: 900,
+					hydrationCoverage: {
+						missingHydratedVisibleWindows: [],
+						observedHydratedNonSelectedItemIds: [],
+						settledWindowCount: 0,
+					},
+					mountedHeaderOrderViolations: [
+						{
+							expectedItemIndexes: [2, 1],
+							mountedItemIds: ['review-item-3', 'review-item-2'],
+						},
+					],
+					reusedPaintIdentityItemIds: [],
+					selectedItemIdAtCompletion: 'review-item-2',
+				},
+			},
+		} as unknown as BridgeViewerProductOnlyJourneyProof;
+
+		// Act
+		const violationCodes = collectBridgeViewerProductOnlyContractViolations(proof).map(
+			(violation) => violation.code,
+		);
+
+		// Assert
+		expect(violationCodes).toContain('REVIEW_FRESH_ROUTE_BACKWARD_INVALID');
+	});
+
 	test('routes performance-only work to the representative runner and keeps product-only as default', async () => {
 		const registeredVerifierSource = await readFile(
 			new URL('../verify-bridge-viewer-worktree-dev-server.ts', import.meta.url),
@@ -760,6 +795,22 @@ function makePassingProductOnlyProof(
 			'http://127.0.0.1:50000/?fixture=worktree&scenario=current-worktree&viewer=file',
 		productRouteTranscript: overrides.transcript ?? passingTranscript(),
 		reviewFreshRoute: {
+			backwardTraversal: {
+				completedScrollTop: 0,
+				hydrationCoverage: {
+					missingHydratedVisibleWindows: [],
+					observedHydratedNonSelectedItemIds: ['review-item-2', 'review-item-3', 'review-item-4'],
+					settledWindowCount: 4,
+				},
+				mountedHeaderOrderViolations: [],
+				reusedPaintIdentityItemIds: [
+					'review-item-1',
+					'review-item-2',
+					'review-item-3',
+					'review-item-4',
+				],
+				selectedItemIdAtCompletion: 'review-item-1',
+			},
 			codeScrollOwnerIdentityStable: true,
 			codeViewManifestItemCount: 4,
 			completedScroll: { clientHeight: 900, scrollHeight: 1_800, scrollTop: 900 },

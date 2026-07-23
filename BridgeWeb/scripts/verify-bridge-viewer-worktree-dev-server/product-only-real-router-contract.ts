@@ -187,7 +187,16 @@ export interface BridgeViewerReviewMountedHeaderOrderViolation {
 	readonly mountedItemIds: readonly string[];
 }
 
+export interface BridgeViewerReviewBackwardTraversalProof {
+	readonly completedScrollTop: number;
+	readonly hydrationCoverage: BridgeViewerReviewHydrationCoverage;
+	readonly mountedHeaderOrderViolations: readonly BridgeViewerReviewMountedHeaderOrderViolation[];
+	readonly reusedPaintIdentityItemIds: readonly string[];
+	readonly selectedItemIdAtCompletion: string | null;
+}
+
 export interface BridgeViewerReviewFreshRouteProof {
+	readonly backwardTraversal: BridgeViewerReviewBackwardTraversalProof;
 	readonly codeScrollOwnerIdentityStable: boolean;
 	readonly codeViewManifestItemCount: number;
 	readonly completedScroll: {
@@ -711,6 +720,29 @@ function requireFreshReviewRoute(props: {
 			actual: props.proof.completedScroll,
 			code: 'REVIEW_FRESH_ROUTE_TRAVERSAL_INCOMPLETE',
 			expected: 'fresh-route Review traversal settles at the current CodeView bottom',
+		});
+	}
+	const backwardTraversal = props.proof.backwardTraversal;
+	if (
+		backwardTraversal.completedScrollTop > 1 ||
+		backwardTraversal.hydrationCoverage.settledWindowCount === 0 ||
+		backwardTraversal.hydrationCoverage.missingHydratedVisibleWindows.length > 0 ||
+		expectedHydratedNonSelectedItemIds.some(
+			(itemId): boolean =>
+				!backwardTraversal.hydrationCoverage.observedHydratedNonSelectedItemIds.includes(itemId),
+		) ||
+		backwardTraversal.mountedHeaderOrderViolations.length > 0 ||
+		backwardTraversal.selectedItemIdAtCompletion !== props.proof.selectedItemIdAtStart ||
+		!stringArraysContainSameValues(
+			backwardTraversal.reusedPaintIdentityItemIds,
+			props.proof.expectedItemIds,
+		)
+	) {
+		props.violations.push({
+			actual: backwardTraversal,
+			code: 'REVIEW_FRESH_ROUTE_BACKWARD_INVALID',
+			expected:
+				'reverse CodeView scrolling traverses bottom-to-top through ordered hydrated windows with stable selection and reused request/publication identities',
 		});
 	}
 }
