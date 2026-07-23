@@ -218,6 +218,38 @@ describe('Bridge product content transport', () => {
 		);
 	});
 
+	test('aborting a paused response waiter never starts its content request', async () => {
+		const harness = createContentTransportHarness();
+		harness.server.holdContentResponses = true;
+		const abortControllers = Array.from({ length: 13 }, () => new AbortController());
+		const contentStreams = abortControllers.map((abortController, index) =>
+			harness.transport.openContent(
+				fileContentDescriptor(`descriptor-paused-abort-${index}`),
+				abortController.signal,
+			),
+		);
+		await harness.server.waitForContentRequestCount(
+			BRIDGE_PRODUCT_MAXIMUM_CONCURRENT_CONTENT_RESPONSES,
+		);
+		const waitingContentStream = contentStreams[12];
+		if (waitingContentStream === undefined) throw new Error('Expected one waiting content stream.');
+		waitingContentStream.responseStartControl?.pauseBeforeStart();
+		abortControllers[0]?.abort(new DOMException('release active admission', 'AbortError'));
+		await expect(contentStreams[0]?.terminal).rejects.toThrow();
+
+		abortControllers[12]?.abort(new DOMException('cancel paused response', 'AbortError'));
+		waitingContentStream.responseStartControl?.resumeBeforeStart();
+		await expect(waitingContentStream.terminal).rejects.toThrow();
+		expect(harness.server.contentRequests).toHaveLength(
+			BRIDGE_PRODUCT_MAXIMUM_CONCURRENT_CONTENT_RESPONSES,
+		);
+
+		for (const abortController of abortControllers.slice(1, 12)) {
+			abortController.abort(new DOMException('test cleanup', 'AbortError'));
+		}
+		await Promise.allSettled(contentStreams.slice(1, 12).map(({ terminal }) => terminal));
+	});
+
 	test('cancels the content response reader when its signal aborts', async () => {
 		const harness = createContentTransportHarness();
 		harness.server.holdContentResponses = true;
