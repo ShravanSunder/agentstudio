@@ -167,7 +167,7 @@ extension WebKitSerializedTests {
                 ),
                 contentByHandleId: [:],
                 comparisonFailureByBaseProviderIdentity: [
-                    "HEAD": .providerFailed(message: "revspec 'HEAD' not found")
+                    "HEAD": .unavailableEndpoint(endpointId: "baseline-head")
                 ]
             )
             let controller = makeController(
@@ -193,6 +193,64 @@ extension WebKitSerializedTests {
             #expect(fallbackRequest.headEndpoint.kind == .workingTree)
             #expect(fallbackRequest.query.comparisonSemantics == .workingTreeDelta)
             #expect(controller.paneState.diff.status == .ready)
+        }
+
+        @Test("workspace review does not infer HEAD fallback from provider prose")
+        func workspaceReviewDoesNotInferHeadFallbackFromProviderProse() async throws {
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
+                    changedFiles: []
+                ),
+                contentByHandleId: [:],
+                comparisonFailureByBaseProviderIdentity: [
+                    "HEAD": .providerFailed(message: "revspec 'HEAD' not found")
+                ]
+            )
+            let controller = makeController(
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .ref(name: "HEAD")),
+                worktreeId: UUIDv7.generate(),
+                provider: provider
+            )
+            defer { controller.teardown() }
+
+            let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+
+            guard case .failure = result else {
+                Issue.record("Expected raw provider prose to remain a failure")
+                return
+            }
+            #expect(await provider.recordedComparisonRequests().count == 1)
+        }
+
+        @Test("workspace review does not fallback for a named ref")
+        func workspaceReviewDoesNotFallbackForNamedRef() async throws {
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
+                    changedFiles: []
+                ),
+                contentByHandleId: [:],
+                comparisonFailureByBaseProviderIdentity: [
+                    "main": .unavailableEndpoint(endpointId: "baseline-main")
+                ]
+            )
+            let controller = makeController(
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .ref(name: "main")),
+                worktreeId: UUIDv7.generate(),
+                provider: provider
+            )
+            defer { controller.teardown() }
+
+            let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+
+            guard case .failure = result else {
+                Issue.record("Expected named-ref failure without fallback")
+                return
+            }
+            #expect(await provider.recordedComparisonRequests().count == 1)
         }
 
         @Test("workspace review exposes scrubbed git data-plane package load failures")

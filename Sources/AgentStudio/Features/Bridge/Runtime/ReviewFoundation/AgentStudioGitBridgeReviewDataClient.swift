@@ -96,6 +96,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
                 repositoryPath: repositoryPath,
                 target: .named(endpoint.providerIdentity)
             ),
+            unavailableEndpointId: endpoint.endpointId,
             freshnessKey: freshnessKey
         )
         return BridgeSourceEndpoint(

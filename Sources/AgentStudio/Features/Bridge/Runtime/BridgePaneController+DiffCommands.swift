@@ -765,13 +765,11 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     private func shouldRetryUnresolvedHeadBaseline(after error: Error) -> Bool {
         guard case .workspace(_, .ref(let name)) = bridgePaneState.source,
             name == "HEAD",
-            case BridgeProviderFailure.providerFailed(let message) = error
+            case BridgeProviderFailure.unavailableEndpoint = error
         else {
             return false
         }
-        let normalizedMessage = message.lowercased()
-        return normalizedMessage.contains("head")
-            && (normalizedMessage.contains("not found") || normalizedMessage.contains("revspec"))
+        return true
     }
 
     static func reviewPackageLoadFailureSummary(for error: Error, stage: String) -> String {

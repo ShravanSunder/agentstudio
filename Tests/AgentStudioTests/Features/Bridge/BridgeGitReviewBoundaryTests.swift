@@ -5,6 +5,32 @@ import Testing
 @testable import AgentStudio
 
 struct BridgeGitReviewBoundaryTests {
+    @Test("revision not-found becomes an unavailable endpoint")
+    func revisionNotFoundBecomesUnavailableEndpoint() async {
+        let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-revision-not-found-test")
+        let endpoint = makeBridgeEndpoint(endpointId: "baseline-head", kind: .gitRef)
+        let adapter = AgentStudioGitBridgeReviewDataClient(
+            repositoryPath: repositoryPath,
+            client: AgentStudioGitLocalClientFake(
+                revisionResolutionFailure: .libgit2Failure(
+                    code: -3,
+                    klass: 4,
+                    message: "revspec 'HEAD' not found"
+                )
+            ),
+            gitReadContext: makeBridgeGitReadContext(rootURL: repositoryPath)
+        )
+
+        do {
+            _ = try await adapter.resolveEndpoint(BridgeEndpointResolutionRequest(endpoint: endpoint))
+            Issue.record("Expected unavailable endpoint")
+        } catch BridgeProviderFailure.unavailableEndpoint(let endpointId) {
+            #expect(endpointId == endpoint.endpointId)
+        } catch {
+            Issue.record("Expected unavailable endpoint, got \(error)")
+        }
+    }
+
     @Test("AgentStudioGit adapter preserves gitlink modes and omits gitlink locators")
     func agentStudioGitAdapterPreservesGitlinkModesAndOmitsGitlinkLocators() async throws {
         let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-gitlink-adapter-test")
