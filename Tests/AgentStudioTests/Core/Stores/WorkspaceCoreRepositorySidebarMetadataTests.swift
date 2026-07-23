@@ -16,8 +16,7 @@ struct WorkspaceCoreRepositorySidebarMetadataTests {
 
         try upsertWorkspace(repository, workspaceId: workspaceId, name: "Sidebar metadata")
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -41,15 +40,15 @@ struct WorkspaceCoreRepositorySidebarMetadataTests {
         )
         try fixture.insertTabShell(workspaceId: workspaceId, tabId: tabId)
 
-        try repository.updateRepoFavorite(workspaceId: workspaceId, repoId: repoId, isFavorite: true)
-        try repository.updateRepoNote(workspaceId: workspaceId, repoId: repoId, note: "  repo note  ")
-        try repository.updateWorktreeNote(workspaceId: workspaceId, worktreeId: worktreeId, note: " worktree note ")
+        try repository.updateRepoFavorite(repoId: repoId, isFavorite: true)
+        try repository.updateRepoNote(repoId: repoId, note: "  repo note  ")
+        try repository.updateWorktreeNote(worktreeId: worktreeId, note: " worktree note ")
         try repository.updateTabColorHex(workspaceId: workspaceId, tabId: tabId, colorHex: " #58C4FF ")
-        try repository.replaceRepoTags(workspaceId: workspaceId, repoId: repoId, tags: [" client ", "", "favorite"])
+        try repository.replaceRepoTags(repoId: repoId, tags: [" client ", "", "favorite"])
 
-        let topology = try repository.fetchRepositoryTopology(workspaceId: workspaceId)
+        let topology = try repository.fetchRepositoryTopology()
         let shells = try repository.fetchTabShells(workspaceId: workspaceId)
-        let tags = try repository.fetchRepoTags(workspaceId: workspaceId, repoId: repoId)
+        let tags = try repository.fetchRepoTags(repoId: repoId)
 
         #expect(topology.repos.first?.isFavorite == true)
         #expect(topology.repos.first?.note == "repo note")
@@ -93,18 +92,18 @@ struct WorkspaceCoreRepositorySidebarMetadataTests {
             unavailableRepoIds: []
         )
 
-        try repository.replaceRepositoryTopology(workspaceId: workspaceId, topology: topology)
+        try repository.replaceRepositoryTopology(topology)
         try fixture.insertTabShell(workspaceId: workspaceId, tabId: tabId)
         try repository.updateTabColorHex(workspaceId: workspaceId, tabId: tabId, colorHex: "#58C4FF")
 
-        try repository.replaceRepositoryTopology(workspaceId: workspaceId, topology: topology)
+        try repository.replaceRepositoryTopology(topology)
         try repository.replaceTabShells(
             workspaceId: workspaceId,
             shells: [
                 .init(id: tabId, name: "Renamed", colorHex: "#58C4FF")
             ])
 
-        let restoredTopology = try repository.fetchRepositoryTopology(workspaceId: workspaceId)
+        let restoredTopology = try repository.fetchRepositoryTopology()
         let restoredShells = try repository.fetchTabShells(workspaceId: workspaceId)
 
         #expect(restoredTopology.repos.first?.isFavorite == true)

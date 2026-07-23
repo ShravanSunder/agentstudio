@@ -58,8 +58,8 @@ struct WorkspaceCoreRepositoryTopologyTests {
             unavailableRepoIds: [repoId]
         )
 
-        try repository.replaceRepositoryTopology(workspaceId: workspaceId, topology: topology)
-        let restoredTopology = try repository.fetchRepositoryTopology(workspaceId: workspaceId)
+        try repository.replaceRepositoryTopology(topology)
+        let restoredTopology = try repository.fetchRepositoryTopology()
 
         #expect(restoredTopology == topology)
     }
@@ -79,8 +79,7 @@ struct WorkspaceCoreRepositoryTopologyTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -105,8 +104,7 @@ struct WorkspaceCoreRepositoryTopologyTests {
         )
 
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -129,13 +127,55 @@ struct WorkspaceCoreRepositoryTopologyTests {
                 unavailableRepoIds: []
             )
         )
-        let restoredTopology = try repository.fetchRepositoryTopology(workspaceId: workspaceId)
+        let restoredTopology = try repository.fetchRepositoryTopology()
 
         #expect(restoredTopology.repos.single?.tags == ["new"])
     }
 
-    @Test("repository topology is scoped per workspace")
-    func repositoryTopologyIsScopedPerWorkspace() throws {
+    @Test("repository sidebar metadata mutations target global topology")
+    func repositorySidebarMetadataMutationsTargetGlobalTopology() throws {
+        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+        let repoId = UUID(uuidString: "00000000-0000-0000-0000-000000000238")!
+        let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000330")!
+        try repository.replaceRepositoryTopology(
+            .init(
+                watchedPaths: [],
+                repos: [
+                    .init(
+                        id: repoId,
+                        name: "metadata-repo",
+                        repoPath: URL(fileURLWithPath: "/tmp/agentstudio/metadata-repo"),
+                        createdAt: Date(timeIntervalSince1970: 200),
+                        worktrees: [
+                            .init(
+                                id: worktreeId,
+                                repoId: repoId,
+                                name: "main",
+                                path: URL(fileURLWithPath: "/tmp/agentstudio/metadata-repo"),
+                                isMainWorktree: true
+                            )
+                        ]
+                    )
+                ],
+                unavailableRepoIds: []
+            )
+        )
+
+        try repository.updateRepoFavorite(repoId: repoId, isFavorite: true)
+        try repository.updateRepoNote(repoId: repoId, note: "important")
+        try repository.updateWorktreeNote(worktreeId: worktreeId, note: "review")
+        try repository.replaceRepoTags(repoId: repoId, tags: ["client", "primary"])
+        let restoredTopology = try repository.fetchRepositoryTopology()
+        let restoredTags = try repository.fetchRepoTags(repoId: repoId)
+
+        #expect(restoredTopology.repos.single?.isFavorite == true)
+        #expect(restoredTopology.repos.single?.note == "important")
+        #expect(restoredTopology.repos.single?.worktrees.single?.note == "review")
+        #expect(restoredTags == ["client", "primary"])
+    }
+
+    @Test("repository topology is application global and survives workspace deletion")
+    func repositoryTopologyIsApplicationGlobalAndSurvivesWorkspaceDeletion() throws {
         let repository = try makeWorkspaceCoreRepositoryFixture().repository
         let firstWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000102")!
         let secondWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000103")!
@@ -155,107 +195,44 @@ struct WorkspaceCoreRepositoryTopologyTests {
                 updatedAt: Date(timeIntervalSince1970: 100)
             )
         )
-        let firstRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
-        let secondRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000203")!
-        try repository.replaceRepositoryTopology(
-            workspaceId: firstWorkspaceId,
-            topology: .init(
-                watchedPaths: [],
-                repos: [
-                    .init(
-                        id: firstRepoId,
-                        name: "first-repo",
-                        repoPath: URL(fileURLWithPath: "/tmp/agentstudio/first-repo"),
-                        createdAt: Date(timeIntervalSince1970: 200),
-                        worktrees: [
-                            .init(
-                                id: UUID(uuidString: "00000000-0000-0000-0000-000000000303")!,
-                                repoId: firstRepoId,
-                                name: "first-repo",
-                                path: URL(fileURLWithPath: "/tmp/agentstudio/first-repo"),
-                                isMainWorktree: true
-                            )
-                        ]
-                    )
-                ],
-                unavailableRepoIds: []
-            )
+        let repoId = UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
+        let topology = WorkspaceCoreRepository.RepositoryTopologyRecord(
+            watchedPaths: [],
+            repos: [
+                .init(
+                    id: repoId,
+                    name: "global-repo",
+                    repoPath: URL(fileURLWithPath: "/tmp/agentstudio/global-repo"),
+                    createdAt: Date(timeIntervalSince1970: 200),
+                    worktrees: [
+                        .init(
+                            id: UUID(uuidString: "00000000-0000-0000-0000-000000000303")!,
+                            repoId: repoId,
+                            name: "global-repo",
+                            path: URL(fileURLWithPath: "/tmp/agentstudio/global-repo"),
+                            isMainWorktree: true
+                        )
+                    ]
+                )
+            ],
+            unavailableRepoIds: [repoId]
         )
-        try repository.replaceRepositoryTopology(
-            workspaceId: secondWorkspaceId,
-            topology: .init(
-                watchedPaths: [],
-                repos: [
-                    .init(
-                        id: secondRepoId,
-                        name: "second-repo",
-                        repoPath: URL(fileURLWithPath: "/tmp/agentstudio/second-repo"),
-                        createdAt: Date(timeIntervalSince1970: 200),
-                        worktrees: [
-                            .init(
-                                id: UUID(uuidString: "00000000-0000-0000-0000-000000000304")!,
-                                repoId: secondRepoId,
-                                name: "second-repo",
-                                path: URL(fileURLWithPath: "/tmp/agentstudio/second-repo"),
-                                isMainWorktree: true
-                            )
-                        ]
-                    )
-                ],
-                unavailableRepoIds: [secondRepoId]
-            )
-        )
+        try repository.replaceRepositoryTopology(topology)
 
-        let firstTopology = try repository.fetchRepositoryTopology(workspaceId: firstWorkspaceId)
-        let secondTopology = try repository.fetchRepositoryTopology(workspaceId: secondWorkspaceId)
+        _ = try repository.deleteWorkspace(firstWorkspaceId, updatedAt: Date(timeIntervalSince1970: 300))
+        let restoredTopology = try repository.fetchRepositoryTopology()
 
-        #expect(firstTopology.repos.map(\.id) == [firstRepoId])
-        #expect(firstTopology.unavailableRepoIds.isEmpty)
-        #expect(secondTopology.repos.map(\.id) == [secondRepoId])
-        #expect(secondTopology.unavailableRepoIds == [secondRepoId])
+        #expect(restoredTopology == topology)
+        #expect(try repository.fetchWorkspace(id: secondWorkspaceId)?.id == secondWorkspaceId)
     }
 
-    @Test("unavailable repo update rejects repo outside workspace")
-    func unavailableRepoUpdateRejectsRepoOutsideWorkspace() throws {
+    @Test("unavailable repo update rejects a missing global repository")
+    func unavailableRepoUpdateRejectsMissingGlobalRepository() throws {
         let repository = try makeWorkspaceCoreRepositoryFixture().repository
-        let firstWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000104")!
-        let secondWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000105")!
-        try repository.upsertWorkspace(
-            .init(
-                id: firstWorkspaceId,
-                name: "First",
-                createdAt: Date(timeIntervalSince1970: 100),
-                updatedAt: Date(timeIntervalSince1970: 100)
-            )
-        )
-        try repository.upsertWorkspace(
-            .init(
-                id: secondWorkspaceId,
-                name: "Second",
-                createdAt: Date(timeIntervalSince1970: 100),
-                updatedAt: Date(timeIntervalSince1970: 100)
-            )
-        )
-        let secondRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000204")!
-        try repository.replaceRepositoryTopology(
-            workspaceId: secondWorkspaceId,
-            topology: .init(
-                watchedPaths: [],
-                repos: [
-                    .init(
-                        id: secondRepoId,
-                        name: "second-repo",
-                        repoPath: URL(fileURLWithPath: "/tmp/agentstudio/second-repo-unavailable"),
-                        createdAt: Date(timeIntervalSince1970: 200),
-                        worktrees: []
-                    )
-                ],
-                unavailableRepoIds: []
-            )
-        )
+        let missingRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000204")!
 
-        #expect(throws: WorkspaceCoreRepositoryError.repoNotFoundInWorkspace(secondRepoId, firstWorkspaceId)) {
-            try repository.setUnavailableRepoIds([secondRepoId], workspaceId: firstWorkspaceId)
+        #expect(throws: WorkspaceCoreRepositoryError.repoNotFound(missingRepoId)) {
+            try repository.setUnavailableRepoIds([missingRepoId])
         }
     }
 
@@ -275,8 +252,7 @@ struct WorkspaceCoreRepositoryTopologyTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -314,11 +290,10 @@ struct WorkspaceCoreRepositoryTopologyTests {
         )
 
         try repository.reconcileRepoWorktrees(
-            workspaceId: workspaceId,
             repoId: repoId,
             worktrees: [reconciledWorktree]
         )
-        let restoredTopology = try repository.fetchRepositoryTopology(workspaceId: workspaceId)
+        let restoredTopology = try repository.fetchRepositoryTopology()
 
         #expect(restoredTopology.repos.single?.worktrees == [reconciledWorktree])
     }
@@ -339,8 +314,7 @@ struct WorkspaceCoreRepositoryTopologyTests {
             )
         )
         try repository.replaceRepositoryTopology(
-            workspaceId: workspaceId,
-            topology: .init(
+            .init(
                 watchedPaths: [],
                 repos: [
                     .init(
@@ -391,11 +365,10 @@ struct WorkspaceCoreRepositoryTopologyTests {
         ]
 
         try repository.reconcileRepoWorktrees(
-            workspaceId: workspaceId,
             repoId: repoId,
             worktrees: swappedWorktrees
         )
-        let restoredTopology = try repository.fetchRepositoryTopology(workspaceId: workspaceId)
+        let restoredTopology = try repository.fetchRepositoryTopology()
 
         #expect(restoredTopology.repos.single?.worktrees == swappedWorktrees)
     }

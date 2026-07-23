@@ -16,12 +16,26 @@ struct WorkspaceSQLiteZmxSessionIDStorageTests {
             workspaceName: "UUIDv7 zmx workspace",
             createdAt: Date(timeIntervalSince1970: 1_700_000_075)
         )
+        try fixture.coreRepository.upsertWorkspace(
+            .init(
+                id: workspaceID,
+                name: identityAtom.workspaceName,
+                createdAt: identityAtom.createdAt,
+                updatedAt: identityAtom.createdAt
+            )
+        )
+        let sqliteDatastore = workspaceSQLiteDatastore(from: fixture.backend)
         let store = WorkspaceStore(
             identityAtom: identityAtom,
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+            sqliteDatastore: sqliteDatastore
         )
         let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-zmx-id-repo"))
         let worktree = try #require(repo.worktrees.first)
+        let topologyStore = RepositoryTopologyStore(
+            atom: store.repositoryTopologyAtom,
+            sqliteDatastore: sqliteDatastore
+        )
+        try await topologyStore.flushAsync()
         let floatingDirectory = URL(filePath: "/tmp/agent-studio-zmx-id-floating")
         let worktreeSessionID = ZmxSessionID.generateUUIDv7()
         let floatingSessionID = ZmxSessionID.generateUUIDv7()

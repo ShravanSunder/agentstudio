@@ -25,7 +25,10 @@ struct WorkspaceCoreRepoSidebarMetadataMigrationTests {
             try insertTabShell(database, workspaceId: workspaceId, tabId: tabId, name: "Main", sortIndex: 0)
         }
 
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "011_add_repo_sidebar_metadata"
+        )
 
         try databaseQueue.write { database in
             try database.execute(

@@ -19,7 +19,6 @@ final class DrawerCommandIntegrationTests {
         installTestAtomRegistryIfNeeded()
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "drawer-cmd-tests-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
         store = WorkspaceStore()
         viewRegistry = ViewRegistry()
         runtime = SessionRuntime(store: store)

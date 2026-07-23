@@ -45,18 +45,8 @@ struct WorkspaceCoreMigrationTests {
         #expect(tableNames.contains("drawer_view_layout_pane"))
         #expect(tableNames.contains("drawer_view_layout_divider"))
         #expect(tableNames.contains("drawer_view_minimized_pane"))
-        #expect(tableNames.contains("legacy_workspace_import_status"))
-        #expect(tableNames.contains("workspace_sqlite_snapshot_status"))
-        let snapshotStatusColumns = try databaseQueue.read { database in
-            try Row.fetchAll(database, sql: "PRAGMA table_info(workspace_sqlite_snapshot_status)")
-        }
-        let columnsByName = Dictionary(
-            uniqueKeysWithValues: snapshotStatusColumns.map { row in
-                (row["name"] as String, row)
-            })
-        #expect(columnsByName["staged_at"] != nil)
-        #expect(columnsByName["completed_at"] != nil)
-        #expect((columnsByName["completed_at"]?["notnull"] as Int?) == 0)
+        #expect(!tableNames.contains("legacy_workspace_import_status"))
+        #expect(!tableNames.contains("workspace_sqlite_snapshot_status"))
 
         let repoColumns = try databaseQueue.read { database in
             try Row.fetchAll(database, sql: "PRAGMA table_info(repo)")
@@ -71,7 +61,9 @@ struct WorkspaceCoreMigrationTests {
                 .map { row in row["name"] as String }
         }
         #expect(!repoColumns.contains("color_hex"))
+        #expect(!repoColumns.contains("workspace_id"))
         #expect(!worktreeColumns.contains("color_hex"))
+        #expect(!worktreeColumns.contains("workspace_id"))
         #expect(tabShellColumns.contains("color_hex"))
     }
 
@@ -100,6 +92,7 @@ struct WorkspaceCoreMigrationTests {
                 "010_repository_topology_tags_and_tab_color",
                 "011_add_repo_sidebar_metadata",
                 "012_background_active_unowned_layout_panes",
+                "013_globalize_repository_topology",
             ]
         )
     }
@@ -107,7 +100,10 @@ struct WorkspaceCoreMigrationTests {
     @Test("migration 012 backgrounds only historical active unowned top-level panes")
     func migration012BackgroundsOnlyHistoricalActiveUnownedTopLevelPanes() throws {
         let fixture = try makeMigration012Fixture()
-        try WorkspaceCoreMigrations.migrate(fixture.databaseQueue)
+        try WorkspaceCoreMigrations.migrator.migrate(
+            fixture.databaseQueue,
+            upTo: "012_background_active_unowned_layout_panes"
+        )
         try assertMigration012Result(fixture)
     }
 
@@ -195,7 +191,10 @@ struct WorkspaceCoreMigrationTests {
             )
         }
 
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "007_stage_workspace_sqlite_snapshot_status"
+        )
 
         let tokens = try databaseQueue.read { database in
             try Row.fetchOne(
@@ -244,131 +243,28 @@ struct WorkspaceCoreMigrationTests {
         #expect(restoredActiveWorkspaceId == workspaceId.uuidString)
     }
 
-    @Test("foreign keys reject dangling workspace references")
-    func foreignKeysRejectDanglingWorkspaceReferences() throws {
+    @Test("global worktree rejects a dangling repository reference")
+    func globalWorktreeRejectsDanglingRepositoryReference() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceCoreMigrations.migrate(databaseQueue)
-        let missingWorkspaceId = UUID().uuidString
 
-        #expect(throws: DatabaseError.self) {
+        expectDatabaseError(containing: "FOREIGN KEY constraint failed") {
             try databaseQueue.write { database in
                 try database.execute(
                     sql: """
-                        INSERT INTO repo(id, workspace_id, name, repo_path, stable_key, created_at)
+                        INSERT INTO worktree(
+                            id, repo_id, name, path, stable_key, is_main_worktree
+                        )
                         VALUES (?, ?, ?, ?, ?, ?)
                         """,
                     arguments: [
                         UUID().uuidString,
-                        missingWorkspaceId,
-                        "missing-workspace-repo",
-                        "/tmp/missing-workspace-repo",
-                        "missing-workspace-repo",
-                        1.0,
-                    ]
-                )
-            }
-        }
-    }
-
-    @Test("worktree rejects repo from different workspace")
-    func worktreeRejectsRepoFromDifferentWorkspace() throws {
-        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
-        let worktreeWorkspaceId = UUID().uuidString
-        let repoWorkspaceId = UUID().uuidString
-        let repoId = UUID().uuidString
-
-        expectDatabaseError(containing: "FOREIGN KEY constraint failed") {
-            try databaseQueue.write { database in
-                try insertWorkspace(database, workspaceId: worktreeWorkspaceId)
-                try insertWorkspace(database, workspaceId: repoWorkspaceId)
-                try insertRepo(database, workspaceId: repoWorkspaceId, repoId: repoId)
-                try database.execute(
-                    sql: """
-                        INSERT INTO worktree(id, workspace_id, repo_id, name, path, stable_key, is_main_worktree)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """,
-                    arguments: [
                         UUID().uuidString,
-                        worktreeWorkspaceId,
-                        repoId,
-                        "mismatched",
-                        "/tmp/mismatched",
-                        "mismatched",
+                        "missing-repository-worktree",
+                        "/tmp/missing-repository-worktree",
+                        "missing-repository-worktree",
                         0,
                     ]
-                )
-            }
-        }
-    }
-
-    @Test("unavailable repo rejects repo from different workspace")
-    func unavailableRepoRejectsRepoFromDifferentWorkspace() throws {
-        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
-        let unavailableWorkspaceId = UUID().uuidString
-        let repoWorkspaceId = UUID().uuidString
-        let repoId = UUID().uuidString
-
-        expectDatabaseError(containing: "FOREIGN KEY constraint failed") {
-            try databaseQueue.write { database in
-                try insertWorkspace(database, workspaceId: unavailableWorkspaceId)
-                try insertWorkspace(database, workspaceId: repoWorkspaceId)
-                try insertRepo(database, workspaceId: repoWorkspaceId, repoId: repoId)
-                try database.execute(
-                    sql: """
-                        INSERT INTO unavailable_repo(workspace_id, repo_id)
-                        VALUES (?, ?)
-                        """,
-                    arguments: [unavailableWorkspaceId, repoId]
-                )
-            }
-        }
-    }
-
-    @Test("pane facet repo rejects repo from different workspace")
-    func paneFacetRepoRejectsRepoFromDifferentWorkspace() throws {
-        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
-        let paneWorkspaceId = UUID().uuidString
-        let repoWorkspaceId = UUID().uuidString
-        let repoId = UUID().uuidString
-
-        expectDatabaseError(containing: "pane facet_repo_id must belong to pane workspace") {
-            try databaseQueue.write { database in
-                try insertWorkspace(database, workspaceId: paneWorkspaceId)
-                try insertWorkspace(database, workspaceId: repoWorkspaceId)
-                try insertRepo(database, workspaceId: repoWorkspaceId, repoId: repoId)
-                try insertPane(
-                    database,
-                    workspaceId: paneWorkspaceId,
-                    paneId: UUID().uuidString,
-                    facetRepoId: repoId
-                )
-            }
-        }
-    }
-
-    @Test("pane facet worktree rejects worktree from different workspace")
-    func paneFacetWorktreeRejectsWorktreeFromDifferentWorkspace() throws {
-        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
-        let paneWorkspaceId = UUID().uuidString
-        let repoWorkspaceId = UUID().uuidString
-        let repoId = UUID().uuidString
-        let worktreeId = UUID().uuidString
-
-        expectDatabaseError(containing: "pane facet_worktree_id must belong to pane workspace") {
-            try databaseQueue.write { database in
-                try insertWorkspace(database, workspaceId: paneWorkspaceId)
-                try insertWorkspace(database, workspaceId: repoWorkspaceId)
-                try insertRepo(database, workspaceId: repoWorkspaceId, repoId: repoId)
-                try insertWorktree(database, workspaceId: repoWorkspaceId, repoId: repoId, worktreeId: worktreeId)
-                try insertPane(
-                    database,
-                    workspaceId: paneWorkspaceId,
-                    paneId: UUID().uuidString,
-                    facetWorktreeId: worktreeId
                 )
             }
         }

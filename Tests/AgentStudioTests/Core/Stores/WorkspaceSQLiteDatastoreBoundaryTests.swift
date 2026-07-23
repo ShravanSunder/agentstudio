@@ -33,9 +33,6 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
         let restoreAsyncSource = workspaceStoreSource[restoreAsyncStart.lowerBound..<restoreAsyncEnd.lowerBound]
         let appDelegateSource = try projectSource("Sources/AgentStudio/App/Boot/AppDelegate.swift")
         let workspaceBootSource = try projectSource("Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift")
-        let workspacePersistorSource = try projectSource(
-            "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspacePersistor.swift"
-        )
         let settingsSource = try projectSource(
             "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSettingsStore.swift"
         )
@@ -47,13 +44,22 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
         #expect(!workspaceStoreSource.contains("WorkspacePersistor"))
         #expect(!workspaceStoreSource.contains("func restore()"))
         #expect(!workspaceStoreSource.contains("func flush()"))
-        #expect(!workspacePersistorSource.contains("func save(_ state: PersistableState)"))
-        #expect(!workspacePersistorSource.contains("func load() -> LoadResult<PersistableState>"))
-        #expect(!workspacePersistorSource.contains("loadLegacyWorkspaceStateFiles"))
-        #expect(!workspacePersistorSource.contains("archiveLegacyWorkspaceFiles"))
-        #expect(!workspacePersistorSource.contains("quarantineCorruptCanonicalWorkspaceFiles"))
         #expect(!appDelegateSource.contains("WorkspaceLegacyArchiveCoordinator"))
         #expect(!workspaceBootSource.contains("WorkspaceLegacyArchiveCoordinator"))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: projectRoot.appending(
+                    path: "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspacePersistor.swift"
+                ).path
+            )
+        )
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: projectRoot.appending(
+                    path: "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspacePersistor+Payloads.swift"
+                ).path
+            )
+        )
         #expect(
             !FileManager.default.fileExists(
                 atPath: projectRoot.appending(
@@ -77,11 +83,13 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
             )
         )
 
-        // The hard cut applies to canonical workspace composition only. Settings remain
-        // an explicitly owned JSON persistence lane and still load during UI-store boot.
-        #expect(settingsSource.contains("JSONDecoder()"))
-        #expect(settingsSource.contains("JSONEncoder()"))
-        #expect(workspaceBootSource.contains("workspaceSettingsStore.restore(for: store.identityAtom.workspaceId)"))
+        #expect(!settingsSource.contains("JSONDecoder()"))
+        #expect(!settingsSource.contains("JSONEncoder()"))
+        #expect(
+            workspaceBootSource.contains(
+                "await workspaceSettingsStore.restoreAsync(for: store.identityAtom.workspaceId)"
+            )
+        )
     }
 
     @Test("AppDelegate boot owns datastore, not raw SQLite backends")
@@ -97,7 +105,7 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
         #expect(!appDelegateSource.contains("var workspaceLocalSQLiteStoreBackend: WorkspaceLocalSQLiteStoreBackend?"))
 
         #expect(workspaceBootSource.contains("makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)"))
-        #expect(workspaceBootSource.contains("sqliteDatastore: workspaceSQLiteDatastore"))
+        #expect(workspaceBootSource.contains("sqliteDatastore: sqliteDatastore"))
         #expect(!workspaceBootSource.contains("workspaceSQLiteStoreBackend"))
         #expect(!workspaceBootSource.contains("workspaceLocalSQLiteStoreBackend"))
         #expect(!workspaceBootSource.contains("WorkspaceSQLiteStoreBackendFactory("))
@@ -107,20 +115,13 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
         #expect(!inboxBootSource.contains("InboxNotificationSQLiteRepository("))
     }
 
-    @Test("configuration backed datastore keeps local SQLite IO behind actor caches")
-    func configurationBackedDatastoreKeepsLocalSQLiteIOBehindActorCaches() throws {
+    @Test("configuration backed datastore keeps local SQLite IO behind its actor-owned bundle")
+    func configurationBackedDatastoreKeepsLocalSQLiteIOBehindActorOwnedBundle() throws {
         let source = try projectSource("Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastore.swift")
 
-        #expect(
-            source.contains(
-                "makeLocalRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache }"
-            )
-        )
-        #expect(
-            source.contains(
-                "makeLocalRestoreRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache }"
-            )
-        )
+        #expect(source.contains("makeLocalRepository: { _ in"))
+        #expect(source.contains("makeLocalRestoreRepository: { _ in"))
+        #expect(source.contains("throw WorkspaceSQLiteDatastoreError.useDatastoreApplicationLocalRepositoryBundle"))
         #expect(!source.contains("func hasCompletedSnapshot(workspaceId: UUID) async"))
     }
 

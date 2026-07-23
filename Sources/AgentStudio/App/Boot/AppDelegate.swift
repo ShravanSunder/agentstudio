@@ -46,7 +46,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var paneInboxNotificationPresenter: PaneInboxNotificationPresenter!
     var pendingPersistenceRecoveryEvents: [PersistenceRecoveryEvent] = []
     var hasLoadedInboxNotificationStore = false
-    var canArchiveLegacyInboxFile = true
     var terminalActivityRouter: TerminalActivityRouter!
     var traceRuntime: AgentStudioTraceRuntime!
     var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder!
@@ -96,7 +95,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var oauthService: OAuthService!
     var filesystemPipelineBootTask: Task<Void, Never>?
     var shouldStartRepositoryTopologyAfterWindowPresentation = false
-    var repositoryTopologyLoadTask: Task<Void, Never>?
     var initialTopologySyncTask: Task<Void, Never>?
     var persistenceObservationBootTask: Task<Void, Never>?
     var traceIdentityRefreshTask: Task<Void, Never>?
@@ -150,20 +148,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         setupMainMenu()
 
         // Create new services following the workspace boot contract.
-        let persistor = WorkspacePersistor()
         let paneRuntimeBus = PaneRuntimeEventBus.shared
         var filesystemSource: FilesystemGitPipeline?
 
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.bootWorkspacePresentationPrerequisites(
-                persistor: persistor,
                 paneRuntimeBus: paneRuntimeBus,
                 filesystemSource: &filesystemSource
             )
             self.presentWindowAfterWorkspaceComposition()
             await self.bootWorkspacePostPresentationServices(
-                persistor: persistor,
                 paneRuntimeBus: paneRuntimeBus,
                 filesystemSource: &filesystemSource
             )
@@ -212,7 +207,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     isolated deinit {
         appIPCServer?.stop()
         filesystemPipelineBootTask?.cancel()
-        repositoryTopologyLoadTask?.cancel()
         initialTopologySyncTask?.cancel()
         persistenceObservationBootTask?.cancel()
         launchRestoreObservationTask?.cancel()

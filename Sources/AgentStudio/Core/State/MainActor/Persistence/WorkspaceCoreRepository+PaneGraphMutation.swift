@@ -243,7 +243,7 @@ private func paneStatementArguments(
     workspaceId: UUID,
     pane: WorkspaceCoreRepository.PaneRecord
 ) throws -> StatementArguments {
-    let facetIds = try resolvedPaneReferenceIds(database, workspaceId: workspaceId, pane: pane)
+    let facetIds = try resolvedPaneReferenceIds(database, pane: pane)
     let residency = SQLitePaneGraphStorage.residency(pane.residency)
     let placement = SQLitePaneGraphStorage.placement(pane.placement)
     let values: [(any DatabaseValueConvertible)?] = [
@@ -272,24 +272,32 @@ private func paneStatementArguments(
 
 private func resolvedPaneReferenceIds(
     _ database: Database,
-    workspaceId: UUID,
     pane: WorkspaceCoreRepository.PaneRecord
 ) throws -> (repoId: UUID?, worktreeId: UUID?) {
     let facets = pane.metadata.durableFacets
     if let worktreeId = facets.worktreeId {
-        guard
-            let repoId = try fetchPaneReferenceWorktreeRepoId(
-                database,
-                workspaceId: workspaceId,
-                worktreeId: worktreeId
-            )
-        else {
-            return (nil, nil)
+        guard let actualRepoId = try fetchPaneReferenceWorktreeRepoId(database, worktreeId: worktreeId) else {
+            throw WorkspaceCoreRepositoryError.worktreeNotFound(worktreeId)
         }
-        return (repoId, worktreeId)
+        if let requestedRepoId = facets.repoId {
+            guard try paneReferenceRepoExists(database, repoId: requestedRepoId) else {
+                throw WorkspaceCoreRepositoryError.repoNotFound(requestedRepoId)
+            }
+            guard requestedRepoId == actualRepoId else {
+                throw WorkspaceCoreRepositoryError.worktreeRepoMismatch(
+                    worktreeId: worktreeId,
+                    expectedRepoId: requestedRepoId,
+                    actualRepoId: actualRepoId
+                )
+            }
+        }
+        return (actualRepoId, worktreeId)
     }
 
-    if let repoId = facets.repoId, try paneReferenceRepoExists(database, workspaceId: workspaceId, repoId: repoId) {
+    if let repoId = facets.repoId {
+        guard try paneReferenceRepoExists(database, repoId: repoId) else {
+            throw WorkspaceCoreRepositoryError.repoNotFound(repoId)
+        }
         return (repoId, nil)
     }
     return (nil, nil)
@@ -297,7 +305,6 @@ private func resolvedPaneReferenceIds(
 
 private func fetchPaneReferenceWorktreeRepoId(
     _ database: Database,
-    workspaceId: UUID,
     worktreeId: UUID
 ) throws -> UUID? {
     guard
@@ -307,9 +314,8 @@ private func fetchPaneReferenceWorktreeRepoId(
                 SELECT repo_id
                 FROM worktree
                 WHERE id = ?
-                AND workspace_id = ?
                 """,
-            arguments: [worktreeId.uuidString, workspaceId.uuidString]
+            arguments: [worktreeId.uuidString]
         )
     else {
         return nil
@@ -322,7 +328,6 @@ private func fetchPaneReferenceWorktreeRepoId(
 
 private func paneReferenceRepoExists(
     _ database: Database,
-    workspaceId: UUID,
     repoId: UUID
 ) throws -> Bool {
     let matchingCount = try Int.fetchOne(
@@ -331,9 +336,8 @@ private func paneReferenceRepoExists(
             SELECT count(*)
             FROM repo
             WHERE id = ?
-            AND workspace_id = ?
             """,
-        arguments: [repoId.uuidString, workspaceId.uuidString]
+        arguments: [repoId.uuidString]
     )
     return matchingCount == 1
 }

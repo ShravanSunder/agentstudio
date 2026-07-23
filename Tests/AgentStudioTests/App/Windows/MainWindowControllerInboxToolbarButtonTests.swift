@@ -134,7 +134,6 @@ private func withMainWindowControllerHarness<T>(
 ) async rethrows -> T {
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "main-window-controller-tests-\(UUID().uuidString)")
-    let persistor = WorkspacePersistor(workspacesDir: tempDir)
     let atoms = makeInstalledTestAtomRegistry()
     let store = WorkspaceStore(
         identityAtom: atoms.workspaceIdentity,

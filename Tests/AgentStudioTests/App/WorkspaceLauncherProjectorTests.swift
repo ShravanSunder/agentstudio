@@ -11,10 +11,6 @@ struct WorkspaceLauncherProjectorTests {
     }
 
     private func makeStore(atoms: AtomRegistry) -> WorkspaceStore {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "workspace-launcher-projector-\(UUID().uuidString)")
-        let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        persistor.ensureDirectory()
         atoms.repoCache.clear()
         let store = WorkspaceStore(
             identityAtom: atoms.workspaceIdentity,

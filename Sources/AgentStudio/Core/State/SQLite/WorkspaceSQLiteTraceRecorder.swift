@@ -21,7 +21,6 @@ enum WorkspaceSQLiteTracePhase: String, Sendable {
     case openLocalRestore = "open_local_restore"
     case openLocalSave = "open_local_save"
     case quarantineSidecars = "quarantine_sidecars"
-    case stageCore = "stage_core"
     case writeLocal = "write_local"
 }
 

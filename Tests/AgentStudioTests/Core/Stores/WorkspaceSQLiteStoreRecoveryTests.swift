@@ -7,9 +7,9 @@ import Testing
 @MainActor
 @Suite("WorkspaceSQLiteStoreRecoveryTests", .serialized)
 struct WorkspaceSQLiteStoreRecoveryTests {
-    @Test("failed core replacement does not advance local snapshot token")
-    func failedCoreReplacementDoesNotAdvanceLocalSnapshotToken() async throws {
-        let workspaceId = UUID()
+    @Test("failed core replacement rolls back core and leaves local rows unchanged")
+    func failedCoreReplacementRollsBackCoreAndLeavesLocalRowsUnchanged() async throws {
+        let workspaceId = UUIDv7.generate()
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_280)
         let committedUpdatedAt = Date(timeIntervalSince1970: 1_700_000_290)
@@ -23,8 +23,9 @@ struct WorkspaceSQLiteStoreRecoveryTests {
                 updatedAt: committedUpdatedAt
             )
         )
-        let committedLocalSnapshotAt = try fixture.localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt()
-        let invalidPaneId = UUID()
+        let committedCursorState = try fixture.localRepository.fetchCursorState()
+        let committedWindowState = try fixture.localRepository.fetchWindowState()
+        let invalidPaneId = UUIDv7.generate()
         let invalidTab = Tab(paneId: invalidPaneId, name: "Invalid Replacement Tab")
 
         #expect(throws: (any Error).self) {
@@ -42,7 +43,8 @@ struct WorkspaceSQLiteStoreRecoveryTests {
             )
         }
 
-        #expect(try fixture.localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == committedLocalSnapshotAt)
+        #expect(try fixture.localRepository.fetchCursorState() == committedCursorState)
+        #expect(try fixture.localRepository.fetchWindowState() == committedWindowState)
         let loaded = try #require(try fixture.backend.load())
         #expect(loaded.id == workspaceId)
         #expect(loaded.name == "Committed Workspace")
@@ -51,52 +53,33 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         #expect(loaded.sidebarWidth == 250)
     }
 
-    @Test("completed snapshot readiness requires matching local snapshot")
-    func completedSnapshotReadinessRequiresMatchingLocalSnapshot() async throws {
-        let workspaceId = UUID()
+    @Test("independent local rows do not determine core snapshot authority")
+    func independentLocalRowsDoNotDetermineCoreSnapshotAuthority() throws {
+        let workspaceId = UUIDv7.generate()
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
-        let coreCompletedAt = Date(timeIntervalSince1970: 1_700_000_310)
         try fixture.backend.save(
             .emptyFixture(
                 id: workspaceId,
-                name: "Archive Candidate",
+                name: "Authoritative Core",
                 sidebarWidth: 315,
                 createdAt: Date(timeIntervalSince1970: 1_700_000_300),
-                updatedAt: coreCompletedAt
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_310)
             )
         )
-        #expect(
-            try fixture.backend.hasCompletedSnapshot(
-                workspaceId: workspaceId,
-                localRepository: fixture.localRepository
-            )
+        try fixture.localRepository.replaceWindowState(
+            .init(sidebarWidth: 430, windowFrame: nil),
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_400)
         )
 
-        try await fixture.localQueue.write { database in
-            try database.execute(
-                sql: """
-                    UPDATE local_workspace_sqlite_snapshot_status
-                    SET completed_at = ?
-                    WHERE workspace_id = ?
-                    """,
-                arguments: [
-                    coreCompletedAt.addingTimeInterval(60).timeIntervalSince1970,
-                    workspaceId.uuidString,
-                ]
-            )
-        }
+        let loaded = try #require(try fixture.backend.load())
 
-        #expect(
-            try !fixture.backend.hasCompletedSnapshot(
-                workspaceId: workspaceId,
-                localRepository: fixture.localRepository
-            )
-        )
+        #expect(loaded.id == workspaceId)
+        #expect(loaded.name == "Authoritative Core")
+        #expect(loaded.sidebarWidth == 430)
     }
 }
 
 private struct WorkspaceSQLiteRecoveryFixture {
-    let localQueue: DatabaseQueue
     let coreRepository: WorkspaceCoreRepository
     let localRepository: WorkspaceLocalRepository
     let backend: WorkspaceSQLiteStoreBackend
@@ -117,7 +100,6 @@ private func makeRecoveryFixture(workspaceId: UUID) throws -> WorkspaceSQLiteRec
         }
     )
     return .init(
-        localQueue: localQueue,
         coreRepository: coreRepository,
         localRepository: localRepository,
         backend: backend

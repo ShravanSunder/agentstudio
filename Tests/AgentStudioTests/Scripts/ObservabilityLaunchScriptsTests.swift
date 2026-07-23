@@ -82,7 +82,7 @@ struct ObservabilityLaunchScriptsTests {
         #expect(!wrapperScript.contains("swift-build-slot.sh\" debug"))
         #expect(!wrapperScript.contains("swift-build-slot.sh\" release"))
         #expect(wrapperScript.contains("TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-60}\""))
-        #expect(wrapperScript.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-$TIMEOUT_SECONDS"))
+        #expect(wrapperScript.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-90"))
         #expect(wrapperScript.contains("SWIFT_TEST_SKIP_PREBUILD"))
         #expect(wrapperScript.contains("PREBUILD_TIMEOUT_SECONDS=$PREBUILD_TIMEOUT_SECONDS"))
         #expect(wrapperScript.contains("run_swift_with_timeout"))
