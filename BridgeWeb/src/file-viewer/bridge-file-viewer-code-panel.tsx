@@ -107,6 +107,11 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	);
 	const handleCodeViewScroll = useCallback(
 		(scrollTop: number): void => {
+			const sameFileContentUnavailableTransition =
+				openFileStatus === 'loading' &&
+				openFilePath !== null &&
+				openFilePath === previousRenderedPathRef.current &&
+				selectedCodeViewPath === null;
 			const sameReadyFileContentTransition =
 				openFileStatus === 'ready' &&
 				openFilePath !== null &&
@@ -116,7 +121,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 				selectedCodeViewCacheKey !== null &&
 				previousRenderedCacheKeyRef.current !== null &&
 				selectedCodeViewCacheKey !== previousRenderedCacheKeyRef.current;
-			if (!sameReadyFileContentTransition) {
+			if (!sameFileContentUnavailableTransition && !sameReadyFileContentTransition) {
 				lastScrollTopRef.current = scrollTop;
 			}
 		},
