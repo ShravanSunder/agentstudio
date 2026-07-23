@@ -122,6 +122,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     }
 
     private struct ReviewPackageLoadCommit {
+        let reset: ReviewPackageLoadReset
         let load: BridgeReviewPackageLoadData
         let summary: BridgeReviewPackageSummary
         let commandId: UUID
@@ -196,6 +197,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             }
             return await completeReviewPackageLoad(
                 ReviewPackageLoadCommit(
+                    reset: reset,
                     load: load,
                     summary: result.package.summary,
                     commandId: commandId,
@@ -245,7 +247,17 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             if commit.foregroundWorkAdmission.withValidAdmission({ true }) == nil {
                 pendingReviewPackageBuildReasons.insert(buildReason)
             }
-            return .failure(.invalidPayload(description: "Bridge pane is closed"))
+            guard
+                await retainCommittedReviewOrSetInitialFailure(
+                    "loadFailed:publication",
+                    reset: commit.reset,
+                    productAdmission: commit.productAdmission,
+                    foregroundWorkAdmission: commit.foregroundWorkAdmission
+                )
+            else {
+                return .failure(.invalidPayload(description: "Bridge pane is closed"))
+            }
+            return .failure(.invalidPayload(description: "Failed to load bridge review package"))
         }
         if deliveryDisposition == .failed {
             await productSchemeProvider?.resetCurrentReviewSubscriptionsForUnavailableSource(

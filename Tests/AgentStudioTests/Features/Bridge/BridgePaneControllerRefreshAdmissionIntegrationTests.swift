@@ -176,6 +176,82 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         await fixture.finish()
     }
 
+    @Test("current initial Review reservation failure resets Review and leaves File active")
+    func currentInitialReviewReservationFailureResetsReviewAndLeavesFileActive() async throws {
+        // Arrange
+        let fixture = try await makeRefreshAdmissionIntegrationFixture(
+            failsReviewReservation: true
+        )
+        try await fixture.openFileMetadataSubscription()
+        try await fixture.openReviewMetadataSubscription()
+
+        // Act
+        let foregroundTransition = fixture.controller.applyBridgePaneActivity(.foreground)
+        await foregroundTransition?.value
+        guard case .panePresentation = try await fixture.consumeNextMetadataFrame() else {
+            Issue.record("Expected foreground pane presentation before Review load result")
+            await fixture.finish()
+            return
+        }
+        await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
+        let producerSnapshot = await fixture.productInstallation.session.producerSnapshot()
+        #expect(producerSnapshot.queuedFrameCount == 1)
+        guard producerSnapshot.queuedFrameCount == 1 else {
+            await fixture.finish()
+            return
+        }
+        let resetFrame = try await fixture.consumeNextMetadataFrame()
+        let fileDataResult = try await fixture.productInstallation.session.enqueueSubscriptionData(
+            subscriptionId: "file-subscription-refresh-admission",
+            data: .fileMetadata(try refreshAdmissionFileSourceAcceptedEvent()),
+            productAdmission: fixture.productAdmission,
+            foregroundWorkAdmission: try #require(
+                fixture.controller.refreshAdmissionCoordinator.acquireForegroundWork()
+            )
+        )
+        let fileDataFrame = try await fixture.consumeNextMetadataFrame()
+
+        // Assert
+        #expect(fixture.controller.paneState.diff.status == .error)
+        #expect(fixture.controller.paneState.diff.error == "loadFailed:publication")
+        #expect(fixture.controller.paneState.diff.packageMetadata == nil)
+        #expect(fixture.controller.activeReviewRefreshTask == nil)
+        #expect(await fixture.reviewProvider.recordedComparisonRequestsCount() == 1)
+        guard case .subscriptionReset(let reset) = resetFrame else {
+            Issue.record("Expected current Review reservation failure to reset Review")
+            await fixture.finish()
+            return
+        }
+        #expect(
+            reset.identity.subscriptionIdentity.subscriptionId
+                == "review-subscription-refresh-admission"
+        )
+        #expect(reset.reason == .staleSource)
+        guard case .enqueued = fileDataResult,
+            case .subscriptionData(let fileData) = fileDataFrame,
+            case .fileMetadata = fileData.data
+        else {
+            Issue.record("Expected File to accept data after the Review reset")
+            await fixture.finish()
+            return
+        }
+        #expect(
+            fileData.subscriptionIdentity.subscriptionId
+                == "file-subscription-refresh-admission"
+        )
+        #expect(
+            await fixture.productInstallation.session.subscriptionSnapshot(
+                subscriptionId: "review-subscription-refresh-admission"
+            ) == nil
+        )
+        #expect(
+            await fixture.productInstallation.session.subscriptionSnapshot(
+                subscriptionId: "file-subscription-refresh-admission"
+            ) != nil
+        )
+        await fixture.finish()
+    }
+
     @Test("initial Review delivery exhaustion resets Review and retains committed publication")
     func initialReviewDeliveryExhaustionResetsReviewAndRetainsCommittedPublication() async throws {
         // Arrange

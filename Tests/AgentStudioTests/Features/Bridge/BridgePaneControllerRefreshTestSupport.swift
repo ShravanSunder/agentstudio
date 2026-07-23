@@ -239,6 +239,7 @@ struct RefreshAdmissionIntegrationFixture {
 func makeRefreshAdmissionIntegrationFixture(
     comparisonGate: BridgeComparisonGate? = nil,
     failsChangesetPublication: Bool = false,
+    failsReviewReservation: Bool = false,
     failsReviewDelivery: Bool = false,
     fileMetadataProducerGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
     reviewMetadataReservationGate: RefreshAdmissionReviewReservationGate? = nil
@@ -269,6 +270,7 @@ func makeRefreshAdmissionIntegrationFixture(
         metadataProducerGate: fileMetadataProducerGate
     )
     let reviewMetadataSource = RefreshAdmissionGatedReviewMetadataSource(
+        failsReservation: failsReviewReservation,
         failsDelivery: failsReviewDelivery,
         reservationGate: reviewMetadataReservationGate
     )
@@ -595,14 +597,17 @@ actor RefreshAdmissionReviewReservationGate {
 }
 
 private actor RefreshAdmissionGatedReviewMetadataSource: BridgePaneProductReviewMetadataProducing {
+    private let failsReservation: Bool
     private let failsDelivery: Bool
     private let reservationGate: RefreshAdmissionReviewReservationGate?
     private let source = BridgePaneProductReviewMetadataSource()
 
     init(
+        failsReservation: Bool,
         failsDelivery: Bool,
         reservationGate: RefreshAdmissionReviewReservationGate?
     ) {
+        self.failsReservation = failsReservation
         self.failsDelivery = failsDelivery
         self.reservationGate = reservationGate
     }
@@ -637,6 +642,9 @@ private actor RefreshAdmissionGatedReviewMetadataSource: BridgePaneProductReview
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgeReviewMetadataPublicationReservation {
         await reservationGate?.holdIfEnabled()
+        if failsReservation {
+            throw BridgePaneProductReviewMetadataSourceError.metadataEventExceedsByteLimit
+        }
         return try await source.reserve(
             package: package,
             publicationId: publicationId,
