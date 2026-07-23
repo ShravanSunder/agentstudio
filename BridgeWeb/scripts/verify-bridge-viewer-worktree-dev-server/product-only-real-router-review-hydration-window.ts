@@ -21,6 +21,30 @@ export function hasCompleteFreshReviewPaintIdentityCoverage(props: {
 	return props.expectedItemIds.every((itemId): boolean => props.paintIdentityByItemId.has(itemId));
 }
 
+export function previousFreshReviewTraversalScrollTop(props: {
+	readonly codeScroll: {
+		readonly clientHeight: number;
+		readonly scrollTop: number;
+	};
+	readonly visibleItems: readonly { readonly hostTopOffset: number }[];
+}): number {
+	const viewportAdvance = Math.max(1, props.codeScroll.clientHeight * 0.8);
+	const firstVisibleHostTopOffset = props.visibleItems.reduce(
+		(minimumTopOffset, item): number =>
+			Number.isFinite(item.hostTopOffset)
+				? Math.min(minimumTopOffset, item.hostTopOffset)
+				: minimumTopOffset,
+		Number.POSITIVE_INFINITY,
+	);
+	const hydratedHostAdvance = Number.isFinite(firstVisibleHostTopOffset)
+		? Math.max(0, -firstVisibleHostTopOffset + props.codeScroll.clientHeight * 0.1)
+		: 0;
+	return Math.max(
+		0,
+		Math.floor(props.codeScroll.scrollTop - Math.max(viewportAdvance, hydratedHostAdvance)),
+	);
+}
+
 export async function waitForFreshReviewHydrationWindowSnapshot(props: {
 	readonly excludedItemIds: readonly string[];
 	readonly page: Page;

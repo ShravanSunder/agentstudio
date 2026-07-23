@@ -18,6 +18,7 @@ import {
 	type FreshReviewHydrationWindowSnapshot,
 	type FreshReviewPaintIdentity,
 	hasCompleteFreshReviewPaintIdentityCoverage,
+	previousFreshReviewTraversalScrollTop,
 	waitForFreshReviewHydrationWindowSnapshot,
 } from './product-only-real-router-review-hydration-window.ts';
 import { waitForProductBrowserFrameSettlement } from './product-only-real-router-settlement.ts';
@@ -821,13 +822,10 @@ async function scrollFreshReviewCodeView(props: {
 					codeScroll: props.state.codeScroll,
 					visibleItems: props.state.visibleItems,
 				})
-			: Math.max(
-					0,
-					Math.floor(
-						props.state.codeScroll.scrollTop -
-							Math.max(1, props.state.codeScroll.clientHeight * 0.8),
-					),
-				);
+			: previousFreshReviewTraversalScrollTop({
+					codeScroll: props.state.codeScroll,
+					visibleItems: props.state.visibleItems,
+				});
 	await props.page.evaluate(
 		({ nextScrollTop, selector }): void => {
 			const codeScrollOwner = document.querySelector(selector);
