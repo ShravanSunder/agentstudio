@@ -1,6 +1,15 @@
 import type { BridgeProductContentResponseStartControl } from './bridge-product-transport-contract.js';
 
 export const BRIDGE_PRODUCT_MAXIMUM_CONCURRENT_CONTENT_RESPONSES = 12;
+export const BRIDGE_PRODUCT_HTTP1_MAXIMUM_CONCURRENT_CONTENT_RESPONSES = 4;
+
+export function bridgeProductMaximumConcurrentContentResponsesForRoute(
+	contentRoute: string,
+): number {
+	return contentRoute.startsWith('/')
+		? BRIDGE_PRODUCT_HTTP1_MAXIMUM_CONCURRENT_CONTENT_RESPONSES
+		: BRIDGE_PRODUCT_MAXIMUM_CONCURRENT_CONTENT_RESPONSES;
+}
 
 export interface BridgeProductContentResponseAdmissionLease {
 	release(): void;

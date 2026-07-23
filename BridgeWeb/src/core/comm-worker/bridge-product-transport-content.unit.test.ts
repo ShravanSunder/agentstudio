@@ -13,7 +13,11 @@ import {
 	encodeMinimalControlFrame,
 	encodeMinimalDataFrame,
 } from './bridge-product-content-frame-test-support.js';
-import { BRIDGE_PRODUCT_MAXIMUM_CONCURRENT_CONTENT_RESPONSES } from './bridge-product-content-response-admission.js';
+import {
+	BRIDGE_PRODUCT_HTTP1_MAXIMUM_CONCURRENT_CONTENT_RESPONSES,
+	BRIDGE_PRODUCT_MAXIMUM_CONCURRENT_CONTENT_RESPONSES,
+	bridgeProductMaximumConcurrentContentResponsesForRoute,
+} from './bridge-product-content-response-admission.js';
 import {
 	BRIDGE_PRODUCT_COMMAND_ROUTE,
 	BRIDGE_PRODUCT_CONTENT_ROUTE,
@@ -49,6 +53,15 @@ afterEach(() => {
 });
 
 describe('Bridge product content transport', () => {
+	test('keeps native and HTTP/1.1 content response limits transport-specific', () => {
+		expect(
+			bridgeProductMaximumConcurrentContentResponsesForRoute('agentstudio://rpc/content'),
+		).toBe(BRIDGE_PRODUCT_MAXIMUM_CONCURRENT_CONTENT_RESPONSES);
+		expect(
+			bridgeProductMaximumConcurrentContentResponsesForRoute('/__bridge-product/content'),
+		).toBe(BRIDGE_PRODUCT_HTTP1_MAXIMUM_CONCURRENT_CONTENT_RESPONSES);
+	});
+
 	test('opens concurrent content outside the control sequence', async () => {
 		const harness = createContentTransportHarness(3);
 		const first = harness.transport.openContent(

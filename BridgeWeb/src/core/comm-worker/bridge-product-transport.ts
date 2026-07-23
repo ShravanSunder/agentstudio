@@ -22,6 +22,7 @@ import {
 import {
 	BridgeProductContentResponseAdmission,
 	BridgeProductContentResponseStartAdmission,
+	bridgeProductMaximumConcurrentContentResponsesForRoute,
 	type BridgeProductContentResponseAdmissionLease,
 } from './bridge-product-content-response-admission.js';
 import { BridgeProductContentStreamDecoder } from './bridge-product-content-stream-decoder.js';
@@ -170,7 +171,9 @@ export function createBridgeProductTransport(
 
 class BridgeProductTransportSessionImpl implements BridgeProductTransportSession {
 	readonly #authority: BridgeProductSessionAuthority;
-	readonly #contentResponseAdmission = new BridgeProductContentResponseAdmission();
+	readonly #contentResponseAdmission = new BridgeProductContentResponseAdmission(
+		bridgeProductMaximumConcurrentContentResponsesForRoute(BRIDGE_PRODUCT_CONTENT_ROUTE),
+	);
 	readonly #controlMux: CreateBridgeProductTransportProps['controlMux'];
 	readonly #createIdentifier: (purpose: BridgeProductIdentifierPurpose) => string;
 	readonly #epochs: Record<BridgeProductSurface, number>;
