@@ -249,6 +249,25 @@ export async function proveFreshReviewRoute(props: {
 		});
 	}
 	viewportState = await readFreshReviewViewportState(props.page);
+	forwardPaintIdentityByItemId.clear();
+	reusedPaintIdentityItemIdSet.clear();
+	await traverseFreshReviewPaintIdentities({
+		direction: 'forward',
+		forwardPaintIdentityByItemId,
+		page: props.page,
+		reusedPaintIdentityItemIdSet,
+		selectedItemId: selectedItemIdAtStart,
+		traversalStepBudget,
+	});
+	await traverseFreshReviewPaintIdentities({
+		direction: 'backward',
+		forwardPaintIdentityByItemId,
+		page: props.page,
+		reusedPaintIdentityItemIdSet,
+		selectedItemId: selectedItemIdAtStart,
+		traversalStepBudget,
+	});
+	viewportState = await readFreshReviewViewportState(props.page);
 	const identity = await readFreshReviewIdentitySnapshot(props.page);
 	return {
 		...identity,
@@ -692,6 +711,61 @@ function recordReusedFreshReviewPaintIdentities(props: {
 		if (forwardPaintIdentity !== undefined && item.paintIdentity === forwardPaintIdentity) {
 			props.reusedPaintIdentityItemIdSet.add(item.itemId);
 		}
+	}
+}
+
+async function traverseFreshReviewPaintIdentities(props: {
+	readonly direction: 'backward' | 'forward';
+	readonly forwardPaintIdentityByItemId: Map<string, string>;
+	readonly page: Page;
+	readonly reusedPaintIdentityItemIdSet: Set<string>;
+	readonly selectedItemId: string | null;
+	readonly traversalStepBudget: number;
+}): Promise<void> {
+	let settledBoundaryTurnCount = 0;
+	for (let stepIndex = 0; stepIndex < props.traversalStepBudget; stepIndex += 1) {
+		const settledHydrationWindow = await captureFreshReviewHydrationWindow({
+			excludedItemIds: [],
+			page: props.page,
+			selectedItemId: props.selectedItemId,
+		});
+		if (props.direction === 'forward') {
+			recordFreshReviewPaintIdentities({
+				paintIdentities: settledHydrationWindow.visiblePaintIdentities,
+				paintIdentityByItemId: props.forwardPaintIdentityByItemId,
+			});
+		} else {
+			recordReusedFreshReviewPaintIdentities({
+				forwardPaintIdentityByItemId: props.forwardPaintIdentityByItemId,
+				paintIdentities: settledHydrationWindow.visiblePaintIdentities,
+				reusedPaintIdentityItemIdSet: props.reusedPaintIdentityItemIdSet,
+			});
+		}
+		const viewportState = await readFreshReviewViewportState(props.page);
+		const maximumScrollTop = Math.max(
+			0,
+			viewportState.codeScroll.scrollHeight - viewportState.codeScroll.clientHeight,
+		);
+		const reachedBoundary =
+			props.direction === 'forward'
+				? viewportState.codeScroll.scrollTop >= maximumScrollTop - 1
+				: viewportState.codeScroll.scrollTop <= 1;
+		if (reachedBoundary) {
+			settledBoundaryTurnCount += 1;
+			if (
+				props.direction === 'backward' ||
+				settledBoundaryTurnCount >= freshReviewSettledBottomTurnCount
+			) {
+				break;
+			}
+		} else {
+			settledBoundaryTurnCount = 0;
+		}
+		await scrollFreshReviewCodeView({
+			direction: props.direction,
+			page: props.page,
+			state: viewportState,
+		});
 	}
 }
 
