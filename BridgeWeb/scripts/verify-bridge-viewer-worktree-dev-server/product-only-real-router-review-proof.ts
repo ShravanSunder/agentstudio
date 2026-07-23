@@ -595,8 +595,8 @@ async function captureFreshReviewHydrationWindow(props: {
 				const excludedItemIdSet = new Set(excludedItemIds);
 				const reviewItemHosts = queryAllInOpenShadowRoots(codePanel ?? document, 'diffs-container');
 				const codeScrollRect = codeScrollOwner.getBoundingClientRect();
-				const visibleCandidateStates = reviewItemHosts.flatMap(
-					(reviewItemHost): readonly (string | null)[] => {
+				const visibleCandidateReadiness = reviewItemHosts.flatMap(
+					(reviewItemHost): readonly boolean[] => {
 						const itemMarker = bridgeReviewHostElement(
 							reviewItemHost,
 							'[data-bridge-code-view-item-id]',
@@ -610,20 +610,18 @@ async function captureFreshReviewHydrationWindow(props: {
 						if (hostRect.bottom <= codeScrollRect.top || hostRect.top >= codeScrollRect.bottom) {
 							return [];
 						}
+						const contentState = bridgeReviewHostElement(
+							reviewItemHost,
+							'[data-bridge-code-view-content-state]',
+						)?.getAttribute('data-bridge-code-view-content-state');
 						return [
-							bridgeReviewHostElement(
-								reviewItemHost,
-								'[data-bridge-code-view-content-state]',
-							)?.getAttribute('data-bridge-code-view-content-state') ?? null,
+							(contentState === 'hydrated' || contentState === 'windowed') &&
+								reviewItemHost.hasAttribute('data-bridge-painted-publication-id') &&
+								reviewItemHost.hasAttribute('data-bridge-painted-source-correlations'),
 						];
 					},
 				);
-				return (
-					visibleCandidateStates.length > 0 &&
-					visibleCandidateStates.every(
-						(contentState): boolean => contentState === 'hydrated' || contentState === 'windowed',
-					)
-				);
+				return visibleCandidateReadiness.length > 0 && visibleCandidateReadiness.every(Boolean);
 
 				function bridgeReviewHostElement(host: Element, selector: string): Element | null {
 					return host.querySelector(selector) ?? host.shadowRoot?.querySelector(selector) ?? null;
