@@ -129,7 +129,11 @@ function rebuildBridgeReviewPresentationLedger(props: {
 }): BridgeReviewPresentationSnapshot | null {
 	const orderedDisplayItems = orderedReviewDisplayItems(props);
 	const reviewTreeRows = orderedReviewTreeRows(props);
-	if (orderedDisplayItems.length === 0 || reviewTreeRows.length === 0) return null;
+	const isReadyEmpty =
+		props.reviewSourceSlice.totalItemCount === 0 && props.reviewSourceSlice.totalTreeRowCount === 0;
+	if (!isReadyEmpty && (orderedDisplayItems.length === 0 || reviewTreeRows.length === 0)) {
+		return null;
+	}
 	const orderedItemIds = orderedDisplayItems.map((item) => item.metadata.itemId);
 	const itemsById = Object.fromEntries(
 		orderedDisplayItems.map((item) => [

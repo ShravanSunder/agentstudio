@@ -5,7 +5,6 @@ import {
 	BridgeReviewEmptyShell,
 	BridgeReviewMetadataFailedShell,
 	BridgeReviewMetadataLoadingShell,
-	BridgeReviewNoChangesShell,
 	BridgeReviewProjectionFailedShell,
 	BridgeReviewProjectionPendingShell,
 } from '../review-viewer/shell/review-viewer-fallback-shells.js';
@@ -18,7 +17,6 @@ const LazyReviewViewerShell = lazy(async () => {
 
 export type BridgeReviewViewerPresentationState =
 	| { readonly status: 'empty' }
-	| { readonly status: 'readyEmpty' }
 	| { readonly status: 'metadataLoading' }
 	| { readonly error: string | null; readonly status: 'metadataFailed' }
 	| { readonly status: 'projectionPending' }
@@ -54,13 +52,6 @@ export function BridgeReviewViewerShellBoundary(
 		case 'empty':
 			return (
 				<BridgeReviewEmptyShell isActive={isActive} viewerHeaderControls={viewerHeaderControls} />
-			);
-		case 'readyEmpty':
-			return (
-				<BridgeReviewNoChangesShell
-					isActive={isActive}
-					viewerHeaderControls={viewerHeaderControls}
-				/>
 			);
 		case 'metadataLoading':
 			return (

@@ -122,7 +122,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		).toHaveLength(1);
 	});
 
-	test('shows No changes to review for a ready zero-item source', async () => {
+	test('shows loaded Review chrome and explicit empty states for a ready zero-item source', async () => {
 		// Arrange
 		const harness = makeReviewSurfaceHarness();
 		const rendered = await render(
@@ -178,14 +178,30 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				transferDescriptors: [],
 				wireVersion: 1,
 			});
+			await import('../review-viewer/shell/review-viewer-shell.js');
 			await settleRenderedReviewFrame();
 		});
 
 		// Assert
-		await expect.element(rendered.getByTestId('bridge-review-no-changes-shell')).toBeVisible();
+		await expect.element(rendered.getByTestId('review-viewer-shell')).toBeVisible();
+		await expect.element(rendered.getByText('Nothing to review')).toBeVisible();
+		await expect.element(rendered.getByText('No changed files')).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-mode-segmented-control'))
+			.toBeVisible();
+		await expect.element(rendered.getByTestId('bridge-review-facet-menu-control')).toBeVisible();
+		await expect.element(rendered.getByTestId('bridge-review-search-control')).toBeVisible();
+		expect(document.querySelector('[data-testid="bridge-review-fallback-frame"]')).toBeNull();
 		expect(
 			document.querySelector('[data-testid="bridge-review-projection-pending-shell"]'),
 		).toBeNull();
+		expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
+		expect(
+			rendered
+				.getByTestId('bridge-review-rail-tree-slot')
+				.element()
+				.querySelectorAll('[data-item-path]'),
+		).toHaveLength(0);
 	});
 
 	test('retries timed-out Review intake-ready delivery until acknowledgement with newer shared epochs', async () => {

@@ -32,29 +32,6 @@ export function BridgeReviewEmptyShell(props: {
 	);
 }
 
-export function BridgeReviewNoChangesShell(props: {
-	readonly isActive?: boolean | undefined;
-	readonly viewerHeaderControls?: ReactNode;
-}): ReactElement {
-	return (
-		<BridgeReviewFallbackFrame
-			isActive={props.isActive}
-			title="No changes to review"
-			viewerHeaderControls={props.viewerHeaderControls}
-		>
-			<section
-				aria-label="Review summary"
-				className="flex h-full min-h-[260px] items-center justify-center px-8 text-center"
-				data-testid="bridge-review-no-changes-shell"
-			>
-				<p className="text-sm font-medium text-[var(--bridge-text-primary)]">
-					No changes to review
-				</p>
-			</section>
-		</BridgeReviewFallbackFrame>
-	);
-}
-
 export function BridgeReviewProjectionPendingShell(props: {
 	readonly isActive?: boolean | undefined;
 	readonly viewerHeaderControls?: ReactNode;

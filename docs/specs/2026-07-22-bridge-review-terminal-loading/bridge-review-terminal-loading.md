@@ -120,11 +120,11 @@ Publication reservation failure also collapses to `.rejected`. The caller must
 use the existing generation and admission checks to decide whether that means
 current source failure or stale/closed work.
 
-### Zero-item success is not visibly terminal
+### Zero-item success must be visibly terminal
 
 Native package construction and metadata windowing support zero items and zero tree rows. The worker can produce a ready Review source slice with both totals equal to zero.
 
-`bridgeReviewPresentationSnapshotForDisplay` currently returns `null` when either ordered items or tree rows are empty. `reviewPresentationState` then maps that valid ready source to `projectionPending`. The existing `empty` state instead means “waiting for review metadata,” so it is not a correct no-changes result.
+A completed source with both totals equal to zero must produce a valid empty presentation snapshot and use the normal loaded Review shell. The existing `empty` state means “waiting for review metadata,” so it is not a correct zero-change result.
 
 ## Requirements
 
@@ -273,18 +273,18 @@ When a readable committed Review already exists, a refresh failure must retain:
 
 Refresh failure must not replace readable Review content with the initial unavailable shell. Existing ready/stale behavior remains authoritative.
 
-### R10 — Zero-change Review shows “No changes to review”
+### R10 — Zero-change Review uses loaded chrome and explicit empty copy
 
 A successful zero-change comparison must commit and transport the normal zero-item package.
 
 Browser presentation must distinguish:
 
 - no Review source yet — loading/awaiting metadata;
-- ready source with zero items — “No changes to review”;
+- ready source with zero items — normal loaded Review shell, “Nothing to review” in the canvas, and “No changed files” in the file-tree rail;
 - failed source — metadata unavailable;
 - ready source with items — normal Review shell.
 
-The no-changes state must not say “waiting for review metadata” and must not require a non-empty presentation snapshot.
+The zero-change state must retain the real Review toolbar icons and an empty file tree. It must not render fallback chrome, skeletons, loading placeholders, or “waiting for review metadata,” and it must not require a non-empty presentation snapshot.
 
 ## Boundary and Separability Map
 
