@@ -20,7 +20,8 @@ type BridgeMainRenderSourceCorrelation =
 export type BridgeMainPierreItemResidency = 'replaced' | 'reusedPainted';
 type BridgeMainPostRenderPhase = 'mount' | 'update' | 'unmount';
 
-const BRIDGE_RETAINED_PAINT_VALIDATION_FRAME_LIMIT = 8;
+// Keep retained evidence within the existing CodeView materialization retry horizon.
+const BRIDGE_RETAINED_PAINT_VALIDATION_FRAME_LIMIT = 30;
 
 interface BridgeMainPaintedSourceCorrelation extends BridgeMainRenderSourceCorrelation {
 	readonly disposition: 'painted';
