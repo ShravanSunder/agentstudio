@@ -167,7 +167,7 @@ extension WebKitSerializedTests {
                 ),
                 contentByHandleId: [:],
                 comparisonFailureByBaseProviderIdentity: [
-                    "HEAD": .providerFailed(message: "revspec 'HEAD' not found")
+                    "HEAD": .unavailableEndpoint(endpointId: "baseline-head")
                 ]
             )
             let controller = makeController(
@@ -193,6 +193,64 @@ extension WebKitSerializedTests {
             #expect(fallbackRequest.headEndpoint.kind == .workingTree)
             #expect(fallbackRequest.query.comparisonSemantics == .workingTreeDelta)
             #expect(controller.paneState.diff.status == .ready)
+        }
+
+        @Test("workspace review does not infer HEAD fallback from provider prose")
+        func workspaceReviewDoesNotInferHeadFallbackFromProviderProse() async throws {
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
+                    changedFiles: []
+                ),
+                contentByHandleId: [:],
+                comparisonFailureByBaseProviderIdentity: [
+                    "HEAD": .providerFailed(message: "revspec 'HEAD' not found")
+                ]
+            )
+            let controller = makeController(
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .ref(name: "HEAD")),
+                worktreeId: UUIDv7.generate(),
+                provider: provider
+            )
+            defer { controller.teardown() }
+
+            let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+
+            guard case .failure = result else {
+                Issue.record("Expected raw provider prose to remain a failure")
+                return
+            }
+            #expect(await provider.recordedComparisonRequests().count == 1)
+        }
+
+        @Test("workspace review does not fallback for a named ref")
+        func workspaceReviewDoesNotFallbackForNamedRef() async throws {
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
+                    changedFiles: []
+                ),
+                contentByHandleId: [:],
+                comparisonFailureByBaseProviderIdentity: [
+                    "main": .unavailableEndpoint(endpointId: "baseline-main")
+                ]
+            )
+            let controller = makeController(
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .ref(name: "main")),
+                worktreeId: UUIDv7.generate(),
+                provider: provider
+            )
+            defer { controller.teardown() }
+
+            let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+
+            guard case .failure = result else {
+                Issue.record("Expected named-ref failure without fallback")
+                return
+            }
+            #expect(await provider.recordedComparisonRequests().count == 1)
         }
 
         @Test("workspace review exposes scrubbed git data-plane package load failures")
@@ -319,7 +377,71 @@ extension WebKitSerializedTests {
             // Assert
             #expect(await provider.recordedComparisonRequestsCount() == 1)
             #expect(controller.activeReviewRefreshTask == nil)
-            #expect(controller.paneState.diff.status == .loading)
+            #expect(controller.paneState.diff.status == .error)
+            #expect(controller.paneState.diff.error == "loadFailed:publication")
+            #expect(controller.paneState.diff.packageMetadata == nil)
+        }
+
+        @Test("fresh Review intake can recover native error state")
+        func freshReviewIntakeCanRecoverNativeErrorState() async throws {
+            // Arrange
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                    changedFiles: []
+                ),
+                contentByHandleId: [:]
+            )
+            let controller = makeController(
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged),
+                worktreeId: UUIDv7.generate(),
+                provider: provider
+            )
+            defer { controller.teardown() }
+            controller.paneState.diff.setStatus(.error, error: "metadataUnavailable")
+
+            // Act
+            controller.scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
+            let recoveryAttempt = try #require(controller.activeReviewRefreshTask)
+            await recoveryAttempt.value
+
+            // Assert
+            #expect(await provider.recordedComparisonRequestsCount() == 1)
+            #expect(controller.paneState.diff.status == .ready)
+            #expect(controller.paneState.diff.error == nil)
+            #expect(controller.paneState.diff.packageMetadata?.orderedItemIds.isEmpty == true)
+        }
+
+        @Test("foreground transition does not retry native Review error state")
+        func foregroundTransitionDoesNotRetryNativeReviewErrorState() async {
+            // Arrange
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                    changedFiles: []
+                ),
+                contentByHandleId: [:]
+            )
+            let controller = makeController(
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged),
+                worktreeId: UUIDv7.generate(),
+                provider: provider
+            )
+            defer { controller.teardown() }
+            controller.paneState.diff.setStatus(.error, error: "metadataUnavailable")
+            controller.applyBridgePaneActivity(.loadedHidden)
+
+            // Act
+            controller.applyBridgePaneActivity(.foreground)
+            if let foregroundAttempt = controller.activeReviewRefreshTask {
+                await foregroundAttempt.value
+            }
+
+            // Assert
+            #expect(await provider.recordedComparisonRequestsCount() == 0)
+            #expect(controller.paneState.diff.status == .error)
             #expect(controller.paneState.diff.packageMetadata == nil)
         }
 

@@ -87,7 +87,7 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
             } onOperationFinished: {
                 activeReadRegistry.finish(readKey)
             }
-            return .available(map(snapshot))
+            return .available(map(snapshot, isPathspecScoped: pathspecs != nil))
         } catch is CancellationError {
             return .unavailable(GitWorkingTreeStatusUnavailable(reason: .cancelled))
         } catch AgentStudioGitSDKTimeoutError.timedOut {
@@ -166,13 +166,40 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
         return .nanoseconds(Int(totalNanoseconds))
     }
 
-    nonisolated private static func map(_ snapshot: AgentStudioGit.GitStatusSnapshot) -> GitWorkingTreeStatus {
+    nonisolated private static func map(
+        _ snapshot: AgentStudioGit.GitStatusSnapshot,
+        isPathspecScoped: Bool
+    ) -> GitWorkingTreeStatus {
         GitWorkingTreeStatus(
             summary: mapSummary(snapshot.summary, headKind: snapshot.head.kind),
             branch: mapBranch(snapshot.head),
             originResolution: mapOrigin(snapshot.originResolution),
-            entries: snapshot.entries.map(mapEntry)
+            entries: snapshot.entries.map(mapEntry),
+            containsPathIdentityAmbiguity: isPathspecScoped
+                && snapshot.entries.contains(where: hasStandalonePathIdentityChange)
         )
+    }
+
+    nonisolated private static func hasStandalonePathIdentityChange(
+        _ entry: AgentStudioGit.GitStatusEntry
+    ) -> Bool {
+        if let previousPath = entry.previousPath, !previousPath.isEmpty {
+            return false
+        }
+        return entry.untracked
+            || isStandalonePathIdentityState(entry.indexState)
+            || isStandalonePathIdentityState(entry.worktreeState)
+    }
+
+    nonisolated private static func isStandalonePathIdentityState(
+        _ state: AgentStudioGit.GitStatusState?
+    ) -> Bool {
+        switch state {
+        case .added?, .deleted?:
+            true
+        case .modified?, .renamed?, .copied?, .typeChanged?, .unmerged?, nil:
+            false
+        }
     }
 
     nonisolated private static func mapEntry(

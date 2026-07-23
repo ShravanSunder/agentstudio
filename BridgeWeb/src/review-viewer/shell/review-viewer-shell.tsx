@@ -143,6 +143,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	});
 	const selectedDemandTelemetry = props.lastSelectedDemandTelemetry ?? null;
 	const visibleDemandTelemetry = props.lastVisibleDemandTelemetry ?? null;
+	const hasChangedFiles = props.reviewPackage.orderedItemIds.length > 0;
 
 	return (
 		<main
@@ -297,10 +298,12 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 							className="relative h-full min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)]"
 							data-testid="bridge-review-canvas"
 						>
-							{props.selectedMarkdownPreviewHtml !== undefined &&
-							props.selectedMarkdownPreviewHtml !== null &&
-							props.selectedMarkdownPreviewSourcePath !== undefined &&
-							props.selectedMarkdownPreviewSourcePath !== null ? (
+							{!hasChangedFiles ? (
+								<BridgeReviewEmptyCanvas />
+							) : props.selectedMarkdownPreviewHtml !== undefined &&
+							  props.selectedMarkdownPreviewHtml !== null &&
+							  props.selectedMarkdownPreviewSourcePath !== undefined &&
+							  props.selectedMarkdownPreviewSourcePath !== null ? (
 								<BridgeMarkdownPreview
 									html={props.selectedMarkdownPreviewHtml}
 									sourcePath={props.selectedMarkdownPreviewSourcePath}
@@ -361,29 +364,33 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 							className="h-full min-h-0"
 							data-testid="bridge-review-rail-tree-slot"
 						>
-							<BridgeReviewTreesPanel
-								isActive={props.isActive === true}
-								key={bridgeTreesDisclosurePolicyIdentity}
-								presentationPositionKey={props.presentationPositionKey}
-								onSelectItem={props.onSelectItem}
-								{...(props.onHoveredItemIdChange === undefined
-									? {}
-									: { onHoveredItemIdChange: props.onHoveredItemIdChange })}
-								{...(props.onTreeVisibleItemIdsChange === undefined
-									? {}
-									: { onVisibleItemIdsChange: props.onTreeVisibleItemIdsChange })}
-								projection={projection}
-								reviewPackage={props.reviewPackage}
-								reviewTreeRows={props.reviewTreeRows ?? []}
-								searchMode={treeSearchMode}
-								searchText={treeSearchText}
-								selectedItemId={props.selectedItemId}
-								selectionRevealRequest={props.treeSelectionRevealRequest ?? null}
-								{...(props.telemetryRecorder === undefined
-									? {}
-									: { telemetryRecorder: props.telemetryRecorder })}
-								telemetryTraceContext={props.telemetryParentTraceContext ?? null}
-							/>
+							{hasChangedFiles ? (
+								<BridgeReviewTreesPanel
+									isActive={props.isActive === true}
+									key={bridgeTreesDisclosurePolicyIdentity}
+									presentationPositionKey={props.presentationPositionKey}
+									onSelectItem={props.onSelectItem}
+									{...(props.onHoveredItemIdChange === undefined
+										? {}
+										: { onHoveredItemIdChange: props.onHoveredItemIdChange })}
+									{...(props.onTreeVisibleItemIdsChange === undefined
+										? {}
+										: { onVisibleItemIdsChange: props.onTreeVisibleItemIdsChange })}
+									projection={projection}
+									reviewPackage={props.reviewPackage}
+									reviewTreeRows={props.reviewTreeRows ?? []}
+									searchMode={treeSearchMode}
+									searchText={treeSearchText}
+									selectedItemId={props.selectedItemId}
+									selectionRevealRequest={props.treeSelectionRevealRequest ?? null}
+									{...(props.telemetryRecorder === undefined
+										? {}
+										: { telemetryRecorder: props.telemetryRecorder })}
+									telemetryTraceContext={props.telemetryParentTraceContext ?? null}
+								/>
+							) : (
+								<BridgeReviewEmptyFileTree />
+							)}
 							{registry.visibleItems.length === 0 ? null : (
 								<div aria-hidden="true" hidden>
 									{hiddenVisiblePathText}
@@ -448,6 +455,28 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 				railTestId="bridge-review-resizable-rail"
 			/>
 		</main>
+	);
+}
+
+function BridgeReviewEmptyCanvas(): ReactElement {
+	return (
+		<div
+			className="flex h-full items-center justify-center px-8 text-center"
+			data-testid="bridge-review-empty-canvas"
+		>
+			<p className="text-sm font-medium text-[var(--bridge-text-primary)]">Nothing to review</p>
+		</div>
+	);
+}
+
+function BridgeReviewEmptyFileTree(): ReactElement {
+	return (
+		<div
+			className="flex h-full items-center justify-center px-4 text-center"
+			data-testid="bridge-review-empty-file-tree"
+		>
+			<p className="text-xs text-[var(--bridge-text-secondary)]">No changed files</p>
+		</div>
 	);
 }
 

@@ -2,9 +2,12 @@ import AgentStudioGit
 import CryptoKit
 import Foundation
 
+private let libGit2NotFoundErrorCode: Int32 = -3
+
 extension AgentStudioGitBridgeReviewDataClient {
     func loadGitResolvedRevision(
         _ request: GitRevisionResolutionRequest,
+        unavailableEndpointId: String,
         freshnessKey: BridgeGitReadFreshnessKey
     ) async throws -> GitResolvedRevision {
         let client = self.client
@@ -22,6 +25,10 @@ extension AgentStudioGitBridgeReviewDataClient {
             throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
         } catch is CancellationError {
             throw CancellationError()
+        } catch GitDataPlaneError.libgit2Failure(let code, _, _)
+            where code == libGit2NotFoundErrorCode
+        {
+            throw BridgeProviderFailure.unavailableEndpoint(endpointId: unavailableEndpointId)
         } catch let error as GitDataPlaneError {
             throw bridgeFailure(for: error)
         } catch {
@@ -213,8 +220,10 @@ extension AgentStudioGitBridgeReviewDataClient {
                 message:
                     "gitDataPlane:libgit2Failure:code=\(code):klass=\(klass):reason=\(libGit2FailureReason(message))"
             )
-        case .unsupported(let message), .locked(let message):
-            return .providerFailed(message: message)
+        case .unsupported:
+            return .providerFailed(message: "gitDataPlane:unsupported")
+        case .locked:
+            return .providerFailed(message: "gitDataPlane:locked")
         case .worktreeNotFound:
             return .providerFailed(message: "gitDataPlane:worktreeNotFound")
         case .worktreeNotPrunable:

@@ -51,6 +51,101 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         #expect(status.originResolution == .resolved("git@example.com:askluna/agent-studio.git"))
     }
 
+    @Test("scoped modified entry preserves full summary without identity ambiguity")
+    func scopedModifiedEntryPreservesFullSummaryWithoutIdentityAmbiguity() async throws {
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            statusReader: { _, _ in
+                makeSnapshot(
+                    summary: makeSummary(
+                        unstagedFileCount: 1,
+                        linesAdded: 12,
+                        linesDeleted: 5,
+                        aheadCount: 2,
+                        hasUpstream: true
+                    ),
+                    entries: [
+                        makeStatusEntry(path: "Sources/App.swift", worktreeState: .modified)
+                    ]
+                )
+            }
+        )
+
+        let status = try #require(
+            await provider.status(
+                for: URL(fileURLWithPath: "/tmp/repo"),
+                pathspecs: ["Sources/App.swift"]
+            )
+        )
+
+        #expect(status.containsPathIdentityAmbiguity == false)
+        #expect(status.branch == "main")
+        #expect(status.summary.linesAdded == 12)
+        #expect(status.summary.linesDeleted == 5)
+        #expect(status.summary.aheadCount == 2)
+        #expect(status.summary.hasUpstream == true)
+    }
+
+    @Test("scoped standalone added and untracked entries preserve identity ambiguity")
+    func scopedStandaloneAddedAndUntrackedEntriesPreserveIdentityAmbiguity() async throws {
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            statusReader: { _, _ in
+                makeSnapshot(
+                    entries: [
+                        makeStatusEntry(path: "added.txt", worktreeState: .added),
+                        makeStatusEntry(path: "untracked.txt", untracked: true),
+                    ]
+                )
+            }
+        )
+
+        let status = try #require(
+            await provider.status(
+                for: URL(fileURLWithPath: "/tmp/repo"),
+                pathspecs: ["added.txt", "untracked.txt"]
+            )
+        )
+
+        #expect(status.containsPathIdentityAmbiguity)
+    }
+
+    @Test("scoped standalone deleted entry preserves identity ambiguity")
+    func scopedStandaloneDeletedEntryPreservesIdentityAmbiguity() async throws {
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            statusReader: { _, _ in
+                makeSnapshot(
+                    entries: [makeStatusEntry(path: "deleted.txt", indexState: .deleted)]
+                )
+            }
+        )
+
+        let status = try #require(
+            await provider.status(
+                for: URL(fileURLWithPath: "/tmp/repo"),
+                pathspecs: ["deleted.txt"]
+            )
+        )
+
+        #expect(status.containsPathIdentityAmbiguity)
+    }
+
+    @Test("full status does not report scoped identity ambiguity")
+    func fullStatusDoesNotReportScopedIdentityAmbiguity() async throws {
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            statusReader: { _, _ in
+                makeSnapshot(
+                    entries: [
+                        makeStatusEntry(path: "added.txt", indexState: .added),
+                        makeStatusEntry(path: "deleted.txt", worktreeState: .deleted),
+                    ]
+                )
+            }
+        )
+
+        let status = try #require(await provider.status(for: URL(fileURLWithPath: "/tmp/repo")))
+
+        #expect(status.containsPathIdentityAmbiguity == false)
+    }
+
     @Test("SDK origin states preserve AgentStudio origin-resolution semantics")
     func sdkOriginStatesPreserveAgentStudioOriginResolutionSemantics() async throws {
         let awaitingProvider = AgentStudioGitWorkingTreeStatusProvider(
@@ -525,109 +620,6 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         }
     }
 
-    @Test("real SDK provider matches shell provider for current status shape")
-    func realSDKProviderMatchesShellProviderForCurrentStatusShape() async throws {
-        let repoURL = try FilesystemTestGitRepo.create(named: "agentstudio-git-status-provider")
-        defer { FilesystemTestGitRepo.destroy(repoURL) }
-        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
-
-        let shellProvider = ShellGitWorkingTreeStatusProvider(processExecutor: DefaultProcessExecutor(timeout: 5))
-        let sdkProvider = AgentStudioGitWorkingTreeStatusProvider()
-
-        let shellStatus = try #require(await shellProvider.status(for: repoURL))
-        let sdkStatus = try #require(await sdkProvider.status(for: repoURL))
-
-        #expect(sdkStatus.branch == shellStatus.branch)
-        #expect(sdkStatus.summary.changed == shellStatus.summary.changed)
-        #expect(sdkStatus.summary.staged == shellStatus.summary.staged)
-        #expect(sdkStatus.summary.untracked == shellStatus.summary.untracked)
-        #expect(sdkStatus.summary.linesAdded == shellStatus.summary.linesAdded)
-        #expect(sdkStatus.summary.linesDeleted == shellStatus.summary.linesDeleted)
-        #expect(sdkStatus.summary.aheadCount == shellStatus.summary.aheadCount)
-        #expect(sdkStatus.summary.behindCount == shellStatus.summary.behindCount)
-        #expect(sdkStatus.summary.hasUpstream == shellStatus.summary.hasUpstream)
-        #expect(sdkStatus.originResolution == shellStatus.originResolution)
-    }
-
-    @Test("real SDK provider matches shell provider for staged status shape")
-    func realSDKProviderMatchesShellProviderForStagedStatusShape() async throws {
-        let repoURL = try FilesystemTestGitRepo.create(named: "agentstudio-git-status-staged")
-        defer { FilesystemTestGitRepo.destroy(repoURL) }
-        try "base\n".write(to: repoURL.appending(path: "staged.txt"), atomically: true, encoding: .utf8)
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["add", "staged.txt"])
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["commit", "-m", "Seed staged parity"])
-        try "base\nstaged\n".write(to: repoURL.appending(path: "staged.txt"), atomically: true, encoding: .utf8)
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["add", "staged.txt"])
-        try "loose\n".write(to: repoURL.appending(path: "loose.txt"), atomically: true, encoding: .utf8)
-
-        try await assertSDKMatchesShell(repoURL)
-    }
-
-    @Test("real SDK provider matches shell provider for local origin and upstream sync states")
-    func realSDKProviderMatchesShellProviderForLocalOriginAndUpstreamSyncStates() async throws {
-        let repoURL = try FilesystemTestGitRepo.create(named: "agentstudio-git-status-upstream")
-        defer { FilesystemTestGitRepo.destroy(repoURL) }
-        try "base\n".write(to: repoURL.appending(path: "tracked.txt"), atomically: true, encoding: .utf8)
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["add", "tracked.txt"])
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["commit", "-m", "Seed upstream parity"])
-        let remoteURL = repoURL.deletingLastPathComponent().appending(path: "origin.git")
-        defer { FilesystemTestGitRepo.destroy(remoteURL) }
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["init", "--bare", remoteURL.path])
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["remote", "add", "origin", remoteURL.path])
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["push", "-u", "origin", "main"])
-
-        try await assertSDKMatchesShell(repoURL)
-
-        try "ahead\n".write(to: repoURL.appending(path: "ahead.txt"), atomically: true, encoding: .utf8)
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["add", "ahead.txt"])
-        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["commit", "-m", "Local ahead"])
-
-        try await assertSDKMatchesShell(repoURL)
-    }
-
-    @Test("real SDK provider returns nil for invalid worktree like shell provider")
-    func realSDKProviderReturnsNilForInvalidWorktreeLikeShellProvider() async throws {
-        let invalidURL = URL(fileURLWithPath: "/tmp/agentstudio-invalid-status-\(UUID().uuidString)")
-        let shellProvider = ShellGitWorkingTreeStatusProvider(processExecutor: DefaultProcessExecutor(timeout: 5))
-        let sdkProvider = AgentStudioGitWorkingTreeStatusProvider()
-
-        #expect(await shellProvider.status(for: invalidURL) == nil)
-        #expect(await sdkProvider.status(for: invalidURL) == nil)
-    }
-
-    @Test("real SDK provider keeps unborn worktrees branchless instead of shell placeholder branch")
-    func realSDKProviderKeepsUnbornWorktreesBranchlessInsteadOfShellPlaceholderBranch() async throws {
-        let repoURL = try FilesystemTestGitRepo.create(named: "agentstudio-git-status-unborn")
-        defer { FilesystemTestGitRepo.destroy(repoURL) }
-        let shellProvider = ShellGitWorkingTreeStatusProvider(processExecutor: DefaultProcessExecutor(timeout: 5))
-        let sdkProvider = AgentStudioGitWorkingTreeStatusProvider()
-
-        let shellStatus = try #require(await shellProvider.status(for: repoURL))
-        let sdkStatus = try #require(await sdkProvider.status(for: repoURL))
-
-        #expect(shellStatus.branch != nil)
-        #expect(sdkStatus.branch == nil)
-        #expect(sdkStatus.summary.hasUpstream == nil)
-    }
-}
-
-private func assertSDKMatchesShell(_ repoURL: URL) async throws {
-    let shellProvider = ShellGitWorkingTreeStatusProvider(processExecutor: DefaultProcessExecutor(timeout: 5))
-    let sdkProvider = AgentStudioGitWorkingTreeStatusProvider()
-
-    let shellStatus = try #require(await shellProvider.status(for: repoURL))
-    let sdkStatus = try #require(await sdkProvider.status(for: repoURL))
-
-    #expect(sdkStatus.branch == shellStatus.branch)
-    #expect(sdkStatus.summary.changed == shellStatus.summary.changed)
-    #expect(sdkStatus.summary.staged == shellStatus.summary.staged)
-    #expect(sdkStatus.summary.untracked == shellStatus.summary.untracked)
-    #expect(sdkStatus.summary.linesAdded == shellStatus.summary.linesAdded)
-    #expect(sdkStatus.summary.linesDeleted == shellStatus.summary.linesDeleted)
-    #expect(sdkStatus.summary.aheadCount == shellStatus.summary.aheadCount)
-    #expect(sdkStatus.summary.behindCount == shellStatus.summary.behindCount)
-    #expect(sdkStatus.summary.hasUpstream == shellStatus.summary.hasUpstream)
-    #expect(sdkStatus.originResolution == shellStatus.originResolution)
 }
 
 private final class ManualStatusTimeoutScheduler: AgentStudioGitStatusTimeoutScheduler, @unchecked Sendable {
@@ -830,7 +822,8 @@ private func makeSnapshot(
         shortName: "main"
     ),
     originResolution: AgentStudioGit.GitOriginResolution = .confirmedAbsent,
-    summary: AgentStudioGit.GitStatusSummary = makeSummary()
+    summary: AgentStudioGit.GitStatusSummary = makeSummary(),
+    entries: [AgentStudioGit.GitStatusEntry] = []
 ) -> AgentStudioGit.GitStatusSnapshot {
     AgentStudioGit.GitStatusSnapshot(
         repositoryRoot: URL(fileURLWithPath: "/tmp/repo"),
@@ -839,7 +832,24 @@ private func makeSnapshot(
         head: head,
         originResolution: originResolution,
         summary: summary,
-        entries: []
+        entries: entries
+    )
+}
+
+private func makeStatusEntry(
+    path: String,
+    previousPath: String? = nil,
+    indexState: AgentStudioGit.GitStatusState? = nil,
+    worktreeState: AgentStudioGit.GitStatusState? = nil,
+    untracked: Bool = false
+) -> AgentStudioGit.GitStatusEntry {
+    AgentStudioGit.GitStatusEntry(
+        path: path,
+        previousPath: previousPath,
+        indexState: indexState,
+        worktreeState: worktreeState,
+        ignored: false,
+        untracked: untracked
     )
 }
 

@@ -3012,6 +3012,32 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
+    @Test("target-only ambiguous scoped entry falls back exactly once")
+    func targetOnlyAmbiguousScopedEntryFallsBackExactlyOnce() async throws {
+        try await assertAmbiguousScopedStatusFallsBackExactlyOnce(
+            ambiguousEntry: GitWorkingTreeStatusEntry(
+                path: "new.txt",
+                hasStagedChange: false,
+                hasUnstagedChange: true,
+                isUntracked: true
+            ),
+            rootLabel: "target-only"
+        )
+    }
+
+    @Test("source-only ambiguous scoped entry falls back exactly once")
+    func sourceOnlyAmbiguousScopedEntryFallsBackExactlyOnce() async throws {
+        try await assertAmbiguousScopedStatusFallsBackExactlyOnce(
+            ambiguousEntry: GitWorkingTreeStatusEntry(
+                path: "old.txt",
+                hasStagedChange: true,
+                hasUnstagedChange: false,
+                isUntracked: false
+            ),
+            rootLabel: "source-only"
+        )
+    }
+
     @Test("scoped compute timeout opens the per-worktree backoff breaker")
     func scopedComputeTimeoutOpensBackoffBreaker() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -3220,6 +3246,94 @@ struct GitWorkingDirectoryProjectorTests {
             isUntracked: false,
             isRename: true
         )
+    }
+
+    private func assertAmbiguousScopedStatusFallsBackExactlyOnce(
+        ambiguousEntry: GitWorkingTreeStatusEntry,
+        rootLabel: String
+    ) async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let recorder = PathspecRecorder()
+        let traceRecorder = GitProjectorTraceRecorderSpy()
+        let provider = StubGitWorkingTreeStatusProvider(pathspecAwareResultHandler: { _, pathspecs in
+            await recorder.record(pathspecs)
+            let callNumber = await recorder.callCount
+            if pathspecs == nil {
+                if callNumber == 1 {
+                    return .available(
+                        GitWorkingTreeStatus(
+                            summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                            branch: "warm-cache",
+                            originResolution: .confirmedAbsent,
+                            entries: [Self.modifiedEntry("cached.txt")]
+                        )
+                    )
+                }
+                return .available(
+                    GitWorkingTreeStatus(
+                        summary: GitWorkingTreeSummary(changed: 2, staged: 0, untracked: 0),
+                        branch: "full-fallback",
+                        originResolution: .confirmedAbsent,
+                        entries: [Self.modifiedEntry("cached.txt"), Self.modifiedEntry("fallback.txt")]
+                    )
+                )
+            }
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 99, staged: 0, untracked: 1),
+                    branch: "rejected-scoped",
+                    originResolution: .confirmedAbsent,
+                    entries: [ambiguousEntry],
+                    containsPathIdentityAmbiguity: true
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            performanceTraceRecorder: traceRecorder
+        )
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/ambiguous-\(rootLabel)-\(UUID().uuidString)")
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.branch == "warm-cache" })
+
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 2,
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                batchSeq: 1,
+                paths: [ambiguousEntry.path]
+            )
+        )
+        #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.branch == "full-fallback" })
+
+        let calls = await recorder.calls
+        #expect(calls.count == 3)
+        #expect(calls[1] == [ambiguousEntry.path])
+        #expect(calls[2] == .some(nil))
+        #expect(await observed.snapshotCount(for: worktreeId) == 2)
+        #expect(await observed.latestSnapshot(for: worktreeId)?.summary.changed == 2)
+        let statusAttributes = try #require(
+            traceRecorder.recordedAttributes(for: .gitStatusComputed).last
+        )
+        #expect(statusAttributes["agentstudio.performance.git.status_scope"] == .string("full"))
+        #expect(statusAttributes["agentstudio.performance.git.pathspec.count"] == .int(0))
+
+        await actor.shutdown()
+        collectionTask.cancel()
     }
 
     private func startCollection(
