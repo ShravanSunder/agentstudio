@@ -192,6 +192,7 @@ export function enqueueBridgeWorkerReviewContentReadyPreparation(
 					publication = createBridgeWorkerReviewContentReadyPublication({
 						...dispatchProps,
 						bridgeDemandRank: currentBridgeDemandRank,
+						currentBridgeDemandRank: () => currentBridgeDemandRank,
 						budget: currentBudget,
 						fetchResult,
 					});

@@ -53,6 +53,7 @@ export interface DispatchSelectedBridgeWorkerReviewContentReadyProps {
 }
 
 export interface DispatchBridgeWorkerReviewContentReadyProps extends DispatchSelectedBridgeWorkerReviewContentReadyProps {
+	readonly currentBridgeDemandRank?: () => BridgeWorkerDemandRank;
 	readonly demandKey: string;
 	readonly isDemandCurrent?: () => boolean;
 	readonly recordSelectedContentDrops?: boolean;
@@ -215,6 +216,9 @@ export function createBridgeWorkerReviewContentReadyPublication(
 					}
 					renderJobPreparation = createBridgeWorkerReviewContentRenderJobPreparation({
 						bridgeDemandRank: props.bridgeDemandRank,
+						...(props.currentBridgeDemandRank === undefined
+							? {}
+							: { currentBridgeDemandRank: props.currentBridgeDemandRank }),
 						budget: props.budget,
 						resources: props.fetchResult.resources,
 						semantics: props.fetchResult.semantics,
