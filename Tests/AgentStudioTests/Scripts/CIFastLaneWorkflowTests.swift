@@ -13,6 +13,7 @@ struct CIFastLaneWorkflowTests {
         let swiftTestTaskScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
         let testHelperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let fastLaneStep = try workflowStep(named: "Test fast lane", in: ciWorkflow)
+        let webKitLaneStep = try workflowStep(named: "Test WebKit lane", in: ciWorkflow)
         let largeLaneStep = try workflowStep(
             named: "Test large non-WebKit lane",
             in: benchmarkWorkflow
@@ -42,6 +43,8 @@ struct CIFastLaneWorkflowTests {
         #expect(fastLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(!fastLaneStep.contains("XCB_EXTRA_ARGS"))
         #expect(fastLaneStep.contains("run: mise run test-fast"))
+        #expect(webKitLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
+        #expect(webKitLaneStep.contains("run: mise run test-webkit"))
         #expect(!largeLaneStep.contains("SWIFT_TEST_WORKERS"))
         #expect(!largeLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD"))
         #expect(largeLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
