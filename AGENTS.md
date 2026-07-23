@@ -8,7 +8,7 @@ macOS terminal application embedding Ghostty terminal emulator with project/work
 Build orchestration uses [mise](https://mise.jdx.dev/). Install with `brew install mise`.
 
 ```bash
-mise run setup                # Init submodules, build vendored artifacts, copy resources
+mise run setup                # Prepare or reuse vendored build inputs for this worktree
 mise run build                # Build the Swift app
 mise run test                 # Run tests (Swift 6 `Testing`)
 mise run format               # Auto-format all Swift sources
@@ -18,7 +18,9 @@ mise run lint                 # Lint (swift-format + SwiftLint + AgentStudio arc
 
 First-time setup: `mise install && mise run doctor-mac && mise run setup && mise run build`. See [Agent Resources](docs/guides/agent_resources.md) for full bootstrap.
 
-> **Time-based note (2026-04): Xcode 26.4+ breaks vendored zig 0.15.2 builds.** Apple's Xcode 26.4 `MacOSX.sdk/usr/lib/libSystem.B.tbd` drops `arm64-macos` from top-level targets → zig 0.15.2's linker fails with `undefined symbol: _abort`, `_getenv`, etc. on Apple Silicon when building ghostty/zmx. Xcode 26.5 beta is also affected. Fixed in zig 0.16 (which ghostty hasn't adopted). Workaround: install **Xcode 26.3** side-by-side, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain`, `rm -rf ~/.cache/zig`. If `mise run setup` surfaces `undefined symbol: _abort` or similar libSystem errors, this is the cause. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Delete this note once ghostty bumps to zig 0.16 or Apple fixes the SDK.
+Agents must use plain `mise run setup` by default. It builds vendors in the primary worktree and reuses those prepared inputs from linked worktrees. Do not hydrate submodules or invoke low-level vendor tasks directly. Use `mise run setup --use-local-vendors` only when the user explicitly requests Ghostty/zmx vendor work or the accepted task requires changing one of those vendors; an ordinary setup failure does not authorize the flag.
+
+> **Time-based note (2026-04): Xcode 26.4+ breaks vendored zig 0.15.2 builds.** Apple's Xcode 26.4 `MacOSX.sdk/usr/lib/libSystem.B.tbd` drops `arm64-macos` from top-level targets → zig 0.15.2's linker fails with `undefined symbol: _abort`, `_getenv`, etc. on Apple Silicon when building ghostty/zmx. Xcode 26.5 beta is also affected. Fixed in zig 0.16 (which ghostty hasn't adopted). Workaround for a primary or explicitly authorized local-vendor worktree: install **Xcode 26.3** side-by-side, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain`, `rm -rf ~/.cache/zig`. If vendor-producing setup surfaces `undefined symbol: _abort` or similar libSystem errors, this is the cause. Shared linked worktrees do not build the vendors. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Delete this note once ghostty bumps to zig 0.16 or Apple fixes the SDK.
 
 Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and SwiftLint automatically after every Edit/Write on `.swift` files.
 
@@ -677,8 +679,8 @@ agent-studio/
 │   └── Infrastructure/               # Domain-agnostic utilities
 ├── docs/architecture/                # Authoritative design docs (see table above)
 ├── docs/plans/                       # Date-prefixed implementation plans
-├── vendor/ghostty/                   # Git submodule: Ghostty source
-└── vendor/zmx/                       # Git submodule: zmx session multiplexer
+├── vendor/ghostty/                   # Ghostty gitlink; normally unhydrated in linked worktrees
+└── vendor/zmx/                       # zmx gitlink; normally unhydrated in linked worktrees
 ```
 
 **Import rule:** `App/ → Core/, Features/, Infrastructure/, SharedComponents/` | `Features/ → Core/, Infrastructure/, SharedComponents/` | `Core/ → Infrastructure/` | `SharedComponents/ → Infrastructure/` | Never `Core/ → Features/`, `Features/X → Features/Y`, `SharedComponents/ → Core|Features|App`

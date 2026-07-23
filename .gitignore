@@ -42,6 +42,7 @@ Sources/AgentStudio/Resources/BridgeWeb/app/
 vendor/ghostty/.zig-cache/
 vendor/ghostty/macos/build/
 vendor/ghostty/zig-out/
+vendor/zmx/zig-out
 vendor/ghostty/vendor/
 vendor/ghostty/.git/
 

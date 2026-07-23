@@ -388,6 +388,7 @@ AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$ARTIFACT_ROOT/preflight.env" \
 source "$PROJECT_ROOT/scripts/swift-build-slot.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "building debug AgentStudio once for launch comparison: $BUILD_PATH"
+bash "$PROJECT_ROOT/scripts/vendor-worktree.sh" verify
 swift build --build-path "$BUILD_PATH"
 
 for index in $(seq 1 "$SAMPLE_COUNT"); do

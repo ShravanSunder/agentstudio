@@ -4,6 +4,8 @@ set -euo pipefail
 mode="${1:-test}"
 shift || true
 
+bash "${PROJECT_ROOT}/scripts/vendor-worktree.sh" verify
+
 case "$mode" in
   test|test-fast|test-large|test-prebuild|test-webkit)
     ;;

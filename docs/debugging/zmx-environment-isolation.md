@@ -399,6 +399,10 @@ Has not yet been run (user wanted no code changes during last verification pass)
 WORKTREE="$HOME/Documents/dev/project-dev/agent-studio.fix-zmx-env-isolation"
 DEBUG_STATE="$WORKTREE/tmp/debug-observability/latest-observability.env"
 
+# Prepare the stable vendor paths. In a shared worktree this reuses the
+# compatible primary output without hydrating the local zmx submodule.
+mise run setup
+
 # Which zmx will debug AS pick?
 which zmx
 ls -la /Applications/AgentStudio.app/Contents/MacOS/zmx

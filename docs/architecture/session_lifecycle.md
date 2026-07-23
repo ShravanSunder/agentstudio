@@ -358,7 +358,7 @@ zmx is a ~1000 LOC Zig tool that provides raw byte passthrough with an internal 
 
 ### IPC Protocol
 
-zmx uses a binary protocol over Unix domain sockets. Each message is a packed header followed by a variable-length payload. For future direct-client work, re-verify these protocol details against the pinned `vendor/zmx` sources before implementation; see [zmx Backend IPC Design](../superpowers/specs/2026-06-13-zmx-backend-ipc-design.md).
+zmx uses a binary protocol over Unix domain sockets. Each message is a packed header followed by a variable-length payload. For future direct-client work, re-verify these protocol details against the pinned `vendor/zmx` sources in the primary worktree before implementation; a shared linked worktree may leave vendor source unhydrated. See [zmx Backend IPC Design](../superpowers/specs/2026-06-13-zmx-backend-ipc-design.md).
 
 **Header format (5 bytes):**
 

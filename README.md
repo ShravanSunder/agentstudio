@@ -127,7 +127,7 @@ Current platform references for docs and implementation work:
 ```bash
 mise run doctor-mac           # Check local macOS prerequisites and env hazards
 mise install                  # Install pinned tool versions
-mise run setup                # Init submodules, build vendored artifacts, copy resources
+mise run setup                # Prepare or reuse vendored build inputs
 mise run build                # Build the Swift app
 .build/debug/AgentStudio      # Launch
 ```
@@ -140,13 +140,23 @@ mise run format               # Auto-format Swift sources
 mise run lint                 # swift-format + swiftlint
 ```
 
-If `doctor-mac` reports compiler or linker env pollution from Homebrew LLVM, rerun setup/build from a scrubbed shell environment before assuming the repo build is broken locally.
+Plain `mise run setup` is the normal entry point. It builds Ghostty and zmx in
+the primary worktree and reuses those prepared inputs in linked worktrees.
+Developers intentionally changing Ghostty or zmx in a linked worktree can use
+`mise run setup --use-local-vendors` to hydrate and build private vendor inputs.
+
+If `doctor-mac` reports compiler or linker env pollution from Homebrew LLVM in
+a vendor-producing worktree, rerun setup/build from a scrubbed shell environment
+before assuming the repo build is broken locally.
 
 ### Clone
 
 ```bash
-git clone --recurse-submodules https://github.com/ShravanSunder/agentstudio.git
+git clone https://github.com/ShravanSunder/agentstudio.git agent-studio
 cd agent-studio
+mise install
+mise run doctor-mac
+mise run setup
 ```
 
 ### Project Structure
@@ -162,8 +172,8 @@ agent-studio/
 │   └── Resources/            # App assets, terminfo, shell integration resources
 ├── Frameworks/               # Generated: GhosttyKit.xcframework (not in git)
 ├── Tests/                    # Swift Testing suites plus bridge contract fixtures
-├── vendor/ghostty/           # Git submodule: Ghostty source
-├── vendor/zmx/               # Git submodule: zmx session multiplexer
+├── vendor/ghostty/           # Ghostty gitlink; normally unhydrated in linked worktrees
+├── vendor/zmx/               # zmx gitlink; normally unhydrated in linked worktrees
 ├── docs/                     # Architecture, guides, plans, specs
 └── Package.swift             # SPM manifest
 ```
@@ -179,4 +189,4 @@ Contributions welcome. Fork, branch, test, PR. By submitting a pull request you 
 ## Acknowledgments
 
 - [Ghostty](https://github.com/ghostty-org/ghostty) — terminal emulator
-- [zmx](vendor/zmx/) — session persistence for terminal processes
+- [zmx](https://github.com/neurosnap/zmx) — session persistence for terminal processes
