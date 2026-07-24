@@ -210,7 +210,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			const originalGetRenderedItems = firstCodeView.getRenderedItems.bind(firstCodeView);
 			firstCodeView.getRenderedItems = (): [] => [];
 			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
-			expect(dispositionKinds(dispositions)).toEqual(['queued']);
+			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied']);
 			const matchingRenderedItem = originalGetRenderedItems().find(
 				(renderedItem): boolean => renderedItem.item === firstFinalItem,
 			);
@@ -221,7 +221,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				{ ...matchingRenderedItem, element: document.createElement('div') },
 			];
 			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
-			expect(dispositionKinds(dispositions)).toEqual(['queued']);
+			expect(dispositionKinds(dispositions)).toEqual(['queued', 'applied']);
 			firstCodeView.getRenderedItems = originalGetRenderedItems;
 			// Only the exact final callback plus connected public readback advances fulfillment.
 			const renderedSourceLines = (): readonly Element[] =>

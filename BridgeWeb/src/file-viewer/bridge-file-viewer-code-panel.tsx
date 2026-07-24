@@ -92,12 +92,13 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	const handleCodeViewPostRender = useCallback<
 		NonNullable<CodeViewOptions<undefined>['onPostRender']>
 	>(
-		(_node, _instance, phase, context): void => {
+		(node, _instance, phase, context): void => {
 			observeBridgeCodeViewRenderFulfillment({
 				contextItem: context.item,
 				getCodeViewHandle: (): CodeViewHandle<undefined> | null => codeViewHandleRef.current,
 				itemId: context.item.id,
 				phase,
+				renderedElement: node,
 				renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
 				selectedCodeViewItem: props.selectedCodeViewItem,
 				visibleCodeViewItems: undefined,
