@@ -205,9 +205,7 @@ describe('Bridge comm worker Review logical-position ledger', () => {
 			),
 		];
 		const initialResult = ledger.reconcile(initialMembership);
-		const releasedAdmission = initialResult.active.find(
-			({ itemId }) => itemId === 'background-1',
-		);
+		const releasedAdmission = initialResult.active.find(({ itemId }) => itemId === 'background-1');
 		if (releasedAdmission === undefined) {
 			throw new Error('Expected the first background Review admission.');
 		}
