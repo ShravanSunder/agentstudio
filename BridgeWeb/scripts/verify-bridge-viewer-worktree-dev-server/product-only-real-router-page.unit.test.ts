@@ -10,6 +10,7 @@ import {
 	mountedHeaderOrderViolationForExpectedOrder,
 	nextFreshReviewTraversalScrollTop,
 } from './product-only-real-router-page.ts';
+import { previousFreshReviewTraversalScrollTop } from './product-only-real-router-review-hydration-window.ts';
 
 type PageEventName = 'request' | 'requestfailed' | 'requestfinished' | 'response';
 type PageEventHandler = (event: unknown) => void;
@@ -274,6 +275,7 @@ describe('nextFreshReviewTraversalScrollTop', () => {
 					hostBottomOffset: 6_000,
 					hostTopOffset: -250,
 					itemId: 'review-item-42',
+					paintIdentity: 'paint-42',
 				},
 			],
 		});
@@ -295,6 +297,36 @@ describe('nextFreshReviewTraversalScrollTop', () => {
 
 		// Assert
 		expect(nextScrollTop).toBe(5_500);
+	});
+});
+
+describe('previousFreshReviewTraversalScrollTop', () => {
+	test('skips the already-hydrated body while retaining viewport overlap at the previous header', () => {
+		// Arrange / Act
+		const previousScrollTop = previousFreshReviewTraversalScrollTop({
+			codeScroll: {
+				clientHeight: 1_000,
+				scrollTop: 10_000,
+			},
+			visibleItems: [{ hostTopOffset: -6_000 }],
+		});
+
+		// Assert
+		expect(previousScrollTop).toBe(3_900);
+	});
+
+	test('falls back to bounded viewport progress when no host geometry is available', () => {
+		// Arrange / Act
+		const previousScrollTop = previousFreshReviewTraversalScrollTop({
+			codeScroll: {
+				clientHeight: 1_000,
+				scrollTop: 5_000,
+			},
+			visibleItems: [],
+		});
+
+		// Assert
+		expect(previousScrollTop).toBe(4_200);
 	});
 });
 

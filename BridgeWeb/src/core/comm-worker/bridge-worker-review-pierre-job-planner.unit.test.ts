@@ -4,6 +4,7 @@ import type { BridgeWorkerReviewRenderSemantics } from './bridge-worker-contract
 import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
 import {
+	createBridgeWorkerReviewPierreRenderJobPlanningSession,
 	planBridgeWorkerReviewPierreRenderJob,
 	prepareBridgeWorkerReviewPierreRenderJobEvent,
 } from './bridge-worker-review-pierre-job-planner.js';
@@ -55,6 +56,7 @@ describe('Bridge worker review Pierre job planner', () => {
 			expect(job.payload.item.fileDiff.cacheKey).toContain(
 				'pierre-content:fixture-preview:sha256:item-1:head',
 			);
+			expect(job.payload.item.fileDiff.bridgeDemandRank).toBe(0);
 		}
 	});
 
@@ -497,7 +499,44 @@ describe('Bridge worker review Pierre job planner', () => {
 		if (job?.payload.kind === 'codeViewFileItem') {
 			expect(job.payloadByteLength).toBe(new TextEncoder().encode(fileText).byteLength);
 			expect(job.payload.item.file.contents).toBe(fileText);
+			expect(job.payload.item.file.bridgeDemandRank).toBe(1);
 			expect(job.payload.item.bridgeMetadata.contentRoles).toEqual(['file']);
+		}
+	});
+
+	test('materializes the Pierre carrier with the current demand role', () => {
+		let currentBridgeDemandRank: Parameters<
+			typeof createBridgeWorkerReviewPierreRenderJobPlanningSession
+		>[0]['bridgeDemandRank'] = { lane: 'visible', priority: 10 };
+		const planningSession = createBridgeWorkerReviewPierreRenderJobPlanningSession({
+			bridgeDemandRank: currentBridgeDemandRank,
+			currentBridgeDemandRank: () => currentBridgeDemandRank,
+			budget: {
+				className: 'visible',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 400,
+			},
+			resources: [
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:file',
+					lineCount: 1,
+					role: 'file',
+					text: 'plain file content',
+				}),
+			],
+			semantics: makeRenderSemantics({
+				contentLineCountsByRole: { file: 1 },
+				itemKind: 'file',
+			}),
+		});
+		while (planningSession.runNextStage().status === 'pending') {
+			currentBridgeDemandRank = { lane: 'selected', priority: 0 };
+		}
+		const result = planningSession.runNextStage();
+
+		expect(result.status).toBe('complete');
+		if (result.status === 'complete' && result.job?.payload.kind === 'codeViewFileItem') {
+			expect(result.job.payload.item.file.bridgeDemandRank).toBe(0);
 		}
 	});
 

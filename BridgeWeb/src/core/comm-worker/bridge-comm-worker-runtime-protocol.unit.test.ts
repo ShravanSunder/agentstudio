@@ -23,6 +23,7 @@ import {
 	makeWorkerReviewContentMetadata,
 	openReviewContentFromDescriptorMap,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
+import { drainBridgeWorkerVisibleDemandRuntimeUntil } from './bridge-comm-worker-runtime-protocol.visible-demand.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import type {
@@ -557,7 +558,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
-		scheduledDrains.length = 0;
+		scheduledDrains.splice(0, 1);
 		postedMessages.length = 0;
 
 		dispatch.message(
@@ -579,14 +580,14 @@ describe('Bridge comm worker runtime protocol', () => {
 		expect(scheduledDrains).toHaveLength(1);
 		clockMs += 1;
 
-		const firstDrainCompletion = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
-		await flushBridgeWorkerRuntimeContinuations();
-		expect(scheduledDrains).toHaveLength(2);
-		const secondDrainResult = await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
-		const firstDrainResult = await firstDrainCompletion;
-
-		expect(firstDrainResult.completedIds).toEqual([]);
-		expect(secondDrainResult.completedIds).toEqual(['review-content-ready:item-1:visible:105']);
+		await drainBridgeWorkerVisibleDemandRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.some(
+					(postedMessage) => postedMessage.message.kind === 'reviewPierreRenderJob',
+				),
+			scheduledDrains,
+			startIndex: 0,
+		});
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
@@ -603,7 +604,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		});
 		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 105,
+			publicationSequence: 104,
 			workerDerivationEpoch: 1,
 			patches: [
 				{
@@ -697,7 +698,9 @@ describe('Bridge comm worker runtime protocol', () => {
 		const firstDrainResult = await firstDrainCompletion;
 
 		expect(firstDrainResult.completedIds).toEqual(['review-source-reset:1']);
-		expect(secondDrainResult.completedIds).toEqual(['review-content-ready:item-1:visible:205']);
+		expect(secondDrainResult.completedIds).toEqual([
+			'review-content-ready:item-1:review-ledger:item-1:205',
+		]);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
@@ -768,6 +771,40 @@ describe('Bridge comm worker runtime protocol', () => {
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'ready-visible');
 		reviewProductSource.publishSource(
 			{
+				contentItems: [makeWorkerReviewContentMetadata({ itemId: 'item-1' })],
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({
+						itemId: 'item-1',
+						role: 'base',
+						text: 'ready base',
+					}),
+					makeContentRequestDescriptor({
+						itemId: 'item-1',
+						role: 'head',
+						text: 'ready head',
+					}),
+				],
+				renderSemantics: [makeRenderSemantics({ itemId: 'item-1' })],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			},
+			4,
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		await drainBridgeWorkerVisibleDemandRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.some(
+					(postedMessage) =>
+						postedMessage.message.kind === 'reviewPierreRenderJob' &&
+						postedMessage.message.job.itemId === 'item-1',
+				),
+			scheduledDrains,
+			startIndex: 0,
+		});
+		const coldDrainStartIndex = scheduledDrains.length;
+		postedMessages.length = 0;
+
+		reviewProductSource.publishSource(
+			{
 				contentItems: [
 					makeWorkerReviewContentMetadata({ itemId: 'item-1' }),
 					makeWorkerReviewContentMetadata({ itemId: 'item-2' }),
@@ -803,32 +840,9 @@ describe('Bridge comm worker runtime protocol', () => {
 					{ id: 'item-2', parentId: null, index: 1 },
 				],
 			},
-			4,
+			5,
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
-		await flushBridgeWorkerRuntimeContinuations();
-		scheduledDrains.length = 0;
-		postedMessages.length = 0;
-
-		dispatch.message(
-			encodeBridgeWorkerViewportCommand({
-				requestId: 'request-ready-visible',
-				epoch: 5,
-				surface: 'review',
-				visibleItemIds: ['item-1'],
-				firstVisibleIndex: 0,
-				lastVisibleIndex: 0,
-				phase: 'settled',
-			}),
-		);
-		clockMs += 1;
-		const readyFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
-		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
-		await readyFirstDrain;
-		expect(fetchCallsByItemId.get('item-1')).toBe(2);
-
 		dispatch.message(
 			encodeBridgeWorkerViewportCommand({
 				requestId: 'request-cold-visible',
@@ -840,19 +854,24 @@ describe('Bridge comm worker runtime protocol', () => {
 				phase: 'settled',
 			}),
 		);
-		expect(scheduledDrains).toHaveLength(3);
 		clockMs += 1;
-		const coldFirstDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[2])();
-		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[3])();
-		await coldFirstDrain;
+		await drainBridgeWorkerVisibleDemandRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.some(
+					(postedMessage) =>
+						postedMessage.message.kind === 'reviewPierreRenderJob' &&
+						postedMessage.message.job.itemId === 'item-2',
+				),
+			scheduledDrains,
+			startIndex: coldDrainStartIndex,
+		});
 
 		const pierreJobItemIds = postedMessages.flatMap((postedMessage) =>
 			postedMessage.message.kind === 'reviewPierreRenderJob'
 				? [postedMessage.message.job.itemId]
 				: [],
 		);
-		expect(pierreJobItemIds).toEqual(['item-1', 'item-2']);
+		expect(pierreJobItemIds).toEqual(['item-2']);
 		expect(fetchCallsByItemId.get('item-1')).toBe(2);
 		expect(fetchCallsByItemId.get('item-2')).toBe(2);
 	});

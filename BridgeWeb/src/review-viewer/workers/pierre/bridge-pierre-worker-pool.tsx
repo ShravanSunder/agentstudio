@@ -315,12 +315,18 @@ export function createBridgePierreWorkerHighlighterOptions(): WorkerInitializati
 }
 
 type BridgePierreDemandRankedFile = FileContents & {
-	readonly bridgeDemandRank?: number;
+	bridgeDemandRank?: number;
 };
 
+interface BridgePierreDemandRankedDiff {
+	bridgeDemandRank?: number;
+}
+
 interface BridgePierreWorkerPoolQueuedTask {
+	readonly highlightKey?: string;
 	readonly id?: number;
 	readonly request?: {
+		readonly diff?: BridgePierreDemandRankedDiff;
 		readonly file?: BridgePierreDemandRankedFile;
 	};
 }
@@ -330,7 +336,13 @@ const bridgePierreRankSchedulerInstalledManagers = new WeakSet<WorkerPoolManager
 export function bridgePierreDemandRankForWorkerTask(
 	task: BridgePierreWorkerPoolQueuedTask,
 ): number {
-	const demandRank = task.request?.file?.bridgeDemandRank;
+	return bridgePierreDemandRankForWorkerRequest(task.request);
+}
+
+function bridgePierreDemandRankForWorkerRequest(
+	request: BridgePierreWorkerPoolQueuedTask['request'],
+): number {
+	const demandRank = request?.file?.bridgeDemandRank ?? request?.diff?.bridgeDemandRank;
 	return typeof demandRank === 'number' && Number.isFinite(demandRank)
 		? demandRank
 		: bridgePierreUnrankedWorkerTaskRank;
@@ -360,6 +372,40 @@ export function installBridgePierreWorkerPoolRankScheduler(workerPool: WorkerPoo
 	if (typeof enqueueRenderTask !== 'function') {
 		return;
 	}
+	const highlightFileAST = Reflect.get(workerPool, 'highlightFileAST');
+	const getFileHighlightKey = Reflect.get(workerPool, 'getFileHighlightKey');
+	if (typeof highlightFileAST === 'function' && typeof getFileHighlightKey === 'function') {
+		Reflect.set(
+			workerPool,
+			'highlightFileAST',
+			(instance: unknown, file: BridgePierreDemandRankedFile): void =>
+				promoteBridgePierreQueuedTaskBeforeHighlight({
+					carrier: file,
+					getHighlightKey: getFileHighlightKey,
+					highlight: highlightFileAST,
+					instance,
+					request: { file },
+					workerPool,
+				}),
+		);
+	}
+	const highlightDiffAST = Reflect.get(workerPool, 'highlightDiffAST');
+	const getDiffHighlightKey = Reflect.get(workerPool, 'getDiffHighlightKey');
+	if (typeof highlightDiffAST === 'function' && typeof getDiffHighlightKey === 'function') {
+		Reflect.set(
+			workerPool,
+			'highlightDiffAST',
+			(instance: unknown, diff: BridgePierreDemandRankedDiff): void =>
+				promoteBridgePierreQueuedTaskBeforeHighlight({
+					carrier: diff,
+					getHighlightKey: getDiffHighlightKey,
+					highlight: highlightDiffAST,
+					instance,
+					request: { diff },
+					workerPool,
+				}),
+		);
+	}
 	Reflect.set(
 		workerPool,
 		'enqueueRenderTask',
@@ -372,6 +418,53 @@ export function installBridgePierreWorkerPoolRankScheduler(workerPool: WorkerPoo
 		},
 	);
 	bridgePierreRankSchedulerInstalledManagers.add(workerPool);
+}
+
+function promoteBridgePierreQueuedTaskBeforeHighlight(props: {
+	readonly carrier: BridgePierreDemandRankedDiff | BridgePierreDemandRankedFile;
+	readonly getHighlightKey: unknown;
+	readonly highlight: unknown;
+	readonly instance: unknown;
+	readonly request: NonNullable<BridgePierreWorkerPoolQueuedTask['request']>;
+	readonly workerPool: WorkerPoolManager;
+}): void {
+	if (typeof props.getHighlightKey !== 'function' || typeof props.highlight !== 'function') {
+		return;
+	}
+	const highlightKey = Reflect.apply(props.getHighlightKey, props.workerPool, [props.carrier]);
+	const queuedTasks = Reflect.get(props.workerPool, 'queuedTasks');
+	if (typeof highlightKey === 'string' && Array.isArray(queuedTasks)) {
+		promoteBridgePierreQueuedTaskForRequest({
+			highlightKey,
+			queuedTasks,
+			request: props.request,
+		});
+	}
+	Reflect.apply(props.highlight, props.workerPool, [props.instance, props.carrier]);
+	if (Array.isArray(queuedTasks)) {
+		sortBridgePierreWorkerPoolQueuedTasksForDemandRank(queuedTasks);
+	}
+}
+
+function promoteBridgePierreQueuedTaskForRequest(props: {
+	readonly highlightKey: string;
+	readonly queuedTasks: BridgePierreWorkerPoolQueuedTask[];
+	readonly request: BridgePierreWorkerPoolQueuedTask['request'];
+}): void {
+	const requestedDemandRank = bridgePierreDemandRankForWorkerRequest(props.request);
+	const queuedTask = props.queuedTasks.find(
+		(candidateTask): boolean => candidateTask.highlightKey === props.highlightKey,
+	);
+	if (
+		queuedTask === undefined ||
+		requestedDemandRank >= bridgePierreDemandRankForWorkerTask(queuedTask)
+	) {
+		return;
+	}
+	const rankedCarrier = queuedTask.request?.file ?? queuedTask.request?.diff;
+	if (rankedCarrier !== undefined) {
+		rankedCarrier.bridgeDemandRank = requestedDemandRank;
+	}
 }
 
 export function BridgePierreWorkerPoolProvider(

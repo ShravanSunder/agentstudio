@@ -148,6 +148,12 @@ depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test"
 
+[tasks.bridge-web-pr-check]
+description = "Run the complete local BridgeWeb PR gate"
+depends = ["bridge-web-install", "bridge-web-sync-fixtures"]
+dir = "BridgeWeb"
+run = "pnpm run check && pnpm run test"
+
 [tasks.bridge-web-unit-test]
 description = "Run BridgeWeb Vitest unit tests"
 depends = ["bridge-web-install"]

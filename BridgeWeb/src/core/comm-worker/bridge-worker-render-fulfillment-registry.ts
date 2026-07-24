@@ -67,6 +67,7 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 	readonly #context: BridgeWorkerRenderFulfillmentRegistryContext;
 	readonly #createIdentifier: (purpose: BridgeWorkerRenderFulfillmentIdentifierPurpose) => string;
 	readonly #fulfillmentByItemId = new Map<string, BridgeWorkerRenderFulfillmentState>();
+	readonly #sourceRevalidationItemIds = new Set<string>();
 	readonly #now: () => number;
 	readonly #receiptLeaseDurationMilliseconds: number;
 	readonly #retryBackoffMilliseconds: number;
@@ -99,6 +100,15 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 			if (existingState.stage === 'retry_wait') {
 				existingState = this.#releaseRetryIfReady(existingState, this.#now());
 			}
+			if (
+				existingState.stage === 'desired' &&
+				this.#sourceRevalidationItemIds.delete(props.job.itemId)
+			) {
+				existingState = reduceBridgeWorkerRenderFulfillment(existingState, {
+					kind: 'source.revalidationUnchanged',
+				});
+				this.#fulfillmentByItemId.set(props.job.itemId, existingState);
+			}
 			if (existingState.stage !== 'desired') {
 				return Object.freeze({
 					receiptIdentity: activeBridgeWorkerRenderReceiptIdentity(existingState),
@@ -108,6 +118,7 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 				});
 			}
 		}
+		this.#sourceRevalidationItemIds.delete(props.job.itemId);
 
 		const publicationState =
 			existingState === null ||
@@ -215,10 +226,12 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 					kind: 'source.revalidationRequested',
 				});
 				this.#fulfillmentByItemId.set(itemId, desiredState);
+				this.#sourceRevalidationItemIds.add(itemId);
 				requeuedItemIds.push(itemId);
 				continue;
 			}
 			if (currentState.activeAttempt === null) continue;
+			this.#sourceRevalidationItemIds.delete(itemId);
 			const retryState = reduceBridgeWorkerRenderFulfillment(currentState, {
 				...activeBridgeWorkerRenderReceiptIdentity(currentState),
 				disposition: 'superseded',
@@ -261,6 +274,7 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 
 	resetPublications(): void {
 		this.#fulfillmentByItemId.clear();
+		this.#sourceRevalidationItemIds.clear();
 	}
 
 	#releaseRetryIfReady(

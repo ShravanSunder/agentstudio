@@ -60,6 +60,7 @@ const bridgeWorkerPierreFileContentsSchema = z
 		lang: z.string().min(1).optional(),
 		header: z.string().optional(),
 		cacheKey: z.string().min(1).optional(),
+		bridgeDemandRank: z.number().finite().optional(),
 	})
 	.strict();
 
@@ -129,6 +130,7 @@ const bridgeWorkerPierreFileDiffMetadataSchema = z
 		deletionLines: z.array(z.string()).readonly(),
 		additionLines: z.array(z.string()).readonly(),
 		cacheKey: z.string().min(1).optional(),
+		bridgeDemandRank: z.number().finite().optional(),
 	})
 	.strict();
 

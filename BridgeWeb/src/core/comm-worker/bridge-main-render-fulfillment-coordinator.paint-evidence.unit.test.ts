@@ -63,9 +63,7 @@ describe('Bridge main render fulfillment coordinator paint evidence', () => {
 		]);
 		expect(renderedElementAttributes.size).toBe(0);
 
-		// Act: Pierre's next post-render event exposes readable content for the exact item.
-		readableContentMatchesItem = true;
-		harness.setNowMilliseconds(120);
+		// Act: a fresh shell reports the exact retained item before Pierre's body rows settle.
 		harness.coordinator.observePostRender({
 			...readback,
 			contextItem: publicationItem,
@@ -73,7 +71,19 @@ describe('Bridge main render fulfillment coordinator paint evidence', () => {
 			phase: 'update',
 		});
 
-		// Assert: later readable synchronization stamps retained lineage without another receipt.
+		// Assert: retained evidence gets one paint-boundary recheck, without another receipt.
+		expect(harness.animationFrames.activeFrameHandles()).toEqual([2]);
+		expect(harness.dispositions).toHaveLength(3);
+		harness.animationFrames.runActiveFrame(2);
+		expect(harness.animationFrames.activeFrameHandles()).toEqual([3]);
+
+		// Act: Pierre's body becomes readable before the next bounded paint check.
+		readableContentMatchesItem = true;
+		harness.setNowMilliseconds(120);
+		harness.animationFrames.runActiveFrame(3);
+		expect(harness.animationFrames.activeFrameHandles()).toEqual([]);
+
+		// Assert: the boundary stamps retained lineage without another disposition.
 		expect(harness.dispositions).toEqual([
 			expectedDisposition(publication, 'queued', 110),
 			expectedDisposition(publication, 'applied', 110),
@@ -230,7 +240,7 @@ describe('Bridge main render fulfillment coordinator paint evidence', () => {
 			expectedDisposition(publication, 'applied', 150),
 			expectedDisposition(publication, 'painted', 160),
 		]);
-		expect(harness.coordinator.isBoundFinalItem(publicationItem)).toBe(false);
+		expect(harness.coordinator.isBoundFinalItem(publicationItem)).toBe(true);
 		expect(harness.animationFrames.activeFrameHandles()).toEqual([]);
 
 		// Act: a stale browser callback after terminal cleanup cannot publish twice.

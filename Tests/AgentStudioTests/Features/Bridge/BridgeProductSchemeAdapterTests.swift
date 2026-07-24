@@ -265,6 +265,40 @@ struct BridgeProductSchemeAdapterTests {
         #expect(controlRequestCount == 1, "observed \(controlRequestCount) provider dispatches")
     }
 
+    @Test("pre-response cancellation terminates as cancellation instead of a clean finish")
+    func preResponseCancellationDoesNotFinishWithoutResponse() async throws {
+        // Arrange
+        let harness = try BridgeProductSchemeAdapterHarness.make(
+            holdFirstControlResponse: true
+        )
+        let routedReply = bridgeProductSchemeReplyWithRoutingTask(
+            adapter: harness.adapter,
+            request: bridgeProductSchemeRequest(
+                route: BridgeProductWireContract.commandRoute,
+                capability: harness.capabilityHeader,
+                body: bridgeProductSchemeWorkerOpenBody()
+            )
+        )
+        await harness.provider.waitUntilControlStarted(1)
+
+        // Act
+        harness.adapter.productAdmissionGate.close()
+        await harness.provider.releaseHeldControlResponse()
+        let terminatedWithCancellation: Bool
+        do {
+            for try await _ in routedReply.stream {}
+            terminatedWithCancellation = false
+        } catch is CancellationError {
+            terminatedWithCancellation = true
+        }
+        await routedReply.routingTask.value
+
+        // Assert
+        #expect(terminatedWithCancellation)
+        #expect((await harness.session.snapshot).pendingRequestKind == nil)
+        #expect((await harness.provider.snapshot).controlRequests.count == 1)
+    }
+
     @Test("cancellation after provider dispatch finishes and caches the exact response")
     func postDispatchCancellationCannotAbandonReplayState() async throws {
         // Arrange

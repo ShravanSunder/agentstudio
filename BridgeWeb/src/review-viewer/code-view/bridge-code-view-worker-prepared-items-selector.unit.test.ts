@@ -7,6 +7,31 @@ import { materializeBridgeCodeViewLoadingItem } from './bridge-code-view-materia
 import { createBridgeCodeViewMetadataDeltaItemsForPanelSelector } from './bridge-code-view-worker-prepared-items.js';
 
 describe('Bridge CodeView worker-prepared item selector', () => {
+	test('promotes selected demand rank without replacing the exact worker-prepared object', () => {
+		// Arrange
+		const fixture = makeSelectorFixture();
+		const selectedPayload =
+			fixture.selectedCodeViewItem.type === 'file'
+				? fixture.selectedCodeViewItem.file
+				: fixture.selectedCodeViewItem.fileDiff;
+		Object.assign(selectedPayload, { bridgeDemandRank: 1 });
+		const selector = createBridgeCodeViewMetadataDeltaItemsForPanelSelector();
+
+		// Act
+		const selectedItems = selectFixtureItems({ fixture, selector });
+
+		// Assert
+		const selectedItem = selectedItems.find(
+			(item): boolean => item.id === fixture.selectedCodeViewItem.id,
+		);
+		expect(selectedItem).toBe(fixture.selectedCodeViewItem);
+		expect(
+			selectedItem?.type === 'file'
+				? selectedItem.file.bridgeDemandRank
+				: selectedItem?.fileDiff.bridgeDemandRank,
+		).toBe(0);
+	});
+
 	test('retains the cached result for the exact same selected and visible worker objects', () => {
 		const fixture = makeSelectorFixture();
 		const selector = createBridgeCodeViewMetadataDeltaItemsForPanelSelector();

@@ -334,7 +334,7 @@ struct BridgePaneProductContentActivityAdmissionTests {
 
     @Test(
         "activity invalidation during Review body work suppresses late frames and leaves zero owned work",
-        arguments: ActivityReviewInvalidation.allCases
+        arguments: [ActivityReviewInvalidation.closed]
     )
     @MainActor
     func activityInvalidationDuringReviewBodySuppressesLateFrames(
@@ -386,6 +386,140 @@ struct BridgePaneProductContentActivityAdmissionTests {
         #expect(await context.reviewContentSource.activeBodyWorkCount == 0)
         #expect(invalidatedSnapshot.queuedFrameCount == 0)
         #expect(invalidatedSnapshot.activeProducerTaskCount == 0)
+        try await finishActivityContentContext(context)
+    }
+
+    @Test("registered Review response continues when its producer enters loaded-hidden")
+    @MainActor
+    func registeredReviewResponseContinuesWhenProducerEntersLoadedHidden() async throws {
+        // Arrange
+        let content = Data(repeating: 0x72, count: 23)
+        let reviewRequest = try activityReviewContentRequest(
+            content: content,
+            identifier: "activity-continue-hidden-review-before-producer-entry"
+        )
+        let request = BridgeProductContentRequest.reviewContent(reviewRequest)
+        let producerEntryGate = BridgeContentLoadGate()
+        let context = try await makeActivityContentContext(
+            request: request,
+            initialActivity: .foreground,
+            fileBytes: Data(),
+            producerEntryGate: producerEntryGate
+        )
+        await producerEntryGate.waitForStartedLoadCount(1)
+
+        // Act
+        context.activityCoordinator.applyActivity(.loadedHidden)
+        await producerEntryGate.releaseAll()
+        let decoder = try BridgeProductContentFrameDecoder()
+        let acceptedDelivery = try await requiredActivityContentFrame(context)
+        let acceptedFrame = try #require(try decoder.append(acceptedDelivery.frame.data).first)
+        #expect(
+            await context.harness.session.acknowledgeContentFrameObservation(
+                try activityContentFrameAcknowledgement(
+                    for: request.admission,
+                    contentSequence: acceptedDelivery.frame.sequence
+                ),
+                productAdmission: context.harness.productAdmission.context
+            )
+        )
+        let dataDelivery = try await requiredActivityContentFrame(context)
+        let dataFrame = try #require(try decoder.append(dataDelivery.frame.data).first)
+        #expect(
+            await context.harness.session.acknowledgeContentFrameObservation(
+                try activityContentFrameAcknowledgement(
+                    for: request.admission,
+                    contentSequence: dataDelivery.frame.sequence
+                ),
+                productAdmission: context.harness.productAdmission.context
+            )
+        )
+        let endDelivery = try await requiredActivityContentFrame(context)
+        let endFrame = try #require(try decoder.append(endDelivery.frame.data).first)
+        #expect(
+            await context.harness.session.acknowledgeContentFrameObservation(
+                try activityContentFrameAcknowledgement(
+                    for: request.admission,
+                    contentSequence: endDelivery.frame.sequence
+                ),
+                productAdmission: context.harness.productAdmission.context
+            )
+        )
+        await waitForActivityContentProducerToFinish(context)
+
+        // Assert
+        #expect(acceptedFrame.header.kind == "content.accepted")
+        #expect(dataFrame.header.kind == "content.data")
+        #expect(dataFrame.payload == content)
+        #expect(endFrame.header.kind == "content.end")
+        #expect(await context.reviewContentSource.contentBodyCallCount == 1)
+        #expect((await context.harness.session.producerSnapshot()).queuedFrameCount == 0)
+        try await finishActivityContentContext(context)
+    }
+
+    @Test("started Review response continues through loaded-hidden activity")
+    @MainActor
+    func startedReviewResponseContinuesWhileLoadedHidden() async throws {
+        // Arrange
+        let content = Data(repeating: 0x72, count: 23)
+        let reviewRequest = try activityReviewContentRequest(
+            content: content,
+            identifier: "activity-continue-hidden-review"
+        )
+        let request = BridgeProductContentRequest.reviewContent(reviewRequest)
+        let context = try await makeActivityContentContext(
+            request: request,
+            initialActivity: .foreground,
+            fileBytes: Data(),
+            suspendReviewBody: true
+        )
+        let decoder = try BridgeProductContentFrameDecoder()
+        let accepted = try await requiredActivityContentFrame(context)
+        #expect(try decoder.append(accepted.frame.data).first?.header.kind == "content.accepted")
+        #expect(
+            await context.harness.session.acknowledgeContentFrameObservation(
+                try activityContentFrameAcknowledgement(
+                    for: request.admission,
+                    contentSequence: accepted.frame.sequence
+                ),
+                productAdmission: context.harness.productAdmission.context
+            )
+        )
+        await context.reviewContentSource.waitUntilBodyWorkStarted()
+
+        // Act
+        context.activityCoordinator.applyActivity(.loadedHidden)
+        await context.reviewContentSource.releaseBodyWork()
+        let dataDelivery = try await requiredActivityContentFrame(context)
+        let dataFrame = try #require(try decoder.append(dataDelivery.frame.data).first)
+        #expect(
+            await context.harness.session.acknowledgeContentFrameObservation(
+                try activityContentFrameAcknowledgement(
+                    for: request.admission,
+                    contentSequence: dataDelivery.frame.sequence
+                ),
+                productAdmission: context.harness.productAdmission.context
+            )
+        )
+        let endDelivery = try await requiredActivityContentFrame(context)
+        let endFrame = try #require(try decoder.append(endDelivery.frame.data).first)
+        #expect(
+            await context.harness.session.acknowledgeContentFrameObservation(
+                try activityContentFrameAcknowledgement(
+                    for: request.admission,
+                    contentSequence: endDelivery.frame.sequence
+                ),
+                productAdmission: context.harness.productAdmission.context
+            )
+        )
+        await waitForActivityContentProducerToFinish(context)
+
+        // Assert
+        #expect(dataFrame.header.kind == "content.data")
+        #expect(dataFrame.payload == content)
+        #expect(endFrame.header.kind == "content.end")
+        #expect(await context.reviewContentSource.contentBodyCallCount == 1)
+        #expect((await context.harness.session.producerSnapshot()).queuedFrameCount == 0)
         try await finishActivityContentContext(context)
     }
 
@@ -443,17 +577,17 @@ private func makeActivityContentContext(
         }
     )
     let harness = try await BridgeProductSessionLifecycleHarness.opened()
+    let contentProducerOperation = provider.makeContentProducerOperation(
+        request: request,
+        productAdmission: harness.productAdmission.context,
+        session: harness.session
+    )
     let registration = await harness.session.registerContentProducer(
         request: request,
         productAdmission: harness.productAdmission.context
     ) { lease in
         await producerEntryGate?.waitUntilReleased()
-        await provider.runContentProducer(
-            request: request,
-            lease: lease,
-            productAdmission: harness.productAdmission.context,
-            session: harness.session
-        )
+        await contentProducerOperation(lease)
     }
     return ActivityContentContext(
         activityCoordinator: activityCoordinator,

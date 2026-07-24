@@ -591,13 +591,15 @@ actor BridgeProductSession {
         token: BridgeProductControlAdmissionToken
     ) async {
         guard let pendingControl, pendingControl.token == token else { return }
-        if controlReplay.snapshot.inFlightRequestSequence == token.requestSequence {
-            try? controlReplay.abandon(token: token)
+        do {
+            try controlReplay.abandon(token: token)
             if lifecycle != .revoked,
                 case .workerSessionOpen = pendingControl.request
             {
                 lifecycle = .awaitingOpen
             }
+        } catch {
+            // Another completion path already settled this exact admission.
         }
         await settlePendingControl(pendingControl)
     }

@@ -248,13 +248,14 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const handleCodeViewPostRender = useCallback<
 		NonNullable<CodeViewOptions<undefined>['onPostRender']>
 	>(
-		(_node, _instance, phase, context): void => {
+		(node, _instance, phase, context): void => {
 			const exactPresentationItem = isBridgeCodeViewItem(context.item) ? context.item : null;
 			observeBridgeCodeViewRenderFulfillment({
 				contextItem: context.item,
 				getCodeViewHandle: (): CodeViewHandle<undefined> | null => codeViewHandleRef.current,
 				itemId: context.item.id,
 				phase,
+				renderedElement: node,
 				renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
 				selectedCodeViewItem: exactPresentationItem,
 				visibleCodeViewItems: undefined,

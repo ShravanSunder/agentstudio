@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
-import { dispatchSelectedBridgeWorkerReviewContentReady } from './bridge-comm-worker-review-runtime.js';
+import {
+	dispatchSelectedBridgeWorkerReviewContentReady,
+	fetchSelectedBridgeWorkerReviewContentReadyResources,
+} from './bridge-comm-worker-review-runtime.js';
 import {
 	makeContentRequestDescriptor,
 	openReviewContentFromDescriptorMap,
@@ -303,6 +306,98 @@ describe('Bridge comm worker review runtime', () => {
 			transferList: [],
 		});
 	});
+
+	test('returns retry wait without terminalizing loading availability for a retryable fetch', async () => {
+		const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
+		const store = createSelectedReviewRuntimeStore();
+		store.actions.applySelectedFact({ epoch: 7, itemId: 'item-1' });
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
+
+		await dispatchSelectedBridgeWorkerReviewContentReady({
+			...makeDispatchProps({
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({ role: 'base', text: 'base content' }),
+					makeContentRequestDescriptor({ role: 'head', text: 'head content' }),
+				],
+				openContent: (descriptor) => makeFailedReviewContentStream(descriptor, true),
+				postedMessages,
+				renderSemantics: [makeRenderSemantics()],
+				store,
+			}),
+		});
+
+		expect(store.getState().availabilityByItemId.get('item-1')).toBe('loading');
+		expect(postedMessages).toEqual([]);
+	});
+
+	test('preserves typed transport terminals beside the scheduling disposition', async () => {
+		const cases = [
+			{
+				expected: {
+					outcomes: [
+						{
+							contentRequestId: expect.stringMatching(/^content-request-/u),
+							disposition: 'terminal',
+							terminal: { code: 'internal', kind: 'error', retryable: false },
+						},
+					],
+					status: 'terminal',
+				},
+				openContent: (descriptor: BridgeProductReviewContentDescriptor) =>
+					makeFailedReviewContentStream(descriptor, false),
+			},
+			{
+				expected: {
+					outcomes: [
+						{
+							contentRequestId: expect.stringMatching(/^content-request-/u),
+							disposition: 'retryWait',
+							terminal: { code: 'internal', kind: 'error', retryable: true },
+						},
+					],
+					status: 'retryWait',
+				},
+				openContent: (descriptor: BridgeProductReviewContentDescriptor) =>
+					makeFailedReviewContentStream(descriptor, true),
+			},
+			{
+				expected: {
+					outcomes: [
+						{
+							contentRequestId: expect.stringMatching(/^content-request-/u),
+							disposition: 'retryWait',
+							terminal: { kind: 'reset', reason: 'stale_source', retryable: true },
+						},
+					],
+					status: 'retryWait',
+				},
+				openContent: makeResetReviewContentStream,
+			},
+		] as const;
+
+		await Promise.all(
+			cases.map(async ({ expected, openContent }) => {
+				const postedMessages: PostedBridgeWorkerRuntimeMessage[] = [];
+				const store = createSelectedReviewRuntimeStore();
+				store.actions.applySelectedFact({ epoch: 7, itemId: 'item-1' });
+				store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
+
+				const result = await fetchSelectedBridgeWorkerReviewContentReadyResources({
+					...makeDispatchProps({
+						contentRequestDescriptors: [
+							makeContentRequestDescriptor({ role: 'head', text: 'head content' }),
+						],
+						openContent,
+						postedMessages,
+						renderSemantics: [makeRenderSemantics({ itemKind: 'file' })],
+						store,
+					}),
+				});
+
+				expect(result).toMatchObject(expected);
+			}),
+		);
+	});
 });
 
 interface RuntimeDescriptorSelectionCase {
@@ -452,6 +547,7 @@ function makeRenderSemantics(
 
 function makeFailedReviewContentStream(
 	descriptor: BridgeProductReviewContentDescriptor,
+	retryable = false,
 ): BridgeProductContentStream<'review.content'> {
 	return {
 		contentKind: 'review.content',
@@ -462,8 +558,25 @@ function makeFailedReviewContentStream(
 			contentKind: 'review.content',
 			descriptorId: descriptor.descriptorId,
 			kind: 'error',
-			retryable: true,
+			retryable,
 			safeMessage: 'simulated worker content stream failure',
+		}),
+	};
+}
+
+function makeResetReviewContentStream(
+	descriptor: BridgeProductReviewContentDescriptor,
+): BridgeProductContentStream<'review.content'> {
+	return {
+		contentKind: 'review.content',
+		contentRequestId: `content-request-${descriptor.descriptorId}`,
+		frames: emptyReviewContentFrames(),
+		terminal: Promise.resolve({
+			contentKind: 'review.content',
+			descriptorId: descriptor.descriptorId,
+			kind: 'reset',
+			reason: 'stale_source',
+			retryable: true,
 		}),
 	};
 }

@@ -255,6 +255,9 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		await act(async (): Promise<void> => {
 			await harness.renderResult.getByTestId('bridge-review-facet-menu-control').click();
 		});
+		await expect
+			.element(harness.renderResult.getByTestId('bridge-review-facet-popover'))
+			.toBeVisible();
 		const reviewFacetPopover = requireReviewHTMLElement(
 			document.querySelector('[data-testid="bridge-review-facet-popover"]'),
 		);

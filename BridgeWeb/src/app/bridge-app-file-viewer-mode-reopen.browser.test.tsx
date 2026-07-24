@@ -25,8 +25,14 @@ import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 const originalBridgeFileViewerModeResizeObserver = globalThis.ResizeObserver;
 
 describe('Bridge file viewer mode re-open on switch', () => {
-	beforeEach(() => {
+	beforeEach(async () => {
 		installBridgeFileViewerNoopResizeObserver();
+		await actUpdate(async (): Promise<void> => {
+			await Promise.all([
+				import('../file-viewer/bridge-file-viewer-shell.js'),
+				import('../review-viewer/shell/review-viewer-shell.js'),
+			]);
+		});
 	});
 
 	afterAll(() => {

@@ -89,6 +89,7 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 }> {
 	const worktreeRoot = await mkdtemp(join(tmpdir(), 'bridge-viewer-vite-product-e2e-'));
 	const largeFilePath = 'zz-large-complete-file.txt';
+	const reviewChangedFileCount = 100;
 	const firstMarker = 'BRIDGE_VITE_PRODUCT_FIRST_BYTE_MARKER';
 	const middleMarker = 'BRIDGE_VITE_PRODUCT_MIDDLE_BYTE_MARKER';
 	const finalMarker = 'BRIDGE_VITE_PRODUCT_FINAL_BYTE_MARKER';
@@ -103,7 +104,7 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 	);
 	const largeFileContent = `${largeFileLines.join('\n')}\n`;
 	const nestedPaths = Array.from(
-		{ length: 18 },
+		{ length: reviewChangedFileCount },
 		(_, fileIndex): string =>
 			`nested/group-${String(Math.floor(fileIndex / 6) + 1).padStart(2, '0')}/file-${String(fileIndex + 1).padStart(2, '0')}.ts`,
 	);

@@ -22,6 +22,7 @@ export interface ObserveBridgeCodeViewRenderFulfillmentProps {
 	readonly getCodeViewHandle: () => CodeViewHandle<undefined> | null;
 	readonly itemId: string;
 	readonly phase: PostRenderPhase;
+	readonly renderedElement?: HTMLElement;
 	readonly renderFulfillmentCoordinator: BridgeCodeViewRenderObservationCoordinator;
 	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null | undefined;
 	readonly visibleCodeViewItems: readonly BridgeMainCodeViewItem[] | undefined;
@@ -32,13 +33,21 @@ export function observeBridgeCodeViewRenderFulfillment(
 ): void {
 	const exactWorkerItem = exactWorkerItemForPostRender(props);
 	if (exactWorkerItem === undefined) return;
-	const readback = renderReadbackForExactWorkerItem({
-		exactWorkerItem,
-		getCodeViewHandle: props.getCodeViewHandle,
-		itemId: props.itemId,
-	});
+	const postRenderReadback =
+		props.renderedElement === undefined
+			? renderReadbackForExactWorkerItem({
+					exactWorkerItem,
+					getCodeViewHandle: props.getCodeViewHandle,
+					itemId: props.itemId,
+				})
+			: postRenderReadbackForExactWorkerItem({
+					exactWorkerItem,
+					getCodeViewHandle: props.getCodeViewHandle,
+					itemId: props.itemId,
+					renderedElement: props.renderedElement,
+				});
 	props.renderFulfillmentCoordinator.observePostRender({
-		...readback,
+		...postRenderReadback,
 		contextItem: exactWorkerItem,
 		itemId: props.itemId,
 		phase: props.phase,
@@ -46,7 +55,11 @@ export function observeBridgeCodeViewRenderFulfillment(
 	if (props.phase === 'unmount') return;
 	globalThis.queueMicrotask((): void => {
 		props.renderFulfillmentCoordinator.reconcilePublication({
-			...readback,
+			...renderReadbackForExactWorkerItem({
+				exactWorkerItem,
+				getCodeViewHandle: props.getCodeViewHandle,
+				itemId: props.itemId,
+			}),
 			itemId: props.itemId,
 		});
 	});
@@ -79,6 +92,32 @@ function exactWorkerItemForPostRender(
 	return props.visibleCodeViewItems?.find(
 		(item): boolean => item === props.contextItem && item.id === props.itemId,
 	);
+}
+
+function postRenderReadbackForExactWorkerItem(props: {
+	readonly exactWorkerItem: BridgeMainCodeViewItem;
+	readonly getCodeViewHandle: () => CodeViewHandle<undefined> | null;
+	readonly itemId: string;
+	readonly renderedElement: HTMLElement;
+}): BridgeMainRenderReadback {
+	return {
+		readCurrentItem: (): BridgeMainCodeViewItem | undefined => {
+			const codeViewHandle = props.getCodeViewHandle();
+			if (codeViewHandle === null || codeViewHandle.getInstance() === undefined) {
+				return props.exactWorkerItem;
+			}
+			const currentItem = codeViewHandle.getItem(props.itemId);
+			return currentItem === props.exactWorkerItem ? props.exactWorkerItem : undefined;
+		},
+		readRenderedItem: (): BridgeMainRenderedItemReadback => ({
+			element: props.renderedElement,
+			item: props.exactWorkerItem,
+			readableContentMatchesItem: bridgeCodeViewRenderedItemHasReadableContent({
+				element: props.renderedElement,
+				item: props.exactWorkerItem,
+			}),
+		}),
+	};
 }
 
 function renderReadbackForExactWorkerItem(props: {

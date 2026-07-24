@@ -1,5 +1,10 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
+import {
+	createBridgeBodyRegistry,
+	type BridgeBodyRegistry,
+} from '../demand/bridge-body-registry.js';
+import { bridgeContentDemandRetentionPolicy } from '../demand/bridge-content-demand-policy.js';
 import type { BridgeCommWorkerFileViewRuntimeMutation } from './bridge-comm-worker-file-metadata-projection.js';
 import {
 	applyBridgeCommWorkerFileViewSourceMutationFact,
@@ -24,6 +29,7 @@ import {
 	type BridgeWorkerSlicePatchEvent,
 } from './bridge-worker-contracts.js';
 import { BridgeWorkerRenderFulfillmentRegistry } from './bridge-worker-render-fulfillment-registry.js';
+import type { BridgeWorkerResidentReviewContentBody } from './bridge-worker-review-content-fetch.js';
 
 export interface BridgeCommWorkerRow {
 	readonly id: string;
@@ -167,6 +173,7 @@ export interface TakePendingBridgeCommWorkerSlicePatchEventProps {
 export interface BridgeCommWorkerStore {
 	readonly captureRollbackSnapshot: () => BridgeCommWorkerStoreRollbackSnapshot;
 	readonly getState: () => BridgeCommWorkerStoreState;
+	readonly reviewBodyRegistry: BridgeBodyRegistry<BridgeWorkerResidentReviewContentBody>;
 	readonly renderFulfillmentRegistry: BridgeWorkerRenderFulfillmentRegistry;
 	readonly restoreRollbackSnapshot: (snapshot: BridgeCommWorkerStoreRollbackSnapshot) => void;
 	readonly subscribe: StoreApi<BridgeCommWorkerStoreState>['subscribe'];
@@ -237,6 +244,9 @@ export function createBridgeCommWorkerStore(
 			state: cloneBridgeCommWorkerStoreState(store.getState()),
 		}),
 		getState: store.getState,
+		reviewBodyRegistry: createBridgeBodyRegistry({
+			maxBytes: bridgeContentDemandRetentionPolicy.reviewBodyRegistryMaxBytes,
+		}),
 		renderFulfillmentRegistry,
 		restoreRollbackSnapshot: (snapshot): void => {
 			store.setState(cloneBridgeCommWorkerStoreState(snapshot.state), true);

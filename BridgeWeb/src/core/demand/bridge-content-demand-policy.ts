@@ -2,14 +2,6 @@ import type { BridgeWorkerPierreRenderBudget } from '../comm-worker/bridge-worke
 import type { BridgeContentDemandRole } from '../models/bridge-demand-models.js';
 
 export const bridgeContentDemandExecutionPolicy = {
-	/** Protects Shiki/highlight worker start pressure; validated by per-lane queue-wait telemetry. */
-	immediateStartConcurrency: 6,
-	/** Protects executor starts for adjacent warming; validated by review_content_demand lane counts. */
-	nearbyStartConcurrency: 2,
-	/** Protects executor starts for hover/prediction work; validated by review_content_demand lane counts. */
-	speculativeStartConcurrency: 1,
-	/** Protects executor starts for package-prefix warming; validated by review_content_demand lane counts. */
-	backgroundStartConcurrency: 1,
 	/** Protects visible queue wait; coalescing is per reconciler pass, validated by visible queue-wait p95. */
 	dispatchDelayMilliseconds: 0,
 	/** Paces executor-stage delivery retries after fetch errors; validated by retry/backoff lifecycle tests. */
@@ -42,12 +34,10 @@ export const bridgeContentDemandMembershipPolicy = {
 } as const;
 
 export const bridgeContentDemandRetentionPolicy = {
+	/** Bounds one pane-local Review body registry independently from per-body admission. */
+	reviewBodyRegistryMaxBytes: 128 * 1024 * 1024,
 	/** Protects re-entry latency; validated by cache hit ratio on re-entry. */
 	reviewContentRegistryMaxEntries: 2048,
-	/** Protects startup IO and byte-cache pressure; validated by aborted background fetch count. */
-	backgroundPrefixMaxFileCount: 40,
-	/** Protects byte-cache pressure; validated by aborted background fetch count. */
-	backgroundPrefixMaxByteCacheFraction: 0.25,
 } as const;
 
 export const bridgeWorkerPierreRenderPolicy = {

@@ -123,6 +123,106 @@ describe('Bridge comm worker demand reconciler', () => {
 			selectedDemandEpoch: 12,
 		});
 	});
+
+	test('projects one highest role across all five Review demand roles', () => {
+		const orderedItemIds = [
+			'nearby-before-1',
+			'nearby-before-2',
+			'selected',
+			'visible',
+			'nearby-after-1',
+			'nearby-after-2',
+			'hovered',
+			'background',
+		];
+		const contentMetadataByItemId = new Map(
+			orderedItemIds.map((itemId) => {
+				const metadata = makeReviewContentMetadata(itemId);
+				return [metadata.itemId, metadata] as const;
+			}),
+		);
+
+		const membership = reconcileBridgeCommWorkerDemandMembership({
+			contentMetadataByItemId,
+			hoveredItemId: 'hovered',
+			orderedItemIds,
+			selectedDemandEpoch: 13,
+			selectedId: 'selected',
+			viewportDirection: 'unknown',
+			visibleIds: ['selected', 'visible'],
+		});
+
+		expect([...membership.membersByItemId.values()]).toEqual([
+			{ itemId: 'selected', role: 'selected', selectedDemandEpoch: 13 },
+			{ itemId: 'visible', role: 'visible' },
+			{ itemId: 'nearby-before-1', role: 'nearby' },
+			{ itemId: 'nearby-before-2', role: 'nearby' },
+			{ itemId: 'nearby-after-1', role: 'nearby' },
+			{ itemId: 'nearby-after-2', role: 'nearby' },
+			{ itemId: 'hovered', role: 'speculative' },
+			{ itemId: 'background', role: 'background' },
+		]);
+	});
+
+	test('visibility without eligible Review metadata never creates body demand', () => {
+		const reviewItem = makeReviewContentMetadata('review-item');
+
+		const membership = reconcileBridgeCommWorkerDemandMembership({
+			contentMetadataByItemId: new Map([[reviewItem.itemId, reviewItem]]),
+			orderedItemIds: [reviewItem.itemId],
+			selectedDemandEpoch: null,
+			selectedId: null,
+			viewportDirection: 'unknown',
+			visibleIds: ['tree-only-row'],
+		});
+
+		expect(membership.membersByItemId.has('tree-only-row')).toBe(false);
+		expect(membership.membersByItemId.get('review-item')).toEqual({
+			itemId: 'review-item',
+			role: 'background',
+		});
+	});
+
+	test.each([
+		{
+			direction: 'unknown' as const,
+			expectedNearbyIds: ['item-2', 'item-3', 'item-6', 'item-7'],
+		},
+		{
+			direction: 'forward' as const,
+			expectedNearbyIds: ['item-2', 'item-3', 'item-6', 'item-7', 'item-8', 'item-9'],
+		},
+		{
+			direction: 'backward' as const,
+			expectedNearbyIds: ['item-0', 'item-1', 'item-2', 'item-3', 'item-6', 'item-7'],
+		},
+	])(
+		'derives $direction nearby geometry from exact visible IDs and authoritative order',
+		({ direction, expectedNearbyIds }) => {
+			const orderedItemIds = Array.from({ length: 12 }, (_, index) => `item-${index}`);
+			const contentMetadataByItemId = new Map(
+				orderedItemIds.map((itemId) => {
+					const metadata = makeReviewContentMetadata(itemId);
+					return [metadata.itemId, metadata] as const;
+				}),
+			);
+
+			const membership = reconcileBridgeCommWorkerDemandMembership({
+				contentMetadataByItemId,
+				orderedItemIds,
+				selectedDemandEpoch: null,
+				selectedId: null,
+				viewportDirection: direction,
+				visibleIds: ['item-4', 'item-5'],
+			});
+
+			expect(
+				[...membership.membersByItemId.values()]
+					.filter(({ role }) => role === 'nearby')
+					.map(({ itemId }) => itemId),
+			).toEqual(expectedNearbyIds);
+		},
+	);
 });
 
 function makeReviewContentMetadata(

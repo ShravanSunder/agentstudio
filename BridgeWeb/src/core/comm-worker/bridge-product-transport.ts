@@ -21,6 +21,8 @@ import {
 } from './bridge-product-content-contracts.js';
 import {
 	BridgeProductContentResponseAdmission,
+	BridgeProductContentResponseStartAdmission,
+	bridgeProductMaximumConcurrentContentResponsesForRoute,
 	type BridgeProductContentResponseAdmissionLease,
 } from './bridge-product-content-response-admission.js';
 import { BridgeProductContentStreamDecoder } from './bridge-product-content-stream-decoder.js';
@@ -169,7 +171,9 @@ export function createBridgeProductTransport(
 
 class BridgeProductTransportSessionImpl implements BridgeProductTransportSession {
 	readonly #authority: BridgeProductSessionAuthority;
-	readonly #contentResponseAdmission = new BridgeProductContentResponseAdmission();
+	readonly #contentResponseAdmission = new BridgeProductContentResponseAdmission(
+		bridgeProductMaximumConcurrentContentResponsesForRoute(BRIDGE_PRODUCT_CONTENT_ROUTE),
+	);
 	readonly #controlMux: CreateBridgeProductTransportProps['controlMux'];
 	readonly #createIdentifier: (purpose: BridgeProductIdentifierPurpose) => string;
 	readonly #epochs: Record<BridgeProductSurface, number>;
@@ -605,11 +609,19 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			32,
 		);
 		const terminal = createBridgeProductDeferred<BridgeProductContentTerminal<TContentKind>>();
-		void this.#readContentResponse({ abortSignal, frames, request, terminal });
+		const responseStartAdmission = new BridgeProductContentResponseStartAdmission();
+		void this.#readContentResponse({
+			abortSignal,
+			frames,
+			request,
+			responseStartAdmission,
+			terminal,
+		});
 		return {
 			contentKind: request.contentKind,
 			contentRequestId: request.contentRequestId,
 			frames,
+			responseStartControl: responseStartAdmission.control,
 			terminal: terminal.promise,
 		};
 	}
@@ -618,6 +630,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		readonly abortSignal: AbortSignal;
 		readonly frames: BridgeProductBoundedAsyncQueue<BridgeProductContentFrameFor<TContentKind>>;
 		readonly request: BridgeProductContentRequestFor<TContentKind>;
+		readonly responseStartAdmission: BridgeProductContentResponseStartAdmission;
 		readonly terminal: BridgeProductDeferred<BridgeProductContentTerminal<TContentKind>>;
 	}): Promise<void> {
 		let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
@@ -630,7 +643,10 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			props.abortSignal.throwIfAborted();
 			await this.#authority.open;
 			props.abortSignal.throwIfAborted();
-			responseAdmissionLease = await this.#contentResponseAdmission.acquire(props.abortSignal);
+			responseAdmissionLease = await props.responseStartAdmission.acquire(
+				this.#contentResponseAdmission,
+				props.abortSignal,
+			);
 			props.abortSignal.throwIfAborted();
 			const response = await fetch(BRIDGE_PRODUCT_CONTENT_ROUTE, {
 				body: encodeBridgeProductRequestBody(props.request),

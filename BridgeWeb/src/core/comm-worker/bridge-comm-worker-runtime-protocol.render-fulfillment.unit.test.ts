@@ -372,7 +372,6 @@ async function createReviewRenderPublicationHarness(
 		...(scheduleRenderFulfillmentWake === undefined ? {} : { scheduleRenderFulfillmentWake }),
 	});
 	openReviewProductSources.add(reviewProductSource);
-	postedMessages.length = 0;
 	if (demand === 'selected') {
 		dispatch.message(
 			encodeBridgeWorkerSelectCommand({

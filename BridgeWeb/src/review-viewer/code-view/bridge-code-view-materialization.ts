@@ -40,12 +40,14 @@ export const bridgeCodeViewItemMetadataSchema = z.object({
 
 export type BridgeCodeViewItemMetadata = z.infer<typeof bridgeCodeViewItemMetadataSchema>;
 
-export type BridgeCodeViewFileItem = CodeViewFileItem & {
+export type BridgeCodeViewFileItem = Omit<CodeViewFileItem, 'file'> & {
 	readonly bridgeMetadata: BridgeCodeViewItemMetadata;
+	readonly file: CodeViewFileItem['file'] & { readonly bridgeDemandRank?: number };
 };
 
-export type BridgeCodeViewDiffItem = CodeViewDiffItem & {
+export type BridgeCodeViewDiffItem = Omit<CodeViewDiffItem, 'fileDiff'> & {
 	readonly bridgeMetadata: BridgeCodeViewItemMetadata;
+	readonly fileDiff: CodeViewDiffItem['fileDiff'] & { readonly bridgeDemandRank?: number };
 };
 
 export type BridgeCodeViewItem = BridgeCodeViewFileItem | BridgeCodeViewDiffItem;

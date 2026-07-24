@@ -1,3 +1,4 @@
+import { bridgeContentDemandRetentionPolicy } from '../core/demand/bridge-content-demand-policy.js';
 import type { BridgeContentHandle } from '../foundation/review-package/bridge-review-package.js';
 
 const bridgeReviewContentMaxBytesPerRole = 4 * 1024 * 1024;
@@ -20,7 +21,7 @@ export interface BridgeReviewContentByteBounds {
 export const bridgeReviewContentDemandByteBudget: BridgeReviewContentDemandByteBudget = {
 	maxContentBytesPerRole: bridgeReviewContentMaxBytesPerRole,
 	maxContentRolesPerItem: bridgeReviewContentMaxRolesPerItem,
-	bodyRegistryMaxBytes: bridgeReviewContentMaxBytesPerRole,
+	bodyRegistryMaxBytes: bridgeContentDemandRetentionPolicy.reviewBodyRegistryMaxBytes,
 	resourceExecutorMaxInFlightBytes:
 		bridgeReviewContentMaxBytesPerRole * bridgeReviewContentMaxRolesPerItem,
 	resourceExecutorMaxQueuedBytes:

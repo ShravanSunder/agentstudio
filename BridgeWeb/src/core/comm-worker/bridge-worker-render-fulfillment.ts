@@ -216,6 +216,7 @@ export interface BridgeWorkerRenderFulfillmentState extends BridgeWorkerRenderCo
 export type BridgeWorkerRenderFulfillmentEvent =
 	| { readonly kind: 'preparation.started' }
 	| { readonly kind: 'source.revalidationRequested' }
+	| { readonly kind: 'source.revalidationUnchanged' }
 	| {
 			readonly kind: 'publication.started';
 			readonly attemptId: string;
@@ -272,6 +273,8 @@ export function reduceBridgeWorkerRenderFulfillment(
 			return updateState(state, { stage: 'preparing' });
 		case 'source.revalidationRequested':
 			return requestSourceRevalidation(state);
+		case 'source.revalidationUnchanged':
+			return acceptUnchangedSourceRevalidation(state);
 		case 'publication.started':
 			return startPublication(state, event);
 		case 'render.disposition':
@@ -295,6 +298,19 @@ function requestSourceRevalidation(
 		isDesired: true,
 		retryAtMilliseconds: null,
 		stage: 'desired',
+	});
+}
+
+function acceptUnchangedSourceRevalidation(
+	state: BridgeWorkerRenderFulfillmentState,
+): BridgeWorkerRenderFulfillmentState {
+	assertStage(state, 'desired', 'source.revalidationUnchanged');
+	if (state.paintedResidency === null) {
+		throw new Error('Unchanged source revalidation requires painted residency.');
+	}
+	return updateState(state, {
+		isDesired: false,
+		stage: 'painted',
 	});
 }
 

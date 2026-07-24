@@ -31,7 +31,6 @@ import type {
 
 describe('Bridge comm worker Review product runtime', () => {
 	test('opens Review content when Review interaction epochs restart after File interaction', async () => {
-		// Arrange
 		const events = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'review.metadata'>
 		>(64);
@@ -66,7 +65,6 @@ describe('Bridge comm worker Review product runtime', () => {
 		await assertBridgeCommWorkerPreparationDrain(scheduledDrains.shift())();
 		await flushBridgeWorkerRuntimeContinuations();
 
-		// Act
 		dispatch.message(
 			encodeBridgeWorkerViewportCommand({
 				epoch: 20,
@@ -102,7 +100,6 @@ describe('Bridge comm worker Review product runtime', () => {
 		events.close(true);
 		await flushBridgeWorkerRuntimeContinuations();
 
-		// Assert
 		expect(openedContentKinds).toContain('review.content');
 		const reviewContentPublications = postedMessages
 			.map(({ message }) => message)
@@ -117,7 +114,6 @@ describe('Bridge comm worker Review product runtime', () => {
 	});
 
 	test('projects typed Review subscription snapshots into worker-owned source truth', async () => {
-		// Arrange
 		const events = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'review.metadata'>
 		>(64);
@@ -351,7 +347,7 @@ describe('Bridge comm worker Review product runtime', () => {
 		).toEqual([]);
 	});
 
-	test('retries interrupted selected and visible Review preparation exactly once', async () => {
+	test('pauses and resumes one selected-visible Review preparation without restarting transport', async () => {
 		// Arrange
 		const events = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'review.metadata'>
@@ -392,7 +388,7 @@ describe('Bridge comm worker Review product runtime', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		events.push(reviewSnapshotWithContentEvent);
 		await flushBridgeWorkerRuntimeContinuations();
-		await drainBridgeCommWorkerPreparationUntilIdle(scheduledDrains);
+		await startBridgeCommWorkerPreparationDrains(scheduledDrains);
 		dispatch.message(
 			encodeBridgeWorkerSelectCommand({
 				epoch: 1,
@@ -435,8 +431,7 @@ describe('Bridge comm worker Review product runtime', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
-		expect(attempts).toHaveLength(2);
-		expect(attempts.every(({ abortSignal }) => abortSignal.aborted)).toBe(true);
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 		expect(
 			postedMessages
 				.slice(messageCountBeforeSuppression)
@@ -446,20 +441,15 @@ describe('Bridge comm worker Review product runtime', () => {
 
 		// Act
 		requirePanePresentationSink(panePresentationSink)(makePanePresentationFrame(3, 'foreground'));
-		await drainUntilReviewAttemptCount({ attempts, expectedCount: 4, scheduledDrains });
+		await flushBridgeWorkerRuntimeContinuations();
 		requirePanePresentationSink(panePresentationSink)(makePanePresentationFrame(3, 'foreground'));
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
-		expect(attempts.map(({ descriptorId }) => descriptorId)).toEqual([
-			'review-descriptor-item-1-base',
-			'review-descriptor-item-1-head',
-			'review-descriptor-item-1-base',
-			'review-descriptor-item-1-head',
-		]);
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 	});
 
-	test('aborts active Review content when File becomes the accepted viewer surface', async () => {
+	test('pauses active Review content while File is accepted and resumes the same transport', async () => {
 		// Arrange
 		const events = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'review.metadata'>
@@ -492,7 +482,7 @@ describe('Bridge comm worker Review product runtime', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		events.push(reviewSnapshotWithContentEvent);
 		await flushBridgeWorkerRuntimeContinuations();
-		await drainBridgeCommWorkerPreparationUntilIdle(scheduledDrains);
+		await startBridgeCommWorkerPreparationDrains(scheduledDrains);
 		dispatch.message(
 			encodeBridgeWorkerActiveViewerModeUpdateCommand({
 				epoch: 1,
@@ -527,6 +517,7 @@ describe('Bridge comm worker Review product runtime', () => {
 			}),
 		);
 		await drainUntilReviewAttemptCount({ attempts, expectedCount: 2, scheduledDrains });
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 
 		// Act
 		dispatch.message(
@@ -545,8 +536,7 @@ describe('Bridge comm worker Review product runtime', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
-		expect(attempts).toHaveLength(2);
-		expect(attempts.every(({ abortSignal }) => abortSignal.aborted)).toBe(true);
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 
 		// Act
 		dispatch.message(
@@ -562,7 +552,7 @@ describe('Bridge comm worker Review product runtime', () => {
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 
-		expect(attempts).toHaveLength(2);
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 
 		dispatch.message(
 			encodeBridgeWorkerActiveViewerModeUpdateCommand({
@@ -577,9 +567,9 @@ describe('Bridge comm worker Review product runtime', () => {
 				},
 			}),
 		);
-		await drainUntilReviewAttemptCount({ attempts, expectedCount: 4, scheduledDrains });
+		await flushBridgeWorkerRuntimeContinuations();
 
-		expect(attempts.slice(2).every(({ abortSignal }) => !abortSignal.aborted)).toBe(true);
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 
 		dispatch.message(
 			encodeBridgeWorkerActiveViewerModeUpdateCommand({
@@ -609,11 +599,10 @@ describe('Bridge comm worker Review product runtime', () => {
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 
-		expect(attempts).toHaveLength(4);
-		expect(attempts.slice(2).every(({ abortSignal }) => !abortSignal.aborted)).toBe(true);
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 	});
 
-	test('opens a fresh Review stream when hidden and foreground frames arrive before abort continuations', async () => {
+	test('resumes the held Review stream when hidden and foreground frames arrive back-to-back', async () => {
 		// Arrange
 		const events = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'review.metadata'>
@@ -632,17 +621,12 @@ describe('Bridge comm worker Review product runtime', () => {
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-			openReviewContent: (descriptor, abortSignal) => {
-				if (attempts.length >= 2) {
-					attempts.push({ abortSignal, descriptorId: descriptor.descriptorId });
-					return makeImmediateReviewContentStream(descriptor, 'fresh foreground content\n');
-				}
-				return makePendingReviewContentStream({
+			openReviewContent: (descriptor, abortSignal) =>
+				makePendingReviewContentStream({
 					abortSignal,
 					attempts,
 					descriptorId: descriptor.descriptorId,
-				});
-			},
+				}),
 			productTransport: makeProductTransport({
 				onPanePresentationSink: (sink): void => {
 					panePresentationSink = sink;
@@ -659,7 +643,7 @@ describe('Bridge comm worker Review product runtime', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		events.push(reviewSnapshotWithContentEvent);
 		await flushBridgeWorkerRuntimeContinuations();
-		await drainBridgeCommWorkerPreparationUntilIdle(scheduledDrains);
+		await startBridgeCommWorkerPreparationDrains(scheduledDrains);
 		dispatch.message(
 			encodeBridgeWorkerSelectCommand({
 				epoch: 1,
@@ -686,18 +670,10 @@ describe('Bridge comm worker Review product runtime', () => {
 		// Act
 		requirePanePresentationSink(panePresentationSink)(makePanePresentationFrame(2, 'loadedHidden'));
 		requirePanePresentationSink(panePresentationSink)(makePanePresentationFrame(3, 'foreground'));
-		const immediatelyStartedDrainCompletions = scheduledDrains.splice(0).map((drain) => drain());
 		await flushBridgeWorkerRuntimeContinuations();
-		await drainBridgeCommWorkerPreparationUntilIdle(scheduledDrains);
-		await Promise.all(immediatelyStartedDrainCompletions);
 
 		// Assert
-		expect(attempts.map(({ descriptorId }) => descriptorId)).toEqual([
-			'review-descriptor-item-1-base',
-			'review-descriptor-item-1-head',
-			'review-descriptor-item-1-base',
-			'review-descriptor-item-1-head',
-		]);
+		expectOriginalReviewContentAttemptsRemainActive(attempts);
 		expect(
 			postedMessages
 				.slice(messageCountBeforeNativeCycle)
@@ -786,8 +762,9 @@ async function drainUntilReviewAttemptCount(props: {
 	readonly expectedCount: number;
 	readonly scheduledDrains: BridgeCommWorkerPreparationDrain[];
 }): Promise<void> {
-	if (props.attempts.length >= props.expectedCount || props.scheduledDrains.length === 0) {
-		expect(props.attempts).toHaveLength(props.expectedCount);
+	const activeAttempts = props.attempts.filter(({ abortSignal }) => !abortSignal.aborted);
+	if (activeAttempts.length >= props.expectedCount || props.scheduledDrains.length === 0) {
+		expect(activeAttempts).toHaveLength(props.expectedCount);
 		return;
 	}
 	const drain = props.scheduledDrains.shift();
@@ -795,6 +772,16 @@ async function drainUntilReviewAttemptCount(props: {
 	void drain();
 	await flushBridgeWorkerRuntimeContinuations();
 	await drainUntilReviewAttemptCount(props);
+}
+
+function expectOriginalReviewContentAttemptsRemainActive(
+	attempts: readonly PendingReviewContentAttempt[],
+): void {
+	expect(attempts.map(({ descriptorId }) => descriptorId)).toEqual([
+		'review-descriptor-item-1-base',
+		'review-descriptor-item-1-head',
+	]);
+	expect(attempts.every(({ abortSignal }) => !abortSignal.aborted)).toBe(true);
 }
 
 function requirePanePresentationSink(
@@ -995,4 +982,16 @@ async function drainBridgeCommWorkerPreparationUntilIdle(
 	expect(scheduledDrains).toEqual([]);
 	await Promise.all(drainCompletions);
 	await flushBridgeWorkerRuntimeContinuations();
+}
+
+async function startBridgeCommWorkerPreparationDrains(
+	scheduledDrains: BridgeCommWorkerPreparationDrain[],
+): Promise<void> {
+	for (let drainRound = 0; drainRound < 16; drainRound += 1) {
+		for (const drain of scheduledDrains.splice(0)) void drain();
+		// oxlint-disable-next-line no-await-in-loop -- Each bounded round exposes event-scheduled follow-up drains.
+		await flushBridgeWorkerRuntimeContinuations();
+		if (scheduledDrains.length === 0) return;
+	}
+	expect(scheduledDrains).toEqual([]);
 }

@@ -88,7 +88,7 @@ struct BridgeProductSchemeAdapter: Sendable {
             }
         } catch is CancellationError {
             bridgeProductSchemeAdapterLogger.debug("Product request routing cancelled")
-            continuation.finish()
+            continuation.finish(throwing: CancellationError())
         } catch {
             let failureReason = BridgeProductSchemeContainedFailureReason(error: error)
             bridgeProductSchemeAdapterLogger.error(
@@ -358,17 +358,16 @@ struct BridgeProductSchemeAdapter: Sendable {
             )
             return
         }
+        let operation = provider.makeContentProducerOperation(
+            request: contentRequest,
+            productAdmission: productAdmission,
+            session: session
+        )
         let registration = await session.registerContentProducer(
             request: contentRequest,
-            productAdmission: productAdmission
-        ) { lease in
-            await provider.runContentProducer(
-                request: contentRequest,
-                lease: lease,
-                productAdmission: productAdmission,
-                session: session
-            )
-        }
+            productAdmission: productAdmission,
+            operation: operation
+        )
         try await routeProducerRegistration(
             registration,
             responseURL: request.url,

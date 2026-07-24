@@ -6,18 +6,13 @@ import {
 } from './bridge-comm-worker-protocol.js';
 import type { BridgeCommWorkerPreparationDrain } from './bridge-comm-worker-runtime-protocol.js';
 import {
-	assertBridgeCommWorkerPreparationDrain,
 	createBridgeWorkerSequenceCounter,
-	createDeferredReviewContentStream,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 	makeContentRequestDescriptor,
-	makeImmediateReviewContentStream,
 	makeRenderSemantics,
 	makeWorkerReviewContentMetadata,
 	openReviewContentFromDescriptorMap,
-	reviewContentFixtureByDescriptorId,
-	type DeferredReviewContentStream,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import {
 	createTrackedBridgeWorkerReviewContentOpen,
@@ -29,7 +24,7 @@ import type { BridgeWorkerReviewPierreRenderJobEvent } from './bridge-worker-con
 import type { BridgeWorkerReviewContentOpen } from './bridge-worker-review-content-fetch.js';
 
 describe('Bridge comm worker runtime Review hover demand', () => {
-	test('warms only the current hovered item speculatively and does not refetch ready content', async () => {
+	test('finishes started hover work across hover replacement and does not refetch ready content', async () => {
 		// Arrange
 		const fixture = await createHoverRuntimeFixture({ itemIds: ['hover-a', 'hover-b'] });
 
@@ -71,46 +66,33 @@ describe('Bridge comm worker runtime Review hover demand', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
-		expect(fixture.trackedContentOpen.openedDescriptorIds).toHaveLength(2);
-		expect(openedDescriptorCountAfterWarm).toBe(2);
+		expect(fixture.trackedContentOpen.openedDescriptorIds).toHaveLength(4);
+		expect(openedDescriptorCountAfterWarm).toBe(4);
 		expect(
-			fixture.trackedContentOpen.openedDescriptorIds.every((descriptorId) =>
+			fixture.trackedContentOpen.openedDescriptorIds.filter((descriptorId) =>
+				descriptorId.includes('hover-a'),
+			),
+		).toHaveLength(2);
+		expect(
+			fixture.trackedContentOpen.openedDescriptorIds.filter((descriptorId) =>
 				descriptorId.includes('hover-b'),
 			),
-		).toBe(true);
+		).toHaveLength(2);
 		expect(reviewRenderJobs(fixture)).toEqual([
 			expect.objectContaining({
-				bridgeDemandRank: { lane: 'speculative', priority: 1 },
+				bridgeDemandRank: { lane: 'background', priority: 1 },
+				itemId: 'hover-a',
+			}),
+			expect.objectContaining({
+				bridgeDemandRank: { lane: 'background', priority: 1 },
 				itemId: 'hover-b',
 			}),
 		]);
 	});
 
-	test('rearms unchanged hover membership after higher-priority selected work completes', async () => {
-		// Arrange
-		const deferredHoverStreamsByDescriptorId = new Map<string, DeferredReviewContentStream>();
-		const abortedHoverSignals: AbortSignal[] = [];
-		const fixture = await createHoverRuntimeFixture({
-			itemIds: ['selected-a', 'hover-b'],
-			openReviewContent: (descriptor, abortSignal) => {
-				if (
-					descriptor.itemId === 'hover-b' &&
-					!deferredHoverStreamsByDescriptorId.has(descriptor.descriptorId)
-				) {
-					const deferredStream = createDeferredReviewContentStream(descriptor);
-					deferredHoverStreamsByDescriptorId.set(descriptor.descriptorId, deferredStream);
-					abortedHoverSignals.push(abortSignal);
-					return deferredStream.stream;
-				}
-				const contentFixture = reviewContentFixtureByDescriptorId.get(descriptor.descriptorId);
-				if (contentFixture === undefined) {
-					throw new Error(`Unexpected Review content descriptor ${descriptor.descriptorId}.`);
-				}
-				return makeImmediateReviewContentStream(descriptor, contentFixture.text);
-			},
-		});
+	test('does not refetch warmed hover content when selection changes independently', async () => {
+		const fixture = await createHoverRuntimeFixture({ itemIds: ['selected-a', 'hover-b'] });
 
-		// Act: start hover B, then select A while B's speculative fetch is suspended.
 		fixture.dispatch.message(
 			encodeBridgeWorkerHoverCommand({
 				epoch: 5,
@@ -119,12 +101,9 @@ describe('Bridge comm worker runtime Review hover demand', () => {
 				surface: 'review',
 			}),
 		);
-		const initialHoverDrain = assertBridgeCommWorkerPreparationDrain(
-			fixture.scheduledDrains.shift(),
-		);
-		const initialHoverDrainCompletion = initialHoverDrain();
-		await flushBridgeWorkerRuntimeContinuations();
-		expect(deferredHoverStreamsByDescriptorId.size).toBe(2);
+		await drainHoverRuntimeUntilQuiescent(fixture);
+		const openedDescriptorCountBeforeSelection =
+			fixture.trackedContentOpen.openedDescriptorIds.length;
 		fixture.dispatch.message(
 			encodeBridgeWorkerSelectCommand({
 				epoch: 6,
@@ -135,29 +114,15 @@ describe('Bridge comm worker runtime Review hover demand', () => {
 			}),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		for (const deferredStream of deferredHoverStreamsByDescriptorId.values()) {
-			deferredStream.resolve('cancelled stale hover body');
-		}
-		await initialHoverDrainCompletion;
-		await drainHoverRuntimeUntilQuiescent(fixture);
 
-		// Assert: selected publishes first, then unchanged hover B is re-derived speculatively.
-		expect(abortedHoverSignals).toHaveLength(2);
-		expect(abortedHoverSignals.every((signal) => signal.aborted)).toBe(true);
-		expect(reviewRenderJobs(fixture).map((job) => [job.itemId, job.bridgeDemandRank.lane])).toEqual(
-			[
-				['selected-a', 'selected'],
-				['hover-b', 'speculative'],
-			],
+		expect(fixture.trackedContentOpen.openedDescriptorIds).toHaveLength(
+			openedDescriptorCountBeforeSelection,
 		);
 		expect(
 			fixture.trackedContentOpen.openedDescriptorIds.filter((descriptorId) =>
 				descriptorId.includes('hover-b'),
 			),
-		).toHaveLength(4);
-		expect(fixture.pump.getPendingWorkIds()).toEqual([]);
-		expect(fixture.trackedContentOpen.pendingCompletions()).toEqual([]);
-		expect(fixture.scheduledDrains).toEqual([]);
+		).toHaveLength(2);
 	});
 
 	test('terminalizes a failed speculative fetch without an automatic retry loop', async () => {

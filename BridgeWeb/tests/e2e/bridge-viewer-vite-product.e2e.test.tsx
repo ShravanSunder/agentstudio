@@ -7,6 +7,11 @@ import {
 } from '../../scripts/verify-bridge-viewer-worktree-dev-server/product-only-real-router-contract.ts';
 import { runBridgeViewerProductOnlyJourney } from '../../scripts/verify-bridge-viewer-worktree-dev-server/product-only-real-router-page.ts';
 import {
+	revealReviewTreeFilePath,
+	reviewTreeReachablePathScrollTopMap,
+	waitForVisibleReviewTreeFilePath,
+} from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
+import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
 	type BridgeViewerOwnedViteProductServer,
@@ -102,6 +107,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 	test('correlates the disposable live-worktree journey through the product provider, worker, Pierre, and painted DOM', async () => {
 		const oracle = requireFixtureOracle();
 		const server = requireOwnedServer();
+		expect(oracle.changedPaths.length).toBeGreaterThanOrEqual(100);
 		expect(oracle.reviewFiles).toHaveLength(oracle.changedPaths.length);
 
 		const proof = await runBridgeViewerProductOnlyJourney({
@@ -131,7 +137,17 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			await collapseAndExpandReviewDirectory(page);
 
 			const reviewFiles = selectedReviewOracleFiles(oracle.reviewFiles);
+			const reviewTreeScrollTopByPath = await reviewTreeReachablePathScrollTopMap(page);
+			const paintedDescriptorIds = new Set<string>();
 			for (const reviewFile of reviewFiles) {
+				const scrollTopHint = reviewTreeScrollTopByPath.get(reviewFile.path);
+				if (scrollTopHint === undefined) {
+					throw new Error(`Review tree path is not reachable: ${reviewFile.path}`);
+				}
+				// oxlint-disable-next-line no-await-in-loop -- Each virtualized row must be revealed before its real click.
+				await revealReviewTreeFilePath({ page, path: reviewFile.path, scrollTopHint });
+				// oxlint-disable-next-line no-await-in-loop -- Visibility is the bounded event before the real click.
+				await waitForVisibleReviewTreeFilePath({ page, path: reviewFile.path });
 				// oxlint-disable-next-line no-await-in-loop -- Each selection must reach painted terminal state before the next real user interaction.
 				const selectionProof = await selectReviewFileAndReadProof({ page, reviewFile });
 				expectReviewBodyLinesPainted(selectionProof.bodyText, reviewFile.base.body);
@@ -156,11 +172,19 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 					);
 					expect(correlation?.sourceGeneration).toBeGreaterThan(0);
 					expect(correlation?.sourceIdentity).toMatch(/\S/u);
-					const request = contentRequests.find(
+					if (correlation !== undefined) paintedDescriptorIds.add(correlation.descriptorId);
+					const descriptorRequests = contentRequests.filter(
 						(candidate): boolean =>
-							candidate.contentRequestId === correlation?.requestId &&
 							candidate.descriptor['descriptorId'] === correlation?.descriptorId,
 					);
+					expect(descriptorRequests.length).toBeLessThanOrEqual(1);
+					const request = descriptorRequests.find(
+						(candidate): boolean => candidate.contentRequestId === correlation?.requestId,
+					);
+					if (correlation?.requestId === `resident-${correlation.descriptorId}`) {
+						expect(request).toBeUndefined();
+						continue;
+					}
 					expect(request).toEqual(
 						expect.objectContaining({
 							contentKind: 'review.content',
@@ -179,6 +203,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 					);
 				}
 			}
+			expect(paintedDescriptorIds.size).toBe(reviewFiles.length * 2);
 		} finally {
 			await page?.close();
 			await browser.close();
@@ -779,9 +804,20 @@ async function selectReviewFileAndReadProof(props: {
 				const marker =
 					host.querySelector('[data-bridge-code-view-item-id]') ??
 					host.shadowRoot?.querySelector('[data-bridge-code-view-item-id]');
+				const correlations: unknown = JSON.parse(
+					host.getAttribute('data-bridge-painted-source-correlations') ?? '[]',
+				);
 				if (
 					marker?.getAttribute('data-bridge-code-view-item-id') === itemId &&
-					host.hasAttribute('data-bridge-painted-source-correlations')
+					Array.isArray(correlations) &&
+					correlations.length === 2 &&
+					correlations.every(
+						(correlation): boolean =>
+							typeof correlation === 'object' &&
+							correlation !== null &&
+							'semanticItemId' in correlation &&
+							correlation.semanticItemId === itemId,
+					)
 				) {
 					return true;
 				}
