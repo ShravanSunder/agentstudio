@@ -179,14 +179,25 @@ struct BridgeProductAdmissionIntegrationTests {
             body: harness.workerOpenBody
         )
         let replyTask = Task {
-            await bridgeProductAdmissionReply(handler: harness.handler, request: request)
+            do {
+                _ = try await bridgeProductAdmissionCollectReply(
+                    handler: harness.handler,
+                    request: request
+                )
+                return false
+            } catch is CancellationError {
+                return true
+            } catch {
+                Issue.record("Unexpected pre-response cancellation error: \(error)")
+                return false
+            }
         }
         await harness.provider.waitUntilControlStarted(1)
 
         // Act
         harness.owner.productAdmissionGate.close()
         await harness.provider.releaseHeldControlResponse()
-        let reply = await replyTask.value
+        let cancellationObserved = await replyTask.value
         let sessionSnapshot = await harness.installation.session.snapshot
         let providerSnapshot = await harness.provider.snapshot
         let routerSnapshot = await bridgeProductAdmissionDrainedRouterSnapshot(harness.router)
@@ -194,9 +205,7 @@ struct BridgeProductAdmissionIntegrationTests {
         _ = await harness.owner.retire(reason: .paneDisposal)
 
         // Assert
-        #expect(reply?.response == nil)
-        #expect(reply?.body.isEmpty == true)
-        #expect(reply?.events.isEmpty == true)
+        #expect(cancellationObserved)
         #expect(providerSnapshot.controlRequests.count == 1)
         #expect(providerSnapshot.controlCompletionCount == 1)
         #expect(sessionSnapshot.pendingRequestKind == nil)
