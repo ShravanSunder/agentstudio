@@ -1,5 +1,6 @@
 import { parseDiffFromFile, type FileContents } from '@pierre/diffs';
 
+import { demandRankForContentRole } from '../demand/bridge-content-demand-policy.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	type BridgeWorkerReviewPierreRenderJobEvent,
@@ -27,6 +28,7 @@ import {
 
 export interface PlanBridgeWorkerReviewPierreRenderJobProps {
 	readonly bridgeDemandRank: BridgeWorkerDemandRank;
+	readonly currentBridgeDemandRank?: () => BridgeWorkerDemandRank;
 	readonly budget: BridgeWorkerPierreRenderBudget;
 	readonly resources: readonly BridgeWorkerFetchedReviewContentResource[];
 	readonly semantics: BridgeWorkerReviewRenderSemantics;
@@ -166,11 +168,12 @@ export function createBridgeWorkerReviewPierreRenderJobPlanningSession(
 						};
 					} else {
 						const filePlan = requireBridgeWorkerReviewFilePlan(selectedPlan);
+						const preparedFile = requireBridgeWorkerReviewPlanningValue(file, 'file FileContents');
 						payload = {
 							kind: 'codeViewFileItem',
 							item: createBridgeWorkerCodeViewFileItem({
 								contentCacheKey: filePlan.contentCacheKey,
-								file: requireBridgeWorkerReviewPlanningValue(file, 'file FileContents'),
+								file: preparedFile,
 								resource: filePlan.resource,
 								semantics: props.semantics,
 								window: filePlan.window,
@@ -180,22 +183,41 @@ export function createBridgeWorkerReviewPierreRenderJobPlanningSession(
 					planningStage = 'buildJob';
 					return { status: 'pending' };
 				}
-				case 'buildJob':
+				case 'buildJob': {
+					const bridgeDemandRank = props.currentBridgeDemandRank?.() ?? props.bridgeDemandRank;
+					const rankedPayload = bridgeWorkerReviewPayloadWithDemandRank({
+						bridgeDemandRank,
+						payload: requireBridgeWorkerReviewPlanningValue(payload, 'render payload'),
+					});
 					return {
 						job: buildBridgeWorkerReviewPierreRenderJob({
-							bridgeDemandRank: props.bridgeDemandRank,
+							bridgeDemandRank,
 							budget: props.budget,
-							payload: requireBridgeWorkerReviewPlanningValue(payload, 'render payload'),
+							payload: rankedPayload,
 							selectedPlan: requireBridgeWorkerReviewPlanningValue(selectedPlan, 'selected plan'),
 							semantics: props.semantics,
 						}),
 						status: 'complete',
 					};
+				}
 				default:
 					return assertNeverBridgeWorkerReviewPierreRenderJobPlanningStage(planningStage);
 			}
 		},
 	};
+}
+
+function bridgeWorkerReviewPayloadWithDemandRank(props: {
+	readonly bridgeDemandRank: BridgeWorkerDemandRank;
+	readonly payload: BridgeWorkerPierreRenderPayload;
+}): BridgeWorkerPierreRenderPayload {
+	const numericDemandRank = demandRankForContentRole(props.bridgeDemandRank.lane);
+	if (props.payload.kind === 'codeViewFileItem') {
+		Object.assign(props.payload.item.file, { bridgeDemandRank: numericDemandRank });
+	} else {
+		Object.assign(props.payload.item.fileDiff, { bridgeDemandRank: numericDemandRank });
+	}
+	return props.payload;
 }
 
 function assertNeverBridgeWorkerReviewPierreRenderJobPlanningStage(planningStage: never): never {

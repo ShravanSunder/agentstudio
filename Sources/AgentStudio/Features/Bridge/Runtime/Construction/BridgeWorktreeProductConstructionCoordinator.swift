@@ -579,18 +579,27 @@ actor BridgeWorktreeProductConstructionCoordinator {
         entryNonce: UInt64,
         result: Result<BridgeWorktreeProductConstructionArtifact, any Error>
     ) {
-        guard var entry = entriesByNonce[entryNonce] else {
-            if case .success(let artifact) = result {
-                artifact.invalidateBacking()
+        switch result {
+        case .failure(let error):
+            completeFailure(entryNonce: entryNonce, error: error)
+        case .success(let artifact):
+            switch artifact {
+            case .fileSnapshot(let snapshot):
+                completeFileSuccess(entryNonce: entryNonce, snapshot: snapshot)
+            case .reviewTemplate(let template):
+                completeReviewSuccess(entryNonce: entryNonce, template: template)
             }
-            return
         }
+    }
+
+    private func completeFailure(
+        entryNonce: UInt64,
+        error: any Error
+    ) {
+        guard var entry = entriesByNonce[entryNonce] else { return }
         entry.isInFlight = false
 
         guard case .building = entry.phase else {
-            if case .success(let artifact) = result {
-                artifact.invalidateBacking()
-            }
             emit(.staleCompletionDropped, entry: entry)
             removeEntry(entry)
             return
@@ -598,60 +607,15 @@ actor BridgeWorktreeProductConstructionCoordinator {
         guard currentEpoch(for: entry.identity.key.worktree) == entry.identity.epoch,
             currentEntryNonceByIdentity[entry.identity] == entryNonce
         else {
-            if case .success(let artifact) = result {
-                artifact.invalidateBacking()
-            }
             failWaiters(in: &entry, with: BridgeWorktreeProductConstructionError.invalidated)
             emit(.staleCompletionDropped, entry: entry)
             removeEntry(entry)
             return
         }
 
-        switch result {
-        case .failure(let error):
-            failWaiters(in: &entry, with: error)
-            emit(.buildFailed, entry: entry)
-            removeEntry(entry)
-        case .success(let artifact):
-            guard artifact.productKind == entry.identity.key.productKind else {
-                artifact.invalidateBacking()
-                failWaiters(in: &entry, with: BridgeWorktreeProductConstructionError.artifactKindMismatch)
-                emit(.buildFailed, entry: entry)
-                removeEntry(entry)
-                return
-            }
-            let waiters = Array(entry.waiters.values)
-            let activeWaiters = waiters.filter { !$0.cancellationState.isCancelled }
-            let cancelledWaiters = waiters.filter { $0.cancellationState.isCancelled }
-            entry.waiters.removeAll(keepingCapacity: false)
-            for waiter in waiters {
-                entryNonceByWaiterNonce.removeValue(forKey: waiter.leaseNonce)
-            }
-            for waiter in cancelledWaiters {
-                waiter.continuation.resume(throwing: CancellationError())
-                emit(.consumerCancelled, entry: entry, leaseNonce: waiter.leaseNonce)
-            }
-            for waiter in activeWaiters {
-                entry.activeLeaseNonces.insert(waiter.leaseNonce)
-            }
-            guard !entry.activeLeaseNonces.isEmpty else {
-                artifact.invalidateBacking()
-                removeEntry(entry)
-                return
-            }
-            entry.phase = .ready(artifact)
-            entriesByNonce[entryNonce] = entry
-            emit(.buildReady, entry: entry)
-            for waiter in activeWaiters {
-                waiter.continuation.resume(
-                    returning: makeLease(
-                        entry: entry,
-                        leaseNonce: waiter.leaseNonce,
-                        artifact: artifact
-                    )
-                )
-            }
-        }
+        failWaiters(in: &entry, with: error)
+        emit(.buildFailed, entry: entry)
+        removeEntry(entry)
     }
 
     private func cancelWaiter(leaseNonce: UInt64) {
@@ -845,6 +809,140 @@ actor BridgeWorktreeProductConstructionCoordinator {
                 snapshot: kind == .entryRemoved ? snapshot() : snapshot(replacing: entry)
             )
         )
+    }
+}
+
+extension BridgeWorktreeProductConstructionCoordinator {
+    fileprivate func completeFileSuccess(
+        entryNonce: UInt64,
+        snapshot: BridgeSharedFileSnapshotBuild
+    ) {
+        guard
+            var entry = takeSuccessfulCompletionEntry(
+                entryNonce: entryNonce,
+                expectedProductKind: .file,
+                discardedReviewBacking: nil
+            )
+        else { return }
+        let activeWaiters = activateCompletionWaiters(in: &entry)
+        guard !entry.activeLeaseNonces.isEmpty else {
+            removeEntry(entry)
+            return
+        }
+
+        entry.phase = .ready(.fileSnapshot(snapshot))
+        entriesByNonce[entryNonce] = entry
+        emit(.buildReady, entry: entry)
+        for waiter in activeWaiters {
+            waiter.continuation.resume(
+                returning: makeLease(
+                    entry: entry,
+                    leaseNonce: waiter.leaseNonce,
+                    artifact: .fileSnapshot(snapshot)
+                )
+            )
+        }
+    }
+
+    fileprivate func completeReviewSuccess(
+        entryNonce: UInt64,
+        template: BridgeSharedReviewPackageTemplate
+    ) {
+        guard
+            var entry = takeSuccessfulCompletionEntry(
+                entryNonce: entryNonce,
+                expectedProductKind: .review,
+                discardedReviewBacking: template.backing
+            )
+        else { return }
+        let activeWaiters = activateCompletionWaiters(in: &entry)
+        guard !entry.activeLeaseNonces.isEmpty else {
+            template.invalidateBacking()
+            removeEntry(entry)
+            return
+        }
+
+        entry.phase = .ready(.reviewTemplate(template))
+        entriesByNonce[entryNonce] = entry
+        emit(.buildReady, entry: entry)
+        for waiter in activeWaiters {
+            waiter.continuation.resume(
+                returning: makeLease(
+                    entry: entry,
+                    leaseNonce: waiter.leaseNonce,
+                    artifact: .reviewTemplate(template)
+                )
+            )
+        }
+    }
+
+    fileprivate func takeSuccessfulCompletionEntry(
+        entryNonce: UInt64,
+        expectedProductKind: BridgeWorktreeProductKind,
+        discardedReviewBacking: BridgeSharedReviewContentBacking?
+    ) -> BridgeConstructionEntry? {
+        guard var entry = entriesByNonce[entryNonce] else {
+            discardedReviewBacking?.invalidate()
+            return nil
+        }
+        entry.isInFlight = false
+
+        guard case .building = entry.phase else {
+            discardedReviewBacking?.invalidate()
+            emit(.staleCompletionDropped, entry: entry)
+            removeEntry(entry)
+            return nil
+        }
+
+        let identity = entry.identity
+        let worktree: BridgeWorktreeIdentityKey
+        let productKind: BridgeWorktreeProductKind
+        switch identity.key {
+        case .file(let key):
+            worktree = key.owner.worktree
+            productKind = .file
+        case .review(let key):
+            worktree = key.owner.worktree
+            productKind = .review
+        }
+        guard currentEpoch(for: worktree) == identity.epoch,
+            currentEntryNonceByIdentity[identity] == entryNonce
+        else {
+            discardedReviewBacking?.invalidate()
+            failWaiters(in: &entry, with: BridgeWorktreeProductConstructionError.invalidated)
+            emit(.staleCompletionDropped, entry: entry)
+            removeEntry(entry)
+            return nil
+        }
+        guard productKind == expectedProductKind else {
+            discardedReviewBacking?.invalidate()
+            failWaiters(in: &entry, with: BridgeWorktreeProductConstructionError.artifactKindMismatch)
+            emit(.buildFailed, entry: entry)
+            removeEntry(entry)
+            return nil
+        }
+
+        return entry
+    }
+
+    fileprivate func activateCompletionWaiters(
+        in entry: inout BridgeConstructionEntry
+    ) -> [BridgeConstructionWaiter] {
+        let waiters = Array(entry.waiters.values)
+        let activeWaiters = waiters.filter { !$0.cancellationState.isCancelled }
+        let cancelledWaiters = waiters.filter { $0.cancellationState.isCancelled }
+        entry.waiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            entryNonceByWaiterNonce.removeValue(forKey: waiter.leaseNonce)
+        }
+        for waiter in cancelledWaiters {
+            waiter.continuation.resume(throwing: CancellationError())
+            emit(.consumerCancelled, entry: entry, leaseNonce: waiter.leaseNonce)
+        }
+        for waiter in activeWaiters {
+            entry.activeLeaseNonces.insert(waiter.leaseNonce)
+        }
+        return activeWaiters
     }
 }
 

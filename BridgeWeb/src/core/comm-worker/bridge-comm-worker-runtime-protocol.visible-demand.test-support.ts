@@ -188,12 +188,15 @@ export async function registerBridgeRuntimeWithInitialReviewSource(
 	);
 	await flushBridgeWorkerRuntimeContinuations();
 	for (let drainRound = 0; drainRound < 16; drainRound += 1) {
-		const drainsForRound = initializationDrains.splice(0);
-		if (drainsForRound.length === 0) break;
+		for (const initializationDrain of initializationDrains.splice(0)) {
+			void initializationDrain();
+		}
 		// oxlint-disable-next-line no-await-in-loop -- Each bounded round exposes source-reset continuation drains.
-		await Promise.all(drainsForRound.map((drain) => drain()));
-		// oxlint-disable-next-line no-await-in-loop -- Continuations publish their next drain at a microtask boundary.
 		await flushBridgeWorkerRuntimeContinuations();
+		if (initializationDrains.length === 0) break;
+	}
+	if (initializationDrains.length > 0) {
+		throw new Error('Visible-demand source initialization exceeded its bounded drain rounds.');
 	}
 	isInitializingSource = false;
 	return reviewProductSource;

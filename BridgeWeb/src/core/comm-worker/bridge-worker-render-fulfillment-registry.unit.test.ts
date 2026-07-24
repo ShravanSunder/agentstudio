@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
 import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
-import type { BridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
+import type {
+	BridgeWorkerDemandRank,
+	BridgeWorkerPierreRenderJob,
+} from './bridge-worker-pierre-render-job.js';
 import {
 	BridgeWorkerRenderFulfillmentRegistry,
 	type BridgeWorkerRenderFulfillmentRegistryContext,
@@ -152,7 +155,7 @@ describe('Bridge worker render fulfillment registry', () => {
 		expect(replacement.receiptIdentity.attemptId).not.toBe(first.receiptIdentity.attemptId);
 	});
 
-	test('revalidates already-painted unchanged content across source churn without reminting publication identity', () => {
+	test('revalidates exact painted content across source churn without republication', () => {
 		// Arrange
 		const registry = createRegistry(reviewContext);
 		const first = registry.beginPublication({
@@ -168,7 +171,7 @@ describe('Bridge worker render fulfillment registry', () => {
 		const requeuedItemIds = registry.requeuePublicationsForSourceChurn(4);
 		const revalidationState = registry.getItemState('review-item-1');
 		const replacement = registry.beginPublication({
-			job: makeRenderJob('review-item-1'),
+			job: makeRenderJob('review-item-1', { lane: 'background', priority: 1 }),
 			publicationSequence: 9,
 			workerDerivationEpoch: 3,
 		});
@@ -180,9 +183,40 @@ describe('Bridge worker render fulfillment registry', () => {
 			paintedResidency: first.receiptIdentity,
 			stage: 'desired',
 		});
+		expect(replacement).toMatchObject({
+			receiptIdentity: first.receiptIdentity,
+			shouldPublish: false,
+			status: 'duplicate',
+		});
+		expect(registry.getItemState('review-item-1')).toMatchObject({
+			isDesired: false,
+			stage: 'painted',
+		});
+	});
+
+	test('publishes changed semantic content after source revalidation', () => {
+		// Arrange
+		const registry = createRegistry(reviewContext);
+		const first = registry.beginPublication({
+			job: makeRenderJob('review-item-1'),
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+		registry.applyDisposition(disposition(first.receiptIdentity, 'queued', 1));
+		registry.applyDisposition(disposition(first.receiptIdentity, 'applied', 2));
+		registry.applyDisposition(disposition(first.receiptIdentity, 'painted', 3));
+
+		// Act
+		registry.requeuePublicationsForSourceChurn(4);
+		const replacement = registry.beginPublication({
+			job: makeRenderJob('review-item-1', { lane: 'visible', priority: 1 }, 'b'.repeat(64)),
+			publicationSequence: 9,
+			workerDerivationEpoch: 3,
+		});
+
+		// Assert
 		expect(replacement).toMatchObject({ shouldPublish: true, status: 'published' });
-		expect(replacement.receiptIdentity.publicationId).toBe(first.receiptIdentity.publicationId);
-		expect(replacement.receiptIdentity.attemptId).not.toBe(first.receiptIdentity.attemptId);
+		expect(replacement.receiptIdentity.publicationId).not.toBe(first.receiptIdentity.publicationId);
 	});
 
 	test('replaces same-window publication authority when the surface derivation epoch advances', () => {
@@ -368,12 +402,20 @@ function createIdentifierSequence(): {
 	};
 }
 
-function makeRenderJob(itemId: string): BridgeWorkerPierreRenderJob {
+function makeRenderJob(
+	itemId: string,
+	bridgeDemandRank: BridgeWorkerDemandRank = { lane: 'visible', priority: 1 },
+	contentHash: string = 'a'.repeat(64),
+): BridgeWorkerPierreRenderJob {
 	return buildBridgeWorkerPierreRenderJob({
-		bridgeDemandRank: { lane: 'visible', priority: 1 },
-		budget: { className: 'visible', maxBytes: 1024, maxWindowLines: 4 },
+		bridgeDemandRank,
+		budget: {
+			className: bridgeDemandRank.lane === 'visible' ? 'visible' : 'background',
+			maxBytes: 1024,
+			maxWindowLines: 4,
+		},
 		contentCacheKey: `cache-${itemId}`,
-		contentHash: 'a'.repeat(64),
+		contentHash,
 		itemId,
 		language: 'text',
 		payload: {

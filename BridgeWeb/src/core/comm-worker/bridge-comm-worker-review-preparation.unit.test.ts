@@ -28,6 +28,7 @@ import type {
 	BridgeWorkerReviewRenderSemantics,
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
+import { createSharedBridgeWorkerReviewContentResourceFetch } from './bridge-worker-review-content-fetch.js';
 
 interface PostedBridgeWorkerPreparationMessage {
 	readonly message: BridgeWorkerServerToMainMessage;
@@ -772,6 +773,90 @@ describe('Bridge comm worker review preparation', () => {
 		expect(drainRequestCount).toBe(1);
 		expect(postedMessages).toEqual([]);
 		expect(pump.getPendingWorkIds()).toEqual([]);
+	});
+
+	test('pauses pending Review response starts and resumes the same content streams', async () => {
+		const deferredContent = [
+			{
+				descriptor: makeContentRequestDescriptor({ role: 'base', text: 'base content\n' }),
+				text: 'base content\n',
+			},
+			{
+				descriptor: makeContentRequestDescriptor({ role: 'head', text: 'head content\n' }),
+				text: 'head content\n',
+			},
+		];
+		let pauseBeforeStartCount = 0;
+		let resumeBeforeStartCount = 0;
+		const contentStreams = deferredContent.map(({ descriptor, text }) => {
+			const deferredStream = createDeferredReviewContentStream(descriptor);
+			return {
+				deferredStream,
+				descriptor,
+				stream: {
+					...deferredStream.stream,
+					responseStartControl: {
+						pauseBeforeStart: (): void => {
+							pauseBeforeStartCount += 1;
+						},
+						resumeBeforeStart: (): void => {
+							resumeBeforeStartCount += 1;
+						},
+					},
+				},
+				text,
+			};
+		});
+		const remainingContentStreams = [...contentStreams];
+		const fetchReviewContentResource = createSharedBridgeWorkerReviewContentResourceFetch({
+			openContent: (): BridgeProductContentStream<'review.content'> => {
+				const contentStream = remainingContentStreams.shift();
+				if (contentStream === undefined) throw new Error('Unexpected Review content open.');
+				return contentStream.stream;
+			},
+		});
+		const pump = createWorkerContentPreparationPump({
+			maxSliceMs: 5,
+			now: () => 0,
+		});
+		const store = createBridgeCommWorkerStore({
+			surface: 'review',
+			contentItems: [makeWorkerReviewContentMetadata()],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+		});
+		store.actions.applySelectedFact({ epoch: 7, itemId: 'item-1' });
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
+		const preparation = enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentRequestDescriptors: deferredContent.map(({ descriptor }) => descriptor),
+			epoch: 7,
+			fetchReviewContentResource,
+			workerDerivationEpoch: 7,
+			itemId: 'item-1',
+			port: makePostedMessagePort([]),
+			pump,
+			renderSemantics: [makeRenderSemantics()],
+			sequence: 12,
+			store,
+		});
+		pump.runUntilBudget();
+
+		preparation.pause();
+		preparation.resume();
+
+		expect(pauseBeforeStartCount).toBe(2);
+		expect(resumeBeforeStartCount).toBe(2);
+		for (const contentStream of contentStreams) {
+			contentStream.deferredStream.resolve(contentStream.text);
+		}
+		await flushBridgeWorkerPreparationContinuations();
+		pump.runUntilBudget();
+		await preparation.completion;
 	});
 
 	test('skips enqueue when selected content is no longer current or demand eligible', async () => {

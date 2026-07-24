@@ -57,8 +57,7 @@ interface PendingAnimationFrame {
 }
 describe('BridgeCodeViewPanel render fulfillment', () => {
 	test('keeps Pierre-retained readable content when the same semantic item is selected without a keyed frontend copy', async () => {
-		// Arrange: Pierre already owns a hydrated visible item, while the controller-facing keyed
-		// copy will disappear before selection. This is the split state observed during Review clicks.
+		// Pierre retains a hydrated item after its controller-facing keyed copy disappears.
 		const mountedCodeView: { current: CodeView | null } = { current: null };
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
 		const originalSetup = CodeView.prototype.setup;
@@ -195,8 +194,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 	});
 
 	test('adapts Review items with main versions, preserves collapse, and reuses exact painted residency', async () => {
-		// Arrange: hold Pierre's public post-render callback so every fulfillment transition is
-		// deterministic, while retaining a real mounted CodeView and its public readback APIs.
+		// Hold Pierre's post-render callback while retaining a real CodeView and public readbacks.
 		const mountedCodeView: { current: CodeView | null } = { current: null };
 		const capturedPostRenderLog = createExactItemReceiptLog<
 			CodeViewItem,
@@ -453,7 +451,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			});
 			expect(dispositionKinds(dispositions)).toEqual(['queued']);
 
-			// Exact callback context alone is insufficient when public Pierre readback disagrees.
+			// A connected callback node cannot override a contradictory live current-item identity.
 			await act(async (): Promise<void> => {
 				firstCodeView.updateItem(wrongContextItem);
 				await Promise.resolve();
@@ -470,25 +468,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 				'Expected Pierre current item identity to restore after wrong-current readback.',
 			);
 
-			const originalGetRenderedItems = firstCodeView.getRenderedItems.bind(firstCodeView);
-			firstCodeView.getRenderedItems = (): [] => [];
-			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
-			expect(dispositionKinds(dispositions)).toEqual(['queued']);
-			const connectedRenderedItems = originalGetRenderedItems();
-			const matchingRenderedItem = connectedRenderedItems.find(
-				(renderedItem): boolean => renderedItem.item === firstFinalItem,
-			);
-			if (matchingRenderedItem === undefined) {
-				throw new Error('Expected real Pierre rendered membership for the first publication.');
-			}
-			firstCodeView.getRenderedItems = () => [
-				{ ...matchingRenderedItem, element: document.createElement('div') },
-			];
-			await invokeCapturedPostRenderWithinAct({ invocation: firstPostRender, phase: 'update' });
-			expect(dispositionKinds(dispositions)).toEqual(['queued']);
-			firstCodeView.getRenderedItems = originalGetRenderedItems;
-
-			// Only the exact final callback plus connected public readback advances fulfillment.
+			// Only the exact final callback plus its connected post-render node advances fulfillment.
 			const initialRenderedRows = requireCurrentRenderedReviewRows(firstCodeView, firstFinalItem);
 			if (initialRenderedRows.baseLines.length !== 0 || initialRenderedRows.headLines.length < 2) {
 				throw new Error('Expected added-only Pierre head rows and no base rows.');

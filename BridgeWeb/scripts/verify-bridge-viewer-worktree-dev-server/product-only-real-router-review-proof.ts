@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import type { Page } from 'playwright';
-import { errors } from 'playwright';
+import { errors, type Page } from 'playwright';
 
 import {
 	bridgeViewerProductOnlySelectors,
@@ -14,13 +13,17 @@ import {
 	type BridgeViewerReviewFailureSnapshot,
 	type BridgeViewerReviewTreeSelectionProof,
 } from './product-only-real-router-contract.ts';
+import {
+	type FreshReviewHydrationWindowSnapshot,
+	previousFreshReviewTraversalScrollTop,
+	waitForFreshReviewHydrationWindowSnapshot,
+} from './product-only-real-router-review-hydration-window.ts';
 import { waitForProductBrowserFrameSettlement } from './product-only-real-router-settlement.ts';
 
 const productJourneyTimeoutMilliseconds = 120_000;
 const productCompositionSettleTimeoutMilliseconds = 10_000;
 const freshReviewSettledBottomTurnCount = 3;
 const maximumFreshReviewHydrationWindowFailures = 32;
-
 interface FreshReviewViewportState {
 	readonly codeScroll: {
 		readonly clientHeight: number;
@@ -37,13 +40,8 @@ interface FreshReviewViewportState {
 		readonly hostBottomOffset: number;
 		readonly hostTopOffset: number;
 		readonly itemId: string;
+		readonly paintIdentity: string | null;
 	}[];
-}
-
-interface FreshReviewHydrationWindowSnapshot {
-	readonly hydratedNonSelectedItemIds: readonly string[];
-	readonly scrollTop: number;
-	readonly visibleNonSelectedItemIds: readonly string[];
 }
 
 interface FreshReviewHydrationCoverageAccumulator {
@@ -177,7 +175,11 @@ export async function proveFreshReviewRoute(props: {
 		} else {
 			settledBottomTurnCount = 0;
 		}
-		await scrollFreshReviewCodeView({ page: props.page, state: viewportState });
+		await scrollFreshReviewCodeView({
+			direction: 'forward',
+			page: props.page,
+			state: viewportState,
+		});
 	}
 	for (const milestone of pendingMilestones) {
 		hydrationMilestones.push(
@@ -201,11 +203,50 @@ export async function proveFreshReviewRoute(props: {
 		observedItemIds: observedHeaderItemIds,
 		observedItemIdSet: observedHeaderItemIdSet,
 	});
+	const forwardCompletedScroll = viewportState.codeScroll;
+	const backwardHydrationCoverageAccumulator = createFreshReviewHydrationCoverageAccumulator();
+	const backwardMountedHeaderOrderViolations: BridgeViewerReviewMountedHeaderOrderViolation[] = [];
+	const backwardMountedHeaderOrderViolationSignatures = new Set<string>();
+	for (let stepIndex = 0; stepIndex < traversalStepBudget; stepIndex += 1) {
+		const settledHydrationWindow = await captureFreshReviewHydrationWindow({
+			excludedItemIds: [],
+			page: props.page,
+			selectedItemId: selectedItemIdAtStart,
+		});
+		recordFreshReviewHydrationCoverageWindow({
+			accumulator: backwardHydrationCoverageAccumulator,
+			window: settledHydrationWindow,
+		});
+		viewportState = await readFreshReviewViewportState(props.page);
+		recordMountedHeaderOrderViolation({
+			expectedItemIndexById,
+			mountedItemIds: viewportState.mountedItemIds,
+			mountedHeaderOrderViolations: backwardMountedHeaderOrderViolations,
+			mountedHeaderOrderViolationSignatures: backwardMountedHeaderOrderViolationSignatures,
+		});
+		if (viewportState.codeScroll.scrollTop <= 1) break;
+		await scrollFreshReviewCodeView({
+			direction: 'backward',
+			page: props.page,
+			state: viewportState,
+		});
+	}
+	viewportState = await readFreshReviewViewportState(props.page);
 	const identity = await readFreshReviewIdentitySnapshot(props.page);
 	return {
 		...identity,
+		backwardTraversal: {
+			completedScrollTop: viewportState.codeScroll.scrollTop,
+			hydrationCoverage: freshReviewHydrationCoverage({
+				accumulator: backwardHydrationCoverageAccumulator,
+				expectedItemIds: props.expectedItemIds,
+				selectedItemId: selectedItemIdAtStart,
+			}),
+			mountedHeaderOrderViolations: backwardMountedHeaderOrderViolations,
+			selectedItemIdAtCompletion: viewportState.selectedItemId,
+		},
 		codeViewManifestItemCount: viewportState.codeViewManifestItemCount,
-		completedScroll: viewportState.codeScroll,
+		completedScroll: forwardCompletedScroll,
 		expectedItemIds: props.expectedItemIds,
 		finalDirectoryDisclosure: viewportState.directoryDisclosure,
 		hydrationCoverage: freshReviewHydrationCoverage({
@@ -428,6 +469,7 @@ async function readFreshReviewViewportState(page: Page): Promise<FreshReviewView
 			readonly hostBottomOffset: number;
 			readonly hostTopOffset: number;
 			readonly itemId: string;
+			readonly paintIdentity: string | null;
 		}> = [];
 		for (const reviewItemHost of reviewItemHosts) {
 			const itemMarker = bridgeReviewHostElement(reviewItemHost, '[data-bridge-code-view-item-id]');
@@ -446,6 +488,7 @@ async function readFreshReviewViewportState(page: Page): Promise<FreshReviewView
 				hostBottomOffset: hostRect.bottom - codeScrollRect.top,
 				hostTopOffset: hostRect.top - codeScrollRect.top,
 				itemId,
+				paintIdentity: paintedReviewIdentity(reviewItemHost),
 			});
 		}
 		const directoryDisclosure =
@@ -475,6 +518,14 @@ async function readFreshReviewViewportState(page: Page): Promise<FreshReviewView
 
 		function bridgeReviewHostElement(host: Element, selector: string): Element | null {
 			return host.querySelector(selector) ?? host.shadowRoot?.querySelector(selector) ?? null;
+		}
+
+		function paintedReviewIdentity(host: Element): string | null {
+			const publicationId = host.getAttribute('data-bridge-painted-publication-id');
+			const sourceCorrelations = host.getAttribute('data-bridge-painted-source-correlations');
+			return publicationId === null || sourceCorrelations === null
+				? null
+				: JSON.stringify([publicationId, sourceCorrelations]);
 		}
 
 		function queryAllInOpenShadowRoots(
@@ -510,70 +561,11 @@ async function captureFreshReviewHydrationWindow(props: {
 	readonly page: Page;
 	readonly selectedItemId: string | null;
 }): Promise<FreshReviewHydrationWindowSnapshot> {
-	const hydrationWindowSettled = await waitForProductCompositionState(async (): Promise<void> => {
-		await props.page.waitForFunction(
-			({ excludedItemIds, selectedItemId, selectors }): boolean => {
-				const codePanel = document.querySelector(selectors.reviewCodePanel);
-				const codeScrollOwner = document.querySelector(selectors.reviewCodeScrollOwner);
-				if (!(codeScrollOwner instanceof HTMLElement)) return false;
-				const excludedItemIdSet = new Set(excludedItemIds);
-				const reviewItemHosts = queryAllInOpenShadowRoots(codePanel ?? document, 'diffs-container');
-				const codeScrollRect = codeScrollOwner.getBoundingClientRect();
-				const visibleCandidateStates = reviewItemHosts.flatMap(
-					(reviewItemHost): readonly (string | null)[] => {
-						const itemMarker = bridgeReviewHostElement(
-							reviewItemHost,
-							'[data-bridge-code-view-item-id]',
-						);
-						if (itemMarker === null) return [];
-						const itemId = itemMarker.getAttribute('data-bridge-code-view-item-id');
-						if (itemId === null || itemId === selectedItemId || excludedItemIdSet.has(itemId)) {
-							return [];
-						}
-						const hostRect = reviewItemHost.getBoundingClientRect();
-						if (hostRect.bottom <= codeScrollRect.top || hostRect.top >= codeScrollRect.bottom) {
-							return [];
-						}
-						return [
-							bridgeReviewHostElement(
-								reviewItemHost,
-								'[data-bridge-code-view-content-state]',
-							)?.getAttribute('data-bridge-code-view-content-state') ?? null,
-						];
-					},
-				);
-				return (
-					visibleCandidateStates.length > 0 &&
-					visibleCandidateStates.every(
-						(contentState): boolean => contentState === 'hydrated' || contentState === 'windowed',
-					)
-				);
-
-				function bridgeReviewHostElement(host: Element, selector: string): Element | null {
-					return host.querySelector(selector) ?? host.shadowRoot?.querySelector(selector) ?? null;
-				}
-
-				function queryAllInOpenShadowRoots(
-					root: Document | Element | ShadowRoot,
-					selector: string,
-				): Element[] {
-					const matches = [...root.querySelectorAll(selector)];
-					for (const descendant of root.querySelectorAll('*')) {
-						if (descendant.shadowRoot === null) continue;
-						matches.push(...queryAllInOpenShadowRoots(descendant.shadowRoot, selector));
-					}
-					return matches;
-				}
-			},
-			{
-				excludedItemIds: props.excludedItemIds,
-				selectedItemId: props.selectedItemId,
-				selectors: bridgeViewerProductOnlySelectors,
-			},
-			{ timeout: productCompositionSettleTimeoutMilliseconds },
-		);
+	const readyWindow = await waitForFreshReviewHydrationWindowSnapshot({
+		...props,
+		timeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
 	});
-	if (!hydrationWindowSettled) {
+	if (readyWindow === null) {
 		const state = await readFreshReviewViewportState(props.page);
 		throw new Error(
 			`REVIEW_FRESH_ROUTE_HYDRATION_WINDOW_TIMEOUT:${JSON.stringify({
@@ -585,20 +577,12 @@ async function captureFreshReviewHydrationWindow(props: {
 		);
 	}
 	await waitForFreshReviewFrameSettlement({ page: props.page, stage: 'hydration-window' });
-	const excludedItemIdSet = new Set(props.excludedItemIds);
-	const state = await readFreshReviewViewportState(props.page);
-	const visibleNonSelectedItems = state.visibleItems.filter(
-		(item): boolean => item.itemId !== props.selectedItemId && !excludedItemIdSet.has(item.itemId),
-	);
-	return {
-		hydratedNonSelectedItemIds: visibleNonSelectedItems
-			.filter(
-				(item): boolean => item.contentState === 'hydrated' || item.contentState === 'windowed',
-			)
-			.map((item): string => item.itemId),
-		scrollTop: state.codeScroll.scrollTop,
-		visibleNonSelectedItemIds: visibleNonSelectedItems.map((item): string => item.itemId),
-	};
+	const settledWindow = await waitForFreshReviewHydrationWindowSnapshot({
+		...props,
+		timeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
+	});
+	if (settledWindow === null) throw new Error('REVIEW_FRESH_ROUTE_POST_SETTLEMENT_TIMEOUT');
+	return settledWindow;
 }
 
 function createFreshReviewHydrationCoverageAccumulator(): FreshReviewHydrationCoverageAccumulator {
@@ -711,13 +695,20 @@ function recordMountedHeaderOrderViolation(props: {
 }
 
 async function scrollFreshReviewCodeView(props: {
+	readonly direction: 'backward' | 'forward';
 	readonly page: Page;
 	readonly state: FreshReviewViewportState;
 }): Promise<void> {
-	const nextScrollTop = nextFreshReviewTraversalScrollTop({
-		codeScroll: props.state.codeScroll,
-		visibleItems: props.state.visibleItems,
-	});
+	const nextScrollTop =
+		props.direction === 'forward'
+			? nextFreshReviewTraversalScrollTop({
+					codeScroll: props.state.codeScroll,
+					visibleItems: props.state.visibleItems,
+				})
+			: previousFreshReviewTraversalScrollTop({
+					codeScroll: props.state.codeScroll,
+					visibleItems: props.state.visibleItems,
+				});
 	await props.page.evaluate(
 		({ nextScrollTop, selector }): void => {
 			const codeScrollOwner = document.querySelector(selector);
@@ -725,7 +716,7 @@ async function scrollFreshReviewCodeView(props: {
 			codeScrollOwner.dispatchEvent(
 				new WheelEvent('wheel', {
 					bubbles: true,
-					deltaY: Math.max(1, nextScrollTop - codeScrollOwner.scrollTop),
+					deltaY: nextScrollTop - codeScrollOwner.scrollTop,
 				}),
 			);
 			codeScrollOwner.scrollTop = Math.floor(nextScrollTop);
@@ -756,7 +747,7 @@ async function scrollFreshReviewCodeView(props: {
 	}
 	await waitForFreshReviewFrameSettlement({
 		page: props.page,
-		stage: `scroll:${nextScrollTop}`,
+		stage: `${props.direction}-scroll:${nextScrollTop}`,
 	});
 }
 

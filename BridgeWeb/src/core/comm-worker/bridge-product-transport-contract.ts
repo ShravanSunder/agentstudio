@@ -51,8 +51,14 @@ export type BridgeProductContentStream<TContentKind extends BridgeProductContent
 	readonly contentKind: TContentKind;
 	readonly contentRequestId: string;
 	readonly frames: AsyncIterable<BridgeProductContentFrameFor<TContentKind>>;
+	readonly responseStartControl?: BridgeProductContentResponseStartControl;
 	readonly terminal: Promise<BridgeProductContentTerminal<TContentKind>>;
 };
+
+export interface BridgeProductContentResponseStartControl {
+	pauseBeforeStart(): void;
+	resumeBeforeStart(): void;
+}
 
 export type BridgeProductTransport = {
 	call<TCallArguments extends BridgeProductCallArguments>(

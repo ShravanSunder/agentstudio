@@ -57,7 +57,10 @@ export function createBridgeCodeViewMetadataDeltaItemsForPanel(props: {
 			}),
 	);
 	if (matchingSelectedCodeViewItem !== undefined) {
-		deltaItemsById.set(props.selectedItemId, matchingSelectedCodeViewItem);
+		deltaItemsById.set(
+			props.selectedItemId,
+			bridgeCodeViewItemWithSelectedDemandRank(matchingSelectedCodeViewItem),
+		);
 		return [...deltaItemsById.values()];
 	}
 	if (
@@ -74,6 +77,20 @@ export function createBridgeCodeViewMetadataDeltaItemsForPanel(props: {
 		);
 	}
 	return [...deltaItemsById.values()];
+}
+
+function bridgeCodeViewItemWithSelectedDemandRank(item: BridgeCodeViewItem): BridgeCodeViewItem {
+	const currentDemandRank =
+		item.type === 'file' ? item.file.bridgeDemandRank : item.fileDiff.bridgeDemandRank;
+	if (currentDemandRank === undefined || currentDemandRank <= 0) {
+		return item;
+	}
+	if (item.type === 'file') {
+		Object.assign(item.file, { bridgeDemandRank: 0 });
+	} else {
+		Object.assign(item.fileDiff, { bridgeDemandRank: 0 });
+	}
+	return item;
 }
 
 export type BridgeCodeViewMetadataDeltaItemsForPanelSelector = (props: {

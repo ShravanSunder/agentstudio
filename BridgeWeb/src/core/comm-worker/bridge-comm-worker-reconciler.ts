@@ -8,11 +8,7 @@ export type BridgeCommWorkerDemandMember =
 	  }
 	| {
 			readonly itemId: string;
-			readonly role: 'visible';
-	  }
-	| {
-			readonly itemId: string;
-			readonly role: 'speculative';
+			readonly role: 'background' | 'nearby' | 'speculative' | 'visible';
 	  };
 
 export interface BridgeCommWorkerDemandMembership {
@@ -22,8 +18,10 @@ export interface BridgeCommWorkerDemandMembership {
 export interface ReconcileBridgeCommWorkerDemandMembershipProps {
 	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerContentMetadata>;
 	readonly hoveredItemId?: string | null;
+	readonly orderedItemIds?: readonly string[];
 	readonly selectedDemandEpoch: number | null;
 	readonly selectedId: string | null;
+	readonly viewportDirection?: 'backward' | 'forward' | 'unknown';
 	readonly visibleIds: readonly string[];
 }
 
@@ -57,6 +55,11 @@ export function reconcileBridgeCommWorkerDemandMembership(
 		}
 		membersByItemId.set(itemId, { itemId, role: 'visible' });
 	}
+	for (const itemId of nearbyReviewDemandItemIds(props)) {
+		if (!membersByItemId.has(itemId)) {
+			membersByItemId.set(itemId, { itemId, role: 'nearby' });
+		}
+	}
 	const hoveredItemId = props.hoveredItemId ?? null;
 	if (
 		hoveredItemId !== null &&
@@ -70,7 +73,55 @@ export function reconcileBridgeCommWorkerDemandMembership(
 			role: 'speculative',
 		});
 	}
+	for (const itemId of props.orderedItemIds ?? []) {
+		if (
+			!membersByItemId.has(itemId) &&
+			isBridgeCommWorkerReviewDemandEligibleContentMetadata(
+				props.contentMetadataByItemId.get(itemId) ?? null,
+			)
+		) {
+			membersByItemId.set(itemId, { itemId, role: 'background' });
+		}
+	}
 	return { membersByItemId };
+}
+
+function nearbyReviewDemandItemIds(
+	props: ReconcileBridgeCommWorkerDemandMembershipProps,
+): readonly string[] {
+	const orderedItemIds = props.orderedItemIds;
+	if (orderedItemIds === undefined || props.visibleIds.length === 0) {
+		return [];
+	}
+	const orderedIndexByItemId = new Map(
+		orderedItemIds.map((itemId, orderedIndex) => [itemId, orderedIndex]),
+	);
+	const visibleIndexes = props.visibleIds.flatMap((itemId) => {
+		const orderedIndex = orderedIndexByItemId.get(itemId);
+		return orderedIndex === undefined ? [] : [orderedIndex];
+	});
+	if (visibleIndexes.length === 0) {
+		return [];
+	}
+	const viewportLength = visibleIndexes.length;
+	const direction = props.viewportDirection ?? 'unknown';
+	const behindCount = viewportLength * (direction === 'backward' ? 2 : 1);
+	const aheadCount = viewportLength * (direction === 'forward' ? 2 : 1);
+	const firstVisibleIndex = visibleIndexes.reduce((minimumIndex, visibleIndex) =>
+		Math.min(minimumIndex, visibleIndex),
+	);
+	const lastVisibleIndex = visibleIndexes.reduce((maximumIndex, visibleIndex) =>
+		Math.max(maximumIndex, visibleIndex),
+	);
+	const nearbyItemIds = [
+		...orderedItemIds.slice(Math.max(0, firstVisibleIndex - behindCount), firstVisibleIndex),
+		...orderedItemIds.slice(lastVisibleIndex + 1, lastVisibleIndex + 1 + aheadCount),
+	];
+	return nearbyItemIds.filter((itemId) =>
+		isBridgeCommWorkerReviewDemandEligibleContentMetadata(
+			props.contentMetadataByItemId.get(itemId) ?? null,
+		),
+	);
 }
 
 export function serializeBridgeCommWorkerDemandMembership(
@@ -97,4 +148,14 @@ export function isBridgeCommWorkerDemandEligibleContentMetadata(
 		return metadata.availableContentRoles.length > 0;
 	}
 	return metadata.canFetchContent;
+}
+
+function isBridgeCommWorkerReviewDemandEligibleContentMetadata(
+	metadata: BridgeWorkerContentMetadata | null,
+): boolean {
+	return (
+		metadata !== null &&
+		'availableContentRoles' in metadata &&
+		metadata.availableContentRoles.length > 0
+	);
 }

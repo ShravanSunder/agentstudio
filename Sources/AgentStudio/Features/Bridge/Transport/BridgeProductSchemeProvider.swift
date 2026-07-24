@@ -17,6 +17,12 @@ protocol BridgeProductSchemeProvider: Sendable {
         session: BridgeProductSession
     ) async
 
+    nonisolated func makeContentProducerOperation(
+        request: BridgeProductContentRequest,
+        productAdmission: BridgeProductAdmissionContext,
+        session: BridgeProductSession
+    ) -> BridgeProductProducerRegistry.ProducerOperation
+
     func acknowledgeLifecycle(
         _ acknowledgement: BridgeProductProducerLifecycleAcknowledgement
     ) async -> Bool
@@ -29,6 +35,21 @@ protocol BridgeProductSchemeProvider: Sendable {
 }
 
 extension BridgeProductSchemeProvider {
+    nonisolated func makeContentProducerOperation(
+        request: BridgeProductContentRequest,
+        productAdmission: BridgeProductAdmissionContext,
+        session: BridgeProductSession
+    ) -> BridgeProductProducerRegistry.ProducerOperation {
+        { lease in
+            await self.runContentProducer(
+                request: request,
+                lease: lease,
+                productAdmission: productAdmission,
+                session: session
+            )
+        }
+    }
+
     func applyCommittedControlEffect(
         _ effect: BridgeProductSessionCompletionEffect,
         for request: BridgeProductControlRequest,

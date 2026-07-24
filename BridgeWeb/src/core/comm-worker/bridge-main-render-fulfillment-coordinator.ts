@@ -20,6 +20,9 @@ type BridgeMainRenderSourceCorrelation =
 export type BridgeMainPierreItemResidency = 'replaced' | 'reusedPainted';
 type BridgeMainPostRenderPhase = 'mount' | 'update' | 'unmount';
 
+// Keep retained evidence within the existing CodeView materialization retry horizon.
+const BRIDGE_RETAINED_PAINT_VALIDATION_FRAME_LIMIT = 30;
+
 interface BridgeMainPaintedSourceCorrelation extends BridgeMainRenderSourceCorrelation {
 	readonly disposition: 'painted';
 	readonly pierreItemId: string;
@@ -118,8 +121,42 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 		BridgeMainRenderPublicationItem,
 		BridgeMainRetainedPaintedEvidence
 	>();
+	const retainedPaintValidationFramesByFinalItem = new Map<
+		BridgeMainRenderPublicationItem,
+		number
+	>();
 	const terminalPublicationIdentityKeys = new Set<string>();
 	let isDisposed = false;
+
+	const scheduleRetainedPaintValidation = (
+		item: BridgeMainRenderPublicationItem,
+		readback: BridgeMainRenderReadback,
+	): void => {
+		if (retainedPaintValidationFramesByFinalItem.has(item)) return;
+		const scheduleFrame = (remainingFrameCount: number): void => {
+			const frameHandle = requestFrame((): void => {
+				if (retainedPaintValidationFramesByFinalItem.get(item) !== frameHandle) return;
+				retainedPaintValidationFramesByFinalItem.delete(item);
+				if (isDisposed) return;
+				const needsPaintValidation = synchronizeRetainedPaintedEvidence(
+					item,
+					readback,
+					retainedPaintedEvidenceByFinalItem,
+				);
+				if (needsPaintValidation && remainingFrameCount > 1) {
+					scheduleFrame(remainingFrameCount - 1);
+				}
+			});
+			retainedPaintValidationFramesByFinalItem.set(item, frameHandle);
+		};
+		scheduleFrame(BRIDGE_RETAINED_PAINT_VALIDATION_FRAME_LIMIT);
+	};
+	const cancelRetainedPaintValidation = (item: BridgeMainRenderPublicationItem): void => {
+		const frameHandle = retainedPaintValidationFramesByFinalItem.get(item);
+		if (frameHandle === undefined) return;
+		retainedPaintValidationFramesByFinalItem.delete(item);
+		cancelFrame(frameHandle);
+	};
 
 	const sendPositiveDisposition = (
 		entry: BridgeMainPendingRenderPublication,
@@ -299,13 +336,20 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 			for (const entry of pendingByPierreItemId.values()) {
 				closePendingPublication(entry, 'superseded', 'stale_submission');
 			}
+			for (const frameHandle of retainedPaintValidationFramesByFinalItem.values()) {
+				cancelFrame(frameHandle);
+			}
+			retainedPaintValidationFramesByFinalItem.clear();
 			retainedPaintedEvidenceByFinalItem = new WeakMap();
 			terminalPublicationIdentityKeys.clear();
 		},
 		isBoundFinalItem: (item): boolean => {
 			if (isDisposed) return false;
 			const entry = pendingByPierreItemId.get(item.id);
-			return entry?.finalItemBound === true && entry.item === item;
+			return (
+				(entry?.finalItemBound === true && entry.item === item) ||
+				retainedPaintedEvidenceByFinalItem.has(item)
+			);
 		},
 		markPublicationQueued: (publication): void => {
 			if (isDisposed) return;
@@ -326,11 +370,16 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 			if (isDisposed || observeProps.phase === 'unmount') return;
 			const entry = pendingByPierreItemId.get(observeProps.itemId);
 			if (entry === undefined || observeProps.contextItem !== entry.item) {
-				synchronizeRetainedPaintedEvidence(
+				const needsPaintValidation = synchronizeRetainedPaintedEvidence(
 					observeProps.contextItem,
 					observeProps,
 					retainedPaintedEvidenceByFinalItem,
 				);
+				if (needsPaintValidation) {
+					scheduleRetainedPaintValidation(observeProps.contextItem, observeProps);
+				} else {
+					cancelRetainedPaintValidation(observeProps.contextItem);
+				}
 				return;
 			}
 			entry.postRenderObserved = true;
@@ -342,11 +391,16 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 			if (entry === undefined) {
 				const currentItem = reconcileProps.readCurrentItem();
 				if (currentItem === undefined) return;
-				synchronizeRetainedPaintedEvidence(
+				const needsPaintValidation = synchronizeRetainedPaintedEvidence(
 					currentItem,
 					reconcileProps,
 					retainedPaintedEvidenceByFinalItem,
 				);
+				if (needsPaintValidation) {
+					scheduleRetainedPaintValidation(currentItem, reconcileProps);
+				} else {
+					cancelRetainedPaintValidation(currentItem);
+				}
 				return;
 			}
 			reconcileEntry(entry, reconcileProps);
@@ -429,15 +483,20 @@ function synchronizeRetainedPaintedEvidence(
 		BridgeMainRenderPublicationItem,
 		BridgeMainRetainedPaintedEvidence
 	>,
-): void {
+): boolean {
 	const renderedItem = matchingRenderedItemForExactItem(item, readback);
-	if (renderedItem === null) return;
+	if (renderedItem === null) return false;
 	const evidence = retainedPaintedEvidenceByFinalItem.get(item);
-	if (evidence === undefined || !renderedItem.readableContentMatchesItem) {
+	if (evidence === undefined) {
 		clearPaintedSourceCorrelation(renderedItem);
-		return;
+		return false;
+	}
+	if (!renderedItem.readableContentMatchesItem) {
+		clearPaintedSourceCorrelation(renderedItem);
+		return true;
 	}
 	stampRetainedPaintedEvidence(renderedItem, evidence);
+	return false;
 }
 
 function clearPaintedSourceCorrelation(renderedItem: BridgeMainRenderedItemReadback): void {

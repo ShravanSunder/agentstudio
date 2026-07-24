@@ -76,13 +76,13 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 		);
 	});
 
-	test('threads runtime telemetry client into stale selected review preparation drops', async () => {
+	test('does not report a stale selected drop when an in-flight preparation is demoted', async () => {
 		const telemetrySamples: BridgeTelemetrySample[] = [];
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'review.metadata'>
 		>(8);
-		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		const deferredStreamsByDescriptorId = new Map<string, DeferredReviewContentStream>();
 		const baseDescriptor = makeContentRequestDescriptor({
 			itemId: 'item-1',
@@ -144,18 +144,16 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 		await drainScheduledPreparation(scheduledDrains);
 		await firstDrain;
 
-		expect(telemetrySamples).toContainEqual(
-			expect.objectContaining({
-				name: 'performance.bridge.web.selected_content_dropped',
-				durationMilliseconds: null,
-				stringAttributes: expect.objectContaining({
-					'agentstudio.bridge.drop_reason': 'stale_after_fetch',
-					'agentstudio.bridge.phase': 'selected_content_dropped',
-					'agentstudio.bridge.result': 'dropped',
-					'agentstudio.bridge.viewer': 'review',
-				}),
-			}),
-		);
+		expect(
+			telemetrySamples.some(
+				(sample) => sample.name === 'performance.bridge.web.selected_content_dropped',
+			),
+		).toBe(false);
+		expect(
+			postedMessages.filter(
+				(postedMessage) => postedMessage.message.kind === 'reviewPierreRenderJob',
+			),
+		).toHaveLength(1);
 	});
 });
 
