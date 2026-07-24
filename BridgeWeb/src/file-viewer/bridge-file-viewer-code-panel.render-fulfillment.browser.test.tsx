@@ -522,13 +522,6 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 						totalHeightPixels={null}
 					/>,
 				);
-				await act(async (): Promise<void> => {
-					while (pendingAnimationFrames.length > 0) {
-						const pendingFrame = pendingAnimationFrames.shift();
-						pendingFrame?.callback(performance.now());
-					}
-					await Promise.resolve();
-				});
 				const restoreCountBeforeUserScrollToTop = scrollToReceipts.length;
 				await act(async (): Promise<void> => {
 					capturedCodeViewRoot.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));

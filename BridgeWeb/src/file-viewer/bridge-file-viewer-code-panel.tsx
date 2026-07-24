@@ -204,14 +204,22 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 				previousRenderedCacheKeyRef.current = currentRenderedCacheKey;
 			}
 			const scrollTop = lastScrollTopRef.current;
+			let pendingScrollRestore: {
+				readonly cacheKey: string;
+				readonly position: number;
+			} | null = null;
 			if (currentRenderedCacheKey !== null && scrollTop > 0) {
-				pendingSameFileScrollRestoreRef.current = {
+				pendingScrollRestore = {
 					cacheKey: currentRenderedCacheKey,
 					position: scrollTop,
 				};
+				pendingSameFileScrollRestoreRef.current = pendingScrollRestore;
 			}
 			requestAnimationFrame((): void => {
-				if (scrollEffectVersionRef.current !== effectVersion) {
+				if (
+					scrollEffectVersionRef.current !== effectVersion ||
+					pendingSameFileScrollRestoreRef.current !== pendingScrollRestore
+				) {
 					return;
 				}
 				if (scrollTop > 0) {
@@ -224,7 +232,10 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 					// frame later after a silent worker refresh. Retarget once more
 					// so same-file refreshes keep the user's viewport.
 					requestAnimationFrame((): void => {
-						if (scrollEffectVersionRef.current !== effectVersion) {
+						if (
+							scrollEffectVersionRef.current !== effectVersion ||
+							pendingSameFileScrollRestoreRef.current !== pendingScrollRestore
+						) {
 							return;
 						}
 						codeViewHandleRef.current?.scrollTo({
