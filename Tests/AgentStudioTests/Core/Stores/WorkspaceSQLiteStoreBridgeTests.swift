@@ -19,6 +19,132 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(composition.windowFrame == nil)
     }
 
+    @Test("SQLite composition defaults missing local cursors from the authoritative graph")
+    func sqliteCompositionDefaultsMissingLocalCursors() throws {
+        var snapshot = try makeStrictWorkspaceSQLiteStateBridgeSnapshot()
+        let parentPane = try #require(snapshot.paneGraph.panes.single)
+        let drawer = try #require(parentPane.drawer)
+        let childPaneId = UUIDv7.generate()
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_001)
+        snapshot.paneGraph.panes.append(
+            .init(
+                id: childPaneId,
+                content: .terminal(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                ),
+                metadata: .init(
+                    executionBackend: .local,
+                    createdAt: timestamp,
+                    title: "Drawer child"
+                ),
+                residency: .active,
+                placement: .drawerChild(parentPaneId: parentPane.id),
+                drawer: nil,
+                updatedAt: timestamp
+            )
+        )
+        snapshot.paneGraph.panes[0].drawer?.childPaneIds = [childPaneId]
+        snapshot.tabGraph.tabs[0].allPaneIds.append(childPaneId)
+        snapshot.tabGraph.tabs[0].arrangements[0].drawerViews[drawer.drawerId] = .init(
+            layout: DrawerGridLayout(topRow: Layout(paneId: childPaneId)),
+            minimizedPaneIds: []
+        )
+
+        snapshot.cursorState = WorkspaceSQLiteStateBridge.localCursorStateForComposition(
+            persisted: nil,
+            paneGraph: snapshot.paneGraph,
+            tabGraph: snapshot.tabGraph
+        )
+
+        #expect(snapshot.cursorState.activePaneIdsByArrangementId.values.single == parentPane.id)
+        #expect(snapshot.cursorState.activeChildIdsByArrangementDrawer.values.single == childPaneId)
+
+        let composition = try WorkspaceSQLiteStateBridge.workspaceSnapshot(from: snapshot)
+        let tab = try #require(composition.tabs.single)
+        let arrangement = try #require(tab.arrangements.single)
+        let drawerView = try #require(arrangement.drawerViews[drawer.drawerId])
+
+        #expect(arrangement.activePaneId == parentPane.id)
+        #expect(drawerView.activeChildId == childPaneId)
+        guard case .prepared = WorkspaceCompositionPreparer.prepare(composition) else {
+            Issue.record("Missing local cursor fallback must produce an admissible composition")
+            return
+        }
+    }
+
+    @Test("SQLite cursor fallback replaces minimized selections and preserves nil when all are minimized")
+    func sqliteCursorFallbackHandlesMinimizedSelections() throws {
+        let fixture = makeWorkspaceSQLiteCursorProjectionFixture()
+
+        var allVisibleTabGraph = fixture.tabGraph
+        allVisibleTabGraph.tabs[0].arrangements[0].minimizedPaneIds = []
+        allVisibleTabGraph.tabs[0].arrangements[0].drawerViews[fixture.drawerId]?.minimizedPaneIds = []
+        let validNonFirstCursorState = WorkspaceLocalRepository.CursorStateRecord(
+            activeTabId: fixture.tabId,
+            activeArrangementIdsByTabId: [fixture.tabId: fixture.arrangementId],
+            activePaneIdsByArrangementId: [fixture.arrangementId: fixture.visiblePaneId],
+            drawerExpansionByDrawerId: [fixture.drawerId: true],
+            activeChildIdsByArrangementDrawer: [fixture.drawerCursorKey: fixture.visibleChildId]
+        )
+        let preserved = WorkspaceSQLiteStateBridge.localCursorStateForComposition(
+            persisted: validNonFirstCursorState,
+            paneGraph: fixture.paneGraph,
+            tabGraph: allVisibleTabGraph
+        )
+        #expect(preserved.activePaneIdsByArrangementId[fixture.arrangementId] == fixture.visiblePaneId)
+        #expect(preserved.activeChildIdsByArrangementDrawer[fixture.drawerCursorKey] == fixture.visibleChildId)
+
+        let absentCursorId = UUIDv7.generate()
+        let absentCursorState = WorkspaceLocalRepository.CursorStateRecord(
+            activeTabId: fixture.tabId,
+            activeArrangementIdsByTabId: [fixture.tabId: fixture.arrangementId],
+            activePaneIdsByArrangementId: [fixture.arrangementId: absentCursorId],
+            drawerExpansionByDrawerId: [fixture.drawerId: true],
+            activeChildIdsByArrangementDrawer: [fixture.drawerCursorKey: absentCursorId]
+        )
+        let replacedAbsent = WorkspaceSQLiteStateBridge.localCursorStateForComposition(
+            persisted: absentCursorState,
+            paneGraph: fixture.paneGraph,
+            tabGraph: allVisibleTabGraph
+        )
+        #expect(replacedAbsent.activePaneIdsByArrangementId[fixture.arrangementId] == fixture.minimizedPaneId)
+        #expect(
+            replacedAbsent.activeChildIdsByArrangementDrawer[fixture.drawerCursorKey] == fixture.minimizedChildId)
+
+        let fallback = WorkspaceSQLiteStateBridge.localCursorStateForComposition(
+            persisted: fixture.minimizedCursorState,
+            paneGraph: fixture.paneGraph,
+            tabGraph: fixture.tabGraph
+        )
+
+        #expect(fallback.activePaneIdsByArrangementId[fixture.arrangementId] == fixture.visiblePaneId)
+        #expect(fallback.activeChildIdsByArrangementDrawer[fixture.drawerCursorKey] == fixture.visibleChildId)
+
+        var allMinimizedTabGraph = fixture.tabGraph
+        allMinimizedTabGraph.tabs[0].arrangements[0].minimizedPaneIds = [
+            fixture.minimizedPaneId,
+            fixture.visiblePaneId,
+        ]
+        allMinimizedTabGraph.tabs[0].arrangements[0].drawerViews[fixture.drawerId]?.minimizedPaneIds = [
+            fixture.minimizedChildId,
+            fixture.visibleChildId,
+        ]
+        let allMinimizedCursorState = WorkspaceSQLiteStateBridge.localCursorStateForComposition(
+            persisted: fixture.minimizedCursorState,
+            paneGraph: fixture.paneGraph,
+            tabGraph: allMinimizedTabGraph
+        )
+        let allMinimizedArrangement = WorkspaceSQLiteStateBridge.paneArrangement(
+            from: allMinimizedTabGraph.tabs[0].arrangements[0],
+            cursorState: allMinimizedCursorState
+        )
+
+        #expect(allMinimizedArrangement.activePaneId == nil)
+        #expect(allMinimizedArrangement.drawerViews[fixture.drawerId]?.activeChildId == nil)
+    }
+
     @Test("SQLite materialization rejects missing required drawer expansion state")
     func sqliteMaterializationRejectsMissingDrawerExpansionState() throws {
         var snapshot = try makeStrictWorkspaceSQLiteStateBridgeSnapshot()
@@ -388,6 +514,106 @@ struct WorkspaceSQLiteStoreBridgeTests {
             sqliteSaveCoordinator: saveCoordinator
         )
     }
+}
+
+private struct WorkspaceSQLiteCursorProjectionFixture {
+    let tabId: UUID
+    let arrangementId: UUID
+    let minimizedPaneId: UUID
+    let visiblePaneId: UUID
+    let drawerId: UUID
+    let minimizedChildId: UUID
+    let visibleChildId: UUID
+    let paneGraph: WorkspaceCoreRepository.PaneGraphRecord
+    let tabGraph: WorkspaceCoreRepository.TabGraphRecord
+    let drawerCursorKey: WorkspaceLocalRepository.ArrangementDrawerCursorKey
+    let minimizedCursorState: WorkspaceLocalRepository.CursorStateRecord
+}
+
+private func makeWorkspaceSQLiteCursorProjectionFixture() -> WorkspaceSQLiteCursorProjectionFixture {
+    let tabId = UUIDv7.generate()
+    let arrangementId = UUIDv7.generate()
+    let minimizedPaneId = UUIDv7.generate()
+    let visiblePaneId = UUIDv7.generate()
+    let drawerId = UUIDv7.generate()
+    let minimizedChildId = UUIDv7.generate()
+    let visibleChildId = UUIDv7.generate()
+    let timestamp = Date(timeIntervalSince1970: 1_700_000_002)
+    let paneGraph = WorkspaceCoreRepository.PaneGraphRecord(
+        panes: [
+            .init(
+                id: minimizedPaneId,
+                content: .terminal(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                ),
+                metadata: .init(
+                    executionBackend: .local,
+                    createdAt: timestamp,
+                    title: "Parent pane"
+                ),
+                residency: .active,
+                placement: .layout,
+                drawer: .init(
+                    drawerId: drawerId,
+                    parentPaneId: minimizedPaneId,
+                    childPaneIds: [minimizedChildId, visibleChildId]
+                ),
+                updatedAt: timestamp
+            )
+        ]
+    )
+    let tabGraph = WorkspaceCoreRepository.TabGraphRecord(
+        tabs: [
+            .init(
+                tabId: tabId,
+                allPaneIds: [minimizedPaneId, visiblePaneId, minimizedChildId, visibleChildId],
+                arrangements: [
+                    .init(
+                        id: arrangementId,
+                        name: "Default",
+                        isDefault: true,
+                        layout: Layout.autoTiled([minimizedPaneId, visiblePaneId]),
+                        minimizedPaneIds: [minimizedPaneId],
+                        showsMinimizedPanes: true,
+                        drawerViews: [
+                            drawerId: .init(
+                                layout: DrawerGridLayout(
+                                    topRow: Layout.autoTiled([minimizedChildId, visibleChildId])
+                                ),
+                                minimizedPaneIds: [minimizedChildId]
+                            )
+                        ]
+                    )
+                ]
+            )
+        ]
+    )
+    let drawerCursorKey = WorkspaceLocalRepository.ArrangementDrawerCursorKey(
+        arrangementId: arrangementId,
+        drawerId: drawerId
+    )
+    let minimizedCursorState = WorkspaceLocalRepository.CursorStateRecord(
+        activeTabId: tabId,
+        activeArrangementIdsByTabId: [tabId: arrangementId],
+        activePaneIdsByArrangementId: [arrangementId: minimizedPaneId],
+        drawerExpansionByDrawerId: [drawerId: true],
+        activeChildIdsByArrangementDrawer: [drawerCursorKey: minimizedChildId]
+    )
+    return WorkspaceSQLiteCursorProjectionFixture(
+        tabId: tabId,
+        arrangementId: arrangementId,
+        minimizedPaneId: minimizedPaneId,
+        visiblePaneId: visiblePaneId,
+        drawerId: drawerId,
+        minimizedChildId: minimizedChildId,
+        visibleChildId: visibleChildId,
+        paneGraph: paneGraph,
+        tabGraph: tabGraph,
+        drawerCursorKey: drawerCursorKey,
+        minimizedCursorState: minimizedCursorState
+    )
 }
 
 private func makeStrictWorkspaceSQLiteStateBridgeSnapshot() throws -> WorkspaceSQLiteStateBridge.Snapshot {

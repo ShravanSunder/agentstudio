@@ -368,16 +368,38 @@ enum WorkspaceCompositionPreparer {
         }
 
         for pane in paneInputs.panes where tabIDByPaneID[pane.id] == nil {
-            guard isRecoverableUnownedPane(pane) else {
+            guard
+                isRecoverableUnownedPane(
+                    pane,
+                    panesByID: panesByID,
+                    tabIDByPaneID: tabIDByPaneID
+                )
+            else {
                 return .failure(.paneNotOwnedByTab(pane.id))
             }
         }
         return .success(PreparedWorkspaceCompositionTabInputs(tabIDByPaneID: tabIDByPaneID))
     }
 
-    private static func isRecoverableUnownedPane(_ pane: Pane) -> Bool {
-        guard !pane.isDrawerChild else { return false }
-        return pane.residency == .backgrounded || pane.residency.isOrphaned
+    private static func isRecoverableUnownedPane(
+        _ pane: Pane,
+        panesByID: [UUID: Pane],
+        tabIDByPaneID: [UUID: UUID]
+    ) -> Bool {
+        guard pane.residency == .backgrounded || pane.residency.isOrphaned else {
+            return false
+        }
+        guard case .drawerChild(let parentPaneID) = pane.kind else {
+            return true
+        }
+        guard
+            tabIDByPaneID[parentPaneID] == nil,
+            let parentPane = panesByID[parentPaneID],
+            parentPane.residency == .backgrounded || parentPane.residency.isOrphaned
+        else {
+            return false
+        }
+        return parentPane.drawer?.paneIds.contains(pane.id) == true
     }
 
     private static func validateArrangement(
