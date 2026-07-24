@@ -168,7 +168,7 @@ Local proof:
 - every trigger/overlap/promotion/demotion;
 - tree-only visibility produces no logical opportunity or body open;
 - forward, backward, and unknown nearby geometry;
-- twelve held requests, thirteenth wanted, 3/9 reservation eligibility;
+- twelve held logical opportunities, thirteenth wanted, 3/9 reservation eligibility;
 - repeated reconciliation and every disposition release exactly once;
 - one request/signal through promotion and demotion;
 - full background traversal with mutation, retry, and eviction.
@@ -344,7 +344,7 @@ slice.
 Focused commands are refined to exact files by the implementor, from repo root:
 
 ```bash
-pnpm --dir BridgeWeb exec vitest --config vitest.config.ts run \
+mise run bridge-web-unit-test -- \
   src/core/comm-worker/bridge-comm-worker-reconciler.unit.test.ts \
   src/core/comm-worker/bridge-comm-worker-review-demand-scheduling.unit.test.ts \
   src/core/comm-worker/bridge-worker-review-content-fetch.unit.test.ts \
@@ -354,7 +354,7 @@ pnpm --dir BridgeWeb exec vitest --config vitest.config.ts run \
   src/app/bridge-app-review-render-snapshot-controller.render-fulfillment.unit.test.ts \
   src/review-viewer/workers/pierre/bridge-pierre-worker-pool.rank.unit.test.ts
 
-pnpm --dir BridgeWeb exec vitest --config vitest.e2e.config.ts run \
+mise run bridge-web-e2e-test -- \
   tests/e2e/bridge-viewer-vite-product.e2e.test.tsx
 
 mise run test-fast -- --filter \
