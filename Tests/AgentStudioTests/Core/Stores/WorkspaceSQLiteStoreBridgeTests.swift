@@ -145,6 +145,23 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(allMinimizedArrangement.drawerViews[fixture.drawerId]?.activeChildId == nil)
     }
 
+    @Test("SQLite drawer cursor fallback selects the first visible child owned by the drawer")
+    func sqliteDrawerCursorFallbackSkipsVisibleChildrenOutsideDrawerMembership() throws {
+        let fixture = makeWorkspaceSQLiteCursorProjectionFixture()
+        var paneGraph = fixture.paneGraph
+        paneGraph.panes[0].drawer?.childPaneIds = [fixture.visibleChildId]
+        var tabGraph = fixture.tabGraph
+        tabGraph.tabs[0].arrangements[0].drawerViews[fixture.drawerId]?.minimizedPaneIds = []
+
+        let cursorState = WorkspaceSQLiteStateBridge.localCursorStateForComposition(
+            persisted: nil,
+            paneGraph: paneGraph,
+            tabGraph: tabGraph
+        )
+
+        #expect(cursorState.activeChildIdsByArrangementDrawer[fixture.drawerCursorKey] == fixture.visibleChildId)
+    }
+
     @Test("SQLite materialization rejects missing required drawer expansion state")
     func sqliteMaterializationRejectsMissingDrawerExpansionState() throws {
         var snapshot = try makeStrictWorkspaceSQLiteStateBridgeSnapshot()

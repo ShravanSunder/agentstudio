@@ -397,9 +397,9 @@ enum WorkspaceSQLiteStateBridge {
                         drawersById[drawerId]?.childPaneIds.contains(persistedChildPaneId) == true
                     {
                         activeChildIdsByArrangementDrawer[key] = persistedChildPaneId
-                    } else if let fallbackChildPaneId = visibleChildPaneIds.first,
-                        drawersById[drawerId]?.childPaneIds.contains(fallbackChildPaneId) == true
-                    {
+                    } else if let fallbackChildPaneId = visibleChildPaneIds.first(where: {
+                        drawersById[drawerId]?.childPaneIds.contains($0) == true
+                    }) {
                         activeChildIdsByArrangementDrawer[key] = fallbackChildPaneId
                     }
                 }
