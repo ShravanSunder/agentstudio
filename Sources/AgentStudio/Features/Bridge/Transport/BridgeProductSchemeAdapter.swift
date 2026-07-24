@@ -88,7 +88,7 @@ struct BridgeProductSchemeAdapter: Sendable {
             }
         } catch is CancellationError {
             bridgeProductSchemeAdapterLogger.debug("Product request routing cancelled")
-            continuation.finish()
+            continuation.finish(throwing: CancellationError())
         } catch {
             let failureReason = BridgeProductSchemeContainedFailureReason(error: error)
             bridgeProductSchemeAdapterLogger.error(
