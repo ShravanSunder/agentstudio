@@ -179,6 +179,56 @@ describe('Bridge comm worker Review logical-position ledger', () => {
 		expect(result.wanted.map(({ itemId }) => itemId)).toEqual(['background-8']);
 	});
 
+	test('resumes active work without starting stale pending membership', () => {
+		const admissions: TestDemandAdmission[] = [];
+		const resumedItemIds: string[] = [];
+		const ledger = createBridgeCommWorkerReviewDemandLedger({
+			start: (admission) => {
+				admissions.push(admission);
+				return {
+					cancel: () => {},
+					resume: () => resumedItemIds.push(admission.itemId),
+					updateRole: () => {},
+				};
+			},
+		});
+		const initialMembership = [
+			visibleMember('visible-1'),
+			visibleMember('visible-2'),
+			visibleMember('visible-3'),
+			...Array.from(
+				{ length: 10 },
+				(_, index): BridgeCommWorkerDemandMember => ({
+					itemId: `background-${index + 1}`,
+					role: 'background',
+				}),
+			),
+		];
+		const initialResult = ledger.reconcile(initialMembership);
+		const releasedAdmission = initialResult.active.find(
+			({ itemId }) => itemId === 'background-1',
+		);
+		if (releasedAdmission === undefined) {
+			throw new Error('Expected the first background Review admission.');
+		}
+		ledger.setSuspended(true);
+		ledger.release('background-1', releasedAdmission.attemptToken, 'resident');
+
+		ledger.setSuspended(false);
+
+		expect(admissions).toHaveLength(12);
+		expect(resumedItemIds).toHaveLength(11);
+		const currentMembership = [
+			...initialMembership.filter(
+				({ itemId }) => itemId !== 'background-1' && itemId !== 'background-10',
+			),
+			{ itemId: 'current-background', role: 'background' },
+		] satisfies readonly BridgeCommWorkerDemandMember[];
+		ledger.reconcile(currentMembership);
+		expect(admissions.at(-1)?.itemId).toBe('current-background');
+		expect(admissions.map(({ itemId }) => itemId)).not.toContain('background-10');
+	});
+
 	test('reranks one held identity without cancellation and refills exactly once after release', () => {
 		const cancelledItemIds: string[] = [];
 		const updatedRoles: Array<readonly [string, BridgeCommWorkerDemandMember['role']]> = [];

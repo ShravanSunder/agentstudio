@@ -287,7 +287,6 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 					activeRecord.handle.resume?.();
 				}
 			}
-			if (!suspended) reconcile(latestMembership);
 		},
 		updateGeneration: (generation): void => {
 			if (currentGeneration === generation) return;
