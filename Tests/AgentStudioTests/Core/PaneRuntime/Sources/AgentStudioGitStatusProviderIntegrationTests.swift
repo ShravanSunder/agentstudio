@@ -12,7 +12,7 @@ struct AgentStudioGitStatusProviderIntegrationTests {
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
 
         let shellProvider = ShellGitWorkingTreeStatusProvider(processExecutor: DefaultProcessExecutor(timeout: 5))
-        let sdkProvider = AgentStudioGitWorkingTreeStatusProvider()
+        let sdkProvider = makeSDKProvider()
 
         let shellStatus = try #require(await shellProvider.status(for: repoURL))
         let sdkStatus = try #require(await sdkProvider.status(for: repoURL))
@@ -69,7 +69,7 @@ struct AgentStudioGitStatusProviderIntegrationTests {
     func realSDKProviderReturnsNilForInvalidWorktreeLikeShellProvider() async {
         let invalidURL = URL(fileURLWithPath: "/tmp/agentstudio-invalid-status-\(UUID().uuidString)")
         let shellProvider = ShellGitWorkingTreeStatusProvider(processExecutor: DefaultProcessExecutor(timeout: 5))
-        let sdkProvider = AgentStudioGitWorkingTreeStatusProvider()
+        let sdkProvider = makeSDKProvider()
 
         #expect(await shellProvider.status(for: invalidURL) == nil)
         #expect(await sdkProvider.status(for: invalidURL) == nil)
@@ -80,7 +80,7 @@ struct AgentStudioGitStatusProviderIntegrationTests {
         let repoURL = try FilesystemTestGitRepo.create(named: "agentstudio-git-status-unborn")
         defer { FilesystemTestGitRepo.destroy(repoURL) }
         let shellProvider = ShellGitWorkingTreeStatusProvider(processExecutor: DefaultProcessExecutor(timeout: 5))
-        let sdkProvider = AgentStudioGitWorkingTreeStatusProvider()
+        let sdkProvider = makeSDKProvider()
 
         let shellStatus = try #require(await shellProvider.status(for: repoURL))
         let sdkStatus = try #require(await sdkProvider.status(for: repoURL))
@@ -92,7 +92,7 @@ struct AgentStudioGitStatusProviderIntegrationTests {
 
     private func assertSDKMatchesShell(_ repoURL: URL) async throws {
         let shellProvider = ShellGitWorkingTreeStatusProvider(processExecutor: DefaultProcessExecutor(timeout: 5))
-        let sdkProvider = AgentStudioGitWorkingTreeStatusProvider()
+        let sdkProvider = makeSDKProvider()
 
         let shellStatus = try #require(await shellProvider.status(for: repoURL))
         let sdkStatus = try #require(await sdkProvider.status(for: repoURL))
@@ -107,5 +107,20 @@ struct AgentStudioGitStatusProviderIntegrationTests {
         #expect(sdkStatus.summary.behindCount == shellStatus.summary.behindCount)
         #expect(sdkStatus.summary.hasUpstream == shellStatus.summary.hasUpstream)
         #expect(sdkStatus.originResolution == shellStatus.originResolution)
+    }
+
+    private func makeSDKProvider() -> AgentStudioGitWorkingTreeStatusProvider {
+        AgentStudioGitWorkingTreeStatusProvider(
+            timeoutScheduler: NonFiringStatusTimeoutScheduler()
+        )
+    }
+}
+
+private struct NonFiringStatusTimeoutScheduler: AgentStudioGitStatusTimeoutScheduler {
+    func scheduleTimeout(
+        after _: Duration,
+        _: @escaping @Sendable () -> Void
+    ) -> AgentStudioGitScheduledTimeout {
+        AgentStudioGitScheduledTimeout(cancel: {})
     }
 }
