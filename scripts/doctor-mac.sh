@@ -58,8 +58,8 @@ if [[ "$vendor_role" == "primary" || "$vendor_role" == "local" ]]; then
   if xcode_version_output="$(xcodebuild -version 2>/dev/null)"; then
     report_ok "$(printf '%s' "$xcode_version_output" | tr '\n' ' ' | sed 's/  */ /g')"
     xcode_version="$(printf '%s\n' "$xcode_version_output" | awk '/^Xcode / {print $2; exit}')"
-    if [[ -n "$xcode_version" && "$xcode_version" != "26.2" ]]; then
-      report_warn "local Xcode ($xcode_version) differs from the GitHub Actions baseline (26.2 on macos-26-arm64)"
+    if [[ -n "$xcode_version" && "$xcode_version" != "26.3" ]]; then
+      report_warn "local Xcode ($xcode_version) differs from the GitHub Actions baseline (26.3 on macos-26-arm64)"
     fi
   else
     report_error "xcodebuild is unavailable. Install and finish launching Xcode first."
