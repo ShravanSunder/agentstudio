@@ -136,6 +136,53 @@ struct WorkspaceCoreGlobalTopologyMigrationTests {
         #expect(retainedPaneTriggersAfter == retainedPaneTriggersBefore)
     }
 
+    @Test("forward migration removes the deployed legacy worktree tag table")
+    func forwardMigrationRemovesDeployedLegacyWorktreeTagTable() throws {
+        let databaseQueue = try legacyCoreDatabase()
+
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    CREATE UNIQUE INDEX idx_worktree_id_workspace_repo_id
+                    ON worktree(id, workspace_id, repo_id)
+                    """
+            )
+            try database.execute(
+                sql: """
+                    CREATE TABLE worktree_tag (
+                        worktree_id TEXT NOT NULL,
+                        workspace_id TEXT NOT NULL,
+                        repo_id TEXT NOT NULL,
+                        tag TEXT NOT NULL,
+                        PRIMARY KEY(workspace_id, worktree_id, tag),
+                        FOREIGN KEY(worktree_id, workspace_id, repo_id)
+                            REFERENCES worktree(id, workspace_id, repo_id)
+                            ON DELETE CASCADE,
+                        FOREIGN KEY(repo_id, workspace_id)
+                            REFERENCES repo(id, workspace_id)
+                            ON DELETE CASCADE
+                    )
+                    """
+            )
+        }
+
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+
+        let legacyTableExists = try databaseQueue.read { database in
+            try Bool.fetchOne(
+                database,
+                sql: """
+                    SELECT EXISTS(
+                        SELECT 1
+                        FROM sqlite_master
+                        WHERE type = 'table' AND name = 'worktree_tag'
+                    )
+                    """
+            )
+        }
+        #expect(legacyTableExists == false)
+    }
+
     @Test("global stable key conflict rolls back the entire migration")
     func globalStableKeyConflictRollsBackEntireMigration() throws {
         for conflict in GlobalStableKeyConflict.allCases {

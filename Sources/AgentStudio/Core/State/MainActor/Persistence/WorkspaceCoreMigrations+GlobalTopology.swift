@@ -4,6 +4,7 @@ extension WorkspaceCoreMigrations {
         "DROP TRIGGER IF EXISTS pane_facet_repo_update_matches_workspace",
         "DROP TRIGGER IF EXISTS pane_facet_worktree_matches_workspace",
         "DROP TRIGGER IF EXISTS pane_facet_worktree_update_matches_workspace",
+        "DROP TABLE IF EXISTS worktree_tag",
         """
         CREATE TABLE watched_path_global_new (
             id TEXT PRIMARY KEY,
