@@ -355,12 +355,16 @@ enum WorkspaceSQLiteStateBridge {
                 activeArrangementIdsByTabId[tab.tabId] = defaultArrangementId
             }
             for arrangement in tab.arrangements {
-                guard let persistedPaneId = persisted?.activePaneIdsByArrangementId[arrangement.id],
-                    arrangement.layout.paneIds.contains(persistedPaneId)
-                else {
-                    continue
+                let visiblePaneIds = arrangement.layout.paneIds.filter {
+                    !arrangement.minimizedPaneIds.contains($0)
                 }
-                activePaneIdsByArrangementId[arrangement.id] = persistedPaneId
+                if let persistedPaneId = persisted?.activePaneIdsByArrangementId[arrangement.id],
+                    visiblePaneIds.contains(persistedPaneId)
+                {
+                    activePaneIdsByArrangementId[arrangement.id] = persistedPaneId
+                } else if let fallbackPaneId = visiblePaneIds.first {
+                    activePaneIdsByArrangementId[arrangement.id] = fallbackPaneId
+                }
             }
         }
 
@@ -378,18 +382,28 @@ enum WorkspaceSQLiteStateBridge {
         }
 
         var activeChildIdsByArrangementDrawer: [WorkspaceLocalRepository.ArrangementDrawerCursorKey: UUID] = [:]
-        for (key, childPaneId) in persisted?.activeChildIdsByArrangementDrawer ?? [:] {
-            guard
-                let tab = tabGraph.tabs.first(where: { tab in
-                    tab.arrangements.contains(where: { $0.id == key.arrangementId })
-                }),
-                let arrangement = tab.arrangements.first(where: { $0.id == key.arrangementId }),
-                arrangement.drawerViews[key.drawerId] != nil,
-                drawersById[key.drawerId]?.childPaneIds.contains(childPaneId) == true
-            else {
-                continue
+        for tab in tabGraph.tabs {
+            for arrangement in tab.arrangements {
+                for (drawerId, drawerView) in arrangement.drawerViews {
+                    let key = WorkspaceLocalRepository.ArrangementDrawerCursorKey(
+                        arrangementId: arrangement.id,
+                        drawerId: drawerId
+                    )
+                    let visibleChildPaneIds = drawerView.layout.paneIds.filter {
+                        !drawerView.minimizedPaneIds.contains($0)
+                    }
+                    if let persistedChildPaneId = persisted?.activeChildIdsByArrangementDrawer[key],
+                        visibleChildPaneIds.contains(persistedChildPaneId),
+                        drawersById[drawerId]?.childPaneIds.contains(persistedChildPaneId) == true
+                    {
+                        activeChildIdsByArrangementDrawer[key] = persistedChildPaneId
+                    } else if let fallbackChildPaneId = visibleChildPaneIds.first(where: {
+                        drawersById[drawerId]?.childPaneIds.contains($0) == true
+                    }) {
+                        activeChildIdsByArrangementDrawer[key] = fallbackChildPaneId
+                    }
+                }
             }
-            activeChildIdsByArrangementDrawer[key] = childPaneId
         }
 
         return .init(

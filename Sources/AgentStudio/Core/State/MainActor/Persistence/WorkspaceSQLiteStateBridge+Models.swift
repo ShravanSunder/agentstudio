@@ -5,7 +5,7 @@ extension WorkspaceSQLiteStateBridge {
         from record: WorkspaceCoreRepository.TabArrangementGraphRecord,
         cursorState: WorkspaceLocalRepository.CursorStateRecord
     ) -> PaneArrangement {
-        .init(
+        var arrangement = PaneArrangement(
             id: record.id,
             name: record.name,
             isDefault: record.isDefault,
@@ -18,18 +18,26 @@ extension WorkspaceSQLiteStateBridge {
                     arrangementId: record.id,
                     drawerId: drawerId
                 )
+                var projectedDrawerView = DrawerView(
+                    layout: drawerView.layout,
+                    activeChildId: cursorState.activeChildIdsByArrangementDrawer[key],
+                    minimizedPaneIds: drawerView.minimizedPaneIds
+                )
+                // DrawerView normalizes nil to its first pane. Preserve the
+                // explicit absence used when every drawer child is minimized.
+                projectedDrawerView.activeChildId = cursorState.activeChildIdsByArrangementDrawer[key]
                 return (
                     drawerId,
-                    DrawerView(
-                        layout: drawerView.layout,
-                        activeChildId: cursorState.activeChildIdsByArrangementDrawer[key],
-                        minimizedPaneIds: drawerView.minimizedPaneIds
-                    )
+                    projectedDrawerView
                 )
             }.reduce(into: [:]) { partialResult, pair in
                 partialResult[pair.0] = pair.1
             }
         )
+        // PaneArrangement applies the same normalization. Cursor state must
+        // remain nil when no visible layout pane exists.
+        arrangement.activePaneId = cursorState.activePaneIdsByArrangementId[record.id]
+        return arrangement
     }
 
     static func canonicalRepo(from record: WorkspaceCoreRepository.RepoRecord) -> CanonicalRepo {

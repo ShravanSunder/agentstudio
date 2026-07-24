@@ -247,6 +247,91 @@ struct WorkspaceCompositionPreparerTests {
         #expect(prepared.nonterminalContentMountInput.entries.map(\.paneID.uuid) == [ownedPane.id])
     }
 
+    @Test("recoverable unowned drawer cohorts remain dormant")
+    func recoverableUnownedDrawerCohortsRemainDormant() throws {
+        // Arrange
+        let orphanedResidency = SessionResidency.orphaned(
+            reason: .worktreeNotFound(path: "/tmp/composition-orphaned-drawer")
+        )
+        let cases:
+            [(
+                parentResidency: SessionResidency,
+                childResidency: SessionResidency,
+                shouldPrepare: Bool
+            )] = [
+                (.backgrounded, .backgrounded, true),
+                (orphanedResidency, orphanedResidency, true),
+                (.backgrounded, orphanedResidency, true),
+                (.backgrounded, .active, false),
+            ]
+
+        for testCase in cases {
+            let ownedPane = makeCompositionPane(title: "Owned terminal")
+            var dormantParent = makeCompositionPane(
+                title: "Dormant drawer parent",
+                residency: testCase.parentResidency
+            )
+            var dormantChild = makeCompositionPane(
+                title: "Dormant drawer child",
+                residency: testCase.childResidency
+            )
+            dormantChild.kind = .drawerChild(parentPaneId: dormantParent.id)
+            dormantParent.withDrawer { drawer in
+                drawer.paneIds = [dormantChild.id]
+            }
+            let tab = makeCompositionTab(paneID: ownedPane.id)
+            let snapshot = WorkspaceSQLiteSnapshot(
+                id: UUIDv7.generate(),
+                name: "Recoverable drawer cohort",
+                panes: [ownedPane, dormantParent, dormantChild],
+                tabs: [tab],
+                activeTabId: tab.id
+            )
+
+            // Act
+            let result = WorkspaceCompositionPreparer.prepare(snapshot)
+
+            // Assert
+            if testCase.shouldPrepare {
+                let prepared = try requirePreparedComposition(result)
+                #expect(Set(prepared.paneGraph.replacement.paneStates.keys) == Set(snapshot.panes.map(\.id)))
+                #expect(prepared.tabGraph.tabIDByPaneID == [ownedPane.id: tab.id])
+                #expect(prepared.terminalActivationInput.entries.map(\.paneID.uuid) == [ownedPane.id])
+                #expect(prepared.nonterminalContentMountInput.entries.isEmpty)
+            } else {
+                #expect(result == .rejected(.paneNotOwnedByTab(dormantChild.id)))
+            }
+        }
+    }
+
+    @Test("unowned drawer child rejects when its parent remains owned")
+    func unownedDrawerChildRejectsWhenParentRemainsOwned() throws {
+        // Arrange
+        var ownedParent = makeCompositionPane(title: "Owned drawer parent")
+        var detachedChild = makeCompositionPane(
+            title: "Detached drawer child",
+            residency: .backgrounded
+        )
+        detachedChild.kind = .drawerChild(parentPaneId: ownedParent.id)
+        ownedParent.withDrawer { drawer in
+            drawer.paneIds = [detachedChild.id]
+        }
+        let tab = makeCompositionTab(paneID: ownedParent.id)
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(),
+            name: "Detached drawer child",
+            panes: [ownedParent, detachedChild],
+            tabs: [tab],
+            activeTabId: tab.id
+        )
+
+        // Act
+        let result = WorkspaceCompositionPreparer.prepare(snapshot)
+
+        // Assert
+        #expect(result == .rejected(.paneNotOwnedByTab(detachedChild.id)))
+    }
+
     @Test("active unowned pane rejects instead of entering recoverable pane pool")
     func activeUnownedPaneRejectsInsteadOfEnteringRecoverablePanePool() throws {
         // Arrange

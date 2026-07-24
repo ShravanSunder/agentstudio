@@ -144,6 +144,17 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
         let drawerId = try #require(store.pane(parentPane.id)?.drawer?.drawerId)
 
         #expect(store.mutationCoordinator.backgroundPane(parentPane.id))
+        #expect((await store.flushAsync()).succeeded)
+
+        let dormantStore = WorkspaceStore(
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+        )
+        _ = await dormantStore.loadCanonicalComposition()
+        #expect(dormantStore.tab(tab.id)?.allPaneIds == [anchorPane.id])
+        #expect(dormantStore.pane(parentPane.id)?.residency == .backgrounded)
+        #expect(dormantStore.pane(firstDrawerPane.id)?.residency == .backgrounded)
+        #expect(dormantStore.pane(secondDrawerPane.id)?.residency == .backgrounded)
+
         #expect(
             store.mutationCoordinator.reactivatePane(
                 parentPane.id,
