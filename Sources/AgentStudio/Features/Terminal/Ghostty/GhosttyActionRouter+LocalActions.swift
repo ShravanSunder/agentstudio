@@ -7,6 +7,33 @@ enum GhosttyTranslatedActionAdmission: Sendable, Equatable {
     case handledLocally
 }
 
+@MainActor
+struct TerminalLocalActionDrainMountedHost {
+    let paneID: UUID
+    let surfaceView: Ghostty.SurfaceView?
+    let hostScrollbarState: () -> ScrollbarState?
+    let updateHostScrollbarState: (ScrollbarState) -> Void
+}
+
+@MainActor
+struct TerminalLocalActionDrainHostAccess {
+    let resolveMountedHost: (UUID) -> TerminalLocalActionDrainMountedHost?
+
+    static let surfaceManager = Self { surfaceID in
+        guard
+            let surfaceView = SurfaceManager.shared.surface(for: surfaceID),
+            surfaceView.managedSurfaceID == surfaceID,
+            let paneID = SurfaceManager.shared.paneId(for: surfaceID)
+        else { return nil }
+        return TerminalLocalActionDrainMountedHost(
+            paneID: paneID,
+            surfaceView: surfaceView,
+            hostScrollbarState: { surfaceView.hostScrollbarState },
+            updateHostScrollbarState: { surfaceView.updateHostScrollbarState($0) }
+        )
+    }
+}
+
 extension Ghostty.ActionRouter {
     static func admitTranslatedActionToTerminalRuntime(
         _ event: GhosttyEvent,
@@ -166,11 +193,15 @@ extension Ghostty.ActionRouter {
 
     @MainActor
     static func drainLocalActions(for surfaceID: UUID) async {
-        guard
-            let surfaceView = SurfaceManager.shared.surface(for: surfaceID),
-            surfaceView.managedSurfaceID == surfaceID,
-            let paneUUID = SurfaceManager.shared.paneId(for: surfaceID)
-        else {
+        await drainLocalActions(for: surfaceID, hostAccess: .surfaceManager)
+    }
+
+    @MainActor
+    static func drainLocalActions(
+        for surfaceID: UUID,
+        hostAccess: TerminalLocalActionDrainHostAccess
+    ) async {
+        guard let mountedHost = hostAccess.resolveMountedHost(surfaceID) else {
             retireLocalActions(for: surfaceID)
             return
         }
@@ -178,44 +209,48 @@ extension Ghostty.ActionRouter {
         guard
             let batch = localActionAccumulator.beginDrain(
                 for: surfaceID,
-                defaultActivityContext: terminalActivityProjectionContext(paneID: paneUUID)
+                defaultActivityContext: terminalActivityProjectionContext(paneID: mountedHost.paneID)
             )
         else { return }
         defer {
             _ = localActionAccumulator.finishDrain(for: surfaceID)
         }
 
-        let paneID = PaneId(existingUUID: paneUUID)
+        let clock = ContinuousClock()
+        let compactApplyStartedAt = clock.now
+        if let scrollbarState = batch.presentation.scrollbarState,
+            mountedHost.hostScrollbarState() != scrollbarState
+        {
+            mountedHost.updateHostScrollbarState(scrollbarState)
+        }
+
+        let paneID = PaneId(existingUUID: mountedHost.paneID)
         let routedRuntime = runtimeRegistryForActionRouting.runtime(for: paneID) as? TerminalRuntime
         let runtime =
             routedRuntime
             ?? (ObjectIdentifier(runtimeRegistryForActionRouting) != ObjectIdentifier(RuntimeRegistry.shared)
                 ? RuntimeRegistry.shared.runtime(for: paneID) as? TerminalRuntime
                 : nil)
-        guard let runtime else {
-            retireLocalActions(for: surfaceID)
-            return
-        }
-
-        let clock = ContinuousClock()
-        let compactApplyStartedAt = clock.now
-        if let scrollbarState = batch.presentation.scrollbarState,
-            surfaceView.hostScrollbarState != scrollbarState
-        {
-            surfaceView.updateHostScrollbarState(scrollbarState)
-        }
-        if let surfaceTitle = batch.titleMetadata?.surfaceTitle,
-            surfaceView.title != surfaceTitle
-        {
-            surfaceView.titleDidChange(surfaceTitle)
-        }
-        let equalWriteSuppressedCount = runtime.applyLocalActionBatch(batch)
-        if let runtimeTitle = batch.titleMetadata?.runtimeTitle {
-            routeContractedTitleMetadata(
-                runtimeTitle,
-                surfaceViewObjectID: ObjectIdentifier(surfaceView),
-                routingLookup: SurfaceManager.shared
-            )
+        let equalWriteSuppressedCount: Int
+        if let runtime {
+            if let surfaceView = mountedHost.surfaceView,
+                let surfaceTitle = batch.titleMetadata?.surfaceTitle,
+                surfaceView.title != surfaceTitle
+            {
+                surfaceView.titleDidChange(surfaceTitle)
+            }
+            equalWriteSuppressedCount = runtime.applyLocalActionBatch(batch)
+            if let surfaceView = mountedHost.surfaceView,
+                let runtimeTitle = batch.titleMetadata?.runtimeTitle
+            {
+                routeContractedTitleMetadata(
+                    runtimeTitle,
+                    surfaceViewObjectID: ObjectIdentifier(surfaceView),
+                    routingLookup: SurfaceManager.shared
+                )
+            }
+        } else {
+            equalWriteSuppressedCount = 0
         }
         let compactApplyServiceTime = compactApplyStartedAt.duration(to: clock.now)
         let activityProjectionRoundTrip: TerminalActivityProjectionRoundTripPerformance
@@ -227,7 +262,7 @@ extension Ghostty.ActionRouter {
             await submitTerminalActivityInput(
                 .aggregate(
                     surfaceID: surfaceID,
-                    paneID: paneUUID,
+                    paneID: mountedHost.paneID,
                     input: TerminalActivityAggregateInput(
                         aggregate: aggregate,
                         latestState: latestState,
@@ -239,7 +274,7 @@ extension Ghostty.ActionRouter {
         } else {
             activityProjectionRoundTrip = .notSubmitted
         }
-        surfaceView.performanceTraceRecorder?.recordTerminalCompactApply(
+        mountedHost.surfaceView?.performanceTraceRecorder?.recordTerminalCompactApply(
             TerminalCompactApplyPerformanceSnapshot(
                 equalWriteSuppressedCount: UInt64(equalWriteSuppressedCount),
                 activityProjectionRoundTrip: activityProjectionRoundTrip
@@ -247,7 +282,7 @@ extension Ghostty.ActionRouter {
             serviceTime: compactApplyServiceTime
         )
         let currentUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
-        surfaceView.performanceTraceRecorder?.recordTerminalAccumulatorDrain(
+        mountedHost.surfaceView?.performanceTraceRecorder?.recordTerminalAccumulatorDrain(
             terminalAccumulatorDrainPerformanceSnapshot(
                 for: batch,
                 drainClass: terminalAccumulatorDrainClass(for: batch)
