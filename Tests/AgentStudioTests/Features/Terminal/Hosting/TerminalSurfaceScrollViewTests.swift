@@ -184,6 +184,10 @@ struct TerminalSurfaceScrollViewTests {
 
         #expect(documentOffsetY(of: scrollView) == 1200)
         #expect(performer.actions.count == actionCountBeforeEnd)
+
+        simulateLiveScroll(scrollView, documentOffsetY: 1200)
+
+        #expect(performer.actions.count == actionCountBeforeEnd)
     }
 
     @Test("pinned state received during bottom gesture reconciles at drag end")
@@ -202,6 +206,10 @@ struct TerminalSurfaceScrollViewTests {
         endLiveScroll(scrollView)
 
         #expect(documentOffsetY(of: scrollView) == 0)
+        #expect(performer.actions.count == actionCountBeforeEnd)
+
+        simulateLiveScroll(scrollView, documentOffsetY: 0)
+
         #expect(performer.actions.count == actionCountBeforeEnd)
     }
 
