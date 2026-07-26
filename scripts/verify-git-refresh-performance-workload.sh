@@ -1140,7 +1140,7 @@ wait_for_trace_event() {
   local timeout_seconds="$2"
   local deadline=$((SECONDS + timeout_seconds))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    if [ "$(victoria_metric_event_count "$event_name")" -gt 0 ]; then
+    if [ "$(victoria_event_count "$event_name")" -gt 0 ]; then
       return 0
     fi
     if jsonl_proof_enabled && current_trace_jsonl_has_event "$event_name"; then

@@ -108,6 +108,16 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(!source.contains("agent.proof.marker:%s"))
         #expect(!source.contains("_msg:%s"))
         #expect(source.contains("victoria_event_count()"))
+        #expect(
+            source.contains(
+                #"if [ "$(victoria_event_count "$event_name")" -gt 0 ]; then"#
+            )
+        )
+        #expect(
+            !source.contains(
+                #"if [ "$(victoria_metric_event_count "$event_name")" -gt 0 ]; then"#
+            )
+        )
         #expect(source.contains("victoria_metric_event_query()"))
         #expect(source.contains("victoria_metric_event_count()"))
         #expect(source.contains("agentstudio_performance_events_total"))
