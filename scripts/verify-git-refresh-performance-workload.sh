@@ -127,7 +127,10 @@ DRIVE_COMMAND_BAR="${AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR:-1}"
 SAMPLE_DURING_WORKLOAD="${AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD:-0}"
 ALLOW_JSONL_PROOF="${AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF:-0}"
 ALLOW_TEST_RESPONSES="${AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES:-0}"
-COMMON_QUIESCENCE_TIMEOUT_SECONDS=30
+COMMON_QUIESCENCE_TIMEOUT_SECONDS=75
+METRICS_EXPORT_TIMEOUT_SECONDS=75
+REQUIRED_PERFORMANCE_METRIC_MINIMUM_COUNT=1
+REQUIRED_COMMANDBAR_QUERY_CHARACTER_MINIMUM=1
 
 absolute_path() {
   local path="$1"
@@ -140,6 +143,17 @@ absolute_path() {
       ;;
   esac
 }
+
+workload_fingerprint() {
+  printf '%s' \
+    "repos=$REPO_COUNT;worktrees=$WORKTREE_COUNT;panes=$ACTIVE_PANE_COUNT;writers=$WRITER_COUNT;duration=$DURATION_SECONDS;commandbar=$DRIVE_COMMAND_BAR;sample=$SAMPLE_DURING_WORKLOAD;metric_min=$REQUIRED_PERFORMANCE_METRIC_MINIMUM_COUNT;query_min=$REQUIRED_COMMANDBAR_QUERY_CHARACTER_MINIMUM" \
+    | shasum -a 256 \
+    | awk '{print $1}'
+}
+
+SOURCE_HEAD="$(git -C "$PROJECT_ROOT" rev-parse HEAD)"
+WORKTREE_IDENTITY="$(canonical_path "$PROJECT_ROOT")"
+WORKLOAD_FINGERPRINT="$(workload_fingerprint)"
 
 if [ -n "${AGENTSTUDIO_PERF_PROOF_ROOT:-}" ]; then
   PROOF_ROOT="$(absolute_path "$AGENTSTUDIO_PERF_PROOF_ROOT")"
@@ -191,6 +205,8 @@ DEBUG_STATE_COPY="$ARTIFACT/debug-observability.env"
 APP_PID=""
 APP_BINARY=""
 APP_LAUNCH_BUNDLE=""
+APP_LAUNCH_METHOD=""
+ACTIVATION_MODE=""
 QUERY_START=""
 WRITERS_FINISHED_AT=""
 WRITER_PIDS=()
@@ -454,13 +470,14 @@ write_workspace_json() {
       printf '      "metadata": {\n'
       printf '        "paneId": "%s",\n' "$pane_id"
       printf '        "contentType": {"terminal": {}},\n'
-      printf '        "source": {"worktree": {"worktreeId": "%s", "repoId": "%s", "launchDirectory": "%s"}},\n' \
-        "$worktree_id" "$repo_id" "$(json_url "$worktree_path")"
+      # Keep canonical launch placement separate from the nil live CWD so the
+      # shell's first real PWD report exercises the production topology lookup.
+      printf '        "launchDirectory": "%s",\n' "$(json_url "$worktree_path")"
       printf '        "executionBackend": {"local": {}},\n'
       printf '        "createdAt": %s,\n' "$timestamp"
       printf '        "title": "%s",\n' "$title"
-      printf '        "facets": {"repoId": "%s", "worktreeId": "%s", "cwd": "%s", "tags": []},\n' \
-        "$repo_id" "$worktree_id" "$(json_url "$worktree_path")"
+      printf '        "facets": {"repoId": "%s", "worktreeId": "%s", "cwd": null, "tags": []},\n' \
+        "$repo_id" "$worktree_id"
       printf '        "checkoutRef": null,\n'
       printf '        "note": null\n'
       printf '      },\n'
@@ -636,6 +653,12 @@ launch_debug_observability_app() {
   APP_PID="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
   APP_BINARY="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_EXECUTABLE)"
   APP_LAUNCH_BUNDLE="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_APP)"
+  APP_LAUNCH_METHOD="$(
+    decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD
+  )"
+  ACTIVATION_MODE="$(
+    decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE
+  )"
   QUERY_START="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_QUERY_START)"
   if [ -z "$APP_PID" ] || [ -z "$APP_BINARY" ]; then
     echo "debug observability state did not include PID/executable: $DEBUG_OBSERVABILITY_STATE_FILE" >&2
@@ -1089,9 +1112,104 @@ victoria_metric_command_bar_filter_query() {
     "$TRACE_NAME"
 }
 
+victoria_log_command_bar_filter_query_character_max() {
+  local response
+  response="$(
+    query_victoria_logs \
+      "$(victoria_event_query performance.commandbar.filter) | fields agentstudio.performance.commandbar.query_character.count | limit 10000" \
+      2>/dev/null || true
+  )"
+  [ -n "$response" ] || {
+    printf '0\n'
+    return 0
+  }
+  /usr/bin/python3 -c '
+import json
+import math
+import sys
+
+values = []
+for line in sys.stdin:
+    if not line.strip():
+        continue
+    try:
+        payload = json.loads(line)
+        value = float(payload.get("agentstudio.performance.commandbar.query_character.count", 0))
+    except Exception:
+        continue
+    if math.isfinite(value):
+        values.append(value)
+
+print(max(values, default=0))
+' <<<"$response"
+}
+
 victoria_metric_event_count() {
   local event_name="$1"
   victoria_metric_value "$(victoria_metric_event_query "$event_name")"
+}
+
+required_performance_metric_event_names() {
+  cat <<'EOF'
+performance.commandbar.items
+performance.commandbar.filter
+performance.tabbar.refresh
+performance.sidebar.projection
+performance.sidebar.row_index
+performance.topology.repo_and_worktree
+performance.coordinator.write
+EOF
+}
+
+missing_required_performance_metric_events() {
+  local missing_events=()
+  local event_name
+  while IFS= read -r event_name; do
+    [ -n "$event_name" ] || continue
+    if [ "$(victoria_metric_event_count "$event_name")" = "0" ]; then
+      missing_events+=("$event_name")
+    fi
+  done < <(required_performance_metric_event_names)
+
+  local IFS=,
+  printf '%s\n' "${missing_events[*]-}"
+}
+
+wait_for_required_performance_metrics_export() {
+  local export_log="$ARTIFACT/metrics-export-readiness.log"
+  local deadline=$((SECONDS + METRICS_EXPORT_TIMEOUT_SECONDS))
+  local missing_metric_events
+
+  : >"$export_log"
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if ! kill -0 "$APP_PID" >/dev/null 2>&1; then
+      echo "app pid $APP_PID exited before required performance metrics exported" \
+        | tee -a "$export_log" >&2
+      return 1
+    fi
+
+    missing_metric_events="$(missing_required_performance_metric_events)"
+    printf 'observed_at=%s missing_metric_events=%s\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      "${missing_metric_events:-none}" >>"$export_log"
+    if [ -z "$missing_metric_events" ]; then
+      echo "metrics_export_readiness=succeeded" >>"$export_log"
+      return 0
+    fi
+    sleep 1
+  done
+
+  missing_metric_events="$(missing_required_performance_metric_events)"
+  {
+    echo "metrics_export_readiness=timed_out timeout_seconds=$METRICS_EXPORT_TIMEOUT_SECONDS"
+    echo "missing_metric_events=$missing_metric_events"
+    local event_name
+    while IFS= read -r event_name; do
+      [ -n "$event_name" ] || continue
+      echo "$event_name.victoria_metrics_count=$(victoria_metric_event_count "$event_name")"
+    done < <(required_performance_metric_event_names)
+  } | tee -a "$export_log" >&2
+  return 1
 }
 
 jsonl_proof_enabled() {
@@ -1155,7 +1273,7 @@ wait_for_command_bar_repo_filter_event() {
   local timeout_seconds="$1"
   local deadline=$((SECONDS + timeout_seconds))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    if [ "$(victoria_metric_value "$(victoria_metric_command_bar_filter_query)")" != "0" ]; then
+    if [ "$(victoria_log_command_bar_filter_query_character_max)" != "0" ]; then
       return 0
     fi
     if jsonl_proof_enabled && current_trace_jsonl_has_command_bar_filter; then
@@ -1278,11 +1396,21 @@ summarize_performance_event() {
 
 summarize_traces() {
   capture_restore_trace
-  local jsonl_file
+  local jsonl_file query_character_max
   jsonl_file="$(current_trace_jsonl_files | head -n 1)"
+  query_character_max="$(victoria_log_command_bar_filter_query_character_max)"
   {
     echo "artifact=$ARTIFACT"
     echo "trace_name=$TRACE_NAME"
+    echo "source_head=$SOURCE_HEAD"
+    echo "trace_tags=$WORKLOAD_TRACE_TAGS"
+    echo "activation_mode=$ACTIVATION_MODE"
+    echo "launch_method=$APP_LAUNCH_METHOD"
+    echo "executable_identity=$APP_BINARY"
+    echo "worktree_identity=$WORKTREE_IDENTITY"
+    echo "workload_fingerprint=$WORKLOAD_FINGERPRINT"
+    echo "required_performance_metric_minimum_count=$REQUIRED_PERFORMANCE_METRIC_MINIMUM_COUNT"
+    echo "required_commandbar_query_character_minimum=$REQUIRED_COMMANDBAR_QUERY_CHARACTER_MINIMUM"
     echo "workspace_file=$WORKSPACE_FILE"
     echo "app_data_dir=$APP_DATA_DIR"
     echo "fixture_root=$FIXTURE_ROOT"
@@ -1321,7 +1449,7 @@ summarize_traces() {
       echo "performance.git.status_unavailable.reason.$unavailable_reason.elapsed_ms.p95=$(victoria_metric_event_elapsed_p95 performance.git.status_unavailable "$reason_selector")"
       echo "performance.git.status_unavailable.reason.$unavailable_reason.elapsed_ms.max=$(victoria_metric_event_elapsed_max performance.git.status_unavailable "$reason_selector")"
     done < <(victoria_metric_status_unavailable_reason_values)
-    echo "performance.commandbar.filter.query_character.max=$(victoria_metric_value "$(victoria_metric_command_bar_filter_query)")"
+    echo "performance.commandbar.filter.query_character.max=$query_character_max"
   } | tee "$SUMMARY_FILE"
 }
 
@@ -1379,7 +1507,10 @@ fi
 for writer_pid in "${WRITER_PIDS[@]}"; do
   wait "$writer_pid" >/dev/null 2>&1 || true
 done
-WRITERS_FINISHED_AT="$(/usr/bin/python3 -c 'import time; print(time.time())')"
+# VictoriaMetrics timestamps have one-second precision at this proof boundary.
+# Use the enclosing second so a final zero-debt snapshot emitted immediately
+# before the writer processes exit remains eligible for the freshness check.
+WRITERS_FINISHED_AT="$(date -u +%s)"
 echo "writers_finished_at=$WRITERS_FINISHED_AT" >"$ARTIFACT/writers-finished.env"
 
 if ! wait_for_trace_event performance.git.status 30; then
@@ -1387,7 +1518,6 @@ if ! wait_for_trace_event performance.git.status 30; then
   summarize_traces
   exit 1
 fi
-require_status_latency_metrics
 
 if [ "$DRIVE_COMMAND_BAR" = "1" ] && ! wait_for_command_bar_repo_filter_event 10; then
   echo "did not observe non-empty performance.commandbar.filter after startup command-bar repo filter smoke" >&2
@@ -1400,6 +1530,13 @@ if ! wait_for_common_quiescence "$WRITERS_FINISHED_AT"; then
   summarize_traces
   exit 1
 fi
+
+if ! wait_for_required_performance_metrics_export; then
+  echo "required performance metrics did not export within $METRICS_EXPORT_TIMEOUT_SECONDS seconds" >&2
+  summarize_traces
+  exit 1
+fi
+require_status_latency_metrics
 
 if ! capture_final_process_resources; then
   summarize_traces
