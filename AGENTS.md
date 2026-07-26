@@ -302,9 +302,9 @@ Instead:
 
 ## Architecture at a Glance
 
-AppKit-main architecture hosting SwiftUI views. Shared app state is actor-bound and accessed through `AtomRegistry` + `AtomScope`, with `atom(\.foo)` as the primary read path. Canonical mutable state lives in `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms`, and persistence wrappers live under `Core/State/MainActor/Persistence`. Two coordinators handle cross-slice sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to the main-actor state system, and a separate app lifecycle monitor owns AppKit ingress.
+AppKit-main architecture hosting SwiftUI views. Shared Core state is actor-bound in `CoreAtoms` and accessed through the one ambient `CoreAtomScope`, with `atom(\.foo)` as the typed `KeyPath<CoreAtoms, Value>` read path. Feature-owned mutable state is never ambient: App injects each Feature's concrete atom or facade explicitly, and supplies sibling facts through consumer-owned read-only projections. Canonical mutable state lives in `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms` or the owning Feature's matching path, and persistence wrappers live under the corresponding `State/MainActor/Persistence` path. Two coordinators handle cross-slice sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to the main-actor state system, and a separate app lifecycle monitor owns AppKit ingress.
 
-`AtomRegistry` is the single root-level composition file at `Sources/AgentStudio/AtomRegistry.swift`. It may compose Core and Feature atoms. `Infrastructure/AtomLib` owns only generic atom primitives and access helpers (`atom(\...)`, `AtomScope`, `AtomReader`, `Derived`, `DerivedSelector`, `AtomValue`, `AtomEntityMap`, `DerivedValue`) and must not own product atoms or feature-specific registry fields. Hot UI reads for keyed entity state should use keyed atom-family-style slots such as `AtomEntityMap.value(for:)`; dictionary-shaped snapshots are for persistence, cold bulk bridges, and measured exceptions.
+`AtomRegistry` is the internal App-only composition root at `Sources/AgentStudio/AtomRegistry.swift`. It stores one `CoreAtoms` plus explicit concrete Feature roots and is never an ambient lookup surface. `Infrastructure/AtomLib` owns only generic primitives (`AtomValue`, `AtomEntityMap`, `AtomMutationContext`, `AtomRevision`, `DerivedValue`, and their telemetry); product access (`atom(\...)` and `CoreAtomScope`) belongs to Core. Infrastructure must not name `AtomRegistry`, `CoreAtoms`, `CoreAtomScope`, product atoms, or feature-specific registry fields. Hot UI reads for keyed entity state should use keyed atom-family-style slots such as `AtomEntityMap.value(for:)`; dictionary-shaped snapshots are for persistence, cold bulk bridges, and measured exceptions.
 
 Architecture boundaries are enforced by stock SwiftLint plus the repo-local
 SwiftPM/SwiftSyntax tool in `Tools/AgentStudioArchitectureLint`. `mise run lint`
@@ -327,7 +327,7 @@ Use these broad ownership rules first, then consult [Directory Structure](docs/a
 - `Features/`
   User-facing capability slices such as Terminal, Bridge, Webview, CodeViewer, CommandBar, RepoExplorer, InboxNotification, and feature-owned EditorChooser state. Features own capability-specific behavior that is broader than a reusable component.
 - `Infrastructure/`
-  Domain-agnostic utilities and external integrations. Organize these in subfolders by concern, such as `AtomLib/`, `Extensions/`, `Icons/`, `StateMachine/`, and integration-specific folders like `ExternalApps/`. `Infrastructure/AtomLib` holds generic atom access helpers and primitives only; the concrete `AtomRegistry` lives at the source root because it composes Core and Feature atoms.
+  Domain-agnostic utilities and external integrations. Organize these in subfolders by concern, such as `AtomLib/`, `Extensions/`, `Icons/`, `StateMachine/`, and integration-specific folders like `ExternalApps/`. `Infrastructure/AtomLib` holds generic observation primitives only. Core owns `CoreAtoms`, `CoreAtomScope`, and `atom(\...)`; the internal App-only `AtomRegistry` composes that Core graph with explicit Feature roots.
 
 ### Shared UI, Styles, And Policies
 
@@ -373,7 +373,9 @@ icons when a sidebar/local action already defines the presentation.
 
 | Component | Owns | Location |
 |-----------|------|----------|
-| `AtomRegistry` | concrete root composition file for Core and Feature atoms plus derived helpers | `Sources/AgentStudio/AtomRegistry.swift` |
+| `AtomRegistry` | internal App-only root holding one `CoreAtoms` plus explicit concrete Feature roots; never ambient | `Sources/AgentStudio/AtomRegistry.swift` |
+| `CoreAtoms` | concrete Core-only state graph, facades, coordinators, and derived readers | `Core/State/MainActor/Atoms/CoreAtoms.swift` |
+| `CoreAtomScope` | sole ambient product scope, installed from `AtomRegistry.core` and typed only to `CoreAtoms` | `Core/State/MainActor/Atoms/CoreAtomScope.swift` |
 | `SQLiteDatabaseFactory` | generic GRDB database construction, pragmas, WAL, and capability-test connection setup; no product schema knowledge | `Infrastructure/SQLite/SQLiteDatabaseFactory.swift` |
 | `SQLiteSidecarQuarantine` | generic SQLite database/WAL/SHM quarantine helper; no product schema knowledge | `Infrastructure/SQLite/SQLiteSidecarQuarantine.swift` |
 | `WorkspaceCoreMigrations` | `core.sqlite` migration identifiers and core workspace schema DDL; repository-facing only, not a live atom read model | `Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift` |
@@ -555,7 +557,7 @@ Business rules belong in pure domain types; coordinators sequence them; persiste
 
 **Composition state vs feature state.** Composition state (app-wide UI shell — which surface is showing, whether the sidebar is collapsed, and whether the sidebar owns focus) is split by lifecycle in Core. Persisted shell memory lives on `WorkspaceSidebarMemoryAtom`, runtime-only focus lives on `SidebarFocusRuntimeAtom`, and UI call sites read the composed `WorkspaceSidebarState`. Feature state (domain data specific to one feature) lives in feature atoms inside the feature slice. Never add a feature-specific property to a Core atom; never add a feature type to `Core/Models/` just because an atom references it — that forces feature types into Core.
 
-Shared reads use `atom(\.foo)` or `AtomReader`; `@Atom(\.foo)` is optional convenience sugar. See [component_architecture.md](docs/architecture/component_architecture.md) and [directory_structure.md — Feature Slice Self-Containment](docs/architecture/directory_structure.md) for canonical examples.
+Shared Core reads use `atom(\.foo)`, whose root is `CoreAtoms`. Feature views receive their own mutable atom or facade explicitly; sibling Feature facts arrive through consumer-owned read-only projections supplied by App. There is no `AtomReader`, `@Atom`, Feature scope, or Feature registry compatibility path. See [component_architecture.md](docs/architecture/component_architecture.md) and [directory_structure.md — Feature Slice Self-Containment](docs/architecture/directory_structure.md) for canonical examples.
 
 ### 2. Stores — persistence wrappers
 

@@ -21,6 +21,8 @@ struct ArchitectureLintCommandTests {
 
         #expect(result.exitCode == 1)
         #expect(result.output.contains("error: [agentstudio_import_direction]"))
+        #expect(result.output.contains("error: [agentstudio_product_atom_boundary]"))
+        #expect(result.output.contains("error: [agentstudio_canonical_atom_mutation]"))
         #expect(result.output.contains("warning: [agentstudio_state_actor_path]"))
         #expect(result.output.contains("error: [agentstudio_no_forbidden_architecture_marker]"))
         #expect(result.output.contains("error: [agentstudio_no_generic_clock_sleep]"))

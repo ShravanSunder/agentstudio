@@ -18,7 +18,7 @@ The hybrid approach (inspired by Ghostty's own codebase structure) keeps infrast
 
 ```
 Sources/AgentStudio/
-├── AtomRegistry.swift                # Single concrete registry composing Core + Feature atoms
+├── AtomRegistry.swift                # Internal App root: one CoreAtoms + explicit Feature roots
 ├── App/                              # Composition root — wires everything together
 │   ├── Boot/                         # Launch restore, lifecycle routing, boot sequencing
 │   ├── Commands/                     # App-owned command entry points
@@ -29,7 +29,8 @@ Sources/AgentStudio/
 │   ├── PaneAgents/                   # App-owned pane-agent process launch,
 │   │                                 #   fd bootstrap remap, lifecycle cleanup
 │   ├── Panes/                        # App-owned pane hosting, tab management, empty states
-│   │   ├── Hosting/                  # PaneHostView, management-layer drag shield
+│   │   ├── Hosting/                  # Seven concrete composition views, PaneHostView,
+│   │   │                             #   management-layer drag shield
 │   │   ├── Status/                   # Workspace status chips
 │   │   └── TabBar/                   # Tab bar arrangement + adapter views
 │   └── Windows/                      # Main window / split-window controllers and settings
@@ -41,13 +42,13 @@ Sources/AgentStudio/
 │   ├── RuntimeEventSystem/           # Shared pane-runtime contracts, buses, projectors
 │   ├── State/
 │   │   └── MainActor/
-│   │       ├── Atoms/                # Workspace atoms, lifecycle atoms, repo/UI atoms, derived readers
+│   │       ├── Atoms/                # CoreAtoms, CoreAtomScope, atom(...), Core-owned atoms/readers
 │   │       └── Persistence/          # WorkspaceStore, RepoCacheStore, UIStateStore
 │   └── Views/                        # Shared pane/tree/drawer primitives
-│       ├── Drawer/                   # DrawerLayout, DrawerPanel, DrawerOverlay, DrawerIconBar
-│       └── Panes/                    # FlatTabStripContainer, FlatPaneStripContent, CollapsedPaneBar,
-│                                     #   PaneLeafContainer, SplitContainerDropCaptureOverlay,
-│                                     #   PaneDragCoordinator, PaneDropTargetOverlay, SplitView
+│       ├── Drawer/                   # DrawerLayout, DrawerIconBar, DrawerIconBarFrameKey
+│       └── Panes/                    # FlatPaneDivider, drag payloads/coordinator,
+│                                     #   SplitContainerDropCaptureOverlay, PaneDropTargetOverlay,
+│                                     #   CollapsedPaneBar, SplitView, pure policies/geometry
 │
 ├── Features/                         # Each feature is a self-contained slice (see §Feature Slice
 │   │                                 #   Self-Containment below)
@@ -87,8 +88,8 @@ Sources/AgentStudio/
 │   └── EditorChooser/                # Editor chooser menu content + row item model
 │
 ├── Infrastructure/                   # Utilities used by anyone, domain-agnostic
-│   ├── AtomLib/                      # Generic atom access helpers: AtomScope, AtomReader,
-│   │                                 #   Derived, DerivedSelector. No product atom ownership.
+│   ├── AtomLib/                      # Generic observation primitives only: AtomValue,
+│   │                                 #   AtomEntityMap, revisions/mutation, DerivedValue.
 │   ├── Diagnostics/                  # RestoreTrace
 │   ├── Extensions/                   # Foundation/AppKit extensions, UniformType, NSColor+Hex
 │   ├── Icons/                        # OcticonImage, OcticonLoader
@@ -261,11 +262,11 @@ workspace settings payload is canonical.
 
 If you are tempted to add a feature-specific property to the sidebar composition atoms, that property belongs in a feature atom instead. If you are tempted to add a feature type to `Core/Models/`, test it: does *multiple features* and *cross-cutting composition* consume it? If only one feature uses it, it belongs in that feature.
 
-Current exception to watch: `PaneContent.bridgePanel(BridgePaneState)` stores bridge-pane payload in `Core/Models/PaneContent.swift`. This exists because the persisted pane union is currently defined in Core while pane content variants are decoded from workspace state. Treat it as a transitional persistence boundary, not a precedent for adding more feature-owned types to Core. New bridge domain state still belongs in `Features/Bridge/State/...`; any future cleanup should move toward a Core-owned content descriptor or feature registration seam instead of widening Core's knowledge of Bridge internals.
+Current exception to watch: `PaneContent.bridgePanel(BridgePaneState)` stores bridge-pane payload in `Core/Models/PaneContent.swift`. This exists because the persisted pane union is currently defined in Core while pane content variants are decoded from workspace state. Treat it as a transitional persistence boundary, not a precedent for adding more feature-owned types to Core. New bridge domain state still belongs in `Features/Bridge/State/...`; any future cleanup should move toward a Core-owned content descriptor connected by App instead of widening Core's knowledge of Bridge internals.
 
 #### The Core-imports-nothing-from-Features rule
 
-Feature atoms may be registered in `AtomRegistry` because the concrete registry is the single root-level composition file at `Sources/AgentStudio/AtomRegistry.swift`, outside `Core/`, `Features/`, and `Infrastructure/`. The atom type and behavior still belong to the owning feature slice. Do not store feature atoms as ad hoc fields on `AppDelegate`; add app-wide feature atoms to the root `AtomRegistry.swift` and wire views, routers, and stores from there.
+The internal App-only `AtomRegistry` stores one `CoreAtoms` plus the explicitly constructed Feature atoms and facades needed by production composition. It is not ambient and is never a lower-target key-path root. Core-only typed reads use `atom(KeyPath<CoreAtoms, Value>)` through the sole `CoreAtomScope`. App injects each Feature's exact mutable state into its consumers and supplies cross-Feature facts as consumer-owned read-only projections; Features never resolve their own or a sibling's state from a registry or second scope.
 
 Core views (e.g., `DrawerOverlay`, `DrawerIconBar`) that need to display feature-owned data take that data as props (struct parameters). The caller that supplies the props lives in a layer that *can* import the feature — usually `App/` or a different feature if called from there (which would then require the caller to be in `App/` per the cross-feature rule).
 
@@ -485,15 +486,17 @@ Manages `NSTabViewItems` containing pane views. Handles focus, layout, tab switc
 
 **Deletion test:** passes for any single feature. **Change driver:** tab management behavior changes, not new pane types.
 
-### Pane Layout & Flat Tab Strip Components → `Core/Views/Panes/`
+### Pane Hosting → `App/Panes/Hosting/`; reusable interaction helpers → Core
 
-`FlatTabStripContainer`, `FlatPaneStripContent`, `CollapsedPaneBar`, `PaneLeafContainer`, `PaneDragCoordinator`, `SplitContainerDropCaptureOverlay`, and `PaneDropTargetOverlay`
-belong in `Core/Views/Panes/` because they are pane-type-agnostic pane layout primitives:
-
-- They operate on pane IDs, tab metadata, and frame geometry — not terminal/webview/bridge-specific APIs.
-- They are reused by any pane feature rendered inside split trees or the flat tab strip.
-- Their change driver is split interaction or tab strip behavior, not any individual feature implementation.
-- `FlatTabStripMetrics` (the layout constants model) lives in `Core/Models/`.
+`PaneLeafContainer`, `FlatPaneStripContent`, `FlatTabStripContainer`,
+`SingleTabContent`, `ActiveTabContent`, `DrawerPanel`, and
+`DrawerPanelOverlay` are App-owned because they compose concrete Feature UI and
+thread exact Feature state. The four extracted helpers remain Core-owned:
+`TabDragPayload`, `PaneDragPayload`, `DrawerIconBarFrameKey`, and
+`FlatPaneDivider`. Core also retains pure pane models, metrics, geometry,
+drop/resize behavior, and Feature-neutral interaction policies such as
+`PaneDragCoordinator`, `SplitContainerDropCaptureOverlay`, and
+`PaneDropTargetOverlay`.
 
 ### MainSplitViewController → `App/Windows/`
 

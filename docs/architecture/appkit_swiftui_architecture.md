@@ -98,7 +98,8 @@ Services are created in `AppDelegate.applicationDidFinishLaunching()` in depende
 
 ```
 AppDelegate
-├── AtomRegistry                  ← composition root for all shared atoms
+├── AtomRegistry                  ← internal App root: CoreAtoms + explicit Feature roots
+│   └── CoreAtoms                 ← installed into the sole CoreAtomScope
 ├── WorkspaceStore             ← persistence wrapper, restore from disk
 ├── RepoCacheStore             ← persistence wrapper for RepoCacheAtom
 ├── UIStateStore               ← persistence wrapper for sidebar memory

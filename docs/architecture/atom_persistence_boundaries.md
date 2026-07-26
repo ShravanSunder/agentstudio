@@ -65,8 +65,9 @@ stay in Core or Features.
 
 Lint rule `agentstudio_atomlib_is_generic` enforces this boundary for
 `Infrastructure/AtomLib`. Product atoms, feature imports, and concrete
-`AtomRegistry` fields belong in the app's Core/Feature state tree or the root
-registry, not in the generic primitive library.
+`AtomRegistry`, `CoreAtoms`, and `CoreAtomScope` references stay out of the
+generic primitive library. Core owns its concrete graph and typed ambient
+access; App owns the internal registry and explicit Feature roots.
 
 Use the primitive that matches the read surface:
 
@@ -74,13 +75,13 @@ Use the primitive that matches the read surface:
 | --- | --- | --- |
 | `AtomValue<Value>` | one scalar or one cohesive content value | writes require an explicit content comparator except for trivial scalar allowlist types |
 | `AtomEntityMap<Key, Value>` | keyed entity families such as repo enrichment, worktree enrichment, and PR counts | hot UI reads use `value(for:)`; dictionary snapshots are bridge surfaces |
-| `DerivedValue<Value>` | registry-owned memoized read models | compute from declared input revisions; do not reach back into `AtomScope` or `atom(\...)` |
+| `DerivedValue<Value>` | generic memoized read models | compute from declared input revisions; do not reach back into `CoreAtomScope` or `atom(\...)` |
 | `AtomMutationContext` | grouped mutations across primitive updates inside one owner | bump the aggregate revision once after accepted changes |
 
 The derived-read contract is enforced by
 `agentstudio_derived_value_declared_inputs`: a `DerivedValue` compute closure
 must be a pure function of declared revisions/inputs, not a hidden atom read
-through `AtomScope`, `AtomReader`, `atom(\...)`, or `@Atom`.
+through `CoreAtomScope`, `CoreAtoms`, or `atom(\...)`.
 
 `AtomEntityMap` is the internal atom-family primitive. It stores a private
 dictionary for snapshots, but each key has its own observable slot. A row that

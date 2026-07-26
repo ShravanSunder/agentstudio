@@ -22,6 +22,59 @@ struct RuleParityTests {
         #expect(diagnostics.isEmpty)
     }
 
+    @Test("product atom boundary covers every forbidden ownership edge")
+    func productAtomBoundaryCoversEveryForbiddenOwnershipEdge() throws {
+        let diagnostics = try lintFixtureCorpus("Bad")
+            .filter { $0.ruleID == "agentstudio_product_atom_boundary" }
+
+        #expect(diagnostics.contains { $0.message.contains("Infrastructure must not name product atom state") })
+        #expect(diagnostics.contains { $0.message.contains("Core must not name Feature-owned atom state") })
+        #expect(diagnostics.contains { $0.message.contains("must not name sibling Feature atom state") })
+        #expect(diagnostics.contains { $0.message.contains("KeyPath<AtomRegistry") })
+        #expect(diagnostics.contains { $0.message.contains("static or global AtomRegistry") })
+        #expect(diagnostics.contains { $0.message.contains("second App atom scope") })
+        #expect(diagnostics.contains { $0.message.contains("runtime atom resolver") })
+        #expect(diagnostics.contains { $0.message.contains("runtime atom registration") })
+        #expect(diagnostics.contains { $0.message.contains("atom compatibility API") })
+        #expect(diagnostics.contains { $0.message.contains("old AtomScope compatibility API") })
+        #expect(diagnostics.contains { $0.message.contains("uniform Feature state root") })
+        #expect(diagnostics.contains { $0.message.contains("Feature registry or ambient scope") })
+    }
+
+    @Test("canonical atom mutation rejects writable owner storage and bindings")
+    func canonicalAtomMutationRejectsWritableOwnerStorageAndBindings() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent(
+                "Bad/Sources/AgentStudio/Core/State/MainActor/Atoms/BadCanonicalAtomMutation.swift"
+            )
+            .path
+
+        let diagnostics = try lint(files: [fixture])
+            .filter { $0.ruleID == "agentstudio_canonical_atom_mutation" }
+
+        #expect(diagnostics.map(\.line) == [2, 3, 4])
+        #expect(
+            diagnostics.filter { $0.message.contains("private or private(set)") }.count == 2)
+        #expect(diagnostics.filter { $0.message.contains("writable binding") }.count == 1)
+    }
+
+    @Test("canonical atom mutation ignores test helpers in mirrored owner folders")
+    func canonicalAtomMutationIgnoresTestHelpersInMirroredOwnerFolders() {
+        let diagnostics = CanonicalAtomMutationRule().validate(
+            context: context(
+                path:
+                    "/tmp/Tests/AgentStudioTests/Core/State/MainActor/Atoms/RepositoryTopologyAtomTests.swift",
+                source: """
+                    private final class RepositoryTopologyObservationFlag {
+                        var didFire = false
+                    }
+                    """
+            )
+        )
+
+        #expect(diagnostics.isEmpty)
+    }
+
     @Test("shared components reject Core-owned command icon references")
     func sharedComponentsRejectCoreOwnedCommandIconReferences() throws {
         let fixture = fixtureRoot()

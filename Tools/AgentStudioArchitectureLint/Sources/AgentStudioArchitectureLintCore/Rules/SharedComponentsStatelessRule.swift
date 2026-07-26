@@ -23,7 +23,7 @@ private final class SharedComponentStateVisitor: SyntaxVisitor {
     private(set) var violations: [ArchitectureViolation] = []
     private let deniedAttributes = Set(["Atom", "StateObject", "EnvironmentObject"])
     private let deniedReferences = Set([
-        "AtomReader", "AtomScope", "AtomRegistry", "CommandIcon", "withTestAtomRegistry",
+        "AtomRegistry", "CommandIcon", "CoreAtoms", "CoreAtomScope",
     ])
     private let deniedTypeSuffixes = ["Atom", "Store"]
 

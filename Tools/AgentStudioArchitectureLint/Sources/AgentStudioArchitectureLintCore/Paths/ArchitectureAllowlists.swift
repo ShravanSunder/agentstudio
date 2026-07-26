@@ -41,9 +41,8 @@ enum ArchitectureAllowlists {
     ])
 
     static let atomAccessNames = Set([
-        "AtomReader",
-        "AtomScope",
-        "TestAtomRegistry",
-        "withTestAtomRegistry",
+        "AtomRegistry",
+        "CoreAtoms",
+        "CoreAtomScope",
     ])
 }

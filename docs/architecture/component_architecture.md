@@ -327,7 +327,8 @@ Templates define the initial pane layout when opening a worktree. Not yet wired 
 
 ```
 AppDelegate (creates all services in dependency order)
-├── AtomRegistry                     ← composition root for all shared atoms
+├── AtomRegistry                     ← internal App root: CoreAtoms + explicit Feature roots
+│   └── CoreAtoms                    ← installed into the sole CoreAtomScope
 ├── WorkspaceStore                ← persistence wrapper over four atoms
 ├── RepoCacheStore                ← persistence wrapper for enrichment cache + recent targets
 ├── UIStateStore                  ← persistence wrapper for sidebar memory
@@ -473,9 +474,9 @@ There is no standalone `ViewResolver` type in code; this behavior is owned by th
   - `SplitContainerDropCaptureOverlay` (single drop input surface)
   - `PaneDragCoordinator` (pure drag target resolution)
   - `PaneDropTargetOverlay` (single target visualization layer)
-  - `PaneLeafContainer` (pane-type-agnostic leaf wrapper)
+  - `PaneLeafContainer` (App-owned concrete Feature UI composition)
 
-> **Files:** `App/Panes/ViewRegistry.swift`, `Core/Views/Panes/SplitContainerDropCaptureOverlay.swift`
+> **Files:** `App/Panes/ViewRegistry.swift`, `App/Panes/Hosting/PaneLeafContainer.swift`, `Core/Views/Panes/SplitContainerDropCaptureOverlay.swift`
 
 ### 3.6 WorkspaceSurfaceCoordinator
 

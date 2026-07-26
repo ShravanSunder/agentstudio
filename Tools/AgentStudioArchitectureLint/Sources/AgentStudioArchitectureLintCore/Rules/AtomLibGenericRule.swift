@@ -21,7 +21,14 @@ struct AtomLibGenericRule: ArchitectureRule {
 private final class AtomLibGenericVisitor: SyntaxVisitor {
     private(set) var violations: [ArchitectureViolation] = []
     private let productPrefixes = ["Workspace", "Repo", "Pane", "Tab", "Inbox", "Bridge", "Terminal", "CommandBar"]
-    private let deniedNames = Set(["AtomRegistry", "RepoCacheAtom", "SessionRuntimeAtom", "WorkspaceStore"])
+    private let deniedNames = Set([
+        "AtomRegistry",
+        "CoreAtoms",
+        "CoreAtomScope",
+        "RepoCacheAtom",
+        "SessionRuntimeAtom",
+        "WorkspaceStore",
+    ])
 
     override init(viewMode: SyntaxTreeViewMode = .sourceAccurate) {
         super.init(viewMode: viewMode)
@@ -57,4 +64,17 @@ private final class AtomLibGenericVisitor: SyntaxVisitor {
             )
         )
     }
+
+    override func visitPost(_ node: IdentifierTypeSyntax) {
+        guard deniedNames.contains(node.name.text) else {
+            return
+        }
+        violations.append(
+            ArchitectureViolation(
+                position: node.positionAfterSkippingLeadingTrivia,
+                message: "AtomLib must not reference product-specific state or registry types"
+            )
+        )
+    }
+
 }
