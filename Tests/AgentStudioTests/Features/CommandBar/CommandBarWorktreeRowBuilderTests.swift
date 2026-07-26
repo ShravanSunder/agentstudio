@@ -56,7 +56,9 @@ struct CommandBarWorktreeRowBuilderTests {
         #expect(level.parentLabel == "repo")
         #expect(level.scopeLabel == "repo")
         #expect(level.items.count == 10)
-        #expect(level.items.filter { $0.group == "Open" }.count == 8)
+        #expect(level.items.filter { $0.group == "Terminal" }.count == 2)
+        #expect(level.items.filter { $0.group == "Path" }.count == 2)
+        #expect(level.items.filter { $0.group == "Panes" }.count == 4)
         #expect(level.items.filter { $0.group == "Navigate to" }.count == 2)
         #expect(level.items.contains { $0.id == "wt-new-tab-\(worktree.id.uuidString)" })
         #expect(level.items.contains { $0.id == "wt-review-\(worktree.id.uuidString)" })
@@ -64,14 +66,14 @@ struct CommandBarWorktreeRowBuilderTests {
         #expect(level.items.contains { $0.id == "wt-review-new-tab-\(worktree.id.uuidString)" })
         #expect(level.items.contains { $0.id == "wt-files-new-tab-\(worktree.id.uuidString)" })
         #expect(level.items.contains { $0.id == "wt-add-pane-\(worktree.id.uuidString)" })
-        #expect(level.items[0].id == "wt-\(worktree.id.uuidString)-copy-path")
-        #expect(level.items[1].id == "wt-\(worktree.id.uuidString)-reveal-finder")
-        #expect(level.items[2].id == "wt-new-tab-\(worktree.id.uuidString)")
-        #expect(level.items[3].id == "wt-review-\(worktree.id.uuidString)")
-        #expect(level.items[4].id == "wt-files-\(worktree.id.uuidString)")
-        #expect(level.items[5].id == "wt-review-new-tab-\(worktree.id.uuidString)")
-        #expect(level.items[6].id == "wt-files-new-tab-\(worktree.id.uuidString)")
-        #expect(level.items[7].id == "wt-add-pane-\(worktree.id.uuidString)")
+        #expect(level.items[0].id == "wt-add-pane-\(worktree.id.uuidString)")
+        #expect(level.items[1].id == "wt-new-tab-\(worktree.id.uuidString)")
+        #expect(level.items[2].id == "wt-\(worktree.id.uuidString)-copy-path")
+        #expect(level.items[3].id == "wt-\(worktree.id.uuidString)-reveal-finder")
+        #expect(level.items[4].id == "wt-review-\(worktree.id.uuidString)")
+        #expect(level.items[5].id == "wt-files-\(worktree.id.uuidString)")
+        #expect(level.items[6].id == "wt-review-new-tab-\(worktree.id.uuidString)")
+        #expect(level.items[7].id == "wt-files-new-tab-\(worktree.id.uuidString)")
     }
 
     @Test
@@ -81,7 +83,9 @@ struct CommandBarWorktreeRowBuilderTests {
         let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: false)
 
         #expect(level.items.count == 7)
-        #expect(level.items[2].id == "wt-new-tab-\(presence.worktreeId.uuidString)")
+        #expect(level.items[0].id == "wt-new-tab-\(presence.worktreeId.uuidString)")
+        #expect(level.items[1].id == "wt-\(presence.worktreeId.uuidString)-copy-path")
+        #expect(level.items[2].id == "wt-\(presence.worktreeId.uuidString)-reveal-finder")
         #expect(level.items[3].id == "wt-review-\(presence.worktreeId.uuidString)")
         #expect(level.items[4].id == "wt-files-\(presence.worktreeId.uuidString)")
         #expect(level.items[5].id == "wt-review-new-tab-\(presence.worktreeId.uuidString)")
@@ -104,10 +108,10 @@ struct CommandBarWorktreeRowBuilderTests {
                     canOpenInCurrentTab: true
                 )
 
-                #expect(level.items[3].title == "Open Review")
-                #expect(level.items[4].title == "Open Files")
-                #expect(level.items[5].title == "Open Review in New Tab")
-                #expect(level.items[6].title == "Open Files in New Tab")
+                #expect(level.items[4].title == "Open Review")
+                #expect(level.items[5].title == "Open Files")
+                #expect(level.items[6].title == "Open Review in New Tab")
+                #expect(level.items[7].title == "Open Files in New Tab")
             }
         )
     }
@@ -133,10 +137,10 @@ struct CommandBarWorktreeRowBuilderTests {
                     canOpenInCurrentTab: true
                 )
 
-                #expect(level.items[3].title == "Go to Review")
-                #expect(level.items[4].title == "Go to Files")
-                #expect(level.items[5].title == "Open Review in New Tab")
-                #expect(level.items[6].title == "Open Files in New Tab")
+                #expect(level.items[4].title == "Go to Review")
+                #expect(level.items[5].title == "Go to Files")
+                #expect(level.items[6].title == "Open Review in New Tab")
+                #expect(level.items[7].title == "Open Files in New Tab")
             }
         )
     }
@@ -148,7 +152,7 @@ struct CommandBarWorktreeRowBuilderTests {
         let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: true)
 
         guard
-            case .dispatchTargeted(.openNewTerminalInTab, let newTabTarget, .worktree) = level.items[2].action
+            case .dispatchTargeted(.openNewTerminalInTab, let newTabTarget, .worktree) = level.items[1].action
         else {
             Issue.record("Expected new-tab row to dispatch existing openNewTerminalInTab command")
             return
@@ -156,7 +160,7 @@ struct CommandBarWorktreeRowBuilderTests {
         #expect(newTabTarget == presence.worktreeId)
 
         guard
-            case .dispatchTargeted(.showBridgeReview, let reviewTarget, .worktree) = level.items[3].action
+            case .dispatchTargeted(.showBridgeReview, let reviewTarget, .worktree) = level.items[4].action
         else {
             Issue.record("Expected review row to dispatch showBridgeReview command")
             return
@@ -164,7 +168,7 @@ struct CommandBarWorktreeRowBuilderTests {
         #expect(reviewTarget == presence.worktreeId)
 
         guard
-            case .dispatchTargeted(.showBridgeFiles, let filesTarget, .worktree) = level.items[4].action
+            case .dispatchTargeted(.showBridgeFiles, let filesTarget, .worktree) = level.items[5].action
         else {
             Issue.record("Expected files row to dispatch showBridgeFiles command")
             return
@@ -173,7 +177,7 @@ struct CommandBarWorktreeRowBuilderTests {
 
         guard
             case .dispatchTargeted(.openBridgeReviewInNewTab, let reviewNewTabTarget, .worktree) =
-                level.items[5].action
+                level.items[6].action
         else {
             Issue.record("Expected review new-tab row to dispatch openBridgeReviewInNewTab command")
             return
@@ -182,7 +186,7 @@ struct CommandBarWorktreeRowBuilderTests {
 
         guard
             case .dispatchTargeted(.openBridgeFilesInNewTab, let filesNewTabTarget, .worktree) =
-                level.items[6].action
+                level.items[7].action
         else {
             Issue.record("Expected files new-tab row to dispatch openBridgeFilesInNewTab command")
             return
@@ -190,7 +194,7 @@ struct CommandBarWorktreeRowBuilderTests {
         #expect(filesNewTabTarget == presence.worktreeId)
 
         guard
-            case .dispatchTargeted(.openWorktreeInPane, let splitTarget, .worktree) = level.items[7].action
+            case .dispatchTargeted(.openWorktreeInPane, let splitTarget, .worktree) = level.items[0].action
         else {
             Issue.record("Expected current-tab row to dispatch existing openWorktreeInPane command")
             return

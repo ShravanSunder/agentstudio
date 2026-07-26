@@ -199,11 +199,14 @@ the existing worktree action menu so path, terminal, Bridge, and existing-pane
 actions remain available from the recent row. Recent Pane focuses the pane, and
 Recent Command reuses its canonical command behavior.
 
-`#` is an object navigator. Root rows represent repos. Repo rows drill into
-worktrees. Worktree rows drill into actions for that concrete filesystem
-location. A chevron means Return drills in; no chevron means Return executes.
-Container rows may expose skip-ahead shortcuts such as `⌘↩` or `⌥↩`; leaf rows
-do not invent modifier variants unless there is a separate, explicit action.
+`#` is an object navigator. Root rows represent repos. A repository level
+targets its stored main worktree for direct actions, falling back to the first
+worktree only when no main worktree exists, and orders its groups as Terminal,
+Path, Worktrees, then Panes. Worktree rows drill into actions for that concrete
+filesystem location, ordered as Terminal, Path, Panes, then Navigate to. A
+chevron means Return drills in; no chevron means Return executes. Container
+rows may expose skip-ahead shortcuts such as `⌘↩` or `⌥↩`; leaf rows do not
+invent modifier variants unless there is a separate, explicit action.
 
 Path actions use `LocalActionSpec.copyPath` and
 `LocalActionSpec.revealInFinder` for labels and icons. The execution helper is

@@ -198,7 +198,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
     }
 
     @Test
-    func test_repoLevelShowsOpenCommandsBeforeWorktrees() {
+    func test_repoLevelGroupsDefaultWorktreeActionsAroundWorktrees() {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/repo-level-actions"))
         let main = Worktree(
@@ -212,25 +212,56 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             name: "feature",
             path: URL(filePath: "/tmp/repo-level-actions-feature")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [main, feature])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [feature, main])
         guard let storedRepo = store.repos.first else {
             Issue.record("Expected stored repo")
             return
         }
+        guard let storedMainWorktree = storedRepo.worktrees.first(where: \.isMainWorktree) else {
+            Issue.record("Expected stored main worktree")
+            return
+        }
+        #expect(storedRepo.worktrees.first?.id != storedMainWorktree.id)
+        let pane = store.createPane(
+            launchDirectory: storedMainWorktree.path,
+            facets: PaneContextFacets(
+                repoId: storedRepo.id,
+                worktreeId: storedMainWorktree.id,
+                cwd: storedMainWorktree.path
+            )
+        )
+        store.appendTab(Tab(paneId: pane.id))
 
         let level = CommandBarDataSource.buildRepoLevel(repo: storedRepo, store: store)
 
         #expect(level.title == "repo-level-actions")
         #expect(level.scopeLabel == "Repo")
-        #expect(level.items.map(\.title).prefix(2) == ["Copy Path", "Reveal in Finder"])
-        #expect(level.items[0].group == "Open")
-        #expect(level.items[1].group == "Open")
-        #expect(level.items.contains { $0.title == "main" && $0.group == "Worktrees" })
-        #expect(level.items.contains { $0.title == "feature" && $0.group == "Worktrees" })
+        let groups = CommandBarDataSource.grouped(level.items)
+        #expect(groups.map(\.name) == ["Terminal", "Path", "Worktrees", "Panes"])
+        let groupsByName = Dictionary(uniqueKeysWithValues: groups.map { ($0.name, $0.items) })
+        #expect(groupsByName["Terminal"]?.map(\.title) == ["New pane in current tab", "Open Terminal in New Tab"])
+        #expect(groupsByName["Path"]?.map(\.title) == ["Copy Path", "Reveal in Finder"])
+        #expect(groupsByName["Worktrees"]?.map(\.title) == ["main", "feature"])
+        #expect(
+            groupsByName["Panes"]?.map(\.title) == [
+                "Open Review",
+                "Open Files",
+                "Open Review in New Tab",
+                "Open Files in New Tab",
+            ])
+
+        let defaultWorktreeTargetedItems = (groupsByName["Terminal"] ?? []) + (groupsByName["Panes"] ?? [])
+        #expect(
+            defaultWorktreeTargetedItems.allSatisfy { item in
+                guard case .dispatchTargeted(_, let target, .worktree) = item.action else {
+                    return false
+                }
+                return target == storedMainWorktree.id
+            })
     }
 
     @Test
-    func test_worktreeLevelUsesSingleOpenGroupForPathAndPaneActions() {
+    func test_worktreeLevelGroupsTerminalPathPaneAndNavigationActions() {
         let presence = makeWorktreePresence(paneCount: 1)
         let worktree = Worktree(
             repoId: presence.repoId,
@@ -245,19 +276,19 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             canOpenInCurrentTab: true
         )
 
-        let openTitles = level.items.filter { $0.group == "Open" }.map(\.title)
+        let groups = CommandBarDataSource.grouped(level.items)
+        #expect(groups.map(\.name) == ["Terminal", "Path", "Panes", "Navigate to"])
+        let groupsByName = Dictionary(uniqueKeysWithValues: groups.map { ($0.name, $0.items) })
+        #expect(groupsByName["Terminal"]?.map(\.title) == ["New pane in current tab", "Open Terminal in New Tab"])
+        #expect(groupsByName["Path"]?.map(\.title) == ["Copy Path", "Reveal in Finder"])
         #expect(
-            openTitles == [
-                "Copy Path",
-                "Reveal in Finder",
-                "Open Terminal in New Tab",
+            groupsByName["Panes"]?.map(\.title) == [
                 "Open Review",
                 "Open Files",
                 "Open Review in New Tab",
                 "Open Files in New Tab",
-                "New pane in current tab",
             ])
-        #expect(level.items.contains { $0.group == "Navigate to" && $0.title == "Terminal — main" })
+        #expect(groupsByName["Navigate to"]?.map(\.title) == ["Terminal — main"])
     }
 
     @Test
