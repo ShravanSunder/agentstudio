@@ -184,10 +184,6 @@ struct TerminalSurfaceScrollViewTests {
 
         #expect(documentOffsetY(of: scrollView) == 1200)
         #expect(performer.actions.count == actionCountBeforeEnd)
-
-        simulateLiveScroll(scrollView, documentOffsetY: 1200)
-
-        #expect(performer.actions.count == actionCountBeforeEnd)
     }
 
     @Test("pinned state received during bottom gesture reconciles at drag end")
@@ -207,10 +203,6 @@ struct TerminalSurfaceScrollViewTests {
 
         #expect(documentOffsetY(of: scrollView) == 0)
         #expect(performer.actions.count == actionCountBeforeEnd)
-
-        simulateLiveScroll(scrollView, documentOffsetY: 0)
-
-        #expect(performer.actions.count == actionCountBeforeEnd)
     }
 
     @Test("no-command gesture applies state received during gesture")
@@ -226,6 +218,30 @@ struct TerminalSurfaceScrollViewTests {
         endLiveScroll(scrollView)
 
         #expect(documentOffsetY(of: scrollView) == 1400)
+        #expect(performer.actions.isEmpty)
+
+        simulateLiveScroll(scrollView, documentOffsetY: 1400)
+
+        #expect(performer.actions.isEmpty)
+    }
+
+    @Test("no-command pinned reconciliation refreshes bottom dedup")
+    func noCommandPinnedReconciliationRefreshesBottomDedup() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = configuredHostStateView()
+        prepare(scrollView, with: hostStateView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 160, bottom: 200, total: 200))
+        endLiveScroll(scrollView)
+
+        #expect(documentOffsetY(of: scrollView) == 0)
+        #expect(performer.actions.isEmpty)
+
+        simulateLiveScroll(scrollView, documentOffsetY: 0)
+
         #expect(performer.actions.isEmpty)
     }
 
