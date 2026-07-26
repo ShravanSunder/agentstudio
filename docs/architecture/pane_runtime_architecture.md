@@ -1758,6 +1758,23 @@ combines private evidence with ordered controls and returns changed semantic
 outcomes. `TerminalActivityRouter` is the thin MainActor adapter that publishes
 those outcomes to the runtime channel/EventBus, where Inbox may classify them.
 
+Local presentation delivery is not runtime-dependent. Before beginning a
+drain, the production host resolver verifies that the surface still exists,
+the mounted view still carries the requested surface identity, and the surface
+still maps to a pane. The drain writes changed scrollbar state to the
+surface-local host cache before the optional runtime apply. This keeps the
+native scrollbar current during runtime replacement or absence without
+publishing raw samples or creating a second callback path. Missing or replaced
+mounted lifetimes retire their accumulator and scheduler state.
+
+The scheduling bound is per surface: callback offers request one MainActor
+drain, and offers arriving during that drain create at most one coalesced
+follow-up. There is no per-callback MainActor task. Scrollbar gesture
+acknowledgement and clip-position ownership remain in
+`TerminalSurfaceScrollView`; source contraction does not infer UI gesture
+completion. See [Ghostty Surface Architecture — Scrollbar Gesture
+Convergence](ghostty_surface_architecture.md#scrollbar-gesture-convergence).
+
 This contract keeps three decisions separate:
 
 1. Raw Ghostty tag translation is a separate FFI-boundary coverage contract.
@@ -1798,6 +1815,10 @@ analysis.
    publication applies to projected outcomes from contracted local evidence.
 8. Terminal, filesystem/Git, and Inbox retain separate classification contracts;
    this is not a generic admission framework.
+9. Surface-local presentation cache delivery survives an absent runtime but
+   never a missing or replaced mounted surface lifetime.
+10. Callback volume does not determine MainActor task count: one drain and at
+    most one coalesced follow-up own compact application for a surface.
 
 ### Contract 8: Per-Kind Event Enums
 

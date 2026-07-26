@@ -154,7 +154,13 @@ User presses Cmd+Shift+T
 - `Ghostty.ActionRouter` owns the action-tag switch, surface lookup, and runtime routing.
 - `Ghostty.AppFocusSynchronizer` observes `AppLifecycleAtom.isActive` and mirrors app-level focus into `ghostty_app_set_focus`.
 
-The boundary is intentionally split by isolation contract: callback trampolines stay nonisolated and capture stable identity synchronously; surface updates and runtime routing hop to `@MainActor`.
+The boundary is intentionally split by isolation contract: callback trampolines
+stay nonisolated, copy borrowed payloads, capture stable identity, and classify
+the translated action before scheduling. Exact facts and controls retain their
+ordered runtime route. High-volume local actions enter fixed-key contraction
+off-main, then one bounded drain applies compact host/runtime state on
+`@MainActor`; semantic activity projection returns off-main before changed
+outcomes re-enter the coordination stream.
 
 ---
 
@@ -162,19 +168,61 @@ The boundary is intentionally split by isolation contract: callback trampolines 
 
 Agent Studio now consumes libghostty/runtime facts for terminal scrollback UX, but still renders the visible macOS UI on the host side.
 
-- Ghostty core owns terminal scrollback/search state and exposes it through routed runtime events such as `scrollbarChanged` and `search*`.
-- `TerminalRuntime` is the observable host-side cache for those facts.
+- Ghostty core owns terminal scrollback/search truth and exposes it through
+  translated actions such as `scrollbarChanged` and `search*`.
+- A fixed-key local accumulator contracts high-volume scrollbar and search
+  callbacks before one bounded `@MainActor` drain. Raw samples do not enter
+  `RuntimeEnvelope`, replay, or `EventBus`.
+- The drain validates that the surface identity still matches its mounted view
+  and still has a pane mapping. It updates the surface-local host scrollbar
+  cache even when no `TerminalRuntime` exists; an invalid or replaced mounted
+  lifetime retires the pending local work.
+- `TerminalRuntime` receives the same compact batch when present, but it is not
+  required for native host-cache delivery.
 - `TerminalPaneMountView` composes host UI around the surface: `TerminalSurfaceScrollView`, `TerminalSearchOverlayView`, and `ScrollToBottomIndicatorView`.
-- `TerminalSurfaceScrollView` provides the native scrollbar UI on macOS and synchronizes scrollbar thumb / live-scroll movement back into Ghostty core via `scroll_to_row:N`.
+- `TerminalSurfaceScrollView` renders the native scrollbar from the
+  surface-local cache and converts live scrollbar movement into semantic
+  `scroll_to_row:N` or `scroll_to_bottom` actions.
 - `Ghostty.SurfaceView` remains the rendering/input bridge and keeps ordinary wheel/trackpad scrolling owned by Ghostty core, matching Ghostty.app more closely than the earlier host-owned scroll prototype.
 - `Ghostty.AppHandle` injects an Agent Studio config override before `ghostty_config_finalize` so Ghostty core does not auto-scroll to bottom on keypress or output while the host wrapper is providing explicit scrollback affordances.
 
 This is a deliberate split of responsibilities:
 
 - libghostty owns terminal truth
-- Agent Studio owns macOS host presentation
+- Agent Studio owns callback contraction and macOS host presentation
+- `TerminalSurfaceScrollView` owns gesture-local reconciliation only; it does
+  not become terminal scrollback truth
 
-That differs from Ghostty.app only in product choices such as Agent Studio's always-visible scrollbar.
+### Scrollbar Gesture Convergence
+
+The native clip position is temporarily user-owned during a live scrollbar
+gesture. Ghostty callbacks may continue updating the surface cache and document
+extent, but they must not move the clip view until drag-end reconciliation.
+
+The wrapper records only the latest successfully sent semantic command for the
+gesture. At `didEndLiveScroll`, cached state may position the clip view only
+when a callback was received during that gesture and it acknowledges the
+command:
+
+- a row command is acknowledged when `state.top` equals the requested row;
+- bottom intent is acknowledged when the state is pinned to bottom;
+- a gesture that sent no command may apply the state received during it.
+
+If the callback is missing or does not acknowledge the command, one
+presentation-local Boolean records that host convergence is pending. Layout
+continues to update viewport size, document extent, scroller reflection,
+surface geometry, and Ghostty size. It does not derive clip position or the
+persistent command-dedup identity from rejected cached state. A fresh callback
+outside live scrolling, or a later accepted drag-end reconciliation, clears
+the Boolean and resumes normal synchronization.
+
+Command deduplication is semantic (`row` or `bottom`), not pixel-based. A
+command enters persistent dedup state only after the action performer accepts
+it; failed actions remain retryable. Reconciliation never sends a second
+Ghostty command.
+
+Native scrollbar styling and visibility policy are separate presentation
+concerns from this synchronization contract.
 
 ---
 
