@@ -17,16 +17,16 @@ struct DrawerTabLevelCaptureArchitectureTests {
         return try Sources(
             flatTabStripContainer: String(
                 contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Views/Panes/FlatTabStripContainer.swift"),
+                    path: "Sources/AgentStudio/App/Panes/Hosting/FlatTabStripContainer.swift"),
                 encoding: .utf8
             ),
             drawerPanel: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift"),
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/Hosting/DrawerPanel.swift"),
                 encoding: .utf8
             ),
             drawerPanelOverlay: String(
                 contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanelOverlay.swift"),
+                    path: "Sources/AgentStudio/App/Panes/Hosting/DrawerPanelOverlay.swift"),
                 encoding: .utf8
             ),
             paneTabViewController: String(

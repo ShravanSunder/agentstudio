@@ -34,7 +34,7 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
         let appDelegateSource = try projectSource("Sources/AgentStudio/App/Boot/AppDelegate.swift")
         let workspaceBootSource = try projectSource("Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift")
         let settingsSource = try projectSource(
-            "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSettingsStore.swift"
+            "Sources/AgentStudio/App/Coordination/WorkspaceSettingsStore.swift"
         )
 
         #expect(!restoreAsyncSource.contains("restoreFromLegacyJSON"))

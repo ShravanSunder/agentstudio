@@ -51,21 +51,21 @@ struct CoordinationPlaneArchitectureTests {
                 encoding: .utf8
             ),
             activeTabContentSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Panes/ActiveTabContent.swift"),
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/Hosting/ActiveTabContent.swift"),
                 encoding: .utf8
             ),
             singleTabContentSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Panes/SingleTabContent.swift"),
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/Hosting/SingleTabContent.swift"),
                 encoding: .utf8
             ),
             flatTabStripContainerSource: String(
                 contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Views/Panes/FlatTabStripContainer.swift"),
+                    path: "Sources/AgentStudio/App/Panes/Hosting/FlatTabStripContainer.swift"),
                 encoding: .utf8
             ),
             flatPaneStripContentSource: String(
                 contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Views/Panes/FlatPaneStripContent.swift"),
+                    path: "Sources/AgentStudio/App/Panes/Hosting/FlatPaneStripContent.swift"),
                 encoding: .utf8
             ),
             mainWindowControllerSource: String(
@@ -74,16 +74,16 @@ struct CoordinationPlaneArchitectureTests {
             ),
             paneLeafContainerSource: String(
                 contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Views/Panes/PaneLeafContainer.swift"),
+                    path: "Sources/AgentStudio/App/Panes/Hosting/PaneLeafContainer.swift"),
                 encoding: .utf8
             ),
             drawerPanelOverlaySource: String(
                 contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanelOverlay.swift"),
+                    path: "Sources/AgentStudio/App/Panes/Hosting/DrawerPanelOverlay.swift"),
                 encoding: .utf8
             ),
             drawerPanelSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift"),
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/Hosting/DrawerPanel.swift"),
                 encoding: .utf8
             ),
             viewRegistrySource: String(
@@ -375,7 +375,7 @@ struct CoordinationPlaneArchitectureTests {
             encoding: .utf8
         )
         let paneLeafSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Panes/PaneLeafContainer.swift"),
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/Hosting/PaneLeafContainer.swift"),
             encoding: .utf8
         )
         let draggableTabBarSource = try String(
