@@ -4,6 +4,54 @@ import Testing
 
 @MainActor
 extension GhosttyActionRouterTests {
+    @Test("mounted host lifetime validation accepts matching surface and pane identities")
+    func mountedHostLifetimeValidationAcceptsMatchingIdentities() {
+        let surfaceID = UUIDv7.generate()
+
+        #expect(
+            TerminalLocalActionDrainHostAccess.isMountedSurfaceLifetimeValid(
+                surfaceID: surfaceID,
+                managedSurfaceID: surfaceID,
+                paneID: UUIDv7.generate()
+            )
+        )
+    }
+
+    @Test("mounted host lifetime validation rejects a missing surface")
+    func mountedHostLifetimeValidationRejectsMissingSurface() {
+        #expect(
+            !TerminalLocalActionDrainHostAccess.isMountedSurfaceLifetimeValid(
+                surfaceID: UUIDv7.generate(),
+                managedSurfaceID: nil,
+                paneID: UUIDv7.generate()
+            )
+        )
+    }
+
+    @Test("mounted host lifetime validation rejects a replaced surface")
+    func mountedHostLifetimeValidationRejectsReplacedSurface() {
+        #expect(
+            !TerminalLocalActionDrainHostAccess.isMountedSurfaceLifetimeValid(
+                surfaceID: UUIDv7.generate(),
+                managedSurfaceID: UUIDv7.generate(),
+                paneID: UUIDv7.generate()
+            )
+        )
+    }
+
+    @Test("mounted host lifetime validation rejects a missing pane")
+    func mountedHostLifetimeValidationRejectsMissingPane() {
+        let surfaceID = UUIDv7.generate()
+
+        #expect(
+            !TerminalLocalActionDrainHostAccess.isMountedSurfaceLifetimeValid(
+                surfaceID: surfaceID,
+                managedSurfaceID: surfaceID,
+                paneID: nil
+            )
+        )
+    }
+
     @Test("local drain with runtime writes host cache runtime batch and activity")
     func localDrainWithRuntimePreservesDeliveryPaths() async throws {
         let surfaceID = UUIDv7.generate()

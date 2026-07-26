@@ -6,9 +6,11 @@ import Testing
 @MainActor
 private final class FakeSurfaceActionPerformer: TerminalSurfaceActionPerforming {
     private(set) var actions: [TerminalSurfaceAction] = []
+    var shouldPerformAction = true
 
     @discardableResult
     func performBindingAction(_ action: TerminalSurfaceAction) -> Bool {
+        guard shouldPerformAction else { return false }
         actions.append(action)
         return true
     }
@@ -260,9 +262,35 @@ struct TerminalSurfaceScrollViewTests {
         let actionCountBeforeEnd = performer.actions.count
         endLiveScroll(scrollView)
 
+        scrollView.needsLayout = true
+        scrollView.layoutSubtreeIfNeeded()
+
         #expect(documentOffsetY(of: scrollView) == offsetBeforeEnd)
         #expect(documentOffsetY(of: scrollView) != 0)
         #expect(performer.actions.count == actionCountBeforeEnd)
+    }
+
+    @Test("fresh scrollbar state resumes synchronization after rejected gesture")
+    func freshScrollbarStateResumesSynchronizationAfterRejectedGesture() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = configuredHostStateView()
+        prepare(scrollView, with: hostStateView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        updateLiveScroll(scrollView, documentOffsetY: 1200)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 170, bottom: 210, total: 210))
+        let offsetBeforeEnd = documentOffsetY(of: scrollView)
+        endLiveScroll(scrollView)
+
+        scrollView.needsLayout = true
+        scrollView.layoutSubtreeIfNeeded()
+        #expect(documentOffsetY(of: scrollView) == offsetBeforeEnd)
+
+        hostStateView.emitScrollbarState(ScrollbarState(top: 90, bottom: 130, total: 210))
+
+        #expect(documentOffsetY(of: scrollView) == 1600)
     }
 
     @Test("drag end without received state does not write clip position")
@@ -283,8 +311,100 @@ struct TerminalSurfaceScrollViewTests {
         let actionCountBeforeEnd = performer.actions.count
         endLiveScroll(scrollView)
 
+        scrollView.needsLayout = true
+        scrollView.layoutSubtreeIfNeeded()
+
         #expect(documentOffsetY(of: scrollView) == 800)
         #expect(performer.actions.count == actionCountBeforeEnd)
+    }
+
+    @Test("later accepted gesture clears pending layout suppression")
+    func laterAcceptedGestureClearsPendingLayoutSuppression() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = configuredHostStateView()
+        prepare(scrollView, with: hostStateView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        updateLiveScroll(scrollView, documentOffsetY: 1200)
+        scrollView.scrollView.contentView.scroll(to: CGPoint(x: 0, y: 800))
+        endLiveScroll(scrollView)
+
+        startLiveScroll(scrollView)
+        updateLiveScroll(scrollView, documentOffsetY: 1200)
+        endLiveScroll(scrollView)
+        scrollView.needsLayout = true
+        scrollView.layoutSubtreeIfNeeded()
+        #expect(documentOffsetY(of: scrollView) == 1200)
+
+        scrollView.scrollView.contentView.scroll(to: CGPoint(x: 0, y: 800))
+        startLiveScroll(scrollView)
+        updateLiveScroll(scrollView, documentOffsetY: 1400)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 90, bottom: 130, total: 200))
+        endLiveScroll(scrollView)
+
+        #expect(documentOffsetY(of: scrollView) == 1400)
+
+        scrollView.scrollView.contentView.scroll(to: CGPoint(x: 0, y: 800))
+        scrollView.needsLayout = true
+        scrollView.layoutSubtreeIfNeeded()
+
+        #expect(documentOffsetY(of: scrollView) == 1400)
+        #expect(performer.actions == [.scrollToRow(100), .scrollToRow(90)])
+    }
+
+    @Test("rejected action remains retryable without a scrollbar callback")
+    func rejectedActionRemainsRetryableWithoutScrollbarCallback() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = configuredHostStateView()
+        prepare(scrollView, with: hostStateView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+        performer.shouldPerformAction = false
+
+        startLiveScroll(scrollView)
+        updateLiveScroll(scrollView, documentOffsetY: 1200)
+        endLiveScroll(scrollView)
+
+        performer.shouldPerformAction = true
+        startLiveScroll(scrollView)
+        updateLiveScroll(scrollView, documentOffsetY: 1200)
+        endLiveScroll(scrollView)
+
+        #expect(documentOffsetY(of: scrollView) == 1200)
+        #expect(performer.actions == [.scrollToRow(100)])
+    }
+
+    @Test("pending reconciliation preserves clip position while updating layout geometry")
+    func pendingReconciliationPreservesClipPositionWhileUpdatingLayoutGeometry() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = configuredHostStateView()
+        prepare(scrollView, with: hostStateView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        updateLiveScroll(scrollView, documentOffsetY: 1200)
+        scrollView.scrollView.contentView.scroll(to: CGPoint(x: 0, y: 800))
+        endLiveScroll(scrollView)
+
+        scrollView.frame.size.height = 500
+        scrollView.needsLayout = true
+        scrollView.layoutSubtreeIfNeeded()
+
+        guard let verticalScroller = scrollView.scrollView.verticalScroller else {
+            Issue.record("Expected pending layout to preserve the native vertical scroller")
+            return
+        }
+
+        #expect(documentOffsetY(of: scrollView) == 800)
+        #expect(scrollView.scrollView.frame.height == 500)
+        #expect(scrollView.scrollView.contentView.documentVisibleRect.height == 500)
+        #expect(scrollView.documentView.frame.height == 3700)
+        #expect(verticalScroller.frame.height > 0)
+        #expect(verticalScroller.frame.maxY <= scrollView.scrollView.bounds.maxY)
+        #expect(performer.actions == [.scrollToRow(100)])
     }
 
     @Test("scroll wrapper converts live-scroll visible rect changes into row updates")

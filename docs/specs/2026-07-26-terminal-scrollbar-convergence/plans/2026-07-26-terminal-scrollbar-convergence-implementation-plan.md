@@ -211,6 +211,9 @@ Add red tests for:
 - a no-command gesture may apply state received during the gesture;
 - unrelated pinned growth does not acknowledge an interior row;
 - no received state causes no drag-end position write;
+- forced layout after either rejected case preserves the user's clip position;
+- a fresh callback and a later accepted gesture each resume normal
+  synchronization after rejection;
 - drag-end reconciliation adds no Ghostty action.
 
 Retain existing interior-row, row-dedup, sticky-bottom, history anchoring,
@@ -246,6 +249,10 @@ In `TerminalSurfaceScrollView`:
     pinned;
   - otherwise perform no position write;
   - never send another action.
+- when a command was sent but not acknowledged, retain one presentation-local
+  Boolean that suppresses layout-time clip positioning and dedup-identity
+  updates until the next callback outside live scrolling or a later accepted
+  drag-end reconciliation;
 - clear gesture-local state after reconciliation.
 - refresh the persistent semantic-command dedup record when drag-end
   reconciliation applies a received state, including bottom identity for a
@@ -269,7 +276,7 @@ Green gate:
 | P3 | R3 no-runtime host cache | 1 | callback-to-accumulator-to-drain integration | latest cache write and newer during-drain callback survive at final HEAD | required |
 | P4 | R4 no-runtime activity | 1 | drain integration + projector unit preservation | bound context/sink receives one expected aggregate; binding reset in `defer` | required |
 | P5 | R5 bottom intent/dedup | 2 | synchronous AppKit unit | fresh wrapper/fake performer; exact action list asserted | required |
-| P6 | R6 acknowledgement | 2 | interleaved AppKit notification/state unit | explicit start/live/update/end; bounds and action count asserted immediately | required |
+| P6 | R6 acknowledgement | 2 | interleaved AppKit notification/state unit | explicit start/live/update/end; forced layout after rejection; fresh-callback and later-gesture resumption; bounds and action count asserted | required |
 | P7 | R7 follow bottom/history | 2 | existing AppKit regression unit | sticky buffer in/out, history anchor, pinned offset, range at final HEAD | preservation |
 | P8 | R8 MainActor/bounds | 1/2 | deterministic structural/performance preservation | one scheduled drain per surface, one coalesced follow-up, fixed retained entries, immediate snapshot `mainActorTaskCount == 1` | preservation |
 | P9 | quality | final | build, format/lint, full relevant suite | fresh commands and exit codes from final HEAD | n/a |

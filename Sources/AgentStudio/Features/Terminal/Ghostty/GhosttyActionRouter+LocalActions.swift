@@ -20,10 +20,16 @@ struct TerminalLocalActionDrainHostAccess {
     let resolveMountedHost: (UUID) -> TerminalLocalActionDrainMountedHost?
 
     static let surfaceManager = Self { surfaceID in
+        let surfaceView = SurfaceManager.shared.surface(for: surfaceID)
+        let paneID = SurfaceManager.shared.paneId(for: surfaceID)
         guard
-            let surfaceView = SurfaceManager.shared.surface(for: surfaceID),
-            surfaceView.managedSurfaceID == surfaceID,
-            let paneID = SurfaceManager.shared.paneId(for: surfaceID)
+            isMountedSurfaceLifetimeValid(
+                surfaceID: surfaceID,
+                managedSurfaceID: surfaceView?.managedSurfaceID,
+                paneID: paneID
+            ),
+            let surfaceView,
+            let paneID
         else { return nil }
         return TerminalLocalActionDrainMountedHost(
             paneID: paneID,
@@ -31,6 +37,14 @@ struct TerminalLocalActionDrainHostAccess {
             hostScrollbarState: { surfaceView.hostScrollbarState },
             updateHostScrollbarState: { surfaceView.updateHostScrollbarState($0) }
         )
+    }
+
+    static func isMountedSurfaceLifetimeValid(
+        surfaceID: UUID,
+        managedSurfaceID: UUID?,
+        paneID: UUID?
+    ) -> Bool {
+        managedSurfaceID == surfaceID && paneID != nil
     }
 }
 

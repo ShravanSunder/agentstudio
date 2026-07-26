@@ -220,6 +220,14 @@ When AppKit reports `didEndLiveScroll`:
    drag-end position write and leaves the in-flight/next Ghostty callback on the
    existing normal synchronization path.
 
+When a gesture's viewport command is not acknowledged at drag end, the wrapper
+retains one presentation-local flag meaning host presentation convergence is
+pending. While set, layout continues updating document extent, scroller
+reflection, and surface geometry, but derives neither clip position nor the
+persistent dedup identity from the host cache. The flag carries no command,
+row, target, or request identity. The next scrollbar state received outside
+live scrolling, or a later accepted drag-end reconciliation, clears it.
+
 Drag-end reconciliation must not emit another `scroll_to_row` or
 `scroll_to_bottom` action. It applies state Ghostty already delivered only.
 
@@ -388,6 +396,9 @@ The permanent Swift Testing suite must prove:
   when unrelated pinned-bottom growth callbacks arrived during the gesture;
 - a gesture receiving no Ghostty scrollbar-state update causes no drag-end
   position write;
+- a rejected gesture remains at the user's clip position through layout until
+  a fresh scrollbar callback or later accepted drag-end reconciliation resumes
+  normal synchronization;
 - drag-end reconciliation emits no additional Ghostty action;
 - existing sticky-bottom, history anchoring, document range, and drag-to-row
   tests remain green;
