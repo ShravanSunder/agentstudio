@@ -29,7 +29,8 @@ final class DrawerCommandIntegrationTests {
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     }

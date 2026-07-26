@@ -31,6 +31,7 @@ extension AppDelegate {
             attendedPane: atomStore.attendedPane,
             traceRuntime: traceRuntime
         )
+        let terminalActivity = atomStore.terminalActivity
         inboxNotificationRouter = InboxNotificationRouter(
             bus: bus,
             inboxAtom: atomStore.inboxNotification,
@@ -39,7 +40,16 @@ extension AppDelegate {
             tabLayout: store.tabLayoutAtom,
             attendedPane: atomStore.attendedPane,
             focusTracker: inboxPaneFocusTracker,
-            terminalActivity: atomStore.terminalActivity,
+            terminalIsPinnedToBottom: { paneId in
+                terminalActivity.snapshot(for: paneId)?.isPinnedToBottom == true
+            },
+            terminalPinnedStateSnapshot: {
+                Dictionary(
+                    uniqueKeysWithValues: terminalActivity.snapshotsByPaneId.map { paneId, snapshot in
+                        (paneId, snapshot.isPinnedToBottom)
+                    }
+                )
+            },
             traceRuntime: traceRuntime,
             onPaneActivityObserved: { [weak self] paneId in
                 self?.terminalActivityRouter.markUnseenActivityObserved(paneId: paneId)

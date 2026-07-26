@@ -33,6 +33,7 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
             paneEventBus: EventBus<RuntimeEnvelope>(),
             filesystemSource: TopologyTraceRecordingFilesystemSource(),
             windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom(),
             performanceTraceRecorder: recorder
         )
         defer { Task { await coordinator.shutdown() } }

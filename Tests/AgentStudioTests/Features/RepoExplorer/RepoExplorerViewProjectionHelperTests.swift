@@ -4,8 +4,77 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
+private final class BridgeAttendanceSnapshotReadRecorder {
+    private(set) var readCount = 0
+    private let ordinalByPaneId: [UUID: UInt64]
+
+    init(ordinalByPaneId: [UUID: UInt64]) {
+        self.ordinalByPaneId = ordinalByPaneId
+    }
+
+    func readSnapshot() -> [UUID: UInt64] {
+        readCount += 1
+        return ordinalByPaneId
+    }
+}
+
+@MainActor
 @Suite("RepoExplorerViewProjectionHelperTests")
 struct RepoExplorerViewProjectionHelperTests {
+    @Test("Bridge attendance snapshot is read once and deterministically populates pane candidates")
+    func bridgeAttendanceSnapshotIsReadOncePerProjection() throws {
+        // Arrange
+        let store = WorkspaceStore(startsObserving: false)
+        let firstPane = store.createPane()
+        let secondPane = store.createPane()
+        let worktreeId = UUID()
+        let tabId = UUID()
+        let snapshotRecorder = BridgeAttendanceSnapshotReadRecorder(
+            ordinalByPaneId: [
+                firstPane.id: 7,
+                secondPane.id: 19,
+            ]
+        )
+        let view = RepoExplorerView(
+            store: store,
+            repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+            bridgeAttendanceSnapshot: snapshotRecorder.readSnapshot,
+            onRefocusActivePane: {},
+            onSidebarVisibleWorktreesChanged: {},
+            onShowNotificationsForWorktree: { _ in },
+            unreadCount: { _ in 0 }
+        )
+        let paneLocationsByWorktreeId = [
+            worktreeId: [
+                WorkspacePaneLocation(
+                    paneId: firstPane.id,
+                    tabId: tabId,
+                    tabIndex: 0,
+                    paneIndexInTab: 0,
+                    isActiveInTab: true
+                ),
+                WorkspacePaneLocation(
+                    paneId: secondPane.id,
+                    tabId: tabId,
+                    tabIndex: 0,
+                    paneIndexInTab: 1,
+                    isActiveInTab: false
+                ),
+            ]
+        ]
+
+        // Act
+        let candidatesByWorktreeId = view.bridgePaneCommandCandidatesByWorktreeId(
+            paneLocationsByWorktreeId: paneLocationsByWorktreeId
+        )
+
+        // Assert
+        let candidates = try #require(candidatesByWorktreeId[worktreeId])
+        #expect(snapshotRecorder.readCount == 1)
+        #expect(candidates.map(\.paneId) == [firstPane.id, secondPane.id])
+        #expect(candidates.map(\.attendanceOrdinal) == [7, 19])
+    }
+
     @Test("source group icon uses same checkout color contract as worktree rows")
     func sourceGroupIconUsesCheckoutColorContract() {
         let repoId = UUID()

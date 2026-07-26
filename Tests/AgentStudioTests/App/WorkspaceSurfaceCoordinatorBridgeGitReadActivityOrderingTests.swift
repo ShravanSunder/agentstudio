@@ -210,7 +210,8 @@ private func makeActivityOrderingTestSetup() throws -> ActivityOrderingTestSetup
         paneEventBus: makeTestPaneRuntimeEventBus(),
         bridgeGitReadScheduler: scheduler,
         windowLifecycleStore: windowLifecycleStore,
-        appLifecycleStore: appLifecycleStore
+        appLifecycleStore: appLifecycleStore,
+        bridgePaneAttendance: BridgePaneAttendanceAtom()
     )
     activateActivityOrderingWindow(
         coordinator: coordinator,

@@ -51,9 +51,11 @@ struct WorkspaceEmptyStateModel: Equatable {
 
 @MainActor
 enum WorkspaceLauncherProjector {
-    static func project(store: WorkspaceStore) -> WorkspaceEmptyStateModel {
+    static func project(
+        store: WorkspaceStore,
+        inboxAtom: InboxNotificationAtom
+    ) -> WorkspaceEmptyStateModel {
         let repoCache = atom(\.repoCache)
-        let inboxAtom = atom(\.inboxNotification)
         let welcome = atom(\.welcome)
         let repositoryTopology = store.repositoryTopologyAtom
         let workspaceTab = WorkspaceTabLayoutDerived(

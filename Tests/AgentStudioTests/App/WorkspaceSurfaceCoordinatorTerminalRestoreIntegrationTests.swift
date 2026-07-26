@@ -43,7 +43,8 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: .shared,
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(

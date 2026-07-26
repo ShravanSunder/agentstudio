@@ -41,7 +41,8 @@ struct PaneTabViewControllerEditorChooserCommandTests {
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: runtimeRegistry,
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            bridgePaneAttendance: atom(\.bridgePaneAttendance)
         )
         let controller = PaneTabViewController(
             store: store,
@@ -52,6 +53,9 @@ struct PaneTabViewControllerEditorChooserCommandTests {
             runtimeCommandDispatcher: coordinator,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
+            bridgePaneAttendance: atom(\.bridgePaneAttendance),
+            editorChooser: atom(\.editorChooser),
+            inboxAtom: atom(\.inboxNotification),
             installedEditorTargetsProvider: { installedEditorTargets },
             openEditorHandler: { _, _, _ in true },
             openFinderHandler: { _ in true },

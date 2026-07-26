@@ -58,6 +58,7 @@ private struct ScrollOverflowDetector: ViewModifier {
 struct CustomTabBar: View {
     @Bindable var adapter: TabBarAdapter
     @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
+    let inboxAtom: InboxNotificationAtom
     var onSelect: (UUID) -> Void
     var onClose: (UUID) -> Void
     var onCommand: ((AppCommand, UUID) -> Void)?
@@ -274,7 +275,7 @@ struct CustomTabBar: View {
     private func leadingChromeControl(_ control: TabBarChromeControl) -> some View {
         switch control {
         case .sidebarSurfaces:
-            SidebarSurfaceTabBarControls()
+            SidebarSurfaceTabBarControls(inboxAtom: inboxAtom)
         case .divider:
             SidebarNavDivider()
         case .watchFolder:
@@ -920,6 +921,7 @@ struct TabBarEmptyState: View {
                 CustomTabBar(
                     adapter: adapter,
                     arrangementInlineRenameState: ArrangementInlineRenameState(),
+                    inboxAtom: atomRegistry.inboxNotification,
                     onSelect: { _ in },
                     onClose: { _ in },
                     onCommand: { _, _ in },

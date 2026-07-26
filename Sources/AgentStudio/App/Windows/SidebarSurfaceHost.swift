@@ -42,6 +42,8 @@ struct SidebarSurfaceHost: View {
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let repoCache: RepoCacheAtom
+    let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
+    let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
@@ -74,6 +76,8 @@ struct SidebarSurfaceHost: View {
         case .repos:
             RepoExplorerView(
                 store: store,
+                repoExplorerPrefs: repoExplorerSidebarPrefs,
+                bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
                 onRefocusActivePane: onRefocusActivePane,
                 onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
                 onShowNotificationsForWorktree: { worktree in

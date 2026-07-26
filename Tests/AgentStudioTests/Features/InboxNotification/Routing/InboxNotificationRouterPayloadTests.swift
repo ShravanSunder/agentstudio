@@ -36,7 +36,9 @@ struct InboxNotificationRouterPayloadTests {
             paneAtom: paneAtom,
             tabLayout: tabLayout,
             attendedPane: attendedPane,
-            focusTracker: tracker
+            focusTracker: tracker,
+            terminalIsPinnedToBottom: { _ in false },
+            terminalPinnedStateSnapshot: { [:] }
         )
         await router.start()
         return Fixture(

@@ -2,6 +2,9 @@ import AppKit
 import Foundation
 import SwiftUI
 
+package typealias BridgeAttendanceSnapshot =
+    @MainActor () -> [UUID: UInt64]
+
 private enum RepoSidebarToolbarTooltipTarget: Hashable {
     case sort
     case grouping
@@ -13,6 +16,8 @@ struct RepoExplorerView: View {
     typealias SidebarProjection = RepoExplorerSidebarProjection
 
     let store: WorkspaceStore
+    let repoExplorerPrefs: RepoExplorerSidebarPrefsAtom
+    let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     let onShowNotificationsForWorktree: (Worktree) -> Void
@@ -27,6 +32,8 @@ struct RepoExplorerView: View {
 
     init(
         store: WorkspaceStore,
+        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom,
+        bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
         onRefocusActivePane: @escaping () -> Void,
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
         onShowNotificationsForWorktree: @escaping (Worktree) -> Void,
@@ -37,6 +44,8 @@ struct RepoExplorerView: View {
         onInitialProjectionApplied: @escaping @MainActor (Int) -> Void = { _ in }
     ) {
         self.store = store
+        self.repoExplorerPrefs = repoExplorerPrefs
+        self.bridgeAttendanceSnapshot = bridgeAttendanceSnapshot
         self.onRefocusActivePane = onRefocusActivePane
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
         self.onShowNotificationsForWorktree = onShowNotificationsForWorktree
@@ -58,10 +67,6 @@ struct RepoExplorerView: View {
 
     private var sidebarCache: SidebarCacheState {
         atom(\.sidebarCache)
-    }
-
-    private var repoExplorerPrefs: RepoExplorerSidebarPrefsAtom {
-        atom(\.repoExplorerSidebarPrefs)
     }
 
     @State private var filterText: String = ""

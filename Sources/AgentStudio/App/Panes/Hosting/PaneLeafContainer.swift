@@ -23,6 +23,7 @@ struct PaneLeafContainer: View {
     let isSplitResizing: Bool
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
+    let editorChooser: EditorChooserState
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
@@ -54,6 +55,7 @@ struct PaneLeafContainer: View {
         isSplitResizing: Bool,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
+        editorChooser: EditorChooserState,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
@@ -72,6 +74,7 @@ struct PaneLeafContainer: View {
         self.isSplitResizing = isSplitResizing
         self.store = store
         self.repoCache = repoCache
+        self.editorChooser = editorChooser
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
         self.onPaneFocusTrigger = onPaneFocusTrigger
@@ -166,7 +169,7 @@ struct PaneLeafContainer: View {
         locationContext: PaneManagementContext
     ) -> some View {
         let trailingActions = DrawerEditorChooserFactory.makeTrailingActions(
-            editorChooser: atom(\.editorChooser),
+            editorChooser: editorChooser,
             paneId: locationTargetPaneId,
             workspaceWindowId: workspaceWindowId,
             canOpenTarget: locationContext.targetPath != nil,
@@ -757,34 +760,6 @@ struct PaneViewRepresentable: NSViewRepresentable {
 
 @available(*, deprecated, renamed: "PaneLeafContainer")
 typealias TerminalPaneLeaf = PaneLeafContainer
-
-// MARK: - Drag Payloads
-
-/// Payload for dragging an existing tab.
-struct TabDragPayload: Codable, Transferable {
-    let tabId: UUID
-
-    static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .agentStudioTab)
-    }
-}
-
-/// Payload for dragging an individual pane.
-struct PaneDragPayload: Codable, Transferable {
-    let paneId: UUID
-    let tabId: UUID
-    let drawerParentPaneId: UUID?
-
-    init(paneId: UUID, tabId: UUID, drawerParentPaneId: UUID? = nil) {
-        self.paneId = paneId
-        self.tabId = tabId
-        self.drawerParentPaneId = drawerParentPaneId
-    }
-
-    static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .agentStudioPane)
-    }
-}
 
 /// Payload for dragging the new tab button.
 struct NewTabDragPayload: Codable, Transferable {

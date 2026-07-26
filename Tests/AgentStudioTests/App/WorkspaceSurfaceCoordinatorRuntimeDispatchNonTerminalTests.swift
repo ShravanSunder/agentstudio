@@ -20,7 +20,8 @@ struct WorkspaceRuntimeDispatchNonTerminalTests {
             runtime: SessionRuntime(store: store),
             surfaceManager: NonTerminalSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
 
         let webviewPane = store.createPane(

@@ -22,7 +22,8 @@ func makeTestWorkspaceSurfaceCoordinator(
     surfaceManager: WorkspaceSurfaceManaging,
     runtimeRegistry: RuntimeRegistry,
     paneEventBus: EventBus<RuntimeEnvelope> = makeTestPaneRuntimeEventBus(),
-    windowLifecycleStore: WindowLifecycleAtom = WindowLifecycleAtom()
+    windowLifecycleStore: WindowLifecycleAtom = WindowLifecycleAtom(),
+    bridgePaneAttendance: BridgePaneAttendanceAtom = BridgePaneAttendanceAtom()
 ) -> WorkspaceSurfaceCoordinator {
     WorkspaceSurfaceCoordinator(
         store: store,
@@ -31,7 +32,8 @@ func makeTestWorkspaceSurfaceCoordinator(
         surfaceManager: surfaceManager,
         runtimeRegistry: runtimeRegistry,
         paneEventBus: paneEventBus,
-        windowLifecycleStore: windowLifecycleStore
+        windowLifecycleStore: windowLifecycleStore,
+        bridgePaneAttendance: bridgePaneAttendance
     )
 }
 

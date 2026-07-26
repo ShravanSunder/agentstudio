@@ -106,7 +106,8 @@ private func withPresentationFactsWindowHarness<T>(
         surfaceManager: PresentationFactsWindowSurfaceManager(),
         runtimeRegistry: RuntimeRegistry(),
         windowLifecycleStore: atoms.windowLifecycle,
-        appLifecycleStore: appLifecycleStore
+        appLifecycleStore: appLifecycleStore,
+        bridgePaneAttendance: atoms.bridgePaneAttendance
     )
     let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
         appLifecycleStore: appLifecycleStore,
@@ -128,9 +129,16 @@ private func withPresentationFactsWindowHarness<T>(
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: atoms.repoCache),
             viewRegistry: viewRegistry,
+            bridgePaneAttendance: atoms.bridgePaneAttendance,
+            editorChooser: atoms.editorChooser,
             inboxAtom: InboxNotificationAtom(),
             inboxPrefsAtom: InboxNotificationPrefsAtom(),
             inboxSidebarState: InboxSidebarState(),
+            paneInboxPresentationState: atoms.paneInboxPresentationState,
+            repoExplorerSidebarPrefs: atoms.repoExplorerSidebarPrefs,
+            bridgeAttendanceSnapshot: {
+                atoms.bridgePaneAttendance.ordinalSnapshot()
+            },
             paneInboxPresenter: PaneInboxNotificationPresenter()
         )
         controller = windowController

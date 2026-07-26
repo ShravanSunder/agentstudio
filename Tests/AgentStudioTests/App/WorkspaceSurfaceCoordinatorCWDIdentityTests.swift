@@ -110,6 +110,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom(),
             performanceTraceRecorder: performanceTraceRecorder
         )
         let coordinatorCwd = repo.repoPath.appending(path: "CoordinatorLookup")

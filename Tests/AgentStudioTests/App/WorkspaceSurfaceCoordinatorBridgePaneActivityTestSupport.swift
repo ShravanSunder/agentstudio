@@ -101,7 +101,8 @@ func makeBridgePaneActivityTestHarness(
         worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
         filesystemProjectionIndex: filesystemProjectionIndex,
         windowLifecycleStore: windowLifecycleStore,
-        appLifecycleStore: appLifecycleStore
+        appLifecycleStore: appLifecycleStore,
+        bridgePaneAttendance: BridgePaneAttendanceAtom()
     )
     coordinator.bindBridgePaneActivities(toOwningWindowId: owningWindowId)
 

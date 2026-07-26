@@ -701,7 +701,12 @@ extension DerivedActivityNotificationIntegrationTests {
             tabLayout: tabLayout,
             attendedPane: attendedPane,
             focusTracker: tracker,
-            terminalActivity: terminalActivity,
+            terminalIsPinnedToBottom: { paneId in
+                terminalActivity.snapshot(for: paneId)?.isPinnedToBottom == true
+            },
+            terminalPinnedStateSnapshot: {
+                terminalActivity.snapshotsByPaneId.mapValues(\.isPinnedToBottom)
+            },
             drawerView: drawerView,
             onPaneActivityObserved: { paneId in
                 paneActivityObservationRecorder.record(paneId)

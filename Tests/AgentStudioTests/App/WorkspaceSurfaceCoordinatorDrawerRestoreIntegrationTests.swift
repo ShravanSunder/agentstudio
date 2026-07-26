@@ -58,7 +58,8 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: .shared,
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
@@ -330,7 +331,8 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
@@ -377,7 +379,8 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             runtime: restoredRuntime,
             surfaceManager: restoredSurfaceManager,
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: restoredWindowLifecycleStore
+            windowLifecycleStore: restoredWindowLifecycleStore,
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         restoredCoordinator.sessionConfig = fixtureSessionConfiguration
         restoredCoordinator.terminalRestoreRuntime = TerminalRestoreRuntime(

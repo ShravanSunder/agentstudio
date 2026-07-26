@@ -93,7 +93,8 @@ func makePaneTabViewControllerCommandHarness(
         surfaceManager: surfaceManager,
         runtimeRegistry: runtimeRegistry,
         closeTransitionCoordinator: closeTransitionCoordinator,
-        windowLifecycleStore: windowLifecycleStore
+        windowLifecycleStore: windowLifecycleStore,
+        bridgePaneAttendance: atom(\.bridgePaneAttendance)
     )
     let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     let controller = PaneTabViewController(
@@ -107,6 +108,9 @@ func makePaneTabViewControllerCommandHarness(
         runtimeCommandDispatcher: coordinator,
         tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
         viewRegistry: viewRegistry,
+        bridgePaneAttendance: atom(\.bridgePaneAttendance),
+        editorChooser: atom(\.editorChooser),
+        inboxAtom: atom(\.inboxNotification),
         paneInboxPresentation: paneInboxPresentation,
         installedEditorTargetsProvider: { [.cursor, .vscode] },
         openEditorHandler: { editorId, path, _ in

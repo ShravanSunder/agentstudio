@@ -182,21 +182,12 @@ extension AppDelegate {
         )
         uiStateStore = UIStateStore(
             atom: atomStore.workspaceSidebarState,
-            editorChooserState: atomStore.editorChooser,
             sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
         )
-        workspaceSettingsStore = WorkspaceSettingsStore(
-            editorPreferenceAtom: atomStore.editorPreference,
-            repoExplorerSidebarPrefsAtom: atomStore.repoExplorerSidebarPrefs,
-            inboxNotificationPrefsAtom: atomStore.inboxNotificationPrefs,
-            sqliteDatastore: sqliteDatastore,
-            recoveryReporter: { [weak self] event in
-                self?.recordPersistenceRecovery(event)
-            }
-        )
+        workspaceSettingsStore = makeWorkspaceSettingsStore(sqliteDatastore: sqliteDatastore)
         paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
         switch await store.loadCanonicalComposition() {
@@ -229,6 +220,20 @@ extension AppDelegate {
 
     private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastore {
         WorkspaceSQLiteDatastoreFactory(traceRuntime: traceRuntime).makeDatastore()
+    }
+
+    func makeWorkspaceSettingsStore(
+        sqliteDatastore: WorkspaceSQLiteDatastore
+    ) -> WorkspaceSettingsStore {
+        WorkspaceSettingsStore(
+            editorPreferenceAtom: atomStore.editorPreference,
+            repoExplorerSidebarPrefsAtom: atomStore.repoExplorerSidebarPrefs,
+            inboxNotificationPrefsAtom: atomStore.inboxNotificationPrefs,
+            sqliteDatastore: sqliteDatastore,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
+        )
     }
 
     private func bootLoadCacheStore() async {
@@ -285,6 +290,7 @@ extension AppDelegate {
             filesystemSource: pipeline,
             windowLifecycleStore: windowLifecycleStore,
             appLifecycleStore: appLifecycleStore,
+            bridgePaneAttendance: atomStore.bridgePaneAttendance,
             traceRuntime: traceRuntime,
             performanceTraceRecorder: performanceTraceRecorder,
             traceIdentityRefreshHandler: { [weak self] in
@@ -311,17 +317,18 @@ extension AppDelegate {
             self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
         }
         executor = WorkspaceActionExecutor(coordinator: workspaceSurfaceCoordinator, store: store)
+        let inboxNotification = atomStore.inboxNotification
         tabBarAdapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
             performanceTraceRecorder: performanceTraceRecorder,
             notificationDotColorProvider: { paneIds in
                 Self.tabNotificationDotColor(
-                    for: atom(\.inboxNotification).attentionLane(forPaneIds: paneIds)
+                    for: inboxNotification.attentionLane(forPaneIds: paneIds)
                 )
             },
             observeNotificationDotInputs: {
-                _ = atom(\.inboxNotification).notifications
+                _ = inboxNotification.notifications
             }
         )
         commandBarController = CommandBarPanelController(

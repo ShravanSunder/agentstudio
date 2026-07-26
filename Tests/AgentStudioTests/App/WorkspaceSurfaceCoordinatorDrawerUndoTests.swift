@@ -32,7 +32,8 @@ struct WorkspaceSurfaceCoordinatorDrawerUndoTests {
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         return Harness(
             store: store,

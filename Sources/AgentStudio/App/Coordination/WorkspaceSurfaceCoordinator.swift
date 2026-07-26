@@ -51,6 +51,7 @@ final class WorkspaceSurfaceCoordinator {
     let filesystemProjectionIndex: any WorkspaceFilesystemProjectionIndexing
     let windowLifecycleStore: WindowLifecycleAtom
     let appLifecycleStore: AppLifecycleAtom
+    let bridgePaneAttendance: BridgePaneAttendanceAtom
     let traceRuntime: AgentStudioTraceRuntime?
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)?
@@ -118,7 +119,8 @@ final class WorkspaceSurfaceCoordinator {
         viewRegistry: ViewRegistry,
         runtime: SessionRuntime,
         windowLifecycleStore: WindowLifecycleAtom,
-        appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom()
+        appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom(),
+        bridgePaneAttendance: BridgePaneAttendanceAtom
     ) {
         self.init(
             store: store,
@@ -129,7 +131,8 @@ final class WorkspaceSurfaceCoordinator {
             paneEventBus: PaneRuntimeEventBus.shared,
             runtimeCommandClock: ContinuousClock(),
             windowLifecycleStore: windowLifecycleStore,
-            appLifecycleStore: appLifecycleStore
+            appLifecycleStore: appLifecycleStore,
+            bridgePaneAttendance: bridgePaneAttendance
         )
     }
 
@@ -150,6 +153,7 @@ final class WorkspaceSurfaceCoordinator {
         filesystemProjectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
         windowLifecycleStore: WindowLifecycleAtom,
         appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom(),
+        bridgePaneAttendance: BridgePaneAttendanceAtom,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)? = nil
@@ -179,6 +183,7 @@ final class WorkspaceSurfaceCoordinator {
         self.filesystemProjectionIndex = filesystemProjectionIndex ?? FilesystemProjectionIndex()
         self.windowLifecycleStore = windowLifecycleStore
         self.appLifecycleStore = appLifecycleStore
+        self.bridgePaneAttendance = bridgePaneAttendance
         self.traceRuntime = traceRuntime
         self.performanceTraceRecorder = performanceTraceRecorder
         self.traceIdentityRefreshHandler = traceIdentityRefreshHandler

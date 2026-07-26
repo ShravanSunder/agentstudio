@@ -150,7 +150,8 @@ private func withMainWindowControllerHarness<T>(
         runtime: runtime,
         surfaceManager: InboxToolbarTestSurfaceManager(),
         runtimeRegistry: RuntimeRegistry(),
-        windowLifecycleStore: atoms.windowLifecycle
+        windowLifecycleStore: atoms.windowLifecycle,
+        bridgePaneAttendance: atoms.bridgePaneAttendance
     )
     let workspaceActionExecutor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     let appLifecycleStore = AppLifecycleAtom()
@@ -170,9 +171,16 @@ private func withMainWindowControllerHarness<T>(
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
+            bridgePaneAttendance: atoms.bridgePaneAttendance,
+            editorChooser: atoms.editorChooser,
             inboxAtom: inboxAtom,
             inboxPrefsAtom: inboxPrefsAtom,
             inboxSidebarState: InboxSidebarState(),
+            paneInboxPresentationState: atoms.paneInboxPresentationState,
+            repoExplorerSidebarPrefs: atoms.repoExplorerSidebarPrefs,
+            bridgeAttendanceSnapshot: {
+                atoms.bridgePaneAttendance.ordinalSnapshot()
+            },
             paneInboxPresenter: paneInboxPresenter
         )
         controller = windowController

@@ -33,7 +33,7 @@ struct WorkspaceLauncherProjectorTests {
                 tabLayoutAtom: atoms.workspaceTabLayout,
                 mutationCoordinator: atoms.workspaceMutationCoordinator
             )
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .noFolders)
             #expect(result.recentCards.isEmpty)
@@ -47,7 +47,7 @@ struct WorkspaceLauncherProjectorTests {
             let store = makeStore(atoms: atoms)
             atoms.welcome.beginFolderScan(URL(fileURLWithPath: "/tmp/scanning-root"))
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .scanning(URL(fileURLWithPath: "/tmp/scanning-root")))
             #expect(result.recentCards.isEmpty)
@@ -63,7 +63,7 @@ struct WorkspaceLauncherProjectorTests {
                 discoveredRepoCount: 0
             )
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .scanEmpty(URL(fileURLWithPath: "/tmp/empty-root")))
             #expect(result.recentCards.isEmpty)
@@ -81,7 +81,7 @@ struct WorkspaceLauncherProjectorTests {
                 discoveredRepoCount: 0
             )
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .launcher)
         }
@@ -93,7 +93,7 @@ struct WorkspaceLauncherProjectorTests {
             let store = makeStore(atoms: atoms)
             atoms.welcome.beginChoosingFolder()
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .choosingFolder)
             #expect(result.recentCards.isEmpty)
@@ -107,7 +107,7 @@ struct WorkspaceLauncherProjectorTests {
             atoms.welcome.beginChoosingFolder()
             atoms.welcome.beginFolderScan(URL(fileURLWithPath: "/tmp/scanning-root"))
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .scanning(URL(fileURLWithPath: "/tmp/scanning-root")))
         }
@@ -120,7 +120,7 @@ struct WorkspaceLauncherProjectorTests {
             _ = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             atoms.welcome.beginChoosingFolder()
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .launcher)
         }
@@ -203,7 +203,7 @@ struct WorkspaceLauncherProjectorTests {
             )
             atoms.repoCache.recordRecentTarget(.forWorktree(path: worktree.path, worktree: worktree, repo: repo))
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .launcher)
             #expect(result.recentCards.count == 1)
@@ -243,7 +243,7 @@ struct WorkspaceLauncherProjectorTests {
             store.tabLayoutAtom.appendTab(Tab(paneId: pane.id))
             atoms.repoCache.recordRecentTarget(.forWorktree(path: worktree.path, worktree: worktree, repo: repo))
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .launcher)
             #expect(result.recentCards.isEmpty)
@@ -272,7 +272,7 @@ struct WorkspaceLauncherProjectorTests {
                 )
             }
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.recentCards.count == 15)
             #expect(result.showsOpenAll == true)
@@ -288,7 +288,7 @@ struct WorkspaceLauncherProjectorTests {
             let cache = atoms.repoCache
             cache.recordRecentTarget(.forCwd(URL(fileURLWithPath: "/tmp/missing-project")))
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .launcher)
             #expect(result.recentCards.isEmpty)

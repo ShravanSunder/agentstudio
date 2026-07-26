@@ -59,4 +59,23 @@ struct BridgePaneAttendanceAtomTests {
         #expect(retainedOrdinal > removedOrdinal)
         #expect(attendance.ordinal(for: retainedPaneId) == retainedOrdinal)
     }
+
+    @Test("ordinal snapshot is an immutable value copy of current attendance")
+    func ordinalSnapshotIsValueCopyOfCurrentAttendance() {
+        // Arrange
+        let attendance = BridgePaneAttendanceAtom()
+        let firstPaneId = UUID()
+        let secondPaneId = UUID()
+        let firstOrdinal = attendance.record(.paneFocus, for: firstPaneId)
+
+        // Act
+        let snapshot = attendance.ordinalSnapshot()
+        _ = attendance.record(.tabActivation, for: secondPaneId)
+        attendance.remove(paneId: firstPaneId)
+
+        // Assert
+        #expect(snapshot == [firstPaneId: firstOrdinal])
+        #expect(attendance.ordinal(for: firstPaneId) == nil)
+        #expect(attendance.ordinal(for: secondPaneId) != nil)
+    }
 }

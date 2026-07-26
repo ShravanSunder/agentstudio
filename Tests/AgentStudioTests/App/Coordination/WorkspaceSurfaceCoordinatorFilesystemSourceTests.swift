@@ -522,7 +522,8 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
             paneEventBus: bus,
             filesystemSource: source,
             filesystemProjectionIndex: index,
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
     }
 }

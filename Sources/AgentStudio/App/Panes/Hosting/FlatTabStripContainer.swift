@@ -14,6 +14,7 @@ struct FlatTabStripContainer: View {
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
+    let editorChooser: EditorChooserState
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleAtom
     let paneInboxPresentation: PaneInboxPresentation?
@@ -63,6 +64,7 @@ struct FlatTabStripContainer: View {
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
+        editorChooser: EditorChooserState,
         viewRegistry: ViewRegistry,
         appLifecycleStore: AppLifecycleAtom,
         paneInboxPresentation: PaneInboxPresentation? = nil,
@@ -82,6 +84,7 @@ struct FlatTabStripContainer: View {
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.store = store
         self.repoCache = repoCache
+        self.editorChooser = editorChooser
         self.viewRegistry = viewRegistry
         self.appLifecycleStore = appLifecycleStore
         self.paneInboxPresentation = paneInboxPresentation
@@ -276,6 +279,7 @@ struct FlatTabStripContainer: View {
                 onPaneFocusTrigger: onPaneFocusTrigger,
                 store: store,
                 repoCache: repoCache,
+                editorChooser: editorChooser,
                 viewRegistry: viewRegistry,
                 coordinateSpaceName: "tabContainer",
                 useDrawerFramePreference: false,
@@ -317,6 +321,7 @@ struct FlatTabStripContainer: View {
         DrawerPanelOverlay(
             store: store,
             repoCache: repoCache,
+            editorChooser: editorChooser,
             viewRegistry: viewRegistry,
             appLifecycleStore: appLifecycleStore,
             closeTransitionCoordinator: closeTransitionCoordinator,
@@ -432,6 +437,7 @@ struct FlatTabStripContainer: View {
             isSplitResizing: false,
             store: store,
             repoCache: repoCache,
+            editorChooser: editorChooser,
             closeTransitionCoordinator: closeTransitionCoordinator,
             actionDispatcher: actionDispatcher,
             onPaneFocusTrigger: onPaneFocusTrigger,

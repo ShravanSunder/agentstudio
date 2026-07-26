@@ -53,7 +53,8 @@ struct PaneTabViewControllerLaunchRestoreTests {
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: .shared,
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            bridgePaneAttendance: atom(\.bridgePaneAttendance)
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
@@ -69,6 +70,9 @@ struct PaneTabViewControllerLaunchRestoreTests {
             runtimeCommandDispatcher: coordinator,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
+            bridgePaneAttendance: atom(\.bridgePaneAttendance),
+            editorChooser: atom(\.editorChooser),
+            inboxAtom: atom(\.inboxNotification),
             registersAsCommandHandler: false
         )
         let window = NSWindow(

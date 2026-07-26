@@ -87,7 +87,8 @@ struct WorkspaceCrossTabMoveTransitionTests {
                 runtime: SessionRuntime(store: store),
                 surfaceManager: surfaceManager,
                 runtimeRegistry: RuntimeRegistry(),
-                windowLifecycleStore: WindowLifecycleAtom()
+                windowLifecycleStore: WindowLifecycleAtom(),
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
 
             let movedPane = store.createPane(title: "A")
@@ -175,7 +176,8 @@ struct WorkspaceCrossTabMoveTransitionTests {
                 runtime: SessionRuntime(store: store),
                 surfaceManager: surfaceManager,
                 runtimeRegistry: RuntimeRegistry(),
-                windowLifecycleStore: WindowLifecycleAtom()
+                windowLifecycleStore: WindowLifecycleAtom(),
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
 
             let movedPane = store.createPane(title: "A")

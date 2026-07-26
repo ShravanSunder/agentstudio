@@ -302,7 +302,7 @@ extension AppDelegate {
             let worktreeCount = store.repositoryTopologyAtom.repos.reduce(0) { count, repo in
                 count + repo.worktrees.count
             }
-            let inboxCount = atom(\.inboxNotification).notifications.count
+            let inboxCount = atomStore.inboxNotification.notifications.count
             let projectionTrigger = AppPolicies.SidebarProjection.Trigger.startupDiagnostic
             let inboxProjectionProof = await runInboxSidebarProjectionProof(trigger: projectionTrigger)
             let diagnosticOutcome = inboxProjectionProof.succeeded ? "succeeded" : "blocked"
@@ -374,16 +374,16 @@ extension AppDelegate {
                 repoEnrichmentByRepoId: repoEnrichmentByRepoId
             )
             let key = InboxNotificationListProjectionKey(
-                notifications: atom(\.inboxNotification).notifications,
-                grouping: atom(\.inboxNotificationPrefs).grouping,
-                sort: atom(\.inboxNotificationPrefs).sort,
+                notifications: atomStore.inboxNotification.notifications,
+                grouping: atomStore.inboxNotificationPrefs.grouping,
+                sort: atomStore.inboxNotificationPrefs.sort,
                 searchText: "",
                 filter: nil,
                 contentMode: InboxNotificationSidebarView.globalSidebarContentMode(
-                    atom(\.inboxNotificationPrefs).globalInboxContentMode
+                    atomStore.inboxNotificationPrefs.globalInboxContentMode
                 ),
-                rowStateFilter: atom(\.inboxNotificationPrefs).globalInboxRowStateFilter,
-                collapsedGroups: atom(\.inboxSidebarState).collapsedGroups,
+                rowStateFilter: atomStore.inboxNotificationPrefs.globalInboxRowStateFilter,
+                collapsedGroups: atomStore.inboxSidebarState.collapsedGroups,
                 repoPresentationFingerprint: InboxNotificationSidebarView.repoPresentationFingerprint(
                     repoPresentationByRepoId
                 )

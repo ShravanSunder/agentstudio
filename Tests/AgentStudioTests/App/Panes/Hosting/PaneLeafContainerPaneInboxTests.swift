@@ -52,23 +52,30 @@ struct PaneLeafContainerPaneInboxTests {
             popoverContent: { _, _, _, _ in AnyView(Text("Pane inbox")) },
             pruneFilterModes: { _ in }
         )
+        let editorChooser = EditorChooserState()
+        let paneLeafContainer = PaneLeafContainer(
+            paneHost: PaneHostView(paneId: pane.id),
+            tabId: tab.id,
+            isActive: true,
+            isSplit: false,
+            isSplitResizing: false,
+            store: store,
+            repoCache: RepoCacheAtom(),
+            editorChooser: editorChooser,
+            closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
+            actionDispatcher: makeNoOpPaneActionDispatcher(),
+            onPaneFocusTrigger: { _ in },
+            onOpenPaneGitHub: { _ in },
+            paneInboxPresentation: presentation,
+            workspaceWindowId: nil
+        )
+
+        #expect(paneLeafContainer.editorChooser === editorChooser)
+
         let hostingView = NSHostingView(
-            rootView: PaneLeafContainer(
-                paneHost: PaneHostView(paneId: pane.id),
-                tabId: tab.id,
-                isActive: true,
-                isSplit: false,
-                isSplitResizing: false,
-                store: store,
-                repoCache: RepoCacheAtom(),
-                closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
-                actionDispatcher: makeNoOpPaneActionDispatcher(),
-                onPaneFocusTrigger: { _ in },
-                onOpenPaneGitHub: { _ in },
-                paneInboxPresentation: presentation,
-                workspaceWindowId: nil
-            )
-            .frame(width: 360, height: 240)
+            rootView:
+                paneLeafContainer
+                .frame(width: 360, height: 240)
         )
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),

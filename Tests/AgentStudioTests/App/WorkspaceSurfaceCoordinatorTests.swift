@@ -27,7 +27,8 @@ struct WorkspaceSurfaceCoordinatorTests {
         let runtime = SessionRuntime(store: store)
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: viewRegistry, runtime: runtime,
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         return WorkspaceSurfaceCoordinatorHarness(
             store: store,
@@ -59,7 +60,8 @@ struct WorkspaceSurfaceCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
     }
 
@@ -539,7 +541,8 @@ struct WorkspaceSurfaceCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
 
         await waitUntilFilesystemState(
@@ -598,7 +601,8 @@ struct WorkspaceSurfaceCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         _ = coordinator
 

@@ -23,7 +23,8 @@ final class WorkspaceActionExecutorTests {
         runtime = SessionRuntime(store: store)
         coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: viewRegistry, runtime: runtime,
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     }

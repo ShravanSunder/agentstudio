@@ -54,6 +54,9 @@ struct TerminalPaneMountViewExitBehaviorTests {
             runtimeCommandDispatcher: coordinator,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
+            bridgePaneAttendance: atom(\.bridgePaneAttendance),
+            editorChooser: atom(\.editorChooser),
+            inboxAtom: atom(\.inboxNotification),
             registersAsCommandHandler: false
         )
         return PaneTabControllerHarness(

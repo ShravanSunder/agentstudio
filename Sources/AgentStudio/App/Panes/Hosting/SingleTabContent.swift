@@ -4,6 +4,7 @@ struct SingleTabContent: View {
     let tabId: UUID
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
+    let editorChooser: EditorChooserState
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
@@ -18,6 +19,7 @@ struct SingleTabContent: View {
         tabId: UUID,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
+        editorChooser: EditorChooserState,
         viewRegistry: ViewRegistry,
         appLifecycleStore: AppLifecycleAtom,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
@@ -31,6 +33,7 @@ struct SingleTabContent: View {
         self.tabId = tabId
         self.store = store
         self.repoCache = repoCache
+        self.editorChooser = editorChooser
         self.viewRegistry = viewRegistry
         self.appLifecycleStore = appLifecycleStore
         self.closeTransitionCoordinator = closeTransitionCoordinator
@@ -69,6 +72,7 @@ struct SingleTabContent: View {
                 onPaneFocusTrigger: onPaneFocusTrigger,
                 store: store,
                 repoCache: repoCache,
+                editorChooser: editorChooser,
                 viewRegistry: viewRegistry,
                 appLifecycleStore: appLifecycleStore,
                 paneInboxPresentation: paneInboxPresentation,

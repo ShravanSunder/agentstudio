@@ -52,7 +52,8 @@ private func makeMainSplitViewControllerHarness(
         runtime: runtime,
         surfaceManager: MainSplitViewControllerTestSurfaceManager(),
         runtimeRegistry: RuntimeRegistry(),
-        windowLifecycleStore: WindowLifecycleAtom()
+        windowLifecycleStore: WindowLifecycleAtom(),
+        bridgePaneAttendance: atoms.bridgePaneAttendance
     )
     let workspaceActionExecutor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     let appLifecycleStore = AppLifecycleAtom()
@@ -72,6 +73,13 @@ private func makeMainSplitViewControllerHarness(
         inboxAtom: inboxAtom,
         inboxPrefsAtom: atoms.inboxNotificationPrefs,
         inboxSidebarState: atoms.inboxSidebarState,
+        paneInboxPresentationState: atoms.paneInboxPresentationState,
+        repoExplorerSidebarPrefs: atoms.repoExplorerSidebarPrefs,
+        bridgeAttendanceSnapshot: {
+            atoms.bridgePaneAttendance.ordinalSnapshot()
+        },
+        bridgePaneAttendance: atoms.bridgePaneAttendance,
+        editorChooser: atoms.editorChooser,
         paneInboxPresenter: PaneInboxNotificationPresenter(),
         sidebarRootViewBuilder: { dependencies in
             sidebarRootViewBuilder(dependencies.uiState, dependencies.onDismissInbox)

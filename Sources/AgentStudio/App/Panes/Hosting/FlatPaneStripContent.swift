@@ -36,6 +36,7 @@ struct FlatPaneStripContent: View {
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
+    let editorChooser: EditorChooserState
     let viewRegistry: ViewRegistry
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
@@ -96,6 +97,7 @@ struct FlatPaneStripContent: View {
                             onPaneFocusTrigger: onPaneFocusTrigger,
                             store: store,
                             repoCache: repoCache,
+                            editorChooser: editorChooser,
                             isSplitResizing: isSplitResizing,
                             coordinateSpaceName: coordinateSpaceName,
                             useDrawerFramePreference: useDrawerFramePreference,
@@ -144,6 +146,7 @@ private struct PaneSegmentSlotView: View {
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
+    let editorChooser: EditorChooserState
     let isSplitResizing: Bool
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
@@ -181,6 +184,7 @@ private struct PaneSegmentSlotView: View {
                     isSplitResizing: isSplitResizing,
                     store: store,
                     repoCache: repoCache,
+                    editorChooser: editorChooser,
                     closeTransitionCoordinator: closeTransitionCoordinator,
                     actionDispatcher: actionDispatcher,
                     onPaneFocusTrigger: onPaneFocusTrigger,
@@ -232,100 +236,5 @@ private struct UnexpectedMissingPaneHostPlaceholder: View {
             "FlatPaneStripContent: missing host for non-retired pane \(paneId.uuidString, privacy: .public)"
         )
         RestoreTrace.log(message)
-    }
-}
-
-struct FlatPaneDivider: View {
-    let dividerId: UUID
-    let frame: CGRect
-    let resizeIntent: FlatTabStripMetrics.DividerSegment.ResizeIntent
-    let resizeLeftPaneWidth: CGFloat
-    let resizeRightPaneWidth: CGFloat
-    let layout: Layout
-    @Binding var isSplitResizing: Bool
-    let tabId: UUID
-    let actionDispatcher: PaneActionDispatching
-
-    private let splitterHitSize: CGFloat = 6
-    private let minSize: CGFloat = AppPolicies.DragAndDrop.splitMinimumPaneSize
-
-    @State private var hasStartedResize = false
-    @State private var initialLeftWidth: CGFloat = 0
-    @State private var initialRightWidth: CGFloat = 0
-
-    /// Pure computation for drag-resize ratio. Extracted for testability.
-    nonisolated static func computeResizeRatio(
-        initialLeftWidth: CGFloat,
-        initialRightWidth: CGFloat,
-        translationWidth: CGFloat,
-        minSize: CGFloat
-    ) -> Double {
-        let totalWidth = initialLeftWidth + initialRightWidth
-        guard totalWidth > 0 else { return 0.5 }
-        let clampedLeftWidth = min(
-            max(initialLeftWidth + translationWidth, minSize),
-            totalWidth - minSize
-        )
-        return clampedLeftWidth / totalWidth
-    }
-
-    nonisolated static func resizeCommand(
-        for intent: FlatTabStripMetrics.DividerSegment.ResizeIntent,
-        tabId: UUID,
-        ratio: Double
-    ) -> WorkspaceActionCommand? {
-        switch intent {
-        case .structural(let splitId):
-            return .resizePane(tabId: tabId, splitId: splitId, ratio: ratio)
-        case .visiblePanePair(let leftPaneId, let rightPaneId):
-            return .resizeVisiblePanePair(
-                tabId: tabId,
-                leftPaneId: leftPaneId,
-                rightPaneId: rightPaneId,
-                ratio: ratio
-            )
-        case .noResize:
-            return nil
-        }
-    }
-
-    var body: some View {
-        if case .noResize = resizeIntent {
-            Color.clear
-                .frame(width: splitterHitSize, height: frame.height)
-                .position(x: frame.midX, y: frame.midY)
-        } else {
-            Color.clear
-                .frame(width: splitterHitSize, height: frame.height)
-                .contentShape(Rectangle())
-                .position(x: frame.midX, y: frame.midY)
-                .backport.pointerStyle(.resizeLeftRight)
-                .gesture(
-                    DragGesture()
-                        .onChanged { gesture in
-                            guard layout.dividerIds.contains(dividerId) else { return }
-                            if !hasStartedResize {
-                                hasStartedResize = true
-                                initialLeftWidth = resizeLeftPaneWidth
-                                initialRightWidth = resizeRightPaneWidth
-                                isSplitResizing = true
-                            }
-
-                            let localRatio = Self.computeResizeRatio(
-                                initialLeftWidth: initialLeftWidth,
-                                initialRightWidth: initialRightWidth,
-                                translationWidth: gesture.translation.width,
-                                minSize: minSize
-                            )
-                            guard let command = Self.resizeCommand(for: resizeIntent, tabId: tabId, ratio: localRatio)
-                            else { return }
-                            actionDispatcher.dispatch(command)
-                        }
-                        .onEnded { _ in
-                            hasStartedResize = false
-                            isSplitResizing = false
-                        }
-                )
-        }
     }
 }

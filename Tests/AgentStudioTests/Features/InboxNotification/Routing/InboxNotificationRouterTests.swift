@@ -64,6 +64,8 @@ struct InboxNotificationRouterTests {
             tabLayout: tabLayout,
             attendedPane: attendedPane,
             focusTracker: tracker,
+            terminalIsPinnedToBottom: { _ in false },
+            terminalPinnedStateSnapshot: { [:] },
             traceRuntime: traceRuntime,
             drawerView: { parentPaneId in
                 guard let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId else { return nil }

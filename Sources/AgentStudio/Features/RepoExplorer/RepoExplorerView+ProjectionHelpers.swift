@@ -37,7 +37,7 @@ extension RepoExplorerView {
         let panesByPaneId = store.paneAtom.panes
         let activeTabId = store.tabLayoutAtom.activeTabId
         let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
-        let attendanceAtom = atom(\.bridgePaneAttendance)
+        let attendanceOrdinalByPaneId = bridgeAttendanceSnapshot()
         var candidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]] = [:]
         candidatesByWorktreeId.reserveCapacity(paneLocationsByWorktreeId.count)
 
@@ -56,7 +56,7 @@ extension RepoExplorerView {
                     isBridgePane: isBridgePane,
                     isPaneActive: pane.residency == .active,
                     isCurrentActivePane: activeTabId == location.tabId && activePaneId == pane.id,
-                    attendanceOrdinal: attendanceAtom.ordinal(for: pane.id),
+                    attendanceOrdinal: attendanceOrdinalByPaneId[pane.id],
                     tabIndex: location.tabIndex,
                     paneIndexInTab: location.paneIndexInTab
                 )

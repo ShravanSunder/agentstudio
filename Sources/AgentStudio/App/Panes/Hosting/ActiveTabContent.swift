@@ -9,6 +9,7 @@ import SwiftUI
 struct ActiveTabContent: View {
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
+    let editorChooser: EditorChooserState
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
@@ -62,6 +63,7 @@ struct ActiveTabContent: View {
                 onPaneFocusTrigger: onPaneFocusTrigger,
                 store: store,
                 repoCache: repoCache,
+                editorChooser: editorChooser,
                 viewRegistry: viewRegistry,
                 appLifecycleStore: appLifecycleStore,
                 paneInboxPresentation: paneInboxPresentation,

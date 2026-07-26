@@ -128,21 +128,6 @@ struct DrawerPanelFrameInTabKey: PreferenceKey {
     }
 }
 
-// MARK: - Preference Key for Icon Bar Frame
-
-/// Reports the icon bar's frame in tab-container coordinates.
-/// DrawerPanelOverlay reads this to exclude the icon bar from dismiss hit testing.
-///
-/// Same non-zero-only reducer: stale-but-real frame is preferred over a
-/// transient zero so the dismiss monitor never loses its exclusion zone.
-struct DrawerIconBarFrameKey: PreferenceKey {
-    static let defaultValue: CGRect = .zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        let next = nextValue()
-        if next != .zero { value = next }
-    }
-}
-
 // MARK: - DrawerPanelOverlay
 
 /// Tab-level overlay that renders the expanded drawer panel on top of all panes.
@@ -161,6 +146,7 @@ struct DrawerPanelOverlay: View {
 
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
+    let editorChooser: EditorChooserState
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
@@ -256,6 +242,7 @@ struct DrawerPanelOverlay: View {
                     height: panelHeight,
                     store: store,
                     repoCache: repoCache,
+                    editorChooser: editorChooser,
                     viewRegistry: viewRegistry,
                     action: actionDispatcher.dispatch,
                     onResize: { delta in

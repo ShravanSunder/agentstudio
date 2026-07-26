@@ -6,6 +6,23 @@ import Testing
 @MainActor
 @Suite("InboxNotificationRouter observed-pane clearing", .serialized)
 struct InboxNotificationRouterObservedPaneTests {
+    @MainActor
+    final class TerminalPinnedStateFixture {
+        private var pinnedByPaneId: [UUID: Bool] = [:]
+
+        func setPinnedToBottom(_ isPinnedToBottom: Bool, paneId: UUID) {
+            pinnedByPaneId[paneId] = isPinnedToBottom
+        }
+
+        func isPinnedToBottom(paneId: UUID) -> Bool {
+            pinnedByPaneId[paneId] == true
+        }
+
+        func snapshot() -> [UUID: Bool] {
+            pinnedByPaneId
+        }
+    }
+
     struct Fixture {
         let bus: EventBus<RuntimeEnvelope>
         let inboxAtom: InboxNotificationAtom
@@ -15,7 +32,7 @@ struct InboxNotificationRouterObservedPaneTests {
         let windowLifecycle: WindowLifecycleAtom
         let managementLayer: ManagementLayerAtom
         let attendedPane: AttendedPaneDerived
-        let terminalActivity: TerminalActivityAtom
+        let terminalPinnedState: TerminalPinnedStateFixture
         let tracker: PaneFocusTracker
         let router: InboxNotificationRouter
         let traceRuntime: AgentStudioTraceRuntime?
@@ -38,7 +55,7 @@ struct InboxNotificationRouterObservedPaneTests {
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
         )
-        let terminalActivity = TerminalActivityAtom()
+        let terminalPinnedState = TerminalPinnedStateFixture()
         let tracker = PaneFocusTracker(attendedPane: attendedPane)
         let router = InboxNotificationRouter(
             bus: bus,
@@ -48,7 +65,12 @@ struct InboxNotificationRouterObservedPaneTests {
             tabLayout: tabLayout,
             attendedPane: attendedPane,
             focusTracker: tracker,
-            terminalActivity: terminalActivity,
+            terminalIsPinnedToBottom: { paneId in
+                terminalPinnedState.isPinnedToBottom(paneId: paneId)
+            },
+            terminalPinnedStateSnapshot: {
+                terminalPinnedState.snapshot()
+            },
             traceRuntime: traceRuntime,
             drawerView: { parentPaneId in
                 guard let tab = tabLayout.tabContaining(paneId: parentPaneId),
@@ -71,7 +93,7 @@ struct InboxNotificationRouterObservedPaneTests {
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer,
             attendedPane: attendedPane,
-            terminalActivity: terminalActivity,
+            terminalPinnedState: terminalPinnedState,
             tracker: tracker,
             router: router,
             traceRuntime: traceRuntime
@@ -87,7 +109,7 @@ struct InboxNotificationRouterObservedPaneTests {
         let tabLayout = WorkspaceTabLayoutAtom()
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let terminalActivity = TerminalActivityAtom()
+        let terminalPinnedState = TerminalPinnedStateFixture()
         let paneId = PaneId.generateUUIDv7()
 
         let metadata = PaneMetadata(
@@ -118,10 +140,10 @@ struct InboxNotificationRouterObservedPaneTests {
             )
         )
         makeWindowKey(windowLifecycle)
-        applyScrollbarState(
+        setPinnedState(
             ScrollbarState(top: 80, bottom: 100, total: 100),
             paneId: paneId,
-            to: terminalActivity
+            in: terminalPinnedState
         )
         inboxAtom.append(makeNotification(kind: .agentDesktopNotification, paneId: paneId.uuid))
         let attendedPane = AttendedPaneDerived(
@@ -140,7 +162,12 @@ struct InboxNotificationRouterObservedPaneTests {
             tabLayout: tabLayout,
             attendedPane: attendedPane,
             focusTracker: tracker,
-            terminalActivity: terminalActivity
+            terminalIsPinnedToBottom: { paneId in
+                terminalPinnedState.isPinnedToBottom(paneId: paneId)
+            },
+            terminalPinnedStateSnapshot: {
+                terminalPinnedState.snapshot()
+            }
         )
 
         await router.start()
@@ -205,10 +232,10 @@ struct InboxNotificationRouterObservedPaneTests {
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
         fixture.inboxAtom.append(makeNotification(kind: .agentDesktopNotification, paneId: paneId.uuid))
-        applyScrollbarState(
+        setPinnedState(
             ScrollbarState(top: 80, bottom: 100, total: 100),
             paneId: paneId,
-            to: fixture.terminalActivity
+            in: fixture.terminalPinnedState
         )
 
         makeWindowKey(fixture.windowLifecycle)
@@ -228,10 +255,10 @@ struct InboxNotificationRouterObservedPaneTests {
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
         fixture.inboxAtom.append(makeNotification(kind: .agentDesktopNotification, paneId: paneId.uuid))
-        applyScrollbarState(
+        setPinnedState(
             ScrollbarState(top: 40, bottom: 80, total: 100),
             paneId: paneId,
-            to: fixture.terminalActivity
+            in: fixture.terminalPinnedState
         )
 
         makeWindowKey(fixture.windowLifecycle)
@@ -271,10 +298,10 @@ struct InboxNotificationRouterObservedPaneTests {
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
         fixture.inboxAtom.append(makeNotification(kind: .agentDesktopNotification, paneId: paneId.uuid))
-        applyScrollbarState(
+        setPinnedState(
             ScrollbarState(top: 80, bottom: 100, total: 100),
             paneId: paneId,
-            to: fixture.terminalActivity
+            in: fixture.terminalPinnedState
         )
 
         await Task.yield()
@@ -291,10 +318,10 @@ struct InboxNotificationRouterObservedPaneTests {
         _ = addTerminalPane(attendedPaneId, to: fixture)
         addVisiblePaneToActiveTab(visibleSiblingPaneId, to: fixture)
         fixture.inboxAtom.append(makeNotification(kind: .agentDesktopNotification, paneId: visibleSiblingPaneId.uuid))
-        applyScrollbarState(
+        setPinnedState(
             ScrollbarState(top: 80, bottom: 100, total: 100),
             paneId: visibleSiblingPaneId,
-            to: fixture.terminalActivity
+            in: fixture.terminalPinnedState
         )
 
         makeWindowKey(fixture.windowLifecycle)
@@ -315,10 +342,10 @@ struct InboxNotificationRouterObservedPaneTests {
         _ = addTerminalPane(attendedPaneId, to: fixture)
         addVisiblePaneToActiveTab(visibleSiblingPaneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
-        applyScrollbarState(
+        setPinnedState(
             ScrollbarState(top: 80, bottom: 100, total: 100),
             paneId: visibleSiblingPaneId,
-            to: fixture.terminalActivity
+            in: fixture.terminalPinnedState
         )
 
         _ = await fixture.bus.post(
@@ -381,10 +408,10 @@ struct InboxNotificationRouterObservedPaneTests {
         fixture.inboxAtom.append(
             makeNotification(kind: .agentDesktopNotification, paneId: secondTabVisibleSiblingPaneId.uuid)
         )
-        applyScrollbarState(
+        setPinnedState(
             ScrollbarState(top: 80, bottom: 100, total: 100),
             paneId: secondTabVisibleSiblingPaneId,
-            to: fixture.terminalActivity
+            in: fixture.terminalPinnedState
         )
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [secondTabVisibleSiblingPaneId.uuid]) == 1)
 
@@ -464,10 +491,10 @@ struct InboxNotificationRouterObservedPaneTests {
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
         fixture.inboxAtom.append(makeNotification(kind: .securityEvent, paneId: paneId.uuid))
-        applyScrollbarState(
+        setPinnedState(
             ScrollbarState(top: 80, bottom: 100, total: 100),
             paneId: paneId,
-            to: fixture.terminalActivity
+            in: fixture.terminalPinnedState
         )
 
         makeWindowKey(fixture.windowLifecycle)
@@ -494,10 +521,10 @@ struct InboxNotificationRouterObservedPaneTests {
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
-        applyScrollbarState(
+        setPinnedState(
             ScrollbarState(top: 80, bottom: 100, total: 100),
             paneId: paneId,
-            to: fixture.terminalActivity
+            in: fixture.terminalPinnedState
         )
 
         _ = await fixture.bus.post(
@@ -531,10 +558,10 @@ struct InboxNotificationRouterObservedPaneTests {
             )
         )
         fixture.inboxAtom.append(makeNotification(kind: .agentRpc, paneId: drawerPane.id))
-        applyScrollbarState(
+        setPinnedState(
             ScrollbarState(top: 80, bottom: 100, total: 100),
             paneId: parentPaneId,
-            to: fixture.terminalActivity
+            in: fixture.terminalPinnedState
         )
 
         makeWindowKey(fixture.windowLifecycle)
@@ -593,10 +620,10 @@ struct InboxNotificationRouterObservedPaneTests {
         let paneId = PaneId.generateUUIDv7()
         _ = addTerminalPane(paneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
-        applyScrollbarState(
+        setPinnedState(
             ScrollbarState(top: 80, bottom: 100, total: 100),
             paneId: paneId,
-            to: fixture.terminalActivity
+            in: fixture.terminalPinnedState
         )
 
         _ = await fixture.bus.post(
@@ -743,19 +770,12 @@ struct InboxNotificationRouterObservedPaneTests {
         .test(event: event, paneId: paneId, paneKind: .terminal, seq: seq)
     }
 
-    private func applyScrollbarState(
+    private func setPinnedState(
         _ state: ScrollbarState,
         paneId: PaneId,
-        to terminalActivity: TerminalActivityAtom
+        in terminalPinnedState: TerminalPinnedStateFixture
     ) {
-        terminalActivity.apply(
-            TerminalActivityCompactUpdate(
-                surfaceID: UUIDv7.generate(),
-                paneID: paneId.uuid,
-                scrollbarState: state,
-                outputBurst: .quiet(lastTotal: state.total)
-            )
-        )
+        terminalPinnedState.setPinnedToBottom(state.isPinnedToBottom, paneId: paneId.uuid)
     }
 
     private func paneObservationEnvelope(

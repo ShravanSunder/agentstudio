@@ -71,7 +71,8 @@ struct WorkspaceSurfaceArrangementSwitchHostTests {
             runtime: SessionRuntime(store: store),
             surfaceManager: ArrangementSwitchSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         return Harness(
             store: store,

@@ -81,7 +81,8 @@ final class InboxNotificationRouter {
     private let tabLayout: WorkspaceTabLayoutAtom
     private let attendedPane: AttendedPaneDerived
     private let focusTracker: PaneFocusTracker
-    private let terminalActivity: TerminalActivityAtom?
+    private let terminalIsPinnedToBottom: @MainActor (UUID) -> Bool
+    private let terminalPinnedStateSnapshot: @MainActor () -> [UUID: Bool]
     private let autoClearPolicy: PaneInboxAutoClearPolicy
     private let traceRuntime: AgentStudioTraceRuntime?
     private let traceQueue: AgentStudioTraceEventQueue?
@@ -116,7 +117,8 @@ final class InboxNotificationRouter {
         tabLayout: WorkspaceTabLayoutAtom,
         attendedPane: AttendedPaneDerived,
         focusTracker: PaneFocusTracker,
-        terminalActivity: TerminalActivityAtom? = nil,
+        terminalIsPinnedToBottom: @escaping @MainActor (UUID) -> Bool,
+        terminalPinnedStateSnapshot: @escaping @MainActor () -> [UUID: Bool],
         autoClearPolicy: PaneInboxAutoClearPolicy = .init(),
         traceRuntime: AgentStudioTraceRuntime? = nil,
         drawerView: @escaping @MainActor (UUID) -> DrawerView? = {
@@ -131,7 +133,8 @@ final class InboxNotificationRouter {
         self.tabLayout = tabLayout
         self.attendedPane = attendedPane
         self.focusTracker = focusTracker
-        self.terminalActivity = terminalActivity
+        self.terminalIsPinnedToBottom = terminalIsPinnedToBottom
+        self.terminalPinnedStateSnapshot = terminalPinnedStateSnapshot
         self.autoClearPolicy = autoClearPolicy
         self.traceRuntime = traceRuntime
         self.traceQueue = traceRuntime.map(AgentStudioTraceEventQueue.init(traceRuntime:))
@@ -747,7 +750,7 @@ final class InboxNotificationRouter {
     }
 
     private func isSourcePanePinnedToBottom(_ paneId: UUID) -> Bool {
-        pinnedToBottomByPaneId[paneId] ?? terminalActivity?.snapshot(for: paneId)?.isPinnedToBottom == true
+        pinnedToBottomByPaneId[paneId] ?? terminalIsPinnedToBottom(paneId)
     }
 
     private func shouldInvalidateActivityWindow(_ notification: InboxNotification) -> Bool {
@@ -755,7 +758,7 @@ final class InboxNotificationRouter {
     }
 
     private func currentPolicySnapshot() -> InboxPolicySnapshot {
-        var pinnedByPaneId = terminalActivity?.snapshotsByPaneId.mapValues(\.isPinnedToBottom) ?? [:]
+        var pinnedByPaneId = terminalPinnedStateSnapshot()
         pinnedByPaneId.merge(pinnedToBottomByPaneId) { _, latest in latest }
         return InboxPolicySnapshot(
             attendedPaneId: currentAttendedPaneId(),

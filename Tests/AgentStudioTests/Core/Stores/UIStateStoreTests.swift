@@ -104,16 +104,14 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func editorStateIsNotOwnedOrObservedByUIStateStore() async throws {
+    func unrelatedEditorStateDoesNotTriggerUIStateStoreAutosave() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let preferenceAtom = EditorPreferenceAtom()
         let runtimeAtom = EditorChooserRuntimeAtom()
-        let editorChooser = EditorChooserState(preferenceAtom: preferenceAtom, runtimeAtom: runtimeAtom)
         let clock = TestPushClock()
         let store = UIStateStore(
             atom: WorkspaceSidebarState(),
-            editorChooserState: editorChooser,
             sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend),
             persistDebounceDuration: .milliseconds(10),
             clock: clock

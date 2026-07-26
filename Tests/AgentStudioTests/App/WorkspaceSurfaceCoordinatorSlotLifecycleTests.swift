@@ -31,7 +31,8 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
             runtime: runtime,
             surfaceManager: SlotLifecycleSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         return Harness(store: store, viewRegistry: viewRegistry, coordinator: coordinator, tempDir: tempDir)
     }

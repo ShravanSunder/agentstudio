@@ -86,7 +86,8 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
 
         coordinator.execute(.detachDrawerPane(parentPaneId: parentPane.id, drawerPaneId: detachedPane.id))

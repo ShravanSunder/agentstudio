@@ -55,6 +55,7 @@ struct DrawerPanel: View {
     let height: CGFloat
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
+    let editorChooser: EditorChooserState
     let viewRegistry: ViewRegistry
     let action: (WorkspaceActionCommand) -> Void
     let onResize: (CGFloat) -> Void
@@ -100,6 +101,7 @@ struct DrawerPanel: View {
         height: CGFloat,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
+        editorChooser: EditorChooserState,
         viewRegistry: ViewRegistry,
         action: @escaping (WorkspaceActionCommand) -> Void,
         onResize: @escaping (CGFloat) -> Void,
@@ -123,6 +125,7 @@ struct DrawerPanel: View {
         self.height = height
         self.store = store
         self.repoCache = repoCache
+        self.editorChooser = editorChooser
         self.viewRegistry = viewRegistry
         self.action = action
         self.onResize = onResize
@@ -203,6 +206,7 @@ struct DrawerPanel: View {
             onPaneFocusTrigger: onPaneFocusTrigger,
             store: store,
             repoCache: repoCache,
+            editorChooser: editorChooser,
             viewRegistry: viewRegistry,
             coordinateSpaceName: Self.drawerDropCoordinateSpace,
             useDrawerFramePreference: true,
@@ -380,6 +384,7 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                     height: 200,
                     store: store,
                     repoCache: RepoCacheAtom(),
+                    editorChooser: atomRegistry.editorChooser,
                     viewRegistry: ViewRegistry(),
                     action: { _ in },
                     onResize: { _ in },

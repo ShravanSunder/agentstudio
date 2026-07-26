@@ -23,7 +23,8 @@ private func makeWorkspaceActionExecutorHarness() -> WorkspaceActionExecutorHarn
         store: store,
         viewRegistry: viewRegistry,
         runtime: runtime,
-        windowLifecycleStore: WindowLifecycleAtom()
+        windowLifecycleStore: WindowLifecycleAtom(),
+        bridgePaneAttendance: BridgePaneAttendanceAtom()
     )
     let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     return WorkspaceActionExecutorHarness(

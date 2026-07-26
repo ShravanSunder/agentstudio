@@ -21,7 +21,6 @@ final class UIStateStore {
 
     init(
         atom: WorkspaceSidebarState,
-        editorChooserState _: EditorChooserState? = nil,
         sqliteDatastore: WorkspaceSQLiteDatastore,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,

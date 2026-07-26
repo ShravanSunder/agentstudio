@@ -298,6 +298,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
             filesystemSource: source,
             filesystemProjectionIndex: FilesystemProjectionIndex(),
             windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom(),
             traceIdentityRefreshHandler: traceIdentityRefreshHandler
         )
     }

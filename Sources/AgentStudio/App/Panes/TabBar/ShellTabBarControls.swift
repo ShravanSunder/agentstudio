@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct SidebarSurfaceTabBarControls: View {
+    let inboxAtom: InboxNotificationAtom
+
     private var sidebarState: WorkspaceSidebarState {
         atom(\.workspaceSidebarState)
     }
@@ -23,7 +25,7 @@ struct SidebarSurfaceTabBarControls: View {
                 symbolName: "bell",
                 selectedSymbolName: "bell.fill",
                 isSelected: isSidebarOpen && sidebarState.sidebarSurface == .inbox,
-                badgeCount: atom(\.inboxNotification).globalRollUpAlertCount
+                badgeCount: inboxAtom.globalRollUpAlertCount
             )
         }
     }
