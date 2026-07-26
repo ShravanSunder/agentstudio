@@ -131,6 +131,11 @@ extension AppDelegate {
     static func debugAutomationIPCPermissionScopes(workspaceId: UUID) -> [IPCPermissionScope] {
         [
             IPCPermissionScope(
+                privilege: .workspaceRead,
+                target: .app,
+                dataScope: .unspecified
+            ),
+            IPCPermissionScope(
                 privilege: .appCommandExecute,
                 target: .app,
                 dataScope: .unspecified

@@ -7,8 +7,8 @@ import Testing
 @MainActor
 @Suite("App IPC debug automation permissions")
 struct AgentStudioIPCDebugAutomationPermissionTests {
-    @Test("debug automation can execute commands and mutate only its workspace sidebar")
-    func debugAutomationCanExecuteCommandsAndMutateOnlyItsWorkspaceSidebar() {
+    @Test("debug automation can read workspace state, execute commands, and mutate only its workspace sidebar")
+    func debugAutomationCanReadWorkspaceStateExecuteCommandsAndMutateOnlyItsWorkspaceSidebar() {
         let workspaceId = UUID()
         let anotherWorkspaceId = UUID()
 
@@ -19,6 +19,11 @@ struct AgentStudioIPCDebugAutomationPermissionTests {
         #expect(
             permissionScopes
                 == [
+                    IPCPermissionScope(
+                        privilege: .workspaceRead,
+                        target: .app,
+                        dataScope: .unspecified
+                    ),
                     IPCPermissionScope(
                         privilege: .appCommandExecute,
                         target: .app,
