@@ -2,7 +2,7 @@
 
 Date: 2026-07-26
 
-Status: reviewed; implementation-ready
+Status: reviewed; owner-clarified; implementation-ready
 
 Source HEAD: `5a7bd64690a3566dcb57fdf4d5a6dd34f9ed056c`
 
@@ -45,8 +45,8 @@ In scope:
 - permanent focused tests, architecture-lint rules and fixtures;
 - the existing test-helper caller migration;
 - architecture documentation directly describing these owners;
-- a narrowly scoped no-regression-only mode in the existing AtomLib
-  performance comparator.
+- minimal before/after regression evidence from the existing sidebar and
+  git-refresh performance workloads.
 
 Out of scope:
 
@@ -90,6 +90,9 @@ Verified current facts:
 - `scripts/verify-sidebar-performance-workload.sh` is the existing
   marker-scoped changed-path workload, but its own broad latency threshold is
   not the AS-19 10% comparator.
+- The owner explicitly rejected expanding the performance harness for this
+  precursor. The existing comparator, verifier schemas, telemetry, and script
+  test matrix remain unchanged.
 
 Security context: not applicable. This change introduces no new authentication,
 authorization, secret, parsing, network, filesystem, subprocess, plugin, or
@@ -157,7 +160,7 @@ compatibility surface may manufacture an intermediate green state.
 | AS-16 no compatibility system | C2/L2 | resolver/registration/second-scope fixtures and search | static | architecture tool + `rg` | final diff | yes |
 | AS-17 docs/lint match | L2 | rule inventory/parity, good/bad corpus, architecture docs | tool unit + lint | parent-run tool tests/lint | final diff | yes |
 | AS-18 behavior unchanged | F1/P1/C2 | relevant integration suites, schema/resource/vendor/IPC diff audit, build, detached debug proof | integration + smoke | parent-run checks | final candidate marker | yes where behavior changes |
-| AS-19 no >10% regression | Gate 0/V | equivalent detached-debug Victoria summaries plus no-regression-only comparator | product-path performance | marker-scoped Victoria evidence | baseline from source HEAD; candidate from final HEAD | baseline/candidate |
+| AS-19 no >10% regression | Gate 0/V | equivalent detached-debug sidebar comparison plus a parent-produced side-by-side reading of the seven existing Victoria summary surfaces | product-path performance | existing workload artifacts and parent calculation | baseline from pre-semantic source; candidate from final HEAD; equivalent existing configuration fields | baseline/candidate |
 | AS-20 no unsupported speed claim | V/review | plan, commits, review, and report make no speedup claim | review | parent/reviewer audit | final report | not applicable |
 
 AS-19 proof interpretation follows the user's later runtime restriction: the
@@ -675,44 +678,20 @@ AGENTSTUDIO_PERF_PROOF_ROOT="$PWD/tmp/performance-proofs/core-atom-boundary-cand
   mise run verify-git-refresh-performance-workload
 ```
 
-The candidate git-refresh artifact path becomes `<candidate-summary>`.
+The candidate git-refresh artifact path becomes `<candidate-summary>`. Using
+only fields already emitted by the two summaries, the parent records a
+side-by-side table for the seven accepted surfaces and calculates count, p95
+when available, and max deltas. A delta above the existing 10% regression
+ceiling fails AS-19.
 
-Extend the existing AtomLib comparator with a named
-`--no-regression-only` mode and a two-summary interface:
-
-```bash
-/bin/bash scripts/compare-atomlib-v2-performance.sh \
-  --no-regression-only \
-  --baseline-summary <baseline-summary> \
-  --after-summary <candidate-summary> \
-  --expected-baseline-head 5a7bd64690a3566dcb57fdf4d5a6dd34f9ed056c \
-  --expected-after-head "$(git rev-parse HEAD)" \
-  --output tmp/performance-proofs/core-atom-boundary-comparison.txt
-```
-
-In this mode it must:
-
-- preserve existing default behavior for historical AtomLib callers;
-- read command-bar, sidebar, topology, tab-bar, and coordinator fields from
-  each single marker-scoped git-refresh summary;
-- use the two-summary interface only with `--no-regression-only`; historical
-  default mode continues to require its original four inputs;
-- require `verify-git-refresh-performance-workload.sh` to emit
-  `source_head`, `trace_tags`, `activation_mode`, `launch_method`,
-  `executable_identity`, `worktree_identity`, `workload_fingerprint`, and
-  required sample-count fields into each summary;
-- validate the two expected HEAD arguments separately, and require equality of
-  trace tags, activation mode, launch method, executable/worktree identity,
-  workload fingerprint, and sample requirements between baseline and
-  candidate;
-- validate required fields and instrumentation continuity;
-- compare count, p95 when available, and max;
-- fail above 10% regression;
-- omit only the historical 50% improvement requirements in this mode;
-- emit the selected mode and all input artifact paths in its report;
-- have deterministic script tests for pass, missing field, instrumentation
-  loss, stale/wrong HEAD, configuration mismatch, workload mismatch,
-  exactly-10%, and over-10% cases.
+This precursor does not modify the AtomLib comparator, either workload
+verifier, telemetry, summary schema, or performance script tests. The
+historical comparator's unrelated 50% improvement contract is not invoked.
+Existing artifact fields and the execution ledger must establish equivalent
+worktree identity, fixture shape, trace selection, sample requirements,
+activation mode, and detached debug configuration. If they cannot, report
+AS-19 as unproven and reconverge instead of expanding performance
+infrastructure.
 
 The sidebar workload is mandatory because it exercises the changed
 Bridge-to-RepoExplorer one-snapshot-per-projection read shape. If the available
