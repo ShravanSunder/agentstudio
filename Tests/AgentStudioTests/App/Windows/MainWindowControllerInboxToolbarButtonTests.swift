@@ -52,11 +52,12 @@ struct MainWindowControllerInboxToolbarButtonTests {
         #expect(source.contains("isSelected: isSidebarOpen && sidebarState.sidebarSurface == .inbox"))
     }
 
-    @Test("top chrome inbox badge reads global roll-up count")
-    func topChromeInboxBadgeReadsGlobalRollUpCount() throws {
+    @Test("top chrome inbox badge reads the injected global roll-up count")
+    func topChromeInboxBadgeReadsInjectedGlobalRollUpCount() throws {
         let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
 
-        #expect(source.contains("badgeCount: atom(\\.inboxNotification).globalRollUpAlertCount"))
+        #expect(source.contains("let inboxAtom: InboxNotificationAtom"))
+        #expect(source.contains("badgeCount: inboxAtom.globalRollUpAlertCount"))
         #expect(source.contains("badgeText: badgeCount > 0 ? InboxToolbarUnreadBadgeText.text(for: badgeCount) : nil"))
     }
 

@@ -93,7 +93,11 @@ struct AppBootSequenceTests {
             encoding: .utf8
         )
 
-        #expect(appDelegateSource.contains("workspaceSettingsStore = WorkspaceSettingsStore("))
+        #expect(
+            appDelegateSource.contains(
+                "workspaceSettingsStore = makeWorkspaceSettingsStore(sqliteDatastore: sqliteDatastore)"
+            )
+        )
         #expect(
             appDelegateSource.contains("await workspaceSettingsStore.restoreAsync(for: store.identityAtom.workspaceId)")
         )
