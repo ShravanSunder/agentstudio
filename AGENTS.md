@@ -88,6 +88,16 @@ mise run run-debug-observability -- --detach
 mise run verify-debug-observability
 ```
 
+Agent-driven write-capable debug automation may opt in with
+`AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1`. The worktree-isolated debug app then
+issues one owner-only, one-time authenticated automation token with App command
+execution plus workspace-bounded product-write scopes used by the proof
+harnesses. Keep this opt-in: ordinary manual debug launches must remain usable
+without IPC automation, and stable, beta, and release apps must never enable
+the escrow. Prefer the authenticated escrow over
+`AGENTSTUDIO_IPC_UNSAFE_NO_AUTH`; use unsafe no-auth only when an established
+diagnostic explicitly requires it.
+
 To exercise a startup diagnostic during debug proof, pass
 `AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=<action>` to the launcher. The launcher
 records the selected action into the state file as

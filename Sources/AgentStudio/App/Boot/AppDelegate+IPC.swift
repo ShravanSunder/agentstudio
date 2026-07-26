@@ -27,13 +27,9 @@ extension AppDelegate {
                     accessMode: accessMode,
                     methodDefinitions: ipcComposition.baseDefinitions,
                     debugTokenEscrowEnabled: Self.appIPCDebugTokenEscrowEnabled(),
-                    debugTokenEscrowPermissionScopes: [
-                        IPCPermissionScope(
-                            privilege: .sidebarStateMutate,
-                            target: .workspace(store.identityAtom.workspaceId),
-                            dataScope: .sidebarState
-                        )
-                    ]
+                    debugTokenEscrowPermissionScopes: Self.debugAutomationIPCPermissionScopes(
+                        workspaceId: store.identityAtom.workspaceId
+                    )
                 ),
                 ports: AgentStudioAppIPCPorts(
                     queryPort: AgentStudioIPCQueryAdapter(
@@ -130,6 +126,21 @@ extension AppDelegate {
         #else
             return false
         #endif
+    }
+
+    static func debugAutomationIPCPermissionScopes(workspaceId: UUID) -> [IPCPermissionScope] {
+        [
+            IPCPermissionScope(
+                privilege: .appCommandExecute,
+                target: .app,
+                dataScope: .unspecified
+            ),
+            IPCPermissionScope(
+                privilege: .sidebarStateMutate,
+                target: .workspace(workspaceId),
+                dataScope: .sidebarState
+            ),
+        ]
     }
 
     private static func appIPCSocketDirectory() -> URL? {
