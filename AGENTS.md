@@ -88,15 +88,23 @@ mise run run-debug-observability -- --detach
 mise run verify-debug-observability
 ```
 
-Agent-driven write-capable debug automation may opt in with
-`AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1`. The worktree-isolated debug app then
-issues one owner-only, one-time authenticated automation token with App command
-execution, read-back access, and workspace-bounded product-write scopes used by
-the proof harnesses. Keep this opt-in: ordinary manual debug launches must
-remain usable without IPC automation, and stable, beta, and release apps must
-never enable the escrow. Prefer the authenticated escrow over
-`AGENTSTUDIO_IPC_UNSAFE_NO_AUTH`; use unsafe no-auth only when an established
-diagnostic explicitly requires it.
+Ordinary manual debug development and UI proof use the standard detached launch
+above with no IPC automation selector. Agent-driven write-capable debug
+automation must opt in explicitly:
+
+```bash
+AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
+mise run run-debug-observability -- --detach
+```
+
+The worktree-isolated debug app then issues one owner-only, one-time
+authenticated automation token. That principal can use the DEBUG semantic
+control allowlist plus the App command execution, read-back, and
+workspace-bounded sidebar scopes used by proof harnesses. The selector is not
+required to launch, develop, or test the app manually. Stable, beta, and release
+apps must never enable it. Do not add `AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1` merely
+to obtain write access; use unsafe no-auth only when an established diagnostic
+explicitly requires it.
 
 To exercise a startup diagnostic during debug proof, pass
 `AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=<action>` to the launcher. The launcher
@@ -105,7 +113,6 @@ records the selected action into the state file as
 handoff, not the app input environment variable. Example:
 
 ```bash
-AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1 \
 AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
 AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=ipc-terminal-smoke \
 mise run run-debug-observability -- --detach
