@@ -75,7 +75,7 @@ extension AppCommand {
             icon: groupingMode.icon,
             helpText: "Group the repo sidebar by \(groupingMode.title.lowercased())",
             commandBarGroupName: "Sidebar",
-            commandBarGroupPriority: CommandBarGroupPriority.window,
+            commandBarGroupPriority: CommandBarGroupPriority.sidebar,
             ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
         )
     }
@@ -87,7 +87,7 @@ extension AppCommand {
             icon: .system(.bookmark),
             helpText: "Set the repo sidebar visibility mode",
             commandBarGroupName: "Sidebar",
-            commandBarGroupPriority: CommandBarGroupPriority.window,
+            commandBarGroupPriority: CommandBarGroupPriority.sidebar,
             isHiddenInCommandBar: true,
             argumentSchema: [
                 IPCCommandArgumentSchema(
@@ -107,7 +107,7 @@ extension AppCommand {
             icon: .system(.arrowUpArrowDown),
             helpText: "Set the repo sidebar sort order",
             commandBarGroupName: "Sidebar",
-            commandBarGroupPriority: CommandBarGroupPriority.window,
+            commandBarGroupPriority: CommandBarGroupPriority.sidebar,
             isHiddenInCommandBar: true,
             argumentSchema: [
                 IPCCommandArgumentSchema(
@@ -127,7 +127,7 @@ extension AppCommand {
             icon: grouping.icon,
             helpText: "Group inbox notifications by \(grouping.commandHelpTarget)",
             commandBarGroupName: "Inbox",
-            commandBarGroupPriority: CommandBarGroupPriority.window,
+            commandBarGroupPriority: CommandBarGroupPriority.inbox,
             ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
         )
     }
@@ -139,7 +139,7 @@ extension AppCommand {
             icon: .system(.envelopeBadge),
             helpText: "Set whether the inbox shows all or unread notifications",
             commandBarGroupName: "Inbox",
-            commandBarGroupPriority: CommandBarGroupPriority.window,
+            commandBarGroupPriority: CommandBarGroupPriority.inbox,
             isHiddenInCommandBar: true,
             argumentSchema: [
                 IPCCommandArgumentSchema(
@@ -159,7 +159,7 @@ extension AppCommand {
             icon: .system(.dotCircleViewfinder),
             helpText: "Set which notification content lane the inbox shows",
             commandBarGroupName: "Inbox",
-            commandBarGroupPriority: CommandBarGroupPriority.window,
+            commandBarGroupPriority: CommandBarGroupPriority.inbox,
             isHiddenInCommandBar: true,
             argumentSchema: [
                 IPCCommandArgumentSchema(

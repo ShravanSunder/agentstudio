@@ -3,13 +3,11 @@ import GRDB
 
 actor WorkspaceSQLiteDatastore {
     private struct ApplicationLocalRepositoryBundle: Sendable {
-        let databaseWriter: any DatabaseWriter
-
+        let applicationRepository: WorkspaceLocalRepository
         func repository(workspaceId: UUID) -> WorkspaceLocalRepository {
-            WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: databaseWriter)
+            WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: applicationRepository.databaseWriter)
         }
     }
-
     private struct LocalRepositoryOpenResult: Sendable {
         var repository: WorkspaceLocalRepository
         var recoveryEvent: PersistenceRecoveryEvent?
@@ -340,11 +338,9 @@ actor WorkspaceSQLiteDatastore {
                 lane: .repoCache
             )
             let cacheState = try repository.fetchCacheState()
-            let recentTargets = try repository.fetchRecentTargets()
             return .loaded(
                 .init(
                     cacheState: cacheState,
-                    recentTargets: recentTargets,
                     recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId)
                 )
             )
@@ -355,7 +351,6 @@ actor WorkspaceSQLiteDatastore {
 
     func saveRepoCacheState(
         cacheState: WorkspaceLocalRepository.CacheStateRecord,
-        recentTargets: [RecentWorkspaceTarget],
         workspaceId: UUID
     ) async throws {
         await traceRecorder.recordOperation(
@@ -374,7 +369,6 @@ actor WorkspaceSQLiteDatastore {
         do {
             let updatedAt = Date()
             try repository.replaceCacheState(cacheState: cacheState, updatedAt: updatedAt)
-            try repository.replaceRecentTargets(recentTargets, updatedAt: updatedAt)
             await traceRecorder.recordOperation(
                 .repoCacheSave,
                 phase: .writeLocal,
@@ -552,6 +546,46 @@ actor WorkspaceSQLiteDatastore {
         try repository.replaceEditorPreferences(editor, updatedAt: updatedAt)
         try repository.replaceRepoExplorerPreferences(repoExplorer, updatedAt: updatedAt)
         try repository.replaceInboxNotificationPreferences(inboxNotification, updatedAt: updatedAt)
+    }
+
+    func loadApplicationEntityRecency() async -> ApplicationEntityRecencyLoadResult {
+        do {
+            guard let repository = applicationLocalRepositoryBundle?.applicationRepository else {
+                throw WorkspaceSQLiteDatastoreError.applicationLocalRepositoryUnavailable
+            }
+            return .loaded(
+                try repository.fetchApplicationEntityRecency(), recoveryEvents: [])
+        } catch {
+            return .unavailable(.init(error), recoveryEvents: [])
+        }
+    }
+
+    func saveApplicationEntityRecency(_ recentEntities: [ApplicationEntityRecency]) async throws {
+        guard let repository = applicationLocalRepositoryBundle?.applicationRepository else {
+            throw WorkspaceSQLiteDatastoreError.applicationLocalRepositoryUnavailable
+        }
+        try repository.replaceApplicationEntityRecency(recentEntities)
+    }
+
+    func loadWorkspaceEntityRecency(workspaceId: UUID) async -> WorkspaceEntityRecencyLoadResult {
+        do {
+            let repository = try await localRepositoryForRestore(
+                workspaceId: workspaceId, operation: .uiStateLoad, lane: .uiState)
+            return .loaded(
+                try repository.fetchWorkspaceEntityRecency(),
+                recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId))
+        } catch {
+            return .unavailable(
+                .init(error), recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId))
+        }
+    }
+
+    func saveWorkspaceEntityRecency(
+        _ recentEntities: [WorkspaceEntityRecency], workspaceId: UUID
+    ) async throws {
+        let repository = try await localRepositoryForSave(
+            workspaceId: workspaceId, operation: .uiStateSave, lane: .uiState)
+        try repository.replaceWorkspaceEntityRecency(recentEntities)
     }
 
     func performLocalRestoreOperation<Output: Sendable>(
@@ -856,7 +890,7 @@ extension WorkspaceSQLiteDatastore {
         }
         if let makeLocalRepository {
             let repository = try makeLocalRepository(workspaceId)
-            applicationLocalRepositoryBundle = .init(databaseWriter: repository.databaseWriter)
+            applicationLocalRepositoryBundle = .init(applicationRepository: repository)
             return .init(repository: repository, recoveryEvent: nil, didOpenApplicationDatabase: true)
         }
         guard let configuration else {
@@ -866,7 +900,7 @@ extension WorkspaceSQLiteDatastore {
             workspaceId: workspaceId,
             configuration: configuration
         )
-        applicationLocalRepositoryBundle = .init(databaseWriter: result.repository.databaseWriter)
+        applicationLocalRepositoryBundle = .init(applicationRepository: result.repository)
         return result
     }
 
@@ -880,7 +914,7 @@ extension WorkspaceSQLiteDatastore {
         }
         if let makeLocalRestoreRepository {
             let repository = try makeLocalRestoreRepository(workspaceId)
-            applicationLocalRepositoryBundle = .init(databaseWriter: repository.databaseWriter)
+            applicationLocalRepositoryBundle = .init(applicationRepository: repository)
             return .init(repository: repository, recoveryEvent: nil, didOpenApplicationDatabase: true)
         }
         guard let configuration else {
@@ -890,7 +924,7 @@ extension WorkspaceSQLiteDatastore {
             workspaceId: workspaceId,
             configuration: configuration
         )
-        applicationLocalRepositoryBundle = .init(databaseWriter: result.repository.databaseWriter)
+        applicationLocalRepositoryBundle = .init(applicationRepository: result.repository)
         return result
     }
 

@@ -294,57 +294,19 @@ final class RepoEnrichmentCacheAtom {
 }
 
 @MainActor
-@Observable
-final class RecentWorkspaceTargetAtom {
-    private static let maximumRecentTargetCount = 15
-
-    private(set) var recentTargets: [RecentWorkspaceTarget] = []
-
-    func recordRecentTarget(_ target: RecentWorkspaceTarget) {
-        var updated = recentTargets
-        updated.removeAll { $0.id == target.id }
-        updated.insert(target, at: 0)
-        if updated.count > Self.maximumRecentTargetCount {
-            updated = Array(updated.prefix(Self.maximumRecentTargetCount))
-        }
-        recentTargets = updated
-    }
-
-    func removeRecentTarget(_ targetId: String) {
-        var updated = recentTargets
-        updated.removeAll { $0.id == targetId }
-        recentTargets = updated
-    }
-
-    func hydrate(recentTargets: [RecentWorkspaceTarget]) {
-        self.recentTargets = Array(recentTargets.prefix(Self.maximumRecentTargetCount))
-    }
-
-    func clear() {
-        recentTargets = []
-    }
-}
-
-@MainActor
 final class RepoCacheAtom {
     struct HydrationState {
         let repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         let worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
         let pullRequestCountByWorktreeId: [UUID: Int]
-        let recentTargets: [RecentWorkspaceTarget]
         let sourceRevision: UInt64
         let lastRebuiltAt: Date?
     }
 
     let enrichmentCacheAtom: RepoEnrichmentCacheAtom
-    let recentTargetAtom: RecentWorkspaceTargetAtom
 
-    init(
-        enrichmentCacheAtom: RepoEnrichmentCacheAtom = .init(),
-        recentTargetAtom: RecentWorkspaceTargetAtom = .init()
-    ) {
+    init(enrichmentCacheAtom: RepoEnrichmentCacheAtom = .init()) {
         self.enrichmentCacheAtom = enrichmentCacheAtom
-        self.recentTargetAtom = recentTargetAtom
     }
 
     var repoEnrichmentByRepoId: [UUID: RepoEnrichment] {
@@ -357,10 +319,6 @@ final class RepoCacheAtom {
 
     var pullRequestCountByWorktreeId: [UUID: Int] {
         enrichmentCacheAtom.pullRequestCountByWorktreeId
-    }
-
-    var recentTargets: [RecentWorkspaceTarget] {
-        recentTargetAtom.recentTargets
     }
 
     var sourceRevision: UInt64 {
@@ -423,14 +381,6 @@ final class RepoCacheAtom {
         enrichmentCacheAtom.setPullRequestCount(count, for: worktreeId)
     }
 
-    func recordRecentTarget(_ target: RecentWorkspaceTarget) {
-        recentTargetAtom.recordRecentTarget(target)
-    }
-
-    func removeRecentTarget(_ targetId: String) {
-        recentTargetAtom.removeRecentTarget(targetId)
-    }
-
     func removeWorktree(_ worktreeId: UUID) {
         enrichmentCacheAtom.removeWorktree(worktreeId)
     }
@@ -453,11 +403,9 @@ final class RepoCacheAtom {
                 lastRebuiltAt: state.lastRebuiltAt
             )
         )
-        recentTargetAtom.hydrate(recentTargets: state.recentTargets)
     }
 
     func clear() {
         enrichmentCacheAtom.clear()
-        recentTargetAtom.clear()
     }
 }

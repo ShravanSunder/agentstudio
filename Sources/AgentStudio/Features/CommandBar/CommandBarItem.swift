@@ -34,6 +34,12 @@ enum EnterModifier: Sendable {
     case option
 }
 
+enum CommandBarRecentActivation: Equatable, Sendable {
+    case repository(repositoryStableKey: String)
+    case worktree(worktreeStableKey: String)
+    case pane(paneID: UUID, workspaceID: UUID)
+}
+
 // MARK: - CommandBarAction
 
 /// What happens when a command bar item is selected.
@@ -50,6 +56,8 @@ enum CommandBarAction {
     case custom(@Sendable () -> Void)
     /// Resolve worktree behavior at selection time based on presence and modifier keys.
     case worktreeAction(presence: WorktreePresence)
+    /// Re-resolve a typed recent entity against live state immediately before dispatch.
+    case activateRecent(CommandBarRecentActivation)
 }
 
 enum CommandBarItemKind {
@@ -85,6 +93,8 @@ struct CommandBarItem: Identifiable {
     let action: CommandBarAction
     /// The underlying command, if any. Used for dimming navigate items whose command is unavailable.
     let command: AppCommand?
+    let accessibilityLabel: String
+    let accessibilityHint: String
 
     init(
         id: String,
@@ -100,7 +110,9 @@ struct CommandBarItem: Identifiable {
         keywords: [String] = [],
         hasChildren: Bool = false,
         action: CommandBarAction,
-        command: AppCommand? = nil
+        command: AppCommand? = nil,
+        accessibilityLabel: String? = nil,
+        accessibilityHint: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -116,17 +128,78 @@ struct CommandBarItem: Identifiable {
         self.hasChildren = hasChildren
         self.action = action
         self.command = command
+        self.accessibilityLabel =
+            accessibilityLabel
+            ?? [title, subtitle, secondaryLine?.text].compactMap(\.self).joined(separator: ", ")
+        self.accessibilityHint =
+            accessibilityHint
+            ?? Self.defaultAccessibilityHint(
+                title: title,
+                action: action
+            )
     }
 
     private static func shortcutKeys(for trigger: ShortcutTrigger) -> [ShortcutKey] {
         ShortcutKey.from(trigger: trigger)
     }
 
+    private static func defaultAccessibilityHint(
+        title: String,
+        action: CommandBarAction
+    ) -> String {
+        switch action {
+        case .dispatch:
+            return "Run \(title)"
+        case .dispatchTargeted(let command, _, _):
+            return command == .focusPane ? "Focus pane" : "Run \(title)"
+        case .navigate, .navigateRepo:
+            return "Show \(title) actions"
+        case .custom:
+            return title
+        case .worktreeAction:
+            return "Show worktree actions"
+        case .activateRecent(let activation):
+            switch activation {
+            case .repository: return "Show repository actions"
+            case .worktree: return "Show worktree actions"
+            case .pane: return "Focus pane"
+            }
+        }
+    }
+
+    func projected(
+        group: String,
+        groupPriority: Int,
+        action: CommandBarAction? = nil,
+        hasChildren: Bool? = nil,
+        accessibilityLabel: String? = nil,
+        accessibilityHint: String? = nil
+    ) -> Self {
+        Self(
+            id: id,
+            title: title,
+            subtitle: subtitle,
+            secondaryLine: secondaryLine,
+            icon: icon,
+            iconColor: iconColor,
+            shortcutTrigger: shortcutTrigger,
+            shortcutKeys: shortcutKeys,
+            group: group,
+            groupPriority: groupPriority,
+            keywords: keywords,
+            hasChildren: hasChildren ?? self.hasChildren,
+            action: action ?? self.action,
+            command: command,
+            accessibilityLabel: accessibilityLabel ?? self.accessibilityLabel,
+            accessibilityHint: accessibilityHint ?? self.accessibilityHint
+        )
+    }
+
     var worktreeOpenState: WorktreeOpenState? {
         switch action {
         case .worktreeAction(let presence):
             return presence.openState
-        case .dispatch, .dispatchTargeted, .navigate, .navigateRepo, .custom:
+        case .dispatch, .dispatchTargeted, .navigate, .navigateRepo, .custom, .activateRecent:
             return nil
         }
     }
@@ -143,6 +216,12 @@ struct CommandBarItem: Identifiable {
             return .repo
         case .custom:
             return .other
+        case .activateRecent(let activation):
+            switch activation {
+            case .repository: return .repo
+            case .worktree: return .worktree
+            case .pane: return .pane
+            }
         case .dispatchTargeted(let command, _, let targetType):
             if command == .selectTab && targetType == .tab {
                 return .tab

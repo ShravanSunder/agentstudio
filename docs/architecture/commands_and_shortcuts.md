@@ -178,6 +178,27 @@ The command bar is split by ownership, not by implementation convenience:
 | `$` Pane | Existing pane and tab navigation. Search includes pane title, note, tab title, repo/worktree context, and cwd identity. | Opening new locations or path-management actions. |
 | `#` Repo | Locations and opening: repos, worktrees, worktree path commands, opening a new pane, and navigating to existing panes for that worktree. | Generic verbs and arbitrary pane selection. |
 
+Empty roots add scope-specific recency without changing ownership:
+
+| Root | Empty-query composition |
+|------|-------------------------|
+| Main | Recent Repositories (up to 3), then Repos, Panes, Tabs, Commands |
+| `#` | Recent Repositories (up to 5), Recent Worktrees (up to 5), then Repositories |
+| `$` | Recent Panes (up to 5), then existing pane/tab groups |
+| `>` | Recent Commands (up to 5), then existing command categories |
+
+Any meaningful root query removes the Recent groups and searches the complete
+canonical scope exactly once. Clearing back to an empty query restores the
+recency projection. Repository/worktree/pane history is a lookup hint only:
+activation re-resolves the current entity from live state. Command history
+remains Command-Bar-owned and is recorded only after accepted Commands-root
+dispatch initiation.
+
+Recent Repository enters the existing repository menu. Recent Worktree enters
+the existing worktree action menu so path, terminal, Bridge, and existing-pane
+actions remain available from the recent row. Recent Pane focuses the pane, and
+Recent Command reuses its canonical command behavior.
+
 `#` is an object navigator. Root rows represent repos. Repo rows drill into
 worktrees. Worktree rows drill into actions for that concrete filesystem
 location. A chevron means Return drills in; no chevron means Return executes.

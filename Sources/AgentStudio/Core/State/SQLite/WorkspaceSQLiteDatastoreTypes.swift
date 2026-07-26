@@ -7,6 +7,7 @@ struct WorkspaceSQLiteDatastoreConfiguration: Sendable {
 
 enum WorkspaceSQLiteDatastoreError: Error, Equatable, Sendable {
     case missingConfiguration
+    case applicationLocalRepositoryUnavailable
     case useDatastoreApplicationLocalRepositoryBundle
 }
 
@@ -57,8 +58,17 @@ extension WorkspaceSQLiteDatastore {
 
     struct LocalCacheLoadPayload: Equatable, Sendable {
         var cacheState: WorkspaceLocalRepository.CacheStateRecord
-        var recentTargets: [RecentWorkspaceTarget]
         var recoveryEvents: [PersistenceRecoveryEvent]
+    }
+
+    enum ApplicationEntityRecencyLoadResult: Equatable, Sendable {
+        case loaded([ApplicationEntityRecency], recoveryEvents: [PersistenceRecoveryEvent])
+        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
+    }
+
+    enum WorkspaceEntityRecencyLoadResult: Equatable, Sendable {
+        case loaded([WorkspaceEntityRecency], recoveryEvents: [PersistenceRecoveryEvent])
+        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
     }
 
     enum LocalUILoadResult: Equatable, Sendable {

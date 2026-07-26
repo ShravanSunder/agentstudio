@@ -7,7 +7,18 @@ import SwiftUI
 /// Tinted with the accent color to match the scope pill.
 struct CommandBarBackRow: View {
     let label: String?
-    let onBack: () -> Void
+    let destinationLabel: String?
+    let onBack: @MainActor @Sendable () -> Void
+
+    init(
+        label: String?,
+        destinationLabel: String? = nil,
+        onBack: @escaping @MainActor @Sendable () -> Void
+    ) {
+        self.label = label
+        self.destinationLabel = destinationLabel
+        self.onBack = onBack
+    }
 
     var body: some View {
         Button(action: onBack) {
@@ -28,5 +39,14 @@ struct CommandBarBackRow: View {
             .background(Color.accentColor.opacity(0.06))
         }
         .buttonStyle(.plain)
+        .accessibilityHidden(true)
+        .background(
+            AccessibilityPressBridge(
+                identifier: "commandBarBack",
+                label: destinationLabel.map { "Back to \($0)" } ?? "Back",
+                help: "Return to the previous Command Bar level",
+                action: onBack
+            )
+        )
     }
 }

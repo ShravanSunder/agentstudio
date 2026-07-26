@@ -1,5 +1,9 @@
 # Session Index Brainstorm
 
+> **Historical:** This brainstorm assumes the superseded per-workspace-local
+> design. It is not current session or persistence architecture. See
+> [`docs/architecture/session_lifecycle.md`](../../../architecture/session_lifecycle.md).
+
 ## Status
 
 Checkpoint C7 for future provider session and derived index data.

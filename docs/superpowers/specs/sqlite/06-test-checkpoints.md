@@ -1,5 +1,9 @@
 # Test Checkpoints
 
+> **Historical:** These were cutover-planning gates, not the current proof
+> contract. See [`AGENTS.md`](../../../../AGENTS.md) and current architecture docs
+> for live validation requirements.
+
 ## Status
 
 Checkpoint C6 for the AgentStudio SQLite cutover.

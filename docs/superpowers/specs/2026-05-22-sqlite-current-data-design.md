@@ -1,5 +1,10 @@
 # SQLite Current Data Design
 
+> **Historical:** This design records the superseded per-workspace-local
+> proposal. Current persistence ownership is documented in
+> [`docs/architecture/atom_persistence_boundaries.md`](../../architecture/atom_persistence_boundaries.md)
+> and [`docs/architecture/workspace_data_architecture.md`](../../architecture/workspace_data_architecture.md).
+
 ## Status
 
 This is now the entrypoint for the SQLite persistence design. The detailed spec

@@ -4,6 +4,42 @@ import os.log
 
 private let controllerLogger = Logger(subsystem: "com.agentstudio", category: "CommandBarPanelController")
 
+struct CommandBarActivationGeneration: Equatable, Sendable {
+    fileprivate let activationGeneration: Int
+    fileprivate let rootSessionGeneration: Int
+    fileprivate let workspaceID: UUID
+}
+
+struct CommandBarActivationGenerationGate {
+    private var activationGeneration = 0
+
+    mutating func begin(
+        rootSessionGeneration: Int,
+        workspaceID: UUID
+    ) -> CommandBarActivationGeneration {
+        activationGeneration += 1
+        return CommandBarActivationGeneration(
+            activationGeneration: activationGeneration,
+            rootSessionGeneration: rootSessionGeneration,
+            workspaceID: workspaceID
+        )
+    }
+
+    func accepts(
+        _ activation: CommandBarActivationGeneration,
+        rootSessionGeneration: Int,
+        workspaceID: UUID
+    ) -> Bool {
+        activation.activationGeneration == activationGeneration
+            && activation.rootSessionGeneration == rootSessionGeneration
+            && activation.workspaceID == workspaceID
+    }
+
+    mutating func invalidate() {
+        activationGeneration += 1
+    }
+}
+
 // MARK: - CommandBarPanelController
 
 /// Manages the command bar panel lifecycle: show, dismiss, animate, backdrop.
@@ -25,6 +61,7 @@ final class CommandBarPanelController {
     private let commandBarSurface: CommandBarSurfaceAtom
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let resultSession: CommandBarResultSession
+    private var activationGenerationGate = CommandBarActivationGenerationGate()
 
     // MARK: - Panel
 
@@ -136,6 +173,7 @@ final class CommandBarPanelController {
     func dismiss() {
         guard state.isVisible else { return }
 
+        activationGenerationGate.invalidate()
         state.dismiss()
         commandBarSurface.dismiss(workspaceWindowId: workspaceWindowId)
         dismissPanel()
@@ -259,23 +297,31 @@ final class CommandBarPanelController {
         }
     }
 
-    private func executeItem(_ item: CommandBarItem, modifier: EnterModifier = .plain) {
-        if let command = item.command, !dispatcher.canDispatch(command) {
-            return
-        }
-
+    func executeItem(_ item: CommandBarItem, modifier: EnterModifier = .plain) {
         switch item.action {
         case .dispatch(let command):
+            guard dispatcher.canDispatch(command) else { return }
             state.recordRecent(itemId: item.id)
+            recordRecentCommandIfNeeded(command)
             dismiss()
             dispatcher.dispatch(command)
         case .dispatchTargeted(let command, let target, let targetType):
+            guard dispatcher.canDispatch(command, target: target, targetType: targetType) else {
+                return
+            }
             state.recordRecent(itemId: item.id)
+            recordRecentCommandIfNeeded(command)
             dismiss()
             dispatcher.dispatch(command, target: target, targetType: targetType)
         case .navigate(let level), .navigateRepo(let level):
+            if let command = item.command, !dispatcher.canDispatch(command) {
+                return
+            }
             state.pushLevel(level)
         case .custom(let closure):
+            if let command = item.command, !dispatcher.canDispatch(command) {
+                return
+            }
             state.recordRecent(itemId: item.id)
             dismiss()
             closure()
@@ -291,7 +337,121 @@ final class CommandBarPanelController {
                 itemId: item.id,
                 canOpenInCurrentTab: canOpenWorktreeInCurrentTab
             )
+        case .activateRecent(let activation):
+            executeRecentActivation(activation, itemId: item.id)
         }
+    }
+
+    private func executeRecentActivation(
+        _ activation: CommandBarRecentActivation,
+        itemId: String
+    ) {
+        let activationGeneration = activationGenerationGate.begin(
+            rootSessionGeneration: state.rootSessionGeneration,
+            workspaceID: store.identityAtom.workspaceId
+        )
+        switch activation {
+        case .repository(let repositoryStableKey):
+            let recentEntity = ApplicationRecentEntity.repository(
+                repositoryStableKey: repositoryStableKey
+            )
+            guard
+                let repository = store.repositoryTopologyAtom.repo(stableKey: repositoryStableKey),
+                !store.repositoryTopologyAtom.isRepoUnavailable(repository.id),
+                !repository.worktrees.isEmpty
+            else {
+                guard isCurrentActivation(activationGeneration) else { return }
+                rejectStaleApplicationActivation(recentEntity)
+                return
+            }
+            guard isCurrentActivation(activationGeneration) else { return }
+            state.pushLevel(
+                CommandBarDataSource.buildRepoLevel(
+                    repo: repository,
+                    store: store
+                )
+            )
+        case .worktree(let worktreeStableKey):
+            let recentEntity = ApplicationRecentEntity.worktree(
+                worktreeStableKey: worktreeStableKey
+            )
+            guard
+                let worktree = WorkspaceLauncherProjector.resolveActivationWorktree(
+                    target: recentEntity,
+                    repositoryTopology: store.repositoryTopologyAtom
+                )
+            else {
+                guard isCurrentActivation(activationGeneration) else { return }
+                rejectStaleApplicationActivation(recentEntity)
+                return
+            }
+            guard isCurrentActivation(activationGeneration) else { return }
+            guard let repository = store.repositoryTopologyAtom.repo(containing: worktree.id) else {
+                rejectStaleApplicationActivation(recentEntity)
+                return
+            }
+            let presence = CommandBarDataSource.buildWorktreePresence(
+                worktree: worktree,
+                repo: repository,
+                store: store
+            )
+            state.pushLevel(
+                CommandBarDataSource.buildWorktreeActionsLevel(
+                    worktree: worktree,
+                    presence: presence,
+                    canOpenInCurrentTab: store.tabLayoutAtom.activeTabId != nil
+                )
+            )
+        case .pane(let paneID, let workspaceID):
+            guard
+                workspaceID == store.identityAtom.workspaceId,
+                WorkspacePaneRecencyObserver.isEligibleForRecording(
+                    pane: store.paneAtom.pane(paneID),
+                    workspaceMatches: true,
+                    tabs: store.tabLayoutAtom.tabs,
+                    targetableTabID: store.tabLayoutAtom.tabContaining(paneId: paneID)?.id
+                )
+            else {
+                guard isCurrentActivation(activationGeneration) else { return }
+                rejectStalePaneActivation(paneID: paneID, workspaceID: workspaceID)
+                return
+            }
+            guard isCurrentActivation(activationGeneration) else { return }
+            guard dispatcher.canDispatch(.focusPane, target: paneID, targetType: .pane) else {
+                return
+            }
+            state.recordRecent(itemId: itemId)
+            dismiss()
+            dispatcher.dispatch(.focusPane, target: paneID, targetType: .pane)
+        }
+    }
+
+    private func isCurrentActivation(
+        _ activationGeneration: CommandBarActivationGeneration
+    ) -> Bool {
+        activationGenerationGate.accepts(
+            activationGeneration,
+            rootSessionGeneration: state.rootSessionGeneration,
+            workspaceID: store.identityAtom.workspaceId
+        )
+    }
+
+    private func rejectStaleApplicationActivation(_ entity: ApplicationRecentEntity) {
+        atom(\.applicationEntityRecency).remove(entity)
+        state.selectedIndex = 0
+    }
+
+    private func rejectStalePaneActivation(paneID: UUID, workspaceID: UUID) {
+        let recencyAtom = atom(\.workspaceEntityRecency)
+        if recencyAtom.workspaceID == workspaceID {
+            recencyAtom.remove(.pane(paneID: paneID))
+        }
+        state.selectedIndex = 0
+    }
+
+    private func recordRecentCommandIfNeeded(_ command: AppCommand) {
+        guard state.currentScope == .commands else { return }
+        state.recordRecentCommand(command)
     }
 
     private func executeResolvedWorktreeAction(
@@ -302,6 +462,9 @@ final class CommandBarPanelController {
     ) {
         switch resolution {
         case .dispatch(let command, let target, let targetType):
+            guard dispatcher.canDispatch(command, target: target, targetType: targetType) else {
+                return
+            }
             state.recordRecent(itemId: itemId)
             dismiss()
             dispatcher.dispatch(command, target: target, targetType: targetType)

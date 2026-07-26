@@ -324,11 +324,12 @@ AppDelegate.applicationWillTerminate / applicationShouldTerminate
 
 ## Persistence
 
-State is persisted through `WorkspaceSQLiteDatastore` into `core.sqlite` plus
-per-workspace `local.sqlite`. Workspace composition restores only from SQLite;
-legacy workspace JSON import/fallback is not part of the target startup DAG and
-is removed by the persistence hard cut. Preferences JSON remains a separate
-settings concern. See
+State is persisted through `WorkspaceSQLiteDatastore` into authoritative
+`core.sqlite` plus one non-authoritative app-root `local.sqlite`. Workspace
+composition restores from core SQLite; missing, corrupt, unavailable, or invalid
+local lanes use deterministic defaults without blocking startup. Legacy
+workspace JSON and per-workspace local sidecars are not read. Global preferences
+remain in `preferences.global.json`. See
 [Component Architecture — Persistence](component_architecture.md#5-persistence)
 for the full write strategy, filtering, and schema details.
 
@@ -505,7 +506,6 @@ stateDiagram-v2
 | File | Role |
 |------|------|
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper over the canonical workspace atoms |
-| `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | Legacy JSON persistence/import I/O |
 | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime health monitoring and status tracking |
 | `App/Coordination/WorkspaceSurfaceCoordinator.swift` | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |
 | `Core/Models/Pane.swift` | Pane identity and content metadata |

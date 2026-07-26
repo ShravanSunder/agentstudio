@@ -1467,9 +1467,10 @@ struct ActiveVisibleAttachPolicy: Sendable {
 /// geometry, the terminal reflows once. This is a single, expected
 /// reflow — not the multi-reflow flicker that placeholder attach causes.
 ///
-/// Persisted geometry source: `PersistedSessionState.lastCols` and
-/// `PersistedSessionState.lastRows`, saved by `WorkspacePersistor`
-/// on debounced persist (every 500ms of workspace changes).
+/// Current source has no SQLite projection for persisted terminal columns or
+/// rows. This forward-defined policy therefore requires a separate accepted
+/// persistence design before it can receive restored geometry; it must not
+/// infer that geometry from unrelated SQLite state.
 ///
 /// Fallback: if no persisted geometry exists (first launch, corrupted
 /// state, or session created after last persist), fall back to

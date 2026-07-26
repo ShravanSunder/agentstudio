@@ -1,5 +1,10 @@
 # Core Workspace Schema
 
+> **Historical:** This checkpoint is retained as design history and may name
+> superseded owners. See
+> [`docs/architecture/workspace_data_architecture.md`](../../../architecture/workspace_data_architecture.md)
+> for current ownership.
+
 ## Status
 
 Checkpoint C2 for the AgentStudio SQLite cutover.

@@ -433,8 +433,6 @@ extension ConfigChangeEvent {
 extension WorkspaceActivityEvent {
     var traceName: String {
         switch self {
-        case .recentTargetOpened:
-            return "workspaceActivity.recentTargetOpened"
         case .folderScanFinished:
             return "workspaceActivity.folderScanFinished"
         }

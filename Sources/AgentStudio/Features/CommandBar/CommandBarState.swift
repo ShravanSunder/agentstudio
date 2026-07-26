@@ -31,7 +31,9 @@ final class CommandBarState {
                 rawInput = normalizedPrefix
                 return
             }
-            selectedIndex = 0
+            if isNested {
+                selectedIndex = 0
+            }
         }
     }
 
@@ -54,6 +56,8 @@ final class CommandBarState {
 
     /// Persisted recent item IDs, ordered most-recent-first.
     var recentItemIds: [String] = []
+    /// Persisted typed command history, ordered most-recent-first.
+    private(set) var recentCommands: [AppCommand] = []
 
     // MARK: - Computed — Prefix Parsing
 
@@ -69,6 +73,14 @@ final class CommandBarState {
     var searchQuery: String {
         guard let prefix = activePrefix else { return rawInput }
         return String(rawInput.dropFirst(prefix.count))
+    }
+
+    var normalizedRootQuery: String {
+        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var hasMeaningfulRootQuery: Bool {
+        !normalizedRootQuery.isEmpty
     }
 
     /// Current scope derived from prefix.
@@ -103,6 +115,25 @@ final class CommandBarState {
     var backRowLabel: String? {
         guard let level = currentLevel else { return nil }
         return level.scopeLabel != nil ? level.title : nil
+    }
+
+    var rootScopeLabel: String {
+        switch currentScope {
+        case .everything: return "Main"
+        case .commands: return "Commands"
+        case .panes: return "Panes"
+        case .repos: return "Repositories"
+        case .inbox: return "Inbox"
+        }
+    }
+
+    var breadcrumbLabel: String {
+        ([rootScopeLabel] + navigationStack.map(\.title)).joined(separator: " › ")
+    }
+
+    var backDestinationLabel: String {
+        ([rootScopeLabel] + navigationStack.dropLast().map(\.title))
+            .joined(separator: " › ")
     }
 
     // MARK: - Placeholder
@@ -248,15 +279,25 @@ final class CommandBarState {
     func recordRecent(itemId: String) {
         recentItemIds.removeAll { $0 == itemId }
         recentItemIds.insert(itemId, at: 0)
-        if recentItemIds.count > 8 {
-            recentItemIds = Array(recentItemIds.prefix(8))
+        if recentItemIds.count > AppPolicies.CommandBar.maximumHistoryCount {
+            recentItemIds = Array(recentItemIds.prefix(AppPolicies.CommandBar.maximumHistoryCount))
         }
         persistRecents()
+    }
+
+    func recordRecentCommand(_ command: AppCommand) {
+        recentCommands.removeAll { $0 == command }
+        recentCommands.insert(command, at: 0)
+        if recentCommands.count > AppPolicies.CommandBar.maximumHistoryCount {
+            recentCommands = Array(recentCommands.prefix(AppPolicies.CommandBar.maximumHistoryCount))
+        }
+        persistRecentCommands()
     }
 
     // MARK: - Persistence
 
     private static let recentsKey = "CommandBarRecentItemIds"
+    private static let recentCommandsKey = "CommandBarRecentCommands"
 
     private static func normalizedLeadingPrefix(for input: String, previousInput: String) -> String? {
         guard previousInput.isEmpty else { return nil }
@@ -266,9 +307,21 @@ final class CommandBarState {
 
     func loadRecents() {
         recentItemIds = UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []
+        let storedCommandValues = UserDefaults.standard.stringArray(forKey: Self.recentCommandsKey) ?? []
+        var seenCommands: Set<AppCommand> = []
+        recentCommands =
+            storedCommandValues
+            .compactMap(AppCommand.init(rawValue:))
+            .filter { seenCommands.insert($0).inserted }
+            .prefix(AppPolicies.CommandBar.maximumHistoryCount)
+            .map(\.self)
     }
 
     private func persistRecents() {
         UserDefaults.standard.set(recentItemIds, forKey: Self.recentsKey)
+    }
+
+    private func persistRecentCommands() {
+        UserDefaults.standard.set(recentCommands.map(\.rawValue), forKey: Self.recentCommandsKey)
     }
 }

@@ -6,6 +6,52 @@ import Testing
 @Suite
 struct AgentStudioOTLPTraceProjectionTests {
     @Test
+    func commandBarProjectionExportsCountsWithoutRawRecencySentinels() {
+        let sentinels = [
+            "/private/command-bar-recency/path",
+            "command-bar-recency-label",
+            "command-bar-recency-prompt",
+            "019be3be-7c00-7000-8000-000000000099",
+            "command-bar-recency-payload",
+            "command-bar-recency-error",
+        ]
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 90,
+            severityText: .info,
+            body: "performance.commandbar.items",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.commandbar.item.count": .int(12),
+                "agentstudio.performance.commandbar.repo.count": .int(3),
+                "agentstudio.performance.commandbar.worktree.count": .int(4),
+                "agentstudio.performance.commandbar.pane.count": .int(5),
+                "agentstudio.performance.commandbar.raw_path": .string(sentinels[0]),
+                "agentstudio.performance.commandbar.raw_label": .string(sentinels[1]),
+                "agentstudio.performance.commandbar.raw_prompt": .string(sentinels[2]),
+                "agentstudio.performance.commandbar.raw_uuid": .string(sentinels[3]),
+                "agentstudio.performance.commandbar.raw_payload": .string(sentinels[4]),
+                "agentstudio.performance.commandbar.raw_error": .string(sentinels[5]),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = projection.renderedForCanaryAssertions()
+
+        #expect(projection.attributes["agentstudio.performance.commandbar.item.count"] == .int(12))
+        #expect(projection.attributes["agentstudio.performance.commandbar.repo.count"] == .int(3))
+        #expect(projection.attributes["agentstudio.performance.commandbar.worktree.count"] == .int(4))
+        #expect(projection.attributes["agentstudio.performance.commandbar.pane.count"] == .int(5))
+        for sentinel in sentinels {
+            #expect(!renderedProjection.contains(sentinel))
+        }
+    }
+
+    @Test
     func startupProjectionKeepsControlledFieldsAndDropsProcessIdentity() {
         let record = AgentStudioTraceRecord(
             timeUnixNano: 100,

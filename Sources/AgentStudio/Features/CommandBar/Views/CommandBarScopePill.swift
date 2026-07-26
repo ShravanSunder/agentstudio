@@ -6,7 +6,18 @@ import SwiftUI
 /// Displays a single label (scope or title) with a dismiss button.
 struct CommandBarScopePill: View {
     let label: String
+    let destinationLabel: String?
     let onDismiss: () -> Void
+
+    init(
+        label: String,
+        destinationLabel: String? = nil,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.label = label
+        self.destinationLabel = destinationLabel
+        self.onDismiss = onDismiss
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -19,6 +30,9 @@ struct CommandBarScopePill: View {
                     .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Rows.scopePillDismissOpacity))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(
+                destinationLabel.map { "Back to \($0)" } ?? "Back to Command Bar root"
+            )
         }
         .font(.system(size: AppStyles.CommandBar.Rows.scopePillFontSize, weight: .medium))
         .padding(.horizontal, 6)

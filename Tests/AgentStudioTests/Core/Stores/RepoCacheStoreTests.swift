@@ -8,21 +8,15 @@ import Testing
 @Suite(.serialized)
 struct RepoCacheStoreTests {
     @Test
-    func flushAndRestoreRoundTripsSQLiteStateAcrossSplitAtoms() async throws {
+    func flushAndRestoreRoundTripsSQLiteEnrichmentState() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let datastore = try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let recentTargetAtom = RecentWorkspaceTargetAtom()
         let repoId = UUID()
         let worktreeId = UUID()
-        let recentTarget = RecentWorkspaceTarget.forCwd(
-            URL(fileURLWithPath: "/tmp/agent-studio"),
-            lastOpenedAt: Date(timeIntervalSince1970: 456)
-        )
         let store = RepoCacheStore(
             cacheAtom: cacheAtom,
-            recentTargetAtom: recentTargetAtom,
             sqliteDatastore: datastore
         )
 
@@ -32,14 +26,11 @@ struct RepoCacheStoreTests {
         )
         cacheAtom.setPullRequestCount(3, for: worktreeId)
         cacheAtom.markRebuilt(sourceRevision: 42, at: Date(timeIntervalSince1970: 123))
-        recentTargetAtom.recordRecentTarget(recentTarget)
         try await store.flushAsync(for: workspaceId)
 
         let restoredCacheAtom = RepoEnrichmentCacheAtom()
-        let restoredRecentTargetAtom = RecentWorkspaceTargetAtom()
         await RepoCacheStore(
             cacheAtom: restoredCacheAtom,
-            recentTargetAtom: restoredRecentTargetAtom,
             sqliteDatastore: datastore
         ).restoreAsync(for: workspaceId)
 
@@ -48,7 +39,6 @@ struct RepoCacheStoreTests {
         #expect(restoredCacheAtom.pullRequestCountByWorktreeId[worktreeId] == 3)
         #expect(restoredCacheAtom.sourceRevision == 42)
         #expect(restoredCacheAtom.lastRebuiltAt == Date(timeIntervalSince1970: 123))
-        #expect(restoredRecentTargetAtom.recentTargets == [recentTarget])
     }
 
     @Test
@@ -56,13 +46,10 @@ struct RepoCacheStoreTests {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let recentTargetAtom = RecentWorkspaceTargetAtom()
         cacheAtom.setRepoEnrichment(.awaitingOrigin(repoId: UUID()))
-        recentTargetAtom.recordRecentTarget(.forCwd(URL(fileURLWithPath: "/tmp/stale")))
 
         await RepoCacheStore(
             cacheAtom: cacheAtom,
-            recentTargetAtom: recentTargetAtom,
             sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         ).restoreAsync(for: workspaceId)
 
@@ -70,27 +57,22 @@ struct RepoCacheStoreTests {
         #expect(cacheAtom.worktreeEnrichmentByWorktreeId.isEmpty)
         #expect(cacheAtom.pullRequestCountByWorktreeId.isEmpty)
         #expect(cacheAtom.sourceRevision == 0)
-        #expect(recentTargetAtom.recentTargets.isEmpty)
     }
 
     @Test
     func unavailableSQLiteResetsDefaultsAndReportsRecovery() async throws {
         let workspaceId = UUID()
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let recentTargetAtom = RecentWorkspaceTargetAtom()
         cacheAtom.setRepoEnrichment(.awaitingOrigin(repoId: UUID()))
-        recentTargetAtom.recordRecentTarget(.forCwd(URL(fileURLWithPath: "/tmp/stale")))
         var reportedRecoveries: [PersistenceRecoveryEvent] = []
 
         await RepoCacheStore(
             cacheAtom: cacheAtom,
-            recentTargetAtom: recentTargetAtom,
             sqliteDatastore: try workspaceSQLiteDatastore(from: failingWorkspaceLocalSQLiteBackend()),
             recoveryReporter: { reportedRecoveries.append($0) }
         ).restoreAsync(for: workspaceId)
 
         #expect(cacheAtom.repoEnrichmentByRepoId.isEmpty)
-        #expect(recentTargetAtom.recentTargets.isEmpty)
         #expect(
             reportedRecoveries.contains { recovery in
                 recovery.store == .repoCache
@@ -122,34 +104,6 @@ struct RepoCacheStoreTests {
         await assertEventuallyMain("repo cache change should autosave") {
             (try? fixture.repository.fetchCacheState().repoEnrichmentByRepoId[repoId])
                 == .awaitingOrigin(repoId: repoId)
-        }
-    }
-
-    @Test
-    func observedRecentTargetChangeAutosavesSQLite() async throws {
-        let workspaceId = UUID()
-        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
-        let atom = RepoCacheAtom()
-        let clock = TestPushClock()
-        let target = RecentWorkspaceTarget.forCwd(
-            URL(fileURLWithPath: "/tmp/agent-studio"),
-            lastOpenedAt: Date(timeIntervalSince1970: 456)
-        )
-        let store = RepoCacheStore(
-            atom: atom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend),
-            persistDebounceDuration: .milliseconds(10),
-            clock: clock
-        )
-        await store.restoreAsync(for: workspaceId)
-        store.startObserving()
-
-        atom.recordRecentTarget(target)
-        await clock.waitForPendingSleepCount()
-        clock.advance(by: .milliseconds(10))
-
-        await assertEventuallyMain("recent target change should autosave") {
-            (try? fixture.repository.fetchRecentTargets()) == [target]
         }
     }
 

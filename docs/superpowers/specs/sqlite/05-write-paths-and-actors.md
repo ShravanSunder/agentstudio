@@ -1,5 +1,9 @@
 # Write Paths And Actors
 
+> **Historical:** This checkpoint is retained as design history and may name
+> superseded atoms or stores. See
+> [`docs/architecture/atom_persistence_boundaries.md`](../../../architecture/atom_persistence_boundaries.md).
+
 ## Status
 
 Checkpoint C4 for the AgentStudio SQLite cutover.

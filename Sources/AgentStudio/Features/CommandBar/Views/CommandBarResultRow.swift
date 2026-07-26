@@ -28,6 +28,16 @@ struct CommandBarResultRow: View {
             )
             .contentShape(Rectangle())
             .opacity(isDimmed ? 0.5 : 1.0)
+            .accessibilityHidden(true)
+            .background(
+                AccessibilityLabelBridge(
+                    identifier: "commandBarResultRow.\(item.id)",
+                    label: item.accessibilityLabel,
+                    role: .row,
+                    help: item.accessibilityHint,
+                    selected: isSelected
+                )
+            )
     }
 
     // MARK: - Highlighted Title

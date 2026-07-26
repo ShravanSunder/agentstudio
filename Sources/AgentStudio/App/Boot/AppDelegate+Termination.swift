@@ -28,6 +28,7 @@ func runFirstPersistenceFlushAfterWorkspaceCacheShutdown(
 extension AppDelegate {
     func flushApplicationStateBeforeTermination(store: WorkspaceStore) async {
         stopAppIPCServer()
+        stopWorkspacePaneRecencyObservation()
 
         await runFirstPersistenceFlushAfterWorkspaceCacheShutdown(
             workspaceCacheCoordinator: workspaceCacheCoordinator
@@ -37,6 +38,12 @@ extension AppDelegate {
             } catch {
                 appLogger.warning("Workspace cache flush failed at termination: \(error.localizedDescription)")
             }
+        }
+
+        do {
+            try await entityRecencyStore.flushAllAsync()
+        } catch {
+            appLogger.warning("Entity recency flush failed at termination")
         }
 
         do {

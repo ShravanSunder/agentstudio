@@ -17,6 +17,104 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
     }
 
     @Test
+    func test_reposScope_showsFiveUniqueRecentRepositoriesBeforeRemainingRepositories() throws {
+        try withTestAtomRegistry { atoms in
+            let store = WorkspaceStore(
+                identityAtom: atoms.workspaceIdentity,
+                repositoryTopologyAtom: atoms.workspaceRepositoryTopology
+            )
+            for name in ["repo-a", "repo-b", "repo-c", "repo-d", "repo-e", "repo-f", "repo-g"] {
+                store.addRepo(at: URL(filePath: "/tmp/\(name)"))
+            }
+
+            let repoB = try #require(store.repos.first { $0.name == "repo-b" })
+            let repoBMainWorktree = try #require(repoB.worktrees.first)
+            let repoBFeatureWorktree = Worktree(
+                repoId: repoB.id,
+                name: "feature",
+                path: URL(filePath: "/tmp/repo-b.feature")
+            )
+            store.reconcileDiscoveredWorktrees(
+                repoB.id,
+                worktrees: [repoBMainWorktree, repoBFeatureWorktree]
+            )
+
+            let reposByName = Dictionary(uniqueKeysWithValues: store.repos.map { ($0.name, $0) })
+            let repoA = try #require(reposByName["repo-a"])
+            let repoD = try #require(reposByName["repo-d"])
+            let repoE = try #require(reposByName["repo-e"])
+            let repoF = try #require(reposByName["repo-f"])
+            let repoG = try #require(reposByName["repo-g"])
+            let staleRepo = Repo(name: "stale-repo", repoPath: URL(filePath: "/tmp/stale-repo"))
+            let staleWorktree = Worktree(
+                repoId: staleRepo.id,
+                name: "main",
+                path: staleRepo.repoPath,
+                isMainWorktree: true
+            )
+            let applicationEntityRecency = atoms.applicationEntityRecency
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: staleRepo.stableKey,
+                worktreeStableKey: staleWorktree.stableKey,
+                at: Date(timeIntervalSince1970: 800)
+            )
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: repoG.stableKey,
+                worktreeStableKey: try #require(repoG.worktrees.first).stableKey,
+                at: Date(timeIntervalSince1970: 700)
+            )
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: repoB.stableKey,
+                worktreeStableKey: repoBFeatureWorktree.stableKey,
+                at: Date(timeIntervalSince1970: 650)
+            )
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: repoB.stableKey,
+                worktreeStableKey: repoBMainWorktree.stableKey,
+                at: Date(timeIntervalSince1970: 600)
+            )
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: repoF.stableKey,
+                worktreeStableKey: try #require(repoF.worktrees.first).stableKey,
+                at: Date(timeIntervalSince1970: 500)
+            )
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: repoA.stableKey,
+                worktreeStableKey: try #require(repoA.worktrees.first).stableKey,
+                at: Date(timeIntervalSince1970: 400)
+            )
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: repoE.stableKey,
+                worktreeStableKey: try #require(repoE.worktrees.first).stableKey,
+                at: Date(timeIntervalSince1970: 300)
+            )
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: repoD.stableKey,
+                worktreeStableKey: try #require(repoD.worktrees.first).stableKey,
+                at: Date(timeIntervalSince1970: 200)
+            )
+            let repoCache = RepoCacheAtom()
+
+            let items = CommandBarDataSource.items(
+                scope: .repos,
+                store: store,
+                repoCache: repoCache,
+                dispatcher: dispatcher
+            )
+
+            #expect(
+                items.filter { $0.group == "Recent Repositories" }.map(\.title)
+                    == ["repo-g", "repo-b", "repo-f", "repo-a", "repo-e"]
+            )
+            #expect(
+                items.filter { $0.group == "Repositories" }.map(\.title)
+                    == ["repo-c", "repo-d"]
+            )
+            #expect(Set(items.map(\.id)).count == items.count)
+        }
+    }
+
+    @Test
     func test_reposScope_rootRowsAreReposNotWorktrees() {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/root-agent-studio"))
@@ -48,7 +146,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         #expect(repoItem?.title == "root-agent-studio")
         #expect(repoItem?.subtitle == "2 worktrees")
         #expect(repoItem?.hasChildren == true)
-        #expect(repoItem?.group == "Repos")
+        #expect(repoItem?.group == "Repositories")
     }
 
     @Test

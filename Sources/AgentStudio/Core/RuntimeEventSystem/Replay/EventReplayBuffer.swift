@@ -262,12 +262,6 @@ final class EventReplayBuffer {
             }
         case .workspaceActivity(let activityEvent):
             switch activityEvent {
-            case .recentTargetOpened(let target):
-                return 56
-                    + target.id.utf8.count
-                    + target.path.path.utf8.count
-                    + target.displayTitle.utf8.count
-                    + target.subtitle.utf8.count
             case .folderScanFinished(let rootPath, _):
                 return 40 + rootPath.path.utf8.count
             }

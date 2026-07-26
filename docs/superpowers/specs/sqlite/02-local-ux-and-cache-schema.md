@@ -1,5 +1,10 @@
 # Local UX And Cache Schema
 
+> **Historical:** This checkpoint preserves the superseded per-workspace-local
+> schema and recent-target model. See
+> [`docs/architecture/atom_persistence_boundaries.md`](../../../architecture/atom_persistence_boundaries.md)
+> for current ownership.
+
 ## Status
 
 Checkpoint C3 for the AgentStudio SQLite cutover.

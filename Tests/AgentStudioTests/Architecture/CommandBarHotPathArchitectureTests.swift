@@ -15,7 +15,8 @@ struct CommandBarHotPathArchitectureTests {
 
         let repoScopeItems = try #require(
             source.slice(
-                from: "static func repoScopeItems(store: WorkspaceStore)", to: "static func everythingWorktreeItems")
+                from: "static func repoScopeItems(store: WorkspaceStore, repoCache: RepoCacheAtom)",
+                to: "static func everythingWorktreeItems")
         )
         let everythingWorktreeItems = try #require(
             source.slice(
@@ -53,6 +54,30 @@ struct CommandBarHotPathArchitectureTests {
             #expect(!source.contains("private var groups"))
             #expect(!source.contains("private var displayedItems"))
             #expect(!source.contains("private var selectedItem"))
+        }
+    }
+
+    @Test("root projection uses prepared topology identity without filesystem derivation")
+    func rootProjectionAvoidsFilesystemIdentityWork() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/CommandBar/CommandBarDataSource+RootProjection.swift"
+            ),
+            encoding: .utf8
+        )
+        let forbiddenCalls = [
+            ".stableKey",
+            "StableKey.fromPath",
+            "resolvingSymlinksInPath",
+            "FileManager",
+            "contentsOfDirectory",
+            "fileExists",
+            "resourceValues",
+        ]
+
+        for forbiddenCall in forbiddenCalls {
+            #expect(!source.contains(forbiddenCall))
         }
     }
 }

@@ -1,5 +1,9 @@
 # SQLite Persistence Boundaries
 
+> **Historical:** This checkpoint preserves the superseded per-workspace-local
+> design. It is not current architecture. See
+> [`docs/architecture/atom_persistence_boundaries.md`](../../../architecture/atom_persistence_boundaries.md).
+
 ## Status
 
 Checkpoint C1 for the AgentStudio SQLite cutover.

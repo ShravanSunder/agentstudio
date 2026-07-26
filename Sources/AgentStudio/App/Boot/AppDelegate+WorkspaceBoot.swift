@@ -167,7 +167,14 @@ extension AppDelegate {
         )
         repoCacheStore = RepoCacheStore(
             cacheAtom: atomStore.repoEnrichmentCache,
-            recentTargetAtom: atomStore.recentWorkspaceTarget,
+            sqliteDatastore: sqliteDatastore,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
+        )
+        entityRecencyStore = EntityRecencyStore(
+            applicationAtom: atomStore.applicationEntityRecency,
+            workspaceAtom: atomStore.workspaceEntityRecency,
             sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
@@ -232,7 +239,11 @@ extension AppDelegate {
     }
 
     private func bootLoadCacheStore() async {
+        // Repo-cache restore opens the one shared application-local bundle before
+        // the application-scoped recency lane performs its parameter-free restore.
         await repoCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
+        await entityRecencyStore.restoreApplicationAsync()
+        await entityRecencyStore.restoreWorkspaceAsync(for: store.identityAtom.workspaceId)
         await refreshTraceIdentitySnapshot()
         await sidebarCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
     }
@@ -311,6 +322,7 @@ extension AppDelegate {
             self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
         }
         executor = WorkspaceActionExecutor(coordinator: workspaceSurfaceCoordinator, store: store)
+        startWorkspacePaneRecencyObservation()
         tabBarAdapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
@@ -477,6 +489,7 @@ extension AppDelegate {
         // transaction instead of relying on a debounce side effect.
         store.startObserving()
         repoCacheStore.startObserving()
+        entityRecencyStore.startObserving()
         repositoryTopologyStore.startObserving()
         sidebarCacheStore.startObserving()
         uiStateStore.startObserving()
@@ -500,6 +513,11 @@ extension AppDelegate {
         assert(
             repoCacheStore.isAutosaveObservationActive,
             "RepoCacheStore autosave observation must be active after \(WorkspaceBootStep.armPersistenceObservation.rawValue)"
+        )
+        assert(
+            entityRecencyStore.isApplicationObservationActive
+                && entityRecencyStore.isWorkspaceObservationActive,
+            "EntityRecencyStore observations must be active after \(WorkspaceBootStep.armPersistenceObservation.rawValue)"
         )
         assert(
             repositoryTopologyStore.isAutosaveObservationActive,

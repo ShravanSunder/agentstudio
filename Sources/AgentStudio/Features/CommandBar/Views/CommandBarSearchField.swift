@@ -17,6 +17,7 @@ struct CommandBarSearchField: View {
             if state.isNested, let pillLabel = state.scopePillLabel {
                 CommandBarScopePill(
                     label: pillLabel,
+                    destinationLabel: state.rootScopeLabel,
                     onDismiss: { state.popToRoot() }
                 )
             } else {
@@ -32,6 +33,7 @@ struct CommandBarSearchField: View {
                 onShortcutTrigger: onShortcutTrigger,
                 onBackspaceOnEmpty: onBackspaceOnEmpty
             )
+            .accessibilityLabel("Search \(state.breadcrumbLabel)")
         }
         .padding(.horizontal, 12)
         .frame(height: 44)

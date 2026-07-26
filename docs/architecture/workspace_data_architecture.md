@@ -8,16 +8,15 @@
 
 Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces events on the `EventBus`. A single `WorkspaceCacheCoordinator` consumes all events, writing topology changes to the canonical store and enrichment data to the cache store. The sidebar is a pure reader of all three stores via `@Observable` binding — zero imperative fetches, zero mutations.
 
-Normal boot opens `core.sqlite` and the selected workspace's
-`<workspace-id>.local.sqlite` through one strict SQLite composition path.
-Workspace composition JSON is not a boot, import, migration, fallback, or
-recovery source. Valid completed core/local snapshots load exactly. Only a
-newly created empty SQLite store may bootstrap one UUIDv7-backed empty
-workspace. Missing, incomplete, corrupt, or invalid existing composition fails
-before atom installation or terminal activation and is never repaired,
-quarantined, recreated, or rewritten by startup. Historical GRDB schema
-migrations remain so valid older databases can open; preference/settings JSON
-and independently owned cache import policies remain separate.
+Normal boot opens authoritative `core.sqlite`, then independently opens the one
+app-root `local.sqlite`. Workspace composition is loaded from core; local
+workspace rows are keyed by `workspace_id`, window/sidebar rows by `window_id`,
+and repository/worktree/PR caches have no workspace owner. Workspace JSON and
+per-workspace local sidecars are not boot, import, migration, fallback, or
+recovery sources. A missing, corrupt, unavailable, or invalid local lane uses
+deterministic defaults without changing or blocking core startup. Historical
+core GRDB migrations remain so valid older core databases can open;
+`preferences.global.json` remains independently owned.
 
 ---
 
@@ -28,40 +27,38 @@ Data flows DOWN only — tier N never reads tier N+1.
 ```
 TIER A: CANONICAL CONFIG (source of truth, user intent)
   Live source: ~/.agentstudio/core.sqlite
-  Owner: canonical workspace atoms + WorkspaceStore persistence wrapper
+  Owner: RepositoryTopologyAtom plus canonical workspace atoms and WorkspaceStore
   Mutated by: explicit user actions + topology consumer (discovery events)
-  Contains: canonical repos, canonical worktrees, panes, tabs, layouts
+  Contains: application-global repos/worktrees/watched paths plus workspace panes,
+            tabs, drawers, and layouts
 
-TIER B: CACHE FILE (rebuildable enrichment + local target memory)
-  Live source: ~/.agentstudio/workspaces/<id>.local.sqlite
-  Legacy import source: ~/.agentstudio/workspaces/<id>/workspace.cache.json
-  Owner: RepoEnrichmentCacheAtom + RecentWorkspaceTargetAtom
-  Mutated by: WorkspaceCacheCoordinator for enrichment, workspace activity
-              flows for recent target memory
-  Contains: repo enrichment, worktree enrichment, PR counts,
-           local recent workspace targets
+TIER B: APPLICATION LOCAL DATABASE (rebuildable enrichment + entity recency)
+  Live source: ~/.agentstudio/local.sqlite
+  Owner: RepoEnrichmentCacheAtom + ApplicationEntityRecencyAtom +
+         WorkspaceEntityRecencyAtom
+  Mutated by: WorkspaceCacheCoordinator for enrichment, successful worktree-open
+              paths for application recency, attended-pane transitions for pane recency
+  Contains: global repo enrichment, worktree enrichment, PR counts,
+           global repository/worktree recency, and workspace-keyed pane recency
            (notification unread counts are derived from
             InboxNotificationAtom.unreadCount(forWorktreeId:)
             per LUNA-361)
 
 TIER C: UI STATE (preferences, non-structural + composition state)
-  Live sources: ~/.agentstudio/workspaces/<id>.settings.json and
-                ~/.agentstudio/workspaces/<id>.local.sqlite
-  Legacy import sources: ~/.agentstudio/workspaces/<id>/workspace.ui.json,
-                         workspace.sidebar-cache.json,
-                         notification-inbox.json
-  Owner: WorkspaceSidebarMemoryAtom (@MainActor, @Observable)
+  Live source: ~/.agentstudio/local.sqlite
+  Owner: WorkspaceSidebarMemoryAtom and feature-local preference/inbox owners
   Mutated by: sidebar view actions, MainSplitViewController
               (publishing sidebar collapsed state), composite commands
               (⌘I / ⌘S), and repo sidebar filter actions
-  Contains: filter state, sidebar collapsed state, sidebar surface
+  Contains: window-keyed filter state, sidebar collapsed state, sidebar surface,
+            expanded groups, width, and frame
 ```
 
-Only the enrichment/rebuild metadata slice is rebuildable from actors. Recent
-workspace targets are local UX memory stored in this companion file until the
-SQLite cutover gives them their own local table. If the whole cache file is
-corrupt, `RepoCacheStore` quarantines it and resets both slices; enrichment then
-rebuilds, while recent targets intentionally start empty.
+Only the enrichment/rebuild metadata slice is rebuildable from actors. Entity
+recency is non-authoritative local UX memory: repository/worktree facts are
+application-global, while pane facts carry an explicit `workspace_id`. If the
+database is corrupt, local recovery may quarantine it and all local lanes
+default; enrichment rebuilds and recency starts empty while core remains usable.
 
 > **Note on composition state.** `sidebarCollapsed` and `sidebarSurface` live on `WorkspaceSidebarMemoryAtom` as workspace-scoped shell memory. `sidebarHasFocus` lives on `SidebarFocusRuntimeAtom` and is runtime-only. `WorkspaceSidebarState` composes both for UI callers. See [directory_structure.md — composition state vs feature state](directory_structure.md).
 
@@ -164,10 +161,8 @@ struct WorktreeEnrichment: Codable, Sendable, Equatable {
     var gitSnapshot: GitWorkingTreeSnapshot?  // changed/staged/untracked counts
 }
 
-/// Cache projection shape. Live storage is local SQLite when available;
-/// legacy JSON remains an import/recovery source.
+/// Cache projection shape. Live storage is the application local SQLite database.
 struct WorkspaceCacheState: Codable {
-    var workspaceId: UUID
     var sourceRevision: UInt64          // monotonic, incremented on any cache write
     var lastRebuiltAt: Date
     var repoEnrichment: [UUID: RepoEnrichment]           // keyed by CanonicalRepo.id
@@ -208,15 +203,14 @@ struct WorkspaceSidebarExpandedGroupState: Codable {
 }
 ```
 
-`expandedGroups` is local workspace memory owned by `SidebarExpandedGroupAtom`.
+`expandedGroups` is window-keyed local memory owned by `SidebarExpandedGroupAtom`.
 
 ### Tier D: Sidebar Settings-Bound Preferences
 
 Sidebar settings intentionally do not own checkout colors. Repo/sidebar
 presentation uses automatic colors, while `SidebarCheckoutColorAtom` remains a
 legacy cleanup surface only. `WorkspaceSettingsStore` must ignore and clear
-legacy checkout-color payloads instead of writing them back to
-`<workspace-id>.settings.json`.
+legacy checkout-color payloads instead of writing them back to local storage.
 
 ### Tier E: Workspace UI State
 
@@ -231,7 +225,7 @@ struct WorkspaceUIState: Codable {
                                            //   Controller + UserDefaults
                                            //   key "sidebarCollapsed";
                                            //   now atom-owned + persisted
-                                           //   in workspace.ui.json.
+                                           //   in application local.sqlite.
                                            //   Greenfield cutover: no
                                            //   dual-write, no migration
                                            //   from the legacy UserDefaults
@@ -255,7 +249,8 @@ removal, CWD, and active-pane changes use affected-key effects and do not
 rebuild the full projection.
 
 ```
-WORKSPACE STATE (canonical repos/worktrees, panes/tabs)
+APPLICATION TOPOLOGY + WORKSPACE STATE
+(global repos/worktrees/watched paths + workspace panes/tabs)
       │
       │ restored at boot → topology events replayed on bus (.notScanned)
       ▼
@@ -310,9 +305,10 @@ WorkspaceSurfaceCoordinator (ordered post-topology effects)
     → pane or active-worktree projection only
       │
       ▼
-RepoEnrichmentCacheAtom + RecentWorkspaceTargetAtom (@Observable, passive)
+RepoEnrichmentCacheAtom + ApplicationEntityRecencyAtom +
+WorkspaceEntityRecencyAtom (@Observable, direct owners)
   → keyed atom slots for hot UI reads
-  → snapshot bridges persisted to local SQLite or legacy cache JSON
+  → independent snapshot bridges persisted to application local SQLite
       │
       ▼
 SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + WorkspaceSidebarState)
@@ -361,10 +357,11 @@ SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + Workspace
 Single topology accumulator with three internal method groups. For topology events with `LinkedWorktreeInfo`, uses `WorktreeReconciler` (pure function) to compute a `WorktreeTopologyDelta`, then delegates ordered effects to an injected `TopologyEffectHandler`.
 
 ```
-handleTopology_*    — CANONICAL mutations (WorkspaceStore)
+handleTopology_*    — CANONICAL mutations (shared RepositoryTopologyAtom via WorkspaceStore)
   Events: .topology(.repoDiscovered), .topology(.repoRemoved),
           .worktreeDiscovered, .worktreeRemoved
-  Touches: WorkspaceStore (register/unregister repos+worktrees)
+  Touches: RepositoryTopologyAtom through the WorkspaceStore reference
+           (register/unregister repos+worktrees)
   For .repoDiscovered with .scanned(linkedPaths):
     → WorktreeReconciler.reconcile(existing, discovered) → (merged, delta)
     → store.reconcileDiscoveredWorktrees(repoId, merged)
@@ -376,7 +373,7 @@ handleTopology_*    — CANONICAL mutations (WorkspaceStore)
 handleEnrichment_*  — DERIVED cache writes (RepoEnrichmentCacheAtom through RepoCacheAtom)
   Events: .snapshotChanged, .branchChanged, .originChanged, .originUnavailable,
           .pullRequestCountsChanged, .checksUpdated
-  Touches: repo enrichment cache only; recent targets are a separate local owner
+  Touches: repo enrichment cache only; entity recency has separate direct owners
 
 syncScope_*         — ACTOR registration management
   Operations: register/unregister worktrees with FilesystemActor, ForgeActor
@@ -497,7 +494,7 @@ Discovery events (`.repoDiscovered`, `.repoRemoved`) live in `SystemEnvelope` be
 The sidebar is a pure reader. It reads structure from one store, display data from another.
 
 ```
-WorkspaceStore.repos                → canonical repo/worktree structure (what exists)
+RepositoryTopologyAtom             → canonical global repo/worktree structure (what exists)
 RepoCacheAtom.repoEnrichment      → org name, display name, groupKey (how to group)
 RepoCacheAtom.worktreeEnrichment  → branch, git status (how to display)
 RepoCacheAtom.pullRequestCounts   → PR badges
@@ -523,9 +520,9 @@ Boot is driven by `WorkspaceBootSequence` (`App/Boot/WorkspaceBootSequence.swift
 
 ```
 WorkspaceBootStep (in order):
-  1. loadCanonicalStore      → load repos, worktrees, panes, tabs from workspace.state.json
-  2. loadCacheStore           → warm-start from workspace.cache.json (sidebar renders immediately)
-  3. loadUIStore              → expanded groups, filter, colors from workspace.ui.json
+  1. loadCanonicalStore      → load repos, worktrees, panes, tabs from core.sqlite
+  2. loadCacheStore           → warm-start global cache + workspace local rows from local.sqlite when available
+  3. loadUIStore              → window/sidebar and workspace UI rows from local.sqlite; default unavailable lanes
   4. establishRuntimeBus      → create/reset PaneRuntimeEventBus
   5. startFilesystemActor     → start FilesystemActor
   6. startGitProjector        → start GitWorkingDirectoryProjector
@@ -724,7 +721,8 @@ func handleAddFolderRequested(path: URL) async {
     }
 }
 
-// 5. WorkspaceCacheCoordinator's bus subscription picks up topology facts:
+// 5. WorkspaceCacheCoordinator's bus subscription picks up topology facts.
+// WorkspaceStore forwards these calls to its shared RepositoryTopologyAtom:
 func handleTopology(_ event: TopologyEvent) {
     switch event {
     case .repoDiscovered(let repoPath, _):
@@ -948,7 +946,9 @@ Test the full event flow: emit an event → coordinator processes it → assert 
 
 Key testing principles:
 - **Test the event path, not the store in isolation.** The coordinator IS the glue — test it with real stores.
-- **Assert on both stores.** A topology event should update both `WorkspaceStore` (canonical) and `RepoCacheAtom` (enrichment).
+- **Assert both owners.** A topology event should update the shared
+  `RepositoryTopologyAtom` (reachable through the store wrapper) and
+  `RepoCacheAtom` enrichment.
 - **Test idempotency.** Emit the same event twice. Assert no duplicates.
 - **Test ordering tolerance.** Emit events in wrong order. Assert no crash.
 

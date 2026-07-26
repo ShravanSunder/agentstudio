@@ -1,5 +1,9 @@
 # Migration And Recovery
 
+> **Historical:** This checkpoint preserves a superseded migration/recovery
+> proposal. Current recovery ownership is documented in
+> [`docs/architecture/workspace_data_architecture.md`](../../../architecture/workspace_data_architecture.md).
+
 ## Status
 
 Checkpoint C5 for the AgentStudio SQLite cutover.

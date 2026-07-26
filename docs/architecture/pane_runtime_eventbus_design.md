@@ -1332,7 +1332,7 @@ Current codebase patterns that need migration to align with this design. Audited
 - **No `MainActor.run`** in production code
 - **No `DispatchQueue.main.async`** — only `DispatchQueue.global()` in ProcessExecutor (correct)
 - **No Combine** (`import Combine`, `AnyCancellable`, `@Published`, `ObservableObject`) — already on `@Observable`
-- **FileManager I/O** already isolated in WorkspacePersistor (not `@MainActor`)
+- **SQLite file I/O** is isolated behind `WorkspaceSQLiteDatastore` and repositories (not `@MainActor`)
 - **C callback patterns** correctly use `@Sendable` trampolines + `Task { @MainActor in }`
 
 ### Phase 1: Core — NotificationCenter → typed EventBus
@@ -1388,7 +1388,7 @@ These methods don't need MainActor isolation — they take immutable input and r
 |---------|----------|---------------|
 | `DispatchQueue.global()` | ProcessExecutor.swift | Correct: offloads blocking pipe I/O |
 | AppKit lifecycle ingress via `ApplicationLifecycleMonitor` | App shell lifecycle boundary | Current production path |
-| `FileManager` operations | WorkspacePersistor | Already not `@MainActor` |
+| SQLite file operations | `WorkspaceSQLiteDatastore` and repositories | Already not `@MainActor` |
 | `@concurrent` on plain structs | Slice.swift, EntitySlice.swift | No actor isolation to opt out of — `nonisolated` implicit |
 
 ## Verification Checklist

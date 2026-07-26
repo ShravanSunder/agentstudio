@@ -17,7 +17,8 @@ final class AtomRegistry {
     let workspaceMutationCoordinator: WorkspaceMutationCoordinator
     let windowLifecycle: WindowLifecycleAtom
     let repoEnrichmentCache: RepoEnrichmentCacheAtom
-    let recentWorkspaceTarget: RecentWorkspaceTargetAtom
+    let applicationEntityRecency: ApplicationEntityRecencyAtom
+    let workspaceEntityRecency: WorkspaceEntityRecencyAtom
     let repoCache: RepoCacheAtom
     let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
     let sidebarExpandedGroup: SidebarExpandedGroupAtom
@@ -62,7 +63,8 @@ final class AtomRegistry {
         workspaceMutationCoordinator: WorkspaceMutationCoordinator? = nil,
         windowLifecycle: WindowLifecycleAtom = .init(),
         repoEnrichmentCache: RepoEnrichmentCacheAtom = .init(),
-        recentWorkspaceTarget: RecentWorkspaceTargetAtom = .init(),
+        applicationEntityRecency: ApplicationEntityRecencyAtom = .init(),
+        workspaceEntityRecency: WorkspaceEntityRecencyAtom = .init(),
         repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom = .init(),
         sidebarExpandedGroup: SidebarExpandedGroupAtom = .init(),
         terminalActivity: TerminalActivityAtom = .init(),
@@ -131,11 +133,9 @@ final class AtomRegistry {
             )
         self.windowLifecycle = windowLifecycle
         self.repoEnrichmentCache = repoEnrichmentCache
-        self.recentWorkspaceTarget = recentWorkspaceTarget
-        self.repoCache = RepoCacheAtom(
-            enrichmentCacheAtom: repoEnrichmentCache,
-            recentTargetAtom: recentWorkspaceTarget
-        )
+        self.applicationEntityRecency = applicationEntityRecency
+        self.workspaceEntityRecency = workspaceEntityRecency
+        self.repoCache = RepoCacheAtom(enrichmentCacheAtom: repoEnrichmentCache)
         self.repoExplorerSidebarPrefs = repoExplorerSidebarPrefs
         self.sidebarExpandedGroup = sidebarExpandedGroup
         self.sidebarCache = SidebarCacheState(

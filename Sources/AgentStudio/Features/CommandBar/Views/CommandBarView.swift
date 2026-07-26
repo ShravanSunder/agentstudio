@@ -15,7 +15,8 @@ struct CommandBarView: View {
         return VStack(spacing: 0) {
             CommandBarStatusStrip(
                 mode: resultSnapshot.currentMode,
-                context: resultSnapshot.currentContext
+                context: resultSnapshot.currentContext,
+                scopeLabel: state.breadcrumbLabel
             )
 
             Divider()
@@ -38,6 +39,7 @@ struct CommandBarView: View {
             if state.isNested {
                 CommandBarBackRow(
                     label: state.backRowLabel,
+                    destinationLabel: state.backDestinationLabel,
                     onBack: { state.popToRoot() }
                 )
             }
@@ -46,7 +48,7 @@ struct CommandBarView: View {
             CommandBarResultsList(
                 groups: resultSnapshot.groups,
                 selectedIndex: state.selectedIndex,
-                searchQuery: state.searchQuery,
+                searchQuery: state.isNested ? state.searchQuery : state.normalizedRootQuery,
                 dimmedItemIds: resultSnapshot.dimmedItemIds,
                 onSelect: { item in onExecuteItem(item, .plain) }
             )

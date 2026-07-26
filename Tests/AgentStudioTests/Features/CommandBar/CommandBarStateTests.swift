@@ -9,16 +9,19 @@ final class CommandBarStateTests {
     private var state: CommandBarState!
 
     private static let recentsKey = "CommandBarRecentItemIds"
+    private static let recentCommandsKey = "CommandBarRecentCommands"
 
     init() {
         // Isolate UserDefaults — clear recents key before each test
         UserDefaults.standard.removeObject(forKey: Self.recentsKey)
+        UserDefaults.standard.removeObject(forKey: Self.recentCommandsKey)
         state = CommandBarState()
     }
 
     deinit {
         // Clean up UserDefaults after each test
         UserDefaults.standard.removeObject(forKey: Self.recentsKey)
+        UserDefaults.standard.removeObject(forKey: Self.recentCommandsKey)
         state = nil
     }
 
@@ -32,6 +35,7 @@ final class CommandBarStateTests {
         #expect(state.navigationStack.isEmpty)
         #expect(state.selectedIndex == 0)
         #expect(state.recentItemIds.isEmpty)
+        #expect(state.recentCommands.isEmpty)
     }
 
     // MARK: - Show / Dismiss
@@ -442,12 +446,22 @@ final class CommandBarStateTests {
     // MARK: - Selection
 
     @Test
-    func test_rawInput_didSet_resetsSelectedIndex() {
-        // Arrange
+    func test_rawInput_retainsRootSelectionAndResetsNestedSelection() {
+        // Arrange — root projection preserves identity across meaningful query changes.
         state.selectedIndex = 5
 
         // Act
         state.rawInput = "new text"
+
+        // Assert
+        #expect(state.selectedIndex == 5)
+
+        // Arrange — nested levels rebuild per query and retain the existing reset behavior.
+        state.pushLevel(makeCommandBarLevel())
+        state.selectedIndex = 5
+
+        // Act
+        state.rawInput = "nested text"
 
         // Assert
         #expect(state.selectedIndex == 0)
@@ -559,6 +573,90 @@ final class CommandBarStateTests {
         #expect(state.recentItemIds.count == 8)
         #expect(state.recentItemIds.first == "item-10")
         #expect(state.recentItemIds.last == "item-3")
+    }
+
+    @Test
+    func test_recordRecentCommand_deduplicatesMovesToFrontAndCapsAtEight() {
+        let commands: [AppCommand] = [
+            .closeTab,
+            .renameTab,
+            .newTab,
+            .closePane,
+            .focusPane,
+            .toggleSidebar,
+            .showInboxNotifications,
+            .openWebview,
+            .watchFolder,
+            .closeTab,
+        ]
+
+        for command in commands {
+            state.recordRecentCommand(command)
+        }
+
+        #expect(state.recentCommands.count == 8)
+        #expect(state.recentCommands.first == .closeTab)
+        #expect(state.recentCommands.filter { $0 == .closeTab }.count == 1)
+        #expect(!state.recentCommands.contains(.renameTab))
+    }
+
+    @Test
+    func test_loadRecents_filtersMalformedCommandValuesAndRoundTripsTypedCommands() {
+        UserDefaults.standard.set(
+            [
+                AppCommand.closePane.rawValue,
+                "not-an-app-command",
+                AppCommand.closeTab.rawValue,
+                AppCommand.closePane.rawValue,
+            ],
+            forKey: Self.recentCommandsKey
+        )
+
+        state.loadRecents()
+
+        #expect(state.recentCommands == [.closePane, .closeTab])
+    }
+
+    @Test
+    func test_normalizedRootQuery_trimsEdgesAndPreservesInternalWhitespace() {
+        state.show(prefix: ">")
+        state.rawInput = ">   close  pane   "
+
+        #expect(state.normalizedRootQuery == "close  pane")
+        #expect(state.hasMeaningfulRootQuery)
+    }
+
+    @Test
+    func test_whitespaceOnlyRootQuery_remainsEmptyProjection() {
+        state.show(prefix: "#")
+        state.rawInput = "#    "
+
+        #expect(state.normalizedRootQuery.isEmpty)
+        #expect(!state.hasMeaningfulRootQuery)
+    }
+
+    @Test
+    func test_rootAndNestedBreadcrumbRetainScopeIdentityAndAncestry() {
+        state.show(prefix: "#")
+        state.pushLevel(
+            CommandBarLevel(
+                id: "repository",
+                title: "agent-studio",
+                scopeLabel: "Repo",
+                items: []
+            )
+        )
+        state.pushLevel(
+            CommandBarLevel(
+                id: "worktree",
+                title: "feature",
+                scopeLabel: "agent-studio",
+                items: []
+            )
+        )
+
+        #expect(state.rootScopeLabel == "Repositories")
+        #expect(state.breadcrumbLabel == "Repositories › agent-studio › feature")
     }
 
     // MARK: - Placeholder

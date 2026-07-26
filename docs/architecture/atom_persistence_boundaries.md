@@ -1,8 +1,8 @@
 # Atom Persistence Boundaries
 
-This document defines how Agent Studio classifies atom-backed state before the
-SQLite cutover. It is the bridge between the current Observation atom model and
-the future normalized SQLite repositories.
+This document defines how Agent Studio classifies atom-backed state in the live
+SQLite persistence model. It keeps Observation atoms, derived readers, and
+repository row projections in distinct ownership roles.
 
 ## Roles
 
@@ -12,12 +12,10 @@ Every affected type or field must have an explicit role:
   one semantic write path.
 - **Derived read model**: composed values for UI, command snapshots, validators,
   and tests. Derived readers are never persistence owners.
-- **SQLite row projection**: repository-facing table shape used by future
-  SQLite code only.
-- **Legacy import DTO**: `Codable` shape for old JSON files only.
+- **SQLite row projection**: repository-facing table shape used by current
+  SQLite repositories only.
 
-No type may quietly mean "legacy Codable payload", "live atom state", and
-"SQLite row" at the same time.
+No type may quietly mean both live atom state and a SQLite row projection.
 
 ## Lifecycle Lanes
 
@@ -26,22 +24,30 @@ core graph
   Durable workspace structure and validated semantic state.
 
 local UX memory
-  Per-workspace focus, selection, window/sidebar memory, and resettable local
-  cache facts.
+  Workspace-keyed continuation and feature rows, window/sidebar memory keyed by
+  window, and other non-authoritative interaction memory.
 
 settings
-  User preferences that are not scoped to one workspace graph.
+  User preferences whose storage follows their real owner: workspace-keyed
+  feature rows or the independently owned global preferences file.
+
+cache
+  Application-global rebuildable repository, worktree, and pull-request facts.
+
+entity recency
+  Application-global repository/worktree interaction facts and workspace-keyed
+  pane interaction facts. Non-authoritative local UX memory.
 
 runtime / presentation
   Transient UI, keyboard, focus, health, pending-request, and display facts.
-  Surveyed in Step 0, not persisted in Step 1.
+  Not persisted.
 
 derived read model
   Composed UI/validator values built from the lanes above. Never a write owner.
 ```
 
-Surveying a field does not mean persisting it. Only core graph, local UX memory,
-settings, and cache lanes get storage in Step 1.
+Classifying a field does not mean persisting it. Only durable core, local UX,
+settings, and cache lanes have storage.
 
 ## Writer-Owned Atoms
 
@@ -91,7 +97,7 @@ later appears. Surfaces that need both branch state and PR count use
 Membership changes are tracked separately from per-key value changes.
 
 Do not expose raw observable dictionaries as hot UI contracts. Dictionary-shaped
-APIs are allowed for persistence projections, legacy import/export, tests,
+APIs are allowed for persistence projections, tests,
 batch reconciliation, and explicitly measured cold paths. Production UI,
 command-bar, tab-bar, and sidebar rows should prefer keyed readers or a derived
 read model that uses keyed readers internally.
@@ -127,38 +133,42 @@ facts, snapshots, deltas, or intents.
 | Is it final application of compact actor output? | owning `@MainActor` atom or coordinator |
 | Is it a snapshot for persistence or batch reconciliation? | snapshot bridge, not hot UI observation |
 
-## Step 0 Boundary Map
+## Current Ownership Map
 
-| Current surface | Step 0 write owners | Derived/read surface |
+| Surface | Write owners | Derived/read surface |
 | --- | --- | --- |
-| `WorkspaceMetadataAtom` | `WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom` | workspace metadata read model |
+| application repository topology | `RepositoryTopologyAtom` | direct keyed/by-id topology reads; `WorkspaceStore` references the shared owner |
+| workspace identity | `WorkspaceIdentityAtom` | direct identity reads |
+| window memory | `WorkspaceWindowMemoryAtom` | direct window-memory reads |
 | `WorkspacePaneAtom` | `WorkspacePaneGraphAtom`, `WorkspaceDrawerCursorAtom` | `WorkspacePaneDerived` |
 | `WorkspaceTabShellAtom` | `WorkspaceTabShellAtom`, `WorkspaceTabCursorAtom` | `WorkspaceTabLayoutDerived` |
 | `WorkspaceTabArrangementAtom` | `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom` | `WorkspaceTabLayoutDerived` |
-| `RepoCacheAtom` | `RepoEnrichmentCacheAtom`, `RecentWorkspaceTargetAtom` | repo/sidebar read models |
-| `UIStateAtom` source before Step 0 split | `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom` | `WorkspaceSidebarState` |
-| `SidebarCacheState` (`SidebarCacheAtom` source before Step 0 split) | `SidebarExpandedGroupAtom`; `SidebarCheckoutColorAtom` is cleanup-only legacy state, not a live write owner | sidebar shell read model |
-| `EditorChooserState` (`EditorChooserAtom` source before Step 0 split) | `EditorPreferenceAtom`, `EditorChooserRuntimeAtom` | editor chooser read model |
-| `InboxSidebarState` (`InboxSidebarStateAtom` source before Step 0 split) | `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom` | inbox sidebar read model |
+| `RepoCacheAtom` | `RepoEnrichmentCacheAtom` | repo/sidebar read models |
+| application entity recency | `ApplicationEntityRecencyAtom` | Command Bar and launcher projections resolved through live topology |
+| workspace entity recency | `WorkspaceEntityRecencyAtom` | Command Bar pane projection resolved through the active workspace pane graph |
+| `WorkspaceSidebarState` | window-keyed `WorkspaceSidebarMemoryAtom`, runtime-only `SidebarFocusRuntimeAtom` | sidebar read model |
+| `SidebarCacheState` | `SidebarExpandedGroupAtom`; `SidebarCheckoutColorAtom` is cleanup-only, not a live write owner | sidebar shell read model |
+| `EditorChooserState` | `EditorPreferenceAtom`, `EditorChooserRuntimeAtom` | editor chooser read model |
+| `InboxSidebarState` | `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom` | inbox sidebar read model |
 
 ## Domain Type Role Matrix
 
-| Type or field | Write-owner state | Derived reader | Legacy DTO | Future row projection |
-| --- | --- | --- | --- | --- |
-| `Pane` | `PaneGraphState` in `WorkspacePaneGraphAtom` | `Pane` from `WorkspacePaneDerived` | `LegacyPanePayload` | `pane`, `pane_content_*`, `pane_tag` |
-| `Drawer` identity and membership | `DrawerGraphState` in `WorkspacePaneGraphAtom` | `Drawer` from `WorkspacePaneDerived` | `LegacyDrawerPayload` | `drawer`, `drawer_pane` |
-| `Drawer.isExpanded` | `WorkspaceDrawerCursorAtom` | `Drawer` from `WorkspacePaneDerived` | `LegacyDrawerPayload` | `local_drawer_cursor.is_expanded` |
-| `PaneMetadata` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | `LegacyPaneMetadataPayload` | pane launch directory, title, checkout, note, and tag columns |
-| `PaneContextFacets` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | `LegacyPaneContextFacetsPayload` | `facet_repo_id`, `facet_worktree_id`, cwd, tags |
-| `TerminalState.zmxSessionId` | `PaneGraphState.content` | `Pane` from `WorkspacePaneDerived` | strong non-optional opaque value; existing nonempty text restores verbatim; new values use UUIDv7 | existing `pane_content_terminal.zmx_session_id` text column |
-| `PaneContextFacets` display fields | none | `WorkspacePaneDerived` from topology plus `RepoEnrichmentCacheAtom` | decoded only for legacy compatibility; cache import/rebuild supplies live values | `cache_repo_enrichment`, `cache_worktree_enrichment` |
-| `Tab` shell | `WorkspaceTabShellAtom` | `Tab` from `WorkspaceTabLayoutDerived` | `LegacyTabPayload` | `tab_shell` |
-| `Tab.activeArrangementId` | `WorkspaceArrangementCursorAtom` | `Tab` from `WorkspaceTabLayoutDerived` | `LegacyTabPayload` | `local_tab_cursor.active_arrangement_id` |
-| `Tab.zoomedPaneId` | `WorkspacePanePresentationAtom` | `Tab` from `WorkspaceTabLayoutDerived` | not persisted | none |
-| `PaneArrangement` graph | `ArrangementGraphState` in `WorkspaceTabGraphAtom` | `PaneArrangement` from `WorkspaceTabLayoutDerived` | `LegacyPaneArrangementPayload` | `tab_arrangement`, `arrangement_layout_*`, `arrangement_minimized_pane`, `arrangement_drawer_view` |
-| `PaneArrangement.activePaneId` | `WorkspaceArrangementCursorAtom` | `PaneArrangement` from `WorkspaceTabLayoutDerived` | `LegacyPaneArrangementPayload` | `local_arrangement_cursor.active_pane_id` |
-| `DrawerView` graph | `DrawerViewGraphState` in `WorkspaceTabGraphAtom` | `DrawerView` from `WorkspaceTabLayoutDerived` | `LegacyDrawerViewPayload` | `drawer_view_layout_*`, `drawer_view_minimized_pane` |
-| `DrawerView.activeChildId` | `WorkspaceArrangementCursorAtom` | `DrawerView` from `WorkspaceTabLayoutDerived` | `LegacyDrawerViewPayload` | `local_arrangement_drawer_cursor.active_child_id` |
+| Type or field | Write-owner state | Derived reader | Current SQLite projection |
+| --- | --- | --- | --- |
+| `Pane` | `PaneGraphState` in `WorkspacePaneGraphAtom` | `Pane` from `WorkspacePaneDerived` | `pane`, `pane_content_*`, `pane_tag` |
+| `Drawer` identity and membership | `DrawerGraphState` in `WorkspacePaneGraphAtom` | `Drawer` from `WorkspacePaneDerived` | `drawer`, `drawer_pane` |
+| `Drawer.isExpanded` | `WorkspaceDrawerCursorAtom` | `Drawer` from `WorkspacePaneDerived` | `local_drawer_cursor.is_expanded` |
+| `PaneMetadata` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | pane launch directory, title, checkout, note, and tag columns |
+| `PaneContextFacets` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | `facet_repo_id`, `facet_worktree_id`, cwd, tags |
+| `TerminalState.zmxSessionId` | `PaneGraphState.content` | `Pane` from `WorkspacePaneDerived` | `pane_content_terminal.zmx_session_id` text column |
+| `PaneContextFacets` display fields | none | `WorkspacePaneDerived` from topology plus `RepoEnrichmentCacheAtom` | `cache_repo_enrichment`, `cache_worktree_enrichment` |
+| `Tab` shell | `WorkspaceTabShellAtom` | `Tab` from `WorkspaceTabLayoutDerived` | `tab_shell` |
+| `Tab.activeArrangementId` | `WorkspaceArrangementCursorAtom` | `Tab` from `WorkspaceTabLayoutDerived` | `local_tab_cursor.active_arrangement_id` |
+| `Tab.zoomedPaneId` | `WorkspacePanePresentationAtom` | `Tab` from `WorkspaceTabLayoutDerived` | none; runtime-only |
+| `PaneArrangement` graph | `ArrangementGraphState` in `WorkspaceTabGraphAtom` | `PaneArrangement` from `WorkspaceTabLayoutDerived` | `tab_arrangement`, `arrangement_layout_*`, `arrangement_minimized_pane`, `arrangement_drawer_view` |
+| `PaneArrangement.activePaneId` | `WorkspaceArrangementCursorAtom` | `PaneArrangement` from `WorkspaceTabLayoutDerived` | `local_arrangement_cursor.active_pane_id` |
+| `DrawerView` graph | `DrawerViewGraphState` in `WorkspaceTabGraphAtom` | `DrawerView` from `WorkspaceTabLayoutDerived` | `drawer_view_layout_*`, `drawer_view_minimized_pane` |
+| `DrawerView.activeChildId` | `WorkspaceArrangementCursorAtom` | `DrawerView` from `WorkspaceTabLayoutDerived` | `local_arrangement_drawer_cursor.active_child_id` |
 
 ## Runtime And Shortcut Surfaces
 
@@ -177,7 +187,7 @@ surfaces. These are classified, but not persisted:
 | `PaneOrdinalMap` | derived helper | no SQLite table; derived from ordered pane ids |
 
 Pane note text itself is different: `PaneMetadata.note` is durable pane graph
-metadata and belongs with the future `pane.note` column.
+metadata and belongs with the current `pane.note` column.
 
 ## Validation Boundary
 
@@ -191,14 +201,13 @@ each call site.
 When a new atom, state surface, or persisted field is added:
 
 1. Classify the field into one lifecycle lane.
-2. Name its role: write-owner state, derived read model, row projection, or
-   legacy DTO.
+2. Name its role: write-owner state, derived read model, or current row
+   projection.
 3. Choose the observation surface: scalar value, keyed `AtomEntityMap`,
    derived read model, or snapshot bridge.
 4. Define the content comparator so equal data does not fire atom invalidation.
 5. If persisted, identify the owning store/repository and reset semantics.
-6. If runtime-only, document that it is never imported from legacy JSON and not
-   written to SQLite in Step 1.
+6. If runtime-only, document that it is never written to SQLite.
 7. Apply the actor-placement gate above before putting expensive work on the
    main actor.
 8. Add or update focused tests when the classification changes command

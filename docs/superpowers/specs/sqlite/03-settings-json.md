@@ -1,5 +1,9 @@
 # Workspace Settings JSON
 
+> **Historical:** This checkpoint is retained as design history. See
+> [`docs/architecture/workspace_data_architecture.md`](../../../architecture/workspace_data_architecture.md)
+> for the current persistence split.
+
 ## Status
 
 Checkpoint C3 companion for the AgentStudio SQLite cutover.

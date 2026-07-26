@@ -2,6 +2,14 @@ import CoreGraphics
 import Foundation
 
 enum AppPolicies {
+    enum CommandBar {
+        static let maximumHistoryCount: Int = 8
+    }
+
+    enum EntityRecency {
+        static let maximumRetainedEntityCountPerKind: Int = 15
+    }
+
     enum SidebarProjection {
         static let cancellationItemStride: Int = 256
         static let cancellationGroupStride: Int = 64

@@ -18,12 +18,39 @@ typealias CommandBarPathActionFailureHandler = @MainActor @Sendable (CommandBarP
 
 @MainActor
 extension CommandBarDataSource {
-    static func repoScopeItems(store: WorkspaceStore) -> [CommandBarItem] {
+    static func repoScopeItems(store: WorkspaceStore, repoCache: RepoCacheAtom) -> [CommandBarItem] {
+        _ = repoCache
+        let repositories = store.repositoryTopologyAtom.repos
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
+
+        return repositories.map { repository in
+            repoRootItem(
+                repo: repository,
+                store: store,
+                presenceByWorktreeId: presenceByWorktreeId,
+                group: Group.repositories,
+                groupPriority: Priority.repositories
+            )
+        }
+    }
+
+    static func allRepoItems(
+        store: WorkspaceStore,
+        group: String,
+        groupPriority: Int
+    ) -> [CommandBarItem] {
         let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
         return store.repositoryTopologyAtom.repos
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { repo in
-                repoRootItem(repo: repo, store: store, presenceByWorktreeId: presenceByWorktreeId)
+                repoRootItem(
+                    repo: repo,
+                    store: store,
+                    presenceByWorktreeId: presenceByWorktreeId,
+                    group: group,
+                    groupPriority: groupPriority
+                )
             }
     }
 
@@ -39,7 +66,7 @@ extension CommandBarDataSource {
                     repo: repo,
                     presence: presence,
                     group: Group.worktrees,
-                    groupPriority: Priority.worktrees
+                    groupPriority: Priority.repositories
                 )
             }
         }
@@ -68,13 +95,21 @@ extension CommandBarDataSource {
 
     static func repoRootItem(repo: Repo, store: WorkspaceStore) -> CommandBarItem {
         let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
-        return repoRootItem(repo: repo, store: store, presenceByWorktreeId: presenceByWorktreeId)
+        return repoRootItem(
+            repo: repo,
+            store: store,
+            presenceByWorktreeId: presenceByWorktreeId,
+            group: Group.repos,
+            groupPriority: Priority.repos
+        )
     }
 
     static func repoRootItem(
         repo: Repo,
         store: WorkspaceStore,
-        presenceByWorktreeId: [UUID: WorktreePresence]
+        presenceByWorktreeId: [UUID: WorktreePresence],
+        group: String,
+        groupPriority: Int
     ) -> CommandBarItem {
         let level = buildRepoLevel(repo: repo, store: store, presenceByWorktreeId: presenceByWorktreeId)
         return CommandBarItem(
@@ -82,8 +117,8 @@ extension CommandBarDataSource {
             title: repo.name,
             subtitle: repoRootSubtitle(repo: repo, presenceByWorktreeId: presenceByWorktreeId),
             icon: .system(.folder),
-            group: "Repos",
-            groupPriority: 0,
+            group: group,
+            groupPriority: groupPriority,
             keywords: repoRootKeywords(repo: repo),
             hasChildren: true,
             action: .navigateRepo(level)
