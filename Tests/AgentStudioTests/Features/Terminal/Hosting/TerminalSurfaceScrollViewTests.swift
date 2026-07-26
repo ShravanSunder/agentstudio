@@ -30,22 +30,29 @@ private final class FakeTerminalSurfaceHostStateView: NSView, TerminalSurfaceHos
 @Suite("TerminalSurfaceScrollView")
 @MainActor
 struct TerminalSurfaceScrollViewTests {
-    private func simulateLiveScroll(_ scrollWrapper: TerminalSurfaceScrollView, documentOffsetY: CGFloat) {
+    private func startLiveScroll(_ scrollWrapper: TerminalSurfaceScrollView) {
         NotificationCenter.default.post(
             name: NSScrollView.willStartLiveScrollNotification, object: scrollWrapper.scrollView)
+    }
+
+    private func updateLiveScroll(_ scrollWrapper: TerminalSurfaceScrollView, documentOffsetY: CGFloat) {
         scrollWrapper.scrollView.contentView.scroll(to: CGPoint(x: 0, y: documentOffsetY))
         NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scrollWrapper.scrollView)
+    }
+
+    private func endLiveScroll(_ scrollWrapper: TerminalSurfaceScrollView) {
         NotificationCenter.default.post(
             name: NSScrollView.didEndLiveScrollNotification, object: scrollWrapper.scrollView)
     }
 
+    private func simulateLiveScroll(_ scrollWrapper: TerminalSurfaceScrollView, documentOffsetY: CGFloat) {
+        startLiveScroll(scrollWrapper)
+        updateLiveScroll(scrollWrapper, documentOffsetY: documentOffsetY)
+        endLiveScroll(scrollWrapper)
+    }
+
     private func simulateVisibleRectChange(_ scrollWrapper: TerminalSurfaceScrollView, documentOffsetY: CGFloat) {
-        NotificationCenter.default.post(
-            name: NSScrollView.willStartLiveScrollNotification, object: scrollWrapper.scrollView)
-        scrollWrapper.scrollView.contentView.scroll(to: CGPoint(x: 0, y: documentOffsetY))
-        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scrollWrapper.scrollView)
-        NotificationCenter.default.post(
-            name: NSScrollView.didEndLiveScrollNotification, object: scrollWrapper.scrollView)
+        simulateLiveScroll(scrollWrapper, documentOffsetY: documentOffsetY)
     }
 
     private func documentOffsetY(of scrollWrapper: TerminalSurfaceScrollView) -> CGFloat {
@@ -56,6 +63,25 @@ struct TerminalSurfaceScrollViewTests {
         max(
             0, scrollWrapper.documentView.frame.height - scrollWrapper.scrollView.contentView.documentVisibleRect.height
         )
+    }
+
+    private func configuredHostStateView() -> FakeTerminalSurfaceHostStateView {
+        let hostStateView = FakeTerminalSurfaceHostStateView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        hostStateView.reportedCellSize = NSSize(width: 8, height: 20)
+        hostStateView.hostConfigSnapshot = GhosttyHostConfigSnapshot(
+            scrollbarPolicy: .system,
+            backgroundColor: .black
+        )
+        return hostStateView
+    }
+
+    private func prepare(
+        _ scrollView: TerminalSurfaceScrollView,
+        with hostStateView: FakeTerminalSurfaceHostStateView
+    ) {
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.bindHostStateSource(hostStateView)
+        scrollView.layoutSubtreeIfNeeded()
     }
 
     @Test("scroll wrapper converts live drag into scroll_to_row")
@@ -86,6 +112,155 @@ struct TerminalSurfaceScrollViewTests {
         simulateLiveScroll(scrollView, documentOffsetY: 1200)
 
         #expect(performer.actions == [.scrollToRow(100)])
+    }
+
+    @Test("scroll wrapper sends authoritative bottom intent at the maximum row")
+    func scrollWrapperSendsAuthoritativeBottomIntentAtMaximumRow() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.layoutSubtreeIfNeeded()
+        scrollView.applyScrollbarState(
+            ScrollbarState(top: 80, bottom: 120, total: 200),
+            cellHeight: 20
+        )
+
+        simulateLiveScroll(scrollView, documentOffsetY: 0)
+
+        #expect(performer.actions == [.scrollToBottom])
+        #expect(!performer.actions.contains(.scrollToRow(160)))
+    }
+
+    @Test("scroll wrapper deduplicates repeated bottom intent across gestures")
+    func scrollWrapperDeduplicatesRepeatedBottomIntentAcrossGestures() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.layoutSubtreeIfNeeded()
+        scrollView.applyScrollbarState(
+            ScrollbarState(top: 80, bottom: 120, total: 200),
+            cellHeight: 20
+        )
+
+        simulateLiveScroll(scrollView, documentOffsetY: 0)
+        simulateLiveScroll(scrollView, documentOffsetY: 0)
+
+        #expect(performer.actions == [.scrollToBottom])
+    }
+
+    @Test("programmatic pinned state deduplicates a zero movement bottom gesture")
+    func programmaticPinnedStateDeduplicatesZeroMovementBottomGesture() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.layoutSubtreeIfNeeded()
+        scrollView.applyScrollbarState(
+            ScrollbarState(top: 160, bottom: 200, total: 200),
+            cellHeight: 20
+        )
+
+        simulateLiveScroll(scrollView, documentOffsetY: 0)
+
+        #expect(performer.actions.isEmpty)
+    }
+
+    @Test("matching row state received during gesture reconciles at drag end")
+    func matchingRowStateReceivedDuringGestureReconcilesAtDragEnd() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = configuredHostStateView()
+        prepare(scrollView, with: hostStateView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        updateLiveScroll(scrollView, documentOffsetY: 1200)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 100, bottom: 140, total: 200))
+        scrollView.scrollView.contentView.scroll(to: CGPoint(x: 0, y: 800))
+        let actionCountBeforeEnd = performer.actions.count
+        endLiveScroll(scrollView)
+
+        #expect(documentOffsetY(of: scrollView) == 1200)
+        #expect(performer.actions.count == actionCountBeforeEnd)
+    }
+
+    @Test("pinned state received during bottom gesture reconciles at drag end")
+    func pinnedStateReceivedDuringBottomGestureReconcilesAtDragEnd() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = configuredHostStateView()
+        prepare(scrollView, with: hostStateView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        updateLiveScroll(scrollView, documentOffsetY: 0)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 160, bottom: 200, total: 200))
+        scrollView.scrollView.contentView.scroll(to: CGPoint(x: 0, y: 800))
+        let actionCountBeforeEnd = performer.actions.count
+        endLiveScroll(scrollView)
+
+        #expect(documentOffsetY(of: scrollView) == 0)
+        #expect(performer.actions.count == actionCountBeforeEnd)
+    }
+
+    @Test("no-command gesture applies state received during gesture")
+    func noCommandGestureAppliesStateReceivedDuringGesture() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = configuredHostStateView()
+        prepare(scrollView, with: hostStateView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 90, bottom: 130, total: 200))
+        endLiveScroll(scrollView)
+
+        #expect(documentOffsetY(of: scrollView) == 1400)
+        #expect(performer.actions.isEmpty)
+    }
+
+    @Test("unrelated pinned growth does not acknowledge an interior row")
+    func unrelatedPinnedGrowthDoesNotAcknowledgeInteriorRow() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = configuredHostStateView()
+        prepare(scrollView, with: hostStateView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        updateLiveScroll(scrollView, documentOffsetY: 1200)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 170, bottom: 210, total: 210))
+        let offsetBeforeEnd = documentOffsetY(of: scrollView)
+        let actionCountBeforeEnd = performer.actions.count
+        endLiveScroll(scrollView)
+
+        #expect(documentOffsetY(of: scrollView) == offsetBeforeEnd)
+        #expect(documentOffsetY(of: scrollView) != 0)
+        #expect(performer.actions.count == actionCountBeforeEnd)
+    }
+
+    @Test("drag end without received state does not write clip position")
+    func dragEndWithoutReceivedStateDoesNotWriteClipPosition() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.layoutSubtreeIfNeeded()
+        scrollView.applyScrollbarState(
+            ScrollbarState(top: 80, bottom: 120, total: 200),
+            cellHeight: 20
+        )
+
+        startLiveScroll(scrollView)
+        updateLiveScroll(scrollView, documentOffsetY: 1200)
+        scrollView.scrollView.contentView.scroll(to: CGPoint(x: 0, y: 800))
+        let actionCountBeforeEnd = performer.actions.count
+        endLiveScroll(scrollView)
+
+        #expect(documentOffsetY(of: scrollView) == 800)
+        #expect(performer.actions.count == actionCountBeforeEnd)
     }
 
     @Test("scroll wrapper converts live-scroll visible rect changes into row updates")

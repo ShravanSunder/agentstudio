@@ -1,6 +1,11 @@
 import AppKit
 import GhosttyKit
 
+private enum TerminalSurfaceScrollCommandIdentity: Equatable {
+    case row(Int)
+    case bottom
+}
+
 @MainActor
 private final class TerminalSurfaceClipView: NSClipView {
     override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
@@ -35,7 +40,9 @@ final class TerminalSurfaceScrollView: NSView {
     private weak var surfaceView: Ghostty.SurfaceView?
     private weak var hostStateSource: (any TerminalSurfaceHostStateSource)?
     nonisolated(unsafe) private var notificationObservers: [NSObjectProtocol] = []
-    private var lastSentRow: Int?
+    private var lastSentScrollCommand: TerminalSurfaceScrollCommandIdentity?
+    private var latestGestureScrollCommand: TerminalSurfaceScrollCommandIdentity?
+    private var didReceiveScrollbarStateDuringGesture = false
     private var isLiveScrolling = false
     private var previousScrollbarState: ScrollbarState?
     private var cellHeight: CGFloat = 0
@@ -88,7 +95,7 @@ final class TerminalSurfaceScrollView: NSView {
                 queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated { [weak self] in
-                    self?.isLiveScrolling = true
+                    self?.handleLiveScrollStart()
                 }
             })
         notificationObservers.append(
@@ -98,7 +105,7 @@ final class TerminalSurfaceScrollView: NSView {
                 queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated { [weak self] in
-                    self?.isLiveScrolling = false
+                    self?.handleLiveScrollEnd()
                 }
             })
         notificationObservers.append(
@@ -190,6 +197,12 @@ final class TerminalSurfaceScrollView: NSView {
         synchronizeSurfaceFrame()
     }
 
+    private func handleLiveScrollStart() {
+        isLiveScrolling = true
+        latestGestureScrollCommand = nil
+        didReceiveScrollbarStateDuringGesture = false
+    }
+
     private func handleLiveScroll() {
         let effectiveCellHeight = currentCellHeight()
         guard let state = currentScrollbarState(), effectiveCellHeight > 0 else { return }
@@ -199,9 +212,42 @@ final class TerminalSurfaceScrollView: NSView {
         let offsetFromTop = max(0, documentHeight - visibleRect.origin.y - visibleRect.height)
         let maximumTopRow = max(0, state.total - state.visibleRowCount)
         let row = max(0, min(Int(offsetFromTop / effectiveCellHeight), maximumTopRow))
-        guard row != lastSentRow else { return }
-        lastSentRow = row
-        _ = actionPerformer?.performBindingAction(.scrollToRow(row))
+        let command: TerminalSurfaceScrollCommandIdentity =
+            row == maximumTopRow ? .bottom : .row(row)
+        guard command != lastSentScrollCommand else { return }
+        let action: TerminalSurfaceAction
+        switch command {
+        case .row(let row):
+            action = .scrollToRow(row)
+        case .bottom:
+            action = .scrollToBottom
+        }
+        guard actionPerformer?.performBindingAction(action) == true else { return }
+        lastSentScrollCommand = command
+        latestGestureScrollCommand = command
+    }
+
+    private func handleLiveScrollEnd() {
+        isLiveScrolling = false
+        defer {
+            latestGestureScrollCommand = nil
+            didReceiveScrollbarStateDuringGesture = false
+        }
+        guard didReceiveScrollbarStateDuringGesture, let state = currentScrollbarState() else { return }
+
+        let shouldApplyState: Bool
+        switch latestGestureScrollCommand {
+        case nil:
+            shouldApplyState = true
+        case .row(let requestedRow):
+            shouldApplyState = state.top == requestedRow
+        case .bottom:
+            shouldApplyState = state.isPinnedToBottom
+        }
+        guard shouldApplyState else { return }
+
+        synchronizeScrollView(for: state)
+        synchronizeSurfaceFrame()
     }
 
     func isEffectivelyPinnedToBottom(for state: ScrollbarState) -> Bool {
@@ -209,6 +255,9 @@ final class TerminalSurfaceScrollView: NSView {
     }
 
     private func handleScrollbarStateUpdate(_ state: ScrollbarState) {
+        if isLiveScrolling {
+            didReceiveScrollbarStateDuringGesture = true
+        }
         let shouldRequestFollowBottom = shouldRequestFollowBottom(for: state)
         previousScrollbarState = state
 
@@ -242,7 +291,10 @@ final class TerminalSurfaceScrollView: NSView {
             let offsetY = requestingFollowBottom ? 0 : runtimeDocumentOffsetY(for: state)
             scrollView.contentView.scroll(to: CGPoint(x: 0, y: offsetY))
             scrollView.reflectScrolledClipView(scrollView.contentView)
-            lastSentRow = requestingFollowBottom ? max(0, state.total - state.visibleRowCount) : state.top
+            lastSentScrollCommand =
+                requestingFollowBottom || state.isPinnedToBottom
+                ? .bottom
+                : .row(state.top)
         } else {
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
