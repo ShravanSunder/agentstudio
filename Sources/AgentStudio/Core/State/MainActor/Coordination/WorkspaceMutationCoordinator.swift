@@ -2,7 +2,7 @@ import Foundation
 import os.log
 
 @MainActor
-final class WorkspaceMutationCoordinator {
+package final class WorkspaceMutationCoordinator {
     enum RestorePaneResult: Equatable {
         case restored
         case failedMissingDrawerParent(UUID?)

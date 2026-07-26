@@ -37,7 +37,7 @@ struct ArrangementPanelPresentationRequest: Equatable, Identifiable, Sendable {
 
 @MainActor
 @Observable
-final class ArrangementPanelPresentationAtom {
+package final class ArrangementPanelPresentationAtom {
     private(set) var pendingRequest: ArrangementPanelPresentationRequest?
 
     @discardableResult

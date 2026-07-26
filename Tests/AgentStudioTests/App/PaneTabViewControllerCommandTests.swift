@@ -9,7 +9,7 @@ import Testing
 @Suite(.serialized)
 struct PaneTabViewControllerCommandTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("execute newTab uses first watched folder as cwd fallback")
@@ -396,10 +396,10 @@ struct PaneTabViewControllerCommandTests {
         }
 
         harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
-        atom(\.editorChooser).setBookmarkedEditor("missing-editor")
+        harness.atomRegistry.editorChooser.setBookmarkedEditor("missing-editor")
 
         harness.controller.execute(.openPaneLocationInBookmarkedEditor)
-        #expect(atom(\.editorChooser).bookmarkedEditorId == nil)
+        #expect(harness.atomRegistry.editorChooser.bookmarkedEditorId == nil)
         #expect(harness.launchRecorder.openedEditors.count == 1)
         #expect(harness.launchRecorder.openedEditors.first?.id == ExternalEditorTarget.cursor.id)
         #expect(
@@ -432,7 +432,7 @@ struct PaneTabViewControllerCommandTests {
 
         harness.controller.execute(.openPaneLocationInEditorMenu)
 
-        #expect(atom(\.editorChooser).openForPaneId == drawerPane.id)
+        #expect(harness.atomRegistry.editorChooser.openForPaneId == drawerPane.id)
     }
 
     @Test("targeted focusPane opens owning drawer and selects drawer child")

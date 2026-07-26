@@ -43,7 +43,7 @@ extension WebKitSerializedTests {
         }
 
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("prepared initial mount leaves hidden Bridge panes dormant until steady-state selection")

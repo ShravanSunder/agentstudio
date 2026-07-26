@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("closing four Bridge tabs keeps topology lookup telemetry bounded")

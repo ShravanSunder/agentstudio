@@ -8,7 +8,7 @@ struct CommandBarSurface: Equatable, Sendable {
 
 @MainActor
 @Observable
-final class CommandBarSurfaceAtom {
+package final class CommandBarSurfaceAtom {
     private(set) var activeSurface: CommandBarSurface?
 
     var activeScope: CommandBarScope? {

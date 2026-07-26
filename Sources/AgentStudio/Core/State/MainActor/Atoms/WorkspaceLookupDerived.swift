@@ -12,7 +12,7 @@ struct WorkspacePaneLocation: Equatable, Sendable {
 }
 
 @MainActor
-struct WorkspaceLookupDerived {
+package struct WorkspaceLookupDerived {
     func tabContaining(paneId: UUID) -> Tab? {
         atom(\.workspaceTab).tabContaining(paneId: paneId)
     }

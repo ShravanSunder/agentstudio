@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("unrelated workspace action performs no filesystem source work")
@@ -37,7 +37,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
 
     @Test("active tab selection writes only the changed active worktree")
     func activeTabSelectionWritesOnlyChangedActiveWorktree() async throws {
-        try await withAsyncTestAtomRegistry { _ in
+        try await withAsyncTestCoreAtoms { _ in
             let context = makeContext(named: "active-selection")
             defer { try? FileManager.default.removeItem(at: context.tempDirectory) }
             let repo = context.store.addRepo(at: context.tempDirectory.appending(path: "repo"))

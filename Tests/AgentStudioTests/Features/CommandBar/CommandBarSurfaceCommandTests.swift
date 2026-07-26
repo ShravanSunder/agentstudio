@@ -6,7 +6,7 @@ import Testing
 @Suite("Command bar surface commands")
 struct CommandBarSurfaceCommandTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("commands scope includes sidebar and drawer commands with shortcut labels")

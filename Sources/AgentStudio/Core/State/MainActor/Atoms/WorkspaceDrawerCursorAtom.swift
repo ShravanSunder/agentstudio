@@ -3,7 +3,7 @@ import Observation
 
 @MainActor
 @Observable
-final class WorkspaceDrawerCursorAtom {
+package final class WorkspaceDrawerCursorAtom {
     var expandedDrawerId: UUID? { storedExpandedDrawerId }
 
     private var storedExpandedDrawerId: UUID?

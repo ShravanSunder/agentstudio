@@ -7,7 +7,7 @@ import Testing
 @Suite("CommandBar source removal", .serialized)
 struct CommandBarDataSourceSourceRemovalTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test

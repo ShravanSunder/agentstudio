@@ -3,7 +3,7 @@ import Observation
 
 @MainActor
 @Observable
-final class WorkspaceTabCursorAtom {
+package final class WorkspaceTabCursorAtom {
     var activeTabId: UUID? { storedActiveTabId }
 
     private var storedActiveTabId: UUID?

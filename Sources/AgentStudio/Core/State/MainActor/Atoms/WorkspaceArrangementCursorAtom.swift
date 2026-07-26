@@ -16,7 +16,7 @@ struct ArrangementDrawerCursorState: Equatable, Hashable, Sendable {
 
 @MainActor
 @Observable
-final class WorkspaceArrangementCursorAtom {
+package final class WorkspaceArrangementCursorAtom {
     private(set) var activeArrangementIdsByTabId: [UUID: UUID] = [:]
     private(set) var paneCursorsByArrangementId: [UUID: ArrangementPaneCursorState] = [:]
     private(set) var drawerCursorsByKey: [ArrangementDrawerCursorKey: ArrangementDrawerCursorState] = [:]

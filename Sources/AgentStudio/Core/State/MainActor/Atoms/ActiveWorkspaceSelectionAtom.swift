@@ -3,7 +3,7 @@ import Observation
 
 @MainActor
 @Observable
-final class ActiveWorkspaceSelectionAtom {
+package final class ActiveWorkspaceSelectionAtom {
     private(set) var activeWorkspaceId: UUID?
 
     func selectWorkspace(_ workspaceId: UUID) {

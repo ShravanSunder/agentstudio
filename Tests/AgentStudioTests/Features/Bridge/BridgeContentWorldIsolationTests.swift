@@ -9,7 +9,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     final class BridgeContentWorldIsolationTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test

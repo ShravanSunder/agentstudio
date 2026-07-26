@@ -7,7 +7,7 @@ import Testing
 @Suite("WorkspaceSQLiteStoreBridgePersistenceTests", .serialized)
 struct WorkspaceSQLiteStoreBridgePersistenceTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("SQLite flush after coordinator close removes parent drawer membership with two children")

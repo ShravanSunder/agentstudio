@@ -278,7 +278,7 @@ struct WorkspacePaneGraphReplacement: Equatable, Sendable {
 
 @MainActor
 @Observable
-final class WorkspacePaneGraphAtom {
+package final class WorkspacePaneGraphAtom {
     private(set) var paneStates: [UUID: PaneGraphState] = [:]
     private var parentPaneIDByDrawerID: [UUID: UUID] = [:]
 

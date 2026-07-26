@@ -9,7 +9,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct BridgePaneControllerIPCProjectionTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("IPC refresh builds package from pane worktree context")

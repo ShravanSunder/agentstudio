@@ -512,21 +512,21 @@ struct WorkspaceSQLiteStoreBridgeTests {
 
     private func restoredWorkspaceStore(from backend: WorkspaceSQLiteStoreBackend) -> WorkspaceStore {
         let datastore = workspaceSQLiteDatastore(from: backend)
-        let atomRegistry = AtomRegistry()
+        let coreAtoms = CoreAtoms()
         let saveCoordinator = WorkspaceSQLiteSaveCoordinator(
-            identityAtom: atomRegistry.workspaceIdentity,
-            windowMemoryAtom: atomRegistry.workspaceWindowMemory,
-            workspacePaneAtom: atomRegistry.workspacePane,
-            workspaceTabLayoutAtom: atomRegistry.workspaceTabLayout,
+            identityAtom: coreAtoms.workspaceIdentity,
+            windowMemoryAtom: coreAtoms.workspaceWindowMemory,
+            workspacePaneAtom: coreAtoms.workspacePane,
+            workspaceTabLayoutAtom: coreAtoms.workspaceTabLayout,
             sqliteDatastore: datastore
         )
         return WorkspaceStore(
-            identityAtom: atomRegistry.workspaceIdentity,
-            windowMemoryAtom: atomRegistry.workspaceWindowMemory,
-            repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,
-            paneAtom: atomRegistry.workspacePane,
-            tabLayoutAtom: atomRegistry.workspaceTabLayout,
-            mutationCoordinator: atomRegistry.workspaceMutationCoordinator,
+            identityAtom: coreAtoms.workspaceIdentity,
+            windowMemoryAtom: coreAtoms.workspaceWindowMemory,
+            repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology,
+            paneAtom: coreAtoms.workspacePane,
+            tabLayoutAtom: coreAtoms.workspaceTabLayout,
+            mutationCoordinator: coreAtoms.workspaceMutationCoordinator,
             sqliteDatastore: datastore,
             sqliteSaveCoordinator: saveCoordinator
         )

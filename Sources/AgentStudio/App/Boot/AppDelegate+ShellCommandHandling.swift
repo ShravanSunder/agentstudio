@@ -256,11 +256,11 @@ extension AppDelegate: ShellCommandHandling {
 
     private func executeHeadlessRepoSidebarCommand() -> AppCommandExecutionOutcome {
         guard let atomStore else { return .stateUnavailable }
-        atomStore.workspaceSidebarState.setSidebarSurface(.repos)
+        atomStore.core.workspaceSidebarState.setSidebarSurface(.repos)
         mainWindowController?.expandSidebar()
         guard
-            atomStore.workspaceSidebarState.sidebarSurface == .repos,
-            atomStore.workspaceSidebarState.sidebarCollapsed == false
+            atomStore.core.workspaceSidebarState.sidebarSurface == .repos,
+            atomStore.core.workspaceSidebarState.sidebarCollapsed == false
         else {
             return .stateUnavailable
         }
@@ -269,11 +269,11 @@ extension AppDelegate: ShellCommandHandling {
 
     private func executeHeadlessInboxSidebarCommand() -> AppCommandExecutionOutcome {
         guard let atomStore else { return .stateUnavailable }
-        atomStore.workspaceSidebarState.setSidebarSurface(.inbox)
+        atomStore.core.workspaceSidebarState.setSidebarSurface(.inbox)
         mainWindowController?.expandSidebar()
         guard
-            atomStore.workspaceSidebarState.sidebarSurface == .inbox,
-            atomStore.workspaceSidebarState.sidebarCollapsed == false
+            atomStore.core.workspaceSidebarState.sidebarSurface == .inbox,
+            atomStore.core.workspaceSidebarState.sidebarCollapsed == false
         else {
             return .stateUnavailable
         }

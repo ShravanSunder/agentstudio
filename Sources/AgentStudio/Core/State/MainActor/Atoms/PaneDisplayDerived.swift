@@ -42,7 +42,7 @@ private struct WorkspaceContextParts {
 }
 
 @MainActor
-struct PaneDisplayDerived {
+package struct PaneDisplayDerived {
     func displayParts(for paneId: UUID) -> PaneDisplayParts {
         let workspacePane = atom(\.workspacePane)
         guard let pane = workspacePane.pane(paneId) else {

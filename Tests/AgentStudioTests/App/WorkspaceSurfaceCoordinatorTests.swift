@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private struct WorkspaceSurfaceCoordinatorHarness {

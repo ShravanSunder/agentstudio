@@ -9,7 +9,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct BridgeReviewContentStreamTransportTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("modified review file streams base and head content through direct product authority")

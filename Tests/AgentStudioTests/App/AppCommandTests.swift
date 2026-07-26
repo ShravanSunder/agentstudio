@@ -90,7 +90,7 @@ final class MockAppCommandRouter: ShellCommandHandling {
 @Suite(.serialized)
 final class AppCommandTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     // MARK: - AppCommand Enum
@@ -687,7 +687,7 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_dispatchMovePaneToTab_callsHandlerSurface() async throws {
-        try await withAsyncTestAtomRegistry { _ in
+        try await withAsyncTestCoreAtoms { _ in
             let dispatcher = AppCommandDispatcher.shared
             let handler = MockCommandHandler()
             atom(\.managementLayer).deactivate()
@@ -783,7 +783,7 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_managementRequiredCommand_blockedWhenInactive() async throws {
-        try await withAsyncTestAtomRegistry { _ in
+        try await withAsyncTestCoreAtoms { _ in
             let dispatcher = AppCommandDispatcher.shared
             let handler = MockCommandHandler()
             atom(\.managementLayer).deactivate()
@@ -807,7 +807,7 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_managementRequiredCommand_allowedWhenActive() async throws {
-        try await withAsyncTestAtomRegistry { _ in
+        try await withAsyncTestCoreAtoms { _ in
             let dispatcher = AppCommandDispatcher.shared
             let handler = MockCommandHandler()
             atom(\.managementLayer).deactivate()

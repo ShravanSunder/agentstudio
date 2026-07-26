@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorTabNamingTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test

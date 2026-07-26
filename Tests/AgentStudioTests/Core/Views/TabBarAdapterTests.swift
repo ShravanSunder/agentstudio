@@ -9,17 +9,19 @@ final class TabBarAdapterTests {
 
     private var store: WorkspaceStore!
     private var repoCache: RepoCacheAtom!
+    private var inboxAtom: InboxNotificationAtom!
     private var adapter: TabBarAdapter!
     private var tempDir: URL!
 
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
         resetFixture()
     }
 
     deinit {
         try? FileManager.default.removeItem(at: tempDir)
         adapter = nil
+        inboxAtom = nil
         store = nil
         repoCache = nil
     }
@@ -32,17 +34,18 @@ final class TabBarAdapterTests {
             .appending(path: "adapter-tests-\(UUID().uuidString)")
         store = WorkspaceStore()
         repoCache = RepoCacheAtom()
-        atom(\.inboxNotification).clearAll()
+        let notificationAtom = InboxNotificationAtom()
+        inboxAtom = notificationAtom
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
             notificationDotColorProvider: { paneIds in
                 AppDelegate.tabNotificationDotColor(
-                    for: atom(\.inboxNotification).attentionLane(forPaneIds: paneIds)
+                    for: notificationAtom.attentionLane(forPaneIds: paneIds)
                 )
             },
             observeNotificationDotInputs: {
-                _ = atom(\.inboxNotification).notifications
+                _ = notificationAtom.notifications
             }
         )
     }
@@ -109,12 +112,12 @@ final class TabBarAdapterTests {
             isDismissedFromPaneInbox: false
         )
 
-        atom(\.inboxNotification).append(notification)
+        inboxAtom.append(notification)
         await waitForAdapterRefresh()
 
         #expect(adapter.tabs.first?.notificationDotColor == .red)
 
-        atom(\.inboxNotification).markRead(scope: .paneIds([pane.id]))
+        inboxAtom.markRead(scope: .paneIds([pane.id]))
         await waitForAdapterRefresh()
 
         #expect(adapter.tabs.first?.notificationDotColor == nil)
@@ -144,12 +147,12 @@ final class TabBarAdapterTests {
             isDismissedFromPaneInbox: false
         )
 
-        atom(\.inboxNotification).append(notification)
+        inboxAtom.append(notification)
         await waitForAdapterRefresh()
 
         #expect(adapter.tabs.first?.notificationDotColor == .yellow)
 
-        atom(\.inboxNotification).markRead(scope: .paneIds([pane.id]))
+        inboxAtom.markRead(scope: .paneIds([pane.id]))
         await waitForAdapterRefresh()
 
         #expect(adapter.tabs.first?.notificationDotColor == nil)
@@ -163,7 +166,7 @@ final class TabBarAdapterTests {
         let tab = Tab(paneId: pane.id, name: "Priority")
         store.appendTab(tab)
 
-        atom(\.inboxNotification).append(
+        inboxAtom.append(
             InboxNotification(
                 id: UUID(),
                 timestamp: Date(timeIntervalSince1970: 100),
@@ -184,7 +187,7 @@ final class TabBarAdapterTests {
         await waitForAdapterRefresh()
         #expect(adapter.tabs.first?.notificationDotColor == .yellow)
 
-        atom(\.inboxNotification).append(
+        inboxAtom.append(
             InboxNotification(
                 id: UUID(),
                 timestamp: Date(timeIntervalSince1970: 101),
@@ -205,7 +208,7 @@ final class TabBarAdapterTests {
         await waitForAdapterRefresh()
         #expect(adapter.tabs.first?.notificationDotColor == .amber)
 
-        atom(\.inboxNotification).append(
+        inboxAtom.append(
             InboxNotification(
                 id: UUID(),
                 timestamp: Date(timeIntervalSince1970: 102),

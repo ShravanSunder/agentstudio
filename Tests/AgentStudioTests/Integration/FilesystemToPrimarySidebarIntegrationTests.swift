@@ -8,7 +8,7 @@ import Testing
 struct FilesystemToPrimarySidebarIntegrationTests {
     @Test("filesystem-to-primary-sidebar pipeline converges project-dev-shaped grouping and PR enrichment")
     func filesystemToPrimarySidebarPipelineConverges() async throws {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
 
         let fixtureRoot = try makeProjectDevShapeFixture()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }

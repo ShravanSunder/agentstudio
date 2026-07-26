@@ -8,7 +8,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct WorkspaceBridgePaneRefreshIntegrationTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("canonical workspace activity and raw worktree events reach the installed Bridge refresh gate")

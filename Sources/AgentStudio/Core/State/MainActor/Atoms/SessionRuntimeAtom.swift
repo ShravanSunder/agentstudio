@@ -3,7 +3,7 @@ import Observation
 
 @MainActor
 @Observable
-final class SessionRuntimeAtom {
+package final class SessionRuntimeAtom {
     private(set) var statuses: [UUID: SessionRuntimeStatus] = [:]
 
     func status(for paneId: UUID) -> SessionRuntimeStatus {

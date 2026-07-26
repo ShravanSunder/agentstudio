@@ -9,7 +9,7 @@ enum WorkspaceFocusOwner: Equatable, Sendable {
 
 @MainActor
 @Observable
-final class WorkspaceFocusOwnerAtom {
+package final class WorkspaceFocusOwnerAtom {
     private(set) var owner: WorkspaceFocusOwner = .mainPane(paneId: nil)
 
     func focusMainPane(_ paneId: UUID?) {

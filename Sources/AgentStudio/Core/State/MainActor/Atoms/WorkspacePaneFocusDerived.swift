@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-struct WorkspacePaneFocusDerived {
+package struct WorkspacePaneFocusDerived {
     func currentFocus(
         workspaceTab: WorkspaceTabLayoutDerived,
         workspacePane: WorkspacePaneAtom,

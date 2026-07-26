@@ -28,7 +28,7 @@ extension AppDelegate {
 
     func bootStartInboxNotificationRouter(bus: EventBus<RuntimeEnvelope>) {
         inboxPaneFocusTracker = PaneFocusTracker(
-            attendedPane: atomStore.attendedPane,
+            attendedPane: atomStore.core.attendedPane,
             traceRuntime: traceRuntime
         )
         let terminalActivity = atomStore.terminalActivity
@@ -38,7 +38,7 @@ extension AppDelegate {
             prefsAtom: atomStore.inboxNotificationPrefs,
             paneAtom: store.paneAtom,
             tabLayout: store.tabLayoutAtom,
-            attendedPane: atomStore.attendedPane,
+            attendedPane: atomStore.core.attendedPane,
             focusTracker: inboxPaneFocusTracker,
             terminalIsPinnedToBottom: { paneId in
                 terminalActivity.snapshot(for: paneId)?.isPinnedToBottom == true
@@ -64,7 +64,7 @@ extension AppDelegate {
         terminalActivityRouter = TerminalActivityRouter(
             bus: bus,
             activityAtom: atomStore.terminalActivity,
-            attendedPane: atomStore.attendedPane,
+            attendedPane: atomStore.core.attendedPane,
             traceRuntime: traceRuntime,
             startupTraceRecorder: startupTraceRecorder,
             isPaneCurrentlyAttended: { [weak self] paneId in
@@ -126,7 +126,7 @@ extension AppDelegate {
     private func isPaneCurrentlyAttendedForNotifications(_ paneId: UUID) -> Bool {
         PaneObservationResolver.isPaneCurrentlyAttended(
             paneId: paneId,
-            attendedPaneId: atomStore.attendedPane.attendedPaneId,
+            attendedPaneId: atomStore.core.attendedPane.attendedPaneId,
             pane: { store.paneAtom.pane($0) }
         )
     }

@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct PaneTabViewControllerDrawerCommandTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("toggleDrawer opening an empty drawer sets empty drawer focus")

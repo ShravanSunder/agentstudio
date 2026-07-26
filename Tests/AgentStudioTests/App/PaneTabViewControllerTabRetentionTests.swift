@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct PaneTabViewControllerTabRetentionTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
     private struct Harness {
         let store: WorkspaceStore
@@ -20,6 +20,7 @@ struct PaneTabViewControllerTabRetentionTests {
     }
 
     private func makeHarness() -> Harness {
+        let atomRegistry = AtomRegistry(core: CoreAtomScope.store)
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-tab-retention-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -48,9 +49,9 @@ struct PaneTabViewControllerTabRetentionTests {
             runtimeCommandDispatcher: coordinator,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
-            bridgePaneAttendance: atom(\.bridgePaneAttendance),
-            editorChooser: atom(\.editorChooser),
-            inboxAtom: atom(\.inboxNotification),
+            bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
+            editorChooser: atomRegistry.editorChooser,
+            inboxAtom: atomRegistry.inboxNotification,
             registersAsCommandHandler: false
         )
         PaneViewRepresentable.onDismantleForTesting = { [weak controller] in

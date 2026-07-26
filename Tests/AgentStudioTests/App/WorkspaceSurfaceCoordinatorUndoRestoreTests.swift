@@ -9,7 +9,7 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)

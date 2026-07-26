@@ -2,50 +2,44 @@ import Testing
 
 @testable import AgentStudio
 
-@MainActor
-private struct WorkspaceAtomFixture {
-    @Atom(\.workspaceRepositoryTopology) var workspaceRepositoryTopology
-    @Atom(\.workspacePane) var workspacePane
-}
-
 actor BackgroundAtomMutator {
     func paneCount() async -> Int {
         await MainActor.run {
-            AtomScope.store.workspacePane.panes.count
+            CoreAtomScope.store.workspacePane.panes.count
         }
     }
 
     func addPane(_ pane: Pane) async {
         await MainActor.run {
-            AtomScope.store.workspacePane.addPane(pane)
+            CoreAtomScope.store.workspacePane.addPane(pane)
         }
     }
 }
 
 @MainActor
-struct AtomScopeTests {
+struct CoreAtomScopeTests {
     @Test
     func overrideStore_winsWithinScopedBlock_only() async throws {
-        installTestAtomRegistryIfNeeded()
-        let production = AtomScope.store
-        let override = AtomRegistry()
-        #expect(AtomScope.store === production)
+        installTestCoreAtomsIfNeeded()
+        let production = CoreAtomScope.store
+        let override = makeInstalledTestCoreAtoms()
+        #expect(CoreAtomScope.store === production)
 
-        AtomScope.$override.withValue(override) {
-            #expect(AtomScope.store === override)
+        CoreAtomScope.$override.withValue(override) {
+            #expect(CoreAtomScope.store === override)
         }
 
-        #expect(AtomScope.store === production)
+        #expect(CoreAtomScope.store === production)
     }
 
     @Test
     func task_inheritsOverrideStore() async {
-        installTestAtomRegistryIfNeeded()
-        let override = AtomRegistry()
+        installTestCoreAtomsIfNeeded()
+        let override = makeInstalledTestCoreAtoms()
 
-        let inherited = await AtomScope.$override.withValue(override) {
+        let inherited = await CoreAtomScope.$override.withValue(override) {
             await Task { @MainActor in
-                AtomScope.store === override
+                CoreAtomScope.store === override
             }.value
         }
 
@@ -54,12 +48,12 @@ struct AtomScopeTests {
 
     @Test
     func asyncLet_inheritsOverrideStore() async {
-        installTestAtomRegistryIfNeeded()
-        let override = AtomRegistry()
+        installTestCoreAtomsIfNeeded()
+        let override = makeInstalledTestCoreAtoms()
 
-        let inherited = await AtomScope.$override.withValue(override) {
+        let inherited = await CoreAtomScope.$override.withValue(override) {
             async let child: Bool = MainActor.run {
-                AtomScope.store === override
+                CoreAtomScope.store === override
             }
             return await child
         }
@@ -69,13 +63,13 @@ struct AtomScopeTests {
 
     @Test
     func withTaskGroup_inheritsOverrideStore() async {
-        installTestAtomRegistryIfNeeded()
-        let override = AtomRegistry()
+        installTestCoreAtomsIfNeeded()
+        let override = makeInstalledTestCoreAtoms()
 
-        let inherited = await AtomScope.$override.withValue(override) {
+        let inherited = await CoreAtomScope.$override.withValue(override) {
             await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
                 group.addTask { @MainActor in
-                    AtomScope.store === override
+                    CoreAtomScope.store === override
                 }
                 var allInherited = true
                 while let next = await group.next() {
@@ -90,20 +84,20 @@ struct AtomScopeTests {
 
     @Test
     func detachedTask_doesNotInheritOverrideStore() async {
-        installTestAtomRegistryIfNeeded()
-        let production = AtomScope.store
-        let override = AtomRegistry()
+        installTestCoreAtomsIfNeeded()
+        let production = CoreAtomScope.store
+        let override = makeInstalledTestCoreAtoms()
 
-        let inheritsOverride = await AtomScope.$override.withValue(override) {
+        let inheritsOverride = await CoreAtomScope.$override.withValue(override) {
             // swiftlint:disable:next no_task_detached
             await Task.detached {
-                await MainActor.run { AtomScope.store === override }
+                await MainActor.run { CoreAtomScope.store === override }
             }.value
         }
-        let seesProduction = await AtomScope.$override.withValue(override) {
+        let seesProduction = await CoreAtomScope.$override.withValue(override) {
             // swiftlint:disable:next no_task_detached
             await Task.detached {
-                await MainActor.run { AtomScope.store === production }
+                await MainActor.run { CoreAtomScope.store === production }
             }.value
         }
 
@@ -113,22 +107,22 @@ struct AtomScopeTests {
 
     @Test
     func concurrentSiblingTask_doesNotSeeScopedOverride() async {
-        installTestAtomRegistryIfNeeded()
-        let production = AtomScope.store
-        let override = AtomRegistry()
+        installTestCoreAtomsIfNeeded()
+        let production = CoreAtomScope.store
+        let override = makeInstalledTestCoreAtoms()
 
         let result = await withTaskGroup(of: (String, Bool).self, returning: [String: Bool].self) { group in
             group.addTask {
-                let seesOverride = await AtomScope.$override.withValue(override) {
+                let seesOverride = await CoreAtomScope.$override.withValue(override) {
                     await Task { @MainActor in
-                        AtomScope.store === override
+                        CoreAtomScope.store === override
                     }.value
                 }
                 return ("override", seesOverride)
             }
 
             group.addTask { @MainActor in
-                ("sibling", AtomScope.store === production)
+                ("sibling", CoreAtomScope.store === production)
             }
 
             var results: [String: Bool] = [:]
@@ -144,12 +138,12 @@ struct AtomScopeTests {
 
     @Test
     func escapedClosure_usesCurrentScopeWhenInvoked() async {
-        installTestAtomRegistryIfNeeded()
-        let production = AtomScope.store
-        let override = AtomRegistry()
+        installTestCoreAtomsIfNeeded()
+        let production = CoreAtomScope.store
+        let override = makeInstalledTestCoreAtoms()
 
-        let closure = AtomScope.$override.withValue(override) {
-            { @MainActor in AtomScope.store }
+        let closure = CoreAtomScope.$override.withValue(override) {
+            { @MainActor in CoreAtomScope.store }
         }
 
         let resolved = closure()
@@ -157,25 +151,24 @@ struct AtomScopeTests {
     }
 
     @Test
-    func atomPropertyWrapper_resolvesSameWorkspaceInstance() async {
-        installTestAtomRegistryIfNeeded()
-        let override = AtomRegistry()
+    func freeAtomAccess_resolvesSameWorkspaceInstance() async {
+        installTestCoreAtomsIfNeeded()
+        let override = makeInstalledTestCoreAtoms()
 
-        AtomScope.$override.withValue(override) {
-            let fixture = WorkspaceAtomFixture()
-            #expect(AtomScope.store.workspaceRepositoryTopology === override.workspaceRepositoryTopology)
-            #expect(AtomScope.store.workspacePane === override.workspacePane)
-            #expect(fixture.workspaceRepositoryTopology === override.workspaceRepositoryTopology)
-            #expect(fixture.workspacePane === override.workspacePane)
+        CoreAtomScope.$override.withValue(override) {
+            #expect(CoreAtomScope.store.workspaceRepositoryTopology === override.workspaceRepositoryTopology)
+            #expect(CoreAtomScope.store.workspacePane === override.workspacePane)
+            #expect(atom(\.workspaceRepositoryTopology) === override.workspaceRepositoryTopology)
+            #expect(atom(\.workspacePane) === override.workspacePane)
         }
     }
 
     @Test
     func backgroundActor_mutatesAtomsOnlyViaExplicitMainActorHop() async {
-        installTestAtomRegistryIfNeeded()
-        let override = AtomRegistry()
+        installTestCoreAtomsIfNeeded()
+        let override = makeInstalledTestCoreAtoms()
 
-        await AtomScope.$override.withValue(override) {
+        await CoreAtomScope.$override.withValue(override) {
             let worker = BackgroundAtomMutator()
             let pane = Pane(
                 content: .terminal(

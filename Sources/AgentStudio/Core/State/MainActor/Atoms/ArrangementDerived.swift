@@ -4,7 +4,7 @@ import os.log
 private let arrangementDerivedLogger = Logger(subsystem: "com.agentstudio", category: "ArrangementDerived")
 
 @MainActor
-struct ArrangementDerived {
+package struct ArrangementDerived {
     static func nextCustomArrangementName(existing: [PaneArrangement]) -> String {
         let existingNames = Set(existing.map(\.name))
         var index = 1

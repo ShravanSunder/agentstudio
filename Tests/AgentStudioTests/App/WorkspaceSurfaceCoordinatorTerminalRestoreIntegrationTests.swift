@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private let fixtureSessionConfiguration = SessionConfiguration(

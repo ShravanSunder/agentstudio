@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct PaneTabViewControllerRepoFavoriteCommandTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("targeted repo favorite commands mutate canonical topology through workspace actions")

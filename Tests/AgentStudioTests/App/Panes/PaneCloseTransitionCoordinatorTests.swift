@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct PaneCloseTransitionCoordinatorTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("close transition marks pane closing until the injected clock advances")
@@ -118,7 +118,7 @@ struct PaneCloseTransitionCoordinatorTests {
             onPaneFocusTrigger: { _ in },
             store: store,
             repoCache: RepoCacheAtom(),
-            editorChooser: atom(\.editorChooser),
+            editorChooser: EditorChooserState(),
             viewRegistry: viewRegistry,
             appLifecycleStore: AppLifecycleAtom(),
             onOpenPaneGitHub: { _ in },
@@ -206,7 +206,7 @@ struct PaneCloseTransitionCoordinatorTests {
             isSplitResizing: false,
             store: harness.store,
             repoCache: RepoCacheAtom(),
-            editorChooser: atom(\.editorChooser),
+            editorChooser: EditorChooserState(),
             closeTransitionCoordinator: closeCoordinator,
             actionDispatcher: actionDispatcher,
             onPaneFocusTrigger: { _ in },

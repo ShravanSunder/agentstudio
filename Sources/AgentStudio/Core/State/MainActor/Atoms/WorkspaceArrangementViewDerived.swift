@@ -7,7 +7,7 @@ private let workspaceArrangementViewLogger = Logger(
 )
 
 @MainActor
-struct WorkspaceArrangementViewDerived {
+package struct WorkspaceArrangementViewDerived {
     let tabLayoutAtom: WorkspaceTabLayoutAtom
     let paneAtom: WorkspacePaneAtom
     let managementLayerAtom: ManagementLayerAtom

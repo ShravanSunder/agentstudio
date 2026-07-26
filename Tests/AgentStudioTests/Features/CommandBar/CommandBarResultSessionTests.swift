@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct CommandBarResultSessionTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("result session owns item filtering, grouping, and selection")

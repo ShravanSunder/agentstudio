@@ -38,8 +38,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return cohort
     }
     var store: WorkspaceStore!
-    var repoCache: RepoCacheAtom! { atomStore.repoCache }
-    var uiState: WorkspaceSidebarState! { atomStore.workspaceSidebarState }
+    var repoCache: RepoCacheAtom! { atomStore.core.repoCache }
+    var uiState: WorkspaceSidebarState! { atomStore.core.workspaceSidebarState }
     var inboxNotificationStore: InboxNotificationStore!
     var inboxNotificationRouter: InboxNotificationRouter!
     var inboxPaneFocusTracker: PaneFocusTracker!
@@ -508,7 +508,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: - Repo/Folder Intake
 
     func handleWatchFolderRequested(startingAt initialURL: URL? = nil) async {
-        let welcome = atomStore.welcome
+        let welcome = atomStore.core.welcome
         welcome.beginChoosingFolder()
         defer { welcome.endChoosingFolder() }
 

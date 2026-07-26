@@ -4,7 +4,7 @@ import os
 
 @MainActor
 @Observable
-final class TransientKeyboardSurfaceAtom {
+package final class TransientKeyboardSurfaceAtom {
     private let logger = Logger(subsystem: "com.agentstudio", category: "TransientKeyboardSurfaceAtom")
 
     private(set) var surfaces: [TransientKeyboardSurface] = []

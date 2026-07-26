@@ -8,7 +8,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct WorkspaceBridgeGitReadActivityOrderingTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("Bridge Git read activity follows canonical pane update and removal order")

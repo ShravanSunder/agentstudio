@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct WorktreePresenceTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private func makeStore() -> WorkspaceStore {

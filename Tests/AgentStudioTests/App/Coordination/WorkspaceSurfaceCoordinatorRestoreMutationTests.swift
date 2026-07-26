@@ -9,7 +9,7 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorRestoreMutationTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("unavailable zmx during restore preserves composition and presents failure")

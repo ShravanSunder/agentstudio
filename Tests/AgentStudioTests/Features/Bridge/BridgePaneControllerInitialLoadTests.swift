@@ -8,7 +8,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct BridgePaneControllerInitialLoadTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("source backed controller can load its initial review package")

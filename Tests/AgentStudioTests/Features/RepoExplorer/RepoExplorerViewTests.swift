@@ -16,7 +16,7 @@ private final class VisibleWorktreeCallbackRecorder {
 @Suite("RepoExplorerView")
 struct RepoExplorerViewTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("visible row range maps only resolved worktree entries")

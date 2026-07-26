@@ -9,7 +9,7 @@ import Testing
 @Suite("WorkspaceSurfaceCoordinator cross-tab move view transitions")
 struct WorkspaceCrossTabMoveTransitionTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("cross-tab move detaches moved and source-left panes but reattaches only destination visibility transitions")
@@ -71,7 +71,7 @@ struct WorkspaceCrossTabMoveTransitionTests {
 
     @Test("executeMovePaneAcrossTabs reattaches only moved pane, not already-visible destination panes")
     func executeMovePaneAcrossTabsReattachesOnlyMovedDestinationDelta() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             atoms.managementLayer.deactivate()
 
             let tempDir = FileManager.default.temporaryDirectory
@@ -160,7 +160,7 @@ struct WorkspaceCrossTabMoveTransitionTests {
 
     @Test("executeMovePaneAcrossTabs reattaches moved drawer children visible in destination")
     func executeMovePaneAcrossTabsReattachesVisibleMovedDrawerChildren() throws {
-        try withTestAtomRegistry { atoms in
+        try withTestCoreAtoms { atoms in
             atoms.managementLayer.deactivate()
 
             let tempDir = FileManager.default.temporaryDirectory

@@ -9,7 +9,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct WebviewPaneControllerTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         private func settleEventLoop(turns: Int = 8) async {
@@ -161,7 +161,7 @@ extension WebKitSerializedTests {
 
         @Test
         func test_managementLayerToggle_updatesWebviewControllerInteractionState() async {
-            await withAsyncTestAtomRegistry { _ in
+            await withAsyncTestCoreAtoms { _ in
                 await setManagementLayer(active: false)
                 let mountedView = WebviewPaneMountView(
                     paneId: UUIDv7.generate(),

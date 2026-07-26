@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct PaneFocusExecutorTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("executor applies host responder focus without direct helper bypass")

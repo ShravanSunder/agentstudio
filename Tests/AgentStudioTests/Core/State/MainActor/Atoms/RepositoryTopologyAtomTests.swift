@@ -728,7 +728,7 @@ struct RepositoryTopologyAtomTests {
 
 @MainActor
 private func makeTopologyMutationCoordinator(atom: RepositoryTopologyAtom) -> WorkspaceMutationCoordinator {
-    AtomRegistry(workspaceRepositoryTopology: atom).workspaceMutationCoordinator
+    CoreAtoms(workspaceRepositoryTopology: atom).workspaceMutationCoordinator
 }
 
 @MainActor

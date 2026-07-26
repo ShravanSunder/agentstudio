@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct TerminalPaneMountViewExitBehaviorTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
     private struct PaneTabControllerHarness {
         let store: WorkspaceStore
@@ -45,6 +45,12 @@ struct TerminalPaneMountViewExitBehaviorTests {
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
         )
+        let editorPreference = EditorPreferenceAtom()
+        let editorChooserRuntime = EditorChooserRuntimeAtom()
+        let editorChooser = EditorChooserState(
+            preferenceAtom: editorPreference,
+            runtimeAtom: editorChooserRuntime
+        )
         let controller = PaneTabViewController(
             store: store,
             repoCache: RepoCacheAtom(),
@@ -54,9 +60,9 @@ struct TerminalPaneMountViewExitBehaviorTests {
             runtimeCommandDispatcher: coordinator,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
-            bridgePaneAttendance: atom(\.bridgePaneAttendance),
-            editorChooser: atom(\.editorChooser),
-            inboxAtom: atom(\.inboxNotification),
+            bridgePaneAttendance: BridgePaneAttendanceAtom(),
+            editorChooser: editorChooser,
+            inboxAtom: InboxNotificationAtom(),
             registersAsCommandHandler: false
         )
         return PaneTabControllerHarness(

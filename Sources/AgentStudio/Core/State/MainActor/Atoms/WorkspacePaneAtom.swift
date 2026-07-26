@@ -12,7 +12,7 @@ enum PaneCWDContextUpdateResult: Equatable {
 
 @MainActor
 @Observable
-final class WorkspacePaneAtom {
+package final class WorkspacePaneAtom {
     let graphAtom: WorkspacePaneGraphAtom
     let drawerCursorAtom: WorkspaceDrawerCursorAtom
     private let repositoryTopologyAtom: RepositoryTopologyAtom?

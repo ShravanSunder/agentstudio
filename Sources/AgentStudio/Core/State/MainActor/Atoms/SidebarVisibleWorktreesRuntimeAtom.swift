@@ -3,7 +3,7 @@ import Observation
 
 @MainActor
 @Observable
-final class SidebarVisibleWorktreesRuntimeAtom {
+package final class SidebarVisibleWorktreesRuntimeAtom {
     /// Runtime-only sidebar row visibility fact used to prioritize git refresh cadence.
     private(set) var visibleWorktreeIds: Set<UUID> = []
 

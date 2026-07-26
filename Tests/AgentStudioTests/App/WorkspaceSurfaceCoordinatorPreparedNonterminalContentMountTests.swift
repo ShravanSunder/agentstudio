@@ -8,7 +8,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct PreparedNonterminalContentMountTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("prepared Bridge mount uses the exact accepted pane and settles one generation claim")

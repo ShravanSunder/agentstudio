@@ -8,10 +8,10 @@ private final class ObservationFlag: @unchecked Sendable {
 }
 
 @MainActor
-struct DerivedSelectorObservationTests {
+struct DerivedObservationTests {
     @Test
     func paneDisplayDerived_tracksUnderlyingAtomReads() async throws {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let pane = Pane(
                 content: .terminal(
                     TerminalState(

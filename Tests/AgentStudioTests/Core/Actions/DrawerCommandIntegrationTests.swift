@@ -16,7 +16,7 @@ final class DrawerCommandIntegrationTests {
     private var tempDir: URL!
 
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "drawer-cmd-tests-\(UUID().uuidString)")
         store = WorkspaceStore()

@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-final class WorkspaceTabLayoutAtom {
+package final class WorkspaceTabLayoutAtom {
     let shellAtom: WorkspaceTabShellAtom
     let arrangementAtom: WorkspaceTabArrangementAtom
 

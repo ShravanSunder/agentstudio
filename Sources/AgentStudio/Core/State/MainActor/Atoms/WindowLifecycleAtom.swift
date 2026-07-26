@@ -19,7 +19,7 @@ struct WindowPresentationFacts: Equatable, Sendable {
 
 @Observable
 @MainActor
-final class WindowLifecycleAtom {
+package final class WindowLifecycleAtom {
     private(set) var registeredWindowIds: Set<UUID> = []
     private(set) var keyWindowId: UUID?
     private(set) var focusedWindowId: UUID?

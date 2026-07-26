@@ -46,7 +46,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     final class BridgeSchemeHandlerSpikeTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         // MARK: - Scheme Handler Serves HTML

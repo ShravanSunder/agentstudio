@@ -237,7 +237,7 @@ struct PaneInboxNotificationPopoverTests {
                 AppCommandDispatcher.shared.appCommandRouter = nil
             },
             body: {
-                try withTestAtomRegistry { _ in
+                try withTestCoreAtoms { _ in
                     let hostingView = NSHostingView(
                         rootView: PaneInboxNotificationPopover(
                             parentPaneId: parentPaneId,
@@ -302,7 +302,7 @@ struct PaneInboxNotificationPopoverTests {
                 AppCommandDispatcher.shared.appCommandRouter = nil
             },
             body: {
-                try withTestAtomRegistry { _ in
+                try withTestCoreAtoms { _ in
                     let hostingView = NSHostingView(
                         rootView: PaneInboxNotificationPopover(
                             parentPaneId: parentPaneId,
@@ -370,7 +370,7 @@ struct PaneInboxNotificationPopoverTests {
         inboxAtom.append(notification)
         prefsAtom.setPaneInboxContentMode(.all)
 
-        try withTestAtomRegistry { _ in
+        try withTestCoreAtoms { _ in
             let hostingView = NSHostingView(
                 rootView: PaneInboxNotificationPopover(
                     parentPaneId: parentPaneId,
@@ -442,7 +442,7 @@ struct PaneInboxNotificationPopoverTests {
         prefsAtom.setPaneInboxRowStateFilter(.all)
         presentationAtom.requestTemporaryOverride(contentMode: .rollUpAlerts, rowStateFilter: .unreadOnly)
 
-        await withAsyncTestAtomRegistry { _ in
+        await withAsyncTestCoreAtoms { _ in
             let hostingView = NSHostingView(
                 rootView: PaneInboxNotificationPopover(
                     parentPaneId: parentPaneId,

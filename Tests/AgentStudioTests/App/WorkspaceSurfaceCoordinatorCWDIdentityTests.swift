@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("surface cwd changed updates pane worktree identity")

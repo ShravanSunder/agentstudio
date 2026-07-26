@@ -1,24 +1,24 @@
-nonisolated enum AtomScope {
+nonisolated package enum CoreAtomScope {
     @MainActor
-    private static var production: AtomRegistry?
+    private static var production: CoreAtoms?
 
     @TaskLocal
-    static var override: AtomRegistry?
+    package static var override: CoreAtoms?
 
     @MainActor
-    static var store: AtomRegistry {
+    package static var store: CoreAtoms {
         if let override {
             return override
         }
         guard let production else {
-            preconditionFailure("AtomScope.store accessed before AtomScope.setUp(_:)")
+            preconditionFailure("CoreAtomScope.store accessed before CoreAtomScope.setUp(_:)")
         }
         return production
     }
 
     @MainActor
-    static func setUp(_ store: AtomRegistry) {
-        precondition(production == nil, "AtomScope.setUp(_:) called more than once")
+    package static func setUp(_ store: CoreAtoms) {
+        precondition(production == nil, "CoreAtomScope.setUp(_:) called more than once")
         production = store
     }
 }

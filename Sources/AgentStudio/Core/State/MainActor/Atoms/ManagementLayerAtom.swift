@@ -2,7 +2,7 @@ import Observation
 
 @MainActor
 @Observable
-final class ManagementLayerAtom {
+package final class ManagementLayerAtom {
     private(set) var isActive = false
 
     func activate() {

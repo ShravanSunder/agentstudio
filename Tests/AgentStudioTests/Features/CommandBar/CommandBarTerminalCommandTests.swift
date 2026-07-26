@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct CommandBarTerminalCommandTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test

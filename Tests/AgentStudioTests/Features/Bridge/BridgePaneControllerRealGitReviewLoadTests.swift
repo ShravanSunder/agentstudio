@@ -14,7 +14,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct BridgePaneControllerRealGitReviewLoadTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("a real single-commit repo publishes a ready Review product snapshot")

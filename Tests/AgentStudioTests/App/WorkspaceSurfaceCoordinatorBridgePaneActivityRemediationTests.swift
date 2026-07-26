@@ -22,7 +22,7 @@ extension WebKitSerializedTests {
         }
 
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("last-pane closePane can undo before Bridge retirement yields")

@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct CommandBarUnifiedWorktreeDataSourceTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private let dispatcher = AppCommandDispatcher.shared

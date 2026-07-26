@@ -7,12 +7,12 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceLookupDerivedTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test
     func tabContainingPane_returnsOwningTab() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -30,7 +30,7 @@ struct WorkspaceLookupDerivedTests {
 
     @Test
     func repoAndWorktreeContainingCwd_resolvesNestedPath() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -55,7 +55,7 @@ struct WorkspaceLookupDerivedTests {
 
     @Test
     func repoAndWorktreeContainingCwd_rebuildsLookupAfterTopologyMutation() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -88,7 +88,7 @@ struct WorkspaceLookupDerivedTests {
 
     @Test
     func paneLocationsForWorktree_returnsTabAndPaneOrder() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -148,7 +148,7 @@ struct WorkspaceLookupDerivedTests {
 
     @Test
     func paneLocationsByWorktreeId_batchesAllActivePaneLocations() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -212,7 +212,7 @@ struct WorkspaceLookupDerivedTests {
 
     @Test
     func paneLocationsForWorktree_excludesBackgroundedPanes() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,

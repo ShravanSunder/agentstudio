@@ -6,7 +6,7 @@ import Testing
 @Suite(.serialized)
 final class AppCommandCatalogTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     // MARK: - Sidebar Commands

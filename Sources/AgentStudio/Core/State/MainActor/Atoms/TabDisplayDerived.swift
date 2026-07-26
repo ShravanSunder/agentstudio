@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-struct TabDisplayDerived {
+package struct TabDisplayDerived {
     func displayTitle(
         for tab: Tab,
         workspacePane: WorkspacePaneAtom,

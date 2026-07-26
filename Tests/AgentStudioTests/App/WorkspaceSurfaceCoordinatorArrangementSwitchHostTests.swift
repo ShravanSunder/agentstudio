@@ -9,14 +9,14 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceSurfaceArrangementSwitchHostTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
 
     @Test("switchArrangement restores a newly visible terminal pane when its host is missing")
     func switchArrangement_restoresMissingNewlyVisibleTerminalView() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             atoms.managementLayer.deactivate()
 
             let harness = makeHarness()

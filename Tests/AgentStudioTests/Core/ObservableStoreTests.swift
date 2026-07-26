@@ -23,7 +23,7 @@ final class ObservableStoreTests {
     private var store: WorkspaceStore!
 
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
         store = WorkspaceStore()
     }
 

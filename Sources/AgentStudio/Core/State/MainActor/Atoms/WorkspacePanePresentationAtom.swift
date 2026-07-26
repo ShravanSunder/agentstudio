@@ -3,7 +3,7 @@ import Observation
 
 @MainActor
 @Observable
-final class WorkspacePanePresentationAtom {
+package final class WorkspacePanePresentationAtom {
     private(set) var zoomedPaneIdsByTabId: [UUID: UUID] = [:]
 
     func replaceStates(_ states: [TabArrangementState]) {

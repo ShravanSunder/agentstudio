@@ -11,7 +11,7 @@ enum WorkspaceTabShellAtomError: Error, Equatable {
 
 @MainActor
 @Observable
-final class WorkspaceTabShellAtom {
+package final class WorkspaceTabShellAtom {
     let cursorAtom: WorkspaceTabCursorAtom
     private(set) var tabShells: [TabShell] = []
     private var tabIndexByID: [UUID: Int] = [:]

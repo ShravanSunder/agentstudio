@@ -3,7 +3,7 @@ import Observation
 
 @MainActor
 @Observable
-final class WorkspaceWindowMemoryAtom {
+package final class WorkspaceWindowMemoryAtom {
     var sidebarWidth: CGFloat { storedSidebarWidth }
     var windowFrame: CGRect? { storedWindowFrame }
 

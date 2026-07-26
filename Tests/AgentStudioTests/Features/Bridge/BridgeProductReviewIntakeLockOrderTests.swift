@@ -9,7 +9,7 @@ extension WebKitSerializedTests {
     @Suite("Bridge product Review intake lock order", .serialized)
     struct BridgeProductReviewIntakeLockOrderTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("committed Review intake releases product admission before foreground scheduling")

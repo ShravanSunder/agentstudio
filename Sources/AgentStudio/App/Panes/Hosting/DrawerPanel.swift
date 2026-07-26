@@ -364,12 +364,12 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
         static var previews: some View {
             let atomRegistry = AtomRegistry()
             let store = WorkspaceStore(
-                identityAtom: atomRegistry.workspaceIdentity,
-                windowMemoryAtom: atomRegistry.workspaceWindowMemory,
-                repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,
-                paneAtom: atomRegistry.workspacePane,
-                tabLayoutAtom: atomRegistry.workspaceTabLayout,
-                mutationCoordinator: atomRegistry.workspaceMutationCoordinator
+                identityAtom: atomRegistry.core.workspaceIdentity,
+                windowMemoryAtom: atomRegistry.core.workspaceWindowMemory,
+                repositoryTopologyAtom: atomRegistry.core.workspaceRepositoryTopology,
+                paneAtom: atomRegistry.core.workspacePane,
+                tabLayoutAtom: atomRegistry.core.workspaceTabLayout,
+                mutationCoordinator: atomRegistry.core.workspaceMutationCoordinator
             )
             VStack {
                 Spacer()

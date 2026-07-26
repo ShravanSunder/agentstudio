@@ -137,28 +137,28 @@ extension AppDelegate {
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
         AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
-        AtomScope.setUp(atomStore)
+        CoreAtomScope.setUp(atomStore.core)
         let sqliteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
         workspaceSQLiteDatastore = sqliteDatastore
         let workspaceSQLiteSaveCoordinator = WorkspaceSQLiteSaveCoordinator(
-            identityAtom: atomStore.workspaceIdentity,
-            windowMemoryAtom: atomStore.workspaceWindowMemory,
-            workspacePaneAtom: atomStore.workspacePane,
-            workspaceTabLayoutAtom: atomStore.workspaceTabLayout,
+            identityAtom: atomStore.core.workspaceIdentity,
+            windowMemoryAtom: atomStore.core.workspaceWindowMemory,
+            workspacePaneAtom: atomStore.core.workspacePane,
+            workspaceTabLayoutAtom: atomStore.core.workspaceTabLayout,
             sqliteDatastore: sqliteDatastore
         )
         let topologyStore = RepositoryTopologyStore(
-            atom: atomStore.workspaceRepositoryTopology,
+            atom: atomStore.core.workspaceRepositoryTopology,
             sqliteDatastore: sqliteDatastore
         )
         repositoryTopologyStore = topologyStore
         store = WorkspaceStore(
-            identityAtom: atomStore.workspaceIdentity,
-            windowMemoryAtom: atomStore.workspaceWindowMemory,
-            repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
-            paneAtom: atomStore.workspacePane,
-            tabLayoutAtom: atomStore.workspaceTabLayout,
-            mutationCoordinator: atomStore.workspaceMutationCoordinator,
+            identityAtom: atomStore.core.workspaceIdentity,
+            windowMemoryAtom: atomStore.core.workspaceWindowMemory,
+            repositoryTopologyAtom: atomStore.core.workspaceRepositoryTopology,
+            paneAtom: atomStore.core.workspacePane,
+            tabLayoutAtom: atomStore.core.workspaceTabLayout,
+            mutationCoordinator: atomStore.core.workspaceMutationCoordinator,
             sqliteDatastore: sqliteDatastore,
             sqliteSaveCoordinator: workspaceSQLiteSaveCoordinator,
             recoveryReporter: { [weak self] event in
@@ -166,22 +166,22 @@ extension AppDelegate {
             }
         )
         repoCacheStore = RepoCacheStore(
-            cacheAtom: atomStore.repoEnrichmentCache,
-            recentTargetAtom: atomStore.recentWorkspaceTarget,
+            cacheAtom: atomStore.core.repoEnrichmentCache,
+            recentTargetAtom: atomStore.core.recentWorkspaceTarget,
             sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
         )
         sidebarCacheStore = SidebarCacheStore(
-            atom: atomStore.sidebarCache,
+            atom: atomStore.core.sidebarCache,
             sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
         )
         uiStateStore = UIStateStore(
-            atom: atomStore.workspaceSidebarState,
+            atom: atomStore.core.workspaceSidebarState,
             sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
@@ -207,7 +207,7 @@ extension AppDelegate {
         }
         managementLayerMonitor = ManagementLayerMonitor()
         appLifecycleStore = AppLifecycleAtom()
-        windowLifecycleStore = atomStore.windowLifecycle
+        windowLifecycleStore = atomStore.core.windowLifecycle
         applicationLifecycleMonitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
@@ -252,7 +252,7 @@ extension AppDelegate {
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
     ) async {
-        runtime = SessionRuntime(atom: atomStore.sessionRuntime, store: store)
+        runtime = SessionRuntime(atom: atomStore.core.sessionRuntime, store: store)
         viewRegistry = ViewRegistry()
         closeTransitionCoordinator = PaneCloseTransitionCoordinator()
         bridgeGitReadScheduler = BridgeGitReadScheduler(
@@ -302,7 +302,7 @@ extension AppDelegate {
             bus: paneRuntimeBus,
             workspaceStore: store,
             repoCache: repoCache,
-            welcomeAtom: atomStore.welcome,
+            welcomeAtom: atomStore.core.welcome,
             topologyEffectHandler: workspaceSurfaceCoordinator,
             scopeSyncHandler: { [weak pipeline] change in
                 guard let pipeline else { return }
@@ -336,7 +336,7 @@ extension AppDelegate {
             repoCache: repoCache,
             dispatcher: .shared,
             notificationInboxCommands: makeInboxNotificationCommands(),
-            commandBarSurface: atomStore.commandBarSurface,
+            commandBarSurface: atomStore.core.commandBarSurface,
             performanceTraceRecorder: performanceTraceRecorder
         )
         bootStartInboxNotificationRouter(bus: paneRuntimeBus)

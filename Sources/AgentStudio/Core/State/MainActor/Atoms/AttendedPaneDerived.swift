@@ -6,7 +6,7 @@ import Foundation
 /// layer is inactive. Observation and transition delivery belong to the consuming
 /// coordinator, not this derived state.
 @MainActor
-struct AttendedPaneDerived {
+package struct AttendedPaneDerived {
     private let tabLayout: WorkspaceTabLayoutAtom
     private let windowLifecycle: WindowLifecycleAtom
     private let managementLayer: ManagementLayerAtom

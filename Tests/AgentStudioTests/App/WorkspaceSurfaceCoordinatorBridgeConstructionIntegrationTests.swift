@@ -8,7 +8,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct WorkspaceBridgeConstructionIntegrationTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("actual Bridge view factory gives two panes File authority from one application coordinator")

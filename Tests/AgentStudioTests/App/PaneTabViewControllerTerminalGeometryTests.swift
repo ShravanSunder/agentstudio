@@ -7,7 +7,7 @@ import Testing
 @Suite("PaneTabViewController terminal geometry")
 struct PaneTabViewControllerTerminalGeometryTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("visible terminal geometry includes expanded non-minimized drawer children")

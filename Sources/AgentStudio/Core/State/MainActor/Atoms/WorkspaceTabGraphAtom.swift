@@ -77,7 +77,7 @@ struct TabGraphState: Equatable, Hashable, Sendable {
 
 @MainActor
 @Observable
-final class WorkspaceTabGraphAtom {
+package final class WorkspaceTabGraphAtom {
     private(set) var tabStates: [TabGraphState] = []
     private var tabIndexByID: [UUID: Int] = [:]
     private var tabIDByPaneID: [UUID: UUID] = [:]

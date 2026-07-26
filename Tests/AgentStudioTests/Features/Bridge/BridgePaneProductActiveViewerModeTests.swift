@@ -8,7 +8,7 @@ extension WebKitSerializedTests {
     @Suite("Bridge pane product active-viewer mode", .serialized)
     struct BridgePaneProductActiveViewerModeTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("committed File product mode accepts a worktree File source")

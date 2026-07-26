@@ -7,7 +7,7 @@ import Testing
 @Suite("Command spec contracts")
 struct CommandSpecContractTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("every shortcut maps to a command definition that declares that shortcut")

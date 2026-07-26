@@ -8,7 +8,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct WorkspaceSurfaceCoordinatorViewFactoryTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("createViewForContent registers a host whose mounted content is a webview mount")

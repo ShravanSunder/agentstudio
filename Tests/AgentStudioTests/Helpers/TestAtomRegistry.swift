@@ -1,40 +1,44 @@
 @testable import AgentStudio
 
-@MainActor
-private var hasInstalledSharedTestAtomScope = false
+@MainActor private var hasInstalledSharedTestCoreAtomScope = false
 
 @MainActor
-func makeInstalledTestAtomRegistry() -> AtomRegistry {
-    AtomRegistry(
+func makeInstalledTestCoreAtoms() -> CoreAtoms {
+    CoreAtoms(
         workspaceIdentity: WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
     )
 }
 
 @MainActor
-func installTestAtomRegistryIfNeeded() {
-    guard !hasInstalledSharedTestAtomScope else { return }
-    AtomScope.setUp(makeInstalledTestAtomRegistry())
-    hasInstalledSharedTestAtomScope = true
+func installTestCoreAtomsIfNeeded() {
+    guard !hasInstalledSharedTestCoreAtomScope else { return }
+    CoreAtomScope.setUp(makeInstalledTestCoreAtoms())
+    hasInstalledSharedTestCoreAtomScope = true
 }
 
 @MainActor
-func withTestAtomRegistry<T>(
-    _ body: (AtomRegistry) throws -> T
+func withTestCoreAtoms<T>(
+    using coreAtoms: CoreAtoms = makeInstalledTestCoreAtoms(),
+    _ body: (CoreAtoms) throws -> T
 ) rethrows -> T {
-    installTestAtomRegistryIfNeeded()
-    let atoms = makeInstalledTestAtomRegistry()
-    return try AtomScope.$override.withValue(atoms) {
-        try body(atoms)
+    installTestCoreAtomsIfNeeded()
+    return try CoreAtomScope.$override.withValue(coreAtoms) {
+        try body(coreAtoms)
     }
 }
 
 @MainActor
-func withAsyncTestAtomRegistry<T>(
-    _ body: (AtomRegistry) async throws -> T
+func withAsyncTestCoreAtoms<T>(
+    using coreAtoms: CoreAtoms = makeInstalledTestCoreAtoms(),
+    _ body: (CoreAtoms) async throws -> T
 ) async rethrows -> T {
-    installTestAtomRegistryIfNeeded()
-    let atoms = makeInstalledTestAtomRegistry()
-    return try await AtomScope.$override.withValue(atoms) {
-        try await body(atoms)
+    installTestCoreAtomsIfNeeded()
+    return try await CoreAtomScope.$override.withValue(coreAtoms) {
+        try await body(coreAtoms)
     }
+}
+
+@MainActor
+func makeTestAtomRegistry() -> AtomRegistry {
+    AtomRegistry(core: makeInstalledTestCoreAtoms())
 }

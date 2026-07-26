@@ -8,7 +8,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct BridgePaneControllerProductBootstrapDeliveryTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("committed Review survives bootstrap failure and replays after worker replacement")

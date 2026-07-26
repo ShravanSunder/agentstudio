@@ -2,7 +2,7 @@ import Observation
 
 @MainActor
 @Observable
-final class WorkspaceSidebarMemoryAtom {
+package final class WorkspaceSidebarMemoryAtom {
     private(set) var filterText: String = ""
     private(set) var isFilterVisible: Bool = false
     private(set) var sidebarCollapsed: Bool = false
@@ -46,7 +46,7 @@ final class WorkspaceSidebarMemoryAtom {
 
 @MainActor
 @Observable
-final class SidebarFocusRuntimeAtom {
+package final class SidebarFocusRuntimeAtom {
     /// Runtime-only composition fact published by sidebar surfaces and read by keyboard owner derivation.
     private(set) var sidebarHasFocus: Bool = false
 
@@ -60,7 +60,7 @@ final class SidebarFocusRuntimeAtom {
 }
 
 @MainActor
-final class WorkspaceSidebarState {
+package final class WorkspaceSidebarState {
     private let memoryAtom: WorkspaceSidebarMemoryAtom
     private let focusAtom: SidebarFocusRuntimeAtom
 

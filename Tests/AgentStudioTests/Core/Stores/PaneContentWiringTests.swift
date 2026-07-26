@@ -10,7 +10,7 @@ final class PaneContentWiringTests {
     private var store: WorkspaceStore!
 
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
         store = WorkspaceStore()
     }
 

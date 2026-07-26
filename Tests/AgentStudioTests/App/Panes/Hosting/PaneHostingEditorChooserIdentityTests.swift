@@ -8,15 +8,16 @@ import Testing
 struct PaneHostingEditorChooserIdentityTests {
     @Test("main and drawer pane leaves receive the exact App root editor chooser")
     func mainAndDrawerPaneLeavesReceiveExactAppRootEditorChooser() throws {
-        try withTestAtomRegistry { atoms in
+        let atomRegistry = makeTestAtomRegistry()
+        try withTestCoreAtoms(using: atomRegistry.core) { coreAtoms in
             // Arrange
             let store = WorkspaceStore(
-                identityAtom: atoms.workspaceIdentity,
-                windowMemoryAtom: atoms.workspaceWindowMemory,
-                repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
-                paneAtom: atoms.workspacePane,
-                tabLayoutAtom: atoms.workspaceTabLayout,
-                mutationCoordinator: atoms.workspaceMutationCoordinator
+                identityAtom: coreAtoms.workspaceIdentity,
+                windowMemoryAtom: coreAtoms.workspaceWindowMemory,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology,
+                paneAtom: coreAtoms.workspacePane,
+                tabLayoutAtom: coreAtoms.workspaceTabLayout,
+                mutationCoordinator: coreAtoms.workspaceMutationCoordinator
             )
             let mainPane = store.createPane()
             let tab = Tab(paneId: mainPane.id)
@@ -34,20 +35,20 @@ struct PaneHostingEditorChooserIdentityTests {
                 paneId: mainPane.id,
                 tabId: tab.id,
                 store: store,
-                editorChooser: atoms.editorChooser,
+                editorChooser: atomRegistry.editorChooser,
                 dispatcher: dispatcher
             )
             let drawerPaneLeaf = makePaneLeaf(
                 paneId: drawerPane.id,
                 tabId: tab.id,
                 store: store,
-                editorChooser: atoms.editorChooser,
+                editorChooser: atomRegistry.editorChooser,
                 dispatcher: dispatcher
             )
 
             // Assert
-            #expect(mainPaneLeaf.editorChooser === atoms.editorChooser)
-            #expect(drawerPaneLeaf.editorChooser === atoms.editorChooser)
+            #expect(mainPaneLeaf.editorChooser === atomRegistry.editorChooser)
+            #expect(drawerPaneLeaf.editorChooser === atomRegistry.editorChooser)
         }
     }
 

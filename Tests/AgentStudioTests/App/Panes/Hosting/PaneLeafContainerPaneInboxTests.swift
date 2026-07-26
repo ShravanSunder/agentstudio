@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct PaneLeafContainerPaneInboxTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("pane leaf consumes matching pending pane inbox request on appear")

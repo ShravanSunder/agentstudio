@@ -8,7 +8,7 @@ import Testing
 @Suite
 struct DraggableTabBarWindowDragTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("tab host does not rely on AppKit mouseDown window-drag inference")

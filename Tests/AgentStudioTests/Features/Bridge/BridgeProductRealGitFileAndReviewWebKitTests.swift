@@ -189,7 +189,7 @@ extension WebKitSerializedTests {
         }
 
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("bundled comm worker carries real-git File and Review product data through production WebKit")

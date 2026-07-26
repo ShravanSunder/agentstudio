@@ -78,7 +78,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct WorkspaceActionExecutorWebKitTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("openWebview creates a generic GitHub tab without workspace association")
@@ -513,7 +513,7 @@ extension WebKitSerializedTests {
 @Suite
 struct WorkspaceActionExecutorTestsQuick {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("openBridgeReviewInNewTab without a worktree context does not create a blank Bridge tab")

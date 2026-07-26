@@ -9,7 +9,7 @@ enum WorkspaceFolderScanState: Equatable {
 
 @MainActor
 @Observable
-final class WelcomeAtom {
+package final class WelcomeAtom {
     private(set) var isChoosingFolder = false
     private(set) var folderScanState: WorkspaceFolderScanState = .idle
 

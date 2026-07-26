@@ -7,22 +7,22 @@ import Testing
 @Suite(.serialized)
 final class CollapsedBarLabelPartsTests {
 
-    private var registry: AtomRegistry!
+    private var coreAtoms: CoreAtoms!
     private var store: WorkspaceStore!
 
     init() {
-        registry = makeInstalledTestAtomRegistry()
+        coreAtoms = makeInstalledTestCoreAtoms()
         store = WorkspaceStore(
-            identityAtom: registry.workspaceIdentity,
-            windowMemoryAtom: registry.workspaceWindowMemory,
-            repositoryTopologyAtom: registry.workspaceRepositoryTopology,
-            paneAtom: registry.workspacePane,
-            tabLayoutAtom: registry.workspaceTabLayout)
+            identityAtom: coreAtoms.workspaceIdentity,
+            windowMemoryAtom: coreAtoms.workspaceWindowMemory,
+            repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology,
+            paneAtom: coreAtoms.workspacePane,
+            tabLayoutAtom: coreAtoms.workspaceTabLayout)
     }
 
     @Test
     func floatingPaneWithCwd_returnsFolderPart() {
-        AtomScope.$override.withValue(registry) {
+        withTestCoreAtoms(using: coreAtoms) { _ in
             let cwdURL = URL(fileURLWithPath: "/Users/dev/my-project")
             let pane = store.createPane(launchDirectory: cwdURL)
 
@@ -37,7 +37,7 @@ final class CollapsedBarLabelPartsTests {
 
     @Test
     func notePartUsesLooseIconTextSpacing() {
-        AtomScope.$override.withValue(registry) {
+        withTestCoreAtoms(using: coreAtoms) { _ in
             let pane = store.createPane()
             store.paneAtom.updatePaneNote(pane.id, note: "hiii")
 
@@ -51,7 +51,7 @@ final class CollapsedBarLabelPartsTests {
 
     @Test
     func floatingPaneWithoutCwd_returnsTerminalFallback() {
-        AtomScope.$override.withValue(registry) {
+        withTestCoreAtoms(using: coreAtoms) { _ in
             let pane = store.createPane()
 
             let derived = PaneDisplayDerived()
@@ -64,7 +64,7 @@ final class CollapsedBarLabelPartsTests {
 
     @Test
     func worktreeBackedPane_returnsRepoWorktreeAndBranchParts() {
-        AtomScope.$override.withValue(registry) {
+        withTestCoreAtoms(using: coreAtoms) { _ in
             let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-collapsed-label"))
             let worktree = makeWorktree(
                 repoId: repo.id,
@@ -114,7 +114,7 @@ final class CollapsedBarLabelPartsTests {
 
     @Test
     func metadataAssociatedWebview_returnsRepoWorktreeAndBranchParts() {
-        AtomScope.$override.withValue(registry) {
+        withTestCoreAtoms(using: coreAtoms) { _ in
             let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-webview-label"))
             let worktree = makeWorktree(
                 repoId: repo.id,
@@ -153,7 +153,7 @@ final class CollapsedBarLabelPartsTests {
 
     @Test
     func cwdResolvedWorkspace_returnsRepoWorktreeAndBranchParts() {
-        AtomScope.$override.withValue(registry) {
+        withTestCoreAtoms(using: coreAtoms) { _ in
             let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-cwd-label"))
             let worktree = makeWorktree(
                 repoId: repo.id,

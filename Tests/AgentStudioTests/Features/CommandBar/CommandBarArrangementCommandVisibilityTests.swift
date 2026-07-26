@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct CommandBarArrangementCommandVisibilityTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private let dispatcher = AppCommandDispatcher.shared

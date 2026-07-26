@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct PaneTabViewControllerLaunchRestoreTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private let fixtureSessionConfiguration = SessionConfiguration(
@@ -35,6 +35,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
     }
 
     private func makeHarness() -> Harness {
+        let atomRegistry = AtomRegistry(core: CoreAtomScope.store)
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-tab-launch-tests-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -54,7 +55,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: .shared,
             windowLifecycleStore: windowLifecycleStore,
-            bridgePaneAttendance: atom(\.bridgePaneAttendance)
+            bridgePaneAttendance: atomRegistry.bridgePaneAttendance
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
@@ -70,9 +71,9 @@ struct PaneTabViewControllerLaunchRestoreTests {
             runtimeCommandDispatcher: coordinator,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
-            bridgePaneAttendance: atom(\.bridgePaneAttendance),
-            editorChooser: atom(\.editorChooser),
-            inboxAtom: atom(\.inboxNotification),
+            bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
+            editorChooser: atomRegistry.editorChooser,
+            inboxAtom: atomRegistry.inboxNotification,
             registersAsCommandHandler: false
         )
         let window = NSWindow(

@@ -8,7 +8,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct BridgePaneControllerTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         actor OutOfOrderBridgeReviewSourceProvider: BridgeReviewSourceProvider {

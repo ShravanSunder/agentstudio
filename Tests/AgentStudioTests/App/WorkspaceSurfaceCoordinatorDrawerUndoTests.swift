@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorDrawerUndoTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private struct Harness {

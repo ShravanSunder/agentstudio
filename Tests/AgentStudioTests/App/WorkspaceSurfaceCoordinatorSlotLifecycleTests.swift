@@ -9,7 +9,7 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private struct Harness {

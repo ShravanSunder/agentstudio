@@ -28,24 +28,24 @@ private func makeMainSplitViewControllerHarness(
 ) -> MainSplitViewControllerHarness {
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "main-split-view-controller-tests-\(UUID().uuidString)")
-    let atoms = makeInstalledTestAtomRegistry()
-    configureUIState(atoms.workspaceSidebarState)
+    let atoms = makeTestAtomRegistry()
+    configureUIState(atoms.core.workspaceSidebarState)
 
     let store = WorkspaceStore(
-        identityAtom: atoms.workspaceIdentity,
-        windowMemoryAtom: atoms.workspaceWindowMemory,
-        repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
-        paneAtom: atoms.workspacePane,
-        tabLayoutAtom: atoms.workspaceTabLayout,
-        mutationCoordinator: atoms.workspaceMutationCoordinator)
-    configureWorkspaceWindowMemory(atoms.workspaceWindowMemory)
+        identityAtom: atoms.core.workspaceIdentity,
+        windowMemoryAtom: atoms.core.workspaceWindowMemory,
+        repositoryTopologyAtom: atoms.core.workspaceRepositoryTopology,
+        paneAtom: atoms.core.workspacePane,
+        tabLayoutAtom: atoms.core.workspaceTabLayout,
+        mutationCoordinator: atoms.core.workspaceMutationCoordinator)
+    configureWorkspaceWindowMemory(atoms.core.workspaceWindowMemory)
 
     if withRepos {
         _ = store.addRepo(at: tempDir.appending(path: "repo"))
     }
 
     let viewRegistry = ViewRegistry()
-    let runtime = SessionRuntime(atom: atoms.sessionRuntime, store: store)
+    let runtime = SessionRuntime(atom: atoms.core.sessionRuntime, store: store)
     let coordinator = WorkspaceSurfaceCoordinator(
         store: store,
         viewRegistry: viewRegistry,
@@ -61,7 +61,7 @@ private func makeMainSplitViewControllerHarness(
         appLifecycleStore: appLifecycleStore,
         windowLifecycleStore: WindowLifecycleAtom()
     )
-    let tabBarAdapter = TabBarAdapter(store: store, repoCache: atoms.repoCache)
+    let tabBarAdapter = TabBarAdapter(store: store, repoCache: atoms.core.repoCache)
     let controller = MainSplitViewController(
         store: store,
         workspaceActionExecutor: workspaceActionExecutor,
@@ -122,7 +122,7 @@ func withMainSplitViewControllerHarness<T>(
         sidebarRootViewBuilder: sidebarRootViewBuilder
     )
 
-    let result = try await AtomScope.$override.withValue(harness.atoms) {
+    let result = try await withAsyncTestCoreAtoms(using: harness.atoms.core) { _ in
         harness.window.contentViewController = harness.controller
         _ = harness.controller.view
         harness.window.makeKeyAndOrderFront(nil)
@@ -157,7 +157,7 @@ func withUnloadedMainSplitViewControllerHarness<T>(
         sidebarRootViewBuilder: sidebarRootViewBuilder
     )
 
-    let result = try await AtomScope.$override.withValue(harness.atoms) {
+    let result = try await withAsyncTestCoreAtoms(using: harness.atoms.core) { _ in
         try await body(harness)
     }
 

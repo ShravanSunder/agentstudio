@@ -7,7 +7,7 @@ import Testing
 @Suite("CommandBar pane search", .serialized)
 struct CommandBarPaneSearchTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test

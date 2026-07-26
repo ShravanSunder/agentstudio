@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct PaneHostViewTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test

@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 final class DrawerDropDispatchTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test

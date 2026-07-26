@@ -3,7 +3,7 @@ import Observation
 
 @MainActor
 @Observable
-final class RepoEnrichmentCacheAtom {
+package final class RepoEnrichmentCacheAtom {
     struct HydrationState {
         let repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         let worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
@@ -295,7 +295,7 @@ final class RepoEnrichmentCacheAtom {
 
 @MainActor
 @Observable
-final class RecentWorkspaceTargetAtom {
+package final class RecentWorkspaceTargetAtom {
     private static let maximumRecentTargetCount = 15
 
     private(set) var recentTargets: [RecentWorkspaceTarget] = []
@@ -326,7 +326,7 @@ final class RecentWorkspaceTargetAtom {
 }
 
 @MainActor
-final class RepoCacheAtom {
+package final class RepoCacheAtom {
     struct HydrationState {
         let repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         let worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]

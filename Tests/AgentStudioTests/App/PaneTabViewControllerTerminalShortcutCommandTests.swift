@@ -7,12 +7,12 @@ import Testing
 @Suite(.serialized)
 struct PaneTabViewControllerTerminalShortcutCommandTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("cmd shift k through controller key path targets focused drawer pane")
     func handleAppOwnedKeyEvent_cmdShiftK_targetsFocusedDrawerPane() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)
@@ -70,7 +70,7 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
 
     @Test("cmd k through controller key path is swallowed")
     func handleAppOwnedKeyEvent_cmdK_swallowsClearScrollback() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)
@@ -98,7 +98,7 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
 
     @Test("cmd shift k is swallowed when sidebar owns keyboard")
     func handleAppOwnedKeyEvent_cmdShiftK_sidebarFocusSwallowsWithoutDispatch() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)
@@ -140,7 +140,7 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
 
     @Test("cmd shift k is swallowed when focused pane is not terminal")
     func handleAppOwnedKeyEvent_cmdShiftK_nonTerminalPaneSwallowsWithoutDispatch() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)

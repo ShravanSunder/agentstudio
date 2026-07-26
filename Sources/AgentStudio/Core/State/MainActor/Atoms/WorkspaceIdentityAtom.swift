@@ -8,7 +8,7 @@ enum WorkspaceIdentityInstallationState {
 
 @MainActor
 @Observable
-final class WorkspaceIdentityAtom {
+package final class WorkspaceIdentityAtom {
     var workspaceId: UUID { installedIdentity.workspaceId }
     var workspaceName: String { installedIdentity.workspaceName }
     var createdAt: Date { installedIdentity.createdAt }

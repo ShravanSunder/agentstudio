@@ -9,7 +9,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct PaneTabViewControllerBridgeCommandTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("show Review creates once, then show Files reuses and focuses the same Bridge pane")
@@ -36,7 +36,7 @@ extension WebKitSerializedTests {
                     Set(harness.store.tabLayoutAtom.tabs.map(\.id)).subtracting(baselineTabIds)
                         == Set([createdTab.id])
                 )
-                #expect(atom(\.bridgePaneAttendance).ordinal(for: createdPane.id) != nil)
+                #expect(harness.atomRegistry.bridgePaneAttendance.ordinal(for: createdPane.id) != nil)
 
                 let initialSelection = try await requireSurfaceSelection(
                     .review,
@@ -44,7 +44,7 @@ extension WebKitSerializedTests {
                     because: "show Review must request the Review surface through the comm-worker transport"
                 )
                 let initialAttendanceOrdinal = try #require(
-                    atom(\.bridgePaneAttendance).ordinal(for: createdPane.id)
+                    harness.atomRegistry.bridgePaneAttendance.ordinal(for: createdPane.id)
                 )
                 let paneCountBeforeReuse = harness.store.paneAtom.panes.count
                 let tabCountBeforeReuse = harness.store.tabLayoutAtom.tabs.count
@@ -78,7 +78,7 @@ extension WebKitSerializedTests {
                     because: "show Files must retarget the reused pane through the comm-worker transport"
                 )
                 let attendanceAfterReuse = try #require(
-                    atom(\.bridgePaneAttendance).ordinal(for: createdPane.id)
+                    harness.atomRegistry.bridgePaneAttendance.ordinal(for: createdPane.id)
                 )
                 #expect(initialSelection.selectionRevision < fileSelection.selectionRevision)
                 #expect(attendanceAfterReuse == initialAttendanceOrdinal + 1)
@@ -160,7 +160,7 @@ extension WebKitSerializedTests {
             await withBridgeCommandHarness { harness in
                 // Arrange
                 let invalidWorktreeId = UUID()
-                let attendanceBefore = atom(\.bridgePaneAttendance).ordinalByPaneId
+                let attendanceBefore = harness.atomRegistry.bridgePaneAttendance.ordinalByPaneId
                 let paneIdsBefore = Set(harness.store.paneAtom.panes.keys)
                 let tabIdsBefore = Set(harness.store.tabLayoutAtom.tabs.map(\.id))
 
@@ -172,8 +172,8 @@ extension WebKitSerializedTests {
                 #expect(Set(harness.store.paneAtom.panes.keys) == paneIdsBefore)
                 #expect(Set(harness.store.tabLayoutAtom.tabs.map(\.id)) == tabIdsBefore)
                 #expect(harness.viewRegistry.allBridgeViews.isEmpty)
-                #expect(atom(\.bridgePaneAttendance).ordinalByPaneId == attendanceBefore)
-                #expect(atom(\.bridgePaneAttendance).ordinal(for: invalidWorktreeId) == nil)
+                #expect(harness.atomRegistry.bridgePaneAttendance.ordinalByPaneId == attendanceBefore)
+                #expect(harness.atomRegistry.bridgePaneAttendance.ordinal(for: invalidWorktreeId) == nil)
             }
         }
     }
@@ -183,7 +183,7 @@ extension WebKitSerializedTests {
 private func withBridgeCommandHarness<TResult>(
     _ operation: @MainActor (PaneTabViewControllerCommandHarness) async throws -> TResult
 ) async rethrows -> TResult {
-    try await withAsyncTestAtomRegistry { _ in
+    try await withAsyncTestCoreAtoms { _ in
         let harness = makeHarness()
         do {
             let result = try await operation(harness)

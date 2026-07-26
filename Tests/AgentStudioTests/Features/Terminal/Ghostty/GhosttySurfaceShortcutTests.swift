@@ -84,7 +84,7 @@ final class GhosttySurfaceShortcutTests {
         try await withIsolatedCommandDispatcher(
             configure: {},
             body: {
-                withTestAtomRegistry { atoms in
+                withTestCoreAtoms { atoms in
                     let windowId = UUID()
                     let tabId = UUID()
                     var dispatchedCommands: [AppCommand] = []
@@ -118,7 +118,7 @@ final class GhosttySurfaceShortcutTests {
 
     @Test
     func terminalAppOwnedShortcutHandler_targetsSourcePaneForTerminalRuntimeCommands() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let windowId = UUID()
             let sourcePaneId = UUID()
             var dispatches: [(command: AppCommand, paneId: UUID?)] = []
@@ -154,7 +154,7 @@ final class GhosttySurfaceShortcutTests {
 
     @Test
     func terminalAppOwnedShortcutHandler_doesNotTargetCommandBarShortcutsToSourcePane() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let windowId = UUID()
             let sourcePaneId = UUID()
             var dispatches: [(command: AppCommand, paneId: UUID?)] = []

@@ -23,7 +23,7 @@ private final class RepoExplorerObservationInvalidationRecorder: @unchecked Send
 @Suite("RepoExplorerView injection")
 struct RepoExplorerViewInjectionTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("initializer preserves the exact injected Repo Explorer preferences")

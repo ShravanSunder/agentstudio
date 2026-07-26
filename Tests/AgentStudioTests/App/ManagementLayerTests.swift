@@ -13,7 +13,7 @@ struct ManagementLayerTests {
         for transientSurface: TransientKeyboardSurfaceKind,
         sourceLocation: SourceLocation = #_sourceLocation
     ) {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let monitor = makeMonitor()
             let workspaceWindowId = UUID()
             atoms.windowLifecycle.recordWindowRegistered(workspaceWindowId)
@@ -35,7 +35,7 @@ struct ManagementLayerTests {
 
     @Test("defaults to inactive")
     func test_managementLayer_defaultsToInactive() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             monitor.deactivate()
             #expect(!monitor.isActive)
@@ -44,7 +44,7 @@ struct ManagementLayerTests {
 
     @Test("toggles activate and deactivate")
     func test_managementLayer_toggleActivatesAndDeactivates() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             monitor.deactivate()
             #expect(!monitor.isActive)
@@ -57,7 +57,7 @@ struct ManagementLayerTests {
 
     @Test("deactivate disables mode")
     func test_managementLayer_deactivate() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             monitor.deactivate()
             monitor.toggle()
@@ -68,7 +68,7 @@ struct ManagementLayerTests {
 
     @Test("deactivate clears active state immediately")
     func test_managementLayer_deactivate_clearsStateSynchronously() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             monitor.deactivate()
             monitor.toggle()
@@ -79,7 +79,7 @@ struct ManagementLayerTests {
 
     @Test("toggle updates active state immediately")
     func test_managementLayer_toggle_updatesStateSynchronously() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             monitor.deactivate()
             monitor.toggle()
@@ -91,7 +91,7 @@ struct ManagementLayerTests {
 
     @Test("deactivate is no-op when already inactive")
     func test_managementLayer_deactivateWhenAlreadyInactive() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             monitor.deactivate()
             monitor.deactivate()
@@ -101,7 +101,7 @@ struct ManagementLayerTests {
 
     @Test("management layer key policy passes through command shortcuts")
     func test_managementLayer_keyPolicy_commandShortcutPassesThrough() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
                 keyCode: 35,
@@ -114,7 +114,7 @@ struct ManagementLayerTests {
 
     @Test("management layer passes option-ijkl through")
     func test_managementLayer_keyPolicy_optionIJKLPassThrough() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
                 keyCode: 34,
@@ -127,7 +127,7 @@ struct ManagementLayerTests {
 
     @Test("management layer key policy consumes plain typing")
     func test_managementLayer_keyPolicy_plainTypingConsumed() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
                 keyCode: 0,
@@ -140,7 +140,7 @@ struct ManagementLayerTests {
 
     @Test("management layer key policy dispatches P to create terminal")
     func test_managementLayer_keyPolicy_dispatchesCreateTerminal() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
                 keyCode: 35,
@@ -178,7 +178,7 @@ struct ManagementLayerTests {
 
     @Test("management layer key policy dispatches B to create browser")
     func test_managementLayer_keyPolicy_dispatchesCreateBrowser() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
                 keyCode: 11,
@@ -191,7 +191,7 @@ struct ManagementLayerTests {
 
     @Test("management layer key policy dispatches D to open drawer")
     func test_managementLayer_keyPolicy_dispatchesDrawerOpenShortcut() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
                 keyCode: 2,
@@ -204,7 +204,7 @@ struct ManagementLayerTests {
 
     @Test("management layer key policy dispatches R to exit mode")
     func test_managementLayer_keyPolicy_dispatchesExitModeShortcut() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
                 keyCode: 15,
@@ -217,7 +217,7 @@ struct ManagementLayerTests {
 
     @Test("management layer key policy dispatches arrow keys")
     func test_managementLayer_keyPolicy_dispatchesArrowKeys() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
 
             #expect(
@@ -253,7 +253,7 @@ struct ManagementLayerTests {
 
     @Test("management layer key policy ignores numeric pad modifier on arrow keys")
     func test_managementLayer_keyPolicy_ignoresNumericPadModifierForArrowKeys() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
                 keyCode: 123,
@@ -266,7 +266,7 @@ struct ManagementLayerTests {
 
     @Test("management layer key policy consumes shifted arrow keys")
     func test_managementLayer_keyPolicy_shiftedArrowConsumed() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
                 keyCode: 123,
@@ -279,7 +279,7 @@ struct ManagementLayerTests {
 
     @Test("management layer key policy consumes control combinations")
     func test_managementLayer_keyPolicy_controlCombinationConsumed() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
                 keyCode: 8,
@@ -292,7 +292,7 @@ struct ManagementLayerTests {
 
     @Test("management layer key policy deactivates on escape")
     func test_managementLayer_keyPolicy_escapeDeactivates() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
                 keyCode: 53,
@@ -316,7 +316,7 @@ struct ManagementLayerTests {
         ]
 
         for (label, transientKind) in transientKinds {
-            withTestAtomRegistry { atoms in
+            withTestCoreAtoms { atoms in
                 let monitor = makeMonitor()
                 let workspaceWindowId = UUID()
                 atoms.managementLayer.activate()
@@ -343,7 +343,7 @@ struct ManagementLayerTests {
 
     @Test("toggleManagementLayer has expected command definition")
     func test_toggleManagementLayer_commandDefinition() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let definition = AppCommandDispatcher.shared.definition(for: .toggleManagementLayer)
             #expect(definition.keyBinding?.key == "r")
             #expect(definition.keyBinding?.modifiers == [.command])
@@ -353,7 +353,7 @@ struct ManagementLayerTests {
 
     @Test("managementLayerExit uses active management icon")
     func test_managementLayerExit_commandDefinition() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let definition = AppCommandDispatcher.shared.definition(for: .managementLayerExit)
             #expect(definition.icon == .system(.rectangleSplit2x2Fill))
         }
@@ -361,7 +361,7 @@ struct ManagementLayerTests {
 
     @Test("closePane command requires management layer")
     func test_closePane_requiresManagementLayer() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let definition = AppCommandDispatcher.shared.definition(for: .closePane)
             #expect(definition.requiresManagementLayer == true)
         }
@@ -369,7 +369,7 @@ struct ManagementLayerTests {
 
     @Test("closeTab does not require management layer")
     func test_closeTab_doesNotRequireManagementLayer() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let definition = AppCommandDispatcher.shared.definition(for: .closeTab)
             #expect(definition.requiresManagementLayer == false)
         }
@@ -377,7 +377,7 @@ struct ManagementLayerTests {
 
     @Test("splitRight does not require management layer")
     func test_splitRight_doesNotRequireManagementLayer() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let definition = AppCommandDispatcher.shared.definition(for: .splitRight)
             #expect(definition.requiresManagementLayer == false)
         }
@@ -385,7 +385,7 @@ struct ManagementLayerTests {
 
     @Test("watchFolder does not require management layer")
     func test_watchFolder_doesNotRequireManagementLayer() async {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let definition = AppCommandDispatcher.shared.definition(for: .watchFolder)
             #expect(definition.requiresManagementLayer == false)
         }

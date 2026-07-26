@@ -14,7 +14,7 @@ struct AppDelegateTraceIdentityRefreshTests {
             traceRuntime: traceRuntime,
             startupTraceRecorder: AgentStudioStartupTraceRecorder(traceRuntime: traceRuntime)
         )
-        appDelegate.atomStore = makeInstalledTestAtomRegistry()
+        appDelegate.atomStore = makeTestAtomRegistry()
         appDelegate.store = WorkspaceStore()
         let initialFleetCaptureCount = appDelegate.traceIdentityFleetCaptureCount
 
