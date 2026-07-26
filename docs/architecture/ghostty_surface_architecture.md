@@ -163,9 +163,19 @@ The boundary is intentionally split by isolation contract: callback trampolines 
 Agent Studio now consumes libghostty/runtime facts for terminal scrollback UX, but still renders the visible macOS UI on the host side.
 
 - Ghostty core owns terminal scrollback/search state and exposes it through routed runtime events such as `scrollbarChanged` and `search*`.
-- `TerminalRuntime` is the observable host-side cache for those facts.
+- High-rate `scrollbarChanged` samples remain contracted by
+  `TerminalLocalActionAccumulator`; its compact MainActor drain validates the
+  mounted surface, updates the surface host cache, and treats
+  `TerminalRuntime` observation as optional.
+- `Ghostty.SurfaceView` caches mounted scrollbar presentation independently of
+  optional `TerminalRuntime` observation.
 - `TerminalPaneMountView` composes host UI around the surface: `TerminalSurfaceScrollView`, `TerminalSearchOverlayView`, and `ScrollToBottomIndicatorView`.
-- `TerminalSurfaceScrollView` provides the native scrollbar UI on macOS and synchronizes scrollbar thumb / live-scroll movement back into Ghostty core via `scroll_to_row:N`.
+- `TerminalSurfaceScrollView` provides the native scrollbar UI on macOS,
+  synchronizes interior thumb movement through `scroll_to_row:N`, and expresses
+  the host scrollbar maximum as Ghostty-authoritative `scroll_to_bottom`.
+- During an AppKit live-scroll gesture, the wrapper suppresses host-driven clip
+  repositioning and reconciles only a Ghostty state received during that
+  gesture which acknowledges the last accepted semantic viewport command.
 - `Ghostty.SurfaceView` remains the rendering/input bridge and keeps ordinary wheel/trackpad scrolling owned by Ghostty core, matching Ghostty.app more closely than the earlier host-owned scroll prototype.
 - `Ghostty.AppHandle` injects an Agent Studio config override before `ghostty_config_finalize` so Ghostty core does not auto-scroll to bottom on keypress or output while the host wrapper is providing explicit scrollback affordances.
 
