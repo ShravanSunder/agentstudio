@@ -11,31 +11,6 @@ struct CommandBarAccessibilityTests {
         installTestAtomRegistryIfNeeded()
     }
 
-    @Test("scope identity is visible and exposed as one complete accessibility label")
-    func scopeIdentityExposesBreadcrumb() throws {
-        let mountedView = mountedView(
-            CommandBarStatusStrip(
-                mode: .normal,
-                context: .empty,
-                scopeLabel: "Repositories › agent-studio › feature"
-            )
-            .frame(width: 500, height: 28)
-        )
-        defer { mountedView.window.orderOut(nil) }
-
-        let scopeIdentity = try #require(
-            findCommandBarAccessibleElement(
-                in: mountedView.hostingView,
-                identifier: "commandBarScopeIdentity"
-            )
-        )
-
-        #expect(
-            commandBarAccessibilityLabel(of: scopeIdentity)
-                == "Current Command Bar scope, Repositories › agent-studio › feature"
-        )
-    }
-
     @Test("group header and selected row expose header, identity, action, and selection semantics")
     func groupAndSelectedRowExposeCompleteSemantics() throws {
         let item = CommandBarItem(
@@ -86,32 +61,34 @@ struct CommandBarAccessibilityTests {
         #expect(commandBarAccessibilitySelected(of: row) == true)
     }
 
-    @Test("back control names the retained root ancestry")
-    func backControlNamesDestination() throws {
-        var didNavigateBack = false
+    @Test("breadcrumb exposes clickable ancestors and a non-clickable current level")
+    func breadcrumbExposesClickableAncestors() throws {
+        var selectedBreadcrumbIndex: Int?
         let mountedView = mountedView(
-            CommandBarBackRow(
-                label: "feature",
-                destinationLabel: "Repositories › agent-studio",
-                onBack: { didNavigateBack = true }
+            CommandBarBreadcrumbRow(
+                labels: ["Main", "Repository actual", "Worktree actual"],
+                onNavigate: { selectedBreadcrumbIndex = $0 }
             )
             .frame(width: 500, height: 28)
         )
         defer { mountedView.window.orderOut(nil) }
-        let backControl = try #require(
+        let rootBreadcrumb = try #require(
             findCommandBarAccessibleElement(
                 in: mountedView.hostingView,
-                identifier: "commandBarBack"
+                identifier: "commandBarBreadcrumb.0"
             )
         )
 
+        #expect(commandBarAccessibilityLabel(of: rootBreadcrumb) == "Navigate to Main")
+        #expect(commandBarAccessibilityHelp(of: rootBreadcrumb) == "Return to this Command Bar level")
+        commandBarPerformAccessibilityPress(rootBreadcrumb)
+        #expect(selectedBreadcrumbIndex == 0)
         #expect(
-            commandBarAccessibilityLabel(of: backControl)
-                == "Back to Repositories › agent-studio"
+            findCommandBarAccessibleElement(
+                in: mountedView.hostingView,
+                identifier: "commandBarBreadcrumb.2"
+            ) == nil
         )
-        #expect(commandBarAccessibilityHelp(of: backControl) == "Return to the previous Command Bar level")
-        commandBarPerformAccessibilityPress(backControl)
-        #expect(didNavigateBack)
     }
 
     private func mountedView<Content: View>(

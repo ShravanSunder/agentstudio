@@ -107,16 +107,6 @@ final class CommandBarState {
     /// Current level for display (last in stack, or nil for root).
     var currentLevel: CommandBarLevel? { navigationStack.last }
 
-    /// Pill label: shows scopeLabel if set, otherwise falls back to title.
-    var scopePillLabel: String? { currentLevel?.scopeLabel ?? currentLevel?.title }
-
-    /// Back row label: shows title when scopeLabel is set (pill shows category),
-    /// nil when scopeLabel is absent (pill already shows title, bare ‹ suffices).
-    var backRowLabel: String? {
-        guard let level = currentLevel else { return nil }
-        return level.scopeLabel != nil ? level.title : nil
-    }
-
     var rootScopeLabel: String {
         switch currentScope {
         case .everything: return "Main"
@@ -127,13 +117,18 @@ final class CommandBarState {
         }
     }
 
-    var breadcrumbLabel: String {
-        ([rootScopeLabel] + navigationStack.map(\.title)).joined(separator: " › ")
+    var breadcrumbLabels: [String] {
+        [rootScopeLabel]
+            + navigationStack.map { level in
+                guard let scopeLabel = level.scopeLabel, scopeLabel != level.title else {
+                    return level.title
+                }
+                return "\(scopeLabel) \(level.title)"
+            }
     }
 
-    var backDestinationLabel: String {
-        ([rootScopeLabel] + navigationStack.dropLast().map(\.title))
-            .joined(separator: " › ")
+    var breadcrumbLabel: String {
+        breadcrumbLabels.joined(separator: " › ")
     }
 
     // MARK: - Placeholder
@@ -252,6 +247,22 @@ final class CommandBarState {
     /// Push a nested level onto the navigation stack.
     func pushLevel(_ level: CommandBarLevel) {
         navigationStack.append(level)
+        rawInput = ""
+        selectedIndex = 0
+    }
+
+    /// Pop the current nested level while preserving its parent.
+    func popLevel() {
+        guard !navigationStack.isEmpty else { return }
+        navigationStack.removeLast()
+        rawInput = ""
+        selectedIndex = 0
+    }
+
+    /// Navigate directly to an ancestor represented by a breadcrumb index.
+    func navigateToBreadcrumb(at index: Int) {
+        guard index >= 0, index < breadcrumbLabels.count - 1 else { return }
+        navigationStack = Array(navigationStack.prefix(index))
         rawInput = ""
         selectedIndex = 0
     }

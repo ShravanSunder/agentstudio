@@ -170,7 +170,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             return
         }
         #expect(level.title == "single-root-repo")
-        #expect(level.scopeLabel == "Repo")
+        #expect(level.scopeLabel == "Repository")
     }
 
     @Test
@@ -235,7 +235,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         let level = CommandBarDataSource.buildRepoLevel(repo: storedRepo, store: store)
 
         #expect(level.title == "repo-level-actions")
-        #expect(level.scopeLabel == "Repo")
+        #expect(level.scopeLabel == "Repository")
         let groups = CommandBarDataSource.grouped(level.items)
         #expect(groups.map(\.name) == ["Terminal", "Path", "Worktrees", "Panes"])
         let groupsByName = Dictionary(uniqueKeysWithValues: groups.map { ($0.name, $0.items) })

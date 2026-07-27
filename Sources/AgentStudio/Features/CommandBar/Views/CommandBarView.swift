@@ -15,8 +15,7 @@ struct CommandBarView: View {
         return VStack(spacing: 0) {
             CommandBarStatusStrip(
                 mode: resultSnapshot.currentMode,
-                context: resultSnapshot.currentContext,
-                scopeLabel: state.breadcrumbLabel
+                context: resultSnapshot.currentContext
             )
 
             Divider()
@@ -28,19 +27,20 @@ struct CommandBarView: View {
                 onArrowDown: { state.moveSelectionDown(totalItems: resultSnapshot.totalItems) },
                 onEnter: { modifier in executeSelected(modifier: modifier) },
                 onShortcutTrigger: onShortcutTrigger,
-                onBackspaceOnEmpty: { handleBackspace() }
+                onBackspaceOnEmpty: { handleBackspace() },
+                onTabForward: { handleTabForward() },
+                onShiftTabBack: { state.popLevel() }
             )
 
             // Separator
             Divider()
                 .opacity(AppStyles.CommandBar.Panel.nestedDividerOpacity)
 
-            // Back row when nested
+            // Breadcrumb trail when nested
             if state.isNested {
-                CommandBarBackRow(
-                    label: state.backRowLabel,
-                    destinationLabel: state.backDestinationLabel,
-                    onBack: { state.popToRoot() }
+                CommandBarBreadcrumbRow(
+                    labels: state.breadcrumbLabels,
+                    onNavigate: { index in state.navigateToBreadcrumb(at: index) }
                 )
             }
 
@@ -72,10 +72,17 @@ struct CommandBarView: View {
         onExecuteItem(item, modifier)
     }
 
+    private func handleTabForward() {
+        guard
+            let item = resultSession.snapshot(state: state).selectedItem,
+            item.hasChildren
+        else { return }
+        onExecuteItem(item, .plain)
+    }
+
     private func handleBackspace() {
         if state.isNested {
-            // Pop back to root
-            state.popToRoot()
+            state.popLevel()
         } else if state.activePrefix != nil {
             // Clear prefix → return to everything scope
             state.rawInput = ""

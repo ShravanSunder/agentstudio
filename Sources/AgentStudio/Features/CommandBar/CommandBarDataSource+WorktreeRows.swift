@@ -300,7 +300,7 @@ extension CommandBarDataSource {
             id: "level-repo-\(repo.id.uuidString)",
             title: repo.name,
             parentLabel: "Repos",
-            scopeLabel: "Repo",
+            scopeLabel: "Repository",
             items: items
         )
     }
@@ -377,7 +377,7 @@ extension CommandBarDataSource {
             id: "level-wt-\(worktreeId.uuidString)",
             title: presence.worktreeName,
             parentLabel: presence.repoName,
-            scopeLabel: presence.repoName,
+            scopeLabel: "Worktree",
             items: items
         )
     }

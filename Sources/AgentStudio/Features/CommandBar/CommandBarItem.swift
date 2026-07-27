@@ -266,9 +266,7 @@ struct ShortcutKey: Identifiable, Hashable {
 
 /// A navigation level in the command bar (for nested drill-in).
 ///
-/// When `scopeLabel` is set, the pill shows the scope label (e.g. "Worktrees · Actions")
-/// and the back row shows `‹ {title}`. When `scopeLabel` is nil, the pill shows `title`
-/// and the back row shows a bare `‹`.
+/// `scopeLabel` identifies the level's entity or action kind in the breadcrumb.
 struct CommandBarLevel: Identifiable {
     let id: String
     let title: String
@@ -364,11 +362,14 @@ enum FooterHintBuilder {
         scope: CommandBarScope = .everything
     ) -> [FooterHint] {
         if isNested {
-            return [
-                .divider("div-dismiss"),
-                FooterHint(id: "back", key: "⌫", label: "Back", style: .plain),
-                FooterHint(id: "dismiss", key: "esc", label: "Close", style: .plain),
-            ]
+            var hints: [FooterHint] = []
+            if item?.hasChildren == true {
+                hints.append(FooterHint(id: "drill-in", key: "⇥", label: "Actions"))
+            }
+            hints.append(.divider("div-dismiss"))
+            hints.append(FooterHint(id: "back", key: "⇧⇥ / ⌫", label: "Back", style: .plain))
+            hints.append(FooterHint(id: "dismiss", key: "esc", label: "Close", style: .plain))
+            return hints
         }
 
         // Action hints — item-specific

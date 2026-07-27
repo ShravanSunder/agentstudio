@@ -131,6 +131,37 @@ struct CommandBarRecencyProjectionTests {
         }
     }
 
+    @Test("empty command root displays exactly three recent commands")
+    func recentCommandsHaveVisibleCapOfThree() {
+        withTestAtomRegistry { atoms in
+            let store = WorkspaceStore(
+                identityAtom: atoms.workspaceIdentity,
+                repositoryTopologyAtom: atoms.workspaceRepositoryTopology
+            )
+            let commandHistory =
+                items(
+                    scope: .commands,
+                    queryState: .meaningful,
+                    recentCommands: [],
+                    store: store
+                )
+                .compactMap(\.command)
+                .prefix(4)
+                .map(\.self)
+
+            let projected = items(
+                scope: .commands,
+                queryState: .empty,
+                recentCommands: commandHistory,
+                store: store
+            )
+            let recentCommands = projected.filter { $0.group == "Recent Commands" }
+
+            #expect(commandHistory.count == 4)
+            #expect(recentCommands.map(\.command) == Array(commandHistory.prefix(3)).map(Optional.some))
+        }
+    }
+
     @Test("recent pane eligibility excludes the attended pane before applying the cap")
     func recentPaneEligibilityPrecedesVisibleCap() throws {
         try withTestAtomRegistry { atoms in

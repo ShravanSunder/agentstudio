@@ -170,13 +170,77 @@ struct CommandBarTextFieldTests {
         #expect(!unhandled)
     }
 
+    @Test("Tab and Shift-Tab invoke forward and back navigation")
+    func tabSelectorsInvokeNavigation() {
+        let harness = DoCommandHarness(shortcutHandled: false)
+
+        let handledTab = harness.coordinator.control(
+            harness.field,
+            textView: harness.editor,
+            doCommandBy: #selector(NSResponder.insertTab(_:))
+        )
+        let handledBacktab = harness.coordinator.control(
+            harness.field,
+            textView: harness.editor,
+            doCommandBy: #selector(NSResponder.insertBacktab(_:))
+        )
+
+        #expect(handledTab)
+        #expect(handledBacktab)
+        #expect(harness.forwardCount == 1)
+        #expect(harness.backCount == 1)
+    }
+
+    @Test("Backspace on an empty query invokes breadcrumb navigation")
+    func emptyBackspaceInvokesNavigation() {
+        let harness = DoCommandHarness(shortcutHandled: false)
+        harness.editor.string = ""
+
+        let handled = harness.coordinator.control(
+            harness.field,
+            textView: harness.editor,
+            doCommandBy: #selector(NSResponder.deleteBackward(_:))
+        )
+
+        #expect(handled)
+        #expect(harness.backspaceCount == 1)
+    }
+
+    @Test("Backspace with query text remains normal text editing")
+    func nonEmptyBackspaceRemainsTextEditing() {
+        let harness = DoCommandHarness(shortcutHandled: false)
+        harness.editor.string = "actual"
+
+        let handled = harness.coordinator.control(
+            harness.field,
+            textView: harness.editor,
+            doCommandBy: #selector(NSResponder.deleteBackward(_:))
+        )
+
+        #expect(!handled)
+        #expect(harness.backspaceCount == 0)
+    }
+
     @MainActor
     private final class DoCommandHarness {
         let field = NSTextField()
         let editor = NSTextView()
         let coordinator: CommandBarTextField.Coordinator
+        private let backspaceCounter: Counter
+        private let forwardCounter: Counter
+        private let backCounter: Counter
+
+        var backspaceCount: Int { backspaceCounter.value }
+        var forwardCount: Int { forwardCounter.value }
+        var backCount: Int { backCounter.value }
 
         init(shortcutHandled: Bool) {
+            let backspaceCounter = Counter()
+            let forwardCounter = Counter()
+            let backCounter = Counter()
+            self.backspaceCounter = backspaceCounter
+            self.forwardCounter = forwardCounter
+            self.backCounter = backCounter
             let textField = CommandBarTextField(
                 text: .constant(""),
                 placeholder: "Filter...",
@@ -184,9 +248,15 @@ struct CommandBarTextFieldTests {
                 onArrowDown: {},
                 onEnter: { _ in },
                 onShortcutTrigger: { _ in shortcutHandled },
-                onBackspaceOnEmpty: {}
+                onBackspaceOnEmpty: { backspaceCounter.value += 1 },
+                onTabForward: { forwardCounter.value += 1 },
+                onShiftTabBack: { backCounter.value += 1 }
             )
             coordinator = CommandBarTextField.Coordinator(textField)
+        }
+
+        private final class Counter {
+            var value = 0
         }
     }
 

@@ -6,32 +6,17 @@ import SwiftUI
 struct CommandBarStatusStrip: View {
     let mode: CommandBarAppMode
     let context: WorkspacePaneFocus
-    let scopeLabel: String
 
     init(
         mode: CommandBarAppMode,
-        context: WorkspacePaneFocus,
-        scopeLabel: String = "Main"
+        context: WorkspacePaneFocus
     ) {
         self.mode = mode
         self.context = context
-        self.scopeLabel = scopeLabel
     }
 
     var body: some View {
         HStack {
-            Text(scopeLabel)
-                .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
-                .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Rows.statusContextOpacity))
-                .lineLimit(1)
-                .accessibilityHidden(true)
-                .background(
-                    AccessibilityLabelBridge(
-                        identifier: "commandBarScopeIdentity",
-                        label: "Current Command Bar scope, \(scopeLabel)"
-                    )
-                )
-
             if let icon = mode.statusStripIcon, let label = mode.statusStripLabel {
                 HStack(spacing: 4) {
                     Image(systemName: icon)

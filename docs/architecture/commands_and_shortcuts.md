@@ -185,7 +185,7 @@ Empty roots add scope-specific recency without changing ownership:
 | Main | Recent Repositories (up to 3), then Repos, Panes, Tabs, Commands |
 | `#` | Recent Repositories (up to 5), Recent Worktrees (up to 5), then Repositories |
 | `$` | Recent Panes (up to 5), then existing pane/tab groups |
-| `>` | Recent Commands (up to 5), then existing command categories |
+| `>` | Recent Commands (up to 3), then existing command categories |
 
 Any meaningful root query removes the Recent groups and searches the complete
 canonical scope exactly once. Clearing back to an empty query restores the
@@ -198,6 +198,13 @@ Recent Repository enters the existing repository menu. Recent Worktree enters
 the existing worktree action menu so path, terminal, Bridge, and existing-pane
 actions remain available from the recent row. Recent Pane focuses the pane, and
 Recent Command reuses its canonical command behavior.
+
+Nested menus render one breadcrumb trail beneath the search field, for example
+`Main › Repository agent-studio › Worktree main`. Ancestors are clickable; the
+current level is context, not a button. `Tab` enters the selected row's child
+menu when it has one. `Shift-Tab` or `Backspace` on an empty search field pops
+exactly one level, while `Backspace` with text edits the query normally.
+`Escape` dismisses the entire command bar.
 
 `#` is an object navigator. Root rows represent repos. A repository level
 targets its stored main worktree for direct actions, falling back to the first

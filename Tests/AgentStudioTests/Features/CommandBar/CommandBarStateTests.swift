@@ -368,6 +368,38 @@ final class CommandBarStateTests {
     }
 
     @Test
+    func test_popLevel_removesOnlyCurrentLevelAndClearsSelectionState() {
+        // Arrange
+        state.pushLevel(makeCommandBarLevel(id: "level-1"))
+        state.pushLevel(makeCommandBarLevel(id: "level-2"))
+        state.rawInput = "filter text"
+        state.selectedIndex = 3
+
+        // Act
+        state.popLevel()
+
+        // Assert
+        #expect(state.navigationStack.map(\.id) == ["level-1"])
+        #expect(state.rawInput.isEmpty)
+        #expect(state.selectedIndex == 0)
+    }
+
+    @Test
+    func test_popLevel_atRootDoesNothing() {
+        // Arrange
+        state.rawInput = "root search"
+        state.selectedIndex = 2
+
+        // Act
+        state.popLevel()
+
+        // Assert
+        #expect(state.navigationStack.isEmpty)
+        #expect(state.rawInput == "root search")
+        #expect(state.selectedIndex == 2)
+    }
+
+    @Test
     func test_isNested_afterPush_returnsTrue() {
         // Act
         state.pushLevel(makeCommandBarLevel())
@@ -402,45 +434,36 @@ final class CommandBarStateTests {
     }
 
     @Test
-    func test_scopePillLabel_returnsScopeLabelWhenPresent() {
-        // Arrange
-        let level = makeCommandBarLevel(title: "Actions", parentLabel: "Worktrees", scopeLabel: "Worktrees")
+    func test_breadcrumbLabels_includeRootAndTypedNestedLevels() {
+        state.show(prefix: "#")
+        state.pushLevel(makeCommandBarLevel(title: "actual", scopeLabel: "Repository"))
+        state.pushLevel(makeCommandBarLevel(title: "actual", scopeLabel: "Worktree"))
 
-        // Act
-        state.pushLevel(level)
-
-        // Assert
-        #expect(state.scopePillLabel == "Worktrees")
+        #expect(state.breadcrumbLabels == ["Repositories", "Repository actual", "Worktree actual"])
     }
 
     @Test
-    func test_scopePillLabel_returnsLevelTitle() {
-        // Arrange
-        let level = makeCommandBarLevel(title: "Close Tab")
+    func test_navigateToBreadcrumb_retainsSelectedAncestorAndClearsSelectionState() {
+        state.pushLevel(makeCommandBarLevel(id: "repository"))
+        state.pushLevel(makeCommandBarLevel(id: "worktree"))
+        state.rawInput = "filter"
+        state.selectedIndex = 3
 
-        // Act
-        state.pushLevel(level)
+        state.navigateToBreadcrumb(at: 1)
 
-        // Assert
-        #expect(state.scopePillLabel == "Close Tab")
+        #expect(state.navigationStack.map(\.id) == ["repository"])
+        #expect(state.rawInput.isEmpty)
+        #expect(state.selectedIndex == 0)
     }
 
     @Test
-    func test_backRowLabel_returnsTitleWhenScopeLabelPresent() {
-        let level = makeCommandBarLevel(title: "Actions", parentLabel: "Worktrees", scopeLabel: "Worktrees")
+    func test_navigateToBreadcrumb_rootClearsAllNestedLevels() {
+        state.pushLevel(makeCommandBarLevel(id: "repository"))
+        state.pushLevel(makeCommandBarLevel(id: "worktree"))
 
-        state.pushLevel(level)
+        state.navigateToBreadcrumb(at: 0)
 
-        #expect(state.backRowLabel == "Actions")
-    }
-
-    @Test
-    func test_backRowLabel_nestedWithoutScopeLabel_returnsNil() {
-        let level = makeCommandBarLevel(title: "Actions", parentLabel: "Worktrees", scopeLabel: nil)
-
-        state.pushLevel(level)
-
-        #expect(state.backRowLabel == nil)
+        #expect(state.navigationStack.isEmpty)
     }
 
     // MARK: - Selection
@@ -642,7 +665,7 @@ final class CommandBarStateTests {
             CommandBarLevel(
                 id: "repository",
                 title: "agent-studio",
-                scopeLabel: "Repo",
+                scopeLabel: "Repository",
                 items: []
             )
         )
@@ -650,13 +673,14 @@ final class CommandBarStateTests {
             CommandBarLevel(
                 id: "worktree",
                 title: "feature",
-                scopeLabel: "agent-studio",
+                scopeLabel: "Worktree",
                 items: []
             )
         )
 
         #expect(state.rootScopeLabel == "Repositories")
-        #expect(state.breadcrumbLabel == "Repositories › agent-studio › feature")
+        #expect(state.breadcrumbLabels == ["Repositories", "Repository agent-studio", "Worktree feature"])
+        #expect(state.breadcrumbLabel == "Repositories › Repository agent-studio › Worktree feature")
     }
 
     // MARK: - Placeholder
@@ -742,20 +766,6 @@ final class CommandBarStateTests {
 
         // Assert
         #expect(state.scopeIcon == "magnifyingglass")
-    }
-
-    // MARK: - Scope Pill at Root (nil behavior)
-
-    @Test
-    func test_scopePillLabel_atRoot_returnsNil() {
-        // Assert — no nested level, should be nil
-        #expect(state.scopePillLabel == nil)
-    }
-
-    @Test
-    func test_backRowLabel_atRoot_returnsNil() {
-        // Assert
-        #expect(state.backRowLabel == nil)
     }
 
     // MARK: - Selection Edge Cases (out-of-bounds initial state)

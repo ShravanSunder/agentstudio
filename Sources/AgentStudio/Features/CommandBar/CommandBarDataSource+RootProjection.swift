@@ -183,7 +183,7 @@ extension CommandBarDataSource {
                 groupPriority: 0
             )
         }
-        .prefix(5)
+        .prefix(3)
         .map(\.self)
 
         let promotedIDs = Set(recentRows.map(\.id))

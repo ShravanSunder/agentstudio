@@ -44,11 +44,23 @@ struct FooterHintBuilderTests {
     }
 
     @Test
-    func test_nested_showsBackAndClose() {
+    func test_nested_showsShiftTabAndBackspaceBackAndClose() {
         let hints = FooterHintBuilder.hints(for: nil, isNested: true, canOpenInCurrentTab: true)
+        let keys = keysById(hints)
 
         #expect(labels(hints) == ["Back", "Close"])
+        #expect(keys["back"] == ["⇧⇥ / ⌫"])
         #expect(hasDivider(hints))
+    }
+
+    @Test
+    func test_nestedItemWithChildren_showsTabActions() {
+        let item = makeCommandBarItem(id: "worktree", title: "Worktree", hasChildren: true)
+        let hints = FooterHintBuilder.hints(for: item, isNested: true, canOpenInCurrentTab: true)
+        let keys = keysById(hints)
+
+        #expect(labels(hints) == ["Actions", "Back", "Close"])
+        #expect(keys["drill-in"] == ["⇥"])
     }
 
     @Test
@@ -246,10 +258,11 @@ struct FooterHintBuilderTests {
 
     @Test
     func test_nestedLayoutPutsDismissOnSecondaryTrailingOnly() {
-        let hints = FooterHintBuilder.hints(for: nil, isNested: true, canOpenInCurrentTab: true)
+        let item = makeCommandBarItem(id: "worktree", title: "Worktree", hasChildren: true)
+        let hints = FooterHintBuilder.hints(for: item, isNested: true, canOpenInCurrentTab: true)
         let layout = layoutLabels(hints)
 
-        #expect(layout.primary.isEmpty)
+        #expect(layout.primary == ["Actions"])
         #expect(layout.secondaryLeading == ["Back"])
         #expect(layout.secondaryTrailing == ["Close"])
     }

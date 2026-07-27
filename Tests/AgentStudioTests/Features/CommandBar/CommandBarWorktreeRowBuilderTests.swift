@@ -54,7 +54,7 @@ struct CommandBarWorktreeRowBuilderTests {
 
         #expect(level.title == "main")
         #expect(level.parentLabel == "repo")
-        #expect(level.scopeLabel == "repo")
+        #expect(level.scopeLabel == "Worktree")
         #expect(level.items.count == 10)
         #expect(level.items.filter { $0.group == "Terminal" }.count == 2)
         #expect(level.items.filter { $0.group == "Path" }.count == 2)
