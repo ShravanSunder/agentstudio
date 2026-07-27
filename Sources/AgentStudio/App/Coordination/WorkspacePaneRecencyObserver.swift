@@ -28,6 +28,7 @@ final class WorkspacePaneRecencyObserver {
     }
 
     func stop() {
+        recordTransitionIfNeeded()
         isStopped = true
         observationGeneration += 1
         postChangeDeliveryTask?.cancel()

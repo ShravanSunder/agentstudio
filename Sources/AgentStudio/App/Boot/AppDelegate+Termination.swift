@@ -43,7 +43,7 @@ extension AppDelegate {
         do {
             try await entityRecencyStore.flushAllAsync()
         } catch {
-            appLogger.warning("Entity recency flush failed at termination")
+            appLogger.warning("Entity recency flush failed at termination: \(error.localizedDescription)")
         }
 
         do {

@@ -111,6 +111,7 @@ final class EntityRecencyStore {
 
     func flushAllAsync() async throws {
         var applicationFlushError: (any Error)?
+        var workspaceFlushError: (any Error)?
         do {
             try await flushApplicationAsync()
         } catch {
@@ -118,10 +119,17 @@ final class EntityRecencyStore {
         }
 
         if let workspaceID = hydratedWorkspaceID {
-            try await flushWorkspaceAsync(for: workspaceID)
+            do {
+                try await flushWorkspaceAsync(for: workspaceID)
+            } catch {
+                workspaceFlushError = error
+            }
         }
         if let applicationFlushError {
             throw applicationFlushError
+        }
+        if let workspaceFlushError {
+            throw workspaceFlushError
         }
     }
 

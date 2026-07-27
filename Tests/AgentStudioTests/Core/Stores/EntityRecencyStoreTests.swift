@@ -434,6 +434,65 @@ struct EntityRecencyStoreTests {
         #expect(applicationAtom.recentEntities.count == 2)
     }
 
+    @Test("flush all preserves the application error when both lanes fail")
+    func flushAllPreservesApplicationErrorPrecedence() async throws {
+        let workspaceID = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceID)
+        let datastore = try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        _ = await datastore.loadRepoCacheState(workspaceId: workspaceID)
+        let applicationAtom = ApplicationEntityRecencyAtom()
+        let workspaceAtom = WorkspaceEntityRecencyAtom()
+        let store = EntityRecencyStore(
+            applicationAtom: applicationAtom,
+            workspaceAtom: workspaceAtom,
+            sqliteDatastore: datastore
+        )
+        await store.restoreApplicationAsync()
+        await store.restoreWorkspaceAsync(for: workspaceID)
+        applicationAtom.record(
+            try ApplicationEntityRecency(
+                entity: .repository(repositoryStableKey: "aaaaaaaaaaaaaaaa"),
+                interaction: .opened,
+                lastInteractedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+        workspaceAtom.record(
+            try WorkspaceEntityRecency(
+                workspaceID: workspaceID,
+                entity: .pane(paneID: UUID()),
+                interaction: .focused,
+                lastInteractedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+        try await fixture.databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    CREATE TRIGGER reject_application_recency_flush
+                    BEFORE INSERT ON local_entity_recency
+                    BEGIN
+                        SELECT RAISE(ABORT, 'reject application recency flush');
+                    END
+                    """
+            )
+            try database.execute(
+                sql: """
+                    CREATE TRIGGER reject_workspace_recency_flush
+                    BEFORE INSERT ON local_workspace_entity_recency
+                    BEGIN
+                        SELECT RAISE(ABORT, 'reject workspace recency flush');
+                    END
+                    """
+            )
+        }
+
+        do {
+            try await store.flushAllAsync()
+            Issue.record("Expected both recency lanes to fail")
+        } catch {
+            #expect(String(reflecting: error).contains("reject application recency flush"))
+        }
+    }
+
     @Test("application lane failure defaults only application state")
     func applicationLaneFailureDoesNotDefaultWorkspaceState() async throws {
         let workspaceID = UUID()

@@ -20,19 +20,11 @@ typealias CommandBarPathActionFailureHandler = @MainActor @Sendable (CommandBarP
 extension CommandBarDataSource {
     static func repoScopeItems(store: WorkspaceStore, repoCache: RepoCacheAtom) -> [CommandBarItem] {
         _ = repoCache
-        let repositories = store.repositoryTopologyAtom.repos
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
-
-        return repositories.map { repository in
-            repoRootItem(
-                repo: repository,
-                store: store,
-                presenceByWorktreeId: presenceByWorktreeId,
-                group: Group.repositories,
-                groupPriority: Priority.repositories
-            )
-        }
+        return allRepoItems(
+            store: store,
+            group: Group.repositories,
+            groupPriority: Priority.repositories
+        )
     }
 
     static func allRepoItems(

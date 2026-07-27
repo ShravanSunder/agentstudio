@@ -158,6 +158,56 @@ struct WorkspacePaneRecencyObserverTests {
         }
     }
 
+    @Test("stop records the pending attended-pane transition before cancelling delivery")
+    func stop_recordsPendingAttendedPaneTransition() async {
+        await withAsyncTestAtomRegistry { atoms in
+            let store = WorkspaceStore(
+                identityAtom: atoms.workspaceIdentity,
+                windowMemoryAtom: atoms.workspaceWindowMemory,
+                repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
+                paneAtom: atoms.workspacePane,
+                tabLayoutAtom: atoms.workspaceTabLayout,
+                mutationCoordinator: atoms.workspaceMutationCoordinator
+            )
+            let paneA = store.createPane(title: "A")
+            let paneB = store.createPane(title: "B")
+            let tab = Tab(paneId: paneA.id)
+            store.appendTab(tab)
+            #expect(
+                store.insertPane(
+                    paneB.id,
+                    inTab: tab.id,
+                    at: paneA.id,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )
+            )
+            store.setActivePane(paneA.id, inTab: tab.id)
+            atoms.workspaceEntityRecency.hydrate(
+                workspaceID: store.workspaceId,
+                recentEntities: []
+            )
+            let windowID = UUID()
+            atoms.windowLifecycle.recordWindowRegistered(windowID)
+            atoms.windowLifecycle.recordWindowBecameKey(windowID)
+            let observer = WorkspacePaneRecencyObserver(
+                store: store,
+                attendedPane: atoms.attendedPane,
+                recencyAtom: atoms.workspaceEntityRecency,
+                now: { Date(timeIntervalSince1970: 900) }
+            )
+
+            store.setActivePane(paneB.id, inTab: tab.id)
+            observer.stop()
+
+            #expect(
+                atoms.workspaceEntityRecency.recentEntities.map(\.entity)
+                    == [.pane(paneID: paneB.id)]
+            )
+        }
+    }
+
     @Test("records an attended pane after its eligibility settles")
     func provisionalIneligibleTransition_recordsAfterEligibilitySettles() async {
         await withAsyncTestAtomRegistry { atoms in
