@@ -121,19 +121,28 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(repoExplorerViewSource.contains("targetType: .repo"))
     }
 
-    @Test("repo sidebar product controls dispatch existing app commands")
-    func repoSidebarProductControlsDispatchExistingAppCommands() throws {
+    @Test("repo sidebar product controls route through App command composition")
+    func repoSidebarProductControlsRouteThroughAppCommandComposition() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let source = try String(
+        let featureSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
             encoding: .utf8
         )
+        let appCompositionSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift"),
+            encoding: .utf8
+        )
 
-        #expect(!source.contains("repoExplorerPrefs.setRepoVisibilityMode"))
-        #expect(!source.contains("repoExplorerPrefs.toggleSortOrder"))
-        #expect(!source.contains("repoExplorerPrefs.setGroupingMode(candidate)"))
-        #expect(source.contains("command: .setRepoSidebarVisibilityMode"))
-        #expect(source.contains("command: .setRepoSidebarSortOrder"))
-        #expect(source.contains("AppCommandDispatcher.shared.dispatch(groupingCommand(for: candidate))"))
+        #expect(!featureSource.contains("repoExplorerPrefs.setRepoVisibilityMode"))
+        #expect(!featureSource.contains("repoExplorerPrefs.toggleSortOrder"))
+        #expect(!featureSource.contains("repoExplorerPrefs.setGroupingMode(candidate)"))
+        #expect(featureSource.contains("onSetVisibilityMode(isFavoritesOnly ? .all : .favoritesOnly)"))
+        #expect(featureSource.contains("onSetSortOrder(repoExplorerPrefs.sortOrder.toggled)"))
+        #expect(featureSource.contains("commandDispatcher.dispatch(groupingCommand(for: candidate))"))
+        #expect(!featureSource.contains("AppCommandDispatcher.shared"))
+        #expect(appCompositionSource.contains("command: .setRepoSidebarVisibilityMode"))
+        #expect(appCompositionSource.contains("arguments: .repoSidebarVisibilityMode(mode)"))
+        #expect(appCompositionSource.contains("command: .setRepoSidebarSortOrder"))
+        #expect(appCompositionSource.contains("arguments: .repoSidebarSortOrder(order)"))
     }
 }
