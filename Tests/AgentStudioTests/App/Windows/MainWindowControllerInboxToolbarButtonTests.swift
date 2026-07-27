@@ -166,6 +166,7 @@ private func withMainWindowControllerHarness<T>(
     let result = try await withAsyncTestCoreAtoms(using: atoms.core) { _ in
         let windowController = MainWindowController(
             store: store,
+            octiconLoader: makeTestOcticonLoader(),
             workspaceActionExecutor: workspaceActionExecutor,
             runtimeCommandDispatcher: coordinator,
             applicationLifecycleMonitor: applicationLifecycleMonitor,

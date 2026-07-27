@@ -54,6 +54,7 @@ struct SidebarSectionHeaderTests {
     func repoGroupHeaderCentralizesRepoSidebarChrome() {
         let header = SidebarRepoGroupHeader(
             isCollapsed: false,
+            octiconLoader: makeTestOcticonLoader(),
             repoTitle: "agent-studio",
             organizationName: "ShravanSunder",
             onToggle: {},

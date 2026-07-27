@@ -20,8 +20,8 @@ struct WebviewNewTabView: View {
 
         return history.allSearchable().compactMap { entry in
             // Match against title and URL, take best score
-            let titleMatch = CommandBarSearch.fuzzyMatch(pattern: query, in: entry.title)
-            let urlMatch = CommandBarSearch.fuzzyMatch(pattern: query, in: entry.url.absoluteString)
+            let titleMatch = FuzzySearch.fuzzyMatch(pattern: query, in: entry.title)
+            let urlMatch = FuzzySearch.fuzzyMatch(pattern: query, in: entry.url.absoluteString)
 
             let bestScore: Double
             if let t = titleMatch, let u = urlMatch {
@@ -34,7 +34,7 @@ struct WebviewNewTabView: View {
                 return nil
             }
 
-            guard bestScore < CommandBarSearch.defaultThreshold else { return nil }
+            guard bestScore < FuzzySearch.defaultThreshold else { return nil }
             return SearchResult(entry: entry, score: bestScore)
         }
         .sorted { $0.score < $1.score }

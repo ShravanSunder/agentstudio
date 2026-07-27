@@ -1,12 +1,16 @@
 import SwiftUI
 
 struct SidebarGroupRow: View {
+    let octiconLoader: OcticonLoader
     let repoTitle: String
     let organizationName: String?
 
     var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
-            AppEntityIcon.repo.swiftUIImage(size: AppStyles.Shell.Sidebar.groupIconSize)
+            AppEntityIcon.repo.swiftUIImage(
+                loader: octiconLoader,
+                size: AppStyles.Shell.Sidebar.groupIconSize
+            )
 
             HStack(spacing: AppStyles.Shell.Sidebar.groupTitleSpacing) {
                 Text(repoTitle)

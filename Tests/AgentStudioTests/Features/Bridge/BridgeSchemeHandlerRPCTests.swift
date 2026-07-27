@@ -79,6 +79,7 @@ final class BridgeSchemeHandlerRPCTests {
         )
         let handler = BridgeSchemeHandler(
             paneId: UUID(),
+            appRootURL: testBridgeAppRootURL(),
             productSessionRouter: router
         )
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
@@ -156,6 +157,7 @@ final class BridgeSchemeHandlerRPCTests {
         )
         let handler = BridgeSchemeHandler(
             paneId: UUID(),
+            appRootURL: testBridgeAppRootURL(),
             productSessionRouter: router
         )
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
@@ -252,6 +254,7 @@ final class BridgeSchemeHandlerRPCTests {
         )
         let handler = BridgeSchemeHandler(
             paneId: UUID(),
+            appRootURL: testBridgeAppRootURL(),
             productSessionRouter: router
         )
         var request = URLRequest(

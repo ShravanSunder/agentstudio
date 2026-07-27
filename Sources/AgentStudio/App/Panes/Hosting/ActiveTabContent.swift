@@ -8,6 +8,7 @@ import SwiftUI
 @available(*, deprecated, message: "PaneTabViewController now uses per-tab SingleTabContent hosts")
 struct ActiveTabContent: View {
     let store: WorkspaceStore
+    let octiconLoader: OcticonLoader
     let repoCache: RepoCacheAtom
     let editorChooser: EditorChooserState
     let viewRegistry: ViewRegistry
@@ -52,6 +53,7 @@ struct ActiveTabContent: View {
         if let activeTabId, let tab {
             FlatTabStripContainer(
                 layout: tab.layout,
+                octiconLoader: octiconLoader,
                 tabId: activeTabId,
                 activePaneId: tab.activePaneId,
                 zoomedPaneId: tab.zoomedPaneId,

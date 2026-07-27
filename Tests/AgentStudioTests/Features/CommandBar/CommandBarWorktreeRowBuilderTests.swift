@@ -50,7 +50,8 @@ struct CommandBarWorktreeRowBuilderTests {
             ]
         )
 
-        let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: true)
+        let level = CommandBarDataSource.buildWorktreeActionsLevel(
+            presence: presence, canOpenInCurrentTab: true, dispatcher: FakeAppCommandDispatcher())
 
         #expect(level.title == "main")
         #expect(level.parentLabel == "repo")
@@ -78,7 +79,8 @@ struct CommandBarWorktreeRowBuilderTests {
     func test_buildWorktreeActionsLevel_hidesCurrentTabOptionWhenUnavailable() {
         let presence = makeWorktreePresence(paneCount: 0)
 
-        let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: false)
+        let level = CommandBarDataSource.buildWorktreeActionsLevel(
+            presence: presence, canOpenInCurrentTab: false, dispatcher: FakeAppCommandDispatcher())
 
         #expect(level.items.count == 7)
         #expect(level.items[2].id == "wt-new-tab-\(presence.worktreeId.uuidString)")
@@ -90,62 +92,49 @@ struct CommandBarWorktreeRowBuilderTests {
     }
 
     @Test
-    func test_buildWorktreeActionsLevel_usesOpenLabelsWhenBridgePaneWillBeCreated() async throws {
+    func test_buildWorktreeActionsLevel_usesOpenLabelsWhenBridgePaneWillBeCreated() {
         let presence = makeWorktreePresence(paneCount: 0)
+        let dispatcher = FakeAppCommandDispatcher()
 
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                AppCommandDispatcher.shared.handler = nil
-                AppCommandDispatcher.shared.appCommandRouter = nil
-            },
-            body: {
-                let level = CommandBarDataSource.buildWorktreeActionsLevel(
-                    presence: presence,
-                    canOpenInCurrentTab: true
-                )
-
-                #expect(level.items[3].title == "Open Review")
-                #expect(level.items[4].title == "Open Files")
-                #expect(level.items[5].title == "Open Review in New Tab")
-                #expect(level.items[6].title == "Open Files in New Tab")
-            }
+        let level = CommandBarDataSource.buildWorktreeActionsLevel(
+            presence: presence,
+            canOpenInCurrentTab: true,
+            dispatcher: dispatcher
         )
+
+        #expect(level.items[3].title == "Open Review")
+        #expect(level.items[4].title == "Open Files")
+        #expect(level.items[5].title == "Open Review in New Tab")
+        #expect(level.items[6].title == "Open Files in New Tab")
     }
 
     @Test
-    func test_buildWorktreeActionsLevel_usesGoToLabelsForResolvedBridgePane() async throws {
+    func test_buildWorktreeActionsLevel_usesGoToLabelsForResolvedBridgePane() {
         let presence = makeWorktreePresence(paneCount: 0)
-        let handler = BridgePaneCommandTargetHandler(
-            target: BridgePaneCommandTarget(
-                worktreeId: presence.worktreeId,
-                resolution: .reuse(paneId: UUID())
-            )
+        let dispatcher = FakeAppCommandDispatcher()
+        dispatcher.bridgeTargetsByWorktreeId[presence.worktreeId] = BridgePaneCommandTarget(
+            worktreeId: presence.worktreeId,
+            resolution: .reuse(paneId: UUID())
         )
 
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                AppCommandDispatcher.shared.handler = handler
-                AppCommandDispatcher.shared.appCommandRouter = nil
-            },
-            body: {
-                let level = CommandBarDataSource.buildWorktreeActionsLevel(
-                    presence: presence,
-                    canOpenInCurrentTab: true
-                )
-
-                #expect(level.items[3].title == "Go to Review")
-                #expect(level.items[4].title == "Go to Files")
-                #expect(level.items[5].title == "Open Review in New Tab")
-                #expect(level.items[6].title == "Open Files in New Tab")
-            }
+        let level = CommandBarDataSource.buildWorktreeActionsLevel(
+            presence: presence,
+            canOpenInCurrentTab: true,
+            dispatcher: dispatcher
         )
+
+        #expect(level.items[3].title == "Go to Review")
+        #expect(level.items[4].title == "Go to Files")
+        #expect(level.items[5].title == "Open Review in New Tab")
+        #expect(level.items[6].title == "Open Files in New Tab")
     }
 
     @Test
     func test_buildWorktreeActionsLevel_usesFourBridgeTargetedCommands() {
         let presence = makeWorktreePresence(paneCount: 1)
 
-        let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: true)
+        let level = CommandBarDataSource.buildWorktreeActionsLevel(
+            presence: presence, canOpenInCurrentTab: true, dispatcher: FakeAppCommandDispatcher())
 
         guard
             case .dispatchTargeted(.openNewTerminalInTab, let newTabTarget, .worktree) = level.items[2].action
@@ -238,7 +227,8 @@ struct CommandBarWorktreeRowBuilderTests {
     func test_buildWorktreeActionsLevel_pathActionsUsePanePathShortcuts() {
         let presence = makeWorktreePresence(paneCount: 0)
 
-        let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: true)
+        let level = CommandBarDataSource.buildWorktreeActionsLevel(
+            presence: presence, canOpenInCurrentTab: true, dispatcher: FakeAppCommandDispatcher())
 
         let copyPathItem = level.items.first { $0.id == "wt-\(presence.worktreeId.uuidString)-copy-path" }
         let revealInFinderItem = level.items.first { $0.id == "wt-\(presence.worktreeId.uuidString)-reveal-finder" }
@@ -451,7 +441,8 @@ struct CommandBarWorktreeRowBuilderTests {
             ]
         )
 
-        let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: true)
+        let level = CommandBarDataSource.buildWorktreeActionsLevel(
+            presence: presence, canOpenInCurrentTab: true, dispatcher: FakeAppCommandDispatcher())
         let navigateItems = level.items.filter { $0.group == "Navigate to" }
 
         #expect(navigateItems.count == 2)
@@ -482,33 +473,4 @@ private final class PathActionRecorder: PathActionsExecuting, @unchecked Sendabl
         revealedPaths.append(path)
         return revealSucceeds
     }
-}
-
-@MainActor
-private final class BridgePaneCommandTargetHandler: WorkspaceCommandHandling {
-    private let target: BridgePaneCommandTarget
-
-    init(target: BridgePaneCommandTarget) {
-        self.target = target
-    }
-
-    func execute(_: AppCommand) {}
-
-    func execute(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
-
-    func canExecute(_: AppCommand) -> Bool {
-        true
-    }
-
-    func canExecute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
-        true
-    }
-
-    func bridgePaneCommandTarget(worktreeId: UUID) -> BridgePaneCommandTarget? {
-        target.worktreeId == worktreeId ? target : nil
-    }
-
-    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabIndex _: Int?) {}
-
-    func executeMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
 }

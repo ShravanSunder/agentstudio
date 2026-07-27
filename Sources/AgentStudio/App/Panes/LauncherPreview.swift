@@ -39,11 +39,15 @@ enum LauncherPreviewScope: String, Identifiable, CaseIterable {
 /// crossfade. Preview itself stays `.allowsHitTesting(false)` — only the
 /// pills are interactive.
 struct LauncherPreviewStack: View {
+    let octiconLoader: OcticonLoader
     @State private var selectedScope: LauncherPreviewScope = .repos
 
     var body: some View {
         VStack(spacing: AppStyles.Welcome.launcherPreviewCalloutGap) {
-            CommandBarEmbeddedPreview(scope: selectedScope)
+            CommandBarEmbeddedPreview(
+                octiconLoader: octiconLoader,
+                scope: selectedScope
+            )
             LauncherScopesCallout(selectedScope: $selectedScope)
         }
     }
@@ -52,9 +56,11 @@ struct LauncherPreviewStack: View {
 // MARK: - CommandBarEmbeddedPreview
 
 struct CommandBarEmbeddedPreview: View {
+    let octiconLoader: OcticonLoader
     let scope: LauncherPreviewScope
 
-    init(scope: LauncherPreviewScope = .repos) {
+    init(octiconLoader: OcticonLoader, scope: LauncherPreviewScope = .repos) {
+        self.octiconLoader = octiconLoader
         self.scope = scope
     }
 
@@ -80,7 +86,7 @@ struct CommandBarEmbeddedPreview: View {
     // the `.transition` fires.
     @ViewBuilder
     private var previewContent: some View {
-        PreviewBody(scope: scope)
+        PreviewBody(octiconLoader: octiconLoader, scope: scope)
             .id(scope)
             .transition(.opacity)
             .animation(
@@ -333,6 +339,7 @@ struct CommandBarEmbeddedPreview: View {
 // MARK: - PreviewBody — internal view composing real cmd-bar leaf views with mock data
 
 private struct PreviewBody: View {
+    let octiconLoader: OcticonLoader
     let scope: LauncherPreviewScope
 
     @State private var previewState = CommandBarState()
@@ -354,6 +361,7 @@ private struct PreviewBody: View {
         VStack(spacing: 0) {
             CommandBarSearchField(
                 state: previewState,
+                octiconLoader: octiconLoader,
                 onArrowUp: {},
                 onArrowDown: {},
                 onEnter: { _ in },
@@ -366,6 +374,7 @@ private struct PreviewBody: View {
 
             CommandBarResultsList(
                 groups: CommandBarEmbeddedPreview.mockGroups(for: scope),
+                octiconLoader: octiconLoader,
                 selectedIndex: 0,
                 searchQuery: scope.query,
                 onSelect: { _ in }

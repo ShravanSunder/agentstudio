@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct InboxNotificationGroupHeader: View {
+    let octiconLoader: OcticonLoader
     let header: InboxNotificationListSectionHeader
     let unreadCount: Int
     let isCollapsed: Bool
@@ -39,6 +40,7 @@ struct InboxNotificationGroupHeader: View {
     var body: some View {
         SidebarSourceGroupHeader(
             isCollapsed: isCollapsed,
+            octiconLoader: octiconLoader,
             icon: Self.icon(for: header.sourceKind, accentColorHex: header.accentColorHex),
             title: header.title,
             secondaryTitle: header.secondaryTitle,

@@ -15,7 +15,7 @@ struct CommandBarInboxCommandsTests {
             scope: .inbox,
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared,
+            dispatcher: FakeAppCommandDispatcher(),
             notificationInboxCommands: nil
         )
 
@@ -52,7 +52,7 @@ struct CommandBarInboxCommandsTests {
             scope: .inbox,
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared,
+            dispatcher: FakeAppCommandDispatcher(),
             notificationInboxCommands: commands
         )
 

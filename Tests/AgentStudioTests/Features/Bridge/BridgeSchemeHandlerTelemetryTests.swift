@@ -45,6 +45,7 @@ struct BridgeSchemeHandlerTelemetryTests {
         let owner = BridgePaneTelemetrySessionOwner(initialInstallation: installation)
         let handler = BridgeSchemeHandler(
             paneId: UUID(),
+            appRootURL: testBridgeAppRootURL(),
             telemetrySessionOwner: owner
         )
         let sample = sampleWithWebAttributes(
@@ -229,6 +230,7 @@ struct BridgeSchemeHandlerTelemetryTests {
             owner: owner,
             handler: BridgeSchemeHandler(
                 paneId: UUID(),
+                appRootURL: testBridgeAppRootURL(),
                 telemetrySessionOwner: owner
             )
         )

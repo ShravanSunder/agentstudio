@@ -435,6 +435,7 @@ extension WebKitSerializedTests {
                         baseline: .localDefaultBranch(branchName: "main")
                     )
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     paneId: PaneId(existingUUID: input.paneId),
                     contentType: .diff,
@@ -750,6 +751,7 @@ extension WebKitSerializedTests {
                         baseline: .localDefaultBranch(branchName: "main")
                     )
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     paneId: PaneId(existingUUID: paneId),
                     contentType: .diff,

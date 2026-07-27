@@ -6,6 +6,7 @@ import SwiftUI
 /// Uses NSTextField wrapper for keyboard interception (arrows, Enter, Escape).
 struct CommandBarSearchField: View {
     @Bindable var state: CommandBarState
+    let octiconLoader: OcticonLoader
     let onArrowUp: () -> Void
     let onArrowDown: () -> Void
     let onEnter: (EnterModifier) -> Void
@@ -40,7 +41,7 @@ struct CommandBarSearchField: View {
     @ViewBuilder
     private var scopeIconView: some View {
         if state.scopeIconIsOcticon {
-            OcticonImage(name: state.scopeIcon, size: 16)
+            OcticonImage(name: state.scopeIcon, size: 16, loader: octiconLoader)
                 .foregroundStyle(.primary.opacity(0.35))
         } else {
             Image(systemName: state.scopeIcon)

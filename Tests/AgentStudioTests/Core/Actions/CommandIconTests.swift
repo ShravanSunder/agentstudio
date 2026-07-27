@@ -18,9 +18,11 @@ struct CommandIconTests {
     @Test("every typed octicon resolves from the asset catalog")
     @MainActor
     func everyTypedOcticonResolves() {
+        let octiconLoader = makeTestOcticonLoader()
+
         for symbol in OcticonSymbol.allCases {
             #expect(
-                OcticonLoader.shared.image(named: symbol.rawValue) != nil,
+                octiconLoader.image(named: symbol.rawValue) != nil,
                 "Missing octicon asset: \(symbol.rawValue)"
             )
         }

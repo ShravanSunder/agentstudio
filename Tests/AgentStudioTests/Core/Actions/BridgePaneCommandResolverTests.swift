@@ -5,6 +5,35 @@ import Testing
 
 @Suite("Bridge pane command resolver")
 struct BridgePaneCommandResolverTests {
+    @Test(
+        "contextual labels use Core command presentation",
+        arguments: [
+            (BridgePaneCommandResolution.create, AppCommand.showBridgeReview, "Open Review"),
+            (BridgePaneCommandResolution.create, AppCommand.showBridgeFiles, "Open Files"),
+            (
+                BridgePaneCommandResolution.reuse(paneId: UUID()),
+                AppCommand.showBridgeReview,
+                "Go to Review"
+            ),
+            (
+                BridgePaneCommandResolution.reuse(paneId: UUID()),
+                AppCommand.showBridgeFiles,
+                "Go to Files"
+            ),
+        ]
+    )
+    func contextualLabelUsesAppCommand(
+        resolution: BridgePaneCommandResolution,
+        command: AppCommand,
+        expectedLabel: String
+    ) {
+        // Act
+        let label = resolution.contextualLabel(for: command)
+
+        // Assert
+        #expect(label == expectedLabel)
+    }
+
     @Test("the matching pane with the greatest attendance ordinal wins")
     func greatestAttendanceOrdinalWins() {
         // Arrange

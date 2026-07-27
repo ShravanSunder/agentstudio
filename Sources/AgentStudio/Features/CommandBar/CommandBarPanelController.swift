@@ -19,8 +19,9 @@ final class CommandBarPanelController {
     // MARK: - Dependencies
 
     private let store: WorkspaceStore
+    private let octiconLoader: OcticonLoader
     private let repoCache: RepoCacheAtom
-    private let dispatcher: AppCommandDispatcher
+    private let dispatcher: any AppCommandDispatching
     private let notificationInboxCommands: InboxNotificationCommands?
     private let commandBarSurface: CommandBarSurfaceAtom
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -43,13 +44,15 @@ final class CommandBarPanelController {
 
     init(
         store: WorkspaceStore,
+        octiconLoader: OcticonLoader,
         repoCache: RepoCacheAtom,
-        dispatcher: AppCommandDispatcher,
+        dispatcher: any AppCommandDispatching,
         notificationInboxCommands: InboxNotificationCommands? = nil,
         commandBarSurface: CommandBarSurfaceAtom,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         self.store = store
+        self.octiconLoader = octiconLoader
         self.repoCache = repoCache
         self.dispatcher = dispatcher
         self.notificationInboxCommands = notificationInboxCommands
@@ -169,6 +172,7 @@ final class CommandBarPanelController {
         // Set SwiftUI content
         let contentView = CommandBarView(
             state: state,
+            octiconLoader: octiconLoader,
             resultSession: resultSession,
             onShortcutTrigger: { [weak self] trigger in
                 self?.handleShortcutTrigger(trigger) ?? false
@@ -311,7 +315,8 @@ final class CommandBarPanelController {
                 CommandBarDataSource.buildWorktreeActionsLevel(
                     worktree: worktree,
                     presence: presence,
-                    canOpenInCurrentTab: canOpenInCurrentTab
+                    canOpenInCurrentTab: canOpenInCurrentTab,
+                    dispatcher: dispatcher
                 )
             )
         }

@@ -23,6 +23,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: reviewFixture.sourceProvider,
                 initialPaneActivity: .foreground,
                 productSessionBootstrapSink: { _, _, installation, _, _ in
@@ -130,6 +131,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: paneId,
                 state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "close-bootstrap")),
+                appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionDependencies: BridgePaneProductSessionDependencies(
                     installation: initialInstallation,
@@ -174,6 +176,7 @@ extension WebKitSerializedTests {
                     panelKind: .fileViewer,
                     source: .workspace(rootPath: "Sources", baseline: .unstaged)
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionBootstrapSink: { _, _, installation, _, _ in
                     deliveredInstallations.append(installation)
@@ -289,6 +292,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     paneId: PaneId(existingUUID: paneId),
                     contentType: .diff,

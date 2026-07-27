@@ -8,10 +8,7 @@ struct BridgeAppAsset: Sendable {
 actor BridgeAppAssetStore {
     private let appRootURL: URL
 
-    init(
-        appRootURL: URL = (Bundle.appResources.resourceURL ?? Bundle.appResources.bundleURL)
-            .appendingPathComponent("BridgeWeb/app")
-    ) {
+    init(appRootURL: URL) {
         self.appRootURL = appRootURL.resolvingSymlinksInPath().standardizedFileURL
     }
 

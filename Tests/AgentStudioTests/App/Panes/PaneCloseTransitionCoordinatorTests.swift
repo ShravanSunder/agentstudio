@@ -109,6 +109,7 @@ struct PaneCloseTransitionCoordinatorTests {
         )
         let container = FlatTabStripContainer(
             layout: Layout(paneId: paneId),
+            octiconLoader: makeTestOcticonLoader(),
             tabId: UUID(),
             activePaneId: paneId,
             zoomedPaneId: paneId,
@@ -200,6 +201,7 @@ struct PaneCloseTransitionCoordinatorTests {
 
         let leaf = PaneLeafContainer(
             paneHost: drawerHost,
+            octiconLoader: makeTestOcticonLoader(),
             tabId: tab.id,
             isActive: true,
             isSplit: false,

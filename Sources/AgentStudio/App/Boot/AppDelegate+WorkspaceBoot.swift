@@ -129,8 +129,6 @@ extension AppDelegate {
             bootArmPersistenceObservation()
         case .readyForReactiveSidebar:
             break
-        case .checkWorktrunkDependency:
-            presentWorktrunkInstallationOfferIfNeeded()
         }
     }
 
@@ -276,6 +274,7 @@ extension AppDelegate {
         filesystemSource = pipeline
         watchedFolderCommands = pipeline
         SurfaceManager.shared.setPerformanceTraceRecorder(performanceTraceRecorder)
+        SurfaceManager.shared.setAppCommandDispatcher(AppCommandDispatcher.shared)
         workspaceSurfaceCoordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
@@ -333,8 +332,9 @@ extension AppDelegate {
         )
         commandBarController = CommandBarPanelController(
             store: store,
+            octiconLoader: octiconLoader,
             repoCache: repoCache,
-            dispatcher: .shared,
+            dispatcher: AppCommandDispatcher.shared,
             notificationInboxCommands: makeInboxNotificationCommands(),
             commandBarSurface: atomStore.core.commandBarSurface,
             performanceTraceRecorder: performanceTraceRecorder

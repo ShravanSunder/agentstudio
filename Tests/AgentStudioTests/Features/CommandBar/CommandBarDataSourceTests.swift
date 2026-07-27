@@ -10,7 +10,19 @@ struct CommandBarDataSourceTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    let dispatcher = AppCommandDispatcher.shared
+    let dispatcher = FakeAppCommandDispatcher()
+
+    @Test("command data source accepts a Feature-facing dispatcher capability")
+    func commandDataSourceAcceptsFeatureFacingDispatcherCapability() {
+        let items = CommandBarDataSource.items(
+            scope: .commands,
+            store: makeStore(),
+            repoCache: makeRepoCache(),
+            dispatcher: dispatcher
+        )
+
+        #expect(!items.isEmpty)
+    }
 
     func makeStore() -> WorkspaceStore {
         WorkspaceStore()

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SidebarSourceGroupHeader<TrailingContent: View>: View {
     let isCollapsed: Bool
+    let octiconLoader: OcticonLoader
     let icon: AppEntityIcon
     let title: String
     let secondaryTitle: String?
@@ -78,13 +79,14 @@ struct SidebarSourceGroupHeader<TrailingContent: View>: View {
 
     @ViewBuilder
     private var headerIcon: some View {
-        icon.swiftUIImage(size: AppStyles.Shell.Sidebar.groupIconSize)
+        icon.swiftUIImage(loader: octiconLoader, size: AppStyles.Shell.Sidebar.groupIconSize)
     }
 }
 
 extension SidebarSourceGroupHeader where TrailingContent == EmptyView {
     init(
         isCollapsed: Bool,
+        octiconLoader: OcticonLoader,
         icon: AppEntityIcon,
         title: String,
         secondaryTitle: String?,
@@ -92,6 +94,7 @@ extension SidebarSourceGroupHeader where TrailingContent == EmptyView {
         onToggle: @escaping () -> Void
     ) {
         self.isCollapsed = isCollapsed
+        self.octiconLoader = octiconLoader
         self.icon = icon
         self.title = title
         self.secondaryTitle = secondaryTitle

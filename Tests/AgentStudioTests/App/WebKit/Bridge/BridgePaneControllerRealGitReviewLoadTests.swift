@@ -135,6 +135,7 @@ private struct RealGitReviewLoadHarness {
                     baseline: .localDefaultBranch(branchName: "main")
                 )
             ),
+            appRootURL: testBridgeAppRootURL(),
             metadata: PaneMetadata(
                 contentType: .diff,
                 launchDirectory: repositoryURL,

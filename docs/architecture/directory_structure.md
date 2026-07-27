@@ -96,8 +96,7 @@ Sources/AgentStudio/
 │   ├── StateMachine/                 # Generic state machine + effects
 │   ├── CWDNormalizer.swift           # Path normalization
 │   ├── ProcessExecutor.swift         # CLI execution protocol
-│   ├── WorktreeReconciler.swift      # Pure-function worktree topology diffing
-│   └── WorktrunkService.swift        # Worktrunk CLI integration
+│   └── WorktreeReconciler.swift      # Pure-function worktree topology diffing
 │
 ├── Resources/                        # Assets, xib, storyboard
 ├── main.swift

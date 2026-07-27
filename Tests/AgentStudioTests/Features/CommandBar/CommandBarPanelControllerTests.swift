@@ -27,8 +27,9 @@ struct CommandBarPanelControllerTests {
     ) -> CommandBarPanelController {
         CommandBarPanelController(
             store: WorkspaceStore(),
+            octiconLoader: makeTestOcticonLoader(),
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared,
+            dispatcher: FakeAppCommandDispatcher(),
             commandBarSurface: commandBarSurface
         )
     }

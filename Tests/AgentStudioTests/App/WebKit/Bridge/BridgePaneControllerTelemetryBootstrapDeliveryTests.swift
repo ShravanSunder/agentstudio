@@ -18,6 +18,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                appRootURL: testBridgeAppRootURL(),
                 telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy(isDebugBuild: false),
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
                 telemetryRecorder: TelemetryBootstrapRecorderSpy(),
@@ -55,6 +56,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                appRootURL: testBridgeAppRootURL(),
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
                 telemetryRecorder: recorder,
                 initialPaneActivity: .foreground,

@@ -155,6 +155,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     // MARK: - View State
 
     private var tabBarHostingView: DraggableTabBarHostingView!
+    private let octiconLoader: OcticonLoader
     private var terminalContainer: RestoreAwareTerminalContainerView!
     private var emptyStateView: NSHostingView<WorkspaceEmptyStateView>?
     private var lastEmptyStateModel: WorkspaceEmptyStateModel?
@@ -182,6 +183,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     init(
         store: WorkspaceStore,
+        octiconLoader: OcticonLoader,
         repoCache: RepoCacheAtom,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
@@ -221,6 +223,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         embedsTabBarInView: Bool = true
     ) {
         self.store = store
+        self.octiconLoader = octiconLoader
         self.repoCache = repoCache
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.appLifecycleStore = appLifecycleStore
@@ -1043,6 +1046,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         let inboxAtom = inboxAtom
         let contentView = SingleTabContent(
             tabId: tabId,
+            octiconLoader: octiconLoader,
             store: store,
             repoCache: repoCache,
             editorChooser: editorChooser,
@@ -1335,6 +1339,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func createEmptyStateView() -> NSHostingView<WorkspaceEmptyStateView> {
         PaneTabEmptyStateViewFactory.make(
             model: emptyStateModel,
+            octiconLoader: octiconLoader,
 
             onWatchFolder: { [weak self] in self?.watchFolderAction() },
             onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
@@ -1358,6 +1363,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         guard currentModel != lastEmptyStateModel else { return }
         emptyStateView?.rootView = WorkspaceEmptyStateView(
             model: currentModel,
+            octiconLoader: octiconLoader,
 
             onWatchFolder: { [weak self] in self?.watchFolderAction() },
             onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },

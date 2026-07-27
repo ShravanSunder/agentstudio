@@ -38,7 +38,8 @@ struct CommandBarShortcutRouterTests {
     func rowShortcutBeatsSelectedItemFallback() throws {
         let actionsLevel = CommandBarDataSource.buildWorktreeActionsLevel(
             presence: makeWorktreePresence(paneCount: 1),
-            canOpenInCurrentTab: true
+            canOpenInCurrentTab: true,
+            dispatcher: FakeAppCommandDispatcher()
         )
         let selectedItem = try #require(actionsLevel.items.last)
 

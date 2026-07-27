@@ -58,31 +58,109 @@ struct WorkspaceLocalRepository: Sendable {
     }
 
     struct RepoExplorerPreferencesRecord: Equatable, Sendable {
-        var groupingMode: RepoExplorerGroupingMode
-        var sortOrder: RepoExplorerSortOrder
-        var visibilityMode: RepoExplorerVisibilityMode
+        let groupingMode: String
+        let sortOrder: String
+        let visibilityMode: String
 
-        static let `default` = Self(groupingMode: .repo, sortOrder: .default, visibilityMode: .all)
+        private init(
+            groupingMode: String,
+            sortOrder: String,
+            visibilityMode: String
+        ) {
+            self.groupingMode = groupingMode
+            self.sortOrder = sortOrder
+            self.visibilityMode = visibilityMode
+        }
+
+        static let `default` = Self(
+            groupingMode: SQLiteLocalUXStorage.repoExplorerGroupingRepo,
+            sortOrder: SQLiteLocalUXStorage.repoExplorerSortAscending,
+            visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityAll
+        )
+
+        static func validated(
+            groupingMode: String,
+            sortOrder: String,
+            visibilityMode: String
+        ) -> Self? {
+            guard SQLiteLocalUXStorage.isValidRepoExplorerGrouping(groupingMode),
+                SQLiteLocalUXStorage.isValidRepoExplorerSort(sortOrder),
+                SQLiteLocalUXStorage.isValidRepoExplorerVisibility(visibilityMode)
+            else { return nil }
+            return Self(
+                groupingMode: groupingMode,
+                sortOrder: sortOrder,
+                visibilityMode: visibilityMode
+            )
+        }
     }
 
     struct InboxNotificationPreferencesRecord: Equatable, Sendable {
-        var grouping: InboxNotificationGrouping
-        var sortOrder: InboxNotificationSort
-        var bellEnabled: Bool
-        var globalContentMode: InboxNotificationContentMode
-        var globalRowStateFilter: InboxNotificationRowStateFilter
-        var paneContentMode: InboxNotificationContentMode
-        var paneRowStateFilter: InboxNotificationRowStateFilter
+        struct ContentFilterTokens: Equatable, Sendable {
+            let contentMode: String
+            let rowStateFilter: String
+        }
+
+        let grouping: String
+        let sortOrder: String
+        let bellEnabled: Bool
+        let globalContentMode: String
+        let globalRowStateFilter: String
+        let paneContentMode: String
+        let paneRowStateFilter: String
+
+        private init(
+            grouping: String,
+            sortOrder: String,
+            bellEnabled: Bool,
+            globalContentMode: String,
+            globalRowStateFilter: String,
+            paneContentMode: String,
+            paneRowStateFilter: String
+        ) {
+            self.grouping = grouping
+            self.sortOrder = sortOrder
+            self.bellEnabled = bellEnabled
+            self.globalContentMode = globalContentMode
+            self.globalRowStateFilter = globalRowStateFilter
+            self.paneContentMode = paneContentMode
+            self.paneRowStateFilter = paneRowStateFilter
+        }
 
         static let `default` = Self(
-            grouping: .byTab,
-            sortOrder: .newestFirst,
+            grouping: SQLiteLocalUXStorage.inboxNotificationGroupingByTab,
+            sortOrder: SQLiteLocalUXStorage.inboxNotificationSortNewestFirst,
             bellEnabled: false,
-            globalContentMode: .rollUpAlerts,
-            globalRowStateFilter: .unreadOnly,
-            paneContentMode: .rollUpAlerts,
-            paneRowStateFilter: .unreadOnly
+            globalContentMode: SQLiteLocalUXStorage.inboxNotificationContentRollUpAlerts,
+            globalRowStateFilter: SQLiteLocalUXStorage.inboxNotificationRowStateUnreadOnly,
+            paneContentMode: SQLiteLocalUXStorage.inboxNotificationContentRollUpAlerts,
+            paneRowStateFilter: SQLiteLocalUXStorage.inboxNotificationRowStateUnreadOnly
         )
+
+        static func validated(
+            grouping: String,
+            sortOrder: String,
+            bellEnabled: Bool,
+            globalFilter: ContentFilterTokens,
+            paneFilter: ContentFilterTokens
+        ) -> Self? {
+            guard SQLiteLocalUXStorage.isValidInboxNotificationGrouping(grouping),
+                SQLiteLocalUXStorage.isValidInboxNotificationSort(sortOrder),
+                SQLiteLocalUXStorage.isValidInboxNotificationContent(globalFilter.contentMode),
+                SQLiteLocalUXStorage.isValidInboxNotificationRowState(globalFilter.rowStateFilter),
+                SQLiteLocalUXStorage.isValidInboxNotificationContent(paneFilter.contentMode),
+                SQLiteLocalUXStorage.isValidInboxNotificationRowState(paneFilter.rowStateFilter)
+            else { return nil }
+            return Self(
+                grouping: grouping,
+                sortOrder: sortOrder,
+                bellEnabled: bellEnabled,
+                globalContentMode: globalFilter.contentMode,
+                globalRowStateFilter: globalFilter.rowStateFilter,
+                paneContentMode: paneFilter.contentMode,
+                paneRowStateFilter: paneFilter.rowStateFilter
+            )
+        }
     }
 
     let workspaceId: UUID

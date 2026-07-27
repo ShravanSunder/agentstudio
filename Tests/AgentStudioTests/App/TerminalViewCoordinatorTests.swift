@@ -155,6 +155,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: pane.id,
                 state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "quick-restore")),
+                appRootURL: testBridgeAppRootURL(),
                 metadata: pane.metadata,
                 initialPaneActivity: .foreground,
                 productSessionDependencies: BridgePaneProductSessionDependencies(
@@ -289,6 +290,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: paneId,
                 state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "rotation")),
+                appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionDependencies: BridgePaneProductSessionDependencies(
                     installation: initialInstallation,

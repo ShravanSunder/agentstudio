@@ -38,6 +38,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     paneId: PaneId(existingUUID: paneId),
                     contentType: .diff,

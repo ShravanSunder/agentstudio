@@ -717,12 +717,7 @@ extension AppCommand {
                 icon: .system(.bell),
                 helpText: "Show or hide the notification inbox in the sidebar",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window,
-                ipcExposure: AppCommandIPCExposure(
-                    executionModes: [.headless, .requiresInteractiveInput],
-                    targetKinds: [],
-                    requiredPrivileges: [.sidebarStateMutate]
-                )
+                commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .toggleInboxNotificationSort:
             return AppCommandSpec(
@@ -782,31 +777,54 @@ extension AppCommand {
                 icon: .system(.sidebarLeft),
                 helpText: "Show or hide the repo explorer in the sidebar",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window,
-                ipcExposure: AppCommandIPCExposure(
-                    executionModes: [.headless, .requiresInteractiveInput],
-                    targetKinds: [],
-                    requiredPrivileges: [.sidebarStateMutate]
-                )
+                commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .setRepoSidebarGroupingRepo:
-            return repoSidebarGroupingDefinition(.repo)
+            return repoSidebarGroupingDefinition(
+                label: "Repo",
+                icon: .system(.folder),
+                helpTarget: "repo"
+            )
         case .setRepoSidebarGroupingPane:
-            return repoSidebarGroupingDefinition(.pane)
+            return repoSidebarGroupingDefinition(
+                label: "Pane",
+                icon: .system(.rectangleSplit2x1),
+                helpTarget: "pane"
+            )
         case .setRepoSidebarGroupingTab:
-            return repoSidebarGroupingDefinition(.tab)
+            return repoSidebarGroupingDefinition(
+                label: "Tab",
+                icon: .system(.rectangleStack),
+                helpTarget: "tab"
+            )
         case .setRepoSidebarVisibilityMode:
             return repoSidebarVisibilityDefinition()
         case .setRepoSidebarSortOrder:
             return repoSidebarSortOrderDefinition()
         case .setInboxGroupingTab:
-            return inboxGroupingDefinition(.byTab)
+            return inboxGroupingDefinition(
+                label: "Tab",
+                icon: .system(.rectangleStack),
+                helpTarget: "tab"
+            )
         case .setInboxGroupingRepo:
-            return inboxGroupingDefinition(.byRepo)
+            return inboxGroupingDefinition(
+                label: "Repo",
+                icon: .system(.folder),
+                helpTarget: "repo"
+            )
         case .setInboxGroupingPane:
-            return inboxGroupingDefinition(.byPane)
+            return inboxGroupingDefinition(
+                label: "Pane",
+                icon: .system(.rectangleSplit2x1),
+                helpTarget: "pane"
+            )
         case .setInboxGroupingNone:
-            return inboxGroupingDefinition(.none)
+            return inboxGroupingDefinition(
+                label: "None",
+                icon: .system(.line3Horizontal),
+                helpTarget: "a flat list"
+            )
         case .setInboxRowStateFilter:
             return inboxRowStateFilterDefinition()
         case .setInboxContentMode:
@@ -850,8 +868,7 @@ extension AppCommand {
                 icon: .system(.magnifyingglass),
                 helpText: "Open quick find",
                 commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-                ipcExposure: .uiPresentation()
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .showCommandBarCommands:
             return AppCommandSpec(
@@ -861,8 +878,7 @@ extension AppCommand {
                 icon: .system(.command),
                 helpText: "Open the command palette",
                 commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-                ipcExposure: .uiPresentation()
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .showCommandBarPanes:
             return AppCommandSpec(
@@ -872,8 +888,7 @@ extension AppCommand {
                 icon: .system(.terminal),
                 helpText: "Open the pane picker",
                 commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-                ipcExposure: .uiPresentation()
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .showCommandBarRepos:
             return AppCommandSpec(
@@ -883,8 +898,7 @@ extension AppCommand {
                 icon: .system(.folder),
                 helpText: "Open the repo and worktree picker",
                 commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-                ipcExposure: .uiPresentation()
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .openWebview:
             return AppCommandSpec(

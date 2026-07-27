@@ -1,6 +1,6 @@
 import Foundation
 
-extension BridgeTelemetryEventValidator {
+extension BridgeTelemetryWireSchema {
     static let requiredStringAttributeKeys: Set<String> = [
         "agentstudio.bridge.phase",
         "agentstudio.bridge.plane",

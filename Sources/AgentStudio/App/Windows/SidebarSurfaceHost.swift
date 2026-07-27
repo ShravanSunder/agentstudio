@@ -36,6 +36,7 @@ struct SidebarSurfaceHost: View {
     }
 
     let store: WorkspaceStore
+    let octiconLoader: OcticonLoader
     let uiState: WorkspaceSidebarState
     let sidebarCache: SidebarCacheState
     let inboxSidebarState: InboxSidebarState
@@ -76,15 +77,36 @@ struct SidebarSurfaceHost: View {
         case .repos:
             RepoExplorerView(
                 store: store,
+                octiconLoader: octiconLoader,
                 repoExplorerPrefs: repoExplorerSidebarPrefs,
                 bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
+                commandDispatcher: AppCommandDispatcher.shared,
+                onSetVisibilityMode: { mode in
+                    AppCommandDispatcher.shared.dispatch(
+                        AppCommandExecutionRequest(
+                            command: .setRepoSidebarVisibilityMode,
+                            arguments: .repoSidebarVisibilityMode(mode)
+                        )
+                    )
+                },
+                onSetSortOrder: { order in
+                    AppCommandDispatcher.shared.dispatch(
+                        AppCommandExecutionRequest(
+                            command: .setRepoSidebarSortOrder,
+                            arguments: .repoSidebarSortOrder(order)
+                        )
+                    )
+                },
+                onRefreshWorktrees: {
+                    AppCommandDispatcher.shared.appCommandRouter?.refreshWorktrees()
+                },
                 onRefocusActivePane: onRefocusActivePane,
                 onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
                 onShowNotificationsForWorktree: { worktree in
                     Self.showNotifications(
                         for: worktree,
                         inboxSidebarState: inboxSidebarState,
-                        dispatcher: .shared
+                        dispatcher: AppCommandDispatcher.shared
                     )
                 },
                 unreadCount: { worktree in
@@ -101,6 +123,7 @@ struct SidebarSurfaceHost: View {
         case .inbox:
             InboxNotificationSidebarView(
                 inboxAtom: inboxAtom,
+                octiconLoader: octiconLoader,
                 prefsAtom: prefsAtom,
                 uiState: uiState,
                 sidebarCache: sidebarCache,
@@ -108,7 +131,23 @@ struct SidebarSurfaceHost: View {
                 workspacePaneAtom: store.paneAtom,
                 workspaceRepositoryTopologyAtom: store.repositoryTopologyAtom,
                 repoCache: repoCache,
-                dispatcher: .shared,
+                dispatcher: AppCommandDispatcher.shared,
+                onSetRowStateFilter: { filter in
+                    AppCommandDispatcher.shared.dispatch(
+                        AppCommandExecutionRequest(
+                            command: .setInboxRowStateFilter,
+                            arguments: .inboxRowStateFilter(filter)
+                        )
+                    )
+                },
+                onSetContentMode: { mode in
+                    AppCommandDispatcher.shared.dispatch(
+                        AppCommandExecutionRequest(
+                            command: .setInboxContentMode,
+                            arguments: .inboxContentMode(mode)
+                        )
+                    )
+                },
                 performanceTraceRecorder: performanceTraceRecorder,
                 initialProjectionTrigger: initialProjectionTrigger,
                 initialProjectionSequence: surfaceSwitchSequence,

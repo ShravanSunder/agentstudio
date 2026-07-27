@@ -98,31 +98,56 @@ struct WorkspaceLocalSchemaContractTests {
         #expect(try repository.fetchRecentTargets() == [validWorktreeTarget, validTarget])
     }
 
-    @Test("typed preferences round trip and malformed rows use defaults")
-    func typedPreferencesRoundTripAndMalformedRowsUseDefaults() throws {
+    @Test("validated raw preference tokens round trip and malformed rows use defaults")
+    func validatedRawPreferenceTokensRoundTripAndMalformedRowsUseDefaults() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrate(databaseQueue)
         let workspaceId = UUID()
         let repository = WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: databaseQueue)
-        let repoPreferences = WorkspaceLocalRepository.RepoExplorerPreferencesRecord(
-            groupingMode: .pane,
-            sortOrder: .descending,
-            visibilityMode: .favoritesOnly
+        let repoPreferences = try #require(
+            WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
+                groupingMode: "pane",
+                sortOrder: "descending",
+                visibilityMode: "favoritesOnly"
+            )
+        )
+        let inboxPreferences = try #require(
+            WorkspaceLocalRepository.InboxNotificationPreferencesRecord.validated(
+                grouping: "byRepo",
+                sortOrder: "oldestFirst",
+                bellEnabled: true,
+                globalFilter: .init(contentMode: "activity", rowStateFilter: "all"),
+                paneFilter: .init(contentMode: "all", rowStateFilter: "unreadOnly")
+            )
         )
         try repository.replaceRepoExplorerPreferences(repoPreferences, updatedAt: Date(timeIntervalSince1970: 1))
+        try repository.replaceInboxNotificationPreferences(
+            inboxPreferences,
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
         #expect(try repository.fetchRepoExplorerPreferences() == repoPreferences)
+        #expect(try repository.fetchInboxNotificationPreferences() == inboxPreferences)
 
         try databaseQueue.write { database in
             try database.execute(
                 sql: """
-                    UPDATE local_repo_explorer_preferences
-                    SET grouping_mode = 'unsupported'
+                        UPDATE local_repo_explorer_preferences
+                        SET grouping_mode = 'unsupported'
+                        WHERE workspace_id = ?
+                    """,
+                arguments: [workspaceId.uuidString]
+            )
+            try database.execute(
+                sql: """
+                    UPDATE local_inbox_notification_preferences
+                    SET pane_content_mode = 'unsupported'
                     WHERE workspace_id = ?
                     """,
                 arguments: [workspaceId.uuidString]
             )
         }
         #expect(try repository.fetchRepoExplorerPreferences() == .default)
+        #expect(try repository.fetchInboxNotificationPreferences() == .default)
     }
 
     @Test("local lookup indexes exactly match the target contract")

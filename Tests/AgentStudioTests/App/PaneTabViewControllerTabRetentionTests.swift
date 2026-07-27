@@ -42,6 +42,7 @@ struct PaneTabViewControllerTabRetentionTests {
         )
         let controller = PaneTabViewController(
             store: store,
+            octiconLoader: makeTestOcticonLoader(),
             repoCache: RepoCacheAtom(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,

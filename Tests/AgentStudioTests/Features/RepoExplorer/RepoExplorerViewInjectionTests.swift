@@ -58,19 +58,58 @@ struct RepoExplorerViewInjectionTests {
         #expect(view.repoExplorerPrefs.groupingMode == .pane)
     }
 
+    @Test("typed command callbacks preserve Feature values")
+    func typedCommandCallbacksPreserveFeatureValues() {
+        var visibilityModes: [RepoExplorerVisibilityMode] = []
+        var sortOrders: [RepoExplorerSortOrder] = []
+        var refreshCount = 0
+        let view = makeRepoExplorerView(
+            repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+            onSetVisibilityMode: { visibilityModes.append($0) },
+            onSetSortOrder: { sortOrders.append($0) },
+            onRefreshWorktrees: { refreshCount += 1 }
+        )
+
+        view.onSetVisibilityMode(.favoritesOnly)
+        view.onSetSortOrder(.descending)
+        view.onRefreshWorktrees()
+
+        #expect(visibilityModes == [.favoritesOnly])
+        #expect(sortOrders == [.descending])
+        #expect(refreshCount == 1)
+    }
+
     private func makeRepoExplorerView(
         store: WorkspaceStore = WorkspaceStore(startsObserving: false),
         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom,
-        bridgeAttendanceSnapshot: @escaping @MainActor () -> [UUID: UInt64] = { [:] }
+        bridgeAttendanceSnapshot: @escaping @MainActor () -> [UUID: UInt64] = { [:] },
+        onSetVisibilityMode: @escaping (RepoExplorerVisibilityMode) -> Void = { _ in },
+        onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void = { _ in },
+        onRefreshWorktrees: @escaping () -> Void = {}
     ) -> RepoExplorerView {
         RepoExplorerView(
             store: store,
+            octiconLoader: makeTestOcticonLoader(),
             repoExplorerPrefs: repoExplorerPrefs,
             bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
+            commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
+            onSetVisibilityMode: onSetVisibilityMode,
+            onSetSortOrder: onSetSortOrder,
+            onRefreshWorktrees: onRefreshWorktrees,
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
             onShowNotificationsForWorktree: { _ in },
             unreadCount: { _ in 0 }
         )
     }
+}
+
+@MainActor
+private final class FakeRepoExplorerAppCommandDispatcher: AppCommandDispatching {
+    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
+    func canDispatch(_: AppCommand) -> Bool { true }
+    func canDispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool { true }
+    func bridgePaneCommandTarget(worktreeId _: UUID) -> BridgePaneCommandTarget? { nil }
+    func dispatchMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
 }

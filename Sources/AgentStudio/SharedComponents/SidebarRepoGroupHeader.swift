@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SidebarRepoGroupHeader<TrailingContent: View>: View {
     let isCollapsed: Bool
+    let octiconLoader: OcticonLoader
     let icon: AppEntityIcon
     let repoTitle: String
     let organizationName: String?
@@ -18,6 +19,7 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
 
     init(
         isCollapsed: Bool,
+        octiconLoader: OcticonLoader,
         icon: AppEntityIcon = .repo,
         repoTitle: String,
         organizationName: String?,
@@ -25,6 +27,7 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
         @ViewBuilder trailingContent: @escaping () -> TrailingContent
     ) {
         self.isCollapsed = isCollapsed
+        self.octiconLoader = octiconLoader
         self.icon = icon
         self.repoTitle = repoTitle
         self.organizationName = organizationName
@@ -35,6 +38,7 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
     var body: some View {
         SidebarSourceGroupHeader(
             isCollapsed: isCollapsed,
+            octiconLoader: octiconLoader,
             icon: icon,
             title: repoTitle,
             secondaryTitle: organizationName,
@@ -49,12 +53,14 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
 extension SidebarRepoGroupHeader where TrailingContent == EmptyView {
     init(
         isCollapsed: Bool,
+        octiconLoader: OcticonLoader,
         icon: AppEntityIcon = .repo,
         repoTitle: String,
         organizationName: String?,
         onToggle: @escaping () -> Void
     ) {
         self.isCollapsed = isCollapsed
+        self.octiconLoader = octiconLoader
         self.icon = icon
         self.repoTitle = repoTitle
         self.organizationName = organizationName

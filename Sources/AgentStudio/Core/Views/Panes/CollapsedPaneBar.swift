@@ -3,6 +3,7 @@ import SwiftUI
 
 struct CollapsedPaneBar: View {
     let paneId: UUID
+    let octiconLoader: OcticonLoader
     let tabId: UUID
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
@@ -27,6 +28,7 @@ struct CollapsedPaneBar: View {
 
     init(
         paneId: UUID,
+        octiconLoader: OcticonLoader,
         tabId: UUID,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
@@ -37,6 +39,7 @@ struct CollapsedPaneBar: View {
         workspaceWindowId: UUID? = nil
     ) {
         self.paneId = paneId
+        self.octiconLoader = octiconLoader
         self.tabId = tabId
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
@@ -291,7 +294,11 @@ struct CollapsedPaneBar: View {
     private func iconView(for icon: CollapsedBarLabelPart.IconKind) -> some View {
         switch icon {
         case .octicon(let name):
-            OcticonImage(name: name, size: AppStyles.General.Typography.textBase)
+            OcticonImage(
+                name: name,
+                size: AppStyles.General.Typography.textBase,
+                loader: octiconLoader
+            )
         case .system(let name):
             Image(systemName: name)
                 .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))

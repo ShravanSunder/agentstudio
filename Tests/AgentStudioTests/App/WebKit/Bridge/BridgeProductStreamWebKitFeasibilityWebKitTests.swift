@@ -7,7 +7,9 @@ extension WebKitSerializedTests.BridgeWebKitSpikeTests {
     @Test("packaged worker proves product 128 KiB POST timing and abort-causal teardown")
     func packagedWorkerProvesPositiveProductStreamCarrier() async throws {
         // Arrange
-        let workerAsset = try await BridgeAppAssetStore().load(
+        let workerAsset = try await BridgeAppAssetStore(
+            appRootURL: testBridgeAppRootURL()
+        ).load(
             relativePath: "assets/bridge-product-stream-webkit-feasibility-worker.js")
         let workerSource = try #require(String(data: workerAsset.data, encoding: .utf8))
 

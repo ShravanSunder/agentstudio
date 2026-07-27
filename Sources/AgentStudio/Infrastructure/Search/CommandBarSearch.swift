@@ -10,11 +10,10 @@ struct FuzzyMatchResult {
     let matchedRanges: [Range<String.Index>]
 }
 
-// MARK: - CommandBarSearch
+// MARK: - FuzzySearch
 
-/// Lightweight fuzzy search engine for the command bar.
-/// Matches a query against item fields with configurable weights and returns scored results.
-enum CommandBarSearch {
+/// Lightweight fuzzy matching shared by product search surfaces.
+enum FuzzySearch {
 
     /// Default score threshold — items scoring above this are rejected.
     static let defaultThreshold: Double = 0.7
@@ -54,7 +53,6 @@ enum CommandBarSearch {
         let score = calculateScore(
             matchedIndices: matchedIndices,
             text: text,
-            textLower: textLower,
             patternLength: patternLower.count
         )
 
@@ -69,7 +67,6 @@ enum CommandBarSearch {
     private static func calculateScore(
         matchedIndices: [String.Index],
         text: String,
-        textLower: String,
         patternLength: Int
     ) -> Double {
         guard !matchedIndices.isEmpty else { return 1.0 }
@@ -148,86 +145,4 @@ enum CommandBarSearch {
         return ranges
     }
 
-    // MARK: - Multi-field Search
-
-    /// Score a `CommandBarItem` against a query using weighted multi-field matching.
-    /// Returns nil if no field matches above threshold.
-    static func scoreItem(
-        _ item: CommandBarItem,
-        query: String,
-        recentIds: [String] = [],
-        threshold: Double = defaultThreshold
-    ) -> Double? {
-        guard !query.isEmpty else { return 0.0 }  // No query = show everything, score 0 (best)
-
-        var bestScore: Double = 1.0
-
-        // Title — weight 1.0 (primary)
-        if let result = fuzzyMatch(pattern: query, in: item.title) {
-            bestScore = min(bestScore, result.score)
-        }
-
-        // Keywords — weight 0.6 (floor penalty 0.4 so keywords always rank below equivalent title matches)
-        for keyword in item.keywords {
-            if let result = fuzzyMatch(pattern: query, in: keyword) {
-                bestScore = min(bestScore, result.score * 0.6 + 0.4)
-            }
-        }
-
-        // Subtitle — weight 0.8 (floor penalty 0.2)
-        if let subtitle = item.subtitle, let result = fuzzyMatch(pattern: query, in: subtitle) {
-            bestScore = min(bestScore, result.score * 0.8 + 0.2)
-        }
-
-        guard bestScore < threshold else { return nil }
-
-        // Recency boost: recently used items get a score bonus (lower = better)
-        if let recentIndex = recentIds.firstIndex(of: item.id) {
-            let boost = 0.1 * (1.0 - Double(recentIndex) / 8.0)
-            bestScore = max(0.0, bestScore - boost)
-        }
-
-        return bestScore
-    }
-
-    // MARK: - Filter & Sort
-
-    /// Filter and sort items by fuzzy match score against a query.
-    /// Returns items that pass the threshold, sorted best-first.
-    static func filter(
-        items: [CommandBarItem],
-        query: String,
-        recentIds: [String] = [],
-        threshold: Double = defaultThreshold,
-        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
-    ) -> [CommandBarItem] {
-        let clock = ContinuousClock()
-        let start = clock.now
-        let filteredItems: [CommandBarItem]
-        if query.isEmpty {
-            filteredItems = items
-        } else {
-            filteredItems =
-                items
-                .compactMap { item -> (CommandBarItem, Double)? in
-                    guard let score = scoreItem(item, query: query, recentIds: recentIds, threshold: threshold) else {
-                        return nil
-                    }
-                    return (item, score)
-                }
-                .sorted { $0.1 < $1.1 }
-                .map(\.0)
-        }
-
-        performanceTraceRecorder?.recordDuration(
-            .commandBarFilter,
-            duration: start.duration(to: clock.now),
-            attributes: [
-                "agentstudio.performance.commandbar.input.count": .int(items.count),
-                "agentstudio.performance.commandbar.result.count": .int(filteredItems.count),
-                "agentstudio.performance.commandbar.query_character.count": .int(query.count),
-            ]
-        )
-        return filteredItems
-    }
 }

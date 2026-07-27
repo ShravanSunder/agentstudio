@@ -12,7 +12,6 @@ enum WorkspaceBootStep: String, CaseIterable, Sendable {
     case triggerInitialTopologySync
     case armPersistenceObservation
     case readyForReactiveSidebar
-    case checkWorktrunkDependency
 
     var purpose: String {
         switch self {
@@ -38,8 +37,6 @@ enum WorkspaceBootStep: String, CaseIterable, Sendable {
             return "Arm persistence observers after their independent stores finish hydration."
         case .readyForReactiveSidebar:
             return "Mark post-presentation secondary-state hydration as scheduled."
-        case .checkWorktrunkDependency:
-            return "Offer repository-tool installation only after the workspace shell is visible."
         }
     }
 }
@@ -62,7 +59,6 @@ enum WorkspaceBootSequence {
         .triggerInitialTopologySync,
         .armPersistenceObservation,
         .readyForReactiveSidebar,
-        .checkWorktrunkDependency,
     ]
 
     @MainActor

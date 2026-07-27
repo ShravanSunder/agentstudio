@@ -35,6 +35,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.swift, .webKit]),
                 telemetryRecorder: recorder,
@@ -93,6 +94,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy(isDebugBuild: false),
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.swift, .web, .webKit]),
                 telemetryRecorder: recorder,
@@ -122,6 +124,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                appRootURL: testBridgeAppRootURL(),
                 telemetryRecorder: recorder,
                 initialPaneActivity: .foreground
             )

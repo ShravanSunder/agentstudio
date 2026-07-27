@@ -1,7 +1,7 @@
 import Foundation
 
-extension BridgeTelemetryEventValidator {
-    static func worktreeFileIntakeRejectContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+extension BridgeTelemetryWireSchema {
+    static func worktreeFileIntakeRejectContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "intake",
@@ -27,7 +27,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    static func fileOpenReadyContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    static func fileOpenReadyContractMatches(_ contract: EventContract) -> Bool {
         let requiredStringKeys = requiredStringAttributeKeys.union([
             "agentstudio.bridge.content.role",
             "agentstudio.bridge.demand.disposition",
@@ -55,7 +55,7 @@ extension BridgeTelemetryEventValidator {
             && contract.booleanKeys.isEmpty
     }
 
-    static func worktreeFileContentFetchContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    static func worktreeFileContentFetchContractMatches(_ contract: EventContract) -> Bool {
         let requiredStringKeys = requiredStringAttributeKeys.union([
             "agentstudio.bridge.content.correlation_mode",
             "agentstudio.bridge.content.role",
@@ -90,7 +90,7 @@ extension BridgeTelemetryEventValidator {
             ]
     }
 
-    static func scrollVisibleDemandContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    static func scrollVisibleDemandContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "scroll_visible_demand",
@@ -112,7 +112,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    static func visibleDemandSettledContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    static func visibleDemandSettledContractMatches(_ contract: EventContract) -> Bool {
         let requiredStringKeys = requiredStringAttributeKeys.union([
             "agentstudio.bridge.content.role",
             "agentstudio.bridge.demand.lane",

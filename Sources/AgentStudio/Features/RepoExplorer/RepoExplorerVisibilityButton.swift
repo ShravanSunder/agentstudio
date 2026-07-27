@@ -2,6 +2,7 @@ import SwiftUI
 
 @MainActor
 struct RepoExplorerVisibilityButton: View {
+    let octiconLoader: OcticonLoader
     let isFavoritesOnly: Bool
     let onToggle: () -> Void
 
@@ -22,7 +23,10 @@ struct RepoExplorerVisibilityButton: View {
                 textOverride: label
             ),
             icon: {
-                commandSpec.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                commandSpec.icon.swiftUIImage(
+                    loader: octiconLoader,
+                    size: AppStyles.General.Icon.compact
+                )
             },
             isActive: isFavoritesOnly,
             action: onToggle

@@ -5,8 +5,34 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
+private final class FakeInboxAppCommandDispatcher: AppCommandDispatching {
+    func dispatch(_: AppCommand) {}
+    func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
+    func canDispatch(_: AppCommand) -> Bool { true }
+    func canDispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool { true }
+    func bridgePaneCommandTarget(worktreeId _: UUID) -> BridgePaneCommandTarget? { nil }
+    func dispatchMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
+}
+
+@MainActor
 @Suite("InboxNotificationSidebarView", .serialized)
 struct InboxNotificationSidebarViewTests {
+    @Test("typed preference callbacks preserve Feature values")
+    func typedPreferenceCallbacksPreserveFeatureValues() {
+        var rowStateFilters: [InboxNotificationRowStateFilter] = []
+        var contentModes: [InboxNotificationContentMode] = []
+        let view = makeInboxNotificationSidebarView(
+            onSetRowStateFilter: { rowStateFilters.append($0) },
+            onSetContentMode: { contentModes.append($0) }
+        )
+
+        view.onSetRowStateFilter(.unreadOnly)
+        view.onSetContentMode(.all)
+
+        #expect(rowStateFilters == [.unreadOnly])
+        #expect(contentModes == [.all])
+    }
+
     @Test("first surviving forced projection reports initial completion exactly once")
     func firstSurvivingForcedProjectionReportsInitialCompletionExactlyOnce() {
         #expect(
@@ -35,6 +61,27 @@ struct InboxNotificationSidebarViewTests {
         )
     }
 
+    private func makeInboxNotificationSidebarView(
+        onSetRowStateFilter: @escaping (InboxNotificationRowStateFilter) -> Void,
+        onSetContentMode: @escaping (InboxNotificationContentMode) -> Void
+    ) -> InboxNotificationSidebarView {
+        InboxNotificationSidebarView(
+            inboxAtom: InboxNotificationAtom(),
+            octiconLoader: makeTestOcticonLoader(),
+            prefsAtom: InboxNotificationPrefsAtom(),
+            uiState: WorkspaceSidebarState(),
+            sidebarCache: SidebarCacheState(),
+            inboxSidebarState: InboxSidebarState(),
+            workspacePaneAtom: WorkspacePaneAtom(),
+            workspaceRepositoryTopologyAtom: RepositoryTopologyAtom(),
+            repoCache: RepoCacheAtom(),
+            dispatcher: FakeInboxAppCommandDispatcher(),
+            onSetRowStateFilter: onSetRowStateFilter,
+            onSetContentMode: onSetContentMode,
+            onRefocusActivePane: {}
+        )
+    }
+
     @Test("preseeded filter state is consumed when the inbox mounts")
     func preseededFilterDraftIsConsumedOnMount() async {
         let inboxSidebarState = InboxSidebarState()
@@ -42,6 +89,7 @@ struct InboxNotificationSidebarViewTests {
         let hostingView = NSHostingView(
             rootView: InboxNotificationSidebarView(
                 inboxAtom: InboxNotificationAtom(),
+                octiconLoader: makeTestOcticonLoader(),
                 prefsAtom: InboxNotificationPrefsAtom(),
                 uiState: WorkspaceSidebarState(),
                 sidebarCache: SidebarCacheState(),
@@ -50,6 +98,8 @@ struct InboxNotificationSidebarViewTests {
                 workspaceRepositoryTopologyAtom: RepositoryTopologyAtom(),
                 repoCache: RepoCacheAtom(),
                 dispatcher: AppCommandDispatcher.shared,
+                onSetRowStateFilter: { _ in },
+                onSetContentMode: { _ in },
                 onRefocusActivePane: {}
             )
             .frame(width: 320, height: 420)
@@ -72,6 +122,7 @@ struct InboxNotificationSidebarViewTests {
         let hostingView = NSHostingView(
             rootView: InboxNotificationSidebarView(
                 inboxAtom: inboxAtom,
+                octiconLoader: makeTestOcticonLoader(),
                 prefsAtom: InboxNotificationPrefsAtom(),
                 uiState: WorkspaceSidebarState(),
                 sidebarCache: SidebarCacheState(),
@@ -80,6 +131,8 @@ struct InboxNotificationSidebarViewTests {
                 workspaceRepositoryTopologyAtom: RepositoryTopologyAtom(),
                 repoCache: RepoCacheAtom(),
                 dispatcher: AppCommandDispatcher.shared,
+                onSetRowStateFilter: { _ in },
+                onSetContentMode: { _ in },
                 onRefocusActivePane: {}
             )
             .frame(width: 320, height: 420)
@@ -208,6 +261,7 @@ struct InboxNotificationSidebarViewTests {
             body: {
                 let view = InboxNotificationSidebarView(
                     inboxAtom: InboxNotificationAtom(),
+                    octiconLoader: makeTestOcticonLoader(),
                     prefsAtom: InboxNotificationPrefsAtom(),
                     uiState: WorkspaceSidebarState(),
                     sidebarCache: SidebarCacheState(),
@@ -215,7 +269,9 @@ struct InboxNotificationSidebarViewTests {
                     workspacePaneAtom: WorkspacePaneAtom(),
                     workspaceRepositoryTopologyAtom: RepositoryTopologyAtom(),
                     repoCache: RepoCacheAtom(),
-                    dispatcher: .shared,
+                    dispatcher: AppCommandDispatcher.shared,
+                    onSetRowStateFilter: { _ in },
+                    onSetContentMode: { _ in },
                     onRefocusActivePane: {}
                 )
 
@@ -239,6 +295,7 @@ struct InboxNotificationSidebarViewTests {
                 let hostingView = NSHostingView(
                     rootView: InboxNotificationSidebarView(
                         inboxAtom: InboxNotificationAtom(),
+                        octiconLoader: makeTestOcticonLoader(),
                         prefsAtom: InboxNotificationPrefsAtom(),
                         uiState: WorkspaceSidebarState(),
                         sidebarCache: SidebarCacheState(),
@@ -246,7 +303,9 @@ struct InboxNotificationSidebarViewTests {
                         workspacePaneAtom: WorkspacePaneAtom(),
                         workspaceRepositoryTopologyAtom: RepositoryTopologyAtom(),
                         repoCache: RepoCacheAtom(),
-                        dispatcher: .shared,
+                        dispatcher: AppCommandDispatcher.shared,
+                        onSetRowStateFilter: { _ in },
+                        onSetContentMode: { _ in },
                         onRefocusActivePane: {}
                     )
                     .frame(width: 360, height: 420)
@@ -490,6 +549,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         var didToggle = false
         let hostingView = NSHostingView(
             rootView: InboxNotificationGroupHeader(
+                octiconLoader: makeTestOcticonLoader(),
                 header: InboxNotificationListSectionHeader(
                     title: "agent-studio",
                     secondaryTitle: "ShravanSunder",
@@ -696,6 +756,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         let hostingView = NSHostingView(
             rootView: InboxNotificationSidebarView(
                 inboxAtom: inboxAtom,
+                octiconLoader: makeTestOcticonLoader(),
                 prefsAtom: prefsAtom,
                 uiState: WorkspaceSidebarState(),
                 sidebarCache: SidebarCacheState(),
@@ -703,7 +764,9 @@ struct InboxNotificationSidebarViewSourceGroupTests {
                 workspacePaneAtom: WorkspacePaneAtom(),
                 workspaceRepositoryTopologyAtom: repositoryTopologyAtom,
                 repoCache: repoCache,
-                dispatcher: .shared,
+                dispatcher: AppCommandDispatcher.shared,
+                onSetRowStateFilter: { _ in },
+                onSetContentMode: { _ in },
                 onRefocusActivePane: {}
             )
             .frame(width: 360, height: 420)
@@ -766,6 +829,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         let hostingView = NSHostingView(
             rootView: InboxNotificationSidebarView(
                 inboxAtom: inboxAtom,
+                octiconLoader: makeTestOcticonLoader(),
                 prefsAtom: prefsAtom,
                 uiState: WorkspaceSidebarState(),
                 sidebarCache: SidebarCacheState(),
@@ -773,7 +837,9 @@ struct InboxNotificationSidebarViewSourceGroupTests {
                 workspacePaneAtom: WorkspacePaneAtom(),
                 workspaceRepositoryTopologyAtom: repositoryTopologyAtom,
                 repoCache: repoCache,
-                dispatcher: .shared,
+                dispatcher: AppCommandDispatcher.shared,
+                onSetRowStateFilter: { _ in },
+                onSetContentMode: { _ in },
                 onRefocusActivePane: {}
             )
             .frame(width: 360, height: 420)
@@ -852,6 +918,7 @@ private struct InboxSidebarRootHarness: View {
 
     var body: some View {
         InboxSidebarRootContainer(
+            octiconLoader: makeTestOcticonLoader(),
             uiState: uiState,
             searchText: $searchText,
             activeFilter: activeFilter,

@@ -3,7 +3,7 @@ import SwiftUI
 
 // MARK: - CommandBarDataSource
 
-/// Builds CommandBarItem arrays from atom-backed live app state and AppCommandDispatcher.
+/// Builds command-bar items from atom-backed state and an injected command capability.
 /// Single source of truth for all command bar content, filtered by scope.
 @MainActor
 enum CommandBarDataSource {
@@ -44,7 +44,7 @@ enum CommandBarDataSource {
         scope: CommandBarScope,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        dispatcher: AppCommandDispatcher,
+        dispatcher: any AppCommandDispatching,
         notificationInboxCommands: InboxNotificationCommands? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) -> [CommandBarItem] {
@@ -72,7 +72,7 @@ enum CommandBarDataSource {
         scope: CommandBarScope,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        dispatcher: AppCommandDispatcher,
+        dispatcher: any AppCommandDispatching,
         focus: WorkspacePaneFocus,
         notificationInboxCommands: InboxNotificationCommands? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
@@ -88,7 +88,7 @@ enum CommandBarDataSource {
             case .panes:
                 paneAndTabItems(store: store, repoCache: repoCache)
             case .repos:
-                repoScopeItems(store: store)
+                repoScopeItems(store: store, dispatcher: dispatcher)
             case .inbox:
                 inboxItems(commands: notificationInboxCommands)
             }
@@ -133,7 +133,7 @@ enum CommandBarDataSource {
     private static func everythingItems(
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        dispatcher: AppCommandDispatcher,
+        dispatcher: any AppCommandDispatching,
         focus: WorkspacePaneFocus
     ) -> [CommandBarItem] {
         var items: [CommandBarItem] = []
@@ -147,7 +147,7 @@ enum CommandBarDataSource {
                 focus: focus,
                 groupName: Group.commands,
                 priority: Priority.commands))
-        items.append(contentsOf: repoScopeItems(store: store))
+        items.append(contentsOf: repoScopeItems(store: store, dispatcher: dispatcher))
         return items
     }
 
@@ -301,17 +301,17 @@ enum CommandBarDataSource {
 
     /// Visible command definitions, filtered once.
     private static func visibleCommands(
-        dispatcher: AppCommandDispatcher,
+        dispatcher _: any AppCommandDispatching,
         focus: WorkspacePaneFocus
     ) -> [AppCommandSpec] {
-        dispatcher.definitions.values.filter {
+        AppCommand.allCases.map(\.definition).filter {
             !$0.isHiddenInCommandBar && $0.isVisible(in: focus)
         }
     }
 
     /// Commands grouped by category (for `.commands` scope).
     private static func commandItems(
-        dispatcher: AppCommandDispatcher,
+        dispatcher: any AppCommandDispatching,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         focus: WorkspacePaneFocus
@@ -324,14 +324,15 @@ enum CommandBarDataSource {
                     groupName: def.commandBarGroupName,
                     groupPriority: def.commandBarGroupPriority,
                     store: store,
-                    repoCache: repoCache
+                    repoCache: repoCache,
+                    dispatcher: dispatcher
                 )
             }
     }
 
     /// All commands in a flat group (for `.everything` scope).
     private static func allCommandItems(
-        dispatcher: AppCommandDispatcher,
+        dispatcher: any AppCommandDispatching,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         focus: WorkspacePaneFocus,
@@ -346,7 +347,8 @@ enum CommandBarDataSource {
                     groupName: groupName,
                     groupPriority: priority,
                     store: store,
-                    repoCache: repoCache
+                    repoCache: repoCache,
+                    dispatcher: dispatcher
                 )
             }
     }
@@ -356,12 +358,18 @@ enum CommandBarDataSource {
         groupName: String,
         groupPriority: Int,
         store: WorkspaceStore? = nil,
-        repoCache: RepoCacheAtom
+        repoCache: RepoCacheAtom,
+        dispatcher: any AppCommandDispatching
     ) -> CommandBarItem {
         let commandIconColor: Color? = def.command == .managementLayerExit ? .accentColor : nil
 
         if def.command == .movePaneToTab, let store {
-            let level = buildMovePaneSourceLevel(for: def, store: store, repoCache: repoCache)
+            let level = buildMovePaneSourceLevel(
+                for: def,
+                store: store,
+                repoCache: repoCache,
+                dispatcher: dispatcher
+            )
             return CommandBarItem(
                 id: "cmd-\(def.command.rawValue)",
                 title: def.label,
@@ -381,7 +389,12 @@ enum CommandBarDataSource {
         let hasDrillIn = store != nil && !def.appliesTo.isEmpty && isTargetableCommand(def.command)
 
         if hasDrillIn, let store {
-            let level = buildTargetLevel(for: def, store: store, repoCache: repoCache)
+            let level = buildTargetLevel(
+                for: def,
+                store: store,
+                repoCache: repoCache,
+                dispatcher: dispatcher
+            )
             return CommandBarItem(
                 id: "cmd-\(def.command.rawValue)",
                 title: def.label,
@@ -429,14 +442,20 @@ enum CommandBarDataSource {
     private static func buildTargetLevel(
         for def: AppCommandSpec,
         store: WorkspaceStore,
-        repoCache: RepoCacheAtom
+        repoCache: RepoCacheAtom,
+        dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
         if def.command == .movePaneToTab {
-            return buildMovePaneSourceLevel(for: def, store: store, repoCache: repoCache)
+            return buildMovePaneSourceLevel(
+                for: def,
+                store: store,
+                repoCache: repoCache,
+                dispatcher: dispatcher
+            )
         }
 
         // Arrangement commands show arrangement targets, not generic tab/pane targets
@@ -522,7 +541,8 @@ enum CommandBarDataSource {
     private static func buildMovePaneSourceLevel(
         for def: AppCommandSpec,
         store: WorkspaceStore,
-        repoCache: RepoCacheAtom
+        repoCache: RepoCacheAtom,
+        dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
@@ -537,7 +557,8 @@ enum CommandBarDataSource {
                     store: store,
                     repoCache: repoCache,
                     sourcePaneId: pane.id,
-                    sourceTabId: tab.id
+                    sourceTabId: tab.id,
+                    dispatcher: dispatcher
                 )
                 return CommandBarItem(
                     id: "target-move-source-pane-\(pane.id.uuidString)",
@@ -566,7 +587,8 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         sourcePaneId: UUID,
-        sourceTabId: UUID
+        sourceTabId: UUID,
+        dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
@@ -579,8 +601,8 @@ enum CommandBarDataSource {
                 store: store,
                 repoCache: repoCache,
                 sourceContext: sourceContext,
-                tabIndex: tabIndex,
-                tab: tab
+                destination: (index: tabIndex, tab: tab),
+                dispatcher: dispatcher
             )
         }
 
@@ -597,9 +619,10 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         sourceContext: (paneId: UUID, tabId: UUID),
-        tabIndex: Int,
-        tab: Tab
+        destination: (index: Int, tab: Tab),
+        dispatcher: any AppCommandDispatching
     ) -> CommandBarItem? {
+        let (tabIndex, tab) = destination
         guard tab.id != sourceContext.tabId else { return nil }
         guard tab.activePaneId ?? tab.activePaneIds.first != nil else { return nil }
 
@@ -614,7 +637,7 @@ enum CommandBarDataSource {
             groupPriority: 0,
             action: .custom {
                 Task { @MainActor in
-                    AppCommandDispatcher.shared.dispatchMovePaneToTab(
+                    dispatcher.dispatchMovePaneToTab(
                         sourcePaneId: sourceContext.paneId,
                         sourceTabId: sourceContext.tabId,
                         targetTabId: targetTabId

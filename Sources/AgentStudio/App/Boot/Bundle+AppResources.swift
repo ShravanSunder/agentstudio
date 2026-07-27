@@ -18,4 +18,12 @@ extension Bundle {
         }
         return Self.module
     }
+
+    static var appResourceRootURL: URL {
+        appResources.resourceURL ?? appResources.bundleURL
+    }
+
+    static var bridgeAppRootURL: URL {
+        appResourceRootURL.appending(path: "BridgeWeb/app")
+    }
 }

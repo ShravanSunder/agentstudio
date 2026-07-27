@@ -25,6 +25,7 @@ enum PaneSegmentMissingHostDisposition: Equatable {
 
 struct FlatPaneStripContent: View {
     let layout: Layout
+    let octiconLoader: OcticonLoader
     let tabId: UUID
     let activePaneId: UUID?
     let minimizedPaneIds: Set<UUID>
@@ -67,6 +68,7 @@ struct FlatPaneStripContent: View {
                         ForEach(layout.paneIds, id: \.self) { paneId in
                             CollapsedPaneBar(
                                 paneId: paneId,
+                                octiconLoader: octiconLoader,
                                 tabId: tabId,
                                 closeTransitionCoordinator: closeTransitionCoordinator,
                                 actionDispatcher: actionDispatcher,
@@ -87,6 +89,7 @@ struct FlatPaneStripContent: View {
                         let paneSlot = viewRegistry.slot(for: segment.paneId)
                         PaneSegmentSlotView(
                             segment: segment,
+                            octiconLoader: octiconLoader,
                             tabId: tabId,
                             activePaneId: activePaneId,
                             layout: layout,
@@ -136,6 +139,7 @@ struct FlatPaneStripContent: View {
 
 private struct PaneSegmentSlotView: View {
     let segment: FlatTabStripMetrics.PaneSegment
+    let octiconLoader: OcticonLoader
     let tabId: UUID
     let activePaneId: UUID?
     let layout: Layout
@@ -165,6 +169,7 @@ private struct PaneSegmentSlotView: View {
                 if collapsedPaneWidth > 0 {
                     CollapsedPaneBar(
                         paneId: segment.paneId,
+                        octiconLoader: octiconLoader,
                         tabId: tabId,
                         closeTransitionCoordinator: closeTransitionCoordinator,
                         actionDispatcher: actionDispatcher,
@@ -178,6 +183,7 @@ private struct PaneSegmentSlotView: View {
             } else if let paneHost = paneSlot.host {
                 PaneLeafContainer(
                     paneHost: paneHost,
+                    octiconLoader: octiconLoader,
                     tabId: tabId,
                     isActive: segment.paneId == activePaneId,
                     isSplit: layout.isSplit,

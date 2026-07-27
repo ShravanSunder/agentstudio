@@ -67,7 +67,7 @@ struct WorkspaceLocalNotificationClaimMigrationTests {
                     workspaceId: fixture.workspaceId,
                     id: UUID(),
                     claimPaneId: paneId.uuidString,
-                    claimLane: SQLiteInboxNotificationClaimStorage.storageValue(for: lane),
+                    claimLane: lane.sqliteStorageValue,
                     claimSemantic: InboxNotificationClaimSemantic.unseenActivity.rawValue,
                     claimSessionId: UUID().uuidString
                 )

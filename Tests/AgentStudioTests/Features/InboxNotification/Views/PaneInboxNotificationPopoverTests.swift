@@ -200,6 +200,7 @@ struct PaneInboxNotificationPopoverTests {
 
         let popover = PaneInboxNotificationPopover(
             parentPaneId: parentPaneId,
+            octiconLoader: makeTestOcticonLoader(),
             workspaceWindowId: nil,
             paneIds: [parentPaneId],
             inboxAtom: inboxAtom,
@@ -241,6 +242,7 @@ struct PaneInboxNotificationPopoverTests {
                     let hostingView = NSHostingView(
                         rootView: PaneInboxNotificationPopover(
                             parentPaneId: parentPaneId,
+                            octiconLoader: makeTestOcticonLoader(),
                             workspaceWindowId: nil,
                             paneIds: [parentPaneId],
                             inboxAtom: inboxAtom,
@@ -306,6 +308,7 @@ struct PaneInboxNotificationPopoverTests {
                     let hostingView = NSHostingView(
                         rootView: PaneInboxNotificationPopover(
                             parentPaneId: parentPaneId,
+                            octiconLoader: makeTestOcticonLoader(),
                             workspaceWindowId: nil,
                             paneIds: [parentPaneId],
                             inboxAtom: inboxAtom,
@@ -374,6 +377,7 @@ struct PaneInboxNotificationPopoverTests {
             let hostingView = NSHostingView(
                 rootView: PaneInboxNotificationPopover(
                     parentPaneId: parentPaneId,
+                    octiconLoader: makeTestOcticonLoader(),
                     workspaceWindowId: nil,
                     paneIds: [parentPaneId],
                     inboxAtom: inboxAtom,
@@ -446,6 +450,7 @@ struct PaneInboxNotificationPopoverTests {
             let hostingView = NSHostingView(
                 rootView: PaneInboxNotificationPopover(
                     parentPaneId: parentPaneId,
+                    octiconLoader: makeTestOcticonLoader(),
                     workspaceWindowId: nil,
                     paneIds: [parentPaneId],
                     inboxAtom: inboxAtom,

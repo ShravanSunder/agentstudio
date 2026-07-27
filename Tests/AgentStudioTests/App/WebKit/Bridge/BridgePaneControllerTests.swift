@@ -100,6 +100,7 @@ extension WebKitSerializedTests {
             BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: state,
+                appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: reviewSourceProvider,
                 telemetryScopeGate: telemetryScopeGate,
                 telemetryRecorder: telemetryRecorder,

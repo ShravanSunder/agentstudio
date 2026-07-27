@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SingleTabContent: View {
     let tabId: UUID
+    let octiconLoader: OcticonLoader
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let editorChooser: EditorChooserState
@@ -17,6 +18,7 @@ struct SingleTabContent: View {
 
     init(
         tabId: UUID,
+        octiconLoader: OcticonLoader,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         editorChooser: EditorChooserState,
@@ -31,6 +33,7 @@ struct SingleTabContent: View {
         workspaceWindowId: UUID? = nil
     ) {
         self.tabId = tabId
+        self.octiconLoader = octiconLoader
         self.store = store
         self.repoCache = repoCache
         self.editorChooser = editorChooser
@@ -61,6 +64,7 @@ struct SingleTabContent: View {
         if let tab {
             FlatTabStripContainer(
                 layout: tab.layout,
+                octiconLoader: octiconLoader,
                 tabId: tabId,
                 activePaneId: tab.activePaneId,
                 zoomedPaneId: tab.zoomedPaneId,

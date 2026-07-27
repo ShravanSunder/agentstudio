@@ -307,6 +307,7 @@ struct BridgePaneProductSessionOwnerTests {
         let schemeRouter = await owner.schemeRouter
         let handler = BridgeSchemeHandler(
             paneId: UUID(),
+            appRootURL: testBridgeAppRootURL(),
             productSessionRouter: schemeRouter
         )
         let metadataReply = try await startBridgePaneProductMetadataReply(
@@ -376,6 +377,7 @@ struct BridgePaneProductSessionOwnerTests {
         let schemeRouter = await owner.schemeRouter
         let handler = BridgeSchemeHandler(
             paneId: UUID(),
+            appRootURL: testBridgeAppRootURL(),
             productSessionRouter: schemeRouter
         )
         let request = try paneOwnerProductCallSchemeRequest(

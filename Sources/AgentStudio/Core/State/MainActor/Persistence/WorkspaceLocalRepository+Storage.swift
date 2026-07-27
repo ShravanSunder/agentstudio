@@ -393,9 +393,9 @@ enum WorkspaceLocalRepositoryStorage {
                 """,
             arguments: [
                 workspaceId.uuidString,
-                SQLiteLocalUXStorage.storageValue(for: preferences.groupingMode),
-                SQLiteLocalUXStorage.storageValue(for: preferences.sortOrder),
-                SQLiteLocalUXStorage.storageValue(for: preferences.visibilityMode),
+                preferences.groupingMode,
+                preferences.sortOrder,
+                preferences.visibilityMode,
                 updatedAt.timeIntervalSince1970,
             ]
         )
@@ -415,13 +415,15 @@ enum WorkspaceLocalRepositoryStorage {
                     """,
                 arguments: [workspaceId.uuidString]
             ),
-            let groupingMode = RepoExplorerGroupingMode(rawValue: row["grouping_mode"]),
-            let sortOrder = RepoExplorerSortOrder(rawValue: row["sort_order"]),
-            let visibilityMode = RepoExplorerVisibilityMode(rawValue: row["visibility_mode"])
+            let preferences = WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
+                groupingMode: row["grouping_mode"],
+                sortOrder: row["sort_order"],
+                visibilityMode: row["visibility_mode"]
+            )
         else {
             return .default
         }
-        return .init(groupingMode: groupingMode, sortOrder: sortOrder, visibilityMode: visibilityMode)
+        return preferences
     }
 
     static func replaceInboxNotificationPreferencesRows(
@@ -448,13 +450,13 @@ enum WorkspaceLocalRepositoryStorage {
                 """,
             arguments: [
                 workspaceId.uuidString,
-                SQLiteLocalUXStorage.storageValue(for: preferences.grouping),
-                SQLiteLocalUXStorage.storageValue(for: preferences.sortOrder),
+                preferences.grouping,
+                preferences.sortOrder,
                 preferences.bellEnabled ? 1 : 0,
-                SQLiteLocalUXStorage.storageValue(for: preferences.globalContentMode),
-                SQLiteLocalUXStorage.storageValue(for: preferences.globalRowStateFilter),
-                SQLiteLocalUXStorage.storageValue(for: preferences.paneContentMode),
-                SQLiteLocalUXStorage.storageValue(for: preferences.paneRowStateFilter),
+                preferences.globalContentMode,
+                preferences.globalRowStateFilter,
+                preferences.paneContentMode,
+                preferences.paneRowStateFilter,
                 updatedAt.timeIntervalSince1970,
             ]
         )
@@ -475,24 +477,23 @@ enum WorkspaceLocalRepositoryStorage {
                     """,
                 arguments: [workspaceId.uuidString]
             ),
-            let grouping = InboxNotificationGrouping(rawValue: row["grouping"]),
-            let sortOrder = InboxNotificationSort(rawValue: row["sort_order"]),
-            let globalContentMode = InboxNotificationContentMode(rawValue: row["global_content_mode"]),
-            let globalRowStateFilter = InboxNotificationRowStateFilter(rawValue: row["global_row_state_filter"]),
-            let paneContentMode = InboxNotificationContentMode(rawValue: row["pane_content_mode"]),
-            let paneRowStateFilter = InboxNotificationRowStateFilter(rawValue: row["pane_row_state_filter"])
+            let preferences = WorkspaceLocalRepository.InboxNotificationPreferencesRecord.validated(
+                grouping: row["grouping"],
+                sortOrder: row["sort_order"],
+                bellEnabled: (row["bell_enabled"] as Int) == 1,
+                globalFilter: .init(
+                    contentMode: row["global_content_mode"],
+                    rowStateFilter: row["global_row_state_filter"]
+                ),
+                paneFilter: .init(
+                    contentMode: row["pane_content_mode"],
+                    rowStateFilter: row["pane_row_state_filter"]
+                )
+            )
         else {
             return .default
         }
-        return .init(
-            grouping: grouping,
-            sortOrder: sortOrder,
-            bellEnabled: (row["bell_enabled"] as Int) == 1,
-            globalContentMode: globalContentMode,
-            globalRowStateFilter: globalRowStateFilter,
-            paneContentMode: paneContentMode,
-            paneRowStateFilter: paneRowStateFilter
-        )
+        return preferences
     }
 
     private static func ensureMainWindowRow(_ database: Database, updatedAt: Date) throws -> String {

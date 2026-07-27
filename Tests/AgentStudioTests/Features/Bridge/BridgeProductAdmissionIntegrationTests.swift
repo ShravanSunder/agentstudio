@@ -315,6 +315,7 @@ private struct BridgeProductAdmissionIntegrationHarness {
             capabilityHeader: capabilityHeader,
             handler: BridgeSchemeHandler(
                 paneId: UUID(),
+                appRootURL: testBridgeAppRootURL(),
                 productSessionRouter: router
             ),
             installation: installation,

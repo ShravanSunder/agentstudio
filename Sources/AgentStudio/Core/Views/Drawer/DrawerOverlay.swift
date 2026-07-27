@@ -39,6 +39,7 @@ struct DrawerOverlay: View {
     }
 
     let paneId: UUID
+    let octiconLoader: OcticonLoader
     let drawer: Drawer?
     let isIconBarVisible: Bool
     let trailingActions: TrailingActions?
@@ -47,6 +48,7 @@ struct DrawerOverlay: View {
 
     var body: some View {
         DrawerIconBar(
+            octiconLoader: octiconLoader,
             isExpanded: drawer?.isExpanded ?? false,
             onAdd: { addDrawerPane() },
             onToggleExpand: {

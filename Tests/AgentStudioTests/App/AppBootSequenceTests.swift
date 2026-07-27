@@ -24,7 +24,6 @@ struct AppBootSequenceTests {
                 .triggerInitialTopologySync,
                 .armPersistenceObservation,
                 .readyForReactiveSidebar,
-                .checkWorktrunkDependency,
             ])
     }
 
@@ -38,7 +37,6 @@ struct AppBootSequenceTests {
         #expect(!recorded.contains(.loadCacheStore))
         #expect(!recorded.contains(.loadUIStore))
         #expect(!recorded.contains(.triggerInitialTopologySync))
-        #expect(!recorded.contains(.checkWorktrunkDependency))
     }
 
     @Test("every boot step explains why it exists")

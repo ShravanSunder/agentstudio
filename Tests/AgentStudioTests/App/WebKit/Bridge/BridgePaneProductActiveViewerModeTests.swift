@@ -429,6 +429,7 @@ extension WebKitSerializedTests {
                     panelKind: .fileViewer,
                     source: .workspace(rootPath: "/tmp/product-file-viewer", baseline: .unstaged)
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground
             )
         }
@@ -487,6 +488,7 @@ private struct ProductActiveViewerReviewPublicationHarness {
                 panelKind: .diffViewer,
                 source: .commit(sha: "product-ready-ordering")
             ),
+            appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground,
             productSessionDependencies: BridgePaneProductSessionDependencies(
                 installation: installation,

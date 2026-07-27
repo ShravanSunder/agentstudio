@@ -3,6 +3,7 @@ import SwiftUI
 
 struct FlatTabStripContainer: View {
     let layout: Layout
+    let octiconLoader: OcticonLoader
     let tabId: UUID
     let activePaneId: UUID?
     let zoomedPaneId: UUID?
@@ -53,6 +54,7 @@ struct FlatTabStripContainer: View {
 
     init(
         layout: Layout,
+        octiconLoader: OcticonLoader,
         tabId: UUID,
         activePaneId: UUID?,
         zoomedPaneId: UUID?,
@@ -73,6 +75,7 @@ struct FlatTabStripContainer: View {
         workspaceWindowId: UUID? = nil
     ) {
         self.layout = layout
+        self.octiconLoader = octiconLoader
         self.tabId = tabId
         self.activePaneId = activePaneId
         self.zoomedPaneId = zoomedPaneId
@@ -252,6 +255,7 @@ struct FlatTabStripContainer: View {
                     ForEach(layout.paneIds, id: \.self) { paneId in
                         CollapsedPaneBar(
                             paneId: paneId,
+                            octiconLoader: octiconLoader,
                             tabId: tabId,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             actionDispatcher: actionDispatcher,
@@ -268,6 +272,7 @@ struct FlatTabStripContainer: View {
         } else {
             FlatPaneStripContent(
                 layout: layout,
+                octiconLoader: octiconLoader,
                 tabId: tabId,
                 activePaneId: activePaneId,
                 minimizedPaneIds: minimizedPaneIds,
@@ -320,6 +325,7 @@ struct FlatTabStripContainer: View {
     private func drawerPanelOverlay(tabSize: CGSize) -> DrawerPanelOverlay {
         DrawerPanelOverlay(
             store: store,
+            octiconLoader: octiconLoader,
             repoCache: repoCache,
             editorChooser: editorChooser,
             viewRegistry: viewRegistry,
@@ -431,6 +437,7 @@ struct FlatTabStripContainer: View {
 
         return PaneLeafContainer(
             paneHost: zoomedView,
+            octiconLoader: octiconLoader,
             tabId: tabId,
             isActive: true,
             isSplit: false,

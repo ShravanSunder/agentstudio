@@ -15,6 +15,7 @@ struct InboxNotificationSidebarView: View {
     )
 
     let inboxAtom: InboxNotificationAtom
+    let octiconLoader: OcticonLoader
     let prefsAtom: InboxNotificationPrefsAtom
     let uiState: WorkspaceSidebarState
     let sidebarCache: SidebarCacheState
@@ -22,7 +23,9 @@ struct InboxNotificationSidebarView: View {
     let workspacePaneAtom: WorkspacePaneAtom
     let workspaceRepositoryTopologyAtom: RepositoryTopologyAtom
     let repoCache: RepoCacheAtom
-    let dispatcher: AppCommandDispatcher
+    let dispatcher: any AppCommandDispatching
+    let onSetRowStateFilter: (InboxNotificationRowStateFilter) -> Void
+    let onSetContentMode: (InboxNotificationContentMode) -> Void
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let initialProjectionTrigger: AppPolicies.SidebarProjection.Trigger
     let initialProjectionSequence: Int
@@ -47,6 +50,7 @@ struct InboxNotificationSidebarView: View {
 
     init(
         inboxAtom: InboxNotificationAtom,
+        octiconLoader: OcticonLoader,
         prefsAtom: InboxNotificationPrefsAtom,
         uiState: WorkspaceSidebarState,
         sidebarCache: SidebarCacheState,
@@ -54,7 +58,9 @@ struct InboxNotificationSidebarView: View {
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceRepositoryTopologyAtom: RepositoryTopologyAtom,
         repoCache: RepoCacheAtom,
-        dispatcher: AppCommandDispatcher,
+        dispatcher: any AppCommandDispatching,
+        onSetRowStateFilter: @escaping (InboxNotificationRowStateFilter) -> Void,
+        onSetContentMode: @escaping (InboxNotificationContentMode) -> Void,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         initialProjectionTrigger: String = AppPolicies.SidebarProjection.Trigger.startupDiagnostic.rawValue,
         initialProjectionSequence: Int = 0,
@@ -62,6 +68,7 @@ struct InboxNotificationSidebarView: View {
         onRefocusActivePane: @escaping @MainActor @Sendable () -> Void
     ) {
         self.inboxAtom = inboxAtom
+        self.octiconLoader = octiconLoader
         self.prefsAtom = prefsAtom
         self.uiState = uiState
         self.sidebarCache = sidebarCache
@@ -70,6 +77,8 @@ struct InboxNotificationSidebarView: View {
         self.workspaceRepositoryTopologyAtom = workspaceRepositoryTopologyAtom
         self.repoCache = repoCache
         self.dispatcher = dispatcher
+        self.onSetRowStateFilter = onSetRowStateFilter
+        self.onSetContentMode = onSetContentMode
         self.performanceTraceRecorder = performanceTraceRecorder
         self.initialProjectionTrigger =
             AppPolicies.SidebarProjection.Trigger(rawValue: initialProjectionTrigger) ?? .startupDiagnostic
@@ -103,6 +112,7 @@ struct InboxNotificationSidebarView: View {
 
     var body: some View {
         InboxSidebarRootContainer(
+            octiconLoader: octiconLoader,
             uiState: uiState,
             searchText: $searchText,
             activeFilter: activeFilter,
@@ -534,24 +544,14 @@ struct InboxNotificationSidebarView: View {
         let nextRowStateFilter: InboxNotificationRowStateFilter =
             effectiveRowStateFilter == .unreadOnly ? .all : .unreadOnly
         displayOverride = nil
-        dispatcher.dispatch(
-            AppCommandExecutionRequest(
-                command: .setInboxRowStateFilter,
-                arguments: .inboxRowStateFilter(nextRowStateFilter)
-            )
-        )
+        onSetRowStateFilter(nextRowStateFilter)
     }
 
     private func cycleContentMode() {
         let nextContentMode: InboxNotificationContentMode =
             effectiveContentMode == .rollUpAlerts ? .all : .rollUpAlerts
         displayOverride = nil
-        dispatcher.dispatch(
-            AppCommandExecutionRequest(
-                command: .setInboxContentMode,
-                arguments: .inboxContentMode(nextContentMode)
-            )
-        )
+        onSetContentMode(nextContentMode)
     }
 
     func clearReadInboxNotifications() {

@@ -13,11 +13,11 @@ struct BridgeSchemeHandler: URLSchemeHandler, Sendable {
 
     init(
         paneId _: UUID,
-        appAssetStore: BridgeAppAssetStore = BridgeAppAssetStore(),
+        appRootURL: URL,
         telemetrySessionOwner: BridgePaneTelemetrySessionOwner? = nil,
         productSessionRouter: BridgeProductSchemeSessionRouter? = nil
     ) {
-        self.appAssetStore = appAssetStore
+        self.appAssetStore = BridgeAppAssetStore(appRootURL: appRootURL)
         self.telemetrySessionOwner = telemetrySessionOwner
         self.productSessionRouter = productSessionRouter
     }

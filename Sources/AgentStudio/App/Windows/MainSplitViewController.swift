@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SidebarRootViewDependencies {
     let store: WorkspaceStore
+    let octiconLoader: OcticonLoader
     let uiState: WorkspaceSidebarState
     let sidebarCache: SidebarCacheState
     let inboxSidebarState: InboxSidebarState
@@ -37,6 +38,7 @@ class MainSplitViewController: NSSplitViewController {
         AnyView(
             SidebarSurfaceHost(
                 store: dependencies.store,
+                octiconLoader: dependencies.octiconLoader,
                 uiState: dependencies.uiState,
                 sidebarCache: dependencies.sidebarCache,
                 inboxSidebarState: dependencies.inboxSidebarState,
@@ -66,6 +68,7 @@ class MainSplitViewController: NSSplitViewController {
     // MARK: - Dependencies (injected)
 
     private let store: WorkspaceStore
+    private let octiconLoader: OcticonLoader
     private let workspaceWindowId: UUID?
     private var repoCache: RepoCacheAtom { atom(\.repoCache) }
     private var uiState: WorkspaceSidebarState { atom(\.workspaceSidebarState) }
@@ -107,6 +110,7 @@ class MainSplitViewController: NSSplitViewController {
 
     init(
         store: WorkspaceStore,
+        octiconLoader: OcticonLoader,
         workspaceWindowId: UUID? = nil,
         workspaceActionExecutor: WorkspaceActionExecutor,
         runtimeCommandDispatcher: any PaneRuntimeCommandDispatching,
@@ -132,6 +136,7 @@ class MainSplitViewController: NSSplitViewController {
         paneTabRegistersAsCommandHandler: Bool = true
     ) {
         self.store = store
+        self.octiconLoader = octiconLoader
         self.workspaceWindowId = workspaceWindowId
         self.workspaceActionExecutor = workspaceActionExecutor
         self.runtimeCommandDispatcher = runtimeCommandDispatcher
@@ -195,6 +200,7 @@ class MainSplitViewController: NSSplitViewController {
 
         let paneTabVC = PaneTabViewController(
             store: store,
+            octiconLoader: octiconLoader,
             repoCache: repoCache,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
@@ -224,6 +230,7 @@ class MainSplitViewController: NSSplitViewController {
         let sidebarView = sidebarRootViewBuilder(
             SidebarRootViewDependencies(
                 store: store,
+                octiconLoader: octiconLoader,
                 uiState: uiState,
                 sidebarCache: atom(\.sidebarCache),
                 inboxSidebarState: inboxSidebarState,
@@ -414,10 +421,14 @@ class MainSplitViewController: NSSplitViewController {
                 presenter.clearRequest(request)
             },
             popoverContent: { [weak self] parentPaneId, paneIds, onClear, onClose in
-                AnyView(
+                guard let self else {
+                    return AnyView(EmptyView())
+                }
+                return AnyView(
                     PaneInboxNotificationPopover(
                         parentPaneId: parentPaneId,
-                        workspaceWindowId: self?.workspaceWindowId,
+                        octiconLoader: self.octiconLoader,
+                        workspaceWindowId: self.workspaceWindowId,
                         paneIds: paneIds,
                         inboxAtom: inbox,
                         prefsAtom: prefsAtom,

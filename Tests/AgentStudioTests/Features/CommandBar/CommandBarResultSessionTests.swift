@@ -22,7 +22,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: store,
             repoCache: repoCache,
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         let snapshot = session.snapshot(state: state)
@@ -61,7 +61,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         let snapshot = session.snapshot(state: state)
@@ -79,7 +79,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         _ = session.snapshot(state: state)
@@ -101,7 +101,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         _ = session.snapshot(state: state)
@@ -123,7 +123,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         withObservationTracking {
@@ -147,7 +147,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         _ = session.snapshot(state: state)
@@ -167,7 +167,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         _ = session.snapshot(state: state)

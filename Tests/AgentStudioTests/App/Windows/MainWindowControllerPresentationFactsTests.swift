@@ -120,6 +120,7 @@ private func withPresentationFactsWindowHarness<T>(
         let windowController = MainWindowController(
             workspaceWindowId: windowId,
             store: store,
+            octiconLoader: makeTestOcticonLoader(),
             workspaceActionExecutor: WorkspaceActionExecutor(
                 coordinator: coordinator,
                 store: store

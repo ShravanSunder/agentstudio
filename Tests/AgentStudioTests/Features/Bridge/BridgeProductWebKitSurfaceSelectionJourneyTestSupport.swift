@@ -411,6 +411,7 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
                     baseline: .localDefaultBranch(branchName: "main")
                 )
             ),
+            appRootURL: testBridgeAppRootURL(),
             metadata: PaneMetadata(
                 paneId: PaneId(existingUUID: paneId),
                 contentType: .diff,

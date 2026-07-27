@@ -55,6 +55,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )

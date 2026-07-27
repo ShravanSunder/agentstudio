@@ -58,7 +58,7 @@ struct CommandSpecContractTests {
             scope: .commands,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared,
+            dispatcher: AppCommandDispatcher.shared,
             focus: focus
         )
         let itemsByCommand = Dictionary(

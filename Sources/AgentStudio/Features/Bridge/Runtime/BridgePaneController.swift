@@ -96,6 +96,7 @@ final class BridgePaneController {
     init(
         paneId: UUID,
         state: BridgePaneState,
+        appRootURL: URL,
         metadata: PaneMetadata? = nil,
         reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil,
         gitReadContext: BridgeGitReadContext? = nil,
@@ -207,6 +208,7 @@ final class BridgePaneController {
             in: &config,
             input: BridgeSchemeHandlerRegistrationInput(
                 paneId: paneId,
+                appRootURL: appRootURL,
                 telemetrySessionOwner: telemetryDependencies.sessionDependencies?.owner,
                 productSessionRouter: resolvedProductSessionDependencies.owner.schemeRouter
             )

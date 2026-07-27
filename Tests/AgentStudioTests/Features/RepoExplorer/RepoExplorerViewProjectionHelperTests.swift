@@ -37,8 +37,13 @@ struct RepoExplorerViewProjectionHelperTests {
         )
         let view = RepoExplorerView(
             store: store,
+            octiconLoader: makeTestOcticonLoader(),
             repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
             bridgeAttendanceSnapshot: snapshotRecorder.readSnapshot,
+            commandDispatcher: FakeAppCommandDispatcher(),
+            onSetVisibilityMode: { _ in },
+            onSetSortOrder: { _ in },
+            onRefreshWorktrees: {},
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
             onShowNotificationsForWorktree: { _ in },

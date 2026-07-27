@@ -144,6 +144,7 @@ private struct ActivityOrderingTestSetup {
         let controller = BridgePaneController(
             paneId: pane.id,
             state: state,
+            appRootURL: testBridgeAppRootURL(),
             metadata: pane.metadata,
             initialPaneActivity: .dormant
         )

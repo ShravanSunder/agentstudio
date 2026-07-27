@@ -35,7 +35,7 @@ startupTraceRecorder.recordAppStartup(
     ]
 )
 
-GhosttyStartupEnvironment.apply()
+GhosttyStartupEnvironment.apply(resourceRootURL: Bundle.appResourceRootURL)
 let ghosttyArguments = GhosttyLaunchArguments.sanitized(CommandLine.arguments)
 startupTraceRecorder.recordAppStartup(
     "app.ghostty_init.started",

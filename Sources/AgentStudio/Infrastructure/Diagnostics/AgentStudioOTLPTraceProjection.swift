@@ -871,7 +871,7 @@ extension AgentStudioOTLPTraceProjection {
     }
 
     private static func isAllowedControlledStringValue(key: String, value: String) -> Bool {
-        if let allowedValues = BridgeTelemetryEventValidator.allowedStringValuesByAttributeKey[key] {
+        if let allowedValues = BridgeTelemetryWireSchema.allowedStringValues(for: key) {
             return allowedValues.contains(value)
         }
         switch key {

@@ -27,10 +27,10 @@ struct WorkspaceSettingsStoreRootIdentityTests {
         try await settingsStore.flush(for: workspaceId)
 
         #expect(try fixture.repository.fetchEditorPreferences().bookmarkedEditorId == "cursor")
-        #expect(try fixture.repository.fetchRepoExplorerPreferences().groupingMode == .pane)
-        #expect(try fixture.repository.fetchRepoExplorerPreferences().sortOrder == .descending)
-        #expect(try fixture.repository.fetchRepoExplorerPreferences().visibilityMode == .favoritesOnly)
-        #expect(try fixture.repository.fetchInboxNotificationPreferences().grouping == .byRepo)
+        #expect(try fixture.repository.fetchRepoExplorerPreferences().groupingMode == "pane")
+        #expect(try fixture.repository.fetchRepoExplorerPreferences().sortOrder == "descending")
+        #expect(try fixture.repository.fetchRepoExplorerPreferences().visibilityMode == "favoritesOnly")
+        #expect(try fixture.repository.fetchInboxNotificationPreferences().grouping == "byRepo")
         #expect(try fixture.repository.fetchInboxNotificationPreferences().bellEnabled)
     }
 }

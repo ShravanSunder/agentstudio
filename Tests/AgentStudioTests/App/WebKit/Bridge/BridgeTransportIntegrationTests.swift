@@ -22,6 +22,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground
             )
 
@@ -41,6 +42,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground
             )
             #expect(controller.handleBridgeReady())
@@ -59,6 +61,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground
             )
 
@@ -99,6 +102,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: paneId,
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: BridgeObservabilitySmokeReviewSourceProvider(),
                 initialPaneActivity: .foreground
             )
@@ -152,6 +156,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     paneId: PaneId(existingUUID: paneId),
                     contentType: .diff,

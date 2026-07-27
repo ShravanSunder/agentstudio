@@ -10,7 +10,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    private let dispatcher = AppCommandDispatcher.shared
+    private let dispatcher = FakeAppCommandDispatcher()
 
     private func makeStore() -> WorkspaceStore {
         WorkspaceStore()
@@ -120,7 +120,11 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             return
         }
 
-        let level = CommandBarDataSource.buildRepoLevel(repo: storedRepo, store: store)
+        let level = CommandBarDataSource.buildRepoLevel(
+            repo: storedRepo,
+            store: store,
+            dispatcher: FakeAppCommandDispatcher()
+        )
 
         #expect(level.title == "repo-level-actions")
         #expect(level.scopeLabel == "Repo")
@@ -144,7 +148,8 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         let level = CommandBarDataSource.buildWorktreeActionsLevel(
             worktree: worktree,
             presence: presence,
-            canOpenInCurrentTab: true
+            canOpenInCurrentTab: true,
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         let openTitles = level.items.filter { $0.group == "Open" }.map(\.title)

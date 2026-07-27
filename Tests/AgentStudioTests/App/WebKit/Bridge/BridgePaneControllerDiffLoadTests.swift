@@ -225,6 +225,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 panelKind: .diffViewer,
                 source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
             ),
+            appRootURL: testBridgeAppRootURL(),
             reviewSourceProvider: reviewSourceProvider,
             initialPaneActivity: .foreground,
             productSessionDependencies: BridgePaneProductSessionDependencies(
@@ -330,6 +331,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 panelKind: .diffViewer,
                 source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
             ),
+            appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
         defer { controller.teardown() }

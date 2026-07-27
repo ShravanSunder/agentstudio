@@ -35,6 +35,7 @@ struct InboxSidebarFocusActivationTests {
         let hostingView = NSHostingView(
             rootView: InboxNotificationSidebarView(
                 inboxAtom: InboxNotificationAtom(),
+                octiconLoader: makeTestOcticonLoader(),
                 prefsAtom: InboxNotificationPrefsAtom(),
                 uiState: uiState,
                 sidebarCache: SidebarCacheState(),
@@ -43,6 +44,8 @@ struct InboxSidebarFocusActivationTests {
                 workspaceRepositoryTopologyAtom: RepositoryTopologyAtom(),
                 repoCache: RepoCacheAtom(),
                 dispatcher: AppCommandDispatcher.shared,
+                onSetRowStateFilter: { _ in },
+                onSetContentMode: { _ in },
                 onRefocusActivePane: { didRefocusActivePane = true }
             )
             .frame(width: 320, height: 420)

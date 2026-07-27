@@ -429,10 +429,14 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
     ]
 
     private static func hasCompleteBridgeMetricTaxonomy(_ record: AgentStudioOTLPProjectedLogRecord) -> Bool {
-        stringAttribute(record, "agentstudio.bridge.phase") != nil
-            && BridgeTelemetryPlane(rawValue: stringAttribute(record, "agentstudio.bridge.plane") ?? "") != nil
-            && BridgeTelemetryPriority(rawValue: stringAttribute(record, "agentstudio.bridge.priority") ?? "") != nil
-            && BridgeTelemetrySlice(rawValue: stringAttribute(record, "agentstudio.bridge.slice") ?? "") != nil
+        BridgeTelemetryWireSchema.hasCompleteTaxonomy(
+            stringAttributes: [
+                "agentstudio.bridge.phase": stringAttribute(record, "agentstudio.bridge.phase"),
+                "agentstudio.bridge.plane": stringAttribute(record, "agentstudio.bridge.plane"),
+                "agentstudio.bridge.priority": stringAttribute(record, "agentstudio.bridge.priority"),
+                "agentstudio.bridge.slice": stringAttribute(record, "agentstudio.bridge.slice"),
+            ].compactMapValues { $0 }
+        )
     }
 
     private static func hasCompleteSidebarMetricTaxonomy(_ record: AgentStudioOTLPProjectedLogRecord) -> Bool {

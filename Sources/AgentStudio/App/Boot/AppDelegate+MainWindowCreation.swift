@@ -2,6 +2,7 @@ import AppKit
 
 struct AppDelegateMainWindowCreationDependencies {
     let store: WorkspaceStore
+    let octiconLoader: OcticonLoader
     let executor: WorkspaceActionExecutor
     let workspaceSurfaceCoordinator: WorkspaceSurfaceCoordinator
     let applicationLifecycleMonitor: ApplicationLifecycleMonitor
@@ -74,6 +75,7 @@ extension AppDelegate {
 
         return AppDelegateMainWindowCreationDependencies(
             store: store,
+            octiconLoader: octiconLoader,
             executor: executor,
             workspaceSurfaceCoordinator: workspaceSurfaceCoordinator,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
@@ -99,6 +101,7 @@ extension AppDelegate {
         let mainWindowController = MainWindowController(
             workspaceWindowId: workspaceWindowId,
             store: dependencies.store,
+            octiconLoader: dependencies.octiconLoader,
             workspaceActionExecutor: dependencies.executor,
             runtimeCommandDispatcher: dependencies.workspaceSurfaceCoordinator,
             applicationLifecycleMonitor: dependencies.applicationLifecycleMonitor,

@@ -24,7 +24,8 @@ struct CommandBarRowShortcutResolverTests {
     func commandEnterPrefersMatchingShortcutItemOverSelection() throws {
         let actionsLevel = CommandBarDataSource.buildWorktreeActionsLevel(
             presence: makeWorktreePresence(paneCount: 1),
-            canOpenInCurrentTab: true
+            canOpenInCurrentTab: true,
+            dispatcher: FakeAppCommandDispatcher()
         )
         let selectedItem = try #require(actionsLevel.items.last)
 
@@ -41,7 +42,8 @@ struct CommandBarRowShortcutResolverTests {
     func optionEnterPrefersMatchingShortcutItemOverSelection() throws {
         let actionsLevel = CommandBarDataSource.buildWorktreeActionsLevel(
             presence: makeWorktreePresence(paneCount: 1),
-            canOpenInCurrentTab: true
+            canOpenInCurrentTab: true,
+            dispatcher: FakeAppCommandDispatcher()
         )
         let selectedItem = try #require(actionsLevel.items.first)
 

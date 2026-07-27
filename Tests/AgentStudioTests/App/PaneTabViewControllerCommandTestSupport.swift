@@ -101,6 +101,7 @@ func makePaneTabViewControllerCommandHarness(
     let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     let controller = PaneTabViewController(
         store: store,
+        octiconLoader: makeTestOcticonLoader(),
         repoCache: RepoCacheAtom(),
         applicationLifecycleMonitor: applicationLifecycleMonitor,
         appLifecycleStore: appLifecycleStore,

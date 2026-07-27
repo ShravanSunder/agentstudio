@@ -137,6 +137,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
             state: BridgePaneState(panelKind: .diffViewer, source: nil),
+            appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .loadedHidden
         )
         defer { controller.teardown() }
@@ -178,6 +179,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
             state: BridgePaneState(panelKind: .diffViewer, source: nil),
+            appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
         defer { controller.teardown() }
@@ -208,6 +210,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
             state: BridgePaneState(panelKind: .diffViewer, source: nil),
+            appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
         defer { controller.teardown() }
@@ -258,6 +261,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
             state: BridgePaneState(panelKind: .diffViewer, source: nil),
+            appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
         defer { controller.teardown() }
@@ -294,6 +298,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
             state: BridgePaneState(panelKind: .diffViewer, source: nil),
+            appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
         defer { controller.teardown() }
@@ -317,6 +322,7 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         let controller = BridgePaneController(
             paneId: UUIDv7.generate(),
             state: BridgePaneState(panelKind: .diffViewer, source: nil),
+            appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground
         )
         defer { controller.teardown() }
@@ -340,6 +346,7 @@ private func makeIPCRenderStateForegroundController() -> BridgePaneController {
     BridgePaneController(
         paneId: UUIDv7.generate(),
         state: BridgePaneState(panelKind: .diffViewer, source: nil),
+        appRootURL: testBridgeAppRootURL(),
         initialPaneActivity: .foreground
     )
 }

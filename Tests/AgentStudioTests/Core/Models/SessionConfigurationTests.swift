@@ -239,19 +239,55 @@ final class SessionConfigurationTests {
     // MARK: - Terminfo Discovery (Ghostty's own terminfo, independent of zmx)
 
     @Test
-
-    func test_resolveTerminfoDir_findsXtermGhostty() {
-        // resolveTerminfoDir() must find the terminfo directory
-        // containing xterm-ghostty for Ghostty's native TERM.
+    func test_resolveGhosttyResourcesDir_usesExplicitResourceRoot() throws {
+        // Arrange
+        let fixtureRoot = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-ghostty-resources-\(UUID().uuidString)")
+        let sentinel =
+            fixtureRoot
+            .appending(path: "terminfo")
+            .appending(path: "78")
+            .appending(path: "xterm-ghostty")
+        try FileManager.default.createDirectory(
+            at: sentinel.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: sentinel)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
 
         // Act
-        let terminfoDir = SessionConfiguration.resolveTerminfoDir()
+        let resourcesDir = SessionConfiguration.resolveGhosttyResourcesDir(
+            resourceRootURL: fixtureRoot
+        )
 
         // Assert
-        #expect((terminfoDir) != nil)
-        if let dir = terminfoDir {
-            #expect(FileManager.default.fileExists(atPath: dir + "/78/xterm-ghostty"))
-        }
+        #expect(resourcesDir == fixtureRoot.appending(path: "ghostty").path)
+    }
+
+    @Test
+    func test_resolveTerminfoDir_usesExplicitResourceRoot() throws {
+        // Arrange
+        let fixtureRoot = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-terminfo-resources-\(UUID().uuidString)")
+        let sentinel =
+            fixtureRoot
+            .appending(path: "terminfo")
+            .appending(path: "78")
+            .appending(path: "xterm-256color")
+        try FileManager.default.createDirectory(
+            at: sentinel.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: sentinel)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        // Act
+        let terminfoDir = SessionConfiguration.resolveTerminfoDir(
+            resourceRootURL: fixtureRoot
+        )
+
+        // Assert
+        #expect(terminfoDir == fixtureRoot.appending(path: "terminfo").path)
     }
 
     @Test

@@ -6,6 +6,7 @@ import SwiftUI
 /// and footer. Bound to CommandBarState.
 struct CommandBarView: View {
     @Bindable var state: CommandBarState
+    let octiconLoader: OcticonLoader
     let resultSession: CommandBarResultSession
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onExecuteItem: (CommandBarItem, EnterModifier) -> Void
@@ -23,6 +24,7 @@ struct CommandBarView: View {
 
             CommandBarSearchField(
                 state: state,
+                octiconLoader: octiconLoader,
                 onArrowUp: { state.moveSelectionUp(totalItems: resultSnapshot.totalItems) },
                 onArrowDown: { state.moveSelectionDown(totalItems: resultSnapshot.totalItems) },
                 onEnter: { modifier in executeSelected(modifier: modifier) },
@@ -45,6 +47,7 @@ struct CommandBarView: View {
             // Results list
             CommandBarResultsList(
                 groups: resultSnapshot.groups,
+                octiconLoader: octiconLoader,
                 selectedIndex: state.selectedIndex,
                 searchQuery: state.searchQuery,
                 dimmedItemIds: resultSnapshot.dimmedItemIds,

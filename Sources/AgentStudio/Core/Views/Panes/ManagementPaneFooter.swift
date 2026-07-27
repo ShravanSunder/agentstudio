@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ManagementPaneIdentityStrip: View {
     let context: PaneManagementContext
+    let octiconLoader: OcticonLoader
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -29,7 +30,11 @@ struct ManagementPaneIdentityStrip: View {
             }
 
             if let statusChips = context.statusChips {
-                WorkspaceStatusChipRow(model: statusChips, accentColor: .accentColor)
+                WorkspaceStatusChipRow(
+                    octiconLoader: octiconLoader,
+                    model: statusChips,
+                    accentColor: .accentColor
+                )
             }
         }
         .padding(.horizontal, 18)
@@ -51,7 +56,11 @@ struct ManagementPaneIdentityStrip: View {
     private func rowIcon(for icon: PaneManagementIcon) -> some View {
         switch icon {
         case .octicon(let name):
-            OcticonImage(name: name, size: AppStyles.Shell.Sidebar.branchIconSize)
+            OcticonImage(
+                name: name,
+                size: AppStyles.Shell.Sidebar.branchIconSize,
+                loader: octiconLoader
+            )
         case .system(let name):
             Image(systemName: name)
                 .font(.system(size: AppStyles.Shell.Sidebar.branchIconSize, weight: .medium))

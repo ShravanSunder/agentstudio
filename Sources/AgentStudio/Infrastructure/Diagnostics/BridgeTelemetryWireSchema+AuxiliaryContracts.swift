@@ -1,7 +1,7 @@
 import Foundation
 
-extension BridgeTelemetryEventValidator {
-    static func auxiliaryContractMatches(name: String, contract: BridgeTelemetryEventContract) -> Bool? {
+extension BridgeTelemetryWireSchema {
+    static func auxiliaryContractMatches(name: String, contract: EventContract) -> Bool? {
         switch name {
         case "performance.bridge.viewer.content_queue":
             contentQueueContractMatches(contract)
@@ -24,7 +24,7 @@ extension BridgeTelemetryEventValidator {
         }
     }
 
-    private static func contentQueueContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func contentQueueContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "content_queue",
@@ -43,7 +43,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func contentCacheContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func contentCacheContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "content_cache",
@@ -61,7 +61,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func itemUpdateContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func itemUpdateContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "item_update",
@@ -78,7 +78,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func scrollTargetContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func scrollTargetContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "scroll_target",
@@ -94,7 +94,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func virtualizedRangeContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func virtualizedRangeContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "virtualized_range",
@@ -111,7 +111,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func shikiHighlightContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func shikiHighlightContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "highlight",
@@ -129,14 +129,14 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func workerTaskContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func workerTaskContractMatches(_ contract: EventContract) -> Bool {
         legacyWorkerTaskContractMatches(contract)
             || commWorkerMessageHandlerContractMatches(contract)
             || commWorkerContentPreparationContractMatches(contract)
             || commWorkerStoreActionContractMatches(contract)
     }
 
-    private static func legacyWorkerTaskContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func legacyWorkerTaskContractMatches(_ contract: EventContract) -> Bool {
         workerTaskContractMatches(
             contract,
             priority: .warm,
@@ -152,7 +152,7 @@ extension BridgeTelemetryEventValidator {
     }
 
     private static func commWorkerMessageHandlerContractMatches(
-        _ contract: BridgeTelemetryEventContract
+        _ contract: EventContract
     ) -> Bool {
         let additionalStringKeys: Set<String> = [
             "agentstudio.bridge.result",
@@ -184,7 +184,7 @@ extension BridgeTelemetryEventValidator {
     }
 
     private static func commWorkerContentPreparationContractMatches(
-        _ contract: BridgeTelemetryEventContract
+        _ contract: EventContract
     ) -> Bool {
         workerTaskContractMatches(
             contract,
@@ -206,7 +206,7 @@ extension BridgeTelemetryEventValidator {
     }
 
     private static func commWorkerStoreActionContractMatches(
-        _ contract: BridgeTelemetryEventContract
+        _ contract: EventContract
     ) -> Bool {
         workerTaskContractMatches(
             contract,
@@ -262,17 +262,17 @@ extension BridgeTelemetryEventValidator {
     }
 
     private static func workerTaskContractMatches(
-        _ contract: BridgeTelemetryEventContract,
-        attributeKeys: BridgeTelemetryEventAttributeKeys
+        _ contract: EventContract,
+        attributeKeys: EventAttributeKeys
     ) -> Bool {
         workerTaskContractMatches(contract, priority: .hot, attributeKeys: attributeKeys)
             || workerTaskContractMatches(contract, priority: .warm, attributeKeys: attributeKeys)
     }
 
     private static func workerTaskContractMatches(
-        _ contract: BridgeTelemetryEventContract,
+        _ contract: EventContract,
         priority: BridgeTelemetryPriority,
-        attributeKeys: BridgeTelemetryEventAttributeKeys
+        attributeKeys: EventAttributeKeys
     ) -> Bool {
         contract.matches(
             .init(

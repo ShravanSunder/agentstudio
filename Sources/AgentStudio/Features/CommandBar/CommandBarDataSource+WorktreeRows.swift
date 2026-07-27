@@ -18,12 +18,20 @@ typealias CommandBarPathActionFailureHandler = @MainActor @Sendable (CommandBarP
 
 @MainActor
 extension CommandBarDataSource {
-    static func repoScopeItems(store: WorkspaceStore) -> [CommandBarItem] {
+    static func repoScopeItems(
+        store: WorkspaceStore,
+        dispatcher: any AppCommandDispatching
+    ) -> [CommandBarItem] {
         let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
         return store.repositoryTopologyAtom.repos
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { repo in
-                repoRootItem(repo: repo, store: store, presenceByWorktreeId: presenceByWorktreeId)
+                repoRootItem(
+                    repo: repo,
+                    store: store,
+                    presenceByWorktreeId: presenceByWorktreeId,
+                    dispatcher: dispatcher
+                )
             }
     }
 
@@ -66,17 +74,18 @@ extension CommandBarDataSource {
         )
     }
 
-    static func repoRootItem(repo: Repo, store: WorkspaceStore) -> CommandBarItem {
-        let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
-        return repoRootItem(repo: repo, store: store, presenceByWorktreeId: presenceByWorktreeId)
-    }
-
     static func repoRootItem(
         repo: Repo,
         store: WorkspaceStore,
-        presenceByWorktreeId: [UUID: WorktreePresence]
+        presenceByWorktreeId: [UUID: WorktreePresence],
+        dispatcher: any AppCommandDispatching
     ) -> CommandBarItem {
-        let level = buildRepoLevel(repo: repo, store: store, presenceByWorktreeId: presenceByWorktreeId)
+        let level = buildRepoLevel(
+            repo: repo,
+            store: store,
+            presenceByWorktreeId: presenceByWorktreeId,
+            dispatcher: dispatcher
+        )
         return CommandBarItem(
             id: "repo-\(repo.id.uuidString)",
             title: repo.name,
@@ -185,18 +194,24 @@ extension CommandBarDataSource {
         )
     }
 
-    static func buildRepoLevel(repo: Repo, store: WorkspaceStore) -> CommandBarLevel {
+    static func buildRepoLevel(
+        repo: Repo,
+        store: WorkspaceStore,
+        dispatcher: any AppCommandDispatching
+    ) -> CommandBarLevel {
         buildRepoLevel(
             repo: repo,
             store: store,
-            presenceByWorktreeId: buildWorktreePresenceByWorktreeId(store: store)
+            presenceByWorktreeId: buildWorktreePresenceByWorktreeId(store: store),
+            dispatcher: dispatcher
         )
     }
 
     static func buildRepoLevel(
         repo: Repo,
         store: WorkspaceStore,
-        presenceByWorktreeId: [UUID: WorktreePresence]
+        presenceByWorktreeId: [UUID: WorktreePresence],
+        dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
         let defaultWorktree = repo.worktrees.first(where: \.isMainWorktree) ?? repo.worktrees.first
         var items: [CommandBarItem] = []
@@ -231,7 +246,8 @@ extension CommandBarDataSource {
                     let level = buildWorktreeActionsLevel(
                         worktree: worktree,
                         presence: presence,
-                        canOpenInCurrentTab: store.tabLayoutAtom.activeTabId != nil
+                        canOpenInCurrentTab: store.tabLayoutAtom.activeTabId != nil,
+                        dispatcher: dispatcher
                     )
                     return CommandBarItem(
                         id: "repo-wt-\(worktree.id.uuidString)",
@@ -280,13 +296,13 @@ extension CommandBarDataSource {
     static func buildWorktreeActionsLevel(
         worktree: Worktree,
         presence: WorktreePresence,
-        canOpenInCurrentTab: Bool
+        canOpenInCurrentTab: Bool,
+        dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
         let worktreeId = presence.worktreeId
         let newTabShortcut = ShortcutTrigger(key: .enter, modifiers: [.command])
         let bridgeResolution =
-            AppCommandDispatcher.shared
-            .bridgePaneCommandTarget(worktreeId: worktreeId)?
+            dispatcher.bridgePaneCommandTarget(worktreeId: worktreeId)?
             .resolution ?? .create
         var items = [
             copyPathItem(id: "wt-\(worktreeId.uuidString)", path: worktree.path, group: "Open", groupPriority: 0),
@@ -345,7 +361,8 @@ extension CommandBarDataSource {
 
     static func buildWorktreeActionsLevel(
         presence: WorktreePresence,
-        canOpenInCurrentTab: Bool
+        canOpenInCurrentTab: Bool,
+        dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
         let worktree = Worktree(
             id: presence.worktreeId,
@@ -357,7 +374,8 @@ extension CommandBarDataSource {
         return buildWorktreeActionsLevel(
             worktree: worktree,
             presence: presence,
-            canOpenInCurrentTab: canOpenInCurrentTab
+            canOpenInCurrentTab: canOpenInCurrentTab,
+            dispatcher: dispatcher
         )
     }
 
@@ -368,7 +386,7 @@ extension CommandBarDataSource {
         [
             CommandBarItem(
                 id: "wt-review-\(worktreeId.uuidString)",
-                title: resolution.contextualLabel(for: .review),
+                title: resolution.contextualLabel(for: .showBridgeReview),
                 icon: AppCommand.showBridgeReview.definition.icon,
                 group: "Open",
                 groupPriority: 0,
@@ -378,7 +396,7 @@ extension CommandBarDataSource {
             ),
             CommandBarItem(
                 id: "wt-files-\(worktreeId.uuidString)",
-                title: resolution.contextualLabel(for: .file),
+                title: resolution.contextualLabel(for: .showBridgeFiles),
                 icon: AppCommand.showBridgeFiles.definition.icon,
                 group: "Open",
                 groupPriority: 0,

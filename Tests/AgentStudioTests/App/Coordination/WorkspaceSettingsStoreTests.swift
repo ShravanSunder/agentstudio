@@ -207,9 +207,9 @@ struct WorkspaceSettingsStoreTests {
             databaseWriter: fixture.localDatabaseQueue
         )
         #expect(try repository.fetchEditorPreferences().bookmarkedEditorId == "cursor")
-        #expect(try repository.fetchRepoExplorerPreferences().groupingMode == .pane)
-        #expect(try repository.fetchRepoExplorerPreferences().sortOrder == .descending)
-        #expect(try repository.fetchInboxNotificationPreferences().grouping == .byRepo)
+        #expect(try repository.fetchRepoExplorerPreferences().groupingMode == "pane")
+        #expect(try repository.fetchRepoExplorerPreferences().sortOrder == "descending")
+        #expect(try repository.fetchInboxNotificationPreferences().grouping == "byRepo")
         #expect(try repository.fetchInboxNotificationPreferences().bellEnabled)
     }
 

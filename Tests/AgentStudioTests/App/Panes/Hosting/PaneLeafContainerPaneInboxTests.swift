@@ -55,6 +55,7 @@ struct PaneLeafContainerPaneInboxTests {
         let editorChooser = EditorChooserState()
         let paneLeafContainer = PaneLeafContainer(
             paneHost: PaneHostView(paneId: pane.id),
+            octiconLoader: makeTestOcticonLoader(),
             tabId: tab.id,
             isActive: true,
             isSplit: false,

@@ -3,10 +3,11 @@ import SwiftUI
 struct OcticonImage: View {
     let name: String
     let size: CGFloat
+    let loader: OcticonLoader
 
     var body: some View {
         Group {
-            if let image = OcticonLoader.shared.image(named: name) {
+            if let image = loader.image(named: name) {
                 Image(nsImage: image)
                     .renderingMode(.template)
                     .resizable()

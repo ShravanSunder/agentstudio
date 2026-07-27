@@ -17,6 +17,7 @@ private func ancestorChainDescription(for view: NSView) -> String {
 /// non-terminal views (webview, code viewer stubs) uniformly.
 struct PaneLeafContainer: View {
     let paneHost: PaneHostView
+    let octiconLoader: OcticonLoader
     let tabId: UUID
     let isActive: Bool
     let isSplit: Bool
@@ -49,6 +50,7 @@ struct PaneLeafContainer: View {
 
     init(
         paneHost: PaneHostView,
+        octiconLoader: OcticonLoader,
         tabId: UUID,
         isActive: Bool,
         isSplit: Bool,
@@ -68,6 +70,7 @@ struct PaneLeafContainer: View {
         workspaceWindowId: UUID? = nil
     ) {
         self.paneHost = paneHost
+        self.octiconLoader = octiconLoader
         self.tabId = tabId
         self.isActive = isActive
         self.isSplit = isSplit
@@ -231,6 +234,7 @@ struct PaneLeafContainer: View {
     ) -> some View {
         DrawerOverlay(
             paneId: paneHost.id,
+            octiconLoader: octiconLoader,
             drawer: drawer,
             isIconBarVisible: true,
             trailingActions: trailingActions,
@@ -267,7 +271,10 @@ struct PaneLeafContainer: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     if managementLayer.isActive && !isDrawerChild && managementContext.showsIdentityBlock {
-                        ManagementPaneIdentityStrip(context: managementContext)
+                        ManagementPaneIdentityStrip(
+                            context: managementContext,
+                            octiconLoader: octiconLoader
+                        )
                     }
 
                     if !isDrawerChild {

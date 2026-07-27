@@ -85,7 +85,10 @@ final class BridgeSchemeHandlerTests {
 
     @Test
     func test_appRoute_loadsPackagedBridgeWebIndex() async throws {
-        let handler = BridgeSchemeHandler(paneId: UUID())
+        let handler = BridgeSchemeHandler(
+            paneId: UUID(),
+            appRootURL: testBridgeAppRootURL()
+        )
         let request = URLRequest(url: URL(string: "agentstudio://app/index.html")!)
 
         var data = Data()
@@ -102,7 +105,10 @@ final class BridgeSchemeHandlerTests {
 
     @Test
     func test_appRoute_servesPackagedProductStreamFeasibilityWorkerAsset() async throws {
-        let handler = BridgeSchemeHandler(paneId: UUID())
+        let handler = BridgeSchemeHandler(
+            paneId: UUID(),
+            appRootURL: testBridgeAppRootURL()
+        )
         let request = URLRequest(
             url: URL(
                 string: "agentstudio://app/assets/bridge-product-stream-webkit-feasibility-worker.js"

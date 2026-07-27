@@ -38,6 +38,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,
                     title: "Bridge Review",
@@ -85,6 +86,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,
                     title: "Bridge Review",
@@ -216,6 +218,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
@@ -261,6 +264,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
@@ -301,6 +305,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
@@ -353,6 +358,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
@@ -401,6 +407,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground
             )
@@ -446,6 +453,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,
                     title: "Bridge Review",
@@ -488,6 +496,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,
                     title: "Bridge Review",
@@ -515,6 +524,7 @@ private func makeIPCForegroundController() -> BridgePaneController {
     BridgePaneController(
         paneId: UUIDv7.generate(),
         state: BridgePaneState(panelKind: .diffViewer, source: nil),
+        appRootURL: testBridgeAppRootURL(),
         initialPaneActivity: .foreground
     )
 }

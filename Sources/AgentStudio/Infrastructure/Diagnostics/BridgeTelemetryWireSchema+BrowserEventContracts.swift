@@ -1,23 +1,34 @@
 import Foundation
 
-extension BridgeTelemetryEventValidator {
-    static func attributesMatchEventContract(_ sample: BridgeTelemetrySample) -> Bool {
-        guard let contract = BridgeTelemetryEventContract(sample: sample) else {
+extension BridgeTelemetryWireSchema {
+    static func attributesMatchEventContract(
+        eventName: String,
+        stringAttributes: [String: String],
+        numericAttributes: [String: Double],
+        booleanAttributes: [String: Bool]
+    ) -> Bool {
+        guard
+            let contract = EventContract(
+                stringAttributes: stringAttributes,
+                numericAttributes: numericAttributes,
+                booleanAttributes: booleanAttributes
+            )
+        else {
             return false
         }
 
-        if let webContractResult = browserWebContractMatches(name: sample.name, contract: contract) {
+        if let webContractResult = browserWebContractMatches(name: eventName, contract: contract) {
             return webContractResult
         }
-        if let treeContractResult = treeContractMatches(name: sample.name, contract: contract) {
+        if let treeContractResult = treeContractMatches(name: eventName, contract: contract) {
             return treeContractResult
         }
-        return auxiliaryContractMatches(name: sample.name, contract: contract) ?? false
+        return auxiliaryContractMatches(name: eventName, contract: contract) ?? false
     }
 
     private static func browserWebContractMatches(
         name: String,
-        contract: BridgeTelemetryEventContract
+        contract: EventContract
     ) -> Bool? {
         switch name {
         case "performance.bridge.web.code_view_item_materialize":
@@ -64,7 +75,7 @@ extension BridgeTelemetryEventValidator {
         }
     }
 
-    private static func treeContractMatches(name: String, contract: BridgeTelemetryEventContract) -> Bool? {
+    private static func treeContractMatches(name: String, contract: EventContract) -> Bool? {
         switch name {
         case "performance.bridge.markdown.render_queue":
             markdownRenderQueueContractMatches(contract)
@@ -99,8 +110,8 @@ extension BridgeTelemetryEventValidator {
         }
     }
 
-    private static func contentFetchContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
-        let contentResourceFetchExpectation = BridgeTelemetryEventExpectation(
+    private static func contentFetchContractMatches(_ contract: EventContract) -> Bool {
+        let contentResourceFetchExpectation = EventExpectation(
             phase: "fetch",
             plane: .data,
             priority: .hot,
@@ -117,7 +128,7 @@ extension BridgeTelemetryEventValidator {
                 ]
             )
         )
-        let demandContentFetchExpectation = BridgeTelemetryEventExpectation(
+        let demandContentFetchExpectation = EventExpectation(
             phase: "fetch",
             plane: .data,
             priority: .hot,
@@ -142,7 +153,7 @@ extension BridgeTelemetryEventValidator {
             || worktreeFileContentFetchContractMatches(contract)
     }
 
-    private static func firstRenderContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func firstRenderContractMatches(_ contract: EventContract) -> Bool {
         contract.phase == "render"
             && contract.plane == .data
             && contract.priority == .hot
@@ -150,7 +161,7 @@ extension BridgeTelemetryEventValidator {
             && contract.hasOnlyCommonKeys()
     }
 
-    private static func frameJankContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func frameJankContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "frame_jank",
@@ -179,7 +190,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func packageApplyContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func packageApplyContractMatches(_ contract: EventContract) -> Bool {
         let transportMatches: Bool =
             if contract.transport == "push" {
                 pushSliceIsBrowserReceivable(contract.slice)
@@ -195,7 +206,7 @@ extension BridgeTelemetryEventValidator {
             && contract.hasOnlyCommonKeys()
     }
 
-    private static func intakeFrameContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func intakeFrameContractMatches(_ contract: EventContract) -> Bool {
         contract.phase == "intake"
             && contract.plane == planeForBrowserPushSlice(contract.slice)
             && contract.priority == priorityForBrowserPushSlice(contract.slice)
@@ -214,7 +225,7 @@ extension BridgeTelemetryEventValidator {
             && contract.booleanKeys.isEmpty
     }
 
-    private static func rpcSendContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func rpcSendContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "send",
@@ -227,7 +238,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func telemetryDropContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func telemetryDropContractMatches(_ contract: EventContract) -> Bool {
         let browserDropMatches = contract.matches(
             .init(
                 phase: "dropped",
@@ -278,7 +289,7 @@ extension BridgeTelemetryEventValidator {
         return browserDropMatches || legacyBrowserDropMatches || validatorDropDetailMatches
     }
 
-    private static func markdownRenderQueueContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func markdownRenderQueueContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "markdown_queue",
@@ -294,7 +305,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func markdownRenderContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func markdownRenderContractMatches(_ contract: EventContract) -> Bool {
         let expectedStringKeys = requiredStringAttributeKeys.union([
             "agentstudio.bridge.content_bytes_bucket",
             "agentstudio.bridge.result",
@@ -314,7 +325,7 @@ extension BridgeTelemetryEventValidator {
             && contract.booleanKeys.isEmpty
     }
 
-    private static func markdownFallbackContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func markdownFallbackContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "markdown_decision",
@@ -331,7 +342,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func reviewStartupContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func reviewStartupContractMatches(_ contract: EventContract) -> Bool {
         if contract.phase == "review_metadata_apply" {
             return reviewMetadataApplyContractMatches(contract)
         }
@@ -376,7 +387,7 @@ extension BridgeTelemetryEventValidator {
     }
 
     private static func reviewMetadataApplyContractMatches(
-        _ contract: BridgeTelemetryEventContract
+        _ contract: EventContract
     ) -> Bool {
         let carryForwardNumericKeys: Set<String> = [
             "agentstudio.bridge.review.metadata_carry_forward.unverified_keep.count",
@@ -418,7 +429,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func reviewReadyContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func reviewReadyContractMatches(_ contract: EventContract) -> Bool {
         let routeMatches =
             switch (contract.slice, contract.transport) {
             case (.reviewProjection, "intake"),
@@ -475,7 +486,7 @@ extension BridgeTelemetryEventValidator {
         }
     }
 
-    private static func projectionBuildContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func projectionBuildContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "projection_build",
@@ -495,7 +506,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func projectionCoordinatorContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func projectionCoordinatorContractMatches(_ contract: EventContract) -> Bool {
         switch contract.phase {
         case "projection_input_build",
             "projection_store_apply",
@@ -521,7 +532,7 @@ extension BridgeTelemetryEventValidator {
         }
     }
 
-    private static func prepareInputContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func prepareInputContractMatches(_ contract: EventContract) -> Bool {
         let reviewTreePrepareInputMatches = contract.matches(
             .init(
                 phase: "prepare_input",
@@ -560,7 +571,7 @@ extension BridgeTelemetryEventValidator {
         return reviewTreePrepareInputMatches || worktreeFileTreePrepareInputMatches
     }
 
-    private static func modeSwitchContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func modeSwitchContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "mode_switch",
@@ -577,7 +588,7 @@ extension BridgeTelemetryEventValidator {
     }
 
     private static func clickToRowHighlightContractMatches(
-        _ contract: BridgeTelemetryEventContract
+        _ contract: EventContract
     ) -> Bool {
         contract.matches(
             treeInstrumentationExpectation(
@@ -596,7 +607,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func hoverToRenderContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func hoverToRenderContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             treeInstrumentationExpectation(
                 phase: "hover_to_render",
@@ -610,7 +621,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func scrollFrameGapContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func scrollFrameGapContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             treeInstrumentationExpectation(
                 phase: "scroll_frame_gap",
@@ -631,7 +642,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func anchorRestoreContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func anchorRestoreContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             treeInstrumentationExpectation(
                 phase: "anchor_restore",
@@ -649,7 +660,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func scrollToPathContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func scrollToPathContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             treeInstrumentationExpectation(
                 phase: "scroll_to_path",
@@ -664,7 +675,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func visibleIdsCaptureContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func visibleIdsCaptureContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             treeInstrumentationExpectation(
                 phase: "visible_ids_capture",
@@ -686,7 +697,7 @@ extension BridgeTelemetryEventValidator {
         additionalStringKeys: Set<String>,
         numericKeys: Set<String> = [],
         booleanKeys: Set<String> = []
-    ) -> BridgeTelemetryEventExpectation {
+    ) -> EventExpectation {
         .init(
             phase: phase,
             plane: .data,
@@ -701,7 +712,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    private static func searchFilterContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    private static func searchFilterContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "search_filter",

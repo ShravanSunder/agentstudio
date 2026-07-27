@@ -1,7 +1,7 @@
 import Foundation
 
-extension BridgeTelemetryEventValidator {
-    static func reviewContentDemandContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+extension BridgeTelemetryWireSchema {
+    static func reviewContentDemandContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "review_content_demand",
@@ -34,7 +34,7 @@ extension BridgeTelemetryEventValidator {
         )
     }
 
-    static func codeViewItemMaterializeContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    static func codeViewItemMaterializeContractMatches(_ contract: EventContract) -> Bool {
         ["swift", "worker"].contains { transport in
             contract.matches(
                 .init(
@@ -58,7 +58,7 @@ extension BridgeTelemetryEventValidator {
         }
     }
 
-    static func selectedContentPaintedContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    static func selectedContentPaintedContractMatches(_ contract: EventContract) -> Bool {
         ["swift", "worker"].contains { transport in
             contract.matches(
                 .init(
@@ -80,7 +80,7 @@ extension BridgeTelemetryEventValidator {
         }
     }
 
-    static func selectedContentDroppedContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+    static func selectedContentDroppedContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "selected_content_dropped",

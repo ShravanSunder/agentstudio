@@ -61,6 +61,7 @@ struct PaneHostingEditorChooserIdentityTests {
     ) -> PaneLeafContainer {
         PaneLeafContainer(
             paneHost: PaneHostView(paneId: paneId),
+            octiconLoader: makeTestOcticonLoader(),
             tabId: tabId,
             isActive: true,
             isSplit: false,

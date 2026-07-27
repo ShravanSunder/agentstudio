@@ -1,9 +1,9 @@
 import Foundation
 
 /// Viewer-perceived interaction contracts (time-to-first-interaction) split
-/// from the main validator to keep it under the file-length cap.
-extension BridgeTelemetryEventValidator {
-    static func timeToFirstInteractionContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+/// from the main wire schema to keep it under the file-length cap.
+extension BridgeTelemetryWireSchema {
+    static func timeToFirstInteractionContractMatches(_ contract: EventContract) -> Bool {
         contract.matches(
             .init(
                 phase: "time_to_first_interaction",

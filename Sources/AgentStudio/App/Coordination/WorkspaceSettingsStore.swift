@@ -7,6 +7,11 @@ private let workspaceSettingsStoreLogger = Logger(
     category: "WorkspaceSettingsStore"
 )
 
+private enum WorkspaceSettingsStoreMappingError: Error {
+    case unsupportedRepoExplorerPreferenceVocabulary
+    case unsupportedInboxNotificationPreferenceVocabulary
+}
+
 @MainActor
 final class WorkspaceSettingsStore {
     private let editorPreferenceAtom: EditorPreferenceAtom
@@ -133,8 +138,8 @@ final class WorkspaceSettingsStore {
         do {
             try await sqliteDatastore.saveWorkspaceSettings(
                 editor: currentEditorPreferences(),
-                repoExplorer: currentRepoExplorerPreferences(),
-                inboxNotification: currentInboxNotificationPreferences(),
+                repoExplorer: try currentRepoExplorerPreferences(),
+                inboxNotification: try currentInboxNotificationPreferences(),
                 workspaceId: workspaceId
             )
         } catch {
@@ -147,26 +152,42 @@ final class WorkspaceSettingsStore {
         .init(bookmarkedEditorId: editorPreferenceAtom.bookmarkedEditorId?.rawValue)
     }
 
-    private func currentRepoExplorerPreferences() -> WorkspaceLocalRepository.RepoExplorerPreferencesRecord {
-        .init(
-            groupingMode: repoExplorerSidebarPrefsAtom.groupingMode,
-            sortOrder: repoExplorerSidebarPrefsAtom.sortOrder,
-            visibilityMode: repoExplorerSidebarPrefsAtom.repoVisibilityMode
-        )
+    private func currentRepoExplorerPreferences() throws
+        -> WorkspaceLocalRepository.RepoExplorerPreferencesRecord
+    {
+        guard
+            let preferences = WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
+                groupingMode: repoExplorerSidebarPrefsAtom.groupingMode.rawValue,
+                sortOrder: repoExplorerSidebarPrefsAtom.sortOrder.rawValue,
+                visibilityMode: repoExplorerSidebarPrefsAtom.repoVisibilityMode.rawValue
+            )
+        else {
+            throw WorkspaceSettingsStoreMappingError.unsupportedRepoExplorerPreferenceVocabulary
+        }
+        return preferences
     }
 
-    private func currentInboxNotificationPreferences()
+    private func currentInboxNotificationPreferences() throws
         -> WorkspaceLocalRepository.InboxNotificationPreferencesRecord
     {
-        .init(
-            grouping: inboxNotificationPrefsAtom.grouping,
-            sortOrder: inboxNotificationPrefsAtom.sort,
-            bellEnabled: inboxNotificationPrefsAtom.bellEnabled,
-            globalContentMode: inboxNotificationPrefsAtom.globalInboxContentMode,
-            globalRowStateFilter: inboxNotificationPrefsAtom.globalInboxRowStateFilter,
-            paneContentMode: inboxNotificationPrefsAtom.paneInboxContentMode,
-            paneRowStateFilter: inboxNotificationPrefsAtom.paneInboxRowStateFilter
-        )
+        guard
+            let preferences = WorkspaceLocalRepository.InboxNotificationPreferencesRecord.validated(
+                grouping: inboxNotificationPrefsAtom.grouping.rawValue,
+                sortOrder: inboxNotificationPrefsAtom.sort.rawValue,
+                bellEnabled: inboxNotificationPrefsAtom.bellEnabled,
+                globalFilter: .init(
+                    contentMode: inboxNotificationPrefsAtom.globalInboxContentMode.rawValue,
+                    rowStateFilter: inboxNotificationPrefsAtom.globalInboxRowStateFilter.rawValue
+                ),
+                paneFilter: .init(
+                    contentMode: inboxNotificationPrefsAtom.paneInboxContentMode.rawValue,
+                    rowStateFilter: inboxNotificationPrefsAtom.paneInboxRowStateFilter.rawValue
+                )
+            )
+        else {
+            throw WorkspaceSettingsStoreMappingError.unsupportedInboxNotificationPreferenceVocabulary
+        }
+        return preferences
     }
 
     private func hydrate(
@@ -175,18 +196,34 @@ final class WorkspaceSettingsStore {
         inboxNotification: WorkspaceLocalRepository.InboxNotificationPreferencesRecord
     ) {
         editorPreferenceAtom.hydrate(bookmarkedEditorId: editor.bookmarkedEditorId.map(EditorTargetId.init(rawValue:)))
+        let repoExplorerGroupingMode = RepoExplorerGroupingMode(rawValue: repoExplorer.groupingMode) ?? .repo
+        let repoExplorerSortOrder = RepoExplorerSortOrder(rawValue: repoExplorer.sortOrder) ?? .default
+        let repoExplorerVisibilityMode =
+            RepoExplorerVisibilityMode(rawValue: repoExplorer.visibilityMode) ?? .all
         repoExplorerSidebarPrefsAtom.hydrate(
-            groupingMode: repoExplorer.groupingMode,
-            sortOrder: repoExplorer.sortOrder,
-            repoVisibilityMode: repoExplorer.visibilityMode
+            groupingMode: repoExplorerGroupingMode,
+            sortOrder: repoExplorerSortOrder,
+            repoVisibilityMode: repoExplorerVisibilityMode
         )
-        inboxNotificationPrefsAtom.setGrouping(inboxNotification.grouping)
-        inboxNotificationPrefsAtom.setSort(inboxNotification.sortOrder)
+        inboxNotificationPrefsAtom.setGrouping(
+            InboxNotificationGrouping(rawValue: inboxNotification.grouping) ?? .byTab
+        )
+        inboxNotificationPrefsAtom.setSort(
+            InboxNotificationSort(rawValue: inboxNotification.sortOrder) ?? .newestFirst
+        )
         inboxNotificationPrefsAtom.setBellEnabled(inboxNotification.bellEnabled)
-        inboxNotificationPrefsAtom.setGlobalInboxContentMode(inboxNotification.globalContentMode)
-        inboxNotificationPrefsAtom.setGlobalInboxRowStateFilter(inboxNotification.globalRowStateFilter)
-        inboxNotificationPrefsAtom.setPaneInboxContentMode(inboxNotification.paneContentMode)
-        inboxNotificationPrefsAtom.setPaneInboxRowStateFilter(inboxNotification.paneRowStateFilter)
+        inboxNotificationPrefsAtom.setGlobalInboxContentMode(
+            InboxNotificationContentMode(rawValue: inboxNotification.globalContentMode) ?? .rollUpAlerts
+        )
+        inboxNotificationPrefsAtom.setGlobalInboxRowStateFilter(
+            InboxNotificationRowStateFilter(rawValue: inboxNotification.globalRowStateFilter) ?? .unreadOnly
+        )
+        inboxNotificationPrefsAtom.setPaneInboxContentMode(
+            InboxNotificationContentMode(rawValue: inboxNotification.paneContentMode) ?? .rollUpAlerts
+        )
+        inboxNotificationPrefsAtom.setPaneInboxRowStateFilter(
+            InboxNotificationRowStateFilter(rawValue: inboxNotification.paneRowStateFilter) ?? .unreadOnly
+        )
     }
 
     private func hydrateDefaults() {

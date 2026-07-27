@@ -15,12 +15,17 @@ enum BridgePaneCommandResolution: Equatable, Sendable {
     case reuse(paneId: UUID)
     case create
 
-    func contextualLabel(for surface: BridgeProductSurface) -> String {
-        switch (self, surface) {
-        case (.create, .review): "Open Review"
-        case (.create, .file): "Open Files"
-        case (.reuse, .review): "Go to Review"
-        case (.reuse, .file): "Go to Files"
+    func contextualLabel(for command: AppCommand) -> String {
+        switch command {
+        case .showBridgeReview, .showBridgeFiles:
+            let action =
+                switch self {
+                case .create: "Open"
+                case .reuse: "Go to"
+                }
+            return "\(action) \(command.definition.label)"
+        default:
+            return command.definition.label
         }
     }
 }

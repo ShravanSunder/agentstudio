@@ -51,6 +51,7 @@ struct BridgeProductSessionDependencyInput {
 
 struct BridgeSchemeHandlerRegistrationInput {
     let paneId: UUID
+    let appRootURL: URL
     let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
     let productSessionRouter: BridgeProductSchemeSessionRouter
 }
@@ -614,6 +615,7 @@ extension BridgePaneController {
         guard let scheme = URLScheme("agentstudio") else { return }
         config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(
             paneId: input.paneId,
+            appRootURL: input.appRootURL,
             telemetrySessionOwner: input.telemetrySessionOwner,
             productSessionRouter: input.productSessionRouter
         )

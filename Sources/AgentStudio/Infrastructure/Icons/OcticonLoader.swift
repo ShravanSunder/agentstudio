@@ -2,11 +2,12 @@ import AppKit
 
 @MainActor
 final class OcticonLoader {
-    static let shared = OcticonLoader()
-
+    private let resourceRootURL: URL
     private var cache: [String: NSImage] = [:]
 
-    private init() {}
+    init(resourceRootURL: URL) {
+        self.resourceRootURL = resourceRootURL
+    }
 
     func image(named name: String) -> NSImage? {
         if let cached = cache[name] {
@@ -14,25 +15,16 @@ final class OcticonLoader {
         }
 
         let subdirectory = "Icons.xcassets/\(name).imageset"
-        if let svgURL = Bundle.appResources.url(
-            forResource: name,
-            withExtension: "svg",
-            subdirectory: subdirectory
-        ),
-            let image = NSImage(contentsOf: svgURL)
-        {
+        let imageSetRoot = resourceRootURL.appending(path: subdirectory)
+        let svgURL = imageSetRoot.appending(path: "\(name).svg")
+        if let image = NSImage(contentsOf: svgURL) {
             image.isTemplate = true
             cache[name] = image
             return image
         }
 
-        if let pdfURL = Bundle.appResources.url(
-            forResource: name,
-            withExtension: "pdf",
-            subdirectory: subdirectory
-        ),
-            let image = NSImage(contentsOf: pdfURL)
-        {
+        let pdfURL = imageSetRoot.appending(path: "\(name).pdf")
+        if let image = NSImage(contentsOf: pdfURL) {
             image.isTemplate = true
             cache[name] = image
             return image

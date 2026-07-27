@@ -201,6 +201,7 @@ private func makeWorkspaceRefreshTestSetup(
     let controller = BridgePaneController(
         paneId: bridgePane.id,
         state: paneState,
+        appRootURL: testBridgeAppRootURL(),
         metadata: bridgePane.metadata,
         initialPaneActivity: .dormant
     )

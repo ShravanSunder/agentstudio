@@ -5,6 +5,7 @@ import SwiftUI
 /// Grouped scrollable list with results. Shows group headers per section.
 struct CommandBarResultsList: View {
     let groups: [CommandBarItemGroup]
+    let octiconLoader: OcticonLoader
     let selectedIndex: Int
     let searchQuery: String
     let dimmedItemIds: Set<String>
@@ -12,12 +13,14 @@ struct CommandBarResultsList: View {
 
     init(
         groups: [CommandBarItemGroup],
+        octiconLoader: OcticonLoader,
         selectedIndex: Int,
         searchQuery: String = "",
         dimmedItemIds: Set<String> = [],
         onSelect: @escaping (CommandBarItem) -> Void
     ) {
         self.groups = groups
+        self.octiconLoader = octiconLoader
         self.selectedIndex = selectedIndex
         self.searchQuery = searchQuery
         self.dimmedItemIds = dimmedItemIds
@@ -39,6 +42,7 @@ struct CommandBarResultsList: View {
                             case .item(let item, let flatIndex):
                                 CommandBarResultRow(
                                     item: item,
+                                    octiconLoader: octiconLoader,
                                     isSelected: flatIndex == selectedIndex,
                                     searchQuery: searchQuery,
                                     isDimmed: dimmedItemIds.contains(item.id)

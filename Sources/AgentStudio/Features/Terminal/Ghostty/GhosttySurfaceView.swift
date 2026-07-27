@@ -338,6 +338,7 @@ extension Ghostty {
         private(set) var error: Error?
         weak var terminalRuntime: TerminalRuntime?
         weak var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+        let appCommandDispatcher: any AppCommandDispatching
         let mouseVisibilityToken = UUID()
         // MARK: - Initialization
 
@@ -345,6 +346,7 @@ extension Ghostty {
             app: App,
             managedSurfaceID: UUID,
             config: SurfaceConfiguration? = nil,
+            appCommandDispatcher: any AppCommandDispatching,
             performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
         ) {
             guard let config else {
@@ -356,6 +358,7 @@ extension Ghostty {
             self.managedSurfaceID = managedSurfaceID
             self.ghosttyApp = app
             self.hostConfigSnapshot = app.hostConfigSnapshot()
+            self.appCommandDispatcher = appCommandDispatcher
             self.performanceTraceRecorder = performanceTraceRecorder
             super.init(frame: config.initialFrame!)
             let startupCommandForSurface = config.startupStrategy.startupCommandForSurface

@@ -9,6 +9,7 @@ struct RepoExplorerWorktreeRowTests {
     @Test("row content accepts primitive unread count")
     func rowContentAcceptsUnreadCount() {
         let view = RepoExplorerWorktreeRowContent(
+            octiconLoader: makeTestOcticonLoader(),
             checkoutTitle: "agent-studio",
             branchName: "main",
             placementText: "Pane 2 active",

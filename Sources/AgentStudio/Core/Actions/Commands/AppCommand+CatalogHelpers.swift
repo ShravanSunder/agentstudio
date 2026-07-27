@@ -1,4 +1,3 @@
-import AgentStudioProgrammaticControl
 import Foundation
 
 // MARK: - AppCommand Catalog Helpers
@@ -68,15 +67,18 @@ extension AppCommand {
         )
     }
 
-    func repoSidebarGroupingDefinition(_ groupingMode: RepoExplorerGroupingMode) -> AppCommandSpec {
+    func repoSidebarGroupingDefinition(
+        label: String,
+        icon: CommandIcon,
+        helpTarget: String
+    ) -> AppCommandSpec {
         AppCommandSpec(
             command: self,
-            label: "Group Repos by \(groupingMode.title)",
-            icon: groupingMode.icon,
-            helpText: "Group the repo sidebar by \(groupingMode.title.lowercased())",
+            label: "Group Repos by \(label)",
+            icon: icon,
+            helpText: "Group the repo sidebar by \(helpTarget)",
             commandBarGroupName: "Sidebar",
-            commandBarGroupPriority: CommandBarGroupPriority.window,
-            ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
+            commandBarGroupPriority: CommandBarGroupPriority.window
         )
     }
 
@@ -88,15 +90,7 @@ extension AppCommand {
             helpText: "Set the repo sidebar visibility mode",
             commandBarGroupName: "Sidebar",
             commandBarGroupPriority: CommandBarGroupPriority.window,
-            isHiddenInCommandBar: true,
-            argumentSchema: [
-                IPCCommandArgumentSchema(
-                    name: "mode",
-                    kind: .stringEnum(values: RepoExplorerVisibilityMode.allCases.map(\.rawValue)),
-                    isRequired: true
-                )
-            ],
-            ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
+            isHiddenInCommandBar: true
         )
     }
 
@@ -108,27 +102,22 @@ extension AppCommand {
             helpText: "Set the repo sidebar sort order",
             commandBarGroupName: "Sidebar",
             commandBarGroupPriority: CommandBarGroupPriority.window,
-            isHiddenInCommandBar: true,
-            argumentSchema: [
-                IPCCommandArgumentSchema(
-                    name: "order",
-                    kind: .stringEnum(values: RepoExplorerSortOrder.allCases.map(\.rawValue)),
-                    isRequired: true
-                )
-            ],
-            ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
+            isHiddenInCommandBar: true
         )
     }
 
-    func inboxGroupingDefinition(_ grouping: InboxNotificationGrouping) -> AppCommandSpec {
+    func inboxGroupingDefinition(
+        label: String,
+        icon: CommandIcon,
+        helpTarget: String
+    ) -> AppCommandSpec {
         AppCommandSpec(
             command: self,
-            label: "Group Inbox by \(grouping.commandLabel)",
-            icon: grouping.icon,
-            helpText: "Group inbox notifications by \(grouping.commandHelpTarget)",
+            label: "Group Inbox by \(label)",
+            icon: icon,
+            helpText: "Group inbox notifications by \(helpTarget)",
             commandBarGroupName: "Inbox",
-            commandBarGroupPriority: CommandBarGroupPriority.window,
-            ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
+            commandBarGroupPriority: CommandBarGroupPriority.window
         )
     }
 
@@ -140,15 +129,7 @@ extension AppCommand {
             helpText: "Set whether the inbox shows all or unread notifications",
             commandBarGroupName: "Inbox",
             commandBarGroupPriority: CommandBarGroupPriority.window,
-            isHiddenInCommandBar: true,
-            argumentSchema: [
-                IPCCommandArgumentSchema(
-                    name: "filter",
-                    kind: .stringEnum(values: InboxNotificationRowStateFilter.allCases.map(\.rawValue)),
-                    isRequired: true
-                )
-            ],
-            ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
+            isHiddenInCommandBar: true
         )
     }
 
@@ -160,15 +141,7 @@ extension AppCommand {
             helpText: "Set which notification content lane the inbox shows",
             commandBarGroupName: "Inbox",
             commandBarGroupPriority: CommandBarGroupPriority.window,
-            isHiddenInCommandBar: true,
-            argumentSchema: [
-                IPCCommandArgumentSchema(
-                    name: "mode",
-                    kind: .stringEnum(values: InboxNotificationContentMode.allCases.map(\.rawValue)),
-                    isRequired: true
-                )
-            ],
-            ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
+            isHiddenInCommandBar: true
         )
     }
 
@@ -185,11 +158,7 @@ extension AppCommand {
             appliesTo: [.repo],
             commandBarGroupName: "Repo",
             commandBarGroupPriority: CommandBarGroupPriority.repo,
-            isHiddenInCommandBar: true,
-            ipcExposure: .headless(
-                targetKinds: [.repo],
-                requiredPrivileges: [.sidebarStateMutate]
-            )
+            isHiddenInCommandBar: true
         )
     }
 

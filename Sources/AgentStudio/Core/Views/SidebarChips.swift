@@ -22,12 +22,17 @@ struct SidebarChip: View {
     }
 
     let iconAsset: String
+    let octiconLoader: OcticonLoader
     let text: String?
     let style: Style
 
     var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.chipContentSpacing) {
-            OcticonImage(name: iconAsset, size: AppStyles.Shell.Sidebar.chipIconSize)
+            OcticonImage(
+                name: iconAsset,
+                size: AppStyles.Shell.Sidebar.chipIconSize,
+                loader: octiconLoader
+            )
             if let text {
                 Text(text)
                     .font(.system(size: AppStyles.Shell.Sidebar.chipFontSize, weight: .medium).monospacedDigit())
@@ -58,6 +63,7 @@ struct SidebarChip: View {
 }
 
 struct SidebarStatusSyncChip: View {
+    let octiconLoader: OcticonLoader
     let aheadText: String
     let behindText: String
     let hasSyncSignal: Bool
@@ -69,11 +75,19 @@ struct SidebarStatusSyncChip: View {
     var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.chipContentSpacing) {
             HStack(spacing: AppStyles.Shell.Sidebar.syncClusterSpacing) {
-                OcticonImage(name: "octicon-arrow-up", size: AppStyles.Shell.Sidebar.syncChipIconSize)
+                OcticonImage(
+                    name: "octicon-arrow-up",
+                    size: AppStyles.Shell.Sidebar.syncChipIconSize,
+                    loader: octiconLoader
+                )
                 Text(aheadText)
             }
             HStack(spacing: AppStyles.Shell.Sidebar.syncClusterSpacing) {
-                OcticonImage(name: "octicon-arrow-down", size: AppStyles.Shell.Sidebar.syncChipIconSize)
+                OcticonImage(
+                    name: "octicon-arrow-down",
+                    size: AppStyles.Shell.Sidebar.syncChipIconSize,
+                    loader: octiconLoader
+                )
                 Text(behindText)
             }
         }
@@ -99,6 +113,7 @@ struct SidebarStatusSyncChip: View {
 }
 
 struct SidebarDiffChip: View {
+    let octiconLoader: OcticonLoader
     let linesAdded: Int
     let linesDeleted: Int
     let showsDirtyIndicator: Bool
@@ -121,9 +136,13 @@ struct SidebarDiffChip: View {
     var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.chipContentSpacing) {
             if showsDirtyIndicator {
-                OcticonImage(name: "octicon-dot-fill", size: AppStyles.Shell.Sidebar.chipIconSize)
-                    .foregroundStyle(
-                        SidebarChip.Style.danger.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity))
+                OcticonImage(
+                    name: "octicon-dot-fill",
+                    size: AppStyles.Shell.Sidebar.chipIconSize,
+                    loader: octiconLoader
+                )
+                .foregroundStyle(
+                    SidebarChip.Style.danger.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity))
             }
 
             HStack(spacing: AppStyles.General.Spacing.tight) {

@@ -145,6 +145,7 @@ struct DrawerPanelOverlay: View {
     }
 
     let store: WorkspaceStore
+    let octiconLoader: OcticonLoader
     let repoCache: RepoCacheAtom
     let editorChooser: EditorChooserState
     let viewRegistry: ViewRegistry
@@ -233,6 +234,7 @@ struct DrawerPanelOverlay: View {
             VStack(spacing: 0) {
                 DrawerPanel(
                     layout: info.drawerView.layout,
+                    octiconLoader: octiconLoader,
                     parentPaneId: paneId,
                     tabId: tabId,
                     activeChildId: info.drawerView.activeChildId,

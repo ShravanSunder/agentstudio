@@ -34,6 +34,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     convenience init(
         workspaceWindowId: UUID = UUID(),
         store: WorkspaceStore,
+        octiconLoader: OcticonLoader,
         workspaceActionExecutor: WorkspaceActionExecutor,
         runtimeCommandDispatcher: any PaneRuntimeCommandDispatching,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
@@ -96,6 +97,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         // Create and set content view controller
         let splitVC = MainSplitViewController(
             store: store,
+            octiconLoader: octiconLoader,
             workspaceWindowId: windowId,
             workspaceActionExecutor: workspaceActionExecutor,
             runtimeCommandDispatcher: runtimeCommandDispatcher,

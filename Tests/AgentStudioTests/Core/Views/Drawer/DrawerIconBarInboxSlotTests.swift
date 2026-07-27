@@ -33,6 +33,7 @@ struct DrawerIconBarInboxSlotTests {
         let actions = makeTrailingActions(inboxUnreadCount: 2, onOpenInbox: {})
 
         let view = DrawerIconBar(
+            octiconLoader: makeTestOcticonLoader(),
             isExpanded: false,
             onAdd: {},
             onToggleExpand: {},

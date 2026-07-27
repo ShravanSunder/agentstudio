@@ -46,6 +46,7 @@ struct DrawerResizeHandle: View {
 /// into drawer-specific actions (resize, minimize, close, focus, equalize).
 struct DrawerPanel: View {
     let layout: DrawerGridLayout
+    let octiconLoader: OcticonLoader
     let parentPaneId: UUID
     let tabId: UUID
     let activeChildId: UUID?
@@ -92,6 +93,7 @@ struct DrawerPanel: View {
 
     init(
         layout: DrawerGridLayout,
+        octiconLoader: OcticonLoader,
         parentPaneId: UUID,
         tabId: UUID,
         activeChildId: UUID?,
@@ -116,6 +118,7 @@ struct DrawerPanel: View {
         workspaceWindowId: UUID? = nil
     ) {
         self.layout = layout
+        self.octiconLoader = octiconLoader
         self.parentPaneId = parentPaneId
         self.tabId = tabId
         self.activeChildId = activeChildId
@@ -195,6 +198,7 @@ struct DrawerPanel: View {
     private func rowContent(_ rowLayout: Layout) -> some View {
         FlatPaneStripContent(
             layout: rowLayout,
+            octiconLoader: octiconLoader,
             tabId: tabId,
             activePaneId: activeChildId,
             minimizedPaneIds: minimizedPaneIds,
@@ -375,6 +379,7 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                 Spacer()
                 DrawerPanel(
                     layout: DrawerGridLayout(),
+                    octiconLoader: OcticonLoader(resourceRootURL: Bundle.appResourceRootURL),
                     parentPaneId: UUID(),
                     tabId: UUID(),
                     activeChildId: nil,

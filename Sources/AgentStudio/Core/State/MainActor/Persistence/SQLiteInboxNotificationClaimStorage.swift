@@ -1,22 +1,22 @@
-enum SQLiteInboxNotificationClaimStorage {
-    static let laneActionNeeded = "actionNeeded"
-    static let laneActivity = "activity"
-    static let laneSafety = "safety"
-    static let laneSettledAgent = "settledAgent"
+package enum SQLiteInboxNotificationClaimStorage {
+    package static let laneActionNeeded = "actionNeeded"
+    package static let laneActivity = "activity"
+    package static let laneSafety = "safety"
+    package static let laneSettledAgent = "settledAgent"
 
-    static let allLaneStorageValues: Set<String> = [laneActivity, laneActionNeeded, laneSafety, laneSettledAgent]
-    static let mergeableLaneStorageValues: Set<String> = [laneActivity, laneActionNeeded, laneSettledAgent]
+    package static let allLaneStorageValues: Set<String> = [
+        laneActivity,
+        laneActionNeeded,
+        laneSafety,
+        laneSettledAgent,
+    ]
+    package static let mergeableLaneStorageValues: Set<String> = [
+        laneActivity,
+        laneActionNeeded,
+        laneSettledAgent,
+    ]
 
-    static func storageValue(for lane: InboxNotificationClaimLane) -> String {
-        switch lane {
-        case .actionNeeded:
-            laneActionNeeded
-        case .activity:
-            laneActivity
-        case .safety:
-            laneSafety
-        case .settledAgent:
-            laneSettledAgent
-        }
+    package static func validatedLaneStorageValue(_ rawValue: String) -> String? {
+        allLaneStorageValues.contains(rawValue) ? rawValue : nil
     }
 }

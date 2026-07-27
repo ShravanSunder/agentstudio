@@ -6,6 +6,7 @@ struct WorkspaceStatusChipsModel: Equatable {
 }
 
 struct WorkspaceStatusChipRow: View {
+    let octiconLoader: OcticonLoader
     let model: WorkspaceStatusChipsModel
     let accentColor: Color
 
@@ -42,6 +43,7 @@ struct WorkspaceStatusChipRow: View {
     var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
             SidebarDiffChip(
+                octiconLoader: octiconLoader,
                 linesAdded: model.branchStatus.linesAdded,
                 linesDeleted: model.branchStatus.linesDeleted,
                 showsDirtyIndicator: model.branchStatus.isDirty,
@@ -49,6 +51,7 @@ struct WorkspaceStatusChipRow: View {
             )
 
             SidebarStatusSyncChip(
+                octiconLoader: octiconLoader,
                 aheadText: syncCounts.ahead,
                 behindText: syncCounts.behind,
                 hasSyncSignal: hasSyncSignal
@@ -56,12 +59,14 @@ struct WorkspaceStatusChipRow: View {
 
             SidebarChip(
                 iconAsset: "octicon-git-pull-request",
+                octiconLoader: octiconLoader,
                 text: "\(model.branchStatus.prCount ?? 0)",
                 style: (model.branchStatus.prCount ?? 0) > 0 ? .accent(accentColor) : .neutral
             )
 
             SidebarChip(
                 iconAsset: "octicon-bell",
+                octiconLoader: octiconLoader,
                 text: "\(model.notificationCount)",
                 style: model.notificationCount > 0 ? .accent(accentColor) : .neutral
             )

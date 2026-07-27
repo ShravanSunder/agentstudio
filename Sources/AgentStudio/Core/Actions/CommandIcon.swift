@@ -100,7 +100,7 @@ enum CommandIcon: Equatable, Sendable {
 
 extension CommandIcon {
     @ViewBuilder
-    func swiftUIImage(size: CGFloat? = nil) -> some View {
+    func swiftUIImage(loader: OcticonLoader, size: CGFloat? = nil) -> some View {
         switch self {
         case .system(let systemSymbol):
             let image = Image(systemName: systemSymbol.rawValue)
@@ -111,7 +111,7 @@ extension CommandIcon {
                 image
             }
         case .octicon(let octiconSymbol):
-            OcticonImage(name: octiconSymbol.rawValue, size: size ?? 16)
+            OcticonImage(name: octiconSymbol.rawValue, size: size ?? 16, loader: loader)
         }
     }
 

@@ -466,6 +466,7 @@ extension WebKitSerializedTests {
                         baseline: .localDefaultBranch(branchName: "main")
                     )
                 ),
+                appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     paneId: PaneId(existingUUID: paneId),
                     contentType: .diff,
@@ -594,6 +595,7 @@ extension WebKitSerializedTests {
             BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: panelKind, source: source),
+                appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
                     contentType: .diff,
                     title: "Bridge Review",

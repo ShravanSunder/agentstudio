@@ -141,9 +141,6 @@ private func assertNoUnexpectedProductionGitShellSignatures(projectRoot: URL) th
     let fileManager = FileManager.default
     let enumerator = try #require(
         fileManager.enumerator(at: sourcesRoot, includingPropertiesForKeys: [.isRegularFileKey]))
-    let allowedShellGitFiles = Set([
-        "Sources/AgentStudio/Infrastructure/WorktrunkService.swift"
-    ])
     let forbiddenSignatures = [
         "command: \"git\"",
         "arguments = [\"git\"",
@@ -156,7 +153,6 @@ private func assertNoUnexpectedProductionGitShellSignatures(projectRoot: URL) th
     for case let fileURL as URL in enumerator {
         guard fileURL.pathExtension == "swift" else { continue }
         let relativePath = fileURL.path.replacingOccurrences(of: "\(projectRoot.path)/", with: "")
-        guard !allowedShellGitFiles.contains(relativePath) else { continue }
         let source = try String(contentsOf: fileURL, encoding: .utf8)
         for signature in forbiddenSignatures {
             #expect(!source.contains(signature), "Unexpected Git shell signature \(signature) in \(relativePath)")

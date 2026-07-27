@@ -28,6 +28,7 @@ private enum DrawerTooltipTarget: Hashable {
 /// Toggle uses `sidebar.bottom` (macOS convention for bottom panel toggle).
 /// Follows the same callback-driven pattern as `ArrangementBar`.
 struct DrawerIconBar: View {
+    let octiconLoader: OcticonLoader
     let isExpanded: Bool
     let onAdd: () -> Void
     let onToggleExpand: () -> Void
@@ -319,7 +320,11 @@ struct DrawerIconBar: View {
                     Image(systemName: systemName)
                         .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                 case .octicon(let octiconName):
-                    OcticonImage(name: octiconName, size: AppStyles.General.Icon.compact)
+                    OcticonImage(
+                        name: octiconName,
+                        size: AppStyles.General.Icon.compact,
+                        loader: octiconLoader
+                    )
                 }
             }
             .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
@@ -416,6 +421,9 @@ struct EmptyDrawerBar: View {
             VStack {
                 Spacer()
                 DrawerIconBar(
+                    octiconLoader: OcticonLoader(
+                        resourceRootURL: URL(fileURLWithPath: "/dev/null")
+                    ),
                     isExpanded: true,
                     onAdd: {},
                     onToggleExpand: {},

@@ -55,10 +55,10 @@ Configuration injection pattern: prefer constructor injection with defaults over
 │  │ (dispatch)  │                │ active|hidden   │                  │
 │  └─────────────┘                │ |undoStack      │                  │
 │                                 └─────────────────┘                  │
-│  ┌─────────────┐  ┌────────────┐  ┌──────────────┐                  │
-│  │TabBarAdapter│  │SQLite Data │  │WorktrunkSvc  │                  │
-│  │(derived UI) │  │ core/local │  │(git worktree)│                  │
-│  └─────────────┘  └────────────┘  └──────────────┘                  │
+│  ┌─────────────┐  ┌────────────┐                                    │
+│  │TabBarAdapter│  │SQLite Data │                                    │
+│  │(derived UI) │  │ core/local │                                    │
+│  └─────────────┘  └────────────┘                                    │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -374,11 +374,10 @@ Singletons:
 ├── SurfaceManager.shared    ← Ghostty surface lifecycle
 ├── GhosttyAdapter.shared    ← C FFI boundary, routes to per-pane TerminalRuntime
 ├── AppCommandDispatcher.shared ← command definitions + dispatch
-├── WorktrunkService.shared  ← git worktree CLI
 └── Ghostty.shared           ← Ghostty C API wrapper
 ```
 
-> **Testability note on singletons:** These `static let shared` singletons are `@MainActor` (inferred or explicit). Under Swift 6.2, `static var` on `@MainActor` types is also MainActor-isolated (enforced since Swift 5.10). This is fine for production — they don't cross actor boundaries. However, `static let` cannot be swapped for testing. When boundary actors need these services (e.g., `FilesystemActor` needing `WorktrunkService` for worktree path resolution, or `ForgeActor` needing `ProcessExecutor` for git CLI), **inject via constructor parameter**, not via `.shared` access from inside the actor. The EventBus design already follows this pattern: `private let bus: EventBus<RuntimeEnvelope>` is constructor-injected. Apply the same to any singleton that a non-MainActor component needs.
+> **Testability note on singletons:** These `static let shared` singletons are `@MainActor` (inferred or explicit). Under Swift 6.2, `static var` on `@MainActor` types is also MainActor-isolated (enforced since Swift 5.10). This is fine for production — they don't cross actor boundaries. However, `static let` cannot be swapped for testing. When a boundary actor needs a service, inject it through the constructor rather than reaching through `.shared`. The EventBus design already follows this pattern: `private let bus: EventBus<RuntimeEnvelope>` is constructor-injected.
 
 ### 3.2 WorkspaceStore
 
@@ -706,18 +705,7 @@ Key points relevant here:
 
 > **File:** `Features/Terminal/Ghostty/SurfaceManager.swift`
 
-### 3.11 WorktrunkService
-
-Git worktree management via the `wt` CLI tool. Singleton.
-
-- `discoverWorktrees(at:)` — Parse `git worktree list` output
-- `createWorktree()` / `removeWorktree()` — Lifecycle
-
-> **File:** `Infrastructure/WorktrunkService.swift`
->
-> Worktree discovery flows through the enrichment pipeline: AppDelegate persists watched scope and triggers the watched-folder command → `FilesystemActor` scans and emits `.repoDiscovered` / `.repoRemoved` → `WorkspaceCacheCoordinator` registers or marks unavailable canonical entries in `WorkspaceStore` and seeds enrichment in `RepoEnrichmentCacheAtom` through the `RepoCacheAtom` read/write facade. See [Workspace Data Architecture](workspace_data_architecture.md) for the full pipeline.
-
-### 3.12 Command Bar System
+### 3.11 Command Bar System
 
 Keyboard-driven search/command palette (⌘P) providing unified access to tabs, panes, commands, repos, and worktrees. Modeled after Linear's ⌘K.
 
@@ -1124,7 +1112,6 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `App/Panes/ViewRegistry.swift` | paneId → PaneViewSlot mapping (runtime-only) |
 | `Core/RuntimeEventSystem/Runtime/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |
 | **Infrastructure** | |
-| `Infrastructure/WorktrunkService.swift` | Git worktree CLI wrapper |
 | `Infrastructure/WorktreeReconciler.swift` | Pure function: matches existing vs discovered worktrees, preserves UUIDs, returns merged list + `WorktreeTopologyDelta` |
 | `Infrastructure/SQLite/SQLiteDatabaseFactory.swift` | Generic GRDB connection setup, pragmas, WAL, and capability-test construction |
 | `Infrastructure/SQLite/SQLiteSidecarQuarantine.swift` | Generic SQLite database/WAL/SHM quarantine helper with no product schema knowledge |
