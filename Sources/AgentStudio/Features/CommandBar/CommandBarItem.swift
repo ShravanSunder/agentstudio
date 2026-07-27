@@ -264,6 +264,12 @@ struct ShortcutKey: Identifiable, Hashable {
 
 // MARK: - CommandBarLevel
 
+struct CommandBarBreadcrumbItem: Equatable {
+    let label: String
+    let accessibilityLabel: String
+    let icon: AppEntityIcon?
+}
+
 /// A navigation level in the command bar (for nested drill-in).
 ///
 /// `scopeLabel` identifies the level's entity or action kind in the breadcrumb.
@@ -272,6 +278,7 @@ struct CommandBarLevel: Identifiable {
     let title: String
     let parentLabel: String?
     let scopeLabel: String?
+    let breadcrumbIcon: AppEntityIcon?
     let items: [CommandBarItem]
 
     init(
@@ -279,12 +286,14 @@ struct CommandBarLevel: Identifiable {
         title: String,
         parentLabel: String? = nil,
         scopeLabel: String? = nil,
+        breadcrumbIcon: AppEntityIcon? = nil,
         items: [CommandBarItem]
     ) {
         self.id = id
         self.title = title
         self.parentLabel = parentLabel
         self.scopeLabel = scopeLabel
+        self.breadcrumbIcon = breadcrumbIcon
         self.items = items
     }
 }

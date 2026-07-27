@@ -436,10 +436,39 @@ final class CommandBarStateTests {
     @Test
     func test_breadcrumbLabels_includeRootAndTypedNestedLevels() {
         state.show(prefix: "#")
-        state.pushLevel(makeCommandBarLevel(title: "actual", scopeLabel: "Repository"))
-        state.pushLevel(makeCommandBarLevel(title: "actual", scopeLabel: "Worktree"))
+        state.pushLevel(
+            makeCommandBarLevel(
+                title: "actual",
+                scopeLabel: "Repository",
+                breadcrumbIcon: .coloredRepo(
+                    colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0]
+                )
+            )
+        )
+        state.pushLevel(
+            makeCommandBarLevel(
+                title: "actual",
+                scopeLabel: "Worktree",
+                breadcrumbIcon: .checkout(
+                    colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0],
+                    isMain: true
+                )
+            )
+        )
 
         #expect(state.breadcrumbLabels == ["Repositories", "Repository actual", "Worktree actual"])
+        #expect(state.breadcrumbItems.map(\.label) == ["Repositories", "actual", "actual"])
+        #expect(
+            state.breadcrumbItems.map(\.icon) == [
+                nil,
+                .coloredRepo(
+                    colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0]
+                ),
+                .checkout(
+                    colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0],
+                    isMain: true
+                ),
+            ])
     }
 
     @Test

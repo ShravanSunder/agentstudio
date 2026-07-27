@@ -39,7 +39,7 @@ struct CommandBarView: View {
             // Breadcrumb trail when nested
             if state.isNested {
                 CommandBarBreadcrumbRow(
-                    labels: state.breadcrumbLabels,
+                    items: state.breadcrumbItems,
                     onNavigate: { index in state.navigateToBreadcrumb(at: index) }
                 )
             }

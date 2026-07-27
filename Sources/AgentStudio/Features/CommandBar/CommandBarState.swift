@@ -118,17 +118,36 @@ final class CommandBarState {
     }
 
     var breadcrumbLabels: [String] {
-        [rootScopeLabel]
+        breadcrumbItems.map(\.accessibilityLabel)
+    }
+
+    var breadcrumbItems: [CommandBarBreadcrumbItem] {
+        [
+            CommandBarBreadcrumbItem(
+                label: rootScopeLabel,
+                accessibilityLabel: rootScopeLabel,
+                icon: nil
+            )
+        ]
             + navigationStack.map { level in
-                guard let scopeLabel = level.scopeLabel, scopeLabel != level.title else {
-                    return level.title
-                }
-                return "\(scopeLabel) \(level.title)"
+                let accessibilityLabel = typedBreadcrumbLabel(for: level)
+                return CommandBarBreadcrumbItem(
+                    label: level.breadcrumbIcon == nil ? accessibilityLabel : level.title,
+                    accessibilityLabel: accessibilityLabel,
+                    icon: level.breadcrumbIcon
+                )
             }
     }
 
     var breadcrumbLabel: String {
         breadcrumbLabels.joined(separator: " › ")
+    }
+
+    private func typedBreadcrumbLabel(for level: CommandBarLevel) -> String {
+        guard let scopeLabel = level.scopeLabel, scopeLabel != level.title else {
+            return level.title
+        }
+        return "\(scopeLabel) \(level.title)"
     }
 
     // MARK: - Placeholder

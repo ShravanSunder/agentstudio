@@ -55,6 +55,13 @@ struct CommandBarWorktreeRowBuilderTests {
         #expect(level.title == "main")
         #expect(level.parentLabel == "repo")
         #expect(level.scopeLabel == "Worktree")
+        #expect(
+            level.breadcrumbIcon
+                == .checkout(
+                    colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0],
+                    isMain: true
+                )
+        )
         #expect(level.items.count == 10)
         #expect(level.items.filter { $0.group == "Terminal" }.count == 2)
         #expect(level.items.filter { $0.group == "Path" }.count == 2)
@@ -91,6 +98,24 @@ struct CommandBarWorktreeRowBuilderTests {
         #expect(level.items[5].id == "wt-review-new-tab-\(presence.worktreeId.uuidString)")
         #expect(level.items[6].id == "wt-files-new-tab-\(presence.worktreeId.uuidString)")
         #expect(level.items.allSatisfy { $0.id != "wt-add-pane-\(presence.worktreeId.uuidString)" })
+    }
+
+    @Test
+    func test_buildWorktreeActionsLevel_usesStandardizedLinkedWorktreeBreadcrumbIcon() {
+        let presence = makeWorktreePresence(paneCount: 0, isMainWorktree: false)
+
+        let level = CommandBarDataSource.buildWorktreeActionsLevel(
+            presence: presence,
+            canOpenInCurrentTab: false
+        )
+
+        #expect(
+            level.breadcrumbIcon
+                == .checkout(
+                    colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0],
+                    isMain: false
+                )
+        )
     }
 
     @Test

@@ -171,6 +171,10 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         }
         #expect(level.title == "single-root-repo")
         #expect(level.scopeLabel == "Repository")
+        #expect(
+            level.breadcrumbIcon
+                == .coloredRepo(colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0])
+        )
     }
 
     @Test
@@ -236,6 +240,10 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
 
         #expect(level.title == "repo-level-actions")
         #expect(level.scopeLabel == "Repository")
+        #expect(
+            level.breadcrumbIcon
+                == .coloredRepo(colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0])
+        )
         let groups = CommandBarDataSource.grouped(level.items)
         #expect(groups.map(\.name) == ["Terminal", "Path", "Worktrees", "Panes"])
         let groupsByName = Dictionary(uniqueKeysWithValues: groups.map { ($0.name, $0.items) })

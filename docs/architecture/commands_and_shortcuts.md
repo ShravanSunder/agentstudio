@@ -199,12 +199,15 @@ the existing worktree action menu so path, terminal, Bridge, and existing-pane
 actions remain available from the recent row. Recent Pane focuses the pane, and
 Recent Command reuses its canonical command behavior.
 
-Nested menus render one breadcrumb trail beneath the search field, for example
-`Main › Repository agent-studio › Worktree main`. Ancestors are clickable; the
-current level is context, not a button. `Tab` enters the selected row's child
-menu when it has one. `Shift-Tab` or `Backspace` on an empty search field pops
-exactly one level, while `Backspace` with text edits the query normally.
-`Escape` dismisses the entire command bar.
+Nested menus render one breadcrumb trail beneath the search field. Repository
+and worktree levels use the shared entity icon vocabulary instead of repeating
+type words: the repository book, the main-worktree star, or the linked-worktree
+glyph appears beside the entity name. Full typed labels such as
+`Repository agent-studio` and `Worktree main` remain available to accessibility
+clients. Ancestors are clickable; the current level is context, not a button.
+`Tab` enters the selected row's child menu when it has one. `Shift-Tab` or
+`Backspace` on an empty search field pops exactly one level, while `Backspace`
+with text edits the query normally. `Escape` dismisses the entire command bar.
 
 `#` is an object navigator. Root rows represent repos. A repository level
 targets its stored main worktree for direct actions, falling back to the first

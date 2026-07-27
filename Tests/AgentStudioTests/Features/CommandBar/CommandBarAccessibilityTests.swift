@@ -66,7 +66,28 @@ struct CommandBarAccessibilityTests {
         var selectedBreadcrumbIndex: Int?
         let mountedView = mountedView(
             CommandBarBreadcrumbRow(
-                labels: ["Main", "Repository actual", "Worktree actual"],
+                items: [
+                    CommandBarBreadcrumbItem(
+                        label: "Main",
+                        accessibilityLabel: "Main",
+                        icon: nil
+                    ),
+                    CommandBarBreadcrumbItem(
+                        label: "actual",
+                        accessibilityLabel: "Repository actual",
+                        icon: .coloredRepo(
+                            colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0]
+                        )
+                    ),
+                    CommandBarBreadcrumbItem(
+                        label: "actual",
+                        accessibilityLabel: "Worktree actual",
+                        icon: .checkout(
+                            colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0],
+                            isMain: true
+                        )
+                    ),
+                ],
                 onNavigate: { selectedBreadcrumbIndex = $0 }
             )
             .frame(width: 500, height: 28)

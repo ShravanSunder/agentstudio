@@ -301,6 +301,9 @@ extension CommandBarDataSource {
             title: repo.name,
             parentLabel: "Repos",
             scopeLabel: "Repository",
+            breadcrumbIcon: .coloredRepo(
+                colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0]
+            ),
             items: items
         )
     }
@@ -378,6 +381,10 @@ extension CommandBarDataSource {
             title: presence.worktreeName,
             parentLabel: presence.repoName,
             scopeLabel: "Worktree",
+            breadcrumbIcon: .checkout(
+                colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0],
+                isMain: worktree.isMainWorktree
+            ),
             items: items
         )
     }
