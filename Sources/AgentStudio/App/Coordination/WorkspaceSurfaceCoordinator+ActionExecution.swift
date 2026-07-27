@@ -748,7 +748,7 @@ extension WorkspaceSurfaceCoordinator {
         return pane
     }
 
-    private func recordWorktreeOpened(_ worktree: Worktree, in repo: Repo) {
+    func recordWorktreeOpened(_ worktree: Worktree, in repo: Repo) {
         do {
             try atom(\.applicationEntityRecency).recordOpened(
                 repositoryStableKey: repo.stableKey,
