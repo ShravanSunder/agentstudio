@@ -189,7 +189,7 @@ jobs:
           SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "300"
           _XCB_BYPASS: "1"
-        run: mise run test-fast
+        run: mise run --raw test-fast
 
       - name: Test WebKit lane
         env:

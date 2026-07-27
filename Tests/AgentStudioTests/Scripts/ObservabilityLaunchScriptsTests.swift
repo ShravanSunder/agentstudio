@@ -143,6 +143,7 @@ struct ObservabilityLaunchScriptsTests {
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))
         #expect(!ciWorkflow.contains("SWIFT_TEST_WORKERS"))
+        #expect(ciWorkflow.contains("run: mise run --raw test-fast"))
         #expect(!ciWorkflow.contains("mise run test-benchmark"))
         #expect(
             benchmarkWorkflow.contains(
