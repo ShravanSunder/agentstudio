@@ -62,7 +62,7 @@ struct CIFastLaneWorkflowTests {
         #expect(fastLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))
         #expect(fastLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(!fastLaneStep.contains("XCB_EXTRA_ARGS"))
-        #expect(fastLaneStep.contains("run: mise run test-fast"))
+        #expect(fastLaneStep.contains("run: mise run --raw test-fast"))
         #expect(webKitLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
         #expect(webKitLaneStep.contains("run: mise run test-webkit"))
         #expect(!largeLaneStep.contains("SWIFT_TEST_WORKERS"))
