@@ -52,9 +52,9 @@ struct RuleParityTests {
         let diagnostics = try lint(files: [fixture])
             .filter { $0.ruleID == "agentstudio_canonical_atom_mutation" }
 
-        #expect(diagnostics.map(\.line) == [2, 3, 4])
+        #expect(diagnostics.map(\.line) == [2, 3, 4, 5])
         #expect(
-            diagnostics.filter { $0.message.contains("private or private(set)") }.count == 2)
+            diagnostics.filter { $0.message.contains("private or private(set)") }.count == 3)
         #expect(diagnostics.filter { $0.message.contains("writable binding") }.count == 1)
     }
 

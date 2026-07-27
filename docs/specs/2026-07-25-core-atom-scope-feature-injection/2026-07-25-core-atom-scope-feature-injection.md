@@ -1088,7 +1088,7 @@ fake, or silently stop selecting an existing suite.
 | AS-11 | Bridge-to-RepoExplorer and Terminal-to-InboxNotification state facts must use required consumer-owned read-only snapshot/query closures supplied by App. |
 | AS-12 | Cross-Feature persistence, validation, and orchestration must be App-owned; Core must not import Feature state. |
 | AS-13 | The seven concrete pane-hosting files named in Contract 8 must be App-owned; `TabDragPayload`, `PaneDragPayload`, `DrawerIconBarFrameKey`, `FlatPaneDivider`, and pure pane models, metrics, geometry, and Feature-neutral policies remain Core-owned. |
-| AS-14 | Cross-target APIs must prefer `package` access and must not receive blanket `public` promotion. |
+| AS-14 | This precursor may apply `package` only to declarations required by its concrete state boundary and must add no blanket `public` promotion. The later SwiftPM target split owns compiler-driven `package` exposure for Feature, UI, runtime, and transitive signature APIs once those targets exist. |
 | AS-15 | Module tests must construct only owner state and permitted lower fixtures, using one process-wide Core fallback plus task-local overrides; App integration tests must prove the complete root, exact production installation in isolated exit tests, and real cross-Feature wiring. |
 | AS-16 | The hard cutover must leave no runtime atom resolver, registration API, compatibility key-path overload, or second production scope. |
 | AS-17 | Architecture lint and documentation must enforce the same state owners and dependency directions as SwiftPM. |

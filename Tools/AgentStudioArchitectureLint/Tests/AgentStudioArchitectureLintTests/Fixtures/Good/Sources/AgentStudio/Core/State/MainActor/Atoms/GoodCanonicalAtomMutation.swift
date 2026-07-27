@@ -2,7 +2,7 @@ final class GoodCanonicalAtomMutation {
     private(set) var count = 0
     private var pendingCount = 0
     let identity = "canonical"
-    package lazy var derivedReader = GoodPaneDerived()
+    package private(set) lazy var derivedReader = GoodPaneDerived()
 
     var displayedCount: Int {
         count

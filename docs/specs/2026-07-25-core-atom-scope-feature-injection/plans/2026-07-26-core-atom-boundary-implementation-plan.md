@@ -155,7 +155,7 @@ compatibility surface may manufacture an intermediate green state.
 | AS-11 read-only facts | F1 | deterministic Feature tests plus real App Bridge/Terminal wiring integration | unit + integration | parent-run tests | exact root instances | yes |
 | AS-12 App coordination | P1/L2 | moved settings tests: round trip, debounce, defaults, recovery, exact root identity | integration + static | parent-run tests/lint | final candidate | yes |
 | AS-13 App pane hosts | M0/P1 | pure rename receipt, Core extraction tests, main/drawer EditorChooser identity | rename + unit + integration | git evidence and parent tests | exact commits/final diff | yes |
-| AS-14 package access discipline | C2/review | compile and access-control diff review | build + implementation review | parent build/review | final diff | no behavior change |
+| AS-14 package access discipline | C2/review | scoped access-control diff contains only the concrete state boundary, adds no `public`, and defers compiler-driven Feature/UI/runtime promotion | build + implementation review | parent build/review | final diff | no behavior change |
 | AS-15 test ownership | T2 | 112-caller partition, fallback/override suites, App integration | unit + integration + full test | parent-run count/tests | final caller union | yes |
 | AS-16 no compatibility system | C2/L2 | resolver/registration/second-scope fixtures and search | static | architecture tool + `rg` | final diff | yes |
 | AS-17 docs/lint match | L2 | rule inventory/parity, good/bad corpus, architecture docs | tool unit + lint | parent-run tool tests/lint | final diff | yes |
@@ -531,91 +531,33 @@ preserve the diagnostic diff, treat committed C1 as the last known-good point,
 and return to plan creation. Do not introduce compatibility state access or
 claim a green state between C2 and T2.
 
-## Exact State-Specific Access-Control Inventory
+## Precursor Access-Control Boundary
 
-The precursor applies `package` only to declarations required across the
-accepted later module boundaries. The final diff reconciles this inventory
-declaration by declaration and adds no new `public` state surface.
+This precursor applies `package` only to the state boundary it makes concrete:
 
-Core state:
-
-- `CoreAtoms`, its typed initializer, and its App/Feature-consumed stored and
-  derived readers;
+- `CoreAtoms`, the Core state declarations exposed through that graph, its
+  typed initializer and readers;
 - `atom(_:)`;
 - `CoreAtomScope.store`, `CoreAtomScope.override`, and
-  `CoreAtomScope.setUp(_:)`.
+  `CoreAtomScope.setUp(_:)`;
+- the Bridge attendance snapshot seam already required by explicit
+  RepoExplorer composition.
 
-RepoExplorer and Bridge:
+It does not pre-promote the complete RepoExplorer, InboxNotification,
+Terminal, EditorChooser, pane-hosting, Core UI, runtime, or transitive
+signature surface. Those declarations still compile in the executable target
+in this precursor, so an exhaustive list here would be speculative and would
+hide the real compiler-driven cost of the later split.
 
-- `BridgeAttendanceSnapshot`;
-- `RepoExplorerView`, its required initializer, and its stored preferences and
-  snapshot inputs;
-- `RepoExplorerSidebarPrefsAtom`, its initializer, readable
-  `groupingMode`/`sortOrder`/`repoVisibilityMode`, and
-  `setGroupingMode`/`toggleSortOrder`/`setSortOrder`/
-  `setRepoVisibilityMode`/`hydrate`/`reset`;
-- associated App-named preference values `RepoExplorerGroupingMode`,
-  `RepoExplorerSortOrder`, and `RepoExplorerVisibilityMode`;
-- `BridgePaneAttendanceAtom`, its initializer, and
-  `record`/`ordinal`/`remove`/`ordinalSnapshot`;
-- `BridgePaneAttendanceEvent` and the cases referenced by App.
-
-Inbox, Terminal, and EditorChooser:
-
-- `InboxNotificationRouter`'s closure-bearing initializer and two
-  consumer-owned closure parameter types;
-- `TerminalActivityAtom`, its initializer, readable
-  `snapshotsByPaneId`, and `snapshot(for:)`;
-- `TerminalActivitySnapshot` and its App-read
-  `isPinnedToBottom` projection;
-- `EditorPreferenceAtom`, its initializer, readable `bookmarkedEditorId`, and
-  `hydrate(bookmarkedEditorId:)`;
-- `EditorChooserRuntimeAtom` and its App-used initializer;
-- `EditorChooserState`, its initializer, readable
-  `availableTargets`/`bookmarkedEditorId`/`openForPaneId`, and
-  `setAvailableTargets`/`setBookmarkedEditor`/`setOpenEditorPane`;
-- signature value types `EditorTargetId` (including `rawValue` and its
-  raw-value initializer) and `ExternalEditorTarget`;
-- `InboxNotificationAtom`, its initializer, readable `notifications`, and
-  App-invoked `append`/`markRead`/`dismissFromPaneInbox`/
-  `clearReadHistory`/`clearAll`;
-- the `InboxNotification`, `InboxNotificationAtom.RetentionOutcome`, and other
-  Core/Feature value types appearing in those App-consumed signatures;
-- `InboxNotificationPrefsAtom`, its initializer, readable `grouping`/`sort`/
-  `bellEnabled`/`globalInboxContentMode`/`globalInboxRowStateFilter`/
-  `paneInboxContentMode`/`paneInboxRowStateFilter`, and App-invoked
-  `setGrouping`/`setSort`/`setBellEnabled`/
-  `setGlobalInboxContentMode`/`setGlobalInboxRowStateFilter`/
-  `setPaneInboxContentMode`/`setPaneInboxRowStateFilter`;
-- associated `InboxNotificationGrouping`, `InboxNotificationSort`,
-  `InboxNotificationContentMode`, and `InboxNotificationRowStateFilter` value
-  types;
-- `InboxSidebarMemoryAtom` and `InboxSidebarRuntimeAtom`, including the
-  initializers used by App composition;
-- `InboxSidebarState`, its initializer, readable `collapsedGroups`, and
-  App-invoked `setPendingFilter`/`setPendingDisplayOverride`/
-  `requestFilterClearOnNextRetarget`/`peekPendingFilter`/
-  `peekPendingDisplayOverride`/`hasUnhandledRetargetRequest`/
-  `markRetargetRequestHandled`/`markDismissed`;
-- `PaneInboxPresentationAtom` and its App-used initializer. Other App-owned
-  pane presentation facade APIs remain inventoried with their owning Feature
-  type rather than being promoted wholesale.
-
-Pane-host extractions:
-
-- `TabDragPayload`, `PaneDragPayload`, their required members, initializers,
-  and transfer representations;
-- `DrawerIconBarFrameKey`;
-- `FlatPaneDivider`, its initializer, `body`, `computeResizeRatio`, and
-  `resizeCommand`.
+The stacked SwiftPM target-split changeset owns that broader inventory. It
+creates the targets first, follows compiler diagnostics through each real
+cross-target signature, and promotes only the declarations actually required
+to `package`. It must record the resulting inventory in that changeset and may
+not use blanket `public`, compatibility shims, or pre-emptive package-wide
+promotion to make the graph compile.
 
 App-only `AtomRegistry`, App constructors, and App-owned stores/views remain
-internal. The later target split owns the broader non-state/Core UI access
-inventory exposed by actual separate-target compilation. Architecture
-inventory/parity tests and final review compare this list to the scoped diff
-and reject new `public` declarations. The implementation also emits a generated
-App-to-Feature state-reference audit; every referenced type/member is either in
-this inventory or explicitly classified as same-target-only before C2 closes.
+internal in both changesets.
 
 ## Slice L2 — Architecture Enforcement and Documentation
 

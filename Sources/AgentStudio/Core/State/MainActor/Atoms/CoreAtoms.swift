@@ -234,7 +234,7 @@ package final class CoreAtoms {
         WorkspacePaneFocusDerived()
     }
 
-    package lazy var attendedPane = AttendedPaneDerived(
+    package private(set) lazy var attendedPane = AttendedPaneDerived(
         tabLayout: workspaceTabLayout,
         windowLifecycle: windowLifecycle,
         managementLayer: managementLayer

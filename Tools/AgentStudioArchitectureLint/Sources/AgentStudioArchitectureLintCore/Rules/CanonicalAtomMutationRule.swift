@@ -55,7 +55,6 @@ private final class CanonicalAtomMutationVisitor: SyntaxVisitor {
         }
 
         guard node.bindings.contains(where: isStoredProperty),
-            !node.bindings.allSatisfy(isDerivedReaderBinding),
             !hasPrivateSetter(node)
         else {
             return
@@ -98,13 +97,6 @@ private final class CanonicalAtomMutationVisitor: SyntaxVisitor {
 
     private func hasPrivateSetter(_ node: VariableDeclSyntax) -> Bool {
         node.modifiers.contains { $0.name.text == "private" }
-    }
-
-    private func isDerivedReaderBinding(_ binding: PatternBindingSyntax) -> Bool {
-        let typeName = binding.typeAnnotation?.type.trimmedDescription
-        let initializer = binding.initializer?.value.trimmedDescription
-        return typeName?.hasSuffix("Derived") == true
-            || initializer?.split(separator: "(").first?.hasSuffix("Derived") == true
     }
 
     private func isDerivedReader(_ className: String) -> Bool {
