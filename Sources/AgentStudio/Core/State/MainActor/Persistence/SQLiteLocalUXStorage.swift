@@ -1,28 +1,28 @@
 import Foundation
 
-enum SQLiteLocalUXStorage {
-    static let sidebarSurfaceRepos = "repos"
-    static let sidebarSurfaceInbox = "inbox"
-    static let recentWorkspaceTargetKindWorktree = "worktree"
-    static let recentWorkspaceTargetKindCwdOnly = "cwdOnly"
-    static let repoExplorerGroupingRepo = "repo"
-    static let repoExplorerGroupingPane = "pane"
-    static let repoExplorerGroupingTab = "tab"
-    static let repoExplorerSortAscending = "ascending"
-    static let repoExplorerSortDescending = "descending"
-    static let repoExplorerVisibilityAll = "all"
-    static let repoExplorerVisibilityFavoritesOnly = "favoritesOnly"
-    static let inboxNotificationGroupingByTab = "byTab"
-    static let inboxNotificationGroupingByRepo = "byRepo"
-    static let inboxNotificationGroupingByPane = "byPane"
-    static let inboxNotificationGroupingNone = "none"
-    static let inboxNotificationSortNewestFirst = "newestFirst"
-    static let inboxNotificationSortOldestFirst = "oldestFirst"
-    static let inboxNotificationContentRollUpAlerts = "rollUpAlerts"
-    static let inboxNotificationContentActivity = "activity"
-    static let inboxNotificationContentAll = "all"
-    static let inboxNotificationRowStateUnreadOnly = "unreadOnly"
-    static let inboxNotificationRowStateAll = "all"
+package enum SQLiteLocalUXStorage {
+    package static let sidebarSurfaceRepos = "repos"
+    package static let sidebarSurfaceInbox = "inbox"
+    package static let recentWorkspaceTargetKindWorktree = "worktree"
+    package static let recentWorkspaceTargetKindCwdOnly = "cwdOnly"
+    package static let repoExplorerGroupingRepo = "repo"
+    package static let repoExplorerGroupingPane = "pane"
+    package static let repoExplorerGroupingTab = "tab"
+    package static let repoExplorerSortAscending = "ascending"
+    package static let repoExplorerSortDescending = "descending"
+    package static let repoExplorerVisibilityAll = "all"
+    package static let repoExplorerVisibilityFavoritesOnly = "favoritesOnly"
+    package static let inboxNotificationGroupingByTab = "byTab"
+    package static let inboxNotificationGroupingByRepo = "byRepo"
+    package static let inboxNotificationGroupingByPane = "byPane"
+    package static let inboxNotificationGroupingNone = "none"
+    package static let inboxNotificationSortNewestFirst = "newestFirst"
+    package static let inboxNotificationSortOldestFirst = "oldestFirst"
+    package static let inboxNotificationContentRollUpAlerts = "rollUpAlerts"
+    package static let inboxNotificationContentActivity = "activity"
+    package static let inboxNotificationContentAll = "all"
+    package static let inboxNotificationRowStateUnreadOnly = "unreadOnly"
+    package static let inboxNotificationRowStateAll = "all"
 
     private static let repoExplorerGroupingValues: Set<String> = [
         repoExplorerGroupingRepo,
@@ -57,7 +57,7 @@ enum SQLiteLocalUXStorage {
         inboxNotificationRowStateAll,
     ]
 
-    static func storageValue(for surface: SidebarSurface) -> String {
+    package static func storageValue(for surface: SidebarSurface) -> String {
         switch surface {
         case .repos:
             sidebarSurfaceRepos
@@ -66,7 +66,7 @@ enum SQLiteLocalUXStorage {
         }
     }
 
-    static func storageValue(for kind: RecentWorkspaceTarget.Kind) -> String {
+    package static func storageValue(for kind: RecentWorkspaceTarget.Kind) -> String {
         switch kind {
         case .worktree:
             recentWorkspaceTargetKindWorktree
@@ -75,7 +75,7 @@ enum SQLiteLocalUXStorage {
         }
     }
 
-    static func sidebarSurface(from rawValue: String) -> SidebarSurface? {
+    package static func sidebarSurface(from rawValue: String) -> SidebarSurface? {
         switch rawValue {
         case sidebarSurfaceRepos:
             .repos
@@ -86,7 +86,7 @@ enum SQLiteLocalUXStorage {
         }
     }
 
-    static func recentWorkspaceTargetKind(from rawValue: String) -> RecentWorkspaceTarget.Kind? {
+    package static func recentWorkspaceTargetKind(from rawValue: String) -> RecentWorkspaceTarget.Kind? {
         switch rawValue {
         case recentWorkspaceTargetKindWorktree:
             .worktree
@@ -97,31 +97,31 @@ enum SQLiteLocalUXStorage {
         }
     }
 
-    static func isValidRepoExplorerGrouping(_ rawValue: String) -> Bool {
+    package static func isValidRepoExplorerGrouping(_ rawValue: String) -> Bool {
         repoExplorerGroupingValues.contains(rawValue)
     }
 
-    static func isValidRepoExplorerSort(_ rawValue: String) -> Bool {
+    package static func isValidRepoExplorerSort(_ rawValue: String) -> Bool {
         repoExplorerSortValues.contains(rawValue)
     }
 
-    static func isValidRepoExplorerVisibility(_ rawValue: String) -> Bool {
+    package static func isValidRepoExplorerVisibility(_ rawValue: String) -> Bool {
         repoExplorerVisibilityValues.contains(rawValue)
     }
 
-    static func isValidInboxNotificationGrouping(_ rawValue: String) -> Bool {
+    package static func isValidInboxNotificationGrouping(_ rawValue: String) -> Bool {
         inboxNotificationGroupingValues.contains(rawValue)
     }
 
-    static func isValidInboxNotificationSort(_ rawValue: String) -> Bool {
+    package static func isValidInboxNotificationSort(_ rawValue: String) -> Bool {
         inboxNotificationSortValues.contains(rawValue)
     }
 
-    static func isValidInboxNotificationContent(_ rawValue: String) -> Bool {
+    package static func isValidInboxNotificationContent(_ rawValue: String) -> Bool {
         inboxNotificationContentValues.contains(rawValue)
     }
 
-    static func isValidInboxNotificationRowState(_ rawValue: String) -> Bool {
+    package static func isValidInboxNotificationRowState(_ rawValue: String) -> Bool {
         inboxNotificationRowStateValues.contains(rawValue)
     }
 }

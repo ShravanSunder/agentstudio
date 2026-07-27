@@ -2,14 +2,14 @@ import Foundation
 
 @MainActor
 package final class WorkspaceTabLayoutAtom {
-    let shellAtom: WorkspaceTabShellAtom
-    let arrangementAtom: WorkspaceTabArrangementAtom
+    package let shellAtom: WorkspaceTabShellAtom
+    package let arrangementAtom: WorkspaceTabArrangementAtom
 
     private var derived: WorkspaceTabLayoutDerived {
         WorkspaceTabLayoutDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
     }
 
-    init(
+    package init(
         shellAtom: WorkspaceTabShellAtom = WorkspaceTabShellAtom(),
         arrangementAtom: WorkspaceTabArrangementAtom = WorkspaceTabArrangementAtom()
     ) {
@@ -53,7 +53,7 @@ package final class WorkspaceTabLayoutAtom {
         derived.activePaneIds
     }
 
-    var allPaneIds: Set<UUID> {
+    package var allPaneIds: Set<UUID> {
         derived.allPaneIds
     }
 
@@ -75,7 +75,7 @@ package final class WorkspaceTabLayoutAtom {
         arrangementAtom.removeState(tabId)
     }
 
-    func insertTab(_ tab: Tab, at index: Int) {
+    package func insertTab(_ tab: Tab, at index: Int) {
         shellAtom.insertTabShell(TabShell(id: tab.id, name: tab.name, colorHex: tab.colorHex), at: index)
         arrangementAtom.insertState(Self.arrangementState(from: tab), at: index)
     }
@@ -91,7 +91,7 @@ package final class WorkspaceTabLayoutAtom {
         arrangementAtom.insertState(Self.arrangementState(from: tab), at: index)
     }
 
-    func moveTab(fromId: UUID, toIndex: Int) {
+    package func moveTab(fromId: UUID, toIndex: Int) {
         shellAtom.moveTab(fromId: fromId, toIndex: toIndex)
     }
 

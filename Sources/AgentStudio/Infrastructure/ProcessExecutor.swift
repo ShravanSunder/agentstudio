@@ -25,6 +25,12 @@ package struct ProcessResult: Sendable {
     package let stderr: String
 
     package var succeeded: Bool { exitCode == 0 }
+
+    package init(exitCode: Int, stdout: String, stderr: String) {
+        self.exitCode = exitCode
+        self.stdout = stdout
+        self.stderr = stderr
+    }
 }
 
 // MARK: - ProcessError

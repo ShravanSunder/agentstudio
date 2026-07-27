@@ -5,8 +5,35 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
-extension GhosttyActionRouterTests {
+@MainActor
+@Suite(.serialized)
+struct GhosttyActionRouterMixedPressureTests {
+    final class FakeActionRoutingLookup: GhosttyActionRoutingLookup {
+        private let surfaceIdsByViewObjectId: [ObjectIdentifier: UUID]
+        private let paneIdsBySurfaceId: [UUID: UUID]
+
+        init(
+            surfaceIdsByViewObjectId: [ObjectIdentifier: UUID] = [:],
+            paneIdsBySurfaceId: [UUID: UUID] = [:]
+        ) {
+            self.surfaceIdsByViewObjectId = surfaceIdsByViewObjectId
+            self.paneIdsBySurfaceId = paneIdsBySurfaceId
+        }
+
+        func surfaceId(forViewObjectId viewObjectId: ObjectIdentifier) -> UUID? {
+            surfaceIdsByViewObjectId[viewObjectId]
+        }
+
+        func paneId(for surfaceId: UUID) -> UUID? {
+            paneIdsBySurfaceId[surfaceId]
+        }
+    }
+
     @Test(
         "translated admission isolates mixed local pressure while exact facts retain every publication path"
     )

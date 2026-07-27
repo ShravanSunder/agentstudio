@@ -1,9 +1,8 @@
+import AgentStudioCore
 import Foundation
 
-@testable import AgentStudio
-
 extension Tab {
-    init(
+    package init(
         id: UUID = UUID(),
         name: String = "Tab",
         allPaneIds: [UUID],
@@ -26,7 +25,7 @@ extension Tab {
         )
     }
 
-    init(
+    package init(
         id: UUID = UUID(),
         name: String = "Tab",
         panes: [UUID],
@@ -49,7 +48,7 @@ extension Tab {
 }
 
 extension TabArrangementState {
-    init(
+    package init(
         tabId: UUID,
         allPaneIds: [UUID],
         arrangements: [PaneArrangement],
@@ -70,13 +69,13 @@ extension TabArrangementState {
         )
     }
 
-    var activePaneId: UUID? {
+    package var activePaneId: UUID? {
         arrangements.first { $0.id == activeArrangementId }?.activePaneId
     }
 }
 
 extension Drawer {
-    init(
+    package init(
         paneIds: [UUID] = [],
         isExpanded: Bool = false
     ) {

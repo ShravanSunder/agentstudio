@@ -3,6 +3,12 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioEditorChooser
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
@@ -53,7 +59,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         )
         let controller = PaneTabViewController(
             store: store,
-            octiconLoader: makeTestOcticonLoader(),
+            octiconLoader: makeTerminalTestOcticonLoader(),
             repoCache: RepoCacheAtom(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,

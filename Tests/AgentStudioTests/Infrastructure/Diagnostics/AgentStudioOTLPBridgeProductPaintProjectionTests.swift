@@ -1,6 +1,6 @@
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 extension AgentStudioOTLPBridgeTraceProjectionTests {
     @Test

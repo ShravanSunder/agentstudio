@@ -1,7 +1,7 @@
 import AppKit
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioSharedComponents
 
 @Suite(.serialized)
 struct EditorChooserKeyboardRouterTests {

@@ -4,6 +4,10 @@ import GhosttyKit
 import SwiftUI
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 struct MainSplitViewControllerHarness {

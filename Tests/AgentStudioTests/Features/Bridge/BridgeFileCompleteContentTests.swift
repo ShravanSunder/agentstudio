@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge File complete content")
 struct BridgeFileCompleteContentTests {

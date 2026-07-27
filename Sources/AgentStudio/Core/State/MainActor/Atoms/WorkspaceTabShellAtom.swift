@@ -15,7 +15,7 @@ package final class WorkspaceTabShellAtom {
     let cursorAtom: WorkspaceTabCursorAtom
     private(set) var tabShells: [TabShell] = []
     private var tabIndexByID: [UUID: Int] = [:]
-    init(cursorAtom: WorkspaceTabCursorAtom = WorkspaceTabCursorAtom()) {
+    package init(cursorAtom: WorkspaceTabCursorAtom = WorkspaceTabCursorAtom()) {
         self.cursorAtom = cursorAtom
     }
 

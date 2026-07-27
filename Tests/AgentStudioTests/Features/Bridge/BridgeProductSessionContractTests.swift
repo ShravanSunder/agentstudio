@@ -1,7 +1,9 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeProductSessionContractTests {
     @Test("product transport vocabulary and ceilings are fixed")

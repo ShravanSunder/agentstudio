@@ -1,8 +1,9 @@
+import AgentStudioCore
 import AppKit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @Suite(.serialized)
 

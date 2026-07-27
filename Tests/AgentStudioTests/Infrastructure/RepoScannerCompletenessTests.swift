@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 @Suite("RepoScanner completeness")
 struct RepoScannerCompletenessTests {

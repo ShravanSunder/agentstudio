@@ -3,6 +3,17 @@ import SwiftUI
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
+
+@MainActor
+func makeInboxNotificationTestOcticonLoader(from testFilePath: String = #filePath) -> OcticonLoader {
+    OcticonLoader(
+        resourceRootURL: testAgentStudioResourceRootURL(from: testFilePath)
+    )
+}
 
 @MainActor
 @Suite("InboxNotificationSidebarView focus and activation", .serialized)
@@ -35,7 +46,7 @@ struct InboxSidebarFocusActivationTests {
         let hostingView = NSHostingView(
             rootView: InboxNotificationSidebarView(
                 inboxAtom: InboxNotificationAtom(),
-                octiconLoader: makeTestOcticonLoader(),
+                octiconLoader: makeInboxNotificationTestOcticonLoader(),
                 prefsAtom: InboxNotificationPrefsAtom(),
                 uiState: uiState,
                 sidebarCache: SidebarCacheState(),

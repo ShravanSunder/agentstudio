@@ -2,7 +2,7 @@ import AgentStudioGit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 @Suite("RepoScanner discovery-only capability adapter")
 struct RepoScannerGitDiscoveryReadOnlyIntegrationTests {

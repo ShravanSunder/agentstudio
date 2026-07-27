@@ -1,7 +1,8 @@
+import AgentStudioCore
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite("CommandBar default scope reads KeyboardOwnerDerived")
@@ -87,7 +88,7 @@ struct CommandBarInboxScopeDefaultingTests {
         let id = UUID()
         window.recordWindowRegistered(id)
         window.recordWindowBecameKey(id)
-        management.activate()
+        management.toggle()
 
         let state = CommandBarState.forOpen(
             windowLifecycle: window,

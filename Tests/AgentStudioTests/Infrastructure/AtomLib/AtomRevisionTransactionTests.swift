@@ -1,6 +1,6 @@
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 @MainActor
 struct AtomRevisionTransactionTests {

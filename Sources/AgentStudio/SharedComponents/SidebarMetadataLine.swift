@@ -2,10 +2,10 @@ import AgentStudioInfrastructure
 import SwiftUI
 
 package struct SidebarMetadataLine: View {
-    let iconSystemName: String?
-    let reservesIconColumn: Bool
-    let text: String
-    let prominence: SidebarMetadataProminence
+    package let iconSystemName: String?
+    package let reservesIconColumn: Bool
+    package let text: String
+    package let prominence: SidebarMetadataProminence
 
     static var reservedIconPlaceholderHeight: CGFloat {
         AppStyles.Shell.Sidebar.branchIconSize

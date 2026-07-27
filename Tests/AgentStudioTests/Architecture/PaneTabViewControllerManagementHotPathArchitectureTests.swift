@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("PaneTabManagementHotPathTests")
 struct PaneTabManagementHotPathTests {
     @Test("management layer observation is separated from broad AppKit state observation")

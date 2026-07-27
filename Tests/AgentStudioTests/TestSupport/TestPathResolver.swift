@@ -1,7 +1,7 @@
 import Foundation
 
-enum TestPathResolver {
-    static func projectRoot(from filePath: String) -> String {
+package enum TestPathResolver {
+    package static func projectRoot(from filePath: String) -> String {
         var current = URL(fileURLWithPath: filePath)
 
         for _ in 0..<20 {

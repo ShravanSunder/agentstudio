@@ -1,7 +1,7 @@
 import AppKit
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @Suite("Ghostty scroll translation")
 struct GhosttyScrollTranslationTests {

@@ -1,8 +1,9 @@
+import AgentStudioCore
 import Foundation
 import SwiftUI
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @Suite(.serialized)
 struct CommandBarItemTests {

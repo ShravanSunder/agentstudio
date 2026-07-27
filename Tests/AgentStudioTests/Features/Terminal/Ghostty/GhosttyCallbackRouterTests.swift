@@ -1,7 +1,8 @@
+import AgentStudioCore
 import GhosttyKit
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @MainActor
 @Suite("Ghostty callback router")

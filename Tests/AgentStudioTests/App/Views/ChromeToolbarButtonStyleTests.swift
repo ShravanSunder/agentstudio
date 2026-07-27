@@ -2,6 +2,9 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioSharedComponents
 
 @Suite("Chrome toolbar button style")
 struct ChromeToolbarButtonStyleTests {

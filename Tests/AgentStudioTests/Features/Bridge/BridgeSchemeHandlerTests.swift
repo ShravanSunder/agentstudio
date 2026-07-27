@@ -1,8 +1,9 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 import WebKit
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 /// Tests for BridgeSchemeHandler app-asset behavior and path classification.
 @Suite(.serialized)

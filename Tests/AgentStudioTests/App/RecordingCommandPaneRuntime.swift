@@ -1,6 +1,7 @@
 import Foundation
 
 @testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 func waitForRecordedCommands(

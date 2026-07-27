@@ -303,7 +303,7 @@ package actor EventBus<Envelope: Sendable> {
         )
     }
 
-    var subscriberCount: Int {
+    package var subscriberCount: Int {
         subscribers.count
     }
 

@@ -1,7 +1,9 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioRepoExplorer
 
 /// Tests for RepoExplorerFilter — the extracted filter algorithm
 /// used by SidebarContentView for sidebar search.

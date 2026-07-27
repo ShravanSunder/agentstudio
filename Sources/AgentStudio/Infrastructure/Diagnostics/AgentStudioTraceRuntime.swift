@@ -16,10 +16,54 @@ package struct AgentStudioTraceRuntime: Sendable {
     private let scopeVersion: String
     private let timeUnixNano: @Sendable () -> UInt64
 
-    let outputFileURL: URL?
+    package let outputFileURL: URL?
 
     package var isEnabled: Bool {
         configuration.isEnabled && !sinks.isEmpty
+    }
+
+    package init(
+        configuration: AgentStudioTraceConfiguration,
+        processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier,
+        serviceName: String = "AgentStudio",
+        serviceVersion: String? = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+        sessionID: String = UUID().uuidString,
+        scopeVersion: String = "0.1.0",
+        writerRetainedLineLimit: Int = 2048,
+        timeUnixNano: @escaping @Sendable () -> UInt64
+    ) {
+        self.init(
+            configuration: configuration,
+            processIdentifier: processIdentifier,
+            serviceName: serviceName,
+            serviceVersion: serviceVersion,
+            sessionID: sessionID,
+            scopeVersion: scopeVersion,
+            writerRetainedLineLimit: writerRetainedLineLimit,
+            sinkFactory: .live,
+            timeUnixNano: timeUnixNano
+        )
+    }
+
+    package init(
+        configuration: AgentStudioTraceConfiguration,
+        processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier,
+        serviceName: String = "AgentStudio",
+        serviceVersion: String? = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+        sessionID: String = UUID().uuidString,
+        scopeVersion: String = "0.1.0",
+        writerRetainedLineLimit: Int = 2048
+    ) {
+        self.init(
+            configuration: configuration,
+            processIdentifier: processIdentifier,
+            serviceName: serviceName,
+            serviceVersion: serviceVersion,
+            sessionID: sessionID,
+            scopeVersion: scopeVersion,
+            writerRetainedLineLimit: writerRetainedLineLimit,
+            sinkFactory: .live
+        )
     }
 
     init(
@@ -30,7 +74,7 @@ package struct AgentStudioTraceRuntime: Sendable {
         sessionID: String = UUID().uuidString,
         scopeVersion: String = "0.1.0",
         writerRetainedLineLimit: Int = 2048,
-        sinkFactory: AgentStudioTraceSinkFactory = .live,
+        sinkFactory: AgentStudioTraceSinkFactory,
         identityStore: AgentStudioTraceIdentityStore = .init(),
         timeUnixNano: @escaping @Sendable () -> UInt64 = Self.currentTimeUnixNano
     ) {

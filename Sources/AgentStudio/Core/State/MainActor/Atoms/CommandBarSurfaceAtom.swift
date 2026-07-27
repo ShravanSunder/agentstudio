@@ -11,7 +11,9 @@ struct CommandBarSurface: Equatable, Sendable {
 package final class CommandBarSurfaceAtom {
     private(set) var activeSurface: CommandBarSurface?
 
-    var activeScope: CommandBarScope? {
+    package init() {}
+
+    package var activeScope: CommandBarScope? {
         activeSurface?.scope
     }
 
@@ -19,7 +21,7 @@ package final class CommandBarSurfaceAtom {
         activeSurface != nil
     }
 
-    func activeScope(for workspaceWindowId: UUID?) -> CommandBarScope? {
+    package func activeScope(for workspaceWindowId: UUID?) -> CommandBarScope? {
         guard let workspaceWindowId else { return nil }
         guard activeSurface?.workspaceWindowId == workspaceWindowId else { return nil }
         return activeSurface?.scope

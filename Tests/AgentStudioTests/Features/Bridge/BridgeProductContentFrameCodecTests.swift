@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeProductContentFrameCodecTests {
     @Test("content wire repeats full binding identity only in accepted")

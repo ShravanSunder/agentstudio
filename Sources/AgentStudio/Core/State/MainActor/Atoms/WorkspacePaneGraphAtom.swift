@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import os.log
@@ -282,6 +283,8 @@ package final class WorkspacePaneGraphAtom {
     private(set) var paneStates: [UUID: PaneGraphState] = [:]
     private var parentPaneIDByDrawerID: [UUID: UUID] = [:]
 
+    package init() {}
+
     var paneIds: Set<UUID> {
         Set(paneStates.keys)
     }
@@ -470,8 +473,10 @@ package final class WorkspacePaneGraphAtom {
         }
 
         let drawerPane = Pane(
+            id: UUIDv7.generate(),
             content: content,
             metadata: metadata,
+            residency: .active,
             kind: .drawerChild(parentPaneId: parentPaneId)
         )
         let drawerState = PaneGraphState(pane: drawerPane)

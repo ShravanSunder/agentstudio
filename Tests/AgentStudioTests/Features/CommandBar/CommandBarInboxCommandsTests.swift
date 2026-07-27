@@ -1,6 +1,8 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite("CommandBar inbox commands")

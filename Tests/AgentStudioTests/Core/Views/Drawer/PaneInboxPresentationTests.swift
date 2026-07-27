@@ -1,7 +1,9 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import SwiftUI
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite("PaneInboxPresentation")

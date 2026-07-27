@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 /// Tests for BridgeNavigationDecider URL scheme policy.
 ///

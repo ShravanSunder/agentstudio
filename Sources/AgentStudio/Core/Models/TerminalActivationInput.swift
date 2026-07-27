@@ -7,6 +7,10 @@ import Foundation
 /// absent; the terminal activation owner supplies those later where applicable.
 package struct TerminalActivationInput: Equatable, Sendable {
     package let entries: [TerminalActivationDescriptor]
+
+    package init(entries: [TerminalActivationDescriptor]) {
+        self.entries = entries
+    }
 }
 
 package struct TerminalActivationDescriptor: Equatable, Sendable {
@@ -15,6 +19,16 @@ package struct TerminalActivationDescriptor: Equatable, Sendable {
     package let pane: Pane
     package let visibilityPriority: TerminalActivationVisibilityPriority
     let hostPlacement: TerminalHostPlacementIdentity
+
+    package init(
+        pane: Pane,
+        visibilityPriority: TerminalActivationVisibilityPriority,
+        hostPlacement: TerminalHostPlacementIdentity
+    ) {
+        self.pane = pane
+        self.visibilityPriority = visibilityPriority
+        self.hostPlacement = hostPlacement
+    }
 
     package var paneID: PaneId {
         PaneId(existingUUID: pane.id)
@@ -72,7 +86,7 @@ package enum TerminalActivationVisibilityPriority: Int, Comparable, Sendable {
     }
 }
 
-enum TerminalHostPlacementIdentity: Equatable, Sendable {
+package enum TerminalHostPlacementIdentity: Equatable, Sendable {
     case tab(tabID: UUID)
     case drawer(tabID: UUID, parentPaneID: PaneId, drawerID: UUID)
 }

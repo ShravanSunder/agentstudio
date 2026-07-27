@@ -1,8 +1,10 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import GRDB
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 @Suite("WorkspaceLocalNotificationClaimMigrationTests")
 struct WorkspaceLocalNotificationClaimMigrationTests {

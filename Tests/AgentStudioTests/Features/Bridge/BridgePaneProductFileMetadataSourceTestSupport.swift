@@ -1,6 +1,7 @@
+import AgentStudioCore
 import Foundation
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct ProductFileSourceStatusProvider: GitWorkingTreeStatusProvider {
     func statusResult(

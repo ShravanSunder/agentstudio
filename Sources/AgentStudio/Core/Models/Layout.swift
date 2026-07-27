@@ -27,7 +27,7 @@ package struct Layout: Codable, Hashable, Sendable {
         self.dividerIds = []
     }
 
-    init(paneId: UUID) {
+    package init(paneId: UUID) {
         self.panes = [.init(paneId: paneId, ratio: 1.0)]
         self.dividerIds = []
     }
@@ -46,7 +46,7 @@ package struct Layout: Codable, Hashable, Sendable {
         self.dividerIds = dividerIds
     }
 
-    static func autoTiled(_ paneIds: [UUID]) -> Self {
+    package static func autoTiled(_ paneIds: [UUID]) -> Self {
         guard !paneIds.isEmpty else { return Self() }
         let equalRatio = 1.0 / Double(paneIds.count)
         return Self(
@@ -67,7 +67,7 @@ package struct Layout: Codable, Hashable, Sendable {
         panes.contains { $0.paneId == paneId }
     }
 
-    func inserting(
+    package func inserting(
         paneId: UUID,
         at targetPaneId: UUID,
         direction _: SplitDirection,

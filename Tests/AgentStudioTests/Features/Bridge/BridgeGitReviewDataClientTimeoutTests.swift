@@ -2,7 +2,7 @@ import AgentStudioGit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeGitReviewDataClientTimeoutTests {
     @Test("AgentStudioGit adapter times out while scheduler retains physical diff custody")

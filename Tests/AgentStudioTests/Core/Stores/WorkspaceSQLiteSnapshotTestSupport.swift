@@ -1,7 +1,9 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import CoreGraphics
 import Foundation
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 extension WorkspaceSQLiteSnapshot {
     static func emptyFixture(

@@ -1,6 +1,7 @@
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite("Bridge app command hard-cut contracts")

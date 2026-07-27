@@ -5,6 +5,8 @@ import Observation
 package final class ManagementLayerAtom {
     package private(set) var isActive = false
 
+    package init() {}
+
     func activate() {
         isActive = true
     }

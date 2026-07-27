@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 /// Issue A — `PaneDropTarget` equality must distinguish targets with
 /// the same `paneId + zone` but different `sizingTarget`.

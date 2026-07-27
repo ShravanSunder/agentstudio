@@ -1,6 +1,6 @@
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 @Suite("Runtime delivery performance reporter")
 struct RuntimeDeliveryPerformanceReporterTests {

@@ -3,7 +3,7 @@ import Foundation
 import Testing
 import UniformTypeIdentifiers
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @Suite(.serialized)
 final class DragPayloadCodableTests {

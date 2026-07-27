@@ -1,7 +1,9 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @MainActor
 @Suite("TerminalRestorePurityTests", .serialized)
@@ -9,7 +11,7 @@ struct TerminalRestorePurityTests {
     @Test("restore returns exact durable identity without inventory or persistence mutation")
     func restoreReturnsExactDurableIdentityWithoutInventoryOrPersistenceMutation() throws {
         let storedText = "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-5566778899001122"
-        let storedSessionID = try #require(ZmxSessionID(restoring: storedText))
+        let storedSessionID = try makeRestoredZmxSessionID(storedText)
         let unrelatedRepoID = UUIDv7.generate()
         let unrelatedWorktreeID = UUIDv7.generate()
         let pane = Pane(
@@ -31,18 +33,24 @@ struct TerminalRestorePurityTests {
             )
         )
         let runtime = TerminalRestoreRuntime(
-            sessionConfiguration: SessionConfiguration(
-                isEnabled: true,
-                zmxPath: "/tmp/fake-zmx",
-                zmxDir: "/tmp/fake-zmx-dir",
-                healthCheckInterval: 30,
-                maxCheckpointAge: 60
-            )
+            sessionConfiguration: makeEnabledTerminalTestSessionConfiguration()
         )
 
         let restoredSessionID = try #require(runtime.zmxSessionID(for: pane))
 
         #expect(restoredSessionID == storedSessionID)
         #expect(restoredSessionID.rawValue == storedText)
+    }
+
+    private func makeEnabledTerminalTestSessionConfiguration() -> SessionConfiguration {
+        SessionConfiguration.detect(
+            environment: [
+                "AGENTSTUDIO_DATA_DIR": "/tmp/fake-zmx-data",
+                "AGENTSTUDIO_SESSION_RESTORE": "true",
+                "AGENTSTUDIO_TRACE_PROOF_TOKEN": "terminal-restore-purity-test",
+                "AGENTSTUDIO_ZMX_PATH": "/usr/bin/true",
+            ],
+            isDebugBuild: true
+        )
     }
 }

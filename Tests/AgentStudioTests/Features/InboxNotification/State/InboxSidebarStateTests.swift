@@ -1,8 +1,9 @@
+import AgentStudioCore
 import Foundation
 import Observation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 private final class ObservationInvalidationCounter: @unchecked Sendable {
     var didInvalidate = false

@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
 
 func makeTestPaneRuntimeEventBus() -> EventBus<RuntimeEnvelope> {
     EventBus(

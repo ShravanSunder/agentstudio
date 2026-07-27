@@ -3,6 +3,12 @@ import SwiftUI
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioRepoExplorer
+@testable import AgentStudioSharedComponents
+@testable import AgentStudioTestSupport
 
 @MainActor
 private final class FakeInboxAppCommandDispatcher: AppCommandDispatching {
@@ -67,7 +73,7 @@ struct InboxNotificationSidebarViewTests {
     ) -> InboxNotificationSidebarView {
         InboxNotificationSidebarView(
             inboxAtom: InboxNotificationAtom(),
-            octiconLoader: makeTestOcticonLoader(),
+            octiconLoader: makeInboxNotificationTestOcticonLoader(),
             prefsAtom: InboxNotificationPrefsAtom(),
             uiState: WorkspaceSidebarState(),
             sidebarCache: SidebarCacheState(),
@@ -89,7 +95,7 @@ struct InboxNotificationSidebarViewTests {
         let hostingView = NSHostingView(
             rootView: InboxNotificationSidebarView(
                 inboxAtom: InboxNotificationAtom(),
-                octiconLoader: makeTestOcticonLoader(),
+                octiconLoader: makeInboxNotificationTestOcticonLoader(),
                 prefsAtom: InboxNotificationPrefsAtom(),
                 uiState: WorkspaceSidebarState(),
                 sidebarCache: SidebarCacheState(),
@@ -122,7 +128,7 @@ struct InboxNotificationSidebarViewTests {
         let hostingView = NSHostingView(
             rootView: InboxNotificationSidebarView(
                 inboxAtom: inboxAtom,
-                octiconLoader: makeTestOcticonLoader(),
+                octiconLoader: makeInboxNotificationTestOcticonLoader(),
                 prefsAtom: InboxNotificationPrefsAtom(),
                 uiState: WorkspaceSidebarState(),
                 sidebarCache: SidebarCacheState(),
@@ -261,7 +267,7 @@ struct InboxNotificationSidebarViewTests {
             body: {
                 let view = InboxNotificationSidebarView(
                     inboxAtom: InboxNotificationAtom(),
-                    octiconLoader: makeTestOcticonLoader(),
+                    octiconLoader: makeInboxNotificationTestOcticonLoader(),
                     prefsAtom: InboxNotificationPrefsAtom(),
                     uiState: WorkspaceSidebarState(),
                     sidebarCache: SidebarCacheState(),
@@ -295,7 +301,7 @@ struct InboxNotificationSidebarViewTests {
                 let hostingView = NSHostingView(
                     rootView: InboxNotificationSidebarView(
                         inboxAtom: InboxNotificationAtom(),
-                        octiconLoader: makeTestOcticonLoader(),
+                        octiconLoader: makeInboxNotificationTestOcticonLoader(),
                         prefsAtom: InboxNotificationPrefsAtom(),
                         uiState: WorkspaceSidebarState(),
                         sidebarCache: SidebarCacheState(),
@@ -549,7 +555,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         var didToggle = false
         let hostingView = NSHostingView(
             rootView: InboxNotificationGroupHeader(
-                octiconLoader: makeTestOcticonLoader(),
+                octiconLoader: makeInboxNotificationTestOcticonLoader(),
                 header: InboxNotificationListSectionHeader(
                     title: "agent-studio",
                     secondaryTitle: "ShravanSunder",
@@ -756,7 +762,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         let hostingView = NSHostingView(
             rootView: InboxNotificationSidebarView(
                 inboxAtom: inboxAtom,
-                octiconLoader: makeTestOcticonLoader(),
+                octiconLoader: makeInboxNotificationTestOcticonLoader(),
                 prefsAtom: prefsAtom,
                 uiState: WorkspaceSidebarState(),
                 sidebarCache: SidebarCacheState(),
@@ -829,7 +835,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         let hostingView = NSHostingView(
             rootView: InboxNotificationSidebarView(
                 inboxAtom: inboxAtom,
-                octiconLoader: makeTestOcticonLoader(),
+                octiconLoader: makeInboxNotificationTestOcticonLoader(),
                 prefsAtom: prefsAtom,
                 uiState: WorkspaceSidebarState(),
                 sidebarCache: SidebarCacheState(),
@@ -918,7 +924,7 @@ private struct InboxSidebarRootHarness: View {
 
     var body: some View {
         InboxSidebarRootContainer(
-            octiconLoader: makeTestOcticonLoader(),
+            octiconLoader: makeInboxNotificationTestOcticonLoader(),
             uiState: uiState,
             searchText: $searchText,
             activeFilter: activeFilter,

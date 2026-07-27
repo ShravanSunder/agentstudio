@@ -64,7 +64,7 @@ package final class WorkspaceSidebarState {
     private let memoryAtom: WorkspaceSidebarMemoryAtom
     private let focusAtom: SidebarFocusRuntimeAtom
 
-    init(
+    package init(
         memoryAtom: WorkspaceSidebarMemoryAtom = .init(),
         focusAtom: SidebarFocusRuntimeAtom = .init()
     ) {
@@ -88,7 +88,7 @@ package final class WorkspaceSidebarState {
         memoryAtom.sidebarSurface
     }
 
-    var sidebarHasFocus: Bool {
+    package var sidebarHasFocus: Bool {
         focusAtom.sidebarHasFocus
     }
 

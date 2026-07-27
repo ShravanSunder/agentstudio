@@ -1,6 +1,6 @@
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @Suite("TerminalSurfaceAction")
 struct TerminalSurfaceActionTests {

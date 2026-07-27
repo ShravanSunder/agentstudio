@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 /// Pin the 1/4 + 1/2 + 1/4 hover-zone behavior the resolver should
 /// produce for `.main` (and any single-row config). These tests are

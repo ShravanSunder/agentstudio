@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import Tracing
 
-@testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 @Suite
 struct AgentStudioTraceRuntimeTests {

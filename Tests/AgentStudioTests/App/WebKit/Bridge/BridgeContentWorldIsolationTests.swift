@@ -3,6 +3,9 @@ import Testing
 import WebKit
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 extension WebKitSerializedTests {
     @MainActor

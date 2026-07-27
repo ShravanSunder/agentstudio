@@ -1,7 +1,9 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @Suite("TerminalPaneMountView displaySurface")
 struct TerminalPaneMountViewDisplaySurfaceTests {

@@ -1,7 +1,9 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 @Suite(.serialized)
 struct FilesystemActorShellGitIntegrationTests {

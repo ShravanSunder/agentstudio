@@ -150,10 +150,10 @@ final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
     }
 }
 
-struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
-    let eventName: String
+package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
+    package let eventName: String
     let dimensions: [AgentStudioOTLPPerformanceMetricDimension]
-    let elapsedMilliseconds: Double?
+    package let elapsedMilliseconds: Double?
     let samples: [AgentStudioOTLPPerformanceMetricSample]
     let measurements: [AgentStudioOTLPPerformanceMeasurement]
 
@@ -161,7 +161,7 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         dimensions.map(\.tuple)
     }
 
-    init?(record: AgentStudioOTLPProjectedLogRecord) {
+    package init?(record: AgentStudioOTLPProjectedLogRecord) {
         guard record.body.hasPrefix("performance.") else { return nil }
         if record.body.hasPrefix("performance.bridge.") {
             guard Self.hasCompleteBridgeMetricTaxonomy(record) else { return nil }

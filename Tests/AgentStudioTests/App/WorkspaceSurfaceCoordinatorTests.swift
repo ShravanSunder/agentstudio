@@ -3,6 +3,11 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
+@testable import AgentStudioWebview
 
 @MainActor
 @Suite(.serialized)

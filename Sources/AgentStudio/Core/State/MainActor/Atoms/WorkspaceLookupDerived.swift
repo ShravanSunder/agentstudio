@@ -9,6 +9,20 @@ package struct WorkspacePaneLocation: Equatable, Sendable {
     package let tabIndex: Int
     package let paneIndexInTab: Int
     package let isActiveInTab: Bool
+
+    package init(
+        paneId: UUID,
+        tabId: UUID,
+        tabIndex: Int,
+        paneIndexInTab: Int,
+        isActiveInTab: Bool
+    ) {
+        self.paneId = paneId
+        self.tabId = tabId
+        self.tabIndex = tabIndex
+        self.paneIndexInTab = paneIndexInTab
+        self.isActiveInTab = isActiveInTab
+    }
 }
 
 @MainActor

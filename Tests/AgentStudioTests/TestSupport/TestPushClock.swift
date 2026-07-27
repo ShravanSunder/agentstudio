@@ -1,8 +1,8 @@
 import Foundation
 import _Concurrency
 
-struct TestPushClock: Clock {
-    typealias Duration = Swift.Duration
+package struct TestPushClock: Clock {
+    package typealias Duration = Swift.Duration
 
     private final class StateBox: @unchecked Sendable {
         private let lock = NSLock()
@@ -15,20 +15,20 @@ struct TestPushClock: Clock {
         }
     }
 
-    struct Instant: Sendable, Comparable, Hashable, InstantProtocol {
-        typealias Duration = TestPushClock.Duration
+    package struct Instant: Sendable, Comparable, Hashable, InstantProtocol {
+        package typealias Duration = TestPushClock.Duration
 
         fileprivate let nanoseconds: Int64
 
-        func advanced(by duration: Self.Duration) -> Self {
+        package func advanced(by duration: Self.Duration) -> Self {
             Self(nanoseconds: Self.toNanoseconds(from: duration) + nanoseconds)
         }
 
-        func duration(to other: Self) -> Self.Duration {
+        package func duration(to other: Self) -> Self.Duration {
             Self.Duration.nanoseconds(other.nanoseconds - nanoseconds)
         }
 
-        static func < (lhs: Self, rhs: Self) -> Bool {
+        package static func < (lhs: Self, rhs: Self) -> Bool {
             lhs.nanoseconds < rhs.nanoseconds
         }
 
@@ -80,15 +80,17 @@ struct TestPushClock: Clock {
 
     private let state = StateBox()
 
-    var now: Instant {
+    package init() {}
+
+    package var now: Instant {
         Instant(nanoseconds: state.withCriticalRegion { $0.now })
     }
 
-    var minimumResolution: Duration {
+    package var minimumResolution: Duration {
         .zero
     }
 
-    func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
+    package func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
         let generation = state.withCriticalRegion { st in
             defer { st.generation += 1 }
             return st.generation
@@ -135,12 +137,12 @@ struct TestPushClock: Clock {
         )
     }
 
-    func advance(by duration: Duration) {
+    package func advance(by duration: Duration) {
         let future = now.advanced(by: duration)
         advance(to: future)
     }
 
-    func advance(to instant: Instant) {
+    package func advance(to instant: Instant) {
         var ready: [UnsafeContinuation<Void, Error>] = []
         var resumedWaiters: [UnsafeContinuation<Void, Never>] = []
         state.withCriticalRegion { st in
@@ -161,31 +163,31 @@ struct TestPushClock: Clock {
         }
     }
 
-    var pendingSleepCount: Int {
+    package var pendingSleepCount: Int {
         state.withCriticalRegion { $0.pending.count }
     }
 
-    var scheduledSleepGeneration: Int {
+    package var scheduledSleepGeneration: Int {
         state.withCriticalRegion { $0.generation }
     }
 
-    var pendingSleepGenerations: Set<Int> {
+    package var pendingSleepGenerations: Set<Int> {
         state.withCriticalRegion { Set($0.pending.map(\.generation)) }
     }
 
-    func waitForPendingSleepCount(atLeast count: Int = 1) async {
+    package func waitForPendingSleepCount(atLeast count: Int = 1) async {
         await waitForPendingSleepCount(matching: .atLeast(count))
     }
 
-    func waitForPendingSleepCount(exactly count: Int) async {
+    package func waitForPendingSleepCount(exactly count: Int) async {
         await waitForPendingSleepCount(matching: .exactly(count))
     }
 
-    func waitForPendingSleepGeneration(_ generation: Int) async {
+    package func waitForPendingSleepGeneration(_ generation: Int) async {
         await waitForPendingSleepCount(matching: .generation(generation))
     }
 
-    func waitForPendingSleepCount(atLeast count: Int, fromGeneration generation: Int) async {
+    package func waitForPendingSleepCount(atLeast count: Int, fromGeneration generation: Int) async {
         await waitForPendingSleepCount(matching: .atLeastFromGeneration(count: count, generation: generation))
     }
 

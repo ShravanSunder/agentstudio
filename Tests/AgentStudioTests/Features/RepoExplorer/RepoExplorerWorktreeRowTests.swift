@@ -1,7 +1,7 @@
 import SwiftUI
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioRepoExplorer
 
 @MainActor
 @Suite("RepoExplorerWorktreeRow")
@@ -9,7 +9,7 @@ struct RepoExplorerWorktreeRowTests {
     @Test("row content accepts primitive unread count")
     func rowContentAcceptsUnreadCount() {
         let view = RepoExplorerWorktreeRowContent(
-            octiconLoader: makeTestOcticonLoader(),
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
             checkoutTitle: "agent-studio",
             branchName: "main",
             placementText: "Pane 2 active",

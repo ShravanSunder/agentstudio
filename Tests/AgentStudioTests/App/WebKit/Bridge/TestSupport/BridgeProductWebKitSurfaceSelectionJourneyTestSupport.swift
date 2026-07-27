@@ -1,8 +1,11 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 import WebKit
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeProductWebKitSurfaceSelectionState: Decodable, Equatable, Sendable {
     let activeMode: String?

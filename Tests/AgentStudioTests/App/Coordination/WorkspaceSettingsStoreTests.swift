@@ -3,6 +3,12 @@ import GRDB
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioEditorChooser
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioRepoExplorer
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)

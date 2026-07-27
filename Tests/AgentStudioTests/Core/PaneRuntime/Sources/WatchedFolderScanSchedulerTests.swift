@@ -1,7 +1,8 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @Suite("Watched-folder scan scheduler")
 struct WatchedFolderScanSchedulerTests {

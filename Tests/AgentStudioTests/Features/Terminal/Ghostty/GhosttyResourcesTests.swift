@@ -1,7 +1,8 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 /// Tests that the terminfo resource layout satisfies GhosttyKit's dirname convention.
 ///

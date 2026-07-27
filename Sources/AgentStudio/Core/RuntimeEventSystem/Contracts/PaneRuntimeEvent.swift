@@ -198,7 +198,7 @@ package struct GitWorkingTreeSnapshot: Sendable, Equatable {
     package let summary: GitWorkingTreeSummary
     package let branch: String?
 
-    init(
+    package init(
         worktreeId: UUID,
         repoId: UUID? = nil,
         rootPath: URL,
@@ -234,6 +234,11 @@ package struct DiffArtifact: Sendable {
 package struct ApprovalRequest: Sendable {
     package let id: UUID
     package let summary: String
+
+    package init(id: UUID, summary: String) {
+        self.id = id
+        self.summary = summary
+    }
 }
 
 package struct ApprovalDecision: Sendable {

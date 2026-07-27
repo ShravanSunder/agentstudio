@@ -1,7 +1,9 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 /// Tests that `Tab` works correctly as a `ResolvableTab` with `WorkspaceCommandResolver`.
 /// This validates the Phase 2 conformance added in `ResolvableTab.swift`.

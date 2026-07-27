@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 @Suite
 struct AgentStudioOTLPWebKitContainmentTests {
@@ -17,7 +17,7 @@ struct AgentStudioOTLPWebKitContainmentTests {
             resource: [
                 "service.name": "AgentStudio"
             ],
-            scope: .init(name: BridgeTelemetryScope.webKit.traceTag.rawValue, version: "0.1.0"),
+            scope: .init(name: AgentStudioTraceTag.bridgePerformanceWebKit.rawValue, version: "0.1.0"),
             attributes: [
                 "agentstudio.bridge.phase": .string("error"),
                 "agentstudio.bridge.plane": .string("observability"),

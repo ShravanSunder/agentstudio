@@ -18,7 +18,7 @@ package final class WorkspacePaneAtom {
     private let repositoryTopologyAtom: RepositoryTopologyAtom?
     private let repoEnrichmentCacheAtom: RepoEnrichmentCacheAtom?
 
-    init(
+    package init(
         graphAtom: WorkspacePaneGraphAtom = WorkspacePaneGraphAtom(),
         drawerCursorAtom: WorkspaceDrawerCursorAtom = WorkspaceDrawerCursorAtom(),
         repositoryTopologyAtom: RepositoryTopologyAtom? = nil,
@@ -51,24 +51,24 @@ package final class WorkspacePaneAtom {
         return pane
     }
 
-    func panes(for worktreeId: UUID) -> [Pane] {
+    package func panes(for worktreeId: UUID) -> [Pane] {
         panes.values.filter { $0.worktreeId == worktreeId }
     }
 
-    func addPane(_ pane: Pane) {
+    package func addPane(_ pane: Pane) {
         graphAtom.addPane(pane)
         drawerCursorAtom.prune(validDrawerIds: graphAtom.drawerIds)
     }
 
-    func paneCount(for worktreeId: UUID) -> Int {
+    package func paneCount(for worktreeId: UUID) -> Int {
         graphAtom.paneStates(for: worktreeId).count
     }
 
-    func isWorktreeActive(_ worktreeId: UUID) -> Bool {
+    package func isWorktreeActive(_ worktreeId: UUID) -> Bool {
         panes.values.contains { $0.worktreeId == worktreeId && $0.residency == .active }
     }
 
-    func orphanedPanes(excluding layoutPaneIds: Set<UUID>) -> [Pane] {
+    package func orphanedPanes(excluding layoutPaneIds: Set<UUID>) -> [Pane] {
         panes.values.filter {
             guard !layoutPaneIds.contains($0.id) else { return false }
             guard !$0.isDrawerChild else { return false }
@@ -109,7 +109,7 @@ package final class WorkspacePaneAtom {
     }
 
     @discardableResult
-    func insertRestoredPane(_ pane: Pane) -> Bool {
+    package func insertRestoredPane(_ pane: Pane) -> Bool {
         let didInsert = graphAtom.insertRestoredPane(pane)
         if didInsert {
             drawerCursorAtom.prune(validDrawerIds: graphAtom.drawerIds)
@@ -134,7 +134,7 @@ package final class WorkspacePaneAtom {
         updatePaneTitle(paneId, title: title)
     }
 
-    func updatePaneCWD(_ paneId: UUID, cwd: URL?) {
+    package func updatePaneCWD(_ paneId: UUID, cwd: URL?) {
         graphAtom.updatePaneCWD(paneId, cwd: cwd)
     }
 
@@ -150,7 +150,7 @@ package final class WorkspacePaneAtom {
         graphAtom.updatePaneCWDAndResolvedContext(paneId, cwd: cwd, resolvedContext: resolvedContext)
     }
 
-    func updatePaneWebviewState(_ paneId: UUID, state: WebviewState) {
+    package func updatePaneWebviewState(_ paneId: UUID, state: WebviewState) {
         graphAtom.updatePaneWebviewState(paneId, state: state)
     }
 
@@ -285,7 +285,7 @@ package final class WorkspacePaneAtom {
         drawerCursorAtom.toggleDrawer(drawerId: drawerId)
     }
 
-    func collapseAllDrawers() {
+    package func collapseAllDrawers() {
         drawerCursorAtom.collapseAllDrawers()
     }
 

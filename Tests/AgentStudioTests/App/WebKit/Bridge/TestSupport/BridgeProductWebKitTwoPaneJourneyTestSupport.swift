@@ -1,9 +1,12 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import AppKit
 import Foundation
 import Testing
 import WebKit
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeProductWebKitTwoPanePositionSnapshot: Decodable, Equatable, Sendable {
     let activeMode: String?

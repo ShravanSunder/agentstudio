@@ -1,8 +1,18 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import AppKit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
+
+@MainActor
+func makeCommandBarTestOcticonLoader(from testFilePath: String = #filePath) -> OcticonLoader {
+    OcticonLoader(
+        resourceRootURL: testAgentStudioResourceRootURL(from: testFilePath)
+    )
+}
 
 @MainActor
 @Suite(.serialized)
@@ -27,7 +37,7 @@ struct CommandBarPanelControllerTests {
     ) -> CommandBarPanelController {
         CommandBarPanelController(
             store: WorkspaceStore(),
-            octiconLoader: makeTestOcticonLoader(),
+            octiconLoader: makeCommandBarTestOcticonLoader(),
             repoCache: RepoCacheAtom(),
             dispatcher: FakeAppCommandDispatcher(),
             commandBarSurface: commandBarSurface

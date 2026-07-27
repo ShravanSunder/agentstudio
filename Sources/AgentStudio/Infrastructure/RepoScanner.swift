@@ -23,6 +23,12 @@ package struct RepoScanner {
         package let path: URL
         package let kind: GitEntryKind
         package let repositoryKey: String
+
+        package init(path: URL, kind: GitEntryKind, repositoryKey: String) {
+            self.path = path
+            self.kind = kind
+            self.repositoryKey = repositoryKey
+        }
     }
 
     package protocol GitRepositoryDiscoveryProvider: Sendable {
@@ -227,7 +233,7 @@ package struct RepoScanner {
             }
     }
 
-    static func canonicalURL(_ url: URL) -> URL {
+    package static func canonicalURL(_ url: URL) -> URL {
         URL(fileURLWithPath: canonicalPathKey(url))
     }
 

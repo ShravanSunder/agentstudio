@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-struct WorkspaceCoreRepository: Sendable {
+package struct WorkspaceCoreRepository: Sendable {
     struct WorkspaceRecord: Equatable, Sendable {
         let id: UUID
         var name: String
@@ -33,7 +33,11 @@ struct WorkspaceCoreRepository: Sendable {
 
     let databaseWriter: any DatabaseWriter
 
-    func migrate() throws {
+    package init(databaseWriter: any DatabaseWriter) {
+        self.databaseWriter = databaseWriter
+    }
+
+    package func migrate() throws {
         try WorkspaceCoreMigrations.migrate(databaseWriter)
     }
 

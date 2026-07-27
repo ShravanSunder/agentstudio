@@ -1,7 +1,10 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioEditorChooser
 
 @MainActor
 @Suite(.serialized)
@@ -9,8 +12,8 @@ struct UIStateStoreTests {
     @Test
     func flushAndRestoreRoundTripsMainWindowSidebarState() async throws {
         let workspaceId = UUID()
-        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
-        let datastore = try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        let fixture = try makeEditorChooserWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let datastore = try editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         let atom = WorkspaceSidebarState()
         let store = UIStateStore(atom: atom, sqliteDatastore: datastore)
         atom.setFilterText("agent")
@@ -33,7 +36,7 @@ struct UIStateStoreTests {
     @Test
     func missingSQLiteRowResetsExistingStateToTypedDefaults() async throws {
         let workspaceId = UUID()
-        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let fixture = try makeEditorChooserWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let atom = WorkspaceSidebarState()
         atom.setFilterText("stale")
         atom.setFilterVisible(true)
@@ -43,7 +46,7 @@ struct UIStateStoreTests {
 
         await UIStateStore(
             atom: atom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
+            sqliteDatastore: try editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         ).restoreAsync(for: workspaceId)
 
         #expect(atom.filterText.isEmpty)
@@ -63,7 +66,9 @@ struct UIStateStoreTests {
 
         await UIStateStore(
             atom: atom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: failingWorkspaceLocalSQLiteBackend()),
+            sqliteDatastore: try editorChooserWorkspaceSQLiteDatastore(
+                from: failingEditorChooserWorkspaceLocalSQLiteBackend()
+            ),
             recoveryReporter: { reportedRecoveries.append($0) }
         ).restoreAsync(for: workspaceId)
 
@@ -80,12 +85,12 @@ struct UIStateStoreTests {
     @Test
     func observedSidebarMutationAutosavesSQLite() async throws {
         let workspaceId = UUID()
-        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let fixture = try makeEditorChooserWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let atom = WorkspaceSidebarState()
         let clock = TestPushClock()
         let store = UIStateStore(
             atom: atom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            sqliteDatastore: try editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
@@ -106,13 +111,13 @@ struct UIStateStoreTests {
     @Test
     func unrelatedEditorStateDoesNotTriggerUIStateStoreAutosave() async throws {
         let workspaceId = UUID()
-        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let fixture = try makeEditorChooserWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let preferenceAtom = EditorPreferenceAtom()
         let runtimeAtom = EditorChooserRuntimeAtom()
         let clock = TestPushClock()
         let store = UIStateStore(
             atom: WorkspaceSidebarState(),
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            sqliteDatastore: try editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
@@ -132,12 +137,12 @@ struct UIStateStoreTests {
     func restoreCancelsPendingSaveFromPreviousWorkspaceContext() async throws {
         let workspaceAId = UUID()
         let workspaceBId = UUID()
-        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceAId)
+        let fixture = try makeEditorChooserWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceAId)
         let atom = WorkspaceSidebarState()
         let clock = TestPushClock()
         let store = UIStateStore(
             atom: atom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            sqliteDatastore: try editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
@@ -156,10 +161,10 @@ struct UIStateStoreTests {
     @Test
     func observationIsExplicitlyArmed() async throws {
         let workspaceId = UUID()
-        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let fixture = try makeEditorChooserWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let store = UIStateStore(
             atom: WorkspaceSidebarState(),
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
+            sqliteDatastore: try editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
 
         #expect(store.isAutosaveObservationActive == false)

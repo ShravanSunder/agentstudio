@@ -175,6 +175,11 @@ package struct WorkspaceLocalRepository: Sendable {
     package let workspaceId: UUID
     package let databaseWriter: any DatabaseWriter
 
+    package init(workspaceId: UUID, databaseWriter: any DatabaseWriter) {
+        self.workspaceId = workspaceId
+        self.databaseWriter = databaseWriter
+    }
+
     func migrate() throws {
         try WorkspaceLocalMigrations.migrate(databaseWriter)
     }
@@ -318,7 +323,7 @@ package struct WorkspaceLocalRepository: Sendable {
         }
     }
 
-    func replaceRecentTargets(_ recentTargets: [RecentWorkspaceTarget], updatedAt: Date) throws {
+    package func replaceRecentTargets(_ recentTargets: [RecentWorkspaceTarget], updatedAt: Date) throws {
         try databaseWriter.write { database in
             try WorkspaceLocalRepositoryStorage.replaceRecentTargetRows(
                 database,
@@ -329,7 +334,7 @@ package struct WorkspaceLocalRepository: Sendable {
         }
     }
 
-    func fetchRecentTargets() throws -> [RecentWorkspaceTarget] {
+    package func fetchRecentTargets() throws -> [RecentWorkspaceTarget] {
         try databaseWriter.read { database in
             try WorkspaceLocalRepositoryStorage.fetchRecentTargetRows(database, workspaceId: workspaceId)
         }
@@ -382,13 +387,16 @@ package struct WorkspaceLocalRepository: Sendable {
         }
     }
 
-    func fetchEditorPreferences() throws -> EditorPreferencesRecord {
+    package func fetchEditorPreferences() throws -> EditorPreferencesRecord {
         try databaseWriter.read { database in
             try WorkspaceLocalRepositoryStorage.fetchEditorPreferencesRows(database, workspaceId: workspaceId)
         }
     }
 
-    func replaceRepoExplorerPreferences(_ preferences: RepoExplorerPreferencesRecord, updatedAt: Date) throws {
+    package func replaceRepoExplorerPreferences(
+        _ preferences: RepoExplorerPreferencesRecord,
+        updatedAt: Date
+    ) throws {
         try databaseWriter.write { database in
             try WorkspaceLocalRepositoryStorage.replaceRepoExplorerPreferencesRows(
                 database,
@@ -399,13 +407,13 @@ package struct WorkspaceLocalRepository: Sendable {
         }
     }
 
-    func fetchRepoExplorerPreferences() throws -> RepoExplorerPreferencesRecord {
+    package func fetchRepoExplorerPreferences() throws -> RepoExplorerPreferencesRecord {
         try databaseWriter.read { database in
             try WorkspaceLocalRepositoryStorage.fetchRepoExplorerPreferencesRows(database, workspaceId: workspaceId)
         }
     }
 
-    func replaceInboxNotificationPreferences(
+    package func replaceInboxNotificationPreferences(
         _ preferences: InboxNotificationPreferencesRecord,
         updatedAt: Date
     ) throws {
@@ -419,7 +427,7 @@ package struct WorkspaceLocalRepository: Sendable {
         }
     }
 
-    func fetchInboxNotificationPreferences() throws -> InboxNotificationPreferencesRecord {
+    package func fetchInboxNotificationPreferences() throws -> InboxNotificationPreferencesRecord {
         try databaseWriter.read { database in
             try WorkspaceLocalRepositoryStorage.fetchInboxNotificationPreferencesRows(
                 database,

@@ -1,7 +1,16 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import AppKit
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
+
+@MainActor
+func makeCoreTestOcticonLoader(from testFilePath: String = #filePath) -> OcticonLoader {
+    OcticonLoader(
+        resourceRootURL: testAgentStudioResourceRootURL(from: testFilePath)
+    )
+}
 
 @Suite(.serialized)
 struct CommandIconTests {
@@ -18,7 +27,7 @@ struct CommandIconTests {
     @Test("every typed octicon resolves from the asset catalog")
     @MainActor
     func everyTypedOcticonResolves() {
-        let octiconLoader = makeTestOcticonLoader()
+        let octiconLoader = makeCoreTestOcticonLoader()
 
         for symbol in OcticonSymbol.allCases {
             #expect(

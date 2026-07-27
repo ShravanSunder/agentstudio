@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 extension BridgePaneProductMetadataActivityAdmissionTests {
     @Test("metadata queue mutation rejects an invalidated foreground activity token")

@@ -1,8 +1,9 @@
+import AgentStudioTestSupport
 import Foundation
 import Observation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @Suite(.serialized)
 @MainActor

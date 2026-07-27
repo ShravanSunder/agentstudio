@@ -1,7 +1,8 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 enum MockExecutorError: Error {
     case noResponseQueued

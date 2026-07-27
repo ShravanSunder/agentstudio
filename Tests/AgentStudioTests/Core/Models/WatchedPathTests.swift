@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @Suite struct WatchedPathTests {
     @Test func defaultIdentity_usesUUIDv7() {

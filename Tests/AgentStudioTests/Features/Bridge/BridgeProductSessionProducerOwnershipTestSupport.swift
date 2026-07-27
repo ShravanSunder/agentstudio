@@ -1,4 +1,4 @@
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 actor ProducerLifecycleAcknowledgementGate {
     private var acknowledgements: [BridgeProductProducerLifecycleAcknowledgement] = []

@@ -3,8 +3,13 @@ import Foundation
 /// Snapshot of a single arrangement's command-validation identity.
 /// Carries only what the validator needs: existence and default ownership.
 package struct ArrangementSnapshot: Equatable {
-    let id: UUID
-    let isDefault: Bool
+    package let id: UUID
+    package let isDefault: Bool
+
+    package init(id: UUID, isDefault: Bool) {
+        self.id = id
+        self.isDefault = isDefault
+    }
 }
 
 /// Snapshot of a single tab's structural state.

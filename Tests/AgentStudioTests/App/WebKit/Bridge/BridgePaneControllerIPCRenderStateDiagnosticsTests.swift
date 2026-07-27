@@ -3,6 +3,10 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
     @Test("IPC render state maps bridge diagnostics probes and bounds discard records")

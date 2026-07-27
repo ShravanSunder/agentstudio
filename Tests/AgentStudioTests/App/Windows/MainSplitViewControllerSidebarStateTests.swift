@@ -2,6 +2,7 @@ import AppKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)

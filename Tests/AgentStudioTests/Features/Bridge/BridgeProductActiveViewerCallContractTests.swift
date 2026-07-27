@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeProductActiveViewerCallContractTests {
     @Test("active viewer calls derive surface and reject repeated surface fields")

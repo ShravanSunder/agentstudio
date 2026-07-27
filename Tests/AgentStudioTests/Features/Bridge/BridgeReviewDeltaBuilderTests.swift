@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeReviewDeltaBuilderTests {
     @Test("delta builder emits add update remove move group summary and invalidation ops")

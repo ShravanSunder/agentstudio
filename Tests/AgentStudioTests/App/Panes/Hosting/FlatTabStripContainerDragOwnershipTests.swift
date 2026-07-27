@@ -2,6 +2,7 @@ import AppKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
 
 /// Pin the load-bearing AppKit invariant on the policy layer:
 /// while a drawer is expanded the main capture must be disabled, while

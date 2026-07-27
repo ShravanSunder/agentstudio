@@ -30,6 +30,20 @@ package actor WorkspaceSQLiteDatastore {
     private var workspaceSaveTail: Task<Void, Error>?
     private var workspaceSaveTailGeneration: UInt64 = 0
 
+    package init(
+        coreRepository: WorkspaceCoreRepository,
+        makeLocalRepository: @escaping @Sendable (UUID) throws -> WorkspaceLocalRepository,
+        makeLocalRestoreRepository: (@Sendable (UUID) throws -> WorkspaceLocalRepository)? = nil
+    ) {
+        self.init(
+            coreRepository: coreRepository,
+            makeLocalRepository: makeLocalRepository,
+            makeLocalRestoreRepository: makeLocalRestoreRepository,
+            traceRuntime: nil,
+            probe: nil
+        )
+    }
+
     init(
         configuration: WorkspaceSQLiteDatastoreConfiguration,
         traceRuntime: AgentStudioTraceRuntime? = nil,

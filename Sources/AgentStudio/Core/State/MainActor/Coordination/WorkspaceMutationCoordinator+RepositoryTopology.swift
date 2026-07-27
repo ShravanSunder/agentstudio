@@ -139,7 +139,7 @@ extension WorkspaceMutationCoordinator {
         )
     }
 
-    func setRepoTags(_ tags: [String], repositoryID: UUID) throws {
+    package func setRepoTags(_ tags: [String], repositoryID: UUID) throws {
         guard let repository = repositoryTopologyAtom.repo(repositoryID) else {
             throw RepositoryTopologyMutationError.repoNotFound(repositoryID)
         }

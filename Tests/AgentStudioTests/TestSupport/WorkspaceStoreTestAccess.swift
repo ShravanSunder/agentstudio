@@ -1,13 +1,12 @@
+import AgentStudioCore
 import Foundation
-
-@testable import AgentStudio
 
 @MainActor
 extension WorkspaceStore {
     /// Test-target-only convenience seam for constructing a workspace store
     /// around explicitly supplied atom owners.
-    convenience init(
-        identityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate()),
+    package convenience init(
+        identityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(workspaceId: UUID()),
         windowMemoryAtom: WorkspaceWindowMemoryAtom = WorkspaceWindowMemoryAtom(),
         repositoryTopologyAtom: RepositoryTopologyAtom = RepositoryTopologyAtom(),
         paneGraphAtom: WorkspacePaneGraphAtom = WorkspacePaneGraphAtom(),
@@ -48,7 +47,7 @@ extension WorkspaceStore {
                 workspaceTabArrangementAtom: resolvedTabArrangementAtom
             )
         let testSQLiteRoot = FileManager.default.temporaryDirectory.appending(
-            path: "workspace-store-test-\(UUIDv7.generate().uuidString)"
+            path: "workspace-store-test-\(UUID().uuidString)"
         )
         let resolvedSQLiteDatastore =
             sqliteDatastore
@@ -74,7 +73,7 @@ extension WorkspaceStore {
         }
     }
 
-    convenience init(
+    package convenience init(
         catalogAtom: RepositoryTopologyAtom,
         graphAtom: WorkspacePaneAtom,
         interactionAtom: WorkspaceTabLayoutAtom,
@@ -82,7 +81,7 @@ extension WorkspaceStore {
         clock: any Clock<Duration> & Sendable = ContinuousClock()
     ) {
         self.init(
-            identityAtom: WorkspaceIdentityAtom(workspaceId: UUIDv7.generate()),
+            identityAtom: WorkspaceIdentityAtom(workspaceId: UUID()),
             windowMemoryAtom: WorkspaceWindowMemoryAtom(),
             repositoryTopologyAtom: catalogAtom,
             paneAtom: graphAtom,
@@ -100,47 +99,47 @@ extension WorkspaceStore {
         )
     }
 
-    var workspaceId: UUID { identityAtom.workspaceId }
-    var workspaceName: String { identityAtom.workspaceName }
-    var sidebarWidth: CGFloat { windowMemoryAtom.sidebarWidth }
-    var windowFrame: CGRect? { windowMemoryAtom.windowFrame }
-    var repos: [Repo] { repositoryTopologyAtom.repos }
-    var watchedPaths: [WatchedPath] { repositoryTopologyAtom.watchedPaths }
-    var panes: [UUID: Pane] { paneAtom.panes }
-    var tabs: [Tab] { tabLayoutAtom.tabs }
-    var activeTabId: UUID? { tabLayoutAtom.activeTabId }
-    var activeTab: Tab? { tabLayoutAtom.activeTab }
-    var orphanedPanes: [Pane] { paneAtom.orphanedPanes(excluding: tabLayoutAtom.allPaneIds) }
+    package var workspaceId: UUID { identityAtom.workspaceId }
+    package var workspaceName: String { identityAtom.workspaceName }
+    package var sidebarWidth: CGFloat { windowMemoryAtom.sidebarWidth }
+    package var windowFrame: CGRect? { windowMemoryAtom.windowFrame }
+    package var repos: [Repo] { repositoryTopologyAtom.repos }
+    package var watchedPaths: [WatchedPath] { repositoryTopologyAtom.watchedPaths }
+    package var panes: [UUID: Pane] { paneAtom.panes }
+    package var tabs: [Tab] { tabLayoutAtom.tabs }
+    package var activeTabId: UUID? { tabLayoutAtom.activeTabId }
+    package var activeTab: Tab? { tabLayoutAtom.activeTab }
+    package var orphanedPanes: [Pane] { paneAtom.orphanedPanes(excluding: tabLayoutAtom.allPaneIds) }
 
-    var graphAtom: WorkspacePaneAtom { paneAtom }
-    var catalogAtom: RepositoryTopologyAtom { repositoryTopologyAtom }
-    var interactionAtom: WorkspaceTabLayoutAtom { tabLayoutAtom }
-    var tabShellStateAtom: WorkspaceTabShellAtom { tabShellAtom }
-    var tabArrangementStateAtom: WorkspaceTabArrangementAtom { tabArrangementAtom }
+    package var graphAtom: WorkspacePaneAtom { paneAtom }
+    package var catalogAtom: RepositoryTopologyAtom { repositoryTopologyAtom }
+    package var interactionAtom: WorkspaceTabLayoutAtom { tabLayoutAtom }
+    package var tabShellStateAtom: WorkspaceTabShellAtom { tabShellAtom }
+    package var tabArrangementStateAtom: WorkspaceTabArrangementAtom { tabArrangementAtom }
 
-    func pane(_ id: UUID) -> Pane? { paneAtom.pane(id) }
-    func tab(_ id: UUID) -> Tab? { tabLayoutAtom.tab(id) }
-    func drawerView(forParent parentPaneId: UUID) -> DrawerView? {
+    package func pane(_ id: UUID) -> Pane? { paneAtom.pane(id) }
+    package func tab(_ id: UUID) -> Tab? { tabLayoutAtom.tab(id) }
+    package func drawerView(forParent parentPaneId: UUID) -> DrawerView? {
         guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
             let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId,
             let tab = tabLayoutAtom.tab(tabId)
         else { return nil }
         return tab.activeArrangement.drawerViews[drawerId]
     }
-    func repo(_ id: UUID) -> Repo? { repositoryTopologyAtom.repo(id) }
-    func worktree(_ id: UUID) -> Worktree? { repositoryTopologyAtom.worktree(id) }
-    func repo(containing worktreeId: UUID) -> Repo? { repositoryTopologyAtom.repo(containing: worktreeId) }
-    func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
+    package func repo(_ id: UUID) -> Repo? { repositoryTopologyAtom.repo(id) }
+    package func worktree(_ id: UUID) -> Worktree? { repositoryTopologyAtom.worktree(id) }
+    package func repo(containing worktreeId: UUID) -> Repo? { repositoryTopologyAtom.repo(containing: worktreeId) }
+    package func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
         repositoryTopologyAtom.repoAndWorktree(containing: cwd)
     }
-    func tabContaining(paneId: UUID) -> Tab? { tabLayoutAtom.tabContaining(paneId: paneId) }
-    func panes(for worktreeId: UUID) -> [Pane] { paneAtom.panes(for: worktreeId) }
-    func paneCount(for worktreeId: UUID) -> Int { paneAtom.paneCount(for: worktreeId) }
-    func isWorktreeActive(_ worktreeId: UUID) -> Bool { paneAtom.isWorktreeActive(worktreeId) }
-    func isRepoUnavailable(_ repoId: UUID) -> Bool { repositoryTopologyAtom.isRepoUnavailable(repoId) }
+    package func tabContaining(paneId: UUID) -> Tab? { tabLayoutAtom.tabContaining(paneId: paneId) }
+    package func panes(for worktreeId: UUID) -> [Pane] { paneAtom.panes(for: worktreeId) }
+    package func paneCount(for worktreeId: UUID) -> Int { paneAtom.paneCount(for: worktreeId) }
+    package func isWorktreeActive(_ worktreeId: UUID) -> Bool { paneAtom.isWorktreeActive(worktreeId) }
+    package func isRepoUnavailable(_ repoId: UUID) -> Bool { repositoryTopologyAtom.isRepoUnavailable(repoId) }
 
     @discardableResult
-    func createPane(
+    package func createPane(
         launchDirectory: URL? = nil,
         title: String = "Terminal",
         provider: SessionProvider = .zmx,
@@ -161,7 +160,7 @@ extension WorkspaceStore {
     }
 
     @discardableResult
-    func createPane(
+    package func createPane(
         content: PaneContent,
         metadata: PaneMetadata,
         residency: SessionResidency = .active
@@ -169,18 +168,20 @@ extension WorkspaceStore {
         paneAtom.createPane(content: content, metadata: metadata, residency: residency)
     }
 
-    func removePane(_ paneId: UUID) { mutationCoordinator.removePane(paneId) }
-    func updatePaneTitle(_ paneId: UUID, title: String) { paneAtom.updatePaneTitle(paneId, title: title) }
-    func updatePaneCWD(_ paneId: UUID, cwd: URL?) { paneAtom.updatePaneCWD(paneId, cwd: cwd) }
-    func updatePaneWebviewState(_ paneId: UUID, state: WebviewState) {
+    package func removePane(_ paneId: UUID) { mutationCoordinator.removePane(paneId) }
+    package func updatePaneTitle(_ paneId: UUID, title: String) { paneAtom.updatePaneTitle(paneId, title: title) }
+    package func updatePaneCWD(_ paneId: UUID, cwd: URL?) { paneAtom.updatePaneCWD(paneId, cwd: cwd) }
+    package func updatePaneWebviewState(_ paneId: UUID, state: WebviewState) {
         paneAtom.updatePaneWebviewState(paneId, state: state)
     }
-    func syncPaneWebviewState(_ paneId: UUID, state: WebviewState) {
+    package func syncPaneWebviewState(_ paneId: UUID, state: WebviewState) {
         paneAtom.syncPaneWebviewState(paneId, state: state)
     }
-    func setResidency(_ residency: SessionResidency, for paneId: UUID) { paneAtom.setResidency(residency, for: paneId) }
-    func backgroundPane(_ paneId: UUID) { mutationCoordinator.backgroundPane(paneId) }
-    func reactivatePane(
+    package func setResidency(_ residency: SessionResidency, for paneId: UUID) {
+        paneAtom.setResidency(residency, for: paneId)
+    }
+    package func backgroundPane(_ paneId: UUID) { mutationCoordinator.backgroundPane(paneId) }
+    package func reactivatePane(
         _ paneId: UUID,
         inTab tabId: UUID,
         at targetPaneId: UUID,
@@ -197,16 +198,16 @@ extension WorkspaceStore {
             sizingMode: sizingMode
         )
     }
-    func purgeOrphanedPane(_ paneId: UUID) { paneAtom.purgeOrphanedPane(paneId) }
-    func appendTab(_ tab: Tab) { tabLayoutAtom.appendTab(tab) }
-    func removeTab(_ tabId: UUID) { tabLayoutAtom.removeTab(tabId) }
-    func insertTab(_ tab: Tab, at index: Int) { tabLayoutAtom.insertTab(tab, at: index) }
-    func moveTab(fromId: UUID, toIndex: Int) { tabLayoutAtom.moveTab(fromId: fromId, toIndex: toIndex) }
-    func moveTabByDelta(tabId: UUID, delta: Int) { tabLayoutAtom.moveTabByDelta(tabId: tabId, delta: delta) }
-    func setActiveTab(_ tabId: UUID?) { tabLayoutAtom.setActiveTab(tabId) }
-    func renameTab(_ tabId: UUID, name: String) { tabLayoutAtom.renameTab(tabId, name: name) }
+    package func purgeOrphanedPane(_ paneId: UUID) { paneAtom.purgeOrphanedPane(paneId) }
+    package func appendTab(_ tab: Tab) { tabLayoutAtom.appendTab(tab) }
+    package func removeTab(_ tabId: UUID) { tabLayoutAtom.removeTab(tabId) }
+    package func insertTab(_ tab: Tab, at index: Int) { tabLayoutAtom.insertTab(tab, at: index) }
+    package func moveTab(fromId: UUID, toIndex: Int) { tabLayoutAtom.moveTab(fromId: fromId, toIndex: toIndex) }
+    package func moveTabByDelta(tabId: UUID, delta: Int) { tabLayoutAtom.moveTabByDelta(tabId: tabId, delta: delta) }
+    package func setActiveTab(_ tabId: UUID?) { tabLayoutAtom.setActiveTab(tabId) }
+    package func renameTab(_ tabId: UUID, name: String) { tabLayoutAtom.renameTab(tabId, name: name) }
     @discardableResult
-    func insertPane(
+    package func insertPane(
         _ paneId: UUID,
         inTab tabId: UUID,
         at targetPaneId: UUID,
@@ -223,33 +224,33 @@ extension WorkspaceStore {
             sizingMode: sizingMode
         )
     }
-    func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID) {
+    package func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID) {
         tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId)
     }
-    func resizePane(tabId: UUID, splitId: UUID, ratio: Double) {
+    package func resizePane(tabId: UUID, splitId: UUID, ratio: Double) {
         tabLayoutAtom.resizePane(tabId: tabId, splitId: splitId, ratio: ratio)
     }
-    func resizeVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double) {
+    package func resizeVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double) {
         tabLayoutAtom.resizeVisiblePanePair(
             tabId: tabId, leftPaneId: leftPaneId, rightPaneId: rightPaneId, ratio: ratio)
     }
-    func equalizePanes(tabId: UUID) { tabLayoutAtom.equalizePanes(tabId: tabId) }
-    func setActivePane(_ paneId: UUID?, inTab tabId: UUID) { tabLayoutAtom.setActivePane(paneId, inTab: tabId) }
+    package func equalizePanes(tabId: UUID) { tabLayoutAtom.equalizePanes(tabId: tabId) }
+    package func setActivePane(_ paneId: UUID?, inTab tabId: UUID) { tabLayoutAtom.setActivePane(paneId, inTab: tabId) }
     @discardableResult
-    func createArrangement(name: String, inTab tabId: UUID) -> UUID? {
+    package func createArrangement(name: String, inTab tabId: UUID) -> UUID? {
         tabLayoutAtom.createArrangement(name: name, inTab: tabId)
     }
-    func removeArrangement(_ arrangementId: UUID, inTab tabId: UUID) {
+    package func removeArrangement(_ arrangementId: UUID, inTab tabId: UUID) {
         tabLayoutAtom.removeArrangement(arrangementId, inTab: tabId)
     }
-    func switchArrangement(to arrangementId: UUID, inTab tabId: UUID) {
+    package func switchArrangement(to arrangementId: UUID, inTab tabId: UUID) {
         tabLayoutAtom.switchArrangement(to: arrangementId, inTab: tabId)
     }
-    func renameArrangement(_ arrangementId: UUID, name: String, inTab tabId: UUID) {
+    package func renameArrangement(_ arrangementId: UUID, name: String, inTab tabId: UUID) {
         tabLayoutAtom.renameArrangement(arrangementId, name: name, inTab: tabId)
     }
     @discardableResult
-    func addDrawerPane(
+    package func addDrawerPane(
         to parentPaneId: UUID,
         parentFallbackCWD: URL? = nil,
         zmxSessionID: ZmxSessionID = .generateUUIDv7()
@@ -279,7 +280,7 @@ extension WorkspaceStore {
         return drawerPane
     }
     @discardableResult
-    func insertDrawerPane(
+    package func insertDrawerPane(
         in parentPaneId: UUID,
         at targetDrawerPaneId: UUID,
         direction: Layout.SplitDirection,
@@ -319,7 +320,7 @@ extension WorkspaceStore {
         }
         return drawerPane
     }
-    func moveDrawerPane(
+    package func moveDrawerPane(
         _ drawerPaneId: UUID,
         in parentPaneId: UUID,
         target: DrawerRearrangeTarget,
@@ -336,7 +337,7 @@ extension WorkspaceStore {
             sizingMode: sizingMode
         )
     }
-    func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {
+    package func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {
         let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
         let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id
         paneAtom.removeDrawerPane(drawerPaneId, from: parentPaneId)
@@ -344,22 +345,22 @@ extension WorkspaceStore {
             tabArrangementAtom.removeDrawerPaneView(drawerId: drawerId, drawerPaneId: drawerPaneId, inTab: tabId)
         }
     }
-    func toggleDrawer(for paneId: UUID) { paneAtom.toggleDrawer(for: paneId) }
-    func collapseAllDrawers() { paneAtom.collapseAllDrawers() }
-    func setActiveDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
+    package func toggleDrawer(for paneId: UUID) { paneAtom.toggleDrawer(for: paneId) }
+    package func collapseAllDrawers() { paneAtom.collapseAllDrawers() }
+    package func setActiveDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
         guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
             let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
         else { return }
         tabArrangementAtom.setActiveDrawerPane(drawerPaneId, drawerId: drawerId, inTab: tabId)
     }
-    func resizeDrawerPane(parentPaneId: UUID, splitId: UUID, ratio: Double) {
+    package func resizeDrawerPane(parentPaneId: UUID, splitId: UUID, ratio: Double) {
         guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
             let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
         else { return }
         tabArrangementAtom.resizeDrawerPane(drawerId: drawerId, tabId: tabId, splitId: splitId, ratio: ratio)
     }
 
-    func resizeDrawerVisiblePanePair(parentPaneId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double) {
+    package func resizeDrawerVisiblePanePair(parentPaneId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double) {
         guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
             let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
         else { return }
@@ -372,40 +373,42 @@ extension WorkspaceStore {
         )
     }
 
-    func equalizeDrawerPanes(parentPaneId: UUID) {
+    package func equalizeDrawerPanes(parentPaneId: UUID) {
         guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
             let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
         else { return }
         tabArrangementAtom.equalizeDrawerPanes(drawerId: drawerId, tabId: tabId)
     }
     @discardableResult
-    func minimizeDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) -> Bool {
+    package func minimizeDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) -> Bool {
         guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
             let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
         else { return false }
         return tabArrangementAtom.minimizeDrawerPane(drawerPaneId, drawerId: drawerId, tabId: tabId)
     }
-    func expandDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
+    package func expandDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
         guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
             let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
         else { return }
         tabArrangementAtom.expandDrawerPane(drawerPaneId, drawerId: drawerId, tabId: tabId)
     }
-    func toggleZoom(paneId: UUID, inTab tabId: UUID) { tabLayoutAtom.toggleZoom(paneId: paneId, inTab: tabId) }
+    package func toggleZoom(paneId: UUID, inTab tabId: UUID) { tabLayoutAtom.toggleZoom(paneId: paneId, inTab: tabId) }
     @discardableResult
-    func minimizePane(_ paneId: UUID, inTab tabId: UUID) -> Bool { tabLayoutAtom.minimizePane(paneId, inTab: tabId) }
-    func expandPane(_ paneId: UUID, inTab tabId: UUID) { tabLayoutAtom.expandPane(paneId, inTab: tabId) }
-    func resizePaneByDelta(tabId: UUID, paneId: UUID, direction: SplitResizeDirection, amount: UInt16) {
+    package func minimizePane(_ paneId: UUID, inTab tabId: UUID) -> Bool {
+        tabLayoutAtom.minimizePane(paneId, inTab: tabId)
+    }
+    package func expandPane(_ paneId: UUID, inTab tabId: UUID) { tabLayoutAtom.expandPane(paneId, inTab: tabId) }
+    package func resizePaneByDelta(tabId: UUID, paneId: UUID, direction: SplitResizeDirection, amount: UInt16) {
         tabLayoutAtom.resizePaneByDelta(tabId: tabId, paneId: paneId, direction: direction, amount: amount)
     }
-    func breakUpTab(_ tabId: UUID) -> [Tab] {
+    package func breakUpTab(_ tabId: UUID) -> [Tab] {
         tabLayoutAtom.breakUpTab(tabId, drawerPayloadsByParentPaneId: drawerMovePayloadsByParentPaneId(inTab: tabId))
     }
-    func extractPane(_ paneId: UUID, fromTab tabId: UUID) -> Tab? {
+    package func extractPane(_ paneId: UUID, fromTab tabId: UUID) -> Tab? {
         tabLayoutAtom.extractPane(
             paneId, fromTab: tabId, drawerPayload: drawerMovePayload(forParentPaneId: paneId, inTab: tabId))
     }
-    func mergeTab(
+    package func mergeTab(
         sourceId: UUID,
         intoTarget targetId: UUID,
         at targetPaneId: UUID,
@@ -422,13 +425,13 @@ extension WorkspaceStore {
         )
     }
     @discardableResult
-    func addRepo(at path: URL) -> Repo { mutationCoordinator.addRepo(at: path) }
-    func removeRepo(_ repoId: UUID) { mutationCoordinator.removeRepo(repoId) }
-    func markRepoUnavailable(_ repoId: UUID) { mutationCoordinator.markRepoUnavailable(repoId) }
+    package func addRepo(at path: URL) -> Repo { mutationCoordinator.addRepo(at: path) }
+    package func removeRepo(_ repoId: UUID) { mutationCoordinator.removeRepo(repoId) }
+    package func markRepoUnavailable(_ repoId: UUID) { mutationCoordinator.markRepoUnavailable(repoId) }
     @discardableResult
-    func addWatchedPath(_ path: URL) -> WatchedPath? { mutationCoordinator.addWatchedPath(path) }
+    package func addWatchedPath(_ path: URL) -> WatchedPath? { mutationCoordinator.addWatchedPath(path) }
     @discardableResult
-    func orphanPanesForRepo(_ repoId: UUID) -> [UUID] {
+    package func orphanPanesForRepo(_ repoId: UUID) -> [UUID] {
         guard let repo = repositoryTopologyAtom.repo(repoId) else { return [] }
         let unavailablePathByWorktreeId = Dictionary(
             uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.path.path) }
@@ -436,32 +439,34 @@ extension WorkspaceStore {
         return paneAtom.orphanPanes(forUnavailableWorktreePathsById: unavailablePathByWorktreeId)
     }
     @discardableResult
-    func orphanPanesForWorktree(_ worktreeId: UUID, path: String) -> [UUID] {
+    package func orphanPanesForWorktree(_ worktreeId: UUID, path: String) -> [UUID] {
         paneAtom.orphanPanesForWorktree(worktreeId, path: path)
     }
     @discardableResult
-    func reassociateRepo(
+    package func reassociateRepo(
         _ repoId: UUID,
         to newPath: URL,
         discoveredWorktrees: [Worktree]
     ) -> RepositoryReassociationResult {
         mutationCoordinator.reassociateRepo(repoId, to: newPath, discoveredWorktrees: discoveredWorktrees)
     }
-    func reconcileDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
+    package func reconcileDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
         mutationCoordinator.reconcileDiscoveredWorktrees(repoId, worktrees: worktrees)
     }
-    func setSidebarWidth(_ sidebarWidth: CGFloat) { windowMemoryAtom.setSidebarWidth(sidebarWidth) }
-    func setWindowFrame(_ windowFrame: CGRect?) { windowMemoryAtom.setWindowFrame(windowFrame) }
-    func snapshotForClose(tabId: UUID) -> WorkspaceMutationCoordinator.TabCloseSnapshot? {
+    package func setSidebarWidth(_ sidebarWidth: CGFloat) { windowMemoryAtom.setSidebarWidth(sidebarWidth) }
+    package func setWindowFrame(_ windowFrame: CGRect?) { windowMemoryAtom.setWindowFrame(windowFrame) }
+    package func snapshotForClose(tabId: UUID) -> WorkspaceMutationCoordinator.TabCloseSnapshot? {
         mutationCoordinator.snapshotForClose(tabId: tabId)
     }
-    func snapshotForPaneClose(paneId: UUID, inTab tabId: UUID) -> WorkspaceMutationCoordinator.PaneCloseSnapshot? {
+    package func snapshotForPaneClose(paneId: UUID, inTab tabId: UUID) -> WorkspaceMutationCoordinator
+        .PaneCloseSnapshot?
+    {
         mutationCoordinator.snapshotForPaneClose(paneId: paneId, inTab: tabId)
     }
-    func restoreFromSnapshot(_ snapshot: WorkspaceMutationCoordinator.TabCloseSnapshot) {
+    package func restoreFromSnapshot(_ snapshot: WorkspaceMutationCoordinator.TabCloseSnapshot) {
         mutationCoordinator.restoreFromSnapshot(snapshot)
     }
-    func restoreFromPaneSnapshot(_ snapshot: WorkspaceMutationCoordinator.PaneCloseSnapshot) {
+    package func restoreFromPaneSnapshot(_ snapshot: WorkspaceMutationCoordinator.PaneCloseSnapshot) {
         mutationCoordinator.restoreFromPaneSnapshot(snapshot)
     }
 

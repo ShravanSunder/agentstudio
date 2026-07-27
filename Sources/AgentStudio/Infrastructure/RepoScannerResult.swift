@@ -12,6 +12,16 @@ package struct CompleteRepoScan: Sendable, Equatable {
     package let verifiedEntries: [RepoScanner.ResolvedGitEntry]
     package let counts: RepoScannerEvidenceCounts
     package let serviceMetrics: RepoScannerServiceMetrics
+
+    package init(
+        verifiedEntries: [RepoScanner.ResolvedGitEntry],
+        counts: RepoScannerEvidenceCounts,
+        serviceMetrics: RepoScannerServiceMetrics
+    ) {
+        self.verifiedEntries = verifiedEntries
+        self.counts = counts
+        self.serviceMetrics = serviceMetrics
+    }
 }
 
 package struct PartialRepoScan: Sendable, Equatable {
@@ -19,6 +29,18 @@ package struct PartialRepoScan: Sendable, Equatable {
     package let failures: NonEmptyScanFailures
     package let counts: RepoScannerEvidenceCounts
     package let serviceMetrics: RepoScannerServiceMetrics
+
+    package init(
+        verifiedEntries: [RepoScanner.ResolvedGitEntry],
+        failures: NonEmptyScanFailures,
+        counts: RepoScannerEvidenceCounts,
+        serviceMetrics: RepoScannerServiceMetrics
+    ) {
+        self.verifiedEntries = verifiedEntries
+        self.failures = failures
+        self.counts = counts
+        self.serviceMetrics = serviceMetrics
+    }
 }
 
 package struct NonEmptyScanFailures: Sendable, Equatable {
@@ -28,24 +50,59 @@ package struct NonEmptyScanFailures: Sendable, Equatable {
     package var all: [ScanFailureReason] {
         [first] + remaining
     }
+
+    package init(first: ScanFailureReason, remaining: [ScanFailureReason]) {
+        self.first = first
+        self.remaining = remaining
+    }
 }
 
 package struct UnavailableRepoScan: Sendable, Equatable {
     package let reason: RepoScanUnavailableReason
     package let counts: RepoScannerEvidenceCounts
     package let serviceMetrics: RepoScannerServiceMetrics
+
+    package init(
+        reason: RepoScanUnavailableReason,
+        counts: RepoScannerEvidenceCounts,
+        serviceMetrics: RepoScannerServiceMetrics
+    ) {
+        self.reason = reason
+        self.counts = counts
+        self.serviceMetrics = serviceMetrics
+    }
 }
 
 package struct CancelledRepoScan: Sendable, Equatable {
     package let verifiedEntries: [RepoScanner.ResolvedGitEntry]
     package let counts: RepoScannerEvidenceCounts
     package let serviceMetrics: RepoScannerServiceMetrics
+
+    package init(
+        verifiedEntries: [RepoScanner.ResolvedGitEntry],
+        counts: RepoScannerEvidenceCounts,
+        serviceMetrics: RepoScannerServiceMetrics
+    ) {
+        self.verifiedEntries = verifiedEntries
+        self.counts = counts
+        self.serviceMetrics = serviceMetrics
+    }
 }
 
 package struct FailedRepoScan: Sendable, Equatable {
     package let reason: ScanFailureReason
     package let counts: RepoScannerEvidenceCounts
     package let serviceMetrics: RepoScannerServiceMetrics
+
+    package init(
+        reason: ScanFailureReason,
+        counts: RepoScannerEvidenceCounts,
+        serviceMetrics: RepoScannerServiceMetrics
+    ) {
+        self.reason = reason
+        self.counts = counts
+        self.serviceMetrics = serviceMetrics
+    }
 }
 
 package struct RepoScannerServiceMetrics: Sendable, Equatable {
@@ -69,6 +126,30 @@ package struct RepoScannerEvidenceCounts: Sendable, Equatable {
     package let validationCancellationCount: Int
     package let validationFailureCount: Int
     package let scannerServiceInvocationCount: Int
+
+    package init(
+        directoryVisitCount: Int,
+        directoryTraversalFailureCount: Int,
+        entryMetadataFailureCount: Int,
+        gitCandidateCount: Int,
+        validationSuccessCount: Int,
+        validationAuthoritativeNegativeCount: Int,
+        validationTimeoutCount: Int,
+        validationCancellationCount: Int,
+        validationFailureCount: Int,
+        scannerServiceInvocationCount: Int
+    ) {
+        self.directoryVisitCount = directoryVisitCount
+        self.directoryTraversalFailureCount = directoryTraversalFailureCount
+        self.entryMetadataFailureCount = entryMetadataFailureCount
+        self.gitCandidateCount = gitCandidateCount
+        self.validationSuccessCount = validationSuccessCount
+        self.validationAuthoritativeNegativeCount = validationAuthoritativeNegativeCount
+        self.validationTimeoutCount = validationTimeoutCount
+        self.validationCancellationCount = validationCancellationCount
+        self.validationFailureCount = validationFailureCount
+        self.scannerServiceInvocationCount = scannerServiceInvocationCount
+    }
 }
 
 package enum RepoScanUnavailableReason: Sendable, Equatable {
@@ -284,6 +365,20 @@ package struct RepoScannerQuantumUsage: Sendable, Equatable {
     package let candidateValidationCount: Int
     package let failureCount: Int
     package let traversalServiceDuration: Duration
+
+    package init(
+        enumeratedItemCount: Int,
+        enumeratedPathByteCount: Int,
+        candidateValidationCount: Int,
+        failureCount: Int,
+        traversalServiceDuration: Duration
+    ) {
+        self.enumeratedItemCount = enumeratedItemCount
+        self.enumeratedPathByteCount = enumeratedPathByteCount
+        self.candidateValidationCount = candidateValidationCount
+        self.failureCount = failureCount
+        self.traversalServiceDuration = traversalServiceDuration
+    }
 }
 
 package enum RepoScannerQuantumOutcome: Sendable, Equatable {
@@ -294,6 +389,10 @@ package enum RepoScannerQuantumOutcome: Sendable, Equatable {
 
 package struct RepoScannerSessionID: Hashable, Sendable {
     package let rawValue: UUID
+
+    package init(rawValue: UUID) {
+        self.rawValue = rawValue
+    }
 }
 
 package struct RepoScannerValidationRequestID: Hashable, Sendable {

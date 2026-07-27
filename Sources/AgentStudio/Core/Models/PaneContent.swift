@@ -173,6 +173,15 @@ package struct TerminalState: Codable, Hashable, Sendable {
     /// verbatim for attach and restoration.
     package let zmxSessionID: ZmxSessionID
 
+    package init(
+        provider: SessionProvider,
+        lifetime: SessionLifetime,
+        zmxSessionID: ZmxSessionID
+    ) {
+        self.provider = provider
+        self.lifetime = lifetime
+        self.zmxSessionID = zmxSessionID
+    }
 }
 
 // MARK: - Webview State

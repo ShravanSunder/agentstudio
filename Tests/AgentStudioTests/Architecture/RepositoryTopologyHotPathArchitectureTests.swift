@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("RepositoryTopologyHotPathArchitectureTests")
 struct RepositoryTopologyHotPathArchitectureTests {
     @Test("topology atom contains state and indexes, not mutation planning or tracing")

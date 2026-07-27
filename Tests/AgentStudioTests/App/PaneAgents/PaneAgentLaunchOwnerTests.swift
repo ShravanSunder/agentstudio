@@ -4,6 +4,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioTestSupport
 
 #if canImport(Darwin)
     import Darwin

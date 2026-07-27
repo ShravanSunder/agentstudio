@@ -1,7 +1,9 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @MainActor
 @Suite("Terminal activation scheduler", .serialized)
@@ -28,7 +30,7 @@ struct TerminalActivationSchedulerTests {
     @Test("single member forwards exact opaque zmx identity")
     func singleMemberForwardsExactOpaqueZmxIdentity() async throws {
         let storedText = "opaque existing zmx identity ! '$`\\"
-        let storedSessionID = try #require(ZmxSessionID(restoring: storedText))
+        let storedSessionID = try makeRestoredZmxSessionID(storedText)
         let descriptor = makeDescriptor(zmxSessionID: storedSessionID)
         let surfaceID = UUIDv7.generate()
         let port = ImmediateTerminalActivationAdmissionPort(
@@ -286,9 +288,9 @@ struct TerminalActivationSchedulerTests {
         count: Int,
         priority: TerminalActivationVisibilityPriority
     ) -> [TerminalActivationDescriptor] {
-        (0..<count).map { index in
+        (0..<count).map { _ in
             makeDescriptor(
-                zmxSessionID: ZmxSessionID(restoring: "opaque-zmx-\(index)-\(UUIDv7.generate())")!,
+                zmxSessionID: .generateUUIDv7(),
                 priority: priority
             )
         }

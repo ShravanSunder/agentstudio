@@ -150,7 +150,7 @@ package final class WorkspaceTabArrangementAtom {
     let cursorAtom: WorkspaceArrangementCursorAtom
     let presentationAtom: WorkspacePanePresentationAtom
 
-    init(
+    package init(
         graphAtom: WorkspaceTabGraphAtom = WorkspaceTabGraphAtom(),
         cursorAtom: WorkspaceArrangementCursorAtom = WorkspaceArrangementCursorAtom(),
         presentationAtom: WorkspacePanePresentationAtom = WorkspacePanePresentationAtom()

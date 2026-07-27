@@ -24,6 +24,21 @@ package struct Pane: Codable, Identifiable, Hashable, Sendable {
     /// Discriminant — encodes whether this is a layout pane or drawer child.
     var kind: PaneKind
 
+    package init(
+        id: UUID = UUIDv7.generate(),
+        content: PaneContent,
+        metadata: PaneMetadata,
+        residency: SessionResidency = .active
+    ) {
+        self.init(
+            id: id,
+            content: content,
+            metadata: metadata,
+            residency: residency,
+            kind: nil
+        )
+    }
+
     init(
         id: UUID = UUIDv7.generate(),
         content: PaneContent,

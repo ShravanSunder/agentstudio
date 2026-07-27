@@ -10,7 +10,7 @@ enum WorkspaceIdentityInstallationState {
 @Observable
 package final class WorkspaceIdentityAtom {
     package var workspaceId: UUID { installedIdentity.workspaceId }
-    var workspaceName: String { installedIdentity.workspaceName }
+    package var workspaceName: String { installedIdentity.workspaceName }
     var createdAt: Date { installedIdentity.createdAt }
 
     private var installationState: WorkspaceIdentityInstallationState
@@ -19,7 +19,7 @@ package final class WorkspaceIdentityAtom {
         self.installationState = installationState
     }
 
-    init(
+    package init(
         workspaceId: UUID,
         workspaceName: String = "Default Workspace",
         createdAt: Date = Date()

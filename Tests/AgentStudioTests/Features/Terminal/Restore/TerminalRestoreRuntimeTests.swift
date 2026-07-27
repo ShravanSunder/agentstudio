@@ -1,23 +1,27 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @MainActor
 @Suite(.serialized)
 struct TerminalRestoreRuntimeTests {
-    private let enabledConfiguration = SessionConfiguration(
-        isEnabled: true,
-        zmxPath: "/tmp/fake-zmx",
-        zmxDir: "/tmp/fake-zmx-dir",
-        healthCheckInterval: 30,
-        maxCheckpointAge: 60
+    private let enabledConfiguration = SessionConfiguration.detect(
+        environment: [
+            "AGENTSTUDIO_DATA_DIR": "/tmp/fake-zmx-data",
+            "AGENTSTUDIO_SESSION_RESTORE": "true",
+            "AGENTSTUDIO_TRACE_PROOF_TOKEN": "terminal-restore-runtime-test",
+            "AGENTSTUDIO_ZMX_PATH": "/usr/bin/true",
+        ],
+        isDebugBuild: true
     )
 
     @Test("restore returns the exact stored opaque identity")
     func restoreReturnsExactStoredOpaqueIdentity() throws {
         let storedText = "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-5566778899001122"
-        let storedSessionID = try #require(ZmxSessionID(restoring: storedText))
+        let storedSessionID = try makeRestoredZmxSessionID(storedText)
         let pane = makeTerminalPane(
             sessionID: storedSessionID,
             launchDirectory: URL(filePath: "/tmp/path-must-not-determine-zmx-identity"),
@@ -38,14 +42,14 @@ struct TerminalRestoreRuntimeTests {
     @Test("attach command and diagnostics use the exact stored identity")
     func attachCommandAndDiagnosticsUseExactStoredIdentity() throws {
         let storedText = "550E8400-E29B-41D4-A716-446655440000"
-        let storedSessionID = try #require(ZmxSessionID(restoring: storedText))
+        let storedSessionID = try makeRestoredZmxSessionID(storedText)
         let pane = makeTerminalPane(sessionID: storedSessionID)
         let runtime = TerminalRestoreRuntime(sessionConfiguration: enabledConfiguration)
 
         let attachCommand = try #require(runtime.zmxAttachCommand(for: pane))
         let diagnostics = try #require(runtime.zmxAttachDiagnostics(for: pane))
 
-        #expect(attachCommand.contains(ZmxBackend.shellEscape(storedText)))
+        #expect(attachCommand.contains("'\(storedText)'"))
         #expect(diagnostics.sessionId == storedText)
         #expect(diagnostics.socketPath == "\(enabledConfiguration.zmxDir)/\(storedText)")
     }
@@ -68,12 +72,14 @@ struct TerminalRestoreRuntimeTests {
     func disabledSessionRestorationDoesNotBuildAttachCommand() {
         let pane = makeTerminalPane(sessionID: .generateUUIDv7())
         let runtime = TerminalRestoreRuntime(
-            sessionConfiguration: SessionConfiguration(
-                isEnabled: false,
-                zmxPath: "/tmp/fake-zmx",
-                zmxDir: "/tmp/fake-zmx-dir",
-                healthCheckInterval: 30,
-                maxCheckpointAge: 60
+            sessionConfiguration: SessionConfiguration.detect(
+                environment: [
+                    "AGENTSTUDIO_DATA_DIR": "/tmp/fake-zmx-data",
+                    "AGENTSTUDIO_SESSION_RESTORE": "false",
+                    "AGENTSTUDIO_TRACE_PROOF_TOKEN": "terminal-restore-runtime-test",
+                    "AGENTSTUDIO_ZMX_PATH": "/usr/bin/true",
+                ],
+                isDebugBuild: true
             )
         )
 

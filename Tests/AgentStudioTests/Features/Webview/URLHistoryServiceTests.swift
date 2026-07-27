@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioWebview
 
 /// In-memory storage for testing URLHistoryService without touching UserDefaults.
 final class MockURLHistoryStorage: URLHistoryStorage, @unchecked Sendable {

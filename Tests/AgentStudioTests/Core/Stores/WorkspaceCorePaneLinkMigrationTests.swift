@@ -2,7 +2,8 @@ import Foundation
 import GRDB
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @Suite("WorkspaceCorePaneLinkMigrationTests")
 struct WorkspaceCorePaneLinkMigrationTests {

@@ -2,7 +2,7 @@ import Foundation
 import Network
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 @Suite(.serialized)
 struct AgentStudioOTLPBootstrapSmokeTests {

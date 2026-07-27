@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 @Suite("AgentStudio IPC Phase A smoke verifier script")
 struct AgentStudioIPCPhaseASmokeScriptTests {

@@ -1,7 +1,10 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 @MainActor
 @Suite("PaneFocusTracker", .serialized)
@@ -16,14 +19,14 @@ struct PaneFocusTrackerTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: Layout.autoTiled(paneIds)
+            layout: Layout.autoTiled(paneIds),
+            activePaneId: activePaneId
         )
         return Tab(
             name: "Tab",
-            panes: paneIds,
+            allPaneIds: paneIds,
             arrangements: [arrangement],
-            activeArrangementId: arrangement.id,
-            activePaneId: activePaneId
+            activeArrangementId: arrangement.id
         )
     }
 

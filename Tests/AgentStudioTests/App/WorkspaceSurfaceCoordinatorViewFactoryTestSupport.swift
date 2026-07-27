@@ -1,6 +1,10 @@
 import Foundation
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 struct WorkspaceSurfaceCoordinatorViewFactoryHarness {

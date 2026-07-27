@@ -1,6 +1,6 @@
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeChangeCollatorTests {
     @Test("collator creates filtered group without creating checkpoints for time windows")

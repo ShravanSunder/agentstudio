@@ -1,8 +1,7 @@
 import Foundation
-import GRDB
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 @Suite("SQLiteRecoveryInfrastructureTests")
 struct SQLiteRecoveryInfrastructureTests {
@@ -16,18 +15,5 @@ struct SQLiteRecoveryInfrastructureTests {
         #expect(result.status == .nothingToMove)
         #expect(result.succeeded)
         #expect(result.recoveryFilename == nil)
-    }
-
-    @Test("recovery classifier only quarantines SQLite corruption errors")
-    func recoveryClassifierOnlyQuarantinesSQLiteCorruptionErrors() {
-        let corruptError = DatabaseError(resultCode: .SQLITE_CORRUPT)
-        let notDatabaseError = DatabaseError(resultCode: .SQLITE_NOTADB)
-        let busyError = DatabaseError(resultCode: .SQLITE_BUSY)
-        let fileError = CocoaError(.fileReadNoPermission)
-
-        #expect(WorkspaceSQLiteRecoveryClassifier.shouldQuarantine(corruptError))
-        #expect(WorkspaceSQLiteRecoveryClassifier.shouldQuarantine(notDatabaseError))
-        #expect(!WorkspaceSQLiteRecoveryClassifier.shouldQuarantine(busyError))
-        #expect(!WorkspaceSQLiteRecoveryClassifier.shouldQuarantine(fileError))
     }
 }

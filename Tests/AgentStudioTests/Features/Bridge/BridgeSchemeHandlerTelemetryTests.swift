@@ -1,8 +1,10 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 import WebKit
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite(.serialized)
 struct BridgeSchemeHandlerTelemetryTests {

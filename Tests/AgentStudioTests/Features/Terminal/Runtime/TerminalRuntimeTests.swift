@@ -1,8 +1,11 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import GhosttyKit
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @MainActor
 @Suite("TerminalRuntime lifecycle")
@@ -186,8 +189,18 @@ struct TerminalRuntimeTests {
 
         let replay = await runtime.eventsSince(seq: 0)
         #expect(replay.events.count == 2)
-        #expect(replay.events.allSatisfy { $0.commandId == commandId })
-        #expect(replay.events.allSatisfy { $0.correlationId == correlationId })
+        #expect(
+            replay.events.allSatisfy { envelope in
+                guard case .pane(let paneEnvelope) = envelope else { return false }
+                return paneEnvelope.commandId == commandId
+            }
+        )
+        #expect(
+            replay.events.allSatisfy { envelope in
+                guard case .pane(let paneEnvelope) = envelope else { return false }
+                return paneEnvelope.correlationId == correlationId
+            }
+        )
         guard
             let lastEvent = replay.events.last,
             case .pane(let paneEnvelope) = lastEvent,
@@ -527,6 +540,12 @@ struct TerminalRuntimeTests {
     @Test("deferred events stay out of bus and replay")
     func deferredEvent_doesNotPostOrReplay() async {
         let paneEventBus = EventBus<RuntimeEnvelope>()
+        let subscriber = RecordingSubscriber(
+            subscription: await paneEventBus.subscribe(
+                policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+                subscriberName: #function
+            )
+        )
         let runtime = TerminalRuntime(
             paneId: PaneId.generateUUIDv7(),
             metadata: PaneMetadata(title: "Runtime"),
@@ -539,14 +558,10 @@ struct TerminalRuntimeTests {
         let replay = await runtime.eventsSince(seq: 0)
         #expect(replay.events.isEmpty)
 
-        let busEvent = await paneEventBus.waitForFirst(
-            policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
-            subscriberName: #function,
-            timeout: .milliseconds(100)
-        ) { envelope in
-            envelope
-        }
-        #expect(busEvent == nil)
+        await Task.yield()
+        #expect(await subscriber.snapshot().isEmpty)
+        await subscriber.shutdown()
+        await assertBusDrained(paneEventBus)
     }
 
     @Test("subscribe returns independent streams and broadcasts events to all subscribers")

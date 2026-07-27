@@ -3,6 +3,10 @@ import SwiftUI
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioRepoExplorer
+@testable import AgentStudioSharedComponents
+@testable import AgentStudioTestSupport
 
 @Suite("Sidebar surface convergence")
 struct SidebarSurfaceConvergenceTests {

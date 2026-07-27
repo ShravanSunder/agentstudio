@@ -1,7 +1,8 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge Git read scheduler and construction capacity integration")
 struct BridgeCapacityIntegrationTests {

@@ -1,7 +1,8 @@
+import AgentStudioTestSupport
 import Observation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 private final class ObservationFlag: @unchecked Sendable {
     var fired = false

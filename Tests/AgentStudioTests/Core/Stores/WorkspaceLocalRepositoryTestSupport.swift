@@ -1,7 +1,8 @@
 import Foundation
 import GRDB
 
-@testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 func makeWorkspaceLocalSQLiteStoreFixture(
     workspaceId: UUID

@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("Prepared content mount startup boundary")
 struct PreparedContentMountStartupBoundaryTests {
     @Test("prepared owners are the only production initial mount authority")

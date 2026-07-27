@@ -1,6 +1,7 @@
 import Foundation
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
 
 private struct BridgeProductWebKitLiveReviewState {
     let dom: BridgeProductWebKitCarrierDOMSnapshot

@@ -15,7 +15,7 @@ package struct Repo: Codable, Identifiable, Hashable, Sendable {
     /// Used for zmx session ID segment. Survives reinstall/data loss, breaks on directory move.
     package var stableKey: String { StableKey.fromPath(repoPath) }
 
-    init(
+    package init(
         id: UUID = UUID(),
         name: String,
         repoPath: URL,

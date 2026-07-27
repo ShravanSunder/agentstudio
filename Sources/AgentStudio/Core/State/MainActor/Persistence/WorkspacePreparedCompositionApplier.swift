@@ -4,7 +4,7 @@ import Foundation
 package struct WorkspaceContentMountGeneration: Hashable, Sendable {
     let id: UUID
 
-    init(id: UUID = UUIDv7.generate()) {
+    package init(id: UUID = UUIDv7.generate()) {
         self.id = id
     }
 }

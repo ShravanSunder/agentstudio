@@ -3,6 +3,8 @@ import Observation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 /// Thread-safe flag for use in @Sendable `withObservationTracking` onChange closures.
 private final class ObservationFlag: @unchecked Sendable {

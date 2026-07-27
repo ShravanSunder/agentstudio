@@ -1,10 +1,10 @@
-import AgentStudioAppIPC
-import AgentStudioProgrammaticControl
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import GhosttyKit
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @MainActor
 @Suite(.serialized)
@@ -245,18 +245,13 @@ struct GhosttyActionRouterTests {
             surfaceIdsByViewObjectId: [surfaceViewObjectId: surfaceId],
             paneIdsBySurfaceId: [surfaceId: paneUUID]
         )
-        let traceRuntime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
-                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
-                "AGENTSTUDIO_TRACE_NAME": "equal-title-startup",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.startup",
-            ]),
+        let traceFixture = makeTraceRuntime(
+            traceName: "equal-title-startup",
+            traceTags: "terminal.startup",
             processIdentifier: 255,
-            sessionID: "equal-title-startup",
-            timeUnixNano: { 910 }
+            flushMode: "immediate"
         )
+        let traceRuntime = traceFixture.runtime
         let startupRecorder = AgentStudioStartupTraceRecorder(traceRuntime: traceRuntime)
         let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
         Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
@@ -274,7 +269,7 @@ struct GhosttyActionRouterTests {
         try await startupRecorder.drain()
 
         #expect((await runtime.eventsSince(seq: 0)).events.isEmpty)
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let outputFileURL = traceFixture.outputFileURL
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("terminal.startup.title_ready"))
     }
@@ -628,18 +623,13 @@ struct GhosttyActionRouterTests {
             surfaceIdsByViewObjectId: [surfaceViewObjectId: surfaceId],
             paneIdsBySurfaceId: [surfaceId: paneUUID]
         )
-        let traceRuntime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
-                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
-                "AGENTSTUDIO_TRACE_NAME": "ghostty-action-router",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.signal",
-            ]),
+        let traceFixture = makeTraceRuntime(
+            traceName: "ghostty-action-router",
+            traceTags: "terminal.signal",
             processIdentifier: 251,
-            sessionID: "ghostty-session",
-            timeUnixNano: { 909 }
+            flushMode: "immediate"
         )
+        let traceRuntime = traceFixture.runtime
 
         let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
         Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
@@ -660,7 +650,7 @@ struct GhosttyActionRouterTests {
         await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
 
         await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let outputFileURL = traceFixture.outputFileURL
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"body\":\"ghostty.action.translated\""))
         #expect(contents.contains("\"agentstudio.ghostty.action.name\":\"desktopNotification\""))
@@ -691,18 +681,13 @@ struct GhosttyActionRouterTests {
             surfaceIdsByViewObjectId: [surfaceViewObjectId: surfaceId],
             paneIdsBySurfaceId: [surfaceId: paneUUID]
         )
-        let traceRuntime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
-                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
-                "AGENTSTUDIO_TRACE_NAME": "ghostty-action-router-activity-only",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
-            ]),
+        let traceFixture = makeTraceRuntime(
+            traceName: "ghostty-action-router-activity-only",
+            traceTags: "terminal.activity",
             processIdentifier: 253,
-            sessionID: "ghostty-session",
-            timeUnixNano: { 910 }
+            flushMode: "immediate"
         )
+        let traceRuntime = traceFixture.runtime
 
         let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
         Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
@@ -722,7 +707,7 @@ struct GhosttyActionRouterTests {
         )
         await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let outputFileURL = traceFixture.outputFileURL
         #expect(FileManager.default.fileExists(atPath: outputFileURL.path) == false)
     }
 
@@ -745,18 +730,13 @@ struct GhosttyActionRouterTests {
             surfaceIdsByViewObjectId: [surfaceViewObjectId: surfaceId],
             paneIdsBySurfaceId: [surfaceId: paneUUID]
         )
-        let traceRuntime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
-                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
-                "AGENTSTUDIO_TRACE_NAME": "ghostty-action-router-scrollbar",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.signal",
-            ]),
+        let traceFixture = makeTraceRuntime(
+            traceName: "ghostty-action-router-scrollbar",
+            traceTags: "terminal.signal",
             processIdentifier: 254,
-            sessionID: "ghostty-session",
-            timeUnixNano: { 1001 }
+            flushMode: "immediate"
         )
+        let traceRuntime = traceFixture.runtime
 
         let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
         Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
@@ -784,7 +764,7 @@ struct GhosttyActionRouterTests {
         )
         await Task.yield()
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let outputFileURL = traceFixture.outputFileURL
         #expect(FileManager.default.fileExists(atPath: outputFileURL.path) == false)
     }
 
@@ -792,6 +772,31 @@ struct GhosttyActionRouterTests {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-ghostty-action-router-tests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
+    private func makeTraceRuntime(
+        traceName: String,
+        traceTags: String,
+        processIdentifier: Int32,
+        flushMode: String? = nil
+    ) -> (runtime: AgentStudioTraceRuntime, outputFileURL: URL) {
+        let traceDirectory = temporaryTraceDirectoryURL()
+        var environment = [
+            "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+            "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+            "AGENTSTUDIO_TRACE_NAME": traceName,
+            "AGENTSTUDIO_TRACE_TAGS": traceTags,
+        ]
+        environment["AGENTSTUDIO_TRACE_FLUSH"] = flushMode
+        return (
+            runtime: AgentStudioTraceRuntime.fromEnvironment(
+                environment,
+                processIdentifier: processIdentifier
+            ),
+            outputFileURL: traceDirectory.appendingPathComponent(
+                "agentstudio-\(traceName)-\(processIdentifier).jsonl"
+            )
+        )
     }
 
     private func terminalEventNames(from envelopes: [RuntimeEnvelope]) -> [String] {

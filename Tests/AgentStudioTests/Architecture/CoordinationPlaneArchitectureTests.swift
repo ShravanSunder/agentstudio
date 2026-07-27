@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("CoordinationPlaneArchitectureTests")
 struct CoordinationPlaneArchitectureTests {
     private struct LifecycleCompositionSources {

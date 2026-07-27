@@ -1,7 +1,8 @@
+import AgentStudioCore
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioRepoExplorer
 
 @MainActor
 @Suite("Repo Explorer duplicate topology containment")

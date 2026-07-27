@@ -127,7 +127,7 @@ package final class BridgeRuntime: BusPostingPaneRuntime {
         return []
     }
 
-    func ingestBridgeEvent(
+    package func ingestBridgeEvent(
         _ event: PaneRuntimeEvent,
         commandId: UUID? = nil,
         correlationId: UUID? = nil

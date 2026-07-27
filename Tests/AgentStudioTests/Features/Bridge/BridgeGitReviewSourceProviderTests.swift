@@ -1,9 +1,11 @@
 import AgentStudioGit
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import CryptoKit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeGitReviewSourceProviderTests {
     @Test("AgentStudioGit adapter maps diff metadata and lazily loads Bridge content handles")

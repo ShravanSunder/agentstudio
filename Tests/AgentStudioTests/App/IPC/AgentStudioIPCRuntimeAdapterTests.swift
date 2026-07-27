@@ -4,6 +4,9 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 private let schedulerStressIPCWaitTimeout: Duration = .seconds(30)
 

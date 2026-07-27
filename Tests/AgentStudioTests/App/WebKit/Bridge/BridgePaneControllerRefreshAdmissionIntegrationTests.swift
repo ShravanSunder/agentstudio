@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
 
 extension WebKitSerializedTests.BridgePaneControllerTests {
     @Test("loaded-hidden presentation precedes cancellation-ignoring metadata producer drain")

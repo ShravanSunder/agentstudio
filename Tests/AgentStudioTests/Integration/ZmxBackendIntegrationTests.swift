@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 /// Integration tests that exercise ZmxBackend against a real zmx binary.
 /// Each test uses an isolated ZMX_DIR via ZmxTestHarness to prevent cross-test interference.

@@ -3,6 +3,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("PaneTabViewController PaneInbox dispatch", .serialized)

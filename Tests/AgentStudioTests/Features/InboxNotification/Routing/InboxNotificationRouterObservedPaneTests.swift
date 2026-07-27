@@ -1,7 +1,10 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 @MainActor
 @Suite("InboxNotificationRouter observed-pane clearing", .serialized)
@@ -133,10 +136,9 @@ struct InboxNotificationRouterObservedPaneTests {
         tabLayout.appendTab(
             Tab(
                 name: "Tab",
-                panes: [pane.id],
+                allPaneIds: [pane.id],
                 arrangements: [arrangement],
-                activeArrangementId: arrangement.id,
-                activePaneId: pane.id
+                activeArrangementId: arrangement.id
             )
         )
         makeWindowKey(windowLifecycle)
@@ -710,10 +712,9 @@ struct InboxNotificationRouterObservedPaneTests {
         )
         let tab = Tab(
             name: "Tab",
-            panes: [pane.id],
+            allPaneIds: [pane.id],
             arrangements: [arrangement],
-            activeArrangementId: arrangement.id,
-            activePaneId: pane.id
+            activeArrangementId: arrangement.id
         )
         fixture.tabLayout.appendTab(tab)
         return tab.id

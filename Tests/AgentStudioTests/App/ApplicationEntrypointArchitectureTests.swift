@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("Application entrypoint architecture")
 struct ApplicationEntrypointArchitectureTests {
     @Test("manual NSApplication setup uses a single run loop")

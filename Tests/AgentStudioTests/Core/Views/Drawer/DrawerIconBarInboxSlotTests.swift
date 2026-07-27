@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import SwiftUI
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite("DrawerIconBar inbox slot")
@@ -33,7 +34,7 @@ struct DrawerIconBarInboxSlotTests {
         let actions = makeTrailingActions(inboxUnreadCount: 2, onOpenInbox: {})
 
         let view = DrawerIconBar(
-            octiconLoader: makeTestOcticonLoader(),
+            octiconLoader: makeCoreTestOcticonLoader(),
             isExpanded: false,
             onAdd: {},
             onToggleExpand: {},

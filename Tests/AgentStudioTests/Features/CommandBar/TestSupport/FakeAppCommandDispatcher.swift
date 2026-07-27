@@ -1,6 +1,7 @@
+import AgentStudioCore
 import Foundation
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 final class FakeAppCommandDispatcher: AppCommandDispatching {

@@ -1,24 +1,23 @@
+import AgentStudioCore
 import Foundation
-
-@testable import AgentStudio
 
 /// Lightweight `ResolvableTab` mock for testing `WorkspaceCommandResolver.resolve(command:)`.
 /// Uses pure UUIDs with configurable navigation results — no NSViews required.
-struct MockTab: ResolvableTab {
-    let id: UUID
-    var activePaneId: UUID?
-    var visiblePaneIds: [UUID]
-    var ownedPaneIds: [UUID]
-    var minimizedPaneIdsForValidation: Set<UUID>
-    var validationActiveArrangementId: UUID?
-    var arrangementSnapshots: [ArrangementSnapshot]
-    var isSplit: Bool { visiblePaneIds.count > 1 }
+package struct MockTab: ResolvableTab {
+    package let id: UUID
+    package var activePaneId: UUID?
+    package var visiblePaneIds: [UUID]
+    package var ownedPaneIds: [UUID]
+    package var minimizedPaneIdsForValidation: Set<UUID>
+    package var validationActiveArrangementId: UUID?
+    package var arrangementSnapshots: [ArrangementSnapshot]
+    package var isSplit: Bool { visiblePaneIds.count > 1 }
 
-    var neighbors: [UUID: [SplitFocusDirection: UUID]] = [:]
-    var nextPanes: [UUID: UUID] = [:]
-    var previousPanes: [UUID: UUID] = [:]
+    package var neighbors: [UUID: [SplitFocusDirection: UUID]] = [:]
+    package var nextPanes: [UUID: UUID] = [:]
+    package var previousPanes: [UUID: UUID] = [:]
 
-    init(
+    package init(
         id: UUID,
         activePaneId: UUID?,
         allPaneIds: [UUID],
@@ -46,15 +45,15 @@ struct MockTab: ResolvableTab {
         self.previousPanes = previousPanes
     }
 
-    func neighborPaneId(of paneId: UUID, direction: SplitFocusDirection) -> UUID? {
+    package func neighborPaneId(of paneId: UUID, direction: SplitFocusDirection) -> UUID? {
         neighbors[paneId]?[direction]
     }
 
-    func nextPaneId(after paneId: UUID) -> UUID? {
+    package func nextPaneId(after paneId: UUID) -> UUID? {
         nextPanes[paneId]
     }
 
-    func previousPaneId(before paneId: UUID) -> UUID? {
+    package func previousPaneId(before paneId: UUID) -> UUID? {
         previousPanes[paneId]
     }
 }

@@ -4,6 +4,11 @@ import SwiftUI
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioSharedComponents
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("PaneInboxNotificationPopover", .serialized)
@@ -200,7 +205,7 @@ struct PaneInboxNotificationPopoverTests {
 
         let popover = PaneInboxNotificationPopover(
             parentPaneId: parentPaneId,
-            octiconLoader: makeTestOcticonLoader(),
+            octiconLoader: makeInboxNotificationTestOcticonLoader(),
             workspaceWindowId: nil,
             paneIds: [parentPaneId],
             inboxAtom: inboxAtom,
@@ -242,7 +247,7 @@ struct PaneInboxNotificationPopoverTests {
                     let hostingView = NSHostingView(
                         rootView: PaneInboxNotificationPopover(
                             parentPaneId: parentPaneId,
-                            octiconLoader: makeTestOcticonLoader(),
+                            octiconLoader: makeInboxNotificationTestOcticonLoader(),
                             workspaceWindowId: nil,
                             paneIds: [parentPaneId],
                             inboxAtom: inboxAtom,
@@ -308,7 +313,7 @@ struct PaneInboxNotificationPopoverTests {
                     let hostingView = NSHostingView(
                         rootView: PaneInboxNotificationPopover(
                             parentPaneId: parentPaneId,
-                            octiconLoader: makeTestOcticonLoader(),
+                            octiconLoader: makeInboxNotificationTestOcticonLoader(),
                             workspaceWindowId: nil,
                             paneIds: [parentPaneId],
                             inboxAtom: inboxAtom,
@@ -377,7 +382,7 @@ struct PaneInboxNotificationPopoverTests {
             let hostingView = NSHostingView(
                 rootView: PaneInboxNotificationPopover(
                     parentPaneId: parentPaneId,
-                    octiconLoader: makeTestOcticonLoader(),
+                    octiconLoader: makeInboxNotificationTestOcticonLoader(),
                     workspaceWindowId: nil,
                     paneIds: [parentPaneId],
                     inboxAtom: inboxAtom,
@@ -450,7 +455,7 @@ struct PaneInboxNotificationPopoverTests {
             let hostingView = NSHostingView(
                 rootView: PaneInboxNotificationPopover(
                     parentPaneId: parentPaneId,
-                    octiconLoader: makeTestOcticonLoader(),
+                    octiconLoader: makeInboxNotificationTestOcticonLoader(),
                     workspaceWindowId: nil,
                     paneIds: [parentPaneId],
                     inboxAtom: inboxAtom,

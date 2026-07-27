@@ -52,7 +52,7 @@ package struct Tab: Codable, Identifiable, Hashable, Sendable {
 
     /// Create a tab with an existing layout and arrangements.
     /// Precondition: `arrangements` must contain exactly one with `isDefault == true`.
-    init(
+    package init(
         id: UUID = UUID(),
         name: String = "Tab",
         allPaneIds: [UUID],

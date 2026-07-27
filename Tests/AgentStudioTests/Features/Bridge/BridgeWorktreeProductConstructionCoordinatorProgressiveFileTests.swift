@@ -1,6 +1,6 @@
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge progressive File construction coordinator")
 struct BridgeProgressiveFileConstructionCoordinatorTests {

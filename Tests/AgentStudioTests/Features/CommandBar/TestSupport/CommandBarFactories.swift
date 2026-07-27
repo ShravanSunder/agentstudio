@@ -1,7 +1,8 @@
+import AgentStudioCore
 import Foundation
 import SwiftUI
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 // MARK: - CommandBarItem Factory
 

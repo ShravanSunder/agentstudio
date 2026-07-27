@@ -1,8 +1,10 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Observation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioRepoExplorer
 
 private final class RepoExplorerObservationInvalidationRecorder: @unchecked Sendable {
     private let lock = NSLock()
@@ -89,7 +91,7 @@ struct RepoExplorerViewInjectionTests {
     ) -> RepoExplorerView {
         RepoExplorerView(
             store: store,
-            octiconLoader: makeTestOcticonLoader(),
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
             repoExplorerPrefs: repoExplorerPrefs,
             bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
             commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
@@ -105,7 +107,7 @@ struct RepoExplorerViewInjectionTests {
 }
 
 @MainActor
-private final class FakeRepoExplorerAppCommandDispatcher: AppCommandDispatching {
+final class FakeRepoExplorerAppCommandDispatcher: AppCommandDispatching {
     func dispatch(_: AppCommand) {}
     func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
     func canDispatch(_: AppCommand) -> Bool { true }

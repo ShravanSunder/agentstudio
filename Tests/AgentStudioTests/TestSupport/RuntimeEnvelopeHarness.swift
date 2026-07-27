@@ -1,33 +1,32 @@
+import AgentStudioCore
 import Foundation
 
-@testable import AgentStudio
-
-struct SystemEventRecord {
-    let source: SystemSource
-    let event: SystemScopedEvent
-    let eventId: UUID
-    let seq: UInt64
+package struct SystemEventRecord {
+    package let source: SystemSource
+    package let event: SystemScopedEvent
+    package let eventId: UUID
+    package let seq: UInt64
 }
 
-struct WorktreeEventRecord {
-    let source: EventSource
-    let event: WorktreeScopedEvent
-    let eventId: UUID
-    let seq: UInt64
-    let repoId: UUID
-    let worktreeId: UUID?
+package struct WorktreeEventRecord {
+    package let source: EventSource
+    package let event: WorktreeScopedEvent
+    package let eventId: UUID
+    package let seq: UInt64
+    package let repoId: UUID
+    package let worktreeId: UUID?
 }
 
-struct PaneEventRecord {
-    let source: EventSource
-    let event: PaneRuntimeEvent
-    let eventId: UUID
-    let seq: UInt64
-    let paneId: PaneId
+package struct PaneEventRecord {
+    package let source: EventSource
+    package let event: PaneRuntimeEvent
+    package let eventId: UUID
+    package let seq: UInt64
+    package let paneId: PaneId
 }
 
-enum RuntimeEnvelopeHarness {
-    static func topologyEnvelope(
+package enum RuntimeEnvelopeHarness {
+    package static func topologyEnvelope(
         event: TopologyEvent,
         source: SystemSource = .builtin(.filesystemWatcher),
         seq: UInt64 = 1,
@@ -43,7 +42,7 @@ enum RuntimeEnvelopeHarness {
         )
     }
 
-    static func filesystemEnvelope(
+    package static func filesystemEnvelope(
         event: FilesystemEvent,
         repoId: UUID = UUID(),
         worktreeId: UUID? = UUID(),
@@ -63,7 +62,7 @@ enum RuntimeEnvelopeHarness {
         )
     }
 
-    static func gitEnvelope(
+    package static func gitEnvelope(
         event: GitWorkingDirectoryEvent,
         repoId: UUID = UUID(),
         worktreeId: UUID? = UUID(),
@@ -83,7 +82,7 @@ enum RuntimeEnvelopeHarness {
         )
     }
 
-    static func forgeEnvelope(
+    package static func forgeEnvelope(
         event: ForgeEvent,
         repoId: UUID = UUID(),
         worktreeId: UUID? = UUID(),
@@ -103,7 +102,7 @@ enum RuntimeEnvelopeHarness {
         )
     }
 
-    static func paneEnvelope(
+    package static func paneEnvelope(
         event: PaneRuntimeEvent,
         paneId: PaneId = PaneId.generateUUIDv7(),
         source: EventSource? = nil,
@@ -121,7 +120,7 @@ enum RuntimeEnvelopeHarness {
         )
     }
 
-    static func systemEvents(from envelopes: [RuntimeEnvelope]) -> [SystemEventRecord] {
+    package static func systemEvents(from envelopes: [RuntimeEnvelope]) -> [SystemEventRecord] {
         envelopes.compactMap { envelope in
             guard case .system(let systemEnvelope) = envelope else { return nil }
             return SystemEventRecord(
@@ -133,7 +132,7 @@ enum RuntimeEnvelopeHarness {
         }
     }
 
-    static func worktreeEvents(from envelopes: [RuntimeEnvelope]) -> [WorktreeEventRecord] {
+    package static func worktreeEvents(from envelopes: [RuntimeEnvelope]) -> [WorktreeEventRecord] {
         envelopes.compactMap { envelope in
             guard case .worktree(let worktreeEnvelope) = envelope else { return nil }
             return WorktreeEventRecord(
@@ -147,7 +146,7 @@ enum RuntimeEnvelopeHarness {
         }
     }
 
-    static func paneEvents(from envelopes: [RuntimeEnvelope]) -> [PaneEventRecord] {
+    package static func paneEvents(from envelopes: [RuntimeEnvelope]) -> [PaneEventRecord] {
         envelopes.compactMap { envelope in
             guard case .pane(let paneEnvelope) = envelope else { return nil }
             return PaneEventRecord(

@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("CommandBarHotPathArchitectureTests")
 struct CommandBarHotPathArchitectureTests {
     @Test("worktree scopes batch presence before building rows")

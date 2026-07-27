@@ -3,6 +3,7 @@ import Testing
 import WebKit
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite
 struct BridgeProductStreamWebKitFeasibilityTests {

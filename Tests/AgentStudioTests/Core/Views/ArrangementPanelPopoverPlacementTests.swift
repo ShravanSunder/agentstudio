@@ -1,7 +1,7 @@
 import SwiftUI
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 struct ArrangementPanelPopoverPlacementTests {
     @Test

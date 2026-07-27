@@ -1,8 +1,9 @@
 import AgentStudioGit
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 extension BridgePaneReviewSharedConstructionTests {
     @Test("retiring candidate locator falls back to retained same-generation backing")

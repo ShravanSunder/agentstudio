@@ -1,7 +1,7 @@
 import GRDB
 
-enum WorkspaceLocalMigrations {
-    static var migrator: DatabaseMigrator {
+package enum WorkspaceLocalMigrations {
+    package static var migrator: DatabaseMigrator {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("001_create_application_local_schema") { database in
             for statement in createApplicationLocalSchemaStatements {
@@ -11,7 +11,7 @@ enum WorkspaceLocalMigrations {
         return migrator
     }
 
-    static func migrate(_ writer: any DatabaseWriter) throws {
+    package static func migrate(_ writer: any DatabaseWriter) throws {
         try migrator.migrate(writer)
     }
 

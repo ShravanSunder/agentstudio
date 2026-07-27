@@ -1,6 +1,7 @@
+import AgentStudioCore
 import Foundation
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 func makeBridgeGitReadContext(rootURL: URL) -> BridgeGitReadContext {
     let topology = BridgeGitReadSchedulerTopology(

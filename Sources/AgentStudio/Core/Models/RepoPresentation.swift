@@ -20,7 +20,7 @@ package struct RepoPresentationGroup: Identifiable, Equatable, Sendable {
         self.repos = repos
     }
 
-    var checkoutCount: Int {
+    package var checkoutCount: Int {
         repos.reduce(0) { $0 + $1.worktrees.count }
     }
 }
@@ -35,7 +35,7 @@ package struct RepoPresentationItem: Identifiable, Hashable, Sendable {
     package let tags: [String]
     package var worktrees: [Worktree]
 
-    init(
+    package init(
         id: UUID,
         name: String,
         repoPath: URL,
@@ -74,6 +74,18 @@ package struct RepoIdentityMetadata: Sendable {
     package let repoName: String
     package let organizationName: String?
     package let lastPathComponent: String
+
+    package init(
+        groupKey: String,
+        repoName: String,
+        organizationName: String?,
+        lastPathComponent: String
+    ) {
+        self.groupKey = groupKey
+        self.repoName = repoName
+        self.organizationName = organizationName
+        self.lastPathComponent = lastPathComponent
+    }
 }
 
 package enum RepoPresentationGrouping {

@@ -7,6 +7,8 @@ package final class SidebarVisibleWorktreesRuntimeAtom {
     /// Runtime-only sidebar row visibility fact used to prioritize git refresh cadence.
     package private(set) var visibleWorktreeIds: Set<UUID> = []
 
+    package init() {}
+
     package func setVisibleWorktreeIds(_ worktreeIds: Set<UUID>) {
         visibleWorktreeIds = worktreeIds
     }

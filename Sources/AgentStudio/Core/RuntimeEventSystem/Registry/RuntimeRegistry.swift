@@ -7,6 +7,8 @@ private let runtimeRegistryLogger = Logger(subsystem: "com.agentstudio", categor
 package final class RuntimeRegistry {
     package static let shared = RuntimeRegistry()
 
+    package init() {}
+
     package enum RegistrationResult: Equatable {
         case inserted
         case duplicateRejected

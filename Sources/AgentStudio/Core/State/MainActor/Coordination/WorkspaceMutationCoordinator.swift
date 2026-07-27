@@ -62,7 +62,7 @@ package final class WorkspaceMutationCoordinator {
         )
     }
 
-    init(
+    package init(
         repositoryTopologyAtom: RepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabShellAtom: WorkspaceTabShellAtom,

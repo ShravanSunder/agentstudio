@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeProductFileMetadataContractTests {
     @Test("File metadata accepts every closed event and round-trips exactly")

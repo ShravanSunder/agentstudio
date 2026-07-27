@@ -1,7 +1,8 @@
+import AgentStudioCore
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 /// Tests for BridgePaneState Codable round-trip and Hashable conformance.
 ///

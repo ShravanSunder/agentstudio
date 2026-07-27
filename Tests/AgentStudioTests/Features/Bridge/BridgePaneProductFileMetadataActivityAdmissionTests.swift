@@ -1,7 +1,8 @@
+import AgentStudioCore
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 extension BridgePaneProductFileMetadataSourceTests {
     @Test("invalidated foreground descriptor work neither caches nor fulfills its revision")

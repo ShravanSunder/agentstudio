@@ -1,10 +1,9 @@
+import AgentStudioCore
 import Foundation
-
-@testable import AgentStudio
 
 // MARK: - Worktree Factory
 
-func makeWorktree(
+package func makeWorktree(
     id: UUID = UUID(),
     repoId: UUID = UUID(),
     name: String = "feature-branch",
@@ -24,7 +23,7 @@ func makeWorktree(
 
 // MARK: - Repo Factory
 
-func makeRepo(
+package func makeRepo(
     id: UUID = UUID(),
     name: String = "test-repo",
     repoPath: String = "/tmp/test-repo",
@@ -44,8 +43,8 @@ func makeRepo(
 
 // MARK: - Pane Factory
 
-func makePane(
-    id: UUID = UUIDv7.generate(),
+package func makePane(
+    id: UUID = UUID(),
     launchDirectory: URL? = nil,
     title: String = "Terminal",
     provider: SessionProvider = .zmx,
@@ -69,7 +68,7 @@ func makePane(
 
 // MARK: - Tab Factory (multi-pane)
 
-func makeTab(paneIds: [UUID], activePaneId: UUID? = nil, name: String = "Tab") -> Tab {
+package func makeTab(paneIds: [UUID], activePaneId: UUID? = nil, name: String = "Tab") -> Tab {
     guard let first = paneIds.first else {
         fatalError("Need at least one pane ID")
     }
@@ -97,25 +96,5 @@ func makeTab(paneIds: [UUID], activePaneId: UUID? = nil, name: String = "Tab") -
         arrangements: [arrangement],
         activeArrangementId: arrangement.id,
         activePaneId: activePaneId ?? first
-    )
-}
-
-// MARK: - SurfaceMetadata Factory
-
-func makeSurfaceMetadata(
-    launchDirectory: String? = "/tmp/test-dir",
-    command: String? = nil,
-    title: String = "Terminal",
-    worktreeId: UUID? = nil,
-    repoId: UUID? = nil,
-    paneId: UUID? = nil
-) -> SurfaceMetadata {
-    SurfaceMetadata(
-        launchDirectory: launchDirectory.map { URL(fileURLWithPath: $0) },
-        command: command,
-        title: title,
-        worktreeId: worktreeId,
-        repoId: repoId,
-        paneId: paneId
     )
 }

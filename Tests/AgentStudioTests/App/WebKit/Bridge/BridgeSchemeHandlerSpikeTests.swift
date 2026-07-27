@@ -3,6 +3,9 @@ import Testing
 import WebKit
 
 @testable import AgentStudio
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
+@testable import AgentStudioWebview
 
 // MARK: - Spike Scheme Handler
 

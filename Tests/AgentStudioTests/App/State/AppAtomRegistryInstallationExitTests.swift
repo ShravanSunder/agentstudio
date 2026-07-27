@@ -1,6 +1,7 @@
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
 
 @Suite("App AtomRegistry installation preconditions")
 struct AppAtomRegistryInstallationExitTests {

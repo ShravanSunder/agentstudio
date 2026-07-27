@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("DrawerTabLevelCaptureArchitectureTests")
 struct DrawerTabLevelCaptureArchitectureTests {
     private struct Sources {

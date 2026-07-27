@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
 
 @Suite("Tab bar chrome layout plan")
 struct TabBarChromeLayoutPlanTests {

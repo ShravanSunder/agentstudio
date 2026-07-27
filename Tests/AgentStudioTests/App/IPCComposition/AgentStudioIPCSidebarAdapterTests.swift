@@ -3,6 +3,9 @@ import AgentStudioProgrammaticControl
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioRepoExplorer
 
 @MainActor
 @Suite("AgentStudio IPC sidebar adapter")

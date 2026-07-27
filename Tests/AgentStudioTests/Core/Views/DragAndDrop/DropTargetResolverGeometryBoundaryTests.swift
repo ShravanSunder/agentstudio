@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 /// R18 — DropTargetResolver is pure geometry. It is source-blind by
 /// construction: source-pane filtering is a higher layer's concern

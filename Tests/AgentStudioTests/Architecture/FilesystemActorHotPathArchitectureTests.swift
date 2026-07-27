@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("FilesystemActorHotPathArchitectureTests")
 struct FilesystemActorHotPathArchitectureTests {
     @Test("path filter loading runs through a concurrent async boundary")

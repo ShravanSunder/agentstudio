@@ -2,6 +2,8 @@ import AppKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("PaneTabViewController global shortcut routing")

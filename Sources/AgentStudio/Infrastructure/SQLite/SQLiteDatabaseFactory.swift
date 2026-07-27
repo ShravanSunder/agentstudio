@@ -9,7 +9,7 @@ package enum SQLiteDatabaseFactory {
 
     static let defaultBusyTimeout: TimeInterval = 2
 
-    static func makeInMemoryQueue(label: String = "AgentStudio.sqlite.memory") throws -> DatabaseQueue {
+    package static func makeInMemoryQueue(label: String = "AgentStudio.sqlite.memory") throws -> DatabaseQueue {
         try DatabaseQueue(named: nil, configuration: makeConfiguration(label: label))
     }
 
@@ -51,7 +51,7 @@ package enum SQLiteDatabaseFactory {
         return try DatabaseQueue(path: databaseURI, configuration: configuration)
     }
 
-    static func makeConfiguration(label: String) -> Configuration {
+    package static func makeConfiguration(label: String) -> Configuration {
         var configuration = Configuration()
         configuration.label = label
         configuration.foreignKeysEnabled = true

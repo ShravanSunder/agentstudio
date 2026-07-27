@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge product review intake-ready completion effect")
 struct BridgeReviewIntakeCompletionEffectTests {

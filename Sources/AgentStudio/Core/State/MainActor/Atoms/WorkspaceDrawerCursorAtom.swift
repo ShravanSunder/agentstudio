@@ -8,7 +8,7 @@ package final class WorkspaceDrawerCursorAtom {
 
     private var storedExpandedDrawerId: UUID?
 
-    init(expandedDrawerId: UUID? = nil) {
+    package init(expandedDrawerId: UUID? = nil) {
         storedExpandedDrawerId = expandedDrawerId
     }
 

@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioTestSupport
 
 extension WebKitSerializedTests.BridgeWebKitSpikeTests {
     @Test("packaged worker proves product 128 KiB POST timing and abort-causal teardown")

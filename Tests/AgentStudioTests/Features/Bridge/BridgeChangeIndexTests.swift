@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeChangeIndexTests {
     @Test("change index records endpoints checkpoints package revisions and generation")

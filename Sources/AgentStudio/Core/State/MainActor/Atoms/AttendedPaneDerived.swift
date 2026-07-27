@@ -11,7 +11,7 @@ package struct AttendedPaneDerived {
     private let windowLifecycle: WindowLifecycleAtom
     private let managementLayer: ManagementLayerAtom
 
-    init(
+    package init(
         tabLayout: WorkspaceTabLayoutAtom,
         windowLifecycle: WindowLifecycleAtom,
         managementLayer: ManagementLayerAtom

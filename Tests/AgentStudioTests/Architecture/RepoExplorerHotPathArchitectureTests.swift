@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("RepoExplorerHotPathArchitectureTests")
 struct RepoExplorerHotPathArchitectureTests {
     @Test("RepoExplorer model files are pure and do not read atoms")

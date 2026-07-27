@@ -1,7 +1,9 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @MainActor
 private final class FakeSurfaceActionPerformer: TerminalSurfaceActionPerforming {

@@ -3,6 +3,9 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioEditorChooser
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)

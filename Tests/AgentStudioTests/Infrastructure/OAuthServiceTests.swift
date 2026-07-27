@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 /// Tests for OAuthService configuration, URL construction, and error types.
 /// Note: Actual ASWebAuthenticationSession flows require a running app

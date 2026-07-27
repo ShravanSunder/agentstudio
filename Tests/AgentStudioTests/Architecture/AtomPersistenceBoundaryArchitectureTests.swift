@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("Atom persistence boundary architecture")
 struct AtomPersistenceBoundaryArchitectureTests {
     @Test("AtomRegistry contains no persistence revision authority")

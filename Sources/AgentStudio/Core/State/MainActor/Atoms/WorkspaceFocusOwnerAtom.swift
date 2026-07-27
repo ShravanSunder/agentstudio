@@ -12,6 +12,8 @@ package enum WorkspaceFocusOwner: Equatable, Sendable {
 package final class WorkspaceFocusOwnerAtom {
     package private(set) var owner: WorkspaceFocusOwner = .mainPane(paneId: nil)
 
+    package init() {}
+
     package func focusMainPane(_ paneId: UUID?) {
         owner = .mainPane(paneId: paneId)
     }

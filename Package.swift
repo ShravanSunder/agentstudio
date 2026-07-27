@@ -277,6 +277,173 @@ let package = Package(
                 .swiftLanguageMode(.v6)
             ]
         ),
+        .target(
+            name: "AgentStudioTestSupport",
+            dependencies: [
+                "AgentStudioCore"
+            ],
+            path: "Tests/AgentStudioTests/TestSupport",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioInfrastructureTests",
+            dependencies: [
+                "AgentStudioInfrastructure",
+                .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "Metrics", package: "swift-metrics"),
+                .product(name: "Tracing", package: "swift-distributed-tracing"),
+                .product(name: "AgentStudioGit", package: "agentstudio-git"),
+            ],
+            path: "Tests/AgentStudioTests/Infrastructure",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioSharedComponentsTests",
+            dependencies: [
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+            ],
+            path: "Tests/AgentStudioTests/SharedComponents",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioCoreTests",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+                "AgentStudioTestSupport",
+                .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "AgentStudioGit", package: "agentstudio-git"),
+            ],
+            path: "Tests/AgentStudioTests/Core",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioBridgeTests",
+            dependencies: [
+                "AgentStudioBridge",
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioProgrammaticControl",
+                "AgentStudioSharedComponents",
+                "AgentStudioTestSupport",
+                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
+                .product(name: "AgentStudioGit", package: "agentstudio-git"),
+            ],
+            path: "Tests/AgentStudioTests/Features/Bridge",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioCodeViewerTests",
+            dependencies: [
+                "AgentStudioCodeViewer",
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+                "AgentStudioTestSupport",
+            ],
+            path: "Tests/AgentStudioTests/Features/CodeViewer",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioCommandBarTests",
+            dependencies: [
+                "AgentStudioCommandBar",
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+                "AgentStudioTestSupport",
+            ],
+            path: "Tests/AgentStudioTests/Features/CommandBar",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioEditorChooserTests",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioEditorChooser",
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+                "AgentStudioTestSupport",
+            ],
+            path: "Tests/AgentStudioTests/Features/EditorChooser",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioInboxNotificationTests",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInboxNotification",
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+                "AgentStudioTestSupport",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            path: "Tests/AgentStudioTests/Features/InboxNotification",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioRepoExplorerTests",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioRepoExplorer",
+                "AgentStudioSharedComponents",
+                "AgentStudioTestSupport",
+            ],
+            path: "Tests/AgentStudioTests/Features/RepoExplorer",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioTerminalTests",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+                "AgentStudioTerminal",
+                "AgentStudioTestSupport",
+                "GhosttyKit",
+            ],
+            path: "Tests/AgentStudioTests/Features/Terminal",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioWebviewTests",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+                "AgentStudioTestSupport",
+                "AgentStudioWebview",
+            ],
+            path: "Tests/AgentStudioTests/Features/Webview",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
         .testTarget(
             name: "AgentStudioIPCTransportTests",
             dependencies: [
@@ -327,7 +494,20 @@ let package = Package(
             dependencies: [
                 "AgentStudio",
                 "AgentStudioAppIPC",
+                "AgentStudioBridge",
+                "AgentStudioCodeViewer",
+                "AgentStudioCommandBar",
+                "AgentStudioCore",
+                "AgentStudioEditorChooser",
+                "AgentStudioInboxNotification",
+                "AgentStudioInfrastructure",
                 "AgentStudioProgrammaticControl",
+                "AgentStudioRepoExplorer",
+                "AgentStudioSharedComponents",
+                "AgentStudioTerminal",
+                "AgentStudioTestSupport",
+                "AgentStudioWebview",
+                "GhosttyKit",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
@@ -340,6 +520,13 @@ let package = Package(
             exclude: [
                 "Fixtures/AtomLibCompileFailures",
                 "Fixtures/SwiftLintLegacyCustomRules",
+            ],
+            sources: [
+                "App",
+                "Architecture",
+                "Helpers",
+                "Integration",
+                "Scripts",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)

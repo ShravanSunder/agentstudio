@@ -10,7 +10,7 @@ package struct Drawer: Codable, Hashable, Sendable {
     /// Whether the drawer panel is expanded (visible) or collapsed.
     package var isExpanded: Bool
 
-    init(
+    package init(
         drawerId: UUID = UUID(),
         parentPaneId: UUID,
         paneIds: [UUID] = [],

@@ -1,4 +1,4 @@
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @MainActor
 final class AvailabilityReviewPublicationProvider {

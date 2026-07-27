@@ -2,7 +2,7 @@ import AgentStudioGit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeGitReviewBoundaryTests {
     @Test("revision not-found becomes an unavailable endpoint")

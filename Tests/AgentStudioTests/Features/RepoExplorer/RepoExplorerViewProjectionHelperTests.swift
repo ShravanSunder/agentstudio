@@ -1,7 +1,17 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioRepoExplorer
+
+@MainActor
+func makeRepoExplorerTestOcticonLoader(from testFilePath: String = #filePath) -> OcticonLoader {
+    OcticonLoader(
+        resourceRootURL: testAgentStudioResourceRootURL(from: testFilePath)
+    )
+}
 
 @MainActor
 private final class BridgeAttendanceSnapshotReadRecorder {
@@ -37,10 +47,10 @@ struct RepoExplorerViewProjectionHelperTests {
         )
         let view = RepoExplorerView(
             store: store,
-            octiconLoader: makeTestOcticonLoader(),
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
             repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
             bridgeAttendanceSnapshot: snapshotRecorder.readSnapshot,
-            commandDispatcher: FakeAppCommandDispatcher(),
+            commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
             onSetVisibilityMode: { _ in },
             onSetSortOrder: { _ in },
             onRefreshWorktrees: {},

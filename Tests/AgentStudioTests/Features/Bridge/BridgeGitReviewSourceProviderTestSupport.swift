@@ -1,7 +1,7 @@
 import AgentStudioGit
 import Foundation
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct GitContentLocator: Hashable, Sendable {
     let target: GitDiffTarget

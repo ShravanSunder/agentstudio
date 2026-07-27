@@ -1,7 +1,9 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeWorktreeFileSourceProviderTests {
     @Test("tracked paths remain visible through ignored ancestor fallback")

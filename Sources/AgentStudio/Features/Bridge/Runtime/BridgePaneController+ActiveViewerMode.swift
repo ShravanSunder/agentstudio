@@ -92,7 +92,7 @@ extension BridgePaneController {
         }
     }
 
-    func setActiveViewerModeAcceptedSignalForExplicitReviewRequestWithoutAdmissionCheck(
+    package func setActiveViewerModeAcceptedSignalForExplicitReviewRequestWithoutAdmissionCheck(
         streamId: String,
         generation: Int
     ) {

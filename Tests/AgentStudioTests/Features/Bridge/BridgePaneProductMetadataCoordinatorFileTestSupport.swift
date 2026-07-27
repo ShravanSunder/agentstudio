@@ -1,6 +1,7 @@
+import AgentStudioCore
 import Foundation
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing {
     private var didFinishOpen = false

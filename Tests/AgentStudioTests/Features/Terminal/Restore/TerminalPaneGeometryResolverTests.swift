@@ -1,21 +1,25 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import CoreGraphics
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @Suite(.serialized)
 struct TerminalPaneGeometryResolverTests {
     @Test
-    func geometryResolver_derivesExactPaneFrames_fromWindowAndLayout() {
+    func geometryResolver_derivesExactPaneFrames_fromWindowAndLayout() throws {
         let paneA = UUID()
         let paneB = UUID()
-        let layout = Layout(
-            panes: [
-                .init(paneId: paneA, ratio: 0.5),
-                .init(paneId: paneB, ratio: 0.5),
-            ],
-            dividerIds: [UUID()]
+        let layout = try #require(
+            Layout(paneId: paneA).inserting(
+                paneId: paneB,
+                at: paneA,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
         )
 
         let containerWidth: CGFloat = 1000
@@ -91,15 +95,17 @@ struct TerminalPaneGeometryResolverTests {
     }
 
     @Test
-    func geometryResolver_usesProvidedCollapsedPaneWidth_forMinimizedPanes() {
+    func geometryResolver_usesProvidedCollapsedPaneWidth_forMinimizedPanes() throws {
         let paneA = UUID()
         let paneB = UUID()
-        let layout = Layout(
-            panes: [
-                .init(paneId: paneA, ratio: 0.5),
-                .init(paneId: paneB, ratio: 0.5),
-            ],
-            dividerIds: [UUID()]
+        let layout = try #require(
+            Layout(paneId: paneA).inserting(
+                paneId: paneB,
+                at: paneA,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
         )
 
         let resolved = TerminalPaneGeometryResolver.resolveFrames(

@@ -1,6 +1,7 @@
+import AgentStudioCore
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @Suite("TerminalGeometryDiagnostics")
 @MainActor

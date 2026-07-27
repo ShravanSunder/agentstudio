@@ -1,8 +1,10 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import CryptoKit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge pane product File metadata source")
 struct BridgePaneProductFileMetadataSourceTests {

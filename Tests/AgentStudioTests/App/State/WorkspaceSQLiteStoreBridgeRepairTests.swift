@@ -2,6 +2,10 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("WorkspaceSQLiteStoreBridgePersistenceTests", .serialized)

@@ -2,6 +2,10 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCommandBar
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("Command spec contracts")

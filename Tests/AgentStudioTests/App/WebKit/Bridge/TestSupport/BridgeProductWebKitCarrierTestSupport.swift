@@ -1,9 +1,11 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import Foundation
 import SwiftUI
 import WebKit
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeProductWebKitCarrierPaintCorrelation: Decodable, Equatable, Sendable {
     let descriptorId: String

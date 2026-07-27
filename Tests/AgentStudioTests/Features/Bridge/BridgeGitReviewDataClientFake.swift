@@ -1,4 +1,4 @@
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 actor BridgeGitReviewDataClientFake: BridgeGitReviewDataClient {
     private let comparison: BridgeEndpointComparison?

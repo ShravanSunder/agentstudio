@@ -1,8 +1,11 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import GRDB
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 @MainActor
 @Suite("InboxNotificationStore")
@@ -16,7 +19,24 @@ struct InboxNotificationStoreTests {
         }
         return InboxNotificationSQLiteDatastoreAdapter(
             workspaceId: workspaceId,
-            datastore: try workspaceSQLiteDatastore(from: localBackend)
+            datastore: try makeWorkspaceSQLiteDatastore(from: localBackend)
+        )
+    }
+
+    private func makeWorkspaceSQLiteDatastore(
+        from localBackend: WorkspaceLocalSQLiteStoreBackend
+    ) throws -> WorkspaceSQLiteDatastore {
+        let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
+        try coreRepository.migrate()
+        return WorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            makeLocalRepository: { workspaceId in
+                try localBackend.repository(for: workspaceId)
+            },
+            makeLocalRestoreRepository: { workspaceId in
+                try localBackend.restoreRepository(for: workspaceId)
+            }
         )
     }
 

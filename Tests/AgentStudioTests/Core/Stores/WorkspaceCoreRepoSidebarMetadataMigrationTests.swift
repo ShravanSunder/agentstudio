@@ -2,7 +2,8 @@ import Foundation
 import GRDB
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @Suite("WorkspaceCore repo sidebar metadata migration")
 struct WorkspaceCoreRepoSidebarMetadataMigrationTests {

@@ -1,6 +1,7 @@
+import AgentStudioTestSupport
 import Foundation
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 actor CoordinatorTrackingReviewMetadataSource: BridgePaneProductReviewMetadataProducing {
     private let source = BridgePaneProductReviewMetadataSource()

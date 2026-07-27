@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
 
 @MainActor
 @Suite("SidebarSurfaceHost", .serialized)

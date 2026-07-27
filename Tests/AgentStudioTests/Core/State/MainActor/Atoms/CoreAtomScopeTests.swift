@@ -1,6 +1,7 @@
+import AgentStudioTestSupport
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 actor BackgroundAtomMutator {
     func paneCount() async -> Int {

@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("Prepared Bridge mount topology boundary")
 struct PreparedBridgeMountTopologyBoundaryTests {
     @Test("prepared Bridge provider and mount path use only accepted pane values")

@@ -39,6 +39,8 @@ package final class WindowLifecycleAtom {
         isLaunchLayoutSettled && !terminalContainerBounds.isEmpty
     }
 
+    package init() {}
+
     /// True only when a registered workspace window is currently key.
     /// `false` intentionally conflates "no key window", "foreign key window",
     /// and "unregistered key window" because `KeyboardOwnerDerived` only needs

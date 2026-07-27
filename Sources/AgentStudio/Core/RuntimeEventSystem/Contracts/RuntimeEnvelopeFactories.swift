@@ -1,7 +1,7 @@
 import Foundation
 
 extension SystemEnvelope {
-    static func test(
+    package static func test(
         event: SystemScopedEvent,
         source: SystemSource = .builtin(.coordinator),
         seq: UInt64 = 1,
@@ -27,7 +27,7 @@ extension SystemEnvelope {
 }
 
 extension WorktreeEnvelope {
-    static func test(
+    package static func test(
         event: WorktreeScopedEvent,
         repoId: UUID = UUID(),
         worktreeId: UUID? = UUID(),
@@ -58,7 +58,7 @@ extension WorktreeEnvelope {
 }
 
 extension PaneEnvelope {
-    static func test(
+    package static func test(
         event: PaneRuntimeEvent,
         paneId: PaneId = PaneId.generateUUIDv7(),
         paneKind: PaneContentType = .terminal,

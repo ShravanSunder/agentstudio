@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 /// Drawer source-aware filtering. The drawer reuses the universal rule
 /// from `PaneDragCoordinatorSourceFilterTests` for in-row targets, plus

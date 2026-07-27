@@ -1,7 +1,7 @@
 import Foundation
 
-enum FilesystemTestGitRepo {
-    static func create(named prefix: String) throws -> URL {
+package enum FilesystemTestGitRepo {
+    package static func create(named prefix: String) throws -> URL {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appending(path: "tmp")
             .appending(path: "filesystem-git-tests")
@@ -18,7 +18,7 @@ enum FilesystemTestGitRepo {
         return repoURL
     }
 
-    static func seedTrackedAndUntrackedChanges(at repoURL: URL) throws {
+    package static func seedTrackedAndUntrackedChanges(at repoURL: URL) throws {
         let trackedFileURL = repoURL.appending(path: "tracked.txt")
         let untrackedFileURL = repoURL.appending(path: "untracked.txt")
 
@@ -30,12 +30,12 @@ enum FilesystemTestGitRepo {
         try "new file\n".write(to: untrackedFileURL, atomically: true, encoding: .utf8)
     }
 
-    static func destroy(_ repoURL: URL) {
+    package static func destroy(_ repoURL: URL) {
         try? FileManager.default.removeItem(at: repoURL)
     }
 
     @discardableResult
-    static func runGit(at repoURL: URL, args: [String]) throws -> String {
+    package static func runGit(at repoURL: URL, args: [String]) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git", "-C", repoURL.path] + args

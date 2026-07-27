@@ -5,12 +5,12 @@ import Observation
 @Observable
 package final class WorkspaceWindowMemoryAtom {
     package var sidebarWidth: CGFloat { storedSidebarWidth }
-    var windowFrame: CGRect? { storedWindowFrame }
+    package var windowFrame: CGRect? { storedWindowFrame }
 
     private var storedSidebarWidth: CGFloat
     private var storedWindowFrame: CGRect?
 
-    init(sidebarWidth: CGFloat = 250, windowFrame: CGRect? = nil) {
+    package init(sidebarWidth: CGFloat = 250, windowFrame: CGRect? = nil) {
         storedSidebarWidth = sidebarWidth
         storedWindowFrame = windowFrame
     }

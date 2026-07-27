@@ -3,6 +3,10 @@ import Testing
 import WebKit
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 /// Integration tests for the current Bridge product-session path.
 ///

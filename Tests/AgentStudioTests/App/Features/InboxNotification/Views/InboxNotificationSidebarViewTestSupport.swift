@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 func makeSourceNotification(
     paneId: UUID = UUID(),

@@ -1,7 +1,7 @@
 import Foundation
 
 extension RuntimeEnvelope {
-    var source: EventSource {
+    package var source: EventSource {
         switch self {
         case .system(let envelope):
             return .system(envelope.source)

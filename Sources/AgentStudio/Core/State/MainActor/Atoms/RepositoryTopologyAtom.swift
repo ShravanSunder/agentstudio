@@ -16,6 +16,8 @@ package final class RepositoryTopologyAtom {
     @ObservationIgnored private var worktreesByID: [UUID: Worktree] = [:]
     @ObservationIgnored private var watchedPathsByID: [UUID: WatchedPath] = [:]
 
+    package init() {}
+
     private struct WorktreePathIndexEntry {
         let repoId: UUID
         let worktreeId: UUID

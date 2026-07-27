@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @Suite
 struct ControlTooltipResolverTests {
