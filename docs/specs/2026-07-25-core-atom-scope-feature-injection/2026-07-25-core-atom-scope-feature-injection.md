@@ -1026,10 +1026,11 @@ not a compatibility API:
   fresh exit-test child process before any fallback installation;
 - the later target split must not copy independent installation guards into
   multiple test modules while SwiftPM links them into one default package test
-  product. Its plan must designate one package-wide test-support owner, or
-  first prove that the realized test products run in isolated processes;
-- this precursor does not introduce an `AgentStudioTestSupport` target because
-  the current monolithic test helper is already the one process-wide owner;
+  product. The parent modularization specification assigns that ownership to
+  the test-only `AgentStudioTestSupport` regular target;
+- this precursor does not introduce `AgentStudioTestSupport` because its
+  current monolithic test helper remains the one process-wide owner until the
+  target split;
 - existing `installTestAtomRegistryIfNeeded`,
   `makeInstalledTestAtomRegistry`, `withTestAtomRegistry`,
   `withAsyncTestAtomRegistry`, and direct `AtomScope.$override` call sites are
@@ -1359,10 +1360,9 @@ The parent modularization specification continues to own:
 
 The parent modularization specification was synchronized with this Core-owned
 contract on 2026-07-26 and no longer assigns product lookup ownership to
-Infrastructure. Planning and implementation of this bounded precursor may
-proceed after this specification passes renewed review. Planning the full
-SwiftPM target split remains blocked until the parent resolves its remaining
-accepted non-state review findings.
+Infrastructure. This bounded precursor has landed on the stacked base, and the
+parent now resolves the remaining non-state ownership decisions required to
+plan the full SwiftPM target split.
 
 ## Explicit Non-Goals
 

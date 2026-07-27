@@ -1,9 +1,9 @@
 # AgentStudio Coarse SwiftPM Target Modularization
 
 Date: 2026-07-23
-Updated: 2026-07-26
-Status: revised draft; atom contract reviewed and synchronized
-Source version: `fix-tests` at `5a7bd64690a3566dcb57fdf4d5a6dd34f9ed056c`
+Updated: 2026-07-27
+Status: planning-ready; one focused review cycle incorporated
+Source version: `fix-tests` precursor at `daadf1a1135095749bbb4404008c6b94161ac915`
 
 ## Decision
 
@@ -14,7 +14,9 @@ Keep one Swift package and create:
 - one coarse `AgentStudioCore` target;
 - one target for each existing feature;
 - the existing `AgentStudio` executable as the only App/composition target;
-- one paired test target for every source target;
+- one test-only `AgentStudioTestSupport` regular target shared by the package
+  test process;
+- one paired test target for every product source target;
 - executable-level integration tests for assembled-app behavior.
 
 `AgentStudio` continues to own every `App/**` subfolder, `main.swift`,
@@ -110,7 +112,9 @@ AgentStudio executable
 ```
 
 No Feature depends on another Feature. Infrastructure depends on no internal
-target.
+target. `AgentStudioTestSupport` is outside the product DAG: it depends only on
+`AgentStudioCore`, is imported only by test targets, and is not linked into the
+executable.
 
 The Feature targets are:
 
@@ -131,11 +135,12 @@ graph remain unchanged.
 
 | Target | Owns |
 | --- | --- |
-| `AgentStudioInfrastructure` | Domain-agnostic utilities, generic integrations, shared presentation tokens/policies, and generic atom primitives that name no product state |
+| `AgentStudioInfrastructure` | Domain-agnostic utilities, generic integrations, shared presentation tokens/policies, generic atom primitives that name no product state, and the narrow telemetry wire schemas validated by its exporters |
 | `AgentStudioSharedComponents` | Stateless reusable UI and reusable interaction primitives |
 | `AgentStudioCore` | Shared workspace models, state, persistence, workspace UI, contracts used by multiple features, and the concrete `CoreAtoms` / `CoreAtomScope` typed access surface |
 | `AgentStudio<Feature>` | One feature's models, state, behavior, persistence, and UI |
 | `AgentStudio` | All App subfolders, lifecycle, host assembly, cross-feature composition, the non-ambient concrete root `AtomRegistry`, resources, and distribution wiring |
+| `AgentStudioTestSupport` | Test-only Core fixtures, the single process-wide Core fallback installer, and scoped Core override helpers; no product behavior or App-root fixture |
 
 Core intentionally remains coarse even though it mixes domain, state,
 persistence, and shared workspace UI. This avoids introducing speculative
@@ -192,13 +197,73 @@ AgentStudio executable
 AgentStudioCore
   |
   +-- owns CoreAtoms + CoreAtomScope
-         |
-         +-- typed Core lookup: KeyPath<CoreAtoms, Value>
+  |      |
+  |      +-- typed Core lookup: KeyPath<CoreAtoms, Value>
+  |
+  +-- owns shared command, shortcut, and App-event vocabulary
+  +-- owns Feature-free AppCommandDispatching contract
 
 AgentStudioInfrastructure
   |
-  +-- owns generic atom primitives only
+  +-- owns generic atom primitives
+  +-- owns narrow telemetry wire schemas validated by its exporters
+
+Package test process
+  |
+  +-- paired test targets ------> AgentStudioTestSupport
+                                     |
+                                     +-- AgentStudioCore
 ```
+
+### Command, shortcut, and event vocabulary
+
+Core owns the command and shortcut vocabulary consumed by App and Features:
+
+- `AppCommand`, `SearchItemType`, and Feature-free `AppCommandSpec`
+  presentation metadata: shortcut, label, icon, help, target applicability,
+  focus visibility, grouping, priority, and command-bar visibility;
+- `AppShortcut`, `AppShortcutSpec`, `ShortcutTrigger`, `ShortcutContext`, and
+  the shared shortcut-dispatch policy;
+- `AppEvent` and `AppEventBus`, which form a shared runtime event contract.
+
+Core also owns one `@MainActor AppCommandDispatching` protocol. It is the
+Feature-facing command seam and covers only the operations Features already
+need:
+
+- read the Feature-free command presentation catalog;
+- dispatch a contextual or UUID-targeted `AppCommand`;
+- query contextual or targeted availability;
+- dispatch explicit pane extraction and pane-move operations;
+- query the Core-owned `BridgePaneCommandTarget`.
+
+The App-owned concrete `AppCommandDispatcher` conforms to this protocol. App
+injects `any AppCommandDispatching` into CommandBar, Terminal, RepoExplorer,
+and InboxNotification entry points that currently reference
+`AppCommandDispatcher` or `.shared`; no Feature references the concrete
+dispatcher singleton after the cutover.
+
+App owns execution and host adaptation:
+
+- `WorkspaceCommandHandling` and `ShellCommandHandling`;
+- `AppCommandExecutionRequest`, `AppCommandExecutionContext`, and
+  `AppCommandExecutionArguments`;
+- decoding raw IPC arguments into concrete Feature-owned value types;
+- AppKit menu/key-binding adaptation and concrete command dispatch.
+
+IPC metadata is not part of Core's `AppCommandSpec`. App owns a separate
+`AppCommandIPCSpec` overlay keyed by `AppCommand`, containing
+`AppCommandIPCExposure`, `[IPCCommandArgumentSchema]`, argument decoding, and
+Feature enum-derived allowed values. Feature-free presentation for enum-backed
+commands is selected by the `AppCommand` case and contains no concrete Feature
+enum value.
+
+The Core protocol deliberately cannot carry `AppCommandExecutionRequest` or a
+Feature-owned enum. RepoExplorer receives consumer-owned typed callbacks for
+visibility mode, sort order, and refresh. InboxNotification receives
+consumer-owned typed callbacks for row-state filter and content mode. App
+implements those callbacks by constructing its Feature-typed execution
+requests. This preserves compile-time typing without a command container,
+resolver, service locator, or generalized dependency-injection system.
 
 ### State precursor
 
@@ -291,6 +356,27 @@ consumer-owned read-only contracts defined by the state precursor.
 Pure derivation shared by Core and a Feature belongs in Core rather than being
 called through a Feature view type.
 
+### Sibling-Feature capability seams
+
+Features do not import sibling Features. The known capability edges close by
+moving only their shared seam to an existing lower owner:
+
+- the generic fuzzy-match primitive used by CommandBar and Webview belongs in
+  Infrastructure; CommandBar retains its feature-specific search documents,
+  sessions, filtering, and ranking;
+- the default `WebPage.DialogPresenting` conformance used by Bridge and Webview
+  belongs in Infrastructure; each Feature retains its navigation and product
+  behavior;
+- `BridgePaneCommandCandidate`, `BridgePaneCommandResolution`,
+  `BridgePaneCommandTarget`, and the pure reuse-selection resolver belong in
+  Core because they select among Core-owned pane identities for App,
+  CommandBar, and RepoExplorer. Its contextual label mapping uses the
+  Core-owned `AppCommand` vocabulary; the Core seam must not name the
+  Bridge-owned `BridgeProductSurface`.
+
+These corrections introduce no Feature registry, capability broker, or new
+shared target.
+
 ### Resources
 
 All resources and `Bundle.module` discovery remain executable-owned. The
@@ -311,15 +397,57 @@ This preserves:
 - Info.plist, entitlements, app icons, zmx packaging, signing, and release
   assembly.
 
+### Telemetry wire schema
+
+Infrastructure owns the controlled telemetry wire vocabulary required by its
+OTLP projection and metrics exporter:
+
+- `BridgeTelemetryPlane`;
+- `BridgeTelemetryPriority`;
+- `BridgeTelemetrySlice`;
+- `BridgeTelemetryDropReason`;
+- one immutable `BridgeTelemetryWireSchema`.
+
+`BridgeTelemetryWireSchema` is the single owner of raw event names, required
+attribute keys, allowed controlled string values, allowed numeric and Boolean
+keys, and event-specific phase/plane/priority/slice/transport expectations. Its
+Feature-free validation entry point accepts only the event name, optional
+duration, and string/numeric/Boolean attribute dictionaries and returns an
+optional `BridgeTelemetryDropReason`; it does not accept
+`BridgeTelemetrySample`, scope, trace context, or a runtime object. Its nested
+event-expectation and attribute-key value types reference only Swift primitives
+and the four Infrastructure-owned wire enums. Both Infrastructure projection
+and Bridge validation consume that schema, so the current raw-string allowlists
+are not duplicated.
+
+Bridge retains `BridgeTelemetryEventValidator`,
+`BridgeTelemetryEventValidationResult`, `BridgeTelemetrySample`,
+`BridgeTelemetryScope`, `BridgeTelemetryScopeGate`, `BridgeTraceContext`, and
+all runtime enablement, admission, aggregation, orchestration, UI, and product
+state. The validator first applies the Bridge-owned scope gate, then validates
+the sample's wire fields against `BridgeTelemetryWireSchema`.
+
+This split removes the Infrastructure-to-Bridge edge without moving
+`AgentStudioTraceRuntime` or Bridge runtime behavior into Infrastructure and
+without introducing an observability target or injected validator registry.
+
 ### Access control
 
 Cross-target declarations use Swift `package` access by default. `public` is
 reserved for APIs intentionally consumed outside this package. The split must
 not broadly promote internal declarations to `public`.
 
+### Delivery boundary
+
+Move-heavy work has one required history boundary: create the exact move
+inventory, perform only `git mv` operations, verify the move-only diff reports
+`R100`, and commit it before any import, access-control, manifest, or semantic
+edit. All semantic changes land in later commits. Other implementation ordering
+belongs to the plan.
+
 ## Test Boundary
 
-Each source target has one paired test target:
+Each product source target has one paired test target:
 
 ```text
 AgentStudioInfrastructureTests -> AgentStudioInfrastructure
@@ -330,8 +458,22 @@ AgentStudioBridgeTests -> AgentStudioBridge
 AgentStudioTerminalTests -> AgentStudioTerminal
 ```
 
-A module test may depend on its owner and permitted lower targets. It must not
-depend on:
+`AgentStudioTestSupport` is a test-only regular target, not a product source
+target, and therefore is the sole exception to paired-test-target symmetry. It
+depends only on `AgentStudioCore` and owns:
+
+- the shared default `CoreAtoms` fixture;
+- the single process-wide fallback-installation guard;
+- synchronous and asynchronous task-local Core override helpers.
+
+Core tests, Feature tests, and executable integration tests that use Core scope
+may depend on `AgentStudioTestSupport`; Infrastructure and SharedComponents
+tests do not. No paired test target owns or copies another fallback installer.
+The default aggregate SwiftPM test product remains mandatory; isolated
+per-target test products are not part of this design.
+
+A module test may depend on its owner and permitted lower targets. A Core-scope
+consumer may also depend on `AgentStudioTestSupport`. It must not depend on:
 
 - the `AgentStudio` executable;
 - an unrelated Feature;
@@ -352,10 +494,7 @@ State tests follow the concrete owner:
 - InboxNotification tests supply deterministic Terminal pinned-state facts;
 - an App-owned factory constructs the complete `AtomRegistry`; Swift Testing
   exit tests prove exact App production installation and setup preconditions in
-  fresh child processes;
-- the target-split plan must designate one package-wide test-support owner while
-  SwiftPM uses its default aggregate test product, or prove separate isolated
-  test products before permitting per-target installers.
+  fresh child processes.
 
 The current shared test-registry seam has 112 caller files outside its helper
 definition when counting `installTestAtomRegistryIfNeeded`,
@@ -377,7 +516,7 @@ same-package `swift test --filter` still compiles the aggregate test product.
 
 | ID | Requirement |
 | --- | --- |
-| TM-01 | AgentStudio remains one package with the target set defined in this spec. |
+| TM-01 | AgentStudio remains one package with the product target set defined in this spec plus the test-only `AgentStudioTestSupport` target. |
 | TM-02 | `AgentStudio` remains the only App executable and owns all App subfolders and resources. |
 | TM-03 | Core remains one coarse target; no App or Feature subtargets are introduced. |
 | TM-04 | The target graph is acyclic; Features do not import App or other Features; Infrastructure imports no internal target. |
@@ -388,9 +527,13 @@ same-package `swift test --filter` still compiles the aggregate test product.
 | TM-09 | Resources remain executable-owned and lower modules receive resource locations explicitly. |
 | TM-10 | IPC, GhosttyKit, zmx, BridgeWeb, persistence encodings, signing, debug/beta identity, and release behavior remain unchanged. |
 | TM-11 | Cross-target APIs prefer `package` access and receive no blanket `public` promotion. |
-| TM-12 | Every source target has a paired dependency-clean module test target; state tests construct only owner state and permitted lower fixtures using one package-test-process Core fallback plus task-local overrides, while isolated exit tests and executable integration prove production setup, the complete registry, and real cross-Feature wiring. |
+| TM-12 | Every product source target has a paired dependency-clean module test target. Core-scope test consumers may import the test-only `AgentStudioTestSupport`, which is the sole owner of the package-test-process Core fallback and task-local Core overrides; Infrastructure and SharedComponents tests do not import it. Isolated exit tests and executable integration prove production setup, the complete registry, and real cross-Feature wiring. |
 | TM-13 | Architecture documentation and lint agree with the compiler-visible graph. |
 | TM-14 | No performance improvement is claimed without representative before/after measurements, and representative hot-read and product-path performance must not regress beyond the repository's accepted comparator threshold across the realized module boundaries. |
+| TM-15 | Core owns shared command, shortcut, dispatch-policy, App-event, Feature-free presentation, and `AppCommandDispatching` vocabulary; App injects its concrete dispatcher, owns the IPC metadata overlay and Feature-typed execution, and supplies narrow typed Feature callbacks. |
+| TM-16 | The known sibling-Feature edges close through the three existing-owner seams named in this spec, without a Feature dependency, registry, broker, or new target. |
+| TM-17 | Infrastructure owns the complete Bridge wire vocabulary and one immutable schema consumed by exporters and Bridge validation; Bridge retains the validator, sample/scope/trace-context closure, runtime admission, and product state. |
+| TM-18 | Existing test-lane behavior remains equivalent after redistribution: the aggregate prebuild covers every paired test target, suite-name filters select the same WebKit/E2E/zmx lanes, and `--skip-build` cannot silently omit a test target. |
 
 ## Tradeoffs
 
@@ -411,6 +554,8 @@ Cost:
   explicit resource inputs;
 - owner-partitioning the shared state test fixture across 112 current caller
   files;
+- one test-only support target so aggregate test execution has exactly one Core
+  fallback installer;
 - moving seven concrete pane-host files to App while extracting four
   Feature-neutral declarations back to Core;
 - aggregate root test compilation remains;
@@ -447,6 +592,14 @@ The implementation plan must provide:
 - static proof that Infrastructure names no product state, Core names no
   Feature state, Features name no sibling Feature state, and lower targets
   contain no `KeyPath<AtomRegistry, ...>`;
+- static proof that Core command vocabulary and presentation contain no IPC
+  schema or concrete Feature-owned type, Features contain no concrete
+  `AppCommandDispatcher` reference, and App retains IPC metadata plus concrete
+  command execution;
+- static proof that Infrastructure telemetry types recursively reference no
+  Bridge-owned type, the OTLP projection uses `BridgeTelemetryWireSchema`, and
+  Bridge retains the complete validator/sample/scope/trace-context runtime
+  closure;
 - static proof that canonical Core and Feature atom storage exposes no external
   setter or writable binding;
 - architecture-lint good/bad fixtures that scope the canonical-mutation rule to
@@ -454,7 +607,11 @@ The implementation plan must provide:
   derived readers, and unrelated observable controllers;
 - representative target-level build proof;
 - module-test proof without App or sibling Feature dependencies, including the
-  112-caller test-fixture partition;
+  112-caller test-fixture partition and exactly one reachable fallback
+  installer in `AgentStudioTestSupport`;
+- test-lane parity proof that the aggregate prebuild includes every redistributed
+  test target and the existing suite-name filters execute the same serialized
+  and non-serialized lanes without silent under-selection;
 - executable integration proof for exact Core/Feature atom identity,
   cross-Feature state facts, settings persistence, pane hosting, and resource
   injection;
@@ -482,23 +639,17 @@ No proof layer may be weakened or relabeled to demonstrate a speed improvement.
 - CI/build-system redesign or caching infrastructure.
 - Persisted schema or product behavior changes.
 - IPC, vendor, signing, notarization, or release redesign.
-- Implementation order, commits, worker assignments, or exact commands.
+- Implementation order, worker assignments, or exact commands beyond the
+  required move-only `R100` commit before semantic edits.
 
-## Planning Gate and Remaining Review Work
+## Planning Readiness
 
-The atom/state text is synchronized, but its accepted review findings require
-renewed review before that boundary is closed. The bounded precursor may be
-planned and implemented independently after its own review passes. This parent
-modularization specification remains a revised draft and is not planning-ready.
-Before implementation planning it must independently resolve the remaining
-accepted non-atom review findings:
+The known state and non-state ownership decisions are explicit, and the single
+focused review cycle has been incorporated. Planning may proceed without
+reopening target granularity, state ownership, command dispatch, telemetry
+ownership, or package-wide test-support ownership.
 
-- command and shortcut vocabulary currently owned under App but consumed by
-  Core and Features;
-- existing sibling-Feature capability edges;
-- Infrastructure diagnostics that currently depend on Bridge telemetry types;
-- test-lane build and selection parity after test redistribution.
-
-The later plan must also inventory the substantial `package` annotation
-cutover, replicate Swift 6 language settings per target and test target, and
-measure release/runtime behavior across the realized module boundaries.
+The implementation plan must then inventory the substantial `package`
+annotation cutover, replicate Swift 6 language settings per target and test
+target, map every source and test file to its target, and measure
+release/runtime behavior across the realized module boundaries.
