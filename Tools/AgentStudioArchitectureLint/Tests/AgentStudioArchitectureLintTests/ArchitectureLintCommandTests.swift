@@ -45,6 +45,21 @@ struct ArchitectureLintCommandTests {
         #expect(result.output.contains("Core-owned presentation types"))
     }
 
+    @Test("relative single-file paths receive the same architecture classification")
+    func relativeSingleFilePathsReceiveArchitectureClassification() throws {
+        let badFixtureRoot = fixturePath("Bad")
+        let relativeFixture =
+            "Sources/AgentStudio/SharedComponents/BadRealizedModuleImport.swift"
+
+        let result = runCommand(
+            arguments: [relativeFixture],
+            workspaceRootPath: badFixtureRoot
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.output.contains("error: [agentstudio_import_direction]"))
+    }
+
     @Test("print rules exposes stable id and severity inventory")
     func printRulesExposesStableInventory() throws {
         let result = runCommand(arguments: ["--print-rules"])

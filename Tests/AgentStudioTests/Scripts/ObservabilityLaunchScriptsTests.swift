@@ -102,10 +102,33 @@ struct ObservabilityLaunchScriptsTests {
         #expect(testHelperScript.contains("recorded an issue"))
         #expect(testHelperScript.contains("grep -Eq \"unexpected signal code [0-9]+\" <<<\"$output\""))
         #expect(!testHelperScript.contains("echo \"$output\" | grep -Eq \"unexpected signal code [0-9]+\""))
-        #expect(
-            testHelperScript.contains(
-                "WebKitSerializedTests/BridgeTransportIntegrationTests/test_intakeSnapshotFrame_rendersReviewViewerShell"
-            ))
+        for liveBridgeTransportTest in [
+            "test_bridgeReady_gatesAndIsIdempotent",
+            "test_teardown_resetsBridgeReady",
+            "test_schemeHandler_servesPackagedReactApp",
+            "test_handleDiffCommandWithSmokeProvider_rendersReviewViewerShell",
+            "test_sourceBackedInitialReviewLoad_rendersReviewViewerShell",
+        ] {
+            #expect(
+                testHelperScript.contains(
+                    "WebKitSerializedTests/BridgeTransportIntegrationTests/\(liveBridgeTransportTest)"
+                ))
+        }
+        for staleWebKitFilter in [
+            "test_pushJSON_transportFailure_setsConnectionHealthError",
+            "test_requestWithId_emitsBridgeResponseEvent",
+            "test_schemeHandler_servesAppHtml",
+            "test_intakeSnapshotFrame_rendersReviewViewerShell",
+            "test_pushJSON_concurrentBurstDeliversOrderedPageEvents",
+            "test_contentFetch_traceparentHeaderReachesCustomSchemeHandler",
+            "test_contentFetch_realDiffHandlesResolveAndDoNotRejectThroughReviewViewer",
+            "WebKitSerializedTests/BridgeIntakeCarrierWebKitTests",
+            "WebKitSerializedTests/InboxPostHandlerTests",
+            "WebKitSerializedTests/InboxNotificationBridgeWebKitIntegrationTests",
+        ] {
+            #expect(!testHelperScript.contains(staleWebKitFilter))
+        }
+        #expect(testHelperScript.contains("No matching test cases were run"))
         #expect(!testHelperScript.contains("WebKitSerializedTests/WorkspaceSurfaceBridgeFilesystemRefreshTests"))
         #expect(testHelperScript.contains("WorkspaceSurfaceCoordinatorFilesystemSourceTests"))
         #expect(testHelperScript.contains("WebKitSerializedTests/BridgePaneControllerIPCProjectionTests"))

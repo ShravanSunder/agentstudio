@@ -17,7 +17,7 @@ struct SourceFileDiscovery {
             if isDirectory.boolValue {
                 files.append(contentsOf: try swiftFiles(inDirectory: root))
             } else if root.hasSuffix(".swift"), !shouldSkip(path: root) {
-                files.append(root)
+                files.append(URL(fileURLWithPath: root).standardizedFileURL.path)
             }
         }
         return files.sorted()

@@ -136,17 +136,10 @@ WebKitSerializedTests/BridgeTelemetryBootstrapDeliveryTests
 WebKitSerializedTests/BridgeProductReviewIntakeLockOrderTests
 WebKitSerializedTests/BridgeTransportIntegrationTests/test_bridgeReady_gatesAndIsIdempotent
 WebKitSerializedTests/BridgeTransportIntegrationTests/test_teardown_resetsBridgeReady
-WebKitSerializedTests/BridgeTransportIntegrationTests/test_pushJSON_transportFailure_setsConnectionHealthError
-WebKitSerializedTests/BridgeTransportIntegrationTests/test_requestWithId_emitsBridgeResponseEvent
-WebKitSerializedTests/BridgeTransportIntegrationTests/test_schemeHandler_servesAppHtml
-WebKitSerializedTests/BridgeTransportIntegrationTests/test_intakeSnapshotFrame_rendersReviewViewerShell
-WebKitSerializedTests/BridgeTransportIntegrationTests/test_pushJSON_concurrentBurstDeliversOrderedPageEvents
-WebKitSerializedTests/BridgeIntakeCarrierWebKitTests
-WebKitSerializedTests/BridgeTransportIntegrationTests/test_contentFetch_traceparentHeaderReachesCustomSchemeHandler
-WebKitSerializedTests/BridgeTransportIntegrationTests/test_contentFetch_realDiffHandlesResolveAndDoNotRejectThroughReviewViewer
+WebKitSerializedTests/BridgeTransportIntegrationTests/test_schemeHandler_servesPackagedReactApp
+WebKitSerializedTests/BridgeTransportIntegrationTests/test_handleDiffCommandWithSmokeProvider_rendersReviewViewerShell
+WebKitSerializedTests/BridgeTransportIntegrationTests/test_sourceBackedInitialReviewLoad_rendersReviewViewerShell
 WebKitSerializedTests/BridgeWebKitSpikeTests
-WebKitSerializedTests/InboxPostHandlerTests
-WebKitSerializedTests/InboxNotificationBridgeWebKitIntegrationTests
 WebKitSerializedTests/WebviewPaneControllerTests
 EOF
 }
@@ -230,7 +223,7 @@ swift_test_output_has_failures() {
   local output_file="$1"
 
   grep -Eq \
-    '(^|[[:space:]])(✘|✖)[[:space:]]|recorded an issue|failed after [0-9.]+ seconds with [0-9]+ issue\(s\)|Test run with .* failed after' \
+    '(^|[[:space:]])(✘|✖)[[:space:]]|recorded an issue|failed after [0-9.]+ seconds with [0-9]+ issue\(s\)|Test run with .* failed after|No matching test cases were run' \
     "$output_file"
 }
 

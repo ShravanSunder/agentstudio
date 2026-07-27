@@ -52,6 +52,7 @@ enum ArchitectureRuleRegistry {
         ForbiddenArchitectureMarkerRule(),
         GenericClockSleepRule(),
         TestTaskSleepRule(),
+        TestCoreAtomFallbackOwnershipRule(),
         TooltipSourceRule(),
         EventBusSubscriberPolicyRule(),
         TerminalLocalDispositionPublicationRule(),

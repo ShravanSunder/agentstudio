@@ -49,7 +49,16 @@ public struct ArchitectureLintCommand {
         }
 
         let roots = arguments.filter { !$0.hasPrefix("-") }
-        let discoveryRoots = roots.isEmpty ? ["Sources", "Tests"] : roots
+        let requestedRoots = roots.isEmpty ? ["Sources", "Tests"] : roots
+        let discoveryRoots = requestedRoots.map { root in
+            guard !root.hasPrefix("/") else {
+                return root
+            }
+            return URL(
+                fileURLWithPath: root,
+                relativeTo: URL(fileURLWithPath: workspaceRootPath, isDirectory: true)
+            ).standardizedFileURL.path
+        }
 
         do {
             let files = try SourceFileDiscovery(fileManager: fileManager)

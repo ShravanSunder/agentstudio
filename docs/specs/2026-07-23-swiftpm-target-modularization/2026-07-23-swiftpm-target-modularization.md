@@ -243,11 +243,14 @@ Core also owns one `@MainActor AppCommandDispatching` protocol. It is the
 Feature-facing command seam and covers only the operations Features already
 need:
 
-- read the Feature-free command presentation catalog;
 - dispatch a contextual or UUID-targeted `AppCommand`;
 - query contextual or targeted availability;
-- dispatch explicit pane extraction and pane-move operations;
+- dispatch explicit pane-move operations;
 - query the Core-owned `BridgePaneCommandTarget`.
+
+Features read the Feature-free presentation catalog directly from the
+Core-owned static `AppCommand` definitions; catalog lookup is not part of the
+dispatcher protocol.
 
 The App-owned concrete `AppCommandDispatcher` conforms to this protocol. App
 injects `any AppCommandDispatching` into CommandBar, Terminal, RepoExplorer,

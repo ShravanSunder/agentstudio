@@ -42,6 +42,15 @@ struct RuleParityTests {
         #expect(diagnostics.contains { $0.message.contains("concrete AppCommandDispatcher") })
     }
 
+    @Test("test Core atom fallback installation has one centralized owner")
+    func testCoreAtomFallbackInstallationHasOneCentralizedOwner() throws {
+        let diagnostics = try lintFixtureCorpus("Bad")
+            .filter { $0.ruleID == "agentstudio_test_core_atom_fallback_ownership" }
+
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics.first?.message.contains("TestAtomRegistry.swift") == true)
+    }
+
     @Test("import direction covers realized product and paired-test module boundaries")
     func importDirectionCoversRealizedProductAndPairedTestModuleBoundaries() throws {
         let diagnostics = try lintFixtureCorpus("Bad")
