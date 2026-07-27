@@ -2,7 +2,7 @@
 
 Date: 2026-07-23
 Updated: 2026-07-27
-Status: planning-ready; one focused review cycle incorporated
+Status: accepted; corrected ownership synchronized for plan update
 Source version: `fix-tests` precursor at `daadf1a1135095749bbb4404008c6b94161ac915`
 
 ## Decision
@@ -25,6 +25,12 @@ Core does not split into domain, state, persistence, or UI targets.
 
 This creates compiler-enforced ownership boundaries. It does not promise faster
 builds or tests until the resulting graph is measured.
+
+The obsolete Worktrunk integration is removed rather than assigned to a target.
+Its discovery, create, and remove operations have no production callers; the
+only production behavior is a startup installation offer. Future worktree
+product work uses the existing `agentstudio-git` library, but replacement
+worktree UX is outside this modularization.
 
 ## Review Map
 
@@ -59,7 +65,7 @@ The target graph must:
 - enforce Core/Feature/App dependency direction at compile time;
 - give every Feature and Core a dependency-clean test owner;
 - preserve product, persistence, vendor, resource, signing, and release
-  behavior;
+  behavior except for the explicitly retired Worktrunk startup offer;
 - avoid a granular Core or App redesign.
 
 The existing IPC source/test targets are the local pattern to reuse.
@@ -135,9 +141,9 @@ graph remain unchanged.
 
 | Target | Owns |
 | --- | --- |
-| `AgentStudioInfrastructure` | Domain-agnostic utilities, generic integrations, shared presentation tokens/policies, generic atom primitives that name no product state, and the narrow telemetry wire schemas validated by its exporters |
+| `AgentStudioInfrastructure` | Domain-agnostic utilities, generic integrations, shared presentation tokens/policies, generic atom primitives that name no product state, generic filesystem authority and runtime-delivery reporting, primitive trace storage, and the narrow telemetry wire schemas validated by its exporters |
 | `AgentStudioSharedComponents` | Stateless reusable UI and reusable interaction primitives |
-| `AgentStudioCore` | Shared workspace models, state, persistence, workspace UI, contracts used by multiple features, and the concrete `CoreAtoms` / `CoreAtomScope` typed access surface |
+| `AgentStudioCore` | Shared workspace models, state, persistence, workspace UI, product-specific pane-focus decisions, contracts used by multiple features, and the concrete `CoreAtoms` / `CoreAtomScope` typed access surface |
 | `AgentStudio<Feature>` | One feature's models, state, behavior, persistence, and UI |
 | `AgentStudio` | All App subfolders, lifecycle, host assembly, cross-feature composition, the non-ambient concrete root `AtomRegistry`, resources, and distribution wiring |
 | `AgentStudioTestSupport` | Test-only Core fixtures, the single process-wide Core fallback installer, and scoped Core override helpers; no product behavior or App-root fixture |
@@ -206,7 +212,14 @@ AgentStudioCore
 AgentStudioInfrastructure
   |
   +-- owns generic atom primitives
+  +-- owns generic filesystem authority and runtime-delivery reporting
+  +-- owns primitive trace storage
   +-- owns narrow telemetry wire schemas validated by its exporters
+
+AgentStudio executable
+  |
+  +-- owns Core-model -> primitive-trace projection
+  +-- owns concrete PaneFocus execution effects
 
 Package test process
   |
@@ -377,6 +390,55 @@ moving only their shared seam to an existing lower owner:
 These corrections introduce no Feature registry, capability broker, or new
 shared target.
 
+### Residual Infrastructure and Core ownership
+
+Infrastructure must compile without naming a Core product type. The known
+reverse edges close under existing owners:
+
+- `RuntimeDeliveryPerformanceReporter` is generic delivery instrumentation and
+  belongs in Infrastructure;
+- `FilesystemPathCanonicalizer`, `FilesystemSourceConfiguration`, and
+  `FilesystemSourceTypes` are dependency-free filesystem authority primitives
+  and belong in Infrastructure, allowing the existing scanner and executor
+  closure to remain there;
+- the primitive trace-identity store remains in Infrastructure, while the
+  conversion from Core `Repo`, `Pane`, and enrichment models into primitive
+  trace identities belongs in App.
+
+The complete `Infrastructure/PaneFocus` surface models Agent Studio workspace
+focus: terminal, Webview, Bridge, and CodeViewer focus, drawer selection,
+management mode, command routing, and keyboard decisions. Those pure
+product-specific decisions belong in Core. App retains `PaneFocusExecutor` and
+the concrete AppKit, window, responder, and Feature-runtime effects it applies.
+No focus target, protocol bridge, or generalized effects layer is introduced.
+
+Core-to-Feature reverse edges close without moving Feature types into Core:
+
+- Core calls the existing Core-owned `GitBranchStatus.status` directly;
+- Core persistence stores validated raw tokens instead of RepoExplorer or
+  Inbox enums;
+- App-owned `WorkspaceSettingsStore` maps those tokens to concrete Feature
+  enums and invokes named Feature atom mutations;
+- Inbox owns conversion between its claim-lane enum and Core storage tokens.
+
+### Retired Worktrunk integration
+
+The Worktrunk integration is deleted, not moved:
+
+- remove `Infrastructure/WorktrunkService.swift` and its two dedicated test
+  files;
+- remove the `.checkWorktrunkDependency` boot phase and dispatch;
+- remove the AppDelegate Homebrew installation alert, AppleScript invocation,
+  and copy-command path;
+- remove architecture documentation and lint fixtures that claim Worktrunk is
+  an owned runtime dependency.
+
+There is no manifest or Homebrew application dependency to replace. Agent
+Studio does not uninstall a user-installed `worktrunk` formula. Existing
+`agentstudio-git` worktree discovery, creation, removal, pruning, locking, and
+unlocking are the authority for future product work; this change adds no new
+worktree operation or wiring.
+
 ### Resources
 
 All resources and `Bundle.module` discovery remain executable-owned. The
@@ -442,8 +504,8 @@ not broadly promote internal declarations to `public`.
 Move-heavy work has one required history boundary: create the exact move
 inventory, perform only `git mv` operations, verify the move-only diff reports
 `R100`, and commit it before any import, access-control, manifest, or semantic
-edit. All semantic changes land in later commits. Other implementation ordering
-belongs to the plan.
+edit. Worktrunk deletion is not a move and therefore lands with later semantic
+changes. Other implementation ordering belongs to the plan.
 
 ## Test Boundary
 
@@ -496,13 +558,13 @@ State tests follow the concrete owner:
   exit tests prove exact App production installation and setup preconditions in
   fresh child processes.
 
-The current shared test-registry seam has 112 caller files outside its helper
+The current shared test-registry seam has 114 caller files outside its helper
 definition when counting `installTestAtomRegistryIfNeeded`,
 `makeInstalledTestAtomRegistry`, `withTestAtomRegistry`,
 `withAsyncTestAtomRegistry`, and direct `AtomScope.$override` use. The plan must
 partition those callers between Core-scope fixtures and complete App-root
 fixtures; this is a substantial mechanical migration, not a fixture rename.
-The current partition is 54 App, 18 Core, 36 Feature, and four integration
+The current partition is 55 App, 18 Core, 37 Feature, and four integration
 files.
 
 Tests requiring cross-feature composition, the root registry, application
@@ -529,11 +591,13 @@ same-package `swift test --filter` still compiles the aggregate test product.
 | TM-11 | Cross-target APIs prefer `package` access and receive no blanket `public` promotion. |
 | TM-12 | Every product source target has a paired dependency-clean module test target. Core-scope test consumers may import the test-only `AgentStudioTestSupport`, which is the sole owner of the package-test-process Core fallback and task-local Core overrides; Infrastructure and SharedComponents tests do not import it. Isolated exit tests and executable integration prove production setup, the complete registry, and real cross-Feature wiring. |
 | TM-13 | Architecture documentation and lint agree with the compiler-visible graph. |
-| TM-14 | No performance improvement is claimed without representative before/after measurements, and representative hot-read and product-path performance must not regress beyond the repository's accepted comparator threshold across the realized module boundaries. |
+| TM-14 | No performance improvement is claimed. The existing debug sidebar baseline/compare workload must show no regression beyond its accepted comparator threshold across the realized module boundaries, and the release/package build must pass. Debug workload evidence is not relabeled as release-runtime performance evidence, and no release-runtime speed claim is made. |
 | TM-15 | Core owns shared command, shortcut, dispatch-policy, App-event, Feature-free presentation, and `AppCommandDispatching` vocabulary; App injects its concrete dispatcher, owns the IPC metadata overlay and Feature-typed execution, and supplies narrow typed Feature callbacks. |
 | TM-16 | The known sibling-Feature edges close through the three existing-owner seams named in this spec, without a Feature dependency, registry, broker, or new target. |
 | TM-17 | Infrastructure owns the complete Bridge wire vocabulary and one immutable schema consumed by exporters and Bridge validation; Bridge retains the validator, sample/scope/trace-context closure, runtime admission, and product state. |
 | TM-18 | Existing test-lane behavior remains equivalent after redistribution: the aggregate prebuild covers every paired test target, suite-name filters select the same WebKit/E2E/zmx lanes, and `--skip-build` cannot silently omit a test target. |
+| TM-19 | Generic filesystem authority, runtime-delivery reporting, and primitive trace storage belong to Infrastructure; Core-model trace projection belongs to App; all product-specific PaneFocus decisions belong to Core while App retains concrete execution effects. |
+| TM-20 | The unused Worktrunk service, dedicated tests, startup dependency phase, installation prompt, and ownership documentation are removed without replacement wiring or uninstalling user software. |
 
 ## Tradeoffs
 
@@ -552,7 +616,7 @@ Cost:
 - relocation of known reverse-edge files;
 - one Core ambient atom graph, explicit App-to-Feature state wiring, and
   explicit resource inputs;
-- owner-partitioning the shared state test fixture across 112 current caller
+- owner-partitioning the shared state test fixture across 114 current caller
   files;
 - one test-only support target so aggregate test execution has exactly one Core
   fallback installer;
@@ -560,6 +624,7 @@ Cost:
   Feature-neutral declarations back to Core;
 - aggregate root test compilation remains;
 - Core remains a high-fan-out dependency.
+- the obsolete Worktrunk startup installation offer is intentionally removed.
 
 The coarse Core fan-out is accepted. It becomes a separate design concern only
 if measurements show it dominates downstream rebuild time or cannot remain
@@ -578,7 +643,8 @@ acyclic.
 ## Security and Runtime Invariants
 
 This design adds no authentication, authorization, parsing, network, subprocess,
-secret, or external-service surface.
+secret, or external-service surface. Removing Worktrunk also removes its unused
+CLI wrapper and startup Homebrew/AppleScript installation surface.
 
 Existing IPC authority, zmx isolation, resource integrity, signing,
 notarization, debug/beta identity, and release-channel separation remain
@@ -592,6 +658,13 @@ The implementation plan must provide:
 - static proof that Infrastructure names no product state, Core names no
   Feature state, Features name no sibling Feature state, and lower targets
   contain no `KeyPath<AtomRegistry, ...>`;
+- static proof that the generic filesystem and runtime-reporting primitives are
+  Infrastructure-owned, Core-model trace projection is App-owned, Core owns the
+  complete pure PaneFocus decision surface, and concrete focus execution stays
+  in App;
+- static proof that no Worktrunk service, boot phase, installation prompt,
+  dedicated test, architecture claim, or production `wt`/Git CLI fallback
+  remains;
 - static proof that Core command vocabulary and presentation contain no IPC
   schema or concrete Feature-owned type, Features contain no concrete
   `AppCommandDispatcher` reference, and App retains IPC metadata plus concrete
@@ -607,7 +680,7 @@ The implementation plan must provide:
   derived readers, and unrelated observable controllers;
 - representative target-level build proof;
 - module-test proof without App or sibling Feature dependencies, including the
-  112-caller test-fixture partition and exactly one reachable fallback
+  114-caller test-fixture partition and exactly one reachable fallback
   installer in `AgentStudioTestSupport`;
 - test-lane parity proof that the aggregate prebuild includes every redistributed
   test target and the existing suite-name filters execute the same serialized
@@ -620,10 +693,10 @@ The implementation plan must provide:
   setup fails in a fresh child process;
 - packaged-product proof for resources, BridgeWeb, Ghostty, terminfo, signing,
   debug/beta identity, and release layout;
-- before/after measurements before any performance claim;
-- equivalent release-configuration performance proof showing no regression
-  beyond the repository's accepted comparator threshold across the realized
-  module boundaries.
+- one before/after comparison through the existing debug sidebar performance
+  workload, using the same configuration and accepted comparator threshold;
+- a successful release/package build, reported separately from the debug
+  runtime comparison without a release-runtime performance claim.
 
 No proof layer may be weakened or relabeled to demonstrate a speed improvement.
 
@@ -637,17 +710,21 @@ No proof layer may be weakened or relabeled to demonstrate a speed improvement.
   mandatory `*FeatureState`, or universal Feature entry point.
 - An app-wide rewrite of non-atom controller or local UI state.
 - CI/build-system redesign or caching infrastructure.
-- Persisted schema or product behavior changes.
+- Persisted schema or product behavior changes beyond the explicitly retired
+  Worktrunk startup offer.
+- Replacement Worktrunk UX or migration of unrelated worktree behavior.
 - IPC, vendor, signing, notarization, or release redesign.
 - Implementation order, worker assignments, or exact commands beyond the
   required move-only `R100` commit before semantic edits.
 
 ## Planning Readiness
 
-The known state and non-state ownership decisions are explicit, and the single
-focused review cycle has been incorporated. Planning may proceed without
-reopening target granularity, state ownership, command dispatch, telemetry
-ownership, or package-wide test-support ownership.
+The known state and non-state ownership decisions are explicit, the single
+focused review cycle has been incorporated, and the user-concurred ownership
+correction is synchronized. The plan may be updated without reopening target
+granularity, Core decomposition, state ownership, command dispatch, telemetry
+ownership, PaneFocus ownership, Worktrunk removal, or package-wide test-support
+ownership.
 
 The implementation plan must then inventory the substantial `package`
 annotation cutover, replicate Swift 6 language settings per target and test

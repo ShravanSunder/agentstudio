@@ -1041,10 +1041,10 @@ not a compatibility API:
 - no replacement helper permits module tests to resolve Feature state
   ambiently.
 
-Outside the helper definition itself, 112 current test files call at least one
+Outside the helper definition itself, 114 current test files call at least one
 of the shared registry installation/override helpers. The implementation plan
 must treat their owner partition as a substantial mechanical migration, not a
-single fixture rename. The current partition is 54 App, 18 Core, 36 Feature,
+single fixture rename. The current partition is 55 App, 18 Core, 37 Feature,
 and four integration files.
 
 App integration rules:
@@ -1166,7 +1166,7 @@ Cost:
 - two Feature ambient Feature-state reads become required inputs;
 - one Core Feature-state read moves with concrete pane hosting to App;
 - cross-Feature settings persistence relocates to App;
-- access annotations and the shared test-registry fixture split across 112
+- access annotations and the shared test-registry fixture split across 114
   current caller files by owner;
 - seven concrete pane-hosting files move to App, with four Core declarations
   extracted from the moved files.
