@@ -1,0 +1,10 @@
+import AgentStudioBridge
+import AgentStudioCodeViewer
+import AgentStudioCommandBar
+import AgentStudioEditorChooser
+import AgentStudioInboxNotification
+import AgentStudioRepoExplorer
+import AgentStudioTerminal
+import AgentStudioWebview
+
+struct BadRealizedCoreImport {}

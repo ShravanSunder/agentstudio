@@ -112,6 +112,24 @@ raw `WorktreeEnrichment` equality. Lint rule
 `agentstudio_worktree_enrichment_comparator` protects that performance boundary
 so non-rendering metadata changes do not wake hot rows.
 
+## Module And State Access Boundary
+
+The concrete `AtomRegistry` belongs only to the `AgentStudio` App target. It
+holds one `CoreAtoms` plus explicit Feature roots for composition, but it is not
+ambient and is not a cross-target lookup API. `CoreAtomScope` belongs only to
+`AgentStudioCore` and exposes typed `KeyPath<CoreAtoms, Value>` reads for Core
+state.
+
+Feature mutable state crosses composition boundaries through exact initializer
+or property injection. Cross-Feature facts are consumer-owned read-only
+projections supplied by App. Do not introduce an ambient Feature scope, a
+registry resolver, a service locator, or sibling Feature imports.
+
+Declarations intentionally consumed by another target in this package use
+`package` access. Keep implementation details `internal` or `private`, and do
+not promote atom graphs, mutation owners, or persistence surfaces broadly to
+`public`.
+
 ## Atom And Actor Placement
 
 AtomLib is not a cross-actor state runtime. Canonical UI-observed facts remain

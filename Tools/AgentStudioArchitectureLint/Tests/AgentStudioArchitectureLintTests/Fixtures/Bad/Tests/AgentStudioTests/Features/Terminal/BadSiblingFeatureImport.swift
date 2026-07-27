@@ -1,0 +1,3 @@
+import AgentStudioBridge
+
+struct BadTerminalTestSiblingFeatureImport {}

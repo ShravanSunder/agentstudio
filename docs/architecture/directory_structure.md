@@ -2,7 +2,12 @@
 
 ## TL;DR
 
-Agent Studio uses a **hybrid** directory structure: shared composition and domain infrastructure stay layer-based (`App/`, `Core/`, `Infrastructure/`), while pane implementations and user-facing capabilities live in feature directories (`Features/Terminal/`, `Features/Bridge/`, `Features/Webview/`, etc.). Swift imports are by module, not file path — moving files between directories has **zero impact on import statements** and causes no merge conflicts. The structure is enforced by a one-way import rule: `Core` never imports `Features`.
+Agent Studio uses a **hybrid** directory and SwiftPM module structure. The
+`AgentStudio` executable owns App composition and resources. Eight coarse
+Feature modules, one coarse Core module, SharedComponents, and Infrastructure
+form compiler-visible boundaries beneath it. Features never import sibling
+Features, and `package` visibility is the default cross-target access boundary;
+do not broadly promote declarations to `public`.
 
 ---
 
@@ -14,7 +19,7 @@ The hybrid approach (inspired by Ghostty's own codebase structure) keeps infrast
 
 ---
 
-## Target Structure
+## Source And Target Structure
 
 ```
 Sources/AgentStudio/
@@ -65,6 +70,8 @@ Sources/AgentStudio/
 │   │
 │   ├── CodeViewer/                   # Native code-viewer pane mount view
 │   ├── CommandBar/                   # ⌘P command palette
+│   ├── EditorChooser/                # Editor discovery and feature-owned chooser state
+│   ├── InboxNotification/            # Notification inbox state, persistence, and UI
 │   ├── RepoExplorer/                 # (renamed from Features/Sidebar/ in LUNA-361; the repo
 │   │                                 #   explorer feature. The sidebar itself is composition
 │   │                                 #   in App/, not a feature)
@@ -99,19 +106,55 @@ Sources/AgentStudio/
 │   └── WorktreeReconciler.swift      # Pure-function worktree topology diffing
 │
 ├── Resources/                        # Assets, xib, storyboard
-├── main.swift
-└── Package.swift
-```
+└── main.swift
 
-> **Note on existing feature directories:** the tree above shows the target convention. Existing features like `Features/Bridge/State/` (without the `MainActor/` subpath), `Features/InboxNotification/State/`, and `Features/EditorChooser/State/` are grandfathered — they predate the convention and migrate in follow-up tickets. All NEW features adopt the full `State/MainActor/{Atoms,Persistence}/` path from day one.
+Package.swift                          # Root manifest and compiled target graph
+```
 
 ---
 
-## SwiftPM IPC Target Split
+## SwiftPM Module Graph
 
-Most AgentStudio code still lives in the `AgentStudio` executable target and
-uses the folder rules below. App IPC adds smaller SwiftPM targets so the
-compiler can enforce boundaries before lint or review:
+The main product graph is intentionally coarse:
+
+```text
+AgentStudio executable
+  App composition, resources, packaging, concrete AtomRegistry
+  ├── AgentStudioBridge
+  ├── AgentStudioCodeViewer
+  ├── AgentStudioCommandBar
+  ├── AgentStudioEditorChooser
+  ├── AgentStudioInboxNotification
+  ├── AgentStudioRepoExplorer
+  ├── AgentStudioTerminal
+  ├── AgentStudioWebview
+  ├── AgentStudioCore
+  ├── AgentStudioSharedComponents
+  └── AgentStudioInfrastructure
+
+Feature modules ──► AgentStudioCore
+                ├─► AgentStudioSharedComponents
+                └─► AgentStudioInfrastructure
+
+AgentStudioCore ──► AgentStudioSharedComponents
+                └─► AgentStudioInfrastructure
+
+AgentStudioSharedComponents ──► AgentStudioInfrastructure
+AgentStudioInfrastructure     ──► no product module
+```
+
+There are no sibling Feature dependencies. App is the only product target that
+may import multiple Features and perform cross-Feature composition. Keeping one
+coarse `AgentStudioCore` target is intentional for this graph: further Core
+decomposition is deferred until a separate design identifies a stable boundary
+worth its additional API and build complexity.
+
+SwiftPM target boundaries make access control meaningful. Use `internal` for
+module-local implementation and `package` for declarations intentionally shared
+between targets in this package. Reserve `public` for a real external-module
+contract; compilation errors are not a reason to promote a broad surface.
+
+The existing programmatic-control targets remain separate lower-level modules:
 
 ```
 Sources/AgentStudioIPCTransport/
@@ -179,7 +222,7 @@ This is the single most important constraint. It determines where every file liv
 ```
 App/              ──imports──►  Core/, Features/, Infrastructure/, SharedComponents/
 Features/*        ──imports──►  Core/, Infrastructure/, SharedComponents/
-Core/             ──imports──►  Infrastructure/
+Core/             ──imports──►  Infrastructure/, SharedComponents/
 SharedComponents/ ──imports──►  Infrastructure/
 Infrastructure/   ──imports──►  (nothing internal)
 ```
@@ -267,7 +310,10 @@ Current exception to watch: `PaneContent.bridgePanel(BridgePaneState)` stores br
 
 The internal App-only `AtomRegistry` stores one `CoreAtoms` plus the explicitly constructed Feature atoms and facades needed by production composition. It is not ambient and is never a lower-target key-path root. Core-only typed reads use `atom(KeyPath<CoreAtoms, Value>)` through the sole `CoreAtomScope`. App injects each Feature's exact mutable state into its consumers and supplies cross-Feature facts as consumer-owned read-only projections; Features never resolve their own or a sibling's state from a registry or second scope.
 
-Core views (e.g., `DrawerOverlay`, `DrawerIconBar`) that need to display feature-owned data take that data as props (struct parameters). The caller that supplies the props lives in a layer that *can* import the feature — usually `App/` or a different feature if called from there (which would then require the caller to be in `App/` per the cross-feature rule).
+Core views (e.g., `DrawerOverlay`, `DrawerIconBar`) that need to display
+feature-owned data take that data as props (struct parameters). The caller that
+supplies the props lives in `App/`; a sibling Feature must not become the
+composition owner.
 
 ### SharedComponents — the design-system layer
 
@@ -360,9 +406,14 @@ Host-shell plus feature-content split:
   - `App/Panes/DrawerEditorChooser/` owns the drawer button, placement, anchoring, divider, and pane wiring
   - `SharedComponents/EditorChooser/` owns numbered rows, bookmark UI, and the chooser menu content
 
-### Why Swift Makes This Free
+### Paths And Modules Are Both Boundaries
 
-Swift imports are by **module** (`import Foundation`, `import SwiftUI`), not by file path. Agent Studio is a single SPM target — all files share one module. Moving a file from `Services/WorkspaceStore.swift` to `Core/State/MainActor/Persistence/WorkspaceStore.swift` changes zero import statements in the entire codebase. No merge conflicts from the restructure itself.
+Paths communicate ownership to readers and architecture lint; SwiftPM targets
+create the compiled dependency graph. Moving a file across `App`, `Core`,
+`Features`, `SharedComponents`, or `Infrastructure` may therefore change its
+module, imports, and required access level. Keep the file in the module that
+owns its reason to change, and expose only the narrow `package` surface its
+consumers require.
 
 ---
 
@@ -505,18 +556,32 @@ Manages the top-level split between sidebar and content area. Feature-agnostic b
 
 ---
 
-## Migration Strategy
+## Test Target Ownership
 
-Since Swift imports are module-level (not path-based), the restructure is a pure file-move operation:
+Product modules have paired SwiftPM test targets:
 
-1. Create the target directory structure
-2. Move files — `git mv` preserves history
-3. No import changes needed (same SPM module)
-4. ~~Rename `TerminalTabViewController` → `PaneTabViewController`~~ (done in LUNA-334)
-5. Update `CLAUDE.md` structure section
-6. Verify build compiles
+```text
+AgentStudioInfrastructureTests     ──► AgentStudioInfrastructure
+AgentStudioSharedComponentsTests   ──► AgentStudioSharedComponents
+AgentStudioCoreTests               ──► AgentStudioCore + AgentStudioTestSupport
+AgentStudio<Feature>Tests          ──► matching Feature + lower modules
+AgentStudioTests                   ──► AgentStudio executable + product modules
+```
 
-The restructure should be done on its own branch and merged into `main` and all active branches before other work continues — it's a pure organizational change with no behavioral impact.
+`AgentStudioTestSupport` depends only on `AgentStudioCore`. It provides
+Core-level fixtures and helpers without becoming an App or Feature registry.
+Infrastructure and SharedComponents tests do not depend on it. Each paired test
+target owns unit and module-boundary tests for its product module.
+
+The executable-level `AgentStudioTests` target owns App composition,
+cross-Feature integration, executable resources, WebKit integration, zmx
+integration, and packaged/runtime proof that cannot be expressed by a lower
+module test. This ownership does not replace the existing execution lanes:
+`mise run test-fast`, `mise run test-large`, `mise run test-webkit`,
+`mise run test-e2e`, and `mise run test-zmx-e2e` retain their filter,
+serialization, prebuild, timeout, and retry semantics. `swift test --filter`
+selects tests to execute; it does not redefine module ownership or guarantee
+that unrelated same-package test products avoid compilation.
 
 ---
 

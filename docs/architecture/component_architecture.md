@@ -8,6 +8,21 @@ State is distributed across independent `@Observable` atoms (Jotai-style atomic 
 
 ## 1. Overview
 
+### 1.0 Compiled Component Boundaries
+
+The `AgentStudio` executable owns App composition, concrete services, resources,
+and the concrete `AtomRegistry`. Beneath it, eight independent Feature modules
+(Bridge, CodeViewer, CommandBar, EditorChooser, InboxNotification,
+RepoExplorer, Terminal, and Webview) consume the one coarse
+`AgentStudioCore`, stateless `AgentStudioSharedComponents`, and
+`AgentStudioInfrastructure` modules. Features do not import siblings.
+
+The coarse Core boundary is intentional for the current graph. App injects
+Feature mutable state explicitly and adapts cross-Feature facts into read-only
+consumer projections. `CoreAtomScope` is the only ambient product state scope;
+there is no ambient Feature resolver or service locator. Cross-target product
+contracts use `package` access rather than broad `public` exposure.
+
 ### 1.1 Architecture Principles
 
 1. **Pane identity is primary** — `Pane` is the primary entity in the window system. `PaneId` (UUID v7) is the single identity used across every layer: `WorkspacePaneGraphAtom`, `WorkspacePaneAtom`, `Layout`, `ViewRegistry`, `SurfaceManager`, `SessionRuntime`, and zmx. A pane exists independently of layout position, tab, or surface and can move between tabs and layout positions while keeping identity.
@@ -664,7 +679,9 @@ Required cache validity fields:
 2. Load `workspace.ui.json` into `WorkspaceSidebarMemoryAtom`
 3. Load global preferences and keybindings into their stores
 4. Load `workspace.cache.json` only if cache revision matches canonical workspace revision
-5. Trigger async refresh pipeline (`wt`, `git`, `gh`) and patch `RepoEnrichmentCacheAtom` through `RepoCacheAtom`
+5. Trigger the async enrichment pipeline. Production Git discovery and status
+   reads use `agentstudio-git`; forge refresh remains independently owned.
+   Patch `RepoEnrichmentCacheAtom` through `RepoCacheAtom`.
 
 Coordinator owns sequencing, not domain decisions:
 

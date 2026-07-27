@@ -1,0 +1,3 @@
+import AgentStudioCore
+
+struct BadRealizedInfrastructureImport {}

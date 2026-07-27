@@ -1,0 +1,3 @@
+import AgentStudioTestSupport
+
+struct BadInfrastructureTestSupportImport {}

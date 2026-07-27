@@ -1,0 +1,3 @@
+import AgentStudio
+
+struct BadCoreTestAppImport {}

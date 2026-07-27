@@ -39,6 +39,61 @@ struct RuleParityTests {
         #expect(diagnostics.contains { $0.message.contains("old AtomScope compatibility API") })
         #expect(diagnostics.contains { $0.message.contains("uniform Feature state root") })
         #expect(diagnostics.contains { $0.message.contains("Feature registry or ambient scope") })
+        #expect(diagnostics.contains { $0.message.contains("concrete AppCommandDispatcher") })
+    }
+
+    @Test("import direction covers realized product and paired-test module boundaries")
+    func importDirectionCoversRealizedProductAndPairedTestModuleBoundaries() throws {
+        let diagnostics = try lintFixtureCorpus("Bad")
+            .filter { $0.ruleID == "agentstudio_import_direction" }
+
+        #expect(diagnostics.contains { $0.message.contains("Infrastructure cannot import AgentStudioCore") })
+        #expect(diagnostics.contains { $0.message.contains("Core cannot import AgentStudioTerminal") })
+        #expect(diagnostics.contains { $0.message.contains("Feature Terminal cannot import AgentStudioBridge") })
+        #expect(diagnostics.contains { $0.message.contains("Product targets must not import AgentStudioTestSupport") })
+        #expect(
+            diagnostics.contains {
+                $0.message.contains("Infrastructure tests must not import AgentStudioTestSupport")
+            })
+        #expect(
+            diagnostics.contains {
+                $0.message.contains("SharedComponents tests must not import AgentStudioTestSupport")
+            })
+        #expect(diagnostics.contains { $0.message.contains("Core tests cannot import AgentStudio") })
+        #expect(diagnostics.contains { $0.message.contains("Feature Terminal tests cannot import AgentStudioBridge") })
+        #expect(diagnostics.contains { $0.message.contains("TestSupport cannot import AgentStudioBridge") })
+        for featureModule in [
+            "AgentStudioBridge",
+            "AgentStudioCodeViewer",
+            "AgentStudioCommandBar",
+            "AgentStudioEditorChooser",
+            "AgentStudioInboxNotification",
+            "AgentStudioRepoExplorer",
+            "AgentStudioTerminal",
+            "AgentStudioWebview",
+        ] {
+            #expect(
+                diagnostics.contains {
+                    $0.message.contains("Core cannot import \(featureModule)")
+                })
+        }
+    }
+
+    @Test("retired Worktrunk rule rejects service, startup phase, and production CLI fallbacks")
+    func retiredWorktrunkRuleRejectsServiceStartupPhaseAndProductionCLIFallbacks() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent(
+                "Bad/Sources/AgentStudio/App/BadRetiredWorktrunkIntegration.swift"
+            )
+            .path
+
+        let diagnostics = try lint(files: [fixture])
+            .filter { $0.ruleID == "agentstudio_retired_worktrunk_cli" }
+
+        #expect(diagnostics.contains { $0.message.contains("Worktrunk integration") })
+        #expect(diagnostics.contains { $0.message.contains("production wt CLI fallback") })
+        #expect(diagnostics.contains { $0.message.contains("production git CLI fallback") })
+        #expect(diagnostics.contains { $0.message.contains("startup dependency phase") })
     }
 
     @Test("canonical atom mutation rejects writable owner storage and bindings")

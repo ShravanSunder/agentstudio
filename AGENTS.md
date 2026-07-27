@@ -304,6 +304,14 @@ Instead:
 
 AppKit-main architecture hosting SwiftUI views. Shared Core state is actor-bound in `CoreAtoms` and accessed through the one ambient `CoreAtomScope`, with `atom(\.foo)` as the typed `KeyPath<CoreAtoms, Value>` read path. Feature-owned mutable state is never ambient: App injects each Feature's concrete atom or facade explicitly, and supplies sibling facts through consumer-owned read-only projections. Canonical mutable state lives in `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms` or the owning Feature's matching path, and persistence wrappers live under the corresponding `State/MainActor/Persistence` path. Two coordinators handle cross-slice sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to the main-actor state system, and a separate app lifecycle monitor owns AppKit ingress.
 
+The compiled product graph is `AgentStudio` App executable/resource owner →
+eight independent Feature modules plus one coarse `AgentStudioCore` and
+`AgentStudioSharedComponents` → `AgentStudioInfrastructure`. Features never
+import sibling Features; App owns cross-Feature composition. SharedComponents
+is stateless and depends only on Infrastructure. Cross-target declarations use
+the narrowest necessary `package` visibility; do not broadly promote product
+APIs to `public`. Further Core decomposition is deferred.
+
 `AtomRegistry` is the internal App-only composition root at `Sources/AgentStudio/AtomRegistry.swift`. It stores one `CoreAtoms` plus explicit concrete Feature roots and is never an ambient lookup surface. `Infrastructure/AtomLib` owns only generic primitives (`AtomValue`, `AtomEntityMap`, `AtomMutationContext`, `AtomRevision`, `DerivedValue`, and their telemetry); product access (`atom(\...)` and `CoreAtomScope`) belongs to Core. Infrastructure must not name `AtomRegistry`, `CoreAtoms`, `CoreAtomScope`, product atoms, or feature-specific registry fields. Hot UI reads for keyed entity state should use keyed atom-family-style slots such as `AtomEntityMap.value(for:)`; dictionary-shaped snapshots are for persistence, cold bulk bridges, and measured exceptions.
 
 Architecture boundaries are enforced by stock SwiftLint plus the repo-local
@@ -350,6 +358,8 @@ Bridge worktree and review git data prepared on the Swift/native side must use
 the repo's `agentstudio-git` library. TypeScript may shell out to `git` only in
 clearly scoped Vite dev-server utilities or test fixture utilities; do not use
 TS git helpers as production Bridge protocol or source-adapter plumbing.
+Worktrunk integration is retired: do not add a Worktrunk service, startup
+phase, or production `wt`/Git CLI data plane.
 
 Use `AppStyles` for presentation constants only: spacing, radii, icon sizes, opacity, typography, colors, and paint dimensions. Use `AppPolicies` for behavioral constants: limits, thresholds, retention caps, validation rules, routing rules, and accept/reject decisions. If changing the value can change state transitions or command/event behavior, it belongs in `AppPolicies` even when the UI reads it.
 
@@ -685,6 +695,9 @@ agent-studio/
 │   │   ├── Bridge/                   # React/WebView pane system (transport, runtime, state)
 │   │   ├── Webview/                  # Browser pane (navigation, history)
 │   │   ├── CommandBar/               # ⌘P command palette
+│   │   ├── CodeViewer/                # Native code-viewer pane
+│   │   ├── EditorChooser/             # Editor discovery and feature-owned chooser state
+│   │   ├── InboxNotification/         # Notification inbox state, persistence, and UI
 │   │   ├── RepoExplorer/             # Repo explorer (renamed from Features/Sidebar/ in
 │   │   │                             #   LUNA-361; the "sidebar" itself is composition in
 │   │   │                             #   App/, not a feature)
@@ -702,7 +715,7 @@ agent-studio/
 └── vendor/zmx/                       # zmx gitlink; normally unhydrated in linked worktrees
 ```
 
-**Import rule:** `App/ → Core/, Features/, Infrastructure/, SharedComponents/` | `Features/ → Core/, Infrastructure/, SharedComponents/` | `Core/ → Infrastructure/` | `SharedComponents/ → Infrastructure/` | Never `Core/ → Features/`, `Features/X → Features/Y`, `SharedComponents/ → Core|Features|App`
+**Import rule:** `App/ → Core/, Features/, Infrastructure/, SharedComponents/` | `Features/ → Core/, Infrastructure/, SharedComponents/` | `Core/ → Infrastructure/, SharedComponents/` | `SharedComponents/ → Infrastructure/` | Never `Core/ → Features/`, `Features/X → Features/Y`, `SharedComponents/ → Core|Features|App`
 
 **Key config files:** `Package.swift` (SPM manifest), `.mise.toml` (build tasks), `.swift-format`, `.swiftlint.yml`
 
@@ -774,6 +787,14 @@ See [EventBus Design — Swift 6.2 concurrency rules](docs/architecture/pane_run
 ## Running Swift Commands — Detail
 
 **Always use `mise run` for build and test.** Mise tasks handle the WebKit serialized test split, benchmark mode, and build path isolation.
+
+Paired SwiftPM test targets own their module tests.
+`AgentStudioTestSupport` depends only on Core; Infrastructure and
+SharedComponents tests do not consume it. The executable `AgentStudioTests`
+target owns App, cross-Feature, resource, WebKit, zmx, and packaged integration.
+Keep the existing fast/large/WebKit/E2E/zmx lane selectors intact:
+`swift test --filter` selects execution after the package test products are
+built; it does not change target ownership or imply isolated compilation.
 
 **For filtered test runs:** prefer mise (it allocates a slot for you):
 ```bash

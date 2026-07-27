@@ -189,6 +189,13 @@ private final class ProductAtomBoundaryVisitor: SyntaxVisitor {
         guard let layer = classifier.layer else {
             return
         }
+        if name == "AppCommandDispatcher", layer != "App" {
+            record(
+                position: position,
+                message: "Lower targets must not name the concrete AppCommandDispatcher; inject AppCommandDispatching"
+            )
+            return
+        }
         if name == "AtomRegistry", layer != "App" {
             record(
                 position: position,

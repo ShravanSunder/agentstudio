@@ -9,10 +9,10 @@ drift.
 
 | File | Owns |
 |------|------|
-| `Sources/AgentStudio/App/Commands/AppCommand.swift` | Command **identities** (the things you can dispatch). |
-| `Sources/AgentStudio/App/Commands/AppShortcut.swift` | Keyboard **bindings** + contexts where they fire. |
-| `Sources/AgentStudio/App/Commands/AppCommand+Catalog.swift` | `AppCommandSpec` — ties an `AppCommand` to its `AppShortcut` plus command-bar metadata. |
-| `Sources/AgentStudio/App/Commands/AppCommand+DisplayDescriptor.swift` | App-owned projection from `AppCommandSpec` into app-free display descriptors and tooltip render values. |
+| `Sources/AgentStudio/Core/Actions/Commands/AppCommand.swift` | Package-visible command **identities**, specs, and dispatch protocol. |
+| `Sources/AgentStudio/Core/Actions/Commands/AppShortcut.swift` | Package-visible keyboard **bindings** + contexts where they fire. |
+| `Sources/AgentStudio/Core/Actions/Commands/AppCommand+Catalog.swift` | `AppCommandSpec` — ties an `AppCommand` to its `AppShortcut` plus command-bar metadata. |
+| `Sources/AgentStudio/Core/Actions/Commands/AppCommand+DisplayDescriptor.swift` | Package-visible projection from `AppCommandSpec` into app-free display descriptors and tooltip render values. |
 | `Sources/AgentStudio/App/Commands/AppCommand+IPCProjection.swift` | App-owned projection from `AppCommandSpec.ipcExposure` into public IPC command-list DTOs. |
 | `Sources/AgentStudio/Core/Actions/UIActionPresentation.swift` | `LocalActionSpec` and app-free action presentation helpers for tooltips, button labels, menu items. |
 | `Sources/AgentStudio/Core/Actions/ControlTooltipSource.swift` | App-free tooltip source, provenance, copy style, and resolver. |
@@ -45,10 +45,22 @@ drift.
 ```
 
 `AppCommand` is the identity. `AppShortcut` decides which keystrokes
-fire it. `AppCommandSpec` exposes it in the command bar. App-owned projection
-extensions turn that metadata into tooltip display descriptors and IPC
-command-list entries. `LocalActionSpec` provides UI text for buttons/menus
-that aren't part of the command bar.
+fire it. `AppCommandSpec` exposes it in the command bar. Core projection
+extensions turn that metadata into app-free tooltip display descriptors; App
+adds executable-only dispatch and IPC projections. `LocalActionSpec` provides
+UI text for buttons/menus that aren't part of the command bar.
+
+## Module Boundary
+
+Command identity, shortcut vocabulary, metadata, and the dispatch protocol live
+in `AgentStudioCore` with `package` visibility because Feature modules such as
+CommandBar consume them. Concrete dispatch, AppKit key conversion, executable
+handlers, and IPC projection stay in the `AgentStudio` App target.
+
+This split lets Features depend on Core without importing App or a sibling
+Feature. Do not move concrete App dispatchers into Core, create a Feature-owned
+copy of the command vocabulary, or widen the command surface to `public` merely
+to cross a package target boundary.
 
 ## Command planes
 
@@ -209,6 +221,16 @@ Inbox grouping, sort, row-state filter, content-mode, and clear controls follow
 the same rule. Filter and content-mode buttons dispatch typed arguments through
 `setInboxRowStateFilter` and `setInboxContentMode`; their command handlers own
 the preference-atom writes.
+
+## Repo And Worktree Command Implementation
+
+Worktrunk integration is retired from the production app. Repo/worktree command
+rows express product intent through the command pipeline; production discovery,
+status, file, and review Git reads use the `agentstudio-git` package behind the
+owning Core, Infrastructure, or Bridge adapters. Do not add a Worktrunk service,
+startup phase, production `wt` subprocess, or ad hoc production Git CLI data
+plane. TypeScript Git subprocesses remain limited to documented Vite
+development and test-fixture utilities.
 
 ## Multiple bindings per command — `alternateTriggers`
 
