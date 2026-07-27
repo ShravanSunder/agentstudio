@@ -45,7 +45,7 @@ struct FilesystemActorHotPathArchitectureTests {
             encoding: .utf8
         )
 
-        #expect(pathFilterSource.contains("@concurrent nonisolated static func loadOffExecutor"))
+        #expect(pathFilterSource.contains("@concurrent nonisolated package static func loadOffExecutor"))
         #expect(filesystemActorSource.contains("await FilesystemPathFilter.loadOffExecutor(forRootPath:"))
         #expect(!filesystemActorSource.contains("FilesystemPathFilter.load(forRootPath:"))
         #expect(!gitProviderSource.contains("ShellGitWorkingTreeStatusProvider"))

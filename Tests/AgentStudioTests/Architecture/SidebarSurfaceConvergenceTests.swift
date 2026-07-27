@@ -10,26 +10,38 @@ import Testing
 
 @Suite("Sidebar surface convergence")
 struct SidebarSurfaceConvergenceTests {
-    @Test("inbox grouping selection dispatches typed app commands")
-    func inboxGroupingSelectionDispatchesTypedAppCommands() throws {
+    @Test("inbox grouping uses protocol dispatch and App-owned typed callback adaptation")
+    func inboxGroupingUsesProtocolDispatchAndAppOwnedTypedCallbackAdaptation() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let source = try String(
+        let inboxSource = try String(
             contentsOf: projectRoot.appending(
                 path: "Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationSidebarView.swift"
             ),
             encoding: .utf8
         )
+        let appHostSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift"
+            ),
+            encoding: .utf8
+        )
 
-        #expect(!source.contains("onSelectGrouping: { prefsAtom.setGrouping($0) }"))
-        #expect(source.contains("onSelectGrouping: selectGrouping"))
-        #expect(source.contains("case .byTab: .setInboxGroupingTab"))
-        #expect(source.contains("case .byRepo: .setInboxGroupingRepo"))
-        #expect(source.contains("case .byPane: .setInboxGroupingPane"))
-        #expect(source.contains("case .none: .setInboxGroupingNone"))
-        #expect(!source.contains("prefsAtom.setGlobalInboxRowStateFilter"))
-        #expect(!source.contains("prefsAtom.setGlobalInboxContentMode"))
-        #expect(source.contains("command: .setInboxRowStateFilter"))
-        #expect(source.contains("command: .setInboxContentMode"))
+        #expect(!inboxSource.contains("onSelectGrouping: { prefsAtom.setGrouping($0) }"))
+        #expect(inboxSource.contains("onSelectGrouping: selectGrouping"))
+        #expect(inboxSource.contains("case .byTab: .setInboxGroupingTab"))
+        #expect(inboxSource.contains("case .byRepo: .setInboxGroupingRepo"))
+        #expect(inboxSource.contains("case .byPane: .setInboxGroupingPane"))
+        #expect(inboxSource.contains("case .none: .setInboxGroupingNone"))
+        #expect(!inboxSource.contains("prefsAtom.setGlobalInboxRowStateFilter"))
+        #expect(!inboxSource.contains("prefsAtom.setGlobalInboxContentMode"))
+        #expect(inboxSource.contains("onSetRowStateFilter(nextRowStateFilter)"))
+        #expect(inboxSource.contains("onSetContentMode(nextContentMode)"))
+        #expect(appHostSource.contains("onSetRowStateFilter: { filter in"))
+        #expect(appHostSource.contains("command: .setInboxRowStateFilter"))
+        #expect(appHostSource.contains("arguments: .inboxRowStateFilter(filter)"))
+        #expect(appHostSource.contains("onSetContentMode: { mode in"))
+        #expect(appHostSource.contains("command: .setInboxContentMode"))
+        #expect(appHostSource.contains("arguments: .inboxContentMode(mode)"))
     }
 
     @Test("repo and inbox sidebars share the repo-matched outer chrome and list policy")

@@ -27,7 +27,7 @@ final class BridgeBrowserNativeRPCCutoverSourceScanTests {
             "BridgeWeb/src/bridge/bridge-page-handshake.unit.test.ts",
             "Tests/AgentStudioTests/Features/Bridge/BridgeBootstrapTests.swift",
             "Tests/AgentStudioTests/Features/Bridge/BridgeBrowserNativeRPCCutoverSourceScanTests.swift",
-            "Tests/AgentStudioTests/Features/Bridge/BridgeContentWorldIsolationTests.swift",
+            "Tests/AgentStudioTests/App/WebKit/Bridge/BridgeContentWorldIsolationTests.swift",
         ]
         let bootstrapSource = try String(
             contentsOf: projectRoot.appending(
@@ -38,7 +38,7 @@ final class BridgeBrowserNativeRPCCutoverSourceScanTests {
         let allowedDirectPrivilegedRPCRelayFiles: Set<String> = [
             "Sources/AgentStudio/Features/Bridge/Transport/BridgeBootstrap.swift",
             "Tests/AgentStudioTests/Features/Bridge/BridgeBrowserNativeRPCCutoverSourceScanTests.swift",
-            "Tests/AgentStudioTests/Features/Bridge/BridgeWebKitSpikeTests.swift",
+            "Tests/AgentStudioTests/App/WebKit/Bridge/BridgeWebKitSpikeTests.swift",
         ]
 
         let violations = try scannedRoots.flatMap { root in
