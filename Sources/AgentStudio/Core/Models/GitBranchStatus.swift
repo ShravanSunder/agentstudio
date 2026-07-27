@@ -1,7 +1,7 @@
 import Foundation
 
-struct GitBranchStatus: Equatable, Sendable {
-    enum SyncState: Equatable, Sendable {
+package struct GitBranchStatus: Equatable, Sendable {
+    package enum SyncState: Equatable, Sendable {
         case synced
         case ahead(Int)
         case behind(Int)
@@ -10,15 +10,35 @@ struct GitBranchStatus: Equatable, Sendable {
         case unknown
     }
 
-    let isDirty: Bool
-    let syncState: SyncState
-    let prCount: Int?
-    let linesAdded: Int
-    let linesDeleted: Int
+    package let isDirty: Bool
+    package let syncState: SyncState
+    package let prCount: Int?
+    package let linesAdded: Int
+    package let linesDeleted: Int
 
-    static let unknown = Self(isDirty: false, syncState: .unknown, prCount: nil, linesAdded: 0, linesDeleted: 0)
+    package static let unknown = Self(
+        isDirty: false,
+        syncState: .unknown,
+        prCount: nil,
+        linesAdded: 0,
+        linesDeleted: 0
+    )
 
-    static func merge(
+    package init(
+        isDirty: Bool,
+        syncState: SyncState,
+        prCount: Int?,
+        linesAdded: Int,
+        linesDeleted: Int
+    ) {
+        self.isDirty = isDirty
+        self.syncState = syncState
+        self.prCount = prCount
+        self.linesAdded = linesAdded
+        self.linesDeleted = linesDeleted
+    }
+
+    package static func merge(
         worktreeEnrichmentsByWorktreeId: [UUID: WorktreeEnrichment],
         pullRequestCountsByWorktreeId: [UUID: Int]
     ) -> [UUID: Self] {
@@ -36,7 +56,7 @@ struct GitBranchStatus: Equatable, Sendable {
         return mergedByWorktreeId
     }
 
-    static func status(
+    package static func status(
         enrichment: WorktreeEnrichment?,
         pullRequestCount: Int?
     ) -> Self {

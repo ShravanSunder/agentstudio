@@ -12,6 +12,16 @@ struct PaneManagementIdentityRow: Equatable, Identifiable {
     let toolTip: String?
 }
 
+package struct WorkspaceStatusChipsModel: Equatable {
+    package let branchStatus: GitBranchStatus
+    package let notificationCount: Int
+
+    package init(branchStatus: GitBranchStatus, notificationCount: Int) {
+        self.branchStatus = branchStatus
+        self.notificationCount = notificationCount
+    }
+}
+
 @MainActor
 struct PaneManagementContext: Equatable {
     let identityRows: [PaneManagementIdentityRow]
@@ -61,7 +71,7 @@ struct PaneManagementContext: Equatable {
         let statusChips: WorkspaceStatusChipsModel?
         if let worktreeId = pane?.worktreeId {
             let worktreeFacts = repoCache.worktreeFacts(for: worktreeId)
-            let branchStatus = RepoExplorerView.branchStatus(
+            let branchStatus = GitBranchStatus.status(
                 enrichment: worktreeFacts?.enrichment,
                 pullRequestCount: worktreeFacts?.pullRequestCount
             )
@@ -71,7 +81,7 @@ struct PaneManagementContext: Equatable {
             )
         } else if let resolvedWorktreeId = resolvedContext?.worktree.id {
             let worktreeFacts = repoCache.worktreeFacts(for: resolvedWorktreeId)
-            let branchStatus = RepoExplorerView.branchStatus(
+            let branchStatus = GitBranchStatus.status(
                 enrichment: worktreeFacts?.enrichment,
                 pullRequestCount: worktreeFacts?.pullRequestCount
             )

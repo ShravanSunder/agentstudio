@@ -1,10 +1,5 @@
 import SwiftUI
 
-struct WorkspaceStatusChipsModel: Equatable {
-    let branchStatus: GitBranchStatus
-    let notificationCount: Int
-}
-
 struct WorkspaceStatusChipRow: View {
     let octiconLoader: OcticonLoader
     let model: WorkspaceStatusChipsModel
