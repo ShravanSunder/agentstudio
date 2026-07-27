@@ -10,6 +10,7 @@ struct AppBootSequenceTests {
     func presentationPrerequisitesMatchArchitectureContract() {
         #expect(
             WorkspaceBootSequence.presentationPrerequisiteSteps == [
+                .prepareDatabases,
                 .loadCanonicalStore,
                 .establishRuntimeBus,
             ])
@@ -129,6 +130,29 @@ struct AppBootSequenceTests {
                 "WorkspaceSQLiteDatastore(configuration: configuration, traceRuntime: traceRuntime)"
             )
         )
+    }
+
+    @Test("fatal database preparation flushes its diagnostic before stopping boot")
+    func fatalDatabasePreparationFlushesDiagnosticBeforeStoppingBoot() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let workspaceBootSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
+            encoding: .utf8
+        )
+        let prepareFunction = try #require(
+            workspaceBootSource.range(of: "private func bootPrepareDatabases() async")
+        )
+        let loadFunction = try #require(
+            workspaceBootSource.range(
+                of: "private func bootLoadCanonicalStore() async",
+                range: prepareFunction.upperBound..<workspaceBootSource.endIndex
+            )
+        )
+        let prepareBody = workspaceBootSource[prepareFunction.lowerBound..<loadFunction.lowerBound]
+        let flush = try #require(prepareBody.range(of: "try? await traceRuntime.flush()"))
+        let fatalStop = try #require(prepareBody.range(of: "preconditionFailure("))
+
+        #expect(flush.lowerBound < fatalStop.lowerBound)
     }
 
     @Test("boot injects feature SQLite adapter into inbox notification store")

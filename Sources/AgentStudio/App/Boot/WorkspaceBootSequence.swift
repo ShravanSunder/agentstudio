@@ -1,6 +1,7 @@
 import Foundation
 
 enum WorkspaceBootStep: String, CaseIterable, Sendable {
+    case prepareDatabases
     case loadCanonicalStore
     case loadCacheStore
     case loadUIStore
@@ -16,6 +17,8 @@ enum WorkspaceBootStep: String, CaseIterable, Sendable {
 
     var purpose: String {
         switch self {
+        case .prepareDatabases:
+            return "Prepare authoritative core and non-authoritative local storage before hydration."
         case .loadCanonicalStore:
             return "Strictly install durable composition before constructing its runtime hosts."
         case .loadCacheStore:
@@ -47,6 +50,7 @@ enum WorkspaceBootStep: String, CaseIterable, Sendable {
 enum WorkspaceBootSequence {
     /// The minimum work allowed to delay workspace shell presentation.
     static let presentationPrerequisiteSteps: [WorkspaceBootStep] = [
+        .prepareDatabases,
         .loadCanonicalStore,
         .establishRuntimeBus,
     ]

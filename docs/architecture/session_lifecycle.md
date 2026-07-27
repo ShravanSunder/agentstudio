@@ -325,11 +325,15 @@ AppDelegate.applicationWillTerminate / applicationShouldTerminate
 ## Persistence
 
 State is persisted through `WorkspaceSQLiteDatastore` into authoritative
-`core.sqlite` plus one non-authoritative app-root `local.sqlite`. Workspace
-composition restores from core SQLite; missing, corrupt, unavailable, or invalid
-local lanes use deterministic defaults without blocking startup. Legacy
-workspace JSON and per-workspace local sidecars are not read. Global preferences
-remain in `preferences.global.json`. See
+`core.sqlite` plus one non-authoritative app-root `local.sqlite`. Boot prepares
+both databases before hydration and retains one writable owner for each
+available database. Core preparation failure stops boot. Classified corruption
+or an orphan local sidecar set triggers one quarantine-and-create-fresh attempt;
+if local preparation remains unavailable, every local slice uses deterministic
+defaults while accepted core startup continues. When local is available, an
+invalid query or decode defaults only its logical slice. Legacy workspace JSON
+and per-workspace local sidecars are not read. Global preferences remain in
+`preferences.global.json`. See
 [Component Architecture — Persistence](component_architecture.md#5-persistence)
 for the full write strategy, filtering, and schema details.
 

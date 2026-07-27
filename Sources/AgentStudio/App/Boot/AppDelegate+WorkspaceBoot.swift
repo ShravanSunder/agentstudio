@@ -107,6 +107,8 @@ extension AppDelegate {
         filesystemSource: inout FilesystemGitPipeline?
     ) async {
         switch step {
+        case .prepareDatabases:
+            await bootPrepareDatabases()
         case .loadCanonicalStore:
             await bootLoadCanonicalStore()
         case .loadCacheStore:
@@ -134,12 +136,37 @@ extension AppDelegate {
         }
     }
 
+    private func bootPrepareDatabases() async {
+        let sqliteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
+        workspaceSQLiteDatastore = sqliteDatastore
+        switch await sqliteDatastore.prepareDatabasesForBoot() {
+        case .prepared:
+            break
+        case .failed(let failure):
+            let diagnosticCode: WorkspaceStartupFailureDiagnosticCode =
+                switch failure.kind {
+                case .sqliteUnavailable:
+                    .sqliteUnavailable
+                case .compositionRejected:
+                    .compositionRejected
+                case .topologyRejected:
+                    .topologyRejected
+                }
+            try? await traceRuntime.flush()
+            preconditionFailure(
+                "Workspace startup invariant violated: "
+                    + diagnosticCode.rawValue
+            )
+        }
+    }
+
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
         AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
         AtomScope.setUp(atomStore)
-        let sqliteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
-        workspaceSQLiteDatastore = sqliteDatastore
+        guard let sqliteDatastore = workspaceSQLiteDatastore else {
+            preconditionFailure("Workspace databases were not prepared before canonical hydration")
+        }
         let workspaceSQLiteSaveCoordinator = WorkspaceSQLiteSaveCoordinator(
             identityAtom: atomStore.workspaceIdentity,
             windowMemoryAtom: atomStore.workspaceWindowMemory,
@@ -175,10 +202,7 @@ extension AppDelegate {
         entityRecencyStore = EntityRecencyStore(
             applicationAtom: atomStore.applicationEntityRecency,
             workspaceAtom: atomStore.workspaceEntityRecency,
-            sqliteDatastore: sqliteDatastore,
-            recoveryReporter: { [weak self] event in
-                self?.recordPersistenceRecovery(event)
-            }
+            sqliteDatastore: sqliteDatastore
         )
         sidebarCacheStore = SidebarCacheStore(
             atom: atomStore.sidebarCache,
@@ -239,11 +263,9 @@ extension AppDelegate {
     }
 
     private func bootLoadCacheStore() async {
-        // Repo-cache restore opens the one shared application-local bundle before
-        // the application-scoped recency lane performs its parameter-free restore.
-        await repoCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
         await entityRecencyStore.restoreApplicationAsync()
         await entityRecencyStore.restoreWorkspaceAsync(for: store.identityAtom.workspaceId)
+        await repoCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
         await refreshTraceIdentitySnapshot()
         await sidebarCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
     }

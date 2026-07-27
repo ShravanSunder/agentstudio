@@ -240,8 +240,8 @@ struct EntityRecencyStoreTests {
         #expect(try fixture.repository.fetchApplicationEntityRecency() == [originalRecency])
     }
 
-    @Test("application recency load preserves pending workspace recovery events")
-    func applicationRecencyLoadPreservesPendingWorkspaceRecoveryEvents() async throws {
+    @Test("database preparation reports local replacement before recency loads")
+    func databasePreparationReportsLocalReplacementBeforeRecencyLoads() async throws {
         let workspaceID = UUID()
         let rootDirectory = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-entity-recency-recovery-\(UUID().uuidString)")
@@ -254,29 +254,32 @@ struct EntityRecencyStoreTests {
         )
         try Data("not a sqlite database".utf8)
             .write(to: rootDirectory.appending(path: "local.sqlite"))
+        let preparation = await datastore.prepareDatabasesForBoot()
+        guard case .prepared(let receipt) = preparation,
+            case .available(recovery: .some(.init(reason: .corruptDatabase))) = receipt.local
+        else {
+            Issue.record("Expected corrupt local database replacement during preparation")
+            return
+        }
         try await datastore.saveWorkspaceEntityRecency([], workspaceId: workspaceID)
 
         let applicationLoad = await datastore.loadApplicationEntityRecency()
         let workspaceLoad = await datastore.loadWorkspaceEntityRecency(workspaceId: workspaceID)
 
-        guard case .loaded(_, let applicationRecoveryEvents) = applicationLoad else {
+        guard case .loaded(let applicationRecency) = applicationLoad else {
             Issue.record("Expected application recency to load after local recovery")
             return
         }
-        guard case .loaded(_, let workspaceRecoveryEvents) = workspaceLoad else {
+        guard case .loaded(let workspaceRecency) = workspaceLoad else {
             Issue.record("Expected workspace recency to load after local recovery")
             return
         }
-        #expect(applicationRecoveryEvents.isEmpty)
-        #expect(
-            workspaceRecoveryEvents.contains {
-                $0.workspaceId == workspaceID && $0.recovery == .quarantinedAndReset
-            }
-        )
+        #expect(applicationRecency.isEmpty)
+        #expect(workspaceRecency.isEmpty)
     }
 
-    @Test("workspace restore reports loaded recovery events")
-    func workspaceRestoreReportsLoadedRecoveryEvents() async throws {
+    @Test("workspace restore consumes prepared replacement without physical recovery events")
+    func workspaceRestoreConsumesPreparedReplacement() async throws {
         let workspaceID = UUID()
         let rootDirectory = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-entity-recency-store-recovery-\(UUID().uuidString)")
@@ -289,58 +292,54 @@ struct EntityRecencyStoreTests {
         )
         try Data("not a sqlite database".utf8)
             .write(to: rootDirectory.appending(path: "local.sqlite"))
+        _ = await datastore.prepareDatabasesForBoot()
         try await datastore.saveWorkspaceEntityRecency([], workspaceId: workspaceID)
-        var reportedRecoveryEvents: [PersistenceRecoveryEvent] = []
+        let workspaceAtom = WorkspaceEntityRecencyAtom()
         let store = EntityRecencyStore(
             applicationAtom: ApplicationEntityRecencyAtom(),
-            workspaceAtom: WorkspaceEntityRecencyAtom(),
-            sqliteDatastore: datastore,
-            recoveryReporter: { reportedRecoveryEvents.append($0) }
+            workspaceAtom: workspaceAtom,
+            sqliteDatastore: datastore
         )
 
         await store.restoreWorkspaceAsync(for: workspaceID)
 
-        #expect(
-            reportedRecoveryEvents.contains {
-                $0.workspaceId == workspaceID && $0.recovery == .quarantinedAndReset
-            }
-        )
+        #expect(workspaceAtom.workspaceID == workspaceID)
+        #expect(workspaceAtom.recentEntities.isEmpty)
     }
 
-    @Test("workspace restore reports unavailable recovery events")
-    func workspaceRestoreReportsUnavailableRecoveryEvents() async throws {
+    @Test("workspace restore defaults when prepared local is unavailable")
+    func workspaceRestoreDefaultsWhenPreparedLocalIsUnavailable() async throws {
         let workspaceID = UUID()
         let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
-        let localDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceCoreMigrations.migrate(coreDatabaseQueue)
-        try WorkspaceLocalMigrations.migrate(localDatabaseQueue)
-        let datastore = WorkspaceSQLiteDatastore(
-            coreRepository: WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue),
-            makeLocalRepository: {
-                WorkspaceLocalRepository(workspaceId: $0, databaseWriter: localDatabaseQueue)
-            },
-            makeLocalRestoreRepository: { _ in
-                throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
+        let datastore = try await preparedWorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            localUnavailable: .init(
+                WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(
                     workspaceID,
                     quarantinedFilename: "local.sqlite.corrupt-test"
                 )
-            }
+            )
         )
-        var reportedRecoveryEvents: [PersistenceRecoveryEvent] = []
+        let preparation = await datastore.prepareDatabasesForBoot()
+        guard case .prepared(let receipt) = preparation,
+            case .unavailable = receipt.local
+        else {
+            Issue.record("Expected local preparation to be unavailable")
+            return
+        }
+        let workspaceAtom = WorkspaceEntityRecencyAtom()
         let store = EntityRecencyStore(
             applicationAtom: ApplicationEntityRecencyAtom(),
-            workspaceAtom: WorkspaceEntityRecencyAtom(),
-            sqliteDatastore: datastore,
-            recoveryReporter: { reportedRecoveryEvents.append($0) }
+            workspaceAtom: workspaceAtom,
+            sqliteDatastore: datastore
         )
 
         await store.restoreWorkspaceAsync(for: workspaceID)
 
-        #expect(
-            reportedRecoveryEvents.contains {
-                $0.workspaceId == workspaceID && $0.recovery == .quarantinedAndReset
-            }
-        )
+        #expect(workspaceAtom.workspaceID == workspaceID)
+        #expect(workspaceAtom.recentEntities.isEmpty)
     }
 
     @Test("store hydrates each lane before observation and preserves application state across workspace changes")
@@ -352,7 +351,8 @@ struct EntityRecencyStoreTests {
             workspaceId: secondWorkspaceID,
             databaseWriter: fixture.databaseQueue
         )
-        let datastore = try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        _ = await datastore.prepareDatabasesForBoot()
         let applicationAtom = ApplicationEntityRecencyAtom()
         let workspaceAtom = WorkspaceEntityRecencyAtom()
         let clock = TestPushClock()
@@ -390,7 +390,6 @@ struct EntityRecencyStoreTests {
         try fixture.repository.replaceWorkspaceEntityRecency([firstPaneRecency])
         try secondRepository.replaceWorkspaceEntityRecency([secondPaneRecency])
 
-        _ = await datastore.loadRepoCacheState(workspaceId: firstWorkspaceID)
         store.startObserving()
         #expect(!store.isApplicationObservationActive)
         #expect(!store.isWorkspaceObservationActive)
@@ -438,8 +437,8 @@ struct EntityRecencyStoreTests {
     func flushAllPreservesApplicationErrorPrecedence() async throws {
         let workspaceID = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceID)
-        let datastore = try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
-        _ = await datastore.loadRepoCacheState(workspaceId: workspaceID)
+        let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        _ = await datastore.prepareDatabasesForBoot()
         let applicationAtom = ApplicationEntityRecencyAtom()
         let workspaceAtom = WorkspaceEntityRecencyAtom()
         let store = EntityRecencyStore(
@@ -504,8 +503,8 @@ struct EntityRecencyStoreTests {
             lastInteractedAt: Date(timeIntervalSince1970: 100)
         )
         try fixture.repository.replaceWorkspaceEntityRecency([paneRecency])
-        let datastore = try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
-        _ = await datastore.loadRepoCacheState(workspaceId: workspaceID)
+        let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        _ = await datastore.prepareDatabasesForBoot()
         try await fixture.databaseQueue.write { database in
             try database.execute(sql: "DROP TABLE local_entity_recency")
         }
@@ -534,8 +533,8 @@ struct EntityRecencyStoreTests {
             lastInteractedAt: Date(timeIntervalSince1970: 100)
         )
         try fixture.repository.replaceApplicationEntityRecency([applicationRecency])
-        let datastore = try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
-        _ = await datastore.loadRepoCacheState(workspaceId: workspaceID)
+        let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        _ = await datastore.prepareDatabasesForBoot()
         try await fixture.databaseQueue.write { database in
             try database.execute(sql: "DROP TABLE local_workspace_entity_recency")
         }

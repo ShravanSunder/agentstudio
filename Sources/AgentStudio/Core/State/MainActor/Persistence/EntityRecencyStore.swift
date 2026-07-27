@@ -8,7 +8,6 @@ final class EntityRecencyStore {
     private let sqliteDatastore: WorkspaceSQLiteDatastore
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
-    private let recoveryReporter: PersistenceRecoveryReporter?
 
     private var applicationSaveTask: Task<Void, Never>?
     private var workspaceSaveTask: Task<Void, Never>?
@@ -34,15 +33,13 @@ final class EntityRecencyStore {
         workspaceAtom: WorkspaceEntityRecencyAtom,
         sqliteDatastore: WorkspaceSQLiteDatastore,
         persistDebounceDuration: Duration = .milliseconds(500),
-        clock: (any Clock<Duration> & Sendable)? = nil,
-        recoveryReporter: PersistenceRecoveryReporter? = nil
+        clock: (any Clock<Duration> & Sendable)? = nil
     ) {
         self.applicationAtom = applicationAtom
         self.workspaceAtom = workspaceAtom
         self.sqliteDatastore = sqliteDatastore
         self.persistDebounceDuration = persistDebounceDuration
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
-        self.recoveryReporter = recoveryReporter
     }
 
     func restoreApplicationAsync() async {
@@ -51,7 +48,7 @@ final class EntityRecencyStore {
         applicationSaveTask = nil
         isRestoringApplication = true
         switch await sqliteDatastore.loadApplicationEntityRecency() {
-        case .loaded(let recentEntities, _):
+        case .loaded(let recentEntities):
             applicationAtom.hydrate(recentEntities)
         case .unavailable:
             applicationAtom.clear()
@@ -72,12 +69,10 @@ final class EntityRecencyStore {
         isRestoringWorkspace = true
         workspaceAtom.clear()
         switch await sqliteDatastore.loadWorkspaceEntityRecency(workspaceId: workspaceID) {
-        case .loaded(let recentEntities, let recoveryEvents):
+        case .loaded(let recentEntities):
             workspaceAtom.hydrate(workspaceID: workspaceID, recentEntities: recentEntities)
-            reportRecoveryEvents(recoveryEvents)
-        case .unavailable(_, let recoveryEvents):
+        case .unavailable:
             workspaceAtom.hydrate(workspaceID: workspaceID, recentEntities: [])
-            reportRecoveryEvents(recoveryEvents)
         }
         hydratedWorkspaceID = workspaceID
         isRestoringWorkspace = false
@@ -201,9 +196,4 @@ final class EntityRecencyStore {
         }
     }
 
-    private func reportRecoveryEvents(_ recoveryEvents: [PersistenceRecoveryEvent]) {
-        for recoveryEvent in recoveryEvents {
-            recoveryReporter?(recoveryEvent)
-        }
-    }
 }

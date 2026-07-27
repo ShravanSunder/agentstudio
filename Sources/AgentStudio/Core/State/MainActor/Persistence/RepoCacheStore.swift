@@ -149,10 +149,9 @@ final class RepoCacheStore {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
-        switch await sqliteDatastore.loadRepoCacheState(workspaceId: workspaceId) {
-        case .loaded(let payload):
+        switch await sqliteDatastore.loadRepoCacheState() {
+        case .loaded(let cacheState):
             isRestoringState = true
-            let cacheState = payload.cacheState
             cacheAtom.hydrate(
                 .init(
                     repoEnrichmentByRepoId: cacheState.repoEnrichmentByRepoId,
@@ -163,11 +162,9 @@ final class RepoCacheStore {
                 )
             )
             isRestoringState = false
-            reportRecoveryEvents(payload.recoveryEvents)
-        case .unavailable(let failure, let recoveryEvents):
+        case .unavailable(let failure):
             isRestoringState = false
             cacheAtom.clear()
-            reportRecoveryEvents(recoveryEvents)
             repoCacheStoreLogger.warning("Repo cache SQLite restore failed: \(failure.description)")
             recoveryReporter?(
                 .init(
@@ -237,8 +234,7 @@ final class RepoCacheStore {
         guard preparedSave.shouldPersist else { return }
         do {
             try await sqliteDatastore.saveRepoCacheState(
-                cacheState: preparedSave.cacheState,
-                workspaceId: workspaceId
+                cacheState: preparedSave.cacheState
             )
             lastPersistedProjection = preparedSave.projection
         } catch {
@@ -259,9 +255,4 @@ final class RepoCacheStore {
         )
     }
 
-    private func reportRecoveryEvents(_ recoveryEvents: [PersistenceRecoveryEvent]) {
-        for recoveryEvent in recoveryEvents {
-            recoveryReporter?(recoveryEvent)
-        }
-    }
 }

@@ -8,13 +8,16 @@
 
 Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces events on the `EventBus`. A single `WorkspaceCacheCoordinator` consumes all events, writing topology changes to the canonical store and enrichment data to the cache store. The sidebar is a pure reader of all three stores via `@Observable` binding — zero imperative fetches, zero mutations.
 
-Normal boot opens authoritative `core.sqlite`, then independently opens the one
-app-root `local.sqlite`. Workspace composition is loaded from core; local
+Normal boot explicitly prepares authoritative `core.sqlite` and the one app-root
+`local.sqlite` before any hydration, then retains one writable owner for each
+accepted database. Workspace composition is loaded from core; local
 workspace rows are keyed by `workspace_id`, window/sidebar rows by `window_id`,
 and repository/worktree/PR caches have no workspace owner. Workspace JSON and
 per-workspace local sidecars are not boot, import, migration, fallback, or
-recovery sources. A missing, corrupt, unavailable, or invalid local lane uses
-deterministic defaults without changing or blocking core startup. Historical
+recovery sources. Core preparation failure stops boot. A physically unavailable
+local database defaults all local lanes; when local is available, a query or
+decode failure defaults only its logical slice. Neither changes or blocks
+accepted core startup. Historical
 core GRDB migrations remain so valid older core databases can open;
 `preferences.global.json` remains independently owned.
 
@@ -520,19 +523,26 @@ Boot is driven by `WorkspaceBootSequence` (`App/Boot/WorkspaceBootSequence.swift
 
 ```
 WorkspaceBootStep (in order):
-  1. loadCanonicalStore      → load repos, worktrees, panes, tabs from core.sqlite
-  2. loadCacheStore           → warm-start global cache + workspace local rows from local.sqlite when available
-  3. loadUIStore              → window/sidebar and workspace UI rows from local.sqlite; default unavailable lanes
-  4. establishRuntimeBus      → create/reset PaneRuntimeEventBus
-  5. startFilesystemActor     → start FilesystemActor
-  6. startGitProjector        → start GitWorkingDirectoryProjector
-  7. startForgeActor          → start ForgeActor
-  8. startCacheCoordinator    → start WorkspaceCacheCoordinator, subscribes to bus
-  9. triggerInitialTopologySync → replayBootTopology — emit .repoDiscovered for each persisted repo
-                                  Phase A: active-pane repos first (priority)
-                                  Phase B: remaining repos
- 10. readyForReactiveSidebar  → prune stale cache entries, sidebar enters reactive mode
+  1. prepareDatabases         → prepare core + local; fatal core stops boot, local may default
+  2. loadCanonicalStore       → consume prepared core and hydrate repos/worktrees/panes/tabs
+  3. establishRuntimeBus      → create the minimum runtime hosts for shell presentation
+  4. loadCacheStore           → hydrate application/workspace recency, cache, and sidebar groups
+  5. loadUIStore              → hydrate window/sidebar UI, settings, and inbox local slices
+  6. startFilesystemActor     → start FilesystemActor
+  7. startGitProjector        → start GitWorkingDirectoryProjector
+  8. startForgeActor          → start ForgeActor
+  9. startCacheCoordinator    → subscribe WorkspaceCacheCoordinator to the bus
+ 10. triggerInitialTopologySync → replay persisted topology through ordinary events
+ 11. armPersistenceObservation → observe only after every local owner finishes hydration
+ 12. readyForReactiveSidebar  → mark secondary-state hydration scheduled
+ 13. checkWorktrunkDependency → offer installation after the shell is visible
 ```
+
+Database preparation is cached for the launch. Local recovery is exactly
+`quarantine present DB/WAL/SHM → create and migrate fresh local.sqlite`.
+Classified corruption and orphan sidecars may enter that path. Unclassified
+open failures preserve the file set. Quarantine or fresh-creation failure leaves
+local unavailable for the launch; consumers do not retry the open.
 
 After the boot sequence completes, `AppDelegate` calls `observeLaunchRestoreReadiness()` which creates a `WindowRestoreBridge`. The bridge observes `WindowLifecycleAtom.isReadyForLaunchRestore` and yields trusted terminal container bounds once the window layout has settled. `AppDelegate` then calls `workspaceSurfaceCoordinator.restoreAllViews(in: bounds)` to create views for all persisted panes. See [Deferred Launch Restore](#deferred-launch-restore) for the geometry gate that handles panes whose bounds are not yet available.
 

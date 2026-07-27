@@ -447,6 +447,8 @@ struct AgentStudioOTLPTraceProjectionSanitizationTests {
             scope: .init(name: "agentstudio.persistence.recovery", version: "0.1.0"),
             attributes: [
                 "agentstudio.persistence.backend": .string("sqlite"),
+                "agentstudio.persistence.classification": .string("corrupt_database"),
+                "agentstudio.persistence.disposition": .string("local_available"),
                 "agentstudio.persistence.error.description": .string(
                     "SQLite failed at /Users/shravan/private/core.sqlite"
                 ),
@@ -454,9 +456,11 @@ struct AgentStudioOTLPTraceProjectionSanitizationTests {
                 "agentstudio.persistence.operation": .string("workspace.load"),
                 "agentstudio.persistence.outcome": .string("quarantined"),
                 "agentstudio.persistence.phase": .string("quarantine_sidecars"),
+                "agentstudio.persistence.recovery.attempt": .string("quarantine_and_replace"),
                 "agentstudio.persistence.recovery.kind": .string("local_quarantine"),
                 "agentstudio.sqlite.database": .string("local"),
                 "agentstudio.sqlite.database_path": .string("~/Library/Application Support/AgentStudio/core.sqlite"),
+                "agentstudio.sqlite.result_code": .int(26),
                 "agentstudio.trace.tag": .string("persistence.recovery"),
                 "agentstudio.workspace.id": .string(workspaceID.uuidString),
                 "agentstudio.workspace.snapshot.has_tab_membership_mismatch": .bool(true),
@@ -469,7 +473,14 @@ struct AgentStudioOTLPTraceProjectionSanitizationTests {
         let renderedProjection = projection.renderedForCanaryAssertions()
 
         #expect(projection.attributes["agentstudio.persistence.backend"] == .string("sqlite"))
+        #expect(projection.attributes["agentstudio.persistence.classification"] == .string("corrupt_database"))
+        #expect(projection.attributes["agentstudio.persistence.disposition"] == .string("local_available"))
+        #expect(
+            projection.attributes["agentstudio.persistence.recovery.attempt"]
+                == .string("quarantine_and_replace")
+        )
         #expect(projection.attributes["agentstudio.persistence.recovery.kind"] == .string("local_quarantine"))
+        #expect(projection.attributes["agentstudio.sqlite.result_code"] == .int(26))
         #expect(projection.attributes["agentstudio.workspace.snapshot.has_tab_membership_mismatch"] == .bool(true))
         #expect(projection.attributes["agentstudio.workspace.snapshot.pane_count"] == .int(2))
         #expect(projection.attributes["agentstudio.workspace.id"] == nil)

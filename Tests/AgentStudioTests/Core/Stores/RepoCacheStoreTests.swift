@@ -11,7 +11,7 @@ struct RepoCacheStoreTests {
     func flushAndRestoreRoundTripsSQLiteEnrichmentState() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
-        let datastore = try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         let cacheAtom = RepoEnrichmentCacheAtom()
         let repoId = UUID()
         let worktreeId = UUID()
@@ -50,7 +50,7 @@ struct RepoCacheStoreTests {
 
         await RepoCacheStore(
             cacheAtom: cacheAtom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         ).restoreAsync(for: workspaceId)
 
         #expect(cacheAtom.repoEnrichmentByRepoId.isEmpty)
@@ -68,7 +68,7 @@ struct RepoCacheStoreTests {
 
         await RepoCacheStore(
             cacheAtom: cacheAtom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: failingWorkspaceLocalSQLiteBackend()),
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: failingWorkspaceLocalSQLiteBackend()),
             recoveryReporter: { reportedRecoveries.append($0) }
         ).restoreAsync(for: workspaceId)
 
@@ -90,7 +90,7 @@ struct RepoCacheStoreTests {
         let repoId = UUID()
         let store = RepoCacheStore(
             atom: atom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
@@ -117,7 +117,7 @@ struct RepoCacheStoreTests {
         let worktreeId = UUID()
         let store = RepoCacheStore(
             atom: atom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
@@ -173,7 +173,7 @@ struct RepoCacheStoreTests {
         let clock = TestPushClock()
         let store = RepoCacheStore(
             atom: atom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
@@ -192,7 +192,7 @@ struct RepoCacheStoreTests {
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let store = RepoCacheStore(
             atom: RepoCacheAtom(),
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
 
         #expect(store.isAutosaveObservationActive == false)

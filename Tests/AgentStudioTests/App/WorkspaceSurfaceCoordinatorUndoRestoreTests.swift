@@ -191,6 +191,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
             workspaceName: "Deferred Drawer Restore",
             createdAt: Date(timeIntervalSince1970: 1_700_000_088)
         )
+        let sqliteDatastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         try fixture.coreRepository.upsertWorkspace(
             .init(
                 id: workspaceId,
@@ -199,7 +200,6 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
                 updatedAt: identityAtom.createdAt
             )
         )
-        let sqliteDatastore = workspaceSQLiteDatastore(from: fixture.backend)
         let store = WorkspaceStore(
             identityAtom: identityAtom,
             sqliteDatastore: sqliteDatastore
@@ -237,7 +237,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
 
         #expect(flushOutcome.succeeded)
         let restoredStore = WorkspaceStore(
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         )
         await restoredStore.loadCanonicalComposition()
 

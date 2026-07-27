@@ -541,11 +541,13 @@ Derived state bridge between `WorkspaceStore` and the tab bar SwiftUI view. Brid
 The SQLite foundation is `SQLiteDatabaseFactory`, `WorkspaceCoreMigrations`,
 `WorkspaceLocalMigrations`, and repository-facing storage tokens such as
 `SQLitePaneContentTypeStorage`, `SQLiteLocalUXStorage`, and
-`SQLiteInboxNotificationClaimStorage`. The live app path opens authoritative
-`core.sqlite` and one non-authoritative app-root `local.sqlite` independently.
+`SQLiteInboxNotificationClaimStorage`. The live app path explicitly prepares
+authoritative `core.sqlite` and one non-authoritative app-root `local.sqlite`
+before hydration, then retains one writable owner for each accepted database.
 Workspace composition JSON and per-workspace local sidecars are not import or
-fallback sources. A local lane that is missing, corrupt, unavailable, or invalid
-uses deterministic defaults without changing or blocking core startup.
+fallback sources. Core preparation failure stops boot. Physical local
+unavailability defaults every local lane; when local remains available, an
+invalid query or decode defaults only its logical slice.
 
 To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
 
@@ -594,10 +596,15 @@ each row is scoped by its actual owner rather than by a per-workspace file.
 
 #### Load / Refresh Sequencing
 
-1. Load authoritative composition and topology from `core.sqlite` into `WorkspaceStore`.
-2. Independently load typed local lanes from app-root `local.sqlite`; default any unavailable or invalid lane.
-3. Load global preferences from `preferences.global.json`.
-4. Trigger the async refresh pipeline (`wt`, `git`, `gh`) and patch `RepoEnrichmentCacheAtom` through `RepoCacheAtom`.
+1. Prepare both databases. Core acceptance is strict; local may be available,
+   replaced, or unavailable for the launch.
+2. Consume the prepared authoritative core snapshot into `WorkspaceStore`.
+3. Independently load typed local slices from the retained app-root
+   `local.sqlite`; default all slices when physical local is unavailable, or
+   only the failing logical slice when it remains available.
+4. Load global preferences from `preferences.global.json`.
+5. Trigger the async refresh pipeline (`wt`, `git`, `gh`) and patch
+   `RepoEnrichmentCacheAtom` through `RepoCacheAtom`.
 
 Coordinator owns sequencing, not domain decisions:
 
@@ -616,6 +623,9 @@ Coordinator owns sequencing, not domain decisions:
    may quarantine corrupt database sidecars.
 3. Local writes neither roll back nor invalidate committed core state.
 4. Cross-store flows are coordinator-only sequencing.
+5. Local recovery is exactly quarantine present DB/WAL/SHM, then create and
+   migrate a fresh database. A failed recovery remains unavailable for the
+   launch; there is no same-process reopen.
 
 ### 3.10 SurfaceManager
 
@@ -1034,8 +1044,9 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift` | Runtime focus owner for main-pane, empty-drawer, and drawer-pane focus |
 | `Core/State/MainActor/Atoms/WorkspacePaneFocusDerived.swift` | Shared app-wide pane focus reader for command visibility and status UI |
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around the canonical workspace atoms |
+| `Core/State/SQLite/WorkspaceSQLiteDatastore.swift` | Explicit core/local preparation, retained database ownership, strict hydration, local-slice I/O, and commit sequencing |
+| `Core/State/SQLite/WorkspaceSQLiteDatastoreFactory.swift` | App composition helper that supplies production database URLs and tracing |
 | `Core/State/SQLite/WorkspaceSQLiteRecoveryClassifier.swift` | GRDB corruption/not-a-database classifier shared by product SQLite recovery paths; no repository or atom ownership |
-| `Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackendFactory.swift` | Product-specific SQLite backend bootstrap, core migration, core sidecar quarantine, and local repository construction |
 | `Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift` | `core.sqlite` migration identifiers and durable workspace schema DDL |
 | `Core/State/MainActor/Persistence/WorkspaceLocalMigrations.swift` | application-root `local.sqlite` migration identifiers and local UX/cache schema DDL |
 | `Core/State/MainActor/Persistence/SQLitePaneContentTypeStorage.swift` | Storage tokens that map live `PaneContentType` values to `pane.content_type` |

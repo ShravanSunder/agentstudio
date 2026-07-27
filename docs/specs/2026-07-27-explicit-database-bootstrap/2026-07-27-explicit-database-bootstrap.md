@@ -1,54 +1,47 @@
 # Explicit Application Database Bootstrap
 
-Status: Draft for architecture approval
+Status: Accepted for implementation
 Date: 2026-07-27
-Baseline: `00d5de078b94118b0ad00e862135068670278552`
+Baseline: `6d13f6445524ec81536f75b1ed4ef7917d1c1b85`
 
-## Decision Summary
+## Decision
 
-Agent Studio boot explicitly prepares both application databases before any
+Agent Studio prepares both SQLite databases explicitly at boot, before any
 persistence store hydrates:
 
 ```text
 App boot
   → construct WorkspaceSQLiteDatastore
   → prepare core.sqlite and local.sqlite
-  → retain one writable owner for each database
   → hydrate canonical core composition
-  → hydrate independent local lanes
+  → hydrate independent local slices
   → arm persistence observation
 ```
 
-`WorkspaceSQLiteDatastore` remains the sole product owner of database opening,
-migration, corruption classification, quarantine, and retained database
-handles. Stores continue to depend on datastore row operations; they never
-receive a pool or repository that can open a database.
+`core.sqlite` remains authoritative and strict. If it cannot be prepared, boot
+stops.
 
-Preparation has asymmetric outcomes:
+`local.sqlite` remains non-authoritative. If it is corrupt, or a sidecar exists
+without the main database, Agent Studio moves the old SQLite file set to
+timestamped quarantine names, creates a fresh `local.sqlite`, and hydrates
+local defaults. If local preparation still cannot succeed, core boot continues
+and all local values use deterministic defaults.
+
+In this spec, local recovery means exactly:
 
 ```text
-core.sqlite                         local.sqlite
-────────────────────────────        ───────────────────────────────
-ready(coreSnapshot)                 available
-ready(uninitialized)                recoveredAndAvailable
-failed                              unavailable
-
-failed → startup stops              unavailable → core boot continues
+quarantine the present local.sqlite / WAL / SHM file set
+  → create and migrate a new local.sqlite
 ```
 
-The local outcome is process-wide and sticky for that launch. No cache,
-settings, recency, UI, inbox, canonical-load, or shutdown path may implicitly
-retry a failed local open.
+There is no recovery subsystem beyond that backup-and-recreate branch.
 
-This is a focused lifecycle correction. It does not introduce a second local
-database, a public repository hierarchy, a typestate datastore wrapper, a
-general database-health state machine, or a new retry system.
+## Current Problem
 
-## Problem
+The app constructs `WorkspaceSQLiteDatastore` at boot, but database opening is
+demand-driven.
 
-The app creates a configured datastore at boot, but database preparation is
-demand-driven. Canonical composition is currently the first caller to attempt
-`local.sqlite`:
+Canonical composition currently attempts the first local open:
 
 ```text
 WorkspaceStore.loadCanonicalComposition
@@ -57,398 +50,429 @@ WorkspaceStore.loadCanonicalComposition
   → localRepositoryForRestore(active workspace)
 ```
 
-The local repository open and cursor/window reads are wrapped in `try?`.
-Consequently:
+That local repository open and the cursor/window reads are hidden behind
+`try?`. Later stores can then retry the open while restoring cache, settings,
+recency, UI, or inbox state.
+
+The consequences are:
 
 - successful canonical hydration does not prove that `local.sqlite` opened;
-- a later store can become an incidental retrying opener;
-- boot order determines which lane observes recovery or unavailability;
-- an application-root database event may be attributed to the active workspace;
+- store order determines which consumer retries or observes recovery;
+- a physical application database event can be attributed to one workspace;
 - application-global recency depends on a workspace-shaped repository bundle.
 
-The defect is not that the app lacks local persistence. It is that preparation,
-availability, and recovery ownership are implicit.
+The correction is to make preparation boot-owned and make every later database
+operation consume the retained result.
 
-## Product and Engineering Intent
+## Required Contract
 
-Startup should have one inspectable answer to each question:
-
-- Is authoritative core storage ready?
-- Is non-authoritative local storage available, recovered, or unavailable?
-- Which component owns the database connections?
-- Can a later feature silently change that answer?
-
-Success means boot behavior is independent of store-hydration order, strict
-core startup remains intact, local failure cannot block canonical presentation,
-and all consumers share the same prepared database state.
-
-## Terminology
-
-### Preparation
-
-The boot-owned operation that performs the database-level work required before
-row consumers run: schema preparation, opening, migration when required,
-recovery classification, permitted quarantine/reset, and retained-handle
-creation.
-
-### Retained writable owner
-
-The one process-lifetime writable database owner cached by the datastore for a
-physical database. Bounded transient startup probes are permitted inside
-preparation.
-
-This distinction preserves the existing strict core contract: a preexisting
-core database may be inspected through a temporary byte-preserving startup
-reader before the retained writable pool opens. “One owner” does not mean one
-SQLite handle total over the entire preparation algorithm.
-
-### Database-level preparation failure
-
-Failure to prepare and retain initial access to the physical database during
-bootstrap. For `local.sqlite`, this makes every local lane unavailable for that
-launch.
-
-### Lane-level failure
-
-A query, row, codec, or table-specific failure after the physical database was
-prepared. It defaults or fails only that logical lane; it does not poison the
-whole local database.
-
-## Requirements
-
-### R1. Explicit boot prerequisite
+### R1. Preparation is a boot prerequisite
 
 `WorkspaceBootSequence` exposes database preparation as the first presentation
-prerequisite. It runs before canonical composition loading and before any local
-store restore.
+prerequisite.
 
-Boot constructs the datastore, prepares both databases, records the preparation
-receipt, then constructs or activates persistence stores against that prepared
-datastore.
+Boot constructs the datastore and prepares both databases before canonical
+composition or any local store restore.
 
-Calling a persistence operation before preparation is a programmer error
-represented by a typed datastore failure in testable APIs. It must not lazily
-open a database.
+A persistence operation invoked before preparation returns a typed programmer
+error. It must not lazily open a database.
 
-### R2. Datastore ownership
+### R2. The datastore owns physical database lifecycle
 
-`WorkspaceSQLiteDatastore` owns:
+`WorkspaceSQLiteDatastore` is the sole product owner of:
 
-- preparation state;
-- core and local opening;
-- schema migration;
-- corruption classification;
-- local sidecar quarantine/reset;
-- retained writable owners;
-- preparation observability and recovery provenance.
+- database opening and migration;
+- strict core startup acceptance;
+- local corruption classification and quarantine;
+- one retained writable owner for each available database;
+- the immutable preparation result;
+- application-scoped preparation diagnostics.
 
 `WorkspaceSQLiteDatastoreFactory` remains construction-only.
 
-Store wrappers and row repositories own typed row reads/writes only. They do not
-open, migrate, quarantine, retry, or close a physical database.
+Store wrappers and row repositories continue to own typed row reads and writes.
+They do not open, migrate, quarantine, recreate, or retry a physical database.
 
-The existing `localRepositoryForSave` and `localRepositoryForRestore` paths must
-become prepared-access resolvers: return the prepared writer or the retained
-unavailable failure. They must no longer open, migrate, quarantine, or retry.
+The current `localRepositoryForSave` and `localRepositoryForRestore` physical
+openers collapse to one prepared-local accessor. It returns the prepared local
+capability or the retained unavailable failure. Restore and save remain
+operation labels for diagnostics; they are not different physical open modes.
 
-### R3. Core preparation
+### R3. Core preparation is strict
 
-Core preparation returns one of:
+Core preparation returns:
 
-- `ready(coreSnapshot)`: a strictly accepted, core-only preexisting canonical
-  snapshot;
-- `ready(uninitialized)`: a new empty core database eligible for the existing
-  default-workspace initialization contract;
-- `failed(failure)`: startup-critical failure.
+```text
+ready(coreSnapshot)
+ready(uninitialized)
+failed(failure)
+```
 
-Strict startup remains byte-preserving for rejected preexisting core input,
-including database, WAL, and SHM state. The retained writable core owner opens
-only after the byte-preserving acceptance point.
+`ready(coreSnapshot)` contains a strictly accepted core-only canonical
+snapshot.
 
-No core corruption quarantine, reset, JSON fallback, or fail-open behavior is
-introduced.
+`ready(uninitialized)` applies only to a new empty core database created during
+the current startup. The existing default-workspace initialization contract
+then applies.
 
-Preparation does not build the completed core-plus-local workspace projection.
-Canonical composition remains the owner of merging the prepared core snapshot
-with cursor/window state from the prepared local capability.
+A rejected preexisting core database is `failed`, including a database with no
+workspace rows or no active workspace selection.
 
-### R4. Application-local preparation
+Required supported-schema migration runs before strict snapshot acceptance.
+After schema preparation:
 
-Local preparation returns one of:
+- current-schema rejected input remains byte-identical across database, WAL,
+  and SHM;
+- older supported input may contain the required migration writes, but
+  rejection performs no further mutation and creates no quarantine artifact.
 
-- `available`;
-- `recoveredAndAvailable(recoveryProvenance)`;
-- `unavailable(failure, recoveryProvenance?)`.
+A transient writable migration pool may open before acceptance. The one
+retained writable core owner opens only after strict acceptance.
 
-A missing local database is created and becomes `available`.
+Core corruption is never quarantined, reset, defaulted, or recovered from JSON.
 
-Recognized corruption may be quarantined once and reopened once. Successful
-reset becomes `recoveredAndAvailable`. Quarantine failure, reopen failure, or an
-unclassified open failure becomes `unavailable`.
+### R4. Local preparation has two outcomes
 
-An unavailable result is retained for the launch. Every local load and save
-fails fast from that result. No ordinary consumer retries opening the database.
-Retry occurs on the next app launch; an in-process retry is a separate future
-product and lifecycle contract.
+Local preparation returns:
 
-### R5. Fail-open local behavior
+```text
+available(recovery?)
+unavailable(failure)
+```
 
-`local.sqlite` is non-authoritative. Its unavailability must not prevent:
+Successful replacement is ordinary `available` behavior with recovery
+provenance. It is not a third state.
 
-- strict core snapshot acceptance;
-- creation of the default core workspace;
-- canonical workspace hydration;
-- workspace shell presentation.
+The preparation algorithm is:
 
-Canonical cursor and window projections use deterministic defaults when local
-storage is unavailable. This defaulting must be driven by the typed preparation
-outcome, not by `try?`. The existing canonical-composition assembly boundary
-continues to own this merge.
+```text
+local file set absent
+  → create and migrate local.sqlite
+  → available
 
-After successful local preparation, lane-specific read failures retain their
-existing isolated blast radius.
+local file set opens and migrates
+  → available
 
-Post-preparation filesystem loss or write failure is an operation-level lane
-failure for this focused correction. It does not mutate the preparation
-disposition and does not trigger reopening. The receipt describes the bootstrap
-outcome; it is not a live database-health monitor.
+main database absent, with WAL or SHM present
+  → before any SQLite open, treat as an incomplete local file set
+  → move every present sidecar to timestamped quarantine
+  → create and migrate fresh local.sqlite
+  → available(recovery)
 
-### R6. One local owner, two row scopes
+main database present
+  → attempt open and migration
+  → never classify by missing WAL or SHM
 
-One retained local writer serves both scopes:
+open reports SQLITE_CORRUPT or SQLITE_NOTADB
+  → move every present component to timestamped quarantine
+  → create and migrate fresh local.sqlite
+  → available(recovery)
+
+recovery fails at either step:
+  1. quarantining the present file set, or
+  2. creating and migrating the fresh local.sqlite
+  → unavailable
+
+permission, disk, unsupported schema, or other unclassified failure
+  → preserve the existing live file set
+  → unavailable
+```
+
+Missing WAL or SHM beside a present main database is normal and never triggers
+replacement by file-set shape. Fresh creation must not begin until every
+preexisting component has moved out of the live database, WAL, and SHM paths.
+This prevents SQLite from creating a new main database beside old sidecars.
+
+An unavailable result is retained for the launch. All local loads and saves
+fail fast from it, and no ordinary consumer retries the open. The next app
+launch runs the same preparation algorithm against the file set that exists
+then.
+
+There is no rollback coordinator, repair queue, health registry, or
+same-process retry.
+
+### R5. Local failure defaults by logical slice
+
+Physical local unavailability defaults every local slice while strict core
+hydration and workspace presentation continue.
+
+When the physical local database is available, a query or decode failure
+defaults only its owning logical slice. Healthy slices continue using the same
+prepared database.
+
+A logical slice is one independently meaningful consumer value or one coherent
+group of rows:
+
+```text
+logical slice                    fallback
+───────────────────────────────  ─────────────────────────────
+cursor continuation              default navigation cursors
+window continuation              default window memory
+sidebar shell memory             default sidebar shell
+sidebar expanded groups          empty expanded groups
+application entity recency       empty application recency
+workspace entity recency         empty workspace recency
+editor preference                default editor preference
+repo-explorer preferences        default repo preferences
+inbox-notification preferences   default inbox preferences
+repository cache                 empty/rebuildable cache
+notification inbox               feature-owned empty/default
+```
+
+The five cursor tables remain one coherent cursor-continuation slice.
+Repository enrichment, worktree enrichment, pull-request counts, and cache
+metadata remain one coherent repository-cache slice.
+
+Editor, repo-explorer, and inbox-notification preferences are independent
+slices even though `WorkspaceSettingsStore` currently restores them together.
+The datastore load result must represent those three outcomes independently.
+
+Window continuation and sidebar shell memory remain independent reads even
+though both use `local_window_state`.
+
+A defaulted slice does not immediately write a replacement row. The next real
+settings mutation retains the existing behavior: it writes the three current
+in-memory preference values sequentially. This can repair a previously
+unreadable preference with its deterministic default. This spec does not add
+per-slice dirty tracking or a settings transaction.
+
+A later operation-level filesystem or write failure does not mutate the boot
+receipt or reopen the database. The receipt describes preparation, not live
+database health.
+
+### R6. One local writer serves two row scopes
 
 ```text
 prepared local writer
-  ├─ application-global operations
+  ├─ application-global rows
   │    repository cache
   │    repository/worktree recency
-  │    other rows with no workspace_id
+  │    other rows without workspace_id
   │
   └─ workspace-scoped views(workspaceId)
-       cursor/window continuation
+       cursor and window continuation
        pane recency
        workspace preferences and inbox rows
 ```
 
-Application-global operations do not accept, invent, or ignore a workspace ID.
-Workspace-scoped views bind a workspace ID over the same prepared writer; they
-do not own or open the database.
+Application-global operations do not accept or ignore a workspace ID.
+Workspace-scoped views bind a workspace ID over the same prepared writer.
 
-The first implementation should extend the existing private
-application-local bundle rather than introduce a new public
-`ApplicationLocalRepository` type. A public split requires a separate
-architecture decision.
+The first implementation extends the existing private application-local bundle.
+It does not add a public `ApplicationLocalRepository` hierarchy.
 
-### R7. Recovery attribution and observability
+### R7. Preparation is idempotent and observable once
 
-Physical `local.sqlite` preparation and recovery are application-scoped events.
-They are recorded once by bootstrap with no synthetic workspace owner.
+The datastore stores only:
 
-The immutable preparation receipt is the source of truth for the bootstrap
-disposition. Recovery notification delivery must not consume or transfer that
-truth to the first feature store that restores.
+```swift
+private enum DatabasePreparationState {
+    case unprepared
+    case prepared(DatabasePreparationReceipt)
+    case failed(CoreDatabasePreparationFailure)
+}
+```
 
-Operation-level lane failures remain separately attributed to their lane.
-Telemetry follows the existing source-scrubbing rules and does not add raw paths
-or entity identifiers.
+Opening, migration, quarantine, and fresh local creation are one synchronous
+actor-isolated preparation operation. The terminal state is cached before any
+asynchronous diagnostic emission.
 
-### R8. Idempotence and concurrency
+Repeated preparation calls return the cached result. They do not create more
+pools, rerun migration, repeat quarantine, or emit duplicate startup
+diagnostics.
 
-Preparation is idempotent. Repeated or reentrant calls await or return the same
-preparation result. Actor reentrancy must not create duplicate pools, migrations,
-quarantines, or recovery events.
+Bootstrap emits one application-scoped structured diagnostic for every
+preparation error:
 
-Once local preparation is unavailable, later load, save, flush, and termination
-paths cannot reopen it.
+```text
+core preparation failure
+  → error
+  → boot stops
+
+local storage replaced
+  → warning
+  → quarantined file set retained
+  → fresh local database available with defaults
+
+local open fails without permission to replace,
+or quarantine/fresh database creation fails
+  → error
+  → local unavailable
+  → every local slice uses its deterministic default
+  → core boot continues
+```
+
+Diagnostics identify the database, preparation phase, classified failure,
+SQLite result code when available, recovery attempt, and final disposition.
+They contain no raw database paths or entity identifiers.
+
+Existing logging and trace infrastructure owns these records. Individual stores
+do not repeat the startup error or own physical recovery attribution.
+
+Physical open, quarantine, and replacement outcomes move entirely to the
+preparation receipt and startup diagnostic. The legacy pending physical
+recovery queues and `recoveryEvents` load payloads are removed rather than left
+as a second delivery path. Store-owned logical outcomes such as reset-to-default
+and save-failed remain ordinary `PersistenceRecoveryEvent` values.
+
+The configuration-driven datastore initializer starts `unprepared`. Test
+fixtures that bypass file-backed configuration must inject genuinely prepared
+core and local capabilities and start `prepared`; they must not mark the
+existing lazy per-workspace repository closures as prepared. The closure-based
+test initializer is reshaped or removed rather than exempted from R1.
 
 ## Boundary / Separability Map
 
 ```text
 App boot
-  owns: visible ordering, fatal-versus-degraded policy
-  exposes: one explicit prepare-databases prerequisite
+  owns: prerequisite order and fatal-versus-degraded policy
+  exposes: prepare-databases prerequisite
                             │
                             ▼
 WorkspaceSQLiteDatastore
-  owns: preparation state, migration, recovery, retained owners
-  exposes: typed preparation receipt + row operations
+  owns: preparation, migration, replacement, retained writers
+  exposes: preparation receipt and typed row operations
                 │                           │
                 ▼                           ▼
 prepared core capability           prepared local capability
   authoritative                      non-authoritative
-  strict startup                     application-global operations
+  strict startup                     application-global rows
   canonical snapshot                 workspace-scoped views
                 │                           │
                 └───────────┬───────────────┘
                             ▼
 persistence stores
-  own: atom hydration, row mapping, lane-specific defaulting
-  forbidden: open, migrate, quarantine, retry, raw-pool access
+  own: row mapping, atom hydration, logical-slice defaulting
+  forbidden: physical open, migrate, quarantine, retry, raw pools
 ```
-
-The explicit seam is the datastore preparation receipt. Core and local outcomes
-remain independent within it.
 
 ## State Model
 
 ```text
 unprepared
-    │ prepareDatabasesForBoot
+    │ prepareDatabasesForBoot()
     ▼
-preparing
-    ├─ core failed ─────────────────────► failed [startup terminal]
-    │
-    ├─ core ready + local available ───► prepared(local: available)
-    │
-    ├─ core ready + local recovered ───► prepared(local: recovered)
-    │
-    └─ core ready + local failed ──────► prepared(local: unavailable)
-
-prepared
-    ├─ canonical hydration consumes prepared core result
-    ├─ local lanes consume one retained local disposition
-    └─ ordinary operations cannot transition availability
+prepare core
+    ├─ failed ───────────────────────────────► failed(coreFailure)
+    │                                           boot stops
+    ▼
+prepare local
+    ├─ open/create succeeds ────────────────┐
+    ├─ corrupt/incomplete file set          │
+    │    → recovery                          │
+    │       1. quarantine present DB/WAL/SHM │
+    │       2. create + migrate fresh local  │
+    │       ├─ both succeed ────────────────┤
+    │       └─ either fails                  │
+    │            → unavailable              │
+    │            → local defaults           │
+    │            → core continues ──────────┤
+    └─ unclassified open failure            │
+         → preserve file set                │
+         → unavailable ─────────────────────┤
+                                            ▼
+                                   prepared(receipt)
+                                     core: ready
+                                     local:
+                                       available
+                                       unavailable
 ```
 
-This spec does not create a generalized shutdown state machine. Existing
-termination paths must respect the prepared result and must not become a hidden
-opening or retry path.
+Every `unavailable` local branch continues boot with accepted core state and
+deterministic defaults for every local slice. Backup-and-recreate is an
+internal preparation branch, not a stored state.
+Logical-slice loaded/defaulted behavior is ordinary hydration, not another
+state machine.
 
 ## Invariants
 
 1. No persistence store is an incidental physical-database opener.
 2. Exactly one retained writable owner exists for each available database.
-3. Transient core startup probes are datastore-owned and close before ordinary
-   store hydration.
-4. Rejected preexisting core input remains byte-preserved.
-5. Core failure blocks hydration; local failure never blocks canonical core
-   presentation.
-6. All local consumers observe the same preparation disposition.
-7. A database-level local failure is sticky until process restart.
-8. A lane-level local failure does not poison unrelated lanes.
-9. Application-global local operations require no workspace ID.
-10. Workspace-scoped views share the prepared local writer.
-11. One physical local recovery produces one application-scoped provenance
-    record.
-12. No later load, save, flush, or shutdown operation opens an unavailable
-    database.
+3. Core failure stops boot; local failure never invalidates accepted core state.
+4. After required supported-schema migration, strict rejection performs no
+   additional core mutation; current-schema rejected input remains
+   byte-identical.
+5. Every local consumer observes the same preparation disposition.
+6. Successful local replacement produces an available empty database and
+   deterministic local defaults.
+7. A fresh local database is never created beside a preexisting live sidecar.
+8. Unclassified local failures do not authorize replacement.
+9. A logical-slice failure does not poison unrelated local slices.
+10. Application-global local operations require no workspace ID.
+11. Later load, save, flush, and shutdown paths cannot reopen unavailable local
+    storage.
+12. Preparation errors are logged once at application scope.
+13. Physical preparation outcomes never re-enter store-owned recovery-event
+    payloads.
 
 ## Proof Expectations
 
-The implementation plan must operationalize these proof obligations:
+The implementation plan must provide:
 
-- boot ordering proves preparation precedes canonical and local hydration;
-- preparation-state tests prove idempotence and reentrant single ownership;
-- file-backed integration proves one retained local writer serves application
-  and multiple workspace scopes;
-- application recency restores without a preceding RepoCache restore;
-- missing local storage is created during preparation;
-- corrupt local storage is quarantined/reset once and reported once;
-- unrecoverable local storage remains unavailable without retries while core
-  presentation succeeds;
-- default-workspace core creation succeeds when local storage is unavailable;
-- lane-specific malformed local data defaults only that lane;
-- strict core tests preserve database/WAL/SHM bytes on rejected startup input;
-- store-boundary tests prove consumers cannot invoke opening, migration,
-  quarantine, or raw pool construction;
+- boot-order proof that preparation precedes every persistence hydration;
+- typed pre-preparation failure proof;
+- strict core file-backed proof that current-schema rejected input preserves
+  DB/WAL/SHM bytes and older supported input receives only required migration
+  writes before rejection;
+- local file-backed proof for clean creation, normal open, corrupt replacement,
+  incomplete-file-set replacement, quarantine failure, fresh-creation failure,
+  and unclassified failure;
+- proof that a present main database with no WAL/SHM opens normally and is not
+  classified as incomplete;
+- proof that an unclassified local failure leaves DB/WAL/SHM byte-identical and
+  creates no quarantine artifact;
+- proof that replacement occurs once and the fresh database hydrates defaults;
+- proof that unavailable local storage does not block core/default-workspace
+  presentation and is never reopened during that launch;
+- one-writer proof across application-global and multiple workspace scopes;
+- proof that application recency restores without a preceding RepoCache
+  restore;
+- independent logical-slice failure proof, including the three settings
+  preferences and the coherent cursor/repository-cache groups;
+- proof that hydration itself does not repair a defaulted preference and the
+  next real settings mutation retains the current sequential save behavior;
+- diagnostic proof for fatal core, recovered local, and unavailable local
+  outcomes with no duplicate store-owned startup records or physical recovery
+  events in store load payloads;
+- proof that production configuration begins unprepared while injected test
+  fixtures supply genuinely prepared capabilities without lazy openers;
+- boundary proof that stores cannot open, migrate, quarantine, retry, or access
+  raw pools.
 
-## Alternatives Considered
+## Explicit Non-Goals
 
-### Keep demand-driven opening and rely on boot order
-
-Gain: no lifecycle change.
-
-Cost: preserves incidental openers, swallowed local failure, order-dependent
-retry, and false recovery ownership.
-
-Decision: rejected.
-
-### Prepare inside the first store restore
-
-Gain: smaller visible boot diff.
-
-Cost: preparation remains store-owned in practice and is not independently
-observable or enforceable.
-
-Decision: rejected.
-
-### Return a distinct `PreparedWorkspaceSQLiteDatastore` type
-
-Gain: compile-time exclusion of unprepared use.
-
-Cost: broad signature and fixture churn across every store for a single boot
-entry point.
-
-Decision: rejected for this focused correction. Revisit if another production
-boot entry point appears or pre-preparation misuse occurs.
-
-### Split a public application-local repository from workspace repositories
-
-Gain: the type system fully expresses row ownership.
-
-Cost: broad repository and test-fixture churn even though one private bundle
-already owns the shared writer.
-
-Decision: rejected for now. Application-global operations move onto the private
-application bundle; workspace repositories remain scoped views.
-
-### Open one SQLite handle total per database
-
-Gain: literal single-handle lifecycle.
-
-Cost: conflicts with the existing byte-preserving strict-core startup reader
-and migration probes.
-
-Decision: rejected. The invariant is one retained writable owner, not one
-temporary handle over the entire bootstrap algorithm.
-
-## Security and Data-Integrity Context
-
-This design touches filesystem-backed durable state and destructive recovery.
-Core data remains authoritative and is never automatically reset. Local
-quarantine remains limited to recognized SQLite corruption/not-a-database
-classification and includes the database, WAL, and SHM sidecars.
-
-No new secret, network, subprocess, authentication, or untrusted parsing surface
-is introduced. Existing path and telemetry redaction rules remain unchanged.
-
-## Non-Goals
-
-- No schema changes or migrations solely for bootstrap.
-- No second local database or per-workspace database files.
-- No repo/worktree/pane recency UX changes.
-- No File/Review pane behavior changes.
-- No generalized persistence service locator.
-- No public repository hierarchy redesign.
-- No generic database-health or retry framework.
-- No same-process recovery UI.
-- No multi-window persistence redesign.
-- No commit-protocol redesign.
-- No broad shutdown lifecycle redesign.
+- no new schema or migration solely for bootstrap;
+- no second local database or per-workspace database files;
+- no public repository hierarchy redesign;
+- no prepared-datastore typestate wrapper;
+- no generalized health, retry, shutdown, or recovery framework;
+- no same-process recovery UI;
+- no rollback coordinator for quarantine;
+- no per-slice health or dirty-state registry;
+- no settings transaction redesign;
+- no recency UX, File/Review pane, multi-window, or commit-protocol changes.
 
 ## Documentation Reconciliation
 
-Implementation must reconcile:
+Implementation must update:
 
-- `AGENTS.md`: component ownership and boot contract;
-- `docs/architecture/workspace_data_architecture.md`: preparation order,
-  core/local failure semantics, and recovery ownership;
-- `docs/architecture/component_architecture.md`: datastore, factory, store, and
+- `AGENTS.md` component ownership and boot contract;
+- `docs/architecture/workspace_data_architecture.md` preparation order and
+  core/local failure semantics;
+- `docs/architecture/component_architecture.md` datastore, factory, store, and
   repository boundaries;
-- boot comments that currently imply RepoCache is the local bundle opener;
-- component tables that describe application-global versus workspace-scoped
-  local rows.
+- stale boot comments that imply RepoCache is the local bundle opener;
+- stale global-versus-workspace local-row descriptions.
 
-Historical specs remain historical evidence. They should be classified rather
-than silently rewritten as current architecture.
+Historical specs remain historical evidence and are not silently rewritten as
+current architecture.
 
 ## Architecture Approval Required
 
-Implementation changes the boot lifecycle and datastore preparation boundary.
-It must not begin until the user approves this spec, including:
+Implementation must not begin until the user approves:
 
 - explicit preparation before hydration;
-- one retained writable owner per database with bounded bootstrap probes;
-- fatal core versus sticky fail-open local semantics;
-- application-scoped local recovery attribution;
+- strict core and backup-and-recreate local semantics;
+- one retained writable owner per available database;
+- application-scoped startup diagnostics;
 - no implicit same-process retry.

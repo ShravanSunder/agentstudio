@@ -7,6 +7,7 @@ struct WorkspaceSQLiteDatastoreConfiguration: Sendable {
 
 enum WorkspaceSQLiteDatastoreError: Error, Equatable, Sendable {
     case missingConfiguration
+    case databasesNotPrepared
     case applicationLocalRepositoryUnavailable
     case useDatastoreApplicationLocalRepositoryBundle
 }
@@ -20,9 +21,44 @@ struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {
 }
 
 extension WorkspaceSQLiteDatastore {
-    enum LocalRepositoryOpenMode: Equatable, Sendable {
-        case restore
-        case save
+    enum LocalDatabaseRecoveryReason: Equatable, Sendable {
+        case corruptDatabase
+        case incompleteFileSet
+    }
+
+    struct LocalDatabaseRecovery: Equatable, Sendable {
+        var reason: LocalDatabaseRecoveryReason
+    }
+
+    enum PreparedCoreDatabase: Equatable, Sendable {
+        case ready(WorkspaceCoreRepository.AuthoritativeSnapshot)
+        case uninitialized
+    }
+
+    enum PreparedLocalDatabase: Equatable, Sendable {
+        case available(recovery: LocalDatabaseRecovery?)
+        case unavailable(WorkspaceSQLiteDatastoreFailure)
+    }
+
+    struct DatabasePreparationReceipt: Equatable, Sendable {
+        var core: PreparedCoreDatabase
+        var local: PreparedLocalDatabase
+    }
+
+    enum CoreDatabasePreparationFailureKind: Equatable, Sendable {
+        case sqliteUnavailable
+        case compositionRejected
+        case topologyRejected
+    }
+
+    struct CoreDatabasePreparationFailure: Error, Equatable, Sendable {
+        var kind: CoreDatabasePreparationFailureKind
+        var failure: WorkspaceSQLiteDatastoreFailure
+    }
+
+    enum DatabasePreparationResult: Equatable, Sendable {
+        case prepared(DatabasePreparationReceipt)
+        case failed(CoreDatabasePreparationFailure)
     }
 
     enum ProbeEvent: Equatable, Sendable {
@@ -30,7 +66,6 @@ extension WorkspaceSQLiteDatastore {
         case saveWorkspaceSnapshotSucceeded
         case saveWorkspaceSnapshotFailed
         case loadWorkspaceSnapshot
-        case localRepositoryOpened(UUID, LocalRepositoryOpenMode)
     }
 
     enum LoadResult: Equatable, Sendable {
@@ -52,59 +87,48 @@ extension WorkspaceSQLiteDatastore {
     }
 
     enum LocalCacheLoadResult: Equatable, Sendable {
-        case loaded(LocalCacheLoadPayload)
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
-    }
-
-    struct LocalCacheLoadPayload: Equatable, Sendable {
-        var cacheState: WorkspaceLocalRepository.CacheStateRecord
-        var recoveryEvents: [PersistenceRecoveryEvent]
+        case loaded(WorkspaceLocalRepository.CacheStateRecord)
+        case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
     enum ApplicationEntityRecencyLoadResult: Equatable, Sendable {
-        case loaded([ApplicationEntityRecency], recoveryEvents: [PersistenceRecoveryEvent])
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
+        case loaded([ApplicationEntityRecency])
+        case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
     enum WorkspaceEntityRecencyLoadResult: Equatable, Sendable {
-        case loaded([WorkspaceEntityRecency], recoveryEvents: [PersistenceRecoveryEvent])
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
+        case loaded([WorkspaceEntityRecency])
+        case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
     enum LocalUILoadResult: Equatable, Sendable {
-        case loaded(LocalUILoadPayload)
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
-    }
-
-    struct LocalUILoadPayload: Equatable, Sendable {
-        var state: WorkspaceLocalRepository.SidebarStateRecord?
-        var recoveryEvents: [PersistenceRecoveryEvent]
+        case loaded(WorkspaceLocalRepository.SidebarStateRecord?)
+        case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
     enum LocalSidebarLoadResult: Equatable, Sendable {
-        case loaded(LocalSidebarLoadPayload)
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
+        case loaded(Set<SidebarGroupKey>)
+        case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
-    struct LocalSidebarLoadPayload: Equatable, Sendable {
-        var expandedGroups: Set<SidebarGroupKey>
-        var recoveryEvents: [PersistenceRecoveryEvent]
+    enum LocalSettingsValue<Value: Equatable & Sendable>: Equatable, Sendable {
+        case loaded(Value)
+        case defaulted(WorkspaceSQLiteDatastoreFailure)
     }
 
     enum LocalSettingsLoadResult: Equatable, Sendable {
         case loaded(LocalSettingsLoadPayload)
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
+        case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
     struct LocalSettingsLoadPayload: Equatable, Sendable {
-        var editor: WorkspaceLocalRepository.EditorPreferencesRecord
-        var repoExplorer: WorkspaceLocalRepository.RepoExplorerPreferencesRecord
-        var inboxNotification: WorkspaceLocalRepository.InboxNotificationPreferencesRecord
-        var recoveryEvents: [PersistenceRecoveryEvent]
+        var editor: LocalSettingsValue<WorkspaceLocalRepository.EditorPreferencesRecord>
+        var repoExplorer: LocalSettingsValue<WorkspaceLocalRepository.RepoExplorerPreferencesRecord>
+        var inboxNotification: LocalSettingsValue<WorkspaceLocalRepository.InboxNotificationPreferencesRecord>
     }
 
     enum LocalRepositoryOperationResult<Output: Sendable>: Sendable {
-        case completed(Output, recoveryEvents: [PersistenceRecoveryEvent])
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
+        case completed(Output)
+        case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 }
