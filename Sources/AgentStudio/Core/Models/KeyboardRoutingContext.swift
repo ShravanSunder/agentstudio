@@ -1,7 +1,7 @@
 import Foundation
 
-struct KeyboardRoutingContext: Equatable, Sendable {
-    let stableOwner: KeyboardOwner
+package struct KeyboardRoutingContext: Equatable, Sendable {
+    package let stableOwner: KeyboardOwner
     let activeSurface: ActiveKeyboardSurface
     let workspaceWindowId: UUID?
 
@@ -18,7 +18,7 @@ struct KeyboardRoutingContext: Equatable, Sendable {
 
 extension KeyboardRoutingContext {
     @MainActor
-    static func current(
+    package static func current(
         windowLifecycle: WindowLifecycleAtom,
         managementLayer: ManagementLayerAtom,
         uiState: WorkspaceSidebarState,

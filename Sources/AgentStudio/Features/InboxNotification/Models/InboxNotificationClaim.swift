@@ -1,6 +1,6 @@
 import Foundation
 
-enum InboxNotificationClaimLane: String, Sendable, Codable, Equatable, Hashable, CaseIterable {
+package enum InboxNotificationClaimLane: String, Sendable, Codable, Equatable, Hashable, CaseIterable {
     case actionNeeded
     case safety
     case settledAgent
@@ -16,7 +16,7 @@ enum InboxNotificationClaimLane: String, Sendable, Codable, Equatable, Hashable,
     }
 }
 
-enum InboxNotificationClaimSemantic: String, Sendable, Codable, Equatable, Hashable {
+package enum InboxNotificationClaimSemantic: String, Sendable, Codable, Equatable, Hashable {
     case approvalRequested
     case unseenActivity
     case commandFinished
@@ -31,9 +31,9 @@ enum InboxNotificationClaimSemantic: String, Sendable, Codable, Equatable, Hasha
     case securityEvent
 }
 
-struct InboxNotificationClaimKey: Sendable, Codable, Equatable, Hashable {
-    let paneId: UUID
-    let lane: InboxNotificationClaimLane
-    let semantic: InboxNotificationClaimSemantic
-    let sessionId: UUID?
+package struct InboxNotificationClaimKey: Sendable, Codable, Equatable, Hashable {
+    package let paneId: UUID
+    package let lane: InboxNotificationClaimLane
+    package let semantic: InboxNotificationClaimSemantic
+    package let sessionId: UUID?
 }

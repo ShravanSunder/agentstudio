@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInboxNotification
+import AgentStudioRepoExplorer
 import Foundation
 
 enum WorkspaceEmptyStateKind: Equatable {

@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioEditorChooser
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 
@@ -195,7 +198,7 @@ struct DrawerPanel: View {
     /// Pane leaf interactions dispatch actions using tabId, but in the drawer
     /// context these need to be routed to drawer operations.
     @ViewBuilder
-    private func rowContent(_ rowLayout: Layout) -> some View {
+    private func rowContent(_ rowLayout: AgentStudioCore.Layout) -> some View {
         FlatPaneStripContent(
             layout: rowLayout,
             octiconLoader: octiconLoader,

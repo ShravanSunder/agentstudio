@@ -5,18 +5,18 @@ import Foundation
 /// This is the single shared context shape for pane/worktree/repo identity facets.
 /// All fields are optional because not every pane participates in every grouping
 /// dimension.
-struct PaneContextFacets: Codable, Hashable, Sendable {
-    var repoId: UUID?
-    var repoName: String?
-    var worktreeId: UUID?
-    var worktreeName: String?
-    var cwd: URL?
-    var parentFolder: String?
-    var organizationName: String?
-    var origin: String?
-    var upstream: String?
+package struct PaneContextFacets: Codable, Hashable, Sendable {
+    package var repoId: UUID?
+    package var repoName: String?
+    package var worktreeId: UUID?
+    package var worktreeName: String?
+    package var cwd: URL?
+    package var parentFolder: String?
+    package var organizationName: String?
+    package var origin: String?
+    package var upstream: String?
 
-    init(
+    package init(
         repoId: UUID? = nil,
         repoName: String? = nil,
         worktreeId: UUID? = nil,
@@ -38,10 +38,10 @@ struct PaneContextFacets: Codable, Hashable, Sendable {
         self.upstream = upstream
     }
 
-    static let empty = Self()
+    package static let empty = Self()
 
     /// Returns a copy where nil/empty fields are filled from defaults.
-    func fillingNilFields(from defaults: Self) -> Self {
+    package func fillingNilFields(from defaults: Self) -> Self {
         Self(
             repoId: repoId ?? defaults.repoId,
             repoName: repoName ?? defaults.repoName,
@@ -56,7 +56,7 @@ struct PaneContextFacets: Codable, Hashable, Sendable {
     }
 
     /// Returns facets with explicit worktree scope overlaid for envelope migration.
-    func withWorktreeScope(repoId: UUID, worktreeId: UUID?) -> Self {
+    package func withWorktreeScope(repoId: UUID, worktreeId: UUID?) -> Self {
         var updated = self
         updated.repoId = repoId
         updated.worktreeId = worktreeId

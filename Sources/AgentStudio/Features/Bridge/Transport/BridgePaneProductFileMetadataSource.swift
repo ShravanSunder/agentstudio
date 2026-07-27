@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 
 actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducing {

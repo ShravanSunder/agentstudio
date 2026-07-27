@@ -1,26 +1,36 @@
 import Foundation
 
-struct FilesystemHostAuthorizedRootInput: Sendable {
+package struct FilesystemHostAuthorizedRootInput: Sendable {
     // This is a provenance contract at the source-configuration boundary, not a
     // runtime authentication token. The host composition owner may construct it
     // only after authorizing the boundary and selected root.
-    let registration: FSEventRegistrationToken
-    let authorizedBoundary: URL
-    let registeredRoot: URL
+    package let registration: FSEventRegistrationToken
+    package let authorizedBoundary: URL
+    package let registeredRoot: URL
+
+    package init(
+        registration: FSEventRegistrationToken,
+        authorizedBoundary: URL,
+        registeredRoot: URL
+    ) {
+        self.registration = registration
+        self.authorizedBoundary = authorizedBoundary
+        self.registeredRoot = registeredRoot
+    }
 }
 
-struct FilesystemUntrustedRootEvidence: Hashable, Sendable {
+package struct FilesystemUntrustedRootEvidence: Hashable, Sendable {
     let path: String
 }
 
-enum FilesystemUntrustedRootAuthorityKind: Hashable, Sendable {
+package enum FilesystemUntrustedRootAuthorityKind: Hashable, Sendable {
     case rawPath
     case scannerResult
     case gitMetadata
     case callbackPayload
 }
 
-enum FilesystemRootAuthorityAttempt: Sendable {
+package enum FilesystemRootAuthorityAttempt: Sendable {
     case hostAuthorized(FilesystemHostAuthorizedRootInput)
     case rawPath(FilesystemUntrustedRootEvidence)
     case scannerResult(FilesystemUntrustedRootEvidence)
@@ -28,7 +38,7 @@ enum FilesystemRootAuthorityAttempt: Sendable {
     case callbackPayload(FilesystemUntrustedRootEvidence)
 }
 
-enum FilesystemSourceConfigurationError: Error, Equatable, Sendable {
+package enum FilesystemSourceConfigurationError: Error, Equatable, Sendable {
     case untrustedAuthority(FilesystemUntrustedRootAuthorityKind)
     case authorizedBoundaryNotAbsoluteFileURL
     case registeredRootNotAbsoluteFileURL
@@ -45,12 +55,12 @@ enum FilesystemSourceConfigurationError: Error, Equatable, Sendable {
     )
 }
 
-struct RegisteredRootDescriptor: Hashable, Sendable {
-    let registration: FSEventRegistrationToken
-    let aliases: FilesystemRegisteredRootAliases
-    let volumeSemantics: FilesystemVolumeSemantics
+package struct RegisteredRootDescriptor: Hashable, Sendable {
+    package let registration: FSEventRegistrationToken
+    package let aliases: FilesystemRegisteredRootAliases
+    package let volumeSemantics: FilesystemVolumeSemantics
 
-    var sourceID: FilesystemSourceID { registration.sourceID }
+    package var sourceID: FilesystemSourceID { registration.sourceID }
 
     // Keep construction beside the exhaustive authority-attempt admission below.
     // Scanner, Git, callback, and raw-path APIs can carry evidence but cannot call
@@ -64,7 +74,7 @@ struct RegisteredRootDescriptor: Hashable, Sendable {
         self.volumeSemantics = canonicalizedRoot.volumeSemantics
     }
 
-    func requireExactRegistration(_ submitted: FSEventRegistrationToken) throws {
+    package func requireExactRegistration(_ submitted: FSEventRegistrationToken) throws {
         guard submitted == registration else {
             throw FilesystemSourceConfigurationError.registrationMismatch(
                 expected: registration,
@@ -74,8 +84,8 @@ struct RegisteredRootDescriptor: Hashable, Sendable {
     }
 }
 
-enum FilesystemSourceConfiguration {
-    static func registerRoot(
+package enum FilesystemSourceConfiguration {
+    package static func registerRoot(
         from authorityAttempt: FilesystemRootAuthorityAttempt,
         canonicalizer: FilesystemPathCanonicalizer = FilesystemPathCanonicalizer()
     ) throws -> RegisteredRootDescriptor {

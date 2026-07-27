@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 struct BridgeNativeCapacityTraceSample: Sendable {
@@ -6,8 +7,8 @@ struct BridgeNativeCapacityTraceSample: Sendable {
     let attributes: [String: AgentStudioTraceValue]
 }
 
-enum BridgeNativeCapacityTraceRecorder {
-    static func schedulerEventSink(
+package enum BridgeNativeCapacityTraceRecorder {
+    package static func schedulerEventSink(
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     ) -> BridgeGitReadSchedulerEventSink? {
         guard let performanceTraceRecorder, performanceTraceRecorder.isEnabled else { return nil }
@@ -19,7 +20,7 @@ enum BridgeNativeCapacityTraceRecorder {
         }
     }
 
-    static func constructionEventSink(
+    package static func constructionEventSink(
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     ) -> BridgeWorktreeProductConstructionEventSink? {
         guard let performanceTraceRecorder, performanceTraceRecorder.isEnabled else { return nil }

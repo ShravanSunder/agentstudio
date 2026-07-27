@@ -6,7 +6,8 @@ import WebKit
 ///
 /// This type exists as an explicit conformance point so we can customize
 /// dialog behavior later (e.g., styled alert panels, file picker integration).
-final class WebviewDialogHandler: WebPage.DialogPresenting {
+package final class WebviewDialogHandler: WebPage.DialogPresenting {
+    package init() {}
     // All methods use default implementations from the protocol extension.
     // Override specific methods here when custom behavior is needed.
 }

@@ -6,15 +6,15 @@ import Foundation
 /// - release builds use `~/.agentstudio`
 /// - debug builds use `~/.agentstudio-db`
 /// - `AGENTSTUDIO_DATA_DIR` overrides both when set
-enum AppDataPaths {
-    static let dataDirectoryEnvironmentKey = "AGENTSTUDIO_DATA_DIR"
-    static let traceProofTokenEnvironmentKey = "AGENTSTUDIO_TRACE_PROOF_TOKEN"
+package enum AppDataPaths {
+    package static let dataDirectoryEnvironmentKey = "AGENTSTUDIO_DATA_DIR"
+    package static let traceProofTokenEnvironmentKey = "AGENTSTUDIO_TRACE_PROOF_TOKEN"
 
-    enum ReleaseChannel: String {
+    package enum ReleaseChannel: String {
         case stable
         case beta
 
-        static var current: Self {
+        package static var current: Self {
             guard let rawValue = Bundle.main.object(forInfoDictionaryKey: "AgentStudioReleaseChannel") as? String else {
                 return .stable
             }
@@ -22,7 +22,7 @@ enum AppDataPaths {
         }
     }
 
-    static var isDebugBuild: Bool {
+    package static var isDebugBuild: Bool {
         #if DEBUG
             true
         #else
@@ -30,7 +30,7 @@ enum AppDataPaths {
         #endif
     }
 
-    static func allowsDebugHarnessEnvironmentOverrides(
+    package static func allowsDebugHarnessEnvironmentOverrides(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         isDebugBuild: Bool = Self.isDebugBuild
     ) -> Bool {
@@ -41,7 +41,7 @@ enum AppDataPaths {
             .isEmpty ?? true)
     }
 
-    static func rootDirectory(
+    package static func rootDirectory(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         releaseChannel: ReleaseChannel = .current,
         isDebugBuild: Bool = Self.isDebugBuild
@@ -59,7 +59,7 @@ enum AppDataPaths {
             .standardizedFileURL
     }
 
-    static func globalPreferencesURL(
+    package static func globalPreferencesURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         releaseChannel: ReleaseChannel = .current,
         isDebugBuild: Bool = Self.isDebugBuild
@@ -69,7 +69,7 @@ enum AppDataPaths {
             .standardizedFileURL
     }
 
-    static func coreSQLiteURL(
+    package static func coreSQLiteURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         isDebugBuild: Bool = Self.isDebugBuild
     ) -> URL {
@@ -78,7 +78,7 @@ enum AppDataPaths {
             .standardizedFileURL
     }
 
-    static func localSQLiteURL(
+    package static func localSQLiteURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         isDebugBuild: Bool = Self.isDebugBuild
     ) -> URL {
@@ -87,7 +87,7 @@ enum AppDataPaths {
             .standardizedFileURL
     }
 
-    static func zmxDirectory(
+    package static func zmxDirectory(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         releaseChannel: ReleaseChannel = .current,
         isDebugBuild: Bool = Self.isDebugBuild
@@ -97,7 +97,7 @@ enum AppDataPaths {
             .standardizedFileURL
     }
 
-    static func surfaceCheckpointURL(
+    package static func surfaceCheckpointURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         releaseChannel: ReleaseChannel = .current,
         isDebugBuild: Bool = Self.isDebugBuild
@@ -107,7 +107,7 @@ enum AppDataPaths {
             .standardizedFileURL
     }
 
-    static func displayPath(for url: URL) -> String {
+    package static func displayPath(for url: URL) -> String {
         let homePath = FileManager.default.homeDirectoryForCurrentUser.path
         let standardizedPath = url.standardizedFileURL.path
         guard standardizedPath.hasPrefix(homePath) else {

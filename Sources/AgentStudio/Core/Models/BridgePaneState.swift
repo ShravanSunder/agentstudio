@@ -9,16 +9,21 @@ import Foundation
 ///
 /// Codable for workspace save/restore. Hashable for identity checks.
 ///
-struct BridgePaneState: Codable, Hashable, Sendable {
-    let panelKind: BridgePanelKind
-    var source: BridgePaneSource?
+package struct BridgePaneState: Codable, Hashable, Sendable {
+    package let panelKind: BridgePanelKind
+    package var source: BridgePaneSource?
+
+    package init(panelKind: BridgePanelKind, source: BridgePaneSource?) {
+        self.panelKind = panelKind
+        self.source = source
+    }
 }
 
 // MARK: - Bridge Panel Kind
 
 /// The kind of bridge panel. Determines which React app/component is loaded.
 ///
-enum BridgePanelKind: String, Codable, Hashable, Sendable {
+package enum BridgePanelKind: String, Codable, Hashable, Sendable {
     case diffViewer
     case fileViewer
     // Future: .agentDashboard, .prStatus, etc.
@@ -31,7 +36,7 @@ enum BridgePanelKind: String, Codable, Hashable, Sendable {
 /// Each case captures the minimal parameters needed to reconstruct the panel's
 /// data query on restore. The bridge panel uses this to fetch and render content.
 ///
-enum BridgePaneSource: Codable, Hashable, Sendable {
+package enum BridgePaneSource: Codable, Hashable, Sendable {
     /// A single commit's diff.
     case commit(sha: String)
     /// Diff between two branches.
@@ -48,7 +53,7 @@ enum BridgePaneSource: Codable, Hashable, Sendable {
 ///
 /// Determines what the current workspace is compared against. Branch/ref cases
 /// are resolved by the Git data plane when the review package is built.
-enum WorkspaceBaseline: Codable, Hashable, Sendable {
+package enum WorkspaceBaseline: Codable, Hashable, Sendable {
     /// Local default branch, normally `main`.
     case localDefaultBranch(branchName: String)
     /// Remote default branch, normally `origin/main`.
@@ -81,7 +86,7 @@ enum WorkspaceBaseline: Codable, Hashable, Sendable {
         case unstaged
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         if let legacyValue = try? decoder.singleValueContainer().decode(String.self) {
             self = Self.legacyValue(legacyValue)
             return
@@ -112,7 +117,7 @@ enum WorkspaceBaseline: Codable, Hashable, Sendable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .localDefaultBranch(let branchName):

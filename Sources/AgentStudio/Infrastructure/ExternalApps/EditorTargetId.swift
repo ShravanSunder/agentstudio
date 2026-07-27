@@ -1,13 +1,13 @@
 import Foundation
 
-struct EditorTargetId: RawRepresentable, Hashable, Codable, Sendable, ExpressibleByStringLiteral {
-    let rawValue: String
+package struct EditorTargetId: RawRepresentable, Hashable, Codable, Sendable, ExpressibleByStringLiteral {
+    package let rawValue: String
 
-    init(rawValue: String) {
+    package init(rawValue: String) {
         self.rawValue = rawValue
     }
 
-    init(stringLiteral value: StringLiteralType) {
+    package init(stringLiteral value: StringLiteralType) {
         self.rawValue = value
     }
 }

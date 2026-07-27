@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import os.log
@@ -46,7 +47,7 @@ protocol SessionBackendProtocol {
 /// Tracks runtime status per pane, schedules health checks, coordinates backends.
 @Observable
 @MainActor
-final class SessionRuntime {
+package final class SessionRuntime {
     @ObservationIgnored let atom: SessionRuntimeAtom
 
     /// Runtime status for each pane.
@@ -67,7 +68,7 @@ final class SessionRuntime {
     /// Health check task.
     private var healthCheckTask: Task<Void, Never>?
 
-    init(
+    package init(
         atom: SessionRuntimeAtom = SessionRuntimeAtom(),
         store: WorkspaceStore? = nil,
         healthCheckInterval: TimeInterval = 30,
@@ -116,7 +117,7 @@ final class SessionRuntime {
     }
 
     /// Mark a pane as running.
-    func markRunning(_ paneId: UUID) {
+    package func markRunning(_ paneId: UUID) {
         atom.markRunning(paneId)
         runtimeLogger.debug("Pane \(paneId) marked running")
     }
@@ -128,7 +129,7 @@ final class SessionRuntime {
     }
 
     /// Remove tracking for a pane.
-    func removeSession(_ paneId: UUID) {
+    package func removeSession(_ paneId: UUID) {
         atom.removeSession(paneId)
         runtimeLogger.debug("Pane \(paneId) removed from runtime")
     }

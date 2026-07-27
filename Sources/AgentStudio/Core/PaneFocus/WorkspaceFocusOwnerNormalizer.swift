@@ -1,15 +1,29 @@
 import Foundation
 
-struct WorkspaceFocusOwnerNormalizer {
-    struct Context: Equatable, Sendable {
+package struct WorkspaceFocusOwnerNormalizer {
+    package struct Context: Equatable, Sendable {
         let activeMainPaneId: UUID?
         let expandedDrawerParentPaneId: UUID?
         let paneIds: [UUID]
         let activeDrawerPaneId: UUID?
         let minimizedDrawerPaneIds: Set<UUID>
+
+        package init(
+            activeMainPaneId: UUID?,
+            expandedDrawerParentPaneId: UUID?,
+            paneIds: [UUID],
+            activeDrawerPaneId: UUID?,
+            minimizedDrawerPaneIds: Set<UUID>
+        ) {
+            self.activeMainPaneId = activeMainPaneId
+            self.expandedDrawerParentPaneId = expandedDrawerParentPaneId
+            self.paneIds = paneIds
+            self.activeDrawerPaneId = activeDrawerPaneId
+            self.minimizedDrawerPaneIds = minimizedDrawerPaneIds
+        }
     }
 
-    static func normalize(
+    package static func normalize(
         requested: WorkspaceFocusOwner,
         context: Context
     ) -> WorkspaceFocusOwner {

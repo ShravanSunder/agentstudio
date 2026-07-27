@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
 /// Shared layout constants for the drawer system.
@@ -9,39 +10,39 @@ import SwiftUI
 /// **Dependency chain:** DrawerPanelOverlay positions the overlay using
 /// `iconBarFrameHeight`, which is derived from icon bar component dimensions.
 /// If any icon bar dimension changes, the derived values update automatically.
-enum DrawerLayout {
+package enum DrawerLayout {
 
     // MARK: - Panel
 
     /// Fraction of tab width used for the drawer panel (0–1).
-    static let panelWidthRatio: CGFloat = 0.8
+    package static let panelWidthRatio: CGFloat = 0.8
 
     /// Corner radius for the drawer panel and its glass effect shape.
-    static let panelCornerRadius: CGFloat = 14
+    package static let panelCornerRadius: CGFloat = 14
 
     /// Minimum panel height in points.
-    static let panelMinHeight: CGFloat = 100
+    package static let panelMinHeight: CGFloat = 100
 
     /// Margin from tab bottom edge when computing maximum panel height.
-    static let panelBottomMargin: CGFloat = 60
+    package static let panelBottomMargin: CGFloat = 60
 
     /// Minimum user-adjustable height ratio.
-    static let heightRatioMin: Double = 0.2
+    package static let heightRatioMin: Double = 0.2
 
     /// Maximum user-adjustable height ratio.
-    static let heightRatioMax: Double = 0.8
+    package static let heightRatioMax: Double = 0.8
 
     /// Padding inside the drawer panel around pane content (left, right, bottom).
     /// Matches `resizeHandleHeight` so the border around content is uniform on all sides.
-    static let panelContentPadding: CGFloat = resizeHandleHeight
+    package static let panelContentPadding: CGFloat = resizeHandleHeight
 
     // MARK: - Connector
 
     /// Height of the S-curve connector between the panel and pane icon bar.
-    static let overlayConnectorHeight: CGFloat = 40
+    package static let overlayConnectorHeight: CGFloat = 40
 
     /// Corner radius for the bottom corners of the connector bar.
-    static let connectorBottomCornerRadius: CGFloat = 6
+    package static let connectorBottomCornerRadius: CGFloat = 6
 
     // MARK: - Icon Bar
 
@@ -67,18 +68,18 @@ enum DrawerLayout {
     // MARK: - Resize Handle
 
     /// Height of the draggable resize handle touch target at the top of the panel.
-    static let resizeHandleHeight: CGFloat = 8
+    package static let resizeHandleHeight: CGFloat = 8
 
     /// Width of the resize handle pill indicator.
-    static let resizeHandlePillWidth: CGFloat = 40
+    package static let resizeHandlePillWidth: CGFloat = 40
 
     /// Height of the resize handle pill indicator.
-    static let resizeHandlePillHeight: CGFloat = 4
+    package static let resizeHandlePillHeight: CGFloat = 4
 
     // MARK: - Overlay Positioning
 
     /// Minimum gap between panel edge and tab edge when clamping horizontal position.
-    static let tabEdgeMargin: CGFloat = 4
+    package static let tabEdgeMargin: CGFloat = 4
 
     // MARK: - Derived
 
@@ -92,5 +93,5 @@ enum DrawerLayout {
     /// Approximate icon bar height for imperative layout calculations
     /// outside SwiftUI (e.g. WorkspaceSurfaceCoordinator drawer content rect).
     /// SwiftUI code should use the measured iconBarFrame preference instead.
-    static let iconBarFrameHeight: CGFloat = iconBarTotalHeight
+    package static let iconBarFrameHeight: CGFloat = iconBarTotalHeight
 }

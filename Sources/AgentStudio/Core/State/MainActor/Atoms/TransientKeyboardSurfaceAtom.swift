@@ -18,7 +18,7 @@ package final class TransientKeyboardSurfaceAtom {
         return surfaces.last { $0.workspaceWindowId == workspaceWindowId }
     }
 
-    func present(
+    package func present(
         _ kind: TransientKeyboardSurfaceKind,
         workspaceWindowId: UUID,
         policy: TransientKeyboardSurfacePolicy? = nil
@@ -32,7 +32,7 @@ package final class TransientKeyboardSurfaceAtom {
         return surface.token
     }
 
-    func dismiss(_ token: TransientKeyboardSurfaceToken) {
+    package func dismiss(_ token: TransientKeyboardSurfaceToken) {
         surfaces.removeAll { $0.token == token }
     }
 

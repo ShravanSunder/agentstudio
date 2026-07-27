@@ -10,8 +10,8 @@ enum WorkspaceSQLiteDatastoreError: Error, Equatable, Sendable {
     case useDatastoreApplicationLocalRepositoryBundle
 }
 
-struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {
-    let description: String
+package struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {
+    package let description: String
 
     init(_ error: any Error) {
         self.description = String(describing: error)
@@ -81,19 +81,19 @@ extension WorkspaceSQLiteDatastore {
         var recoveryEvents: [PersistenceRecoveryEvent]
     }
 
-    enum LocalSettingsLoadResult: Equatable, Sendable {
+    package enum LocalSettingsLoadResult: Equatable, Sendable {
         case loaded(LocalSettingsLoadPayload)
         case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
     }
 
-    struct LocalSettingsLoadPayload: Equatable, Sendable {
-        var editor: WorkspaceLocalRepository.EditorPreferencesRecord
-        var repoExplorer: WorkspaceLocalRepository.RepoExplorerPreferencesRecord
-        var inboxNotification: WorkspaceLocalRepository.InboxNotificationPreferencesRecord
-        var recoveryEvents: [PersistenceRecoveryEvent]
+    package struct LocalSettingsLoadPayload: Equatable, Sendable {
+        package private(set) var editor: WorkspaceLocalRepository.EditorPreferencesRecord
+        package private(set) var repoExplorer: WorkspaceLocalRepository.RepoExplorerPreferencesRecord
+        package private(set) var inboxNotification: WorkspaceLocalRepository.InboxNotificationPreferencesRecord
+        package private(set) var recoveryEvents: [PersistenceRecoveryEvent]
     }
 
-    enum LocalRepositoryOperationResult<Output: Sendable>: Sendable {
+    package enum LocalRepositoryOperationResult<Output: Sendable>: Sendable {
         case completed(Output, recoveryEvents: [PersistenceRecoveryEvent])
         case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
     }

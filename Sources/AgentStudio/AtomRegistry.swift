@@ -1,3 +1,10 @@
+import AgentStudioBridge
+import AgentStudioCore
+import AgentStudioEditorChooser
+import AgentStudioInboxNotification
+import AgentStudioRepoExplorer
+import AgentStudioTerminal
+
 @MainActor
 final class AtomRegistry {
     let core: CoreAtoms

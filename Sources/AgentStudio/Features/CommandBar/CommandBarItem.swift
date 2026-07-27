@@ -1,3 +1,4 @@
+import AgentStudioCore
 import SwiftUI
 
 // MARK: - CommandBarAppMode
@@ -28,7 +29,7 @@ enum CommandBarAppMode {
 
 // MARK: - EnterModifier
 
-enum EnterModifier: Sendable {
+package enum EnterModifier: Sendable {
     case plain
     case command
     case option
@@ -37,7 +38,7 @@ enum EnterModifier: Sendable {
 // MARK: - CommandBarAction
 
 /// What happens when a command bar item is selected.
-enum CommandBarAction {
+package enum CommandBarAction {
     /// Execute a contextual command (operates on active element)
     case dispatch(AppCommand)
     /// Execute a targeted command (operates on a specific element)
@@ -52,7 +53,7 @@ enum CommandBarAction {
     case worktreeAction(presence: WorktreePresence)
 }
 
-enum CommandBarItemKind {
+package enum CommandBarItemKind {
     case repo
     case tab
     case pane
@@ -61,32 +62,32 @@ enum CommandBarItemKind {
     case other
 }
 
-struct CommandBarItemSecondaryLine: Equatable, Sendable {
-    let text: String
-    let icon: CommandIcon?
+package struct CommandBarItemSecondaryLine: Equatable, Sendable {
+    package let text: String
+    package let icon: CommandIcon?
 }
 
 // MARK: - CommandBarItem
 
 /// A single result row in the command bar.
-struct CommandBarItem: Identifiable {
-    let id: String
-    let title: String
-    let subtitle: String?
-    let secondaryLine: CommandBarItemSecondaryLine?
-    let icon: CommandIcon?
-    let iconColor: Color?
-    let shortcutTrigger: ShortcutTrigger?
-    let shortcutKeys: [ShortcutKey]?
-    let group: String
-    let groupPriority: Int
-    let keywords: [String]
-    let hasChildren: Bool
-    let action: CommandBarAction
+package struct CommandBarItem: Identifiable {
+    package let id: String
+    package let title: String
+    package let subtitle: String?
+    package let secondaryLine: CommandBarItemSecondaryLine?
+    package let icon: CommandIcon?
+    package let iconColor: Color?
+    package let shortcutTrigger: ShortcutTrigger?
+    package let shortcutKeys: [ShortcutKey]?
+    package let group: String
+    package let groupPriority: Int
+    package let keywords: [String]
+    package let hasChildren: Bool
+    package let action: CommandBarAction
     /// The underlying command, if any. Used for dimming navigate items whose command is unavailable.
     let command: AppCommand?
 
-    init(
+    package init(
         id: String,
         title: String,
         subtitle: String? = nil,
@@ -158,9 +159,13 @@ struct CommandBarItem: Identifiable {
 // MARK: - ShortcutKey
 
 /// A single key in a keyboard shortcut badge (e.g., "⌘", "W").
-struct ShortcutKey: Identifiable, Hashable {
-    let id = UUID()
-    let symbol: String
+package struct ShortcutKey: Identifiable, Hashable {
+    package let id = UUID()
+    package let symbol: String
+
+    package init(symbol: String) {
+        self.symbol = symbol
+    }
 
     static func from(keyBinding: KeyBinding) -> [Self] {
         var keys: [Self] = []
@@ -190,8 +195,8 @@ struct ShortcutKey: Identifiable, Hashable {
 /// When `scopeLabel` is set, the pill shows the scope label (e.g. "Worktrees · Actions")
 /// and the back row shows `‹ {title}`. When `scopeLabel` is nil, the pill shows `title`
 /// and the back row shows a bare `‹`.
-struct CommandBarLevel: Identifiable {
-    let id: String
+package struct CommandBarLevel: Identifiable {
+    package let id: String
     let title: String
     let parentLabel: String?
     let scopeLabel: String?
@@ -215,26 +220,33 @@ struct CommandBarLevel: Identifiable {
 // MARK: - CommandBarItemGroup
 
 /// A grouped section of command bar items for display.
-struct CommandBarItemGroup: Identifiable {
-    let id: String
-    let name: String
-    let priority: Int
-    let items: [CommandBarItem]
+package struct CommandBarItemGroup: Identifiable {
+    package let id: String
+    package let name: String
+    package let priority: Int
+    package let items: [CommandBarItem]
+
+    package init(id: String, name: String, priority: Int, items: [CommandBarItem]) {
+        self.id = id
+        self.name = name
+        self.priority = priority
+        self.items = items
+    }
 }
 
 // MARK: - FooterHint
 
-enum FooterHintStyle: Equatable, Sendable {
+package enum FooterHintStyle: Equatable, Sendable {
     case badge
     case plain
 }
 
-struct FooterHint: Identifiable, Equatable, Sendable {
-    let id: String
-    let shortcutKeys: [ShortcutKey]
-    let label: String
-    let isDivider: Bool
-    let style: FooterHintStyle
+package struct FooterHint: Identifiable, Equatable, Sendable {
+    package let id: String
+    package let shortcutKeys: [ShortcutKey]
+    package let label: String
+    package let isDivider: Bool
+    package let style: FooterHintStyle
 
     init(
         id: String,
@@ -277,8 +289,8 @@ struct FooterHintLayout: Equatable, Sendable {
 
 // MARK: - FooterHintBuilder
 
-enum FooterHintBuilder {
-    static func hints(
+package enum FooterHintBuilder {
+    package static func hints(
         for item: CommandBarItem?,
         isNested: Bool,
         canOpenInCurrentTab: Bool,

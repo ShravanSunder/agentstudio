@@ -1,6 +1,6 @@
 import Foundation
 
-final class AgentStudioTraceEventQueue: @unchecked Sendable {
+package final class AgentStudioTraceEventQueue: @unchecked Sendable {
     private enum TraceRequest: Sendable {
         case record(RecordRequest)
         case flush(UnsafeContinuation<Void, Error>)
@@ -22,7 +22,7 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
     private var workerTask: Task<Void, Never>?
     private var isClosed = false
 
-    init(traceRuntime: AgentStudioTraceRuntime) {
+    package init(traceRuntime: AgentStudioTraceRuntime) {
         self.traceRuntime = traceRuntime
     }
 
@@ -30,7 +30,7 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
         cancel()
     }
 
-    func record(
+    package func record(
         tag: AgentStudioTraceTag,
         body: String,
         traceID: String? = nil,
@@ -59,7 +59,7 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
         continuation?.yield(.record(request))
     }
 
-    func flush() async throws {
+    package func flush() async throws {
         let continuation = openContinuationForFlush()
         guard let continuation else {
             try await traceRuntime.flush()
@@ -78,14 +78,14 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
         }
     }
 
-    func drain() async throws {
+    package func drain() async throws {
         let (continuation, workerTask) = closeForDrain()
         continuation?.finish()
         await workerTask?.value
         try await traceRuntime.flush()
     }
 
-    func cancel() {
+    package func cancel() {
         lock.lock()
         isClosed = true
         let continuation = continuation

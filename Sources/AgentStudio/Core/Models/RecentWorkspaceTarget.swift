@@ -2,22 +2,22 @@ import Foundation
 
 /// Cache-backed recent launcher target for workspace tabless states.
 /// Derived activity metadata only — never canonical workspace structure.
-struct RecentWorkspaceTarget: Codable, Hashable, Sendable, Identifiable {
-    enum Kind: String, Codable, Sendable, CaseIterable {
+package struct RecentWorkspaceTarget: Codable, Hashable, Sendable, Identifiable {
+    package enum Kind: String, Codable, Sendable, CaseIterable {
         case worktree
         case cwdOnly
     }
 
-    let id: String
-    let path: URL
-    let displayTitle: String
-    let subtitle: String
-    let repoId: UUID?
-    let worktreeId: UUID?
-    let kind: Kind
-    let lastOpenedAt: Date
+    package let id: String
+    package let path: URL
+    package let displayTitle: String
+    package let subtitle: String
+    package let repoId: UUID?
+    package let worktreeId: UUID?
+    package let kind: Kind
+    package let lastOpenedAt: Date
 
-    static func forWorktree(
+    package static func forWorktree(
         path: URL,
         worktree: Worktree,
         repo: Repo,
@@ -38,7 +38,7 @@ struct RecentWorkspaceTarget: Codable, Hashable, Sendable, Identifiable {
         )
     }
 
-    static func forCwd(
+    package static func forCwd(
         _ path: URL,
         title: String? = nil,
         subtitle: String? = nil,
@@ -93,7 +93,7 @@ struct RecentWorkspaceTarget: Codable, Hashable, Sendable, Identifiable {
         case lastOpenedAt
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let id = try container.decode(String.self, forKey: .id)
         let path = try container.decode(URL.self, forKey: .path).standardizedFileURL

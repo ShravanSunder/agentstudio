@@ -1,31 +1,38 @@
 import Foundation
 
 /// Scans a directory tree for git repositories up to a configurable depth.
-struct RepoScanner {
-    enum GitEntryKind: Sendable, Equatable {
+package struct RepoScanner {
+    package init() {}
+
+    package enum GitEntryKind: Sendable, Equatable {
         case cloneRoot
         case linkedWorktree(parentClonePath: URL)
     }
 
-    struct RepoScanGroup: Sendable, Equatable {
-        let clonePath: URL
-        let linkedWorktreePaths: [URL]
+    package struct RepoScanGroup: Sendable, Equatable {
+        package let clonePath: URL
+        package let linkedWorktreePaths: [URL]
+
+        package init(clonePath: URL, linkedWorktreePaths: [URL]) {
+            self.clonePath = clonePath
+            self.linkedWorktreePaths = linkedWorktreePaths
+        }
     }
 
-    struct ResolvedGitEntry: Sendable, Equatable {
-        let path: URL
-        let kind: GitEntryKind
-        let repositoryKey: String
+    package struct ResolvedGitEntry: Sendable, Equatable {
+        package let path: URL
+        package let kind: GitEntryKind
+        package let repositoryKey: String
     }
 
-    protocol GitRepositoryDiscoveryProvider: Sendable {
+    package protocol GitRepositoryDiscoveryProvider: Sendable {
         func discoveryOutcome(for url: URL) async -> GitRepositoryDiscoveryOutcome
     }
 
     /// Default scan depth for parent folder discovery.
     /// Depth 4 supports layouts like ~/projects/org/suborg/repo/.git.
     /// Scanning stops at the first .git boundary (no deeper).
-    static let defaultMaxDepth = 4
+    package static let defaultMaxDepth = 4
 
     func scan(
         in rootURL: URL,
@@ -182,7 +189,7 @@ struct RepoScanner {
             }
     }
 
-    static func groupResolvedEntries(_ resolvedEntries: [ResolvedGitEntry]) -> [RepoScanGroup] {
+    package static func groupResolvedEntries(_ resolvedEntries: [ResolvedGitEntry]) -> [RepoScanGroup] {
         var clonePathByKey: [String: URL] = [:]
         var groupedByClonePathKey: [String: [URL]] = [:]
 
@@ -267,7 +274,7 @@ struct RepoScanner {
 }
 
 extension RepoScanner {
-    func makeSession(
+    package func makeSession(
         in rootURL: URL,
         maxDepth: Int = Self.defaultMaxDepth,
         quantumBudget: RepoScannerQuantumBudget = .productionDefault,
@@ -288,8 +295,8 @@ extension RepoScanner {
     }
 }
 
-struct RepoScannerSessionPort: Sendable {
-    let id: RepoScannerSessionID
+package struct RepoScannerSessionPort: Sendable {
+    package let id: RepoScannerSessionID
 
     private let advanceOperation: @Sendable () async -> RepoScannerQuantumOutcome
     private let validationCompletionOperation:
@@ -310,17 +317,17 @@ struct RepoScannerSessionPort: Sendable {
         self.cancellationOperation = cancellationOperation
     }
 
-    func advanceOneQuantum() async -> RepoScannerQuantumOutcome {
+    package func advanceOneQuantum() async -> RepoScannerQuantumOutcome {
         await advanceOperation()
     }
 
-    func consumeValidationCompletion(
+    package func consumeValidationCompletion(
         _ completion: RepoScannerValidationCompletion
     ) -> RepoScannerValidationCompletionConsumptionResult {
         validationCompletionOperation(completion)
     }
 
-    func cancel() -> RepoScannerSessionCancellationResult {
+    package func cancel() -> RepoScannerSessionCancellationResult {
         cancellationOperation()
     }
 }

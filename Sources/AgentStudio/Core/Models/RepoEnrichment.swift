@@ -2,24 +2,41 @@ import Foundation
 
 /// Derived repo metadata computed from local/remote git facts.
 /// Rebuildable cache data; not canonical workspace identity.
-struct RawRepoOrigin: Codable, Hashable, Sendable {
-    let origin: String?
-    let upstream: String?
+package struct RawRepoOrigin: Codable, Hashable, Sendable {
+    package let origin: String?
+    package let upstream: String?
+
+    package init(origin: String?, upstream: String?) {
+        self.origin = origin
+        self.upstream = upstream
+    }
 }
 
-struct RepoIdentity: Codable, Hashable, Sendable {
-    let groupKey: String
-    let remoteSlug: String?
-    let organizationName: String?
-    let displayName: String
+package struct RepoIdentity: Codable, Hashable, Sendable {
+    package let groupKey: String
+    package let remoteSlug: String?
+    package let organizationName: String?
+    package let displayName: String
+
+    package init(
+        groupKey: String,
+        remoteSlug: String?,
+        organizationName: String?,
+        displayName: String
+    ) {
+        self.groupKey = groupKey
+        self.remoteSlug = remoteSlug
+        self.organizationName = organizationName
+        self.displayName = displayName
+    }
 }
 
-enum RepoEnrichment: Codable, Hashable, Sendable {
+package enum RepoEnrichment: Codable, Hashable, Sendable {
     case awaitingOrigin(repoId: UUID)
     case resolvedLocal(repoId: UUID, identity: RepoIdentity, updatedAt: Date)
     case resolvedRemote(repoId: UUID, raw: RawRepoOrigin, identity: RepoIdentity, updatedAt: Date)
 
-    var repoId: UUID {
+    package var repoId: UUID {
         switch self {
         case .awaitingOrigin(let repoId):
             repoId
@@ -62,7 +79,7 @@ enum RepoEnrichment: Codable, Hashable, Sendable {
         identity?.groupKey
     }
 
-    var remoteSlug: String? {
+    package var remoteSlug: String? {
         identity?.remoteSlug
     }
 

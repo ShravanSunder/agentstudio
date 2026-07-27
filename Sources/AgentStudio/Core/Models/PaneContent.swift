@@ -9,7 +9,7 @@ import Foundation
 /// forward-compatible deserialization. Unknown content types decode as
 /// `.unsupported` instead of crashing, allowing older app versions to
 /// load workspaces saved by newer versions.
-enum PaneContent: Hashable, Sendable {
+package enum PaneContent: Hashable, Sendable {
     /// Terminal emulator content (Ghostty or zmx-backed).
     case terminal(TerminalState)
     /// Embedded web content (future: diff viewer, PR status, dev server).
@@ -42,7 +42,7 @@ extension PaneContent: Codable {
         case state
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
 
@@ -70,7 +70,7 @@ extension PaneContent: Codable {
         _ = version  // reserved for future state migration
     }
 
-    func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(Self.currentVersion, forKey: .version)
 
@@ -98,16 +98,16 @@ extension PaneContent: Codable {
 // MARK: - Unsupported Content
 
 /// Preserves unrecognized pane content for round-trip persistence.
-struct UnsupportedContent: Codable, Hashable, Sendable {
-    let type: String
-    let version: Int
+package struct UnsupportedContent: Codable, Hashable, Sendable {
+    package let type: String
+    package let version: Int
     let rawState: AnyCodableValue?
 }
 
 // MARK: - AnyCodableValue
 
 /// Type-erased Codable value for preserving unknown JSON structures.
-enum AnyCodableValue: Codable, Hashable, Sendable {
+package enum AnyCodableValue: Codable, Hashable, Sendable {
     case string(String)
     case int(Int)
     case double(Double)
@@ -116,7 +116,7 @@ enum AnyCodableValue: Codable, Hashable, Sendable {
     case object([String: Self])
     case null
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if container.decodeNil() {
             self = .null
@@ -137,7 +137,7 @@ enum AnyCodableValue: Codable, Hashable, Sendable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
         case .string(let v): try container.encode(v)
@@ -154,7 +154,7 @@ enum AnyCodableValue: Codable, Hashable, Sendable {
 // MARK: - Session Provider
 
 /// Backend provider for terminal panes.
-enum SessionProvider: String, Codable, Hashable, Sendable {
+package enum SessionProvider: String, Codable, Hashable, Sendable {
     /// Direct Ghostty surface, no session multiplexer.
     case ghostty
     /// Headless zmx backend for persistence/restore.
@@ -164,26 +164,26 @@ enum SessionProvider: String, Codable, Hashable, Sendable {
 // MARK: - Terminal State
 
 /// State for a terminal pane. Absorbs the former `SessionProvider` and `SessionLifetime`.
-struct TerminalState: Codable, Hashable, Sendable {
+package struct TerminalState: Codable, Hashable, Sendable {
     /// Backend provider for this terminal.
     var provider: SessionProvider
     /// Lifecycle: persistent (zmx-backed) or temporary.
     var lifetime: SessionLifetime
     /// Durable session identity captured before pane insertion and reused
     /// verbatim for attach and restoration.
-    let zmxSessionID: ZmxSessionID
+    package let zmxSessionID: ZmxSessionID
 
 }
 
 // MARK: - Webview State
 
 /// State for a webview pane — one URL per pane.
-struct WebviewState: Codable, Hashable, Sendable {
-    var url: URL
-    var title: String
-    var showNavigation: Bool
+package struct WebviewState: Codable, Hashable, Sendable {
+    package var url: URL
+    package var title: String
+    package var showNavigation: Bool
 
-    init(url: URL, title: String = "", showNavigation: Bool = true) {
+    package init(url: URL, title: String = "", showNavigation: Bool = true) {
         self.url = url
         self.title = title
         self.showNavigation = showNavigation
@@ -193,14 +193,14 @@ struct WebviewState: Codable, Hashable, Sendable {
 
     /// Decodes only the canonical shape: `{url, title, showNavigation}`.
     /// Greenfield persistence intentionally rejects legacy webview payloads.
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.url = try container.decode(URL.self, forKey: .url)
         self.title = try container.decode(String.self, forKey: .title)
         self.showNavigation = try container.decode(Bool.self, forKey: .showNavigation)
     }
 
-    func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(url, forKey: .url)
         try container.encode(title, forKey: .title)
@@ -215,9 +215,14 @@ struct WebviewState: Codable, Hashable, Sendable {
 // MARK: - Code Viewer State (future)
 
 /// State for a code viewer pane. Defined now, wired later.
-struct CodeViewerState: Codable, Hashable, Sendable {
+package struct CodeViewerState: Codable, Hashable, Sendable {
     /// Path to the file being viewed.
-    var filePath: URL
+    package var filePath: URL
     /// Line to scroll to (1-based).
-    var scrollToLine: Int?
+    package var scrollToLine: Int?
+
+    package init(filePath: URL, scrollToLine: Int?) {
+        self.filePath = filePath
+        self.scrollToLine = scrollToLine
+    }
 }

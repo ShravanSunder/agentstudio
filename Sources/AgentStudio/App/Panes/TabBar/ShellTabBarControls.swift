@@ -1,3 +1,7 @@
+import AgentStudioCore
+import AgentStudioInboxNotification
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import SwiftUI
 
 struct SidebarSurfaceTabBarControls: View {

@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import os
 
@@ -7,8 +8,8 @@ import os
 /// - Stores replayable envelopes
 /// - Posts envelopes to the app-wide pane event bus
 @MainActor
-final class PaneRuntimeEventChannel {
-    typealias OutboundPost = @Sendable (RuntimeEnvelope) async -> EventBus<RuntimeEnvelope>.PostResult
+package final class PaneRuntimeEventChannel {
+    package typealias OutboundPost = @Sendable (RuntimeEnvelope) async -> EventBus<RuntimeEnvelope>.PostResult
 
     private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneRuntimeEventChannel")
     private let clock: ContinuousClock
@@ -22,7 +23,7 @@ final class PaneRuntimeEventChannel {
     private var nextSubscriberId: UInt64 = 0
     private var subscribers: [UInt64: AsyncStream<RuntimeEnvelope>.Continuation] = [:]
 
-    init(
+    package init(
         clock: ContinuousClock = ContinuousClock(),
         replayBuffer: EventReplayBuffer = EventReplayBuffer(),
         paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -61,11 +62,11 @@ final class PaneRuntimeEventChannel {
         busConsumerTask.cancel()
     }
 
-    var lastSequence: UInt64 {
+    package var lastSequence: UInt64 {
         sequence
     }
 
-    func subscribe(isTerminated: Bool) -> AsyncStream<RuntimeEnvelope> {
+    package func subscribe(isTerminated: Bool) -> AsyncStream<RuntimeEnvelope> {
         let (stream, continuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)
         guard !isTerminated else {
             continuation.finish()
@@ -85,11 +86,11 @@ final class PaneRuntimeEventChannel {
         return stream
     }
 
-    func eventsSince(seq: UInt64) -> EventReplayBuffer.ReplayResult {
+    package func eventsSince(seq: UInt64) -> EventReplayBuffer.ReplayResult {
         replayBuffer.eventsSince(seq: seq)
     }
 
-    func snapshot(
+    package func snapshot(
         paneId: PaneId,
         metadata: PaneMetadata,
         lifecycle: PaneRuntimeLifecycle,
@@ -105,7 +106,7 @@ final class PaneRuntimeEventChannel {
         )
     }
 
-    func finishSubscribers() {
+    package func finishSubscribers() {
         let activeSubscribers = Array(subscribers.values)
         subscribers.removeAll(keepingCapacity: true)
         for continuation in activeSubscribers {
@@ -137,7 +138,7 @@ final class PaneRuntimeEventChannel {
         }
     }
 
-    func emit(
+    package func emit(
         paneId: PaneId,
         metadata: PaneMetadata,
         paneKind: PaneContentType,

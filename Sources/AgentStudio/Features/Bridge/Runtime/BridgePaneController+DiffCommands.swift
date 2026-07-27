@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import os.log
 
@@ -5,7 +7,7 @@ private let bridgeDiffCommandLogger = Logger(subsystem: "com.agentstudio", categ
 
 @MainActor
 extension BridgePaneController: BridgeRuntimeCommandHandling {
-    func scheduleInitialReviewPackageLoadIfPossible() {
+    package func scheduleInitialReviewPackageLoadIfPossible() {
         guard paneState.diff.status != .error else {
             scheduleRetainedReviewPackageBuildIfPossible()
             return
@@ -95,7 +97,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         return await loadReviewPackage(worktreeId: worktreeId, correlationId: correlationId)
     }
 
-    func handleDiffCommand(
+    package func handleDiffCommand(
         _ command: DiffCommand,
         commandId: UUID,
         correlationId: UUID?

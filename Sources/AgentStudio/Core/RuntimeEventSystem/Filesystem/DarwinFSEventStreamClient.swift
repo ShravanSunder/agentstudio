@@ -6,7 +6,7 @@ import Foundation
 /// This implementation keeps lifecycle and registration semantics concrete and
 /// deterministic at runtime while event ingestion remains routed through actor
 /// seams (`enqueueRawPaths`) during this migration phase.
-final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked Sendable {
+package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked Sendable {
     private final class CallbackContext {
         weak var client: DarwinFSEventStreamClient?
         let worktreeId: UUID
@@ -53,7 +53,7 @@ final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked Sendable 
     private let eventsStream: AsyncStream<FSEventBatch>
     private let eventsContinuation: AsyncStream<FSEventBatch>.Continuation
 
-    init() {
+    package init() {
         let (stream, continuation) = AsyncStream.makeStream(of: FSEventBatch.self)
         self.eventsStream = stream
         self.eventsContinuation = continuation
@@ -63,11 +63,11 @@ final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked Sendable 
         shutdown()
     }
 
-    func events() -> AsyncStream<FSEventBatch> {
+    package func events() -> AsyncStream<FSEventBatch> {
         eventsStream
     }
 
-    func register(worktreeId: UUID, repoId _: UUID, rootPath: URL) {
+    package func register(worktreeId: UUID, repoId _: UUID, rootPath: URL) {
         let canonicalRootPath = rootPath.standardizedFileURL.resolvingSymlinksInPath()
 
         var registrationToTearDown: StreamRegistration?
@@ -108,7 +108,7 @@ final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked Sendable 
         lifecycleLock.unlock()
     }
 
-    func unregister(worktreeId: UUID) {
+    package func unregister(worktreeId: UUID) {
         let registration: StreamRegistration?
         lifecycleLock.lock()
         registration = streamByWorktreeId.removeValue(forKey: worktreeId)
@@ -119,7 +119,7 @@ final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked Sendable 
         }
     }
 
-    func shutdown() {
+    package func shutdown() {
         let registrations: [StreamRegistration]
         lifecycleLock.lock()
         if hasShutdown {

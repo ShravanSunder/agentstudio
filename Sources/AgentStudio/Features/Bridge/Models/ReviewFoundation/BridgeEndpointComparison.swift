@@ -1,6 +1,6 @@
 import Foundation
 
-struct BridgeEndpointComparison: Codable, Equatable, Sendable {
+package struct BridgeEndpointComparison: Codable, Equatable, Sendable {
     let baseEndpoint: BridgeSourceEndpoint
     let headEndpoint: BridgeSourceEndpoint
     let changedFiles: [BridgeEndpointChangedFile]

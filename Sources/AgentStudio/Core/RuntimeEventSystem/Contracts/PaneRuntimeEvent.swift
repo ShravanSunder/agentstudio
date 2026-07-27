@@ -5,7 +5,7 @@ import Foundation
 ///
 /// Each case defines its own domain payload and participates in self-classifying
 /// `actionPolicy` routing through `NotificationReducer`.
-enum PaneRuntimeEvent: Sendable {
+package enum PaneRuntimeEvent: Sendable {
     case lifecycle(PaneLifecycleEvent)
     case terminal(GhosttyEvent)
     case terminalActivity(TerminalActivityEvent)
@@ -23,7 +23,7 @@ enum PaneRuntimeEvent: Sendable {
 
 extension PaneRuntimeEvent {
     /// Envelope scheduling policy derived from the concrete event payload.
-    var actionPolicy: ActionPolicy {
+    package var actionPolicy: ActionPolicy {
         switch self {
         case .terminal(let event): return event.actionPolicy
         case .terminalActivity(let event): return event.actionPolicy
@@ -40,24 +40,52 @@ extension PaneRuntimeEvent {
     }
 }
 
-struct TerminalSettledActivity: Sendable, Equatable {
-    let burstWindowId: UUID
-    let thresholdRows: Int
-    let debounceMilliseconds: Int
-    let startedAtMilliseconds: Int64
-    let settledAtMilliseconds: Int64
-    let eventCount: Int
-    let rowsAdded: Int
-    let baselineRows: Int
-    let latestRows: Int
-    let isPinnedToBottom: Bool
+package struct TerminalSettledActivity: Sendable, Equatable {
+    package let burstWindowId: UUID
+    package let thresholdRows: Int
+    package let debounceMilliseconds: Int
+    package let startedAtMilliseconds: Int64
+    package let settledAtMilliseconds: Int64
+    package let eventCount: Int
+    package let rowsAdded: Int
+    package let baselineRows: Int
+    package let latestRows: Int
+    package let isPinnedToBottom: Bool
+
+    package init(
+        burstWindowId: UUID,
+        thresholdRows: Int,
+        debounceMilliseconds: Int,
+        startedAtMilliseconds: Int64,
+        settledAtMilliseconds: Int64,
+        eventCount: Int,
+        rowsAdded: Int,
+        baselineRows: Int,
+        latestRows: Int,
+        isPinnedToBottom: Bool
+    ) {
+        self.burstWindowId = burstWindowId
+        self.thresholdRows = thresholdRows
+        self.debounceMilliseconds = debounceMilliseconds
+        self.startedAtMilliseconds = startedAtMilliseconds
+        self.settledAtMilliseconds = settledAtMilliseconds
+        self.eventCount = eventCount
+        self.rowsAdded = rowsAdded
+        self.baselineRows = baselineRows
+        self.latestRows = latestRows
+        self.isPinnedToBottom = isPinnedToBottom
+    }
 }
 
-struct TerminalPaneObservationState: Sendable, Equatable {
-    let isPinnedToBottom: Bool
+package struct TerminalPaneObservationState: Sendable, Equatable {
+    package let isPinnedToBottom: Bool
+
+    package init(isPinnedToBottom: Bool) {
+        self.isPinnedToBottom = isPinnedToBottom
+    }
 }
 
-enum TerminalActivityEvent: Sendable, Equatable {
+package enum TerminalActivityEvent: Sendable, Equatable {
     case paneObservationChanged(TerminalPaneObservationState)
     case unseenActivitySettled(TerminalSettledActivity)
     case agentSettledActivityPromoted(TerminalSettledActivity)
@@ -68,7 +96,7 @@ enum TerminalActivityEvent: Sendable, Equatable {
     }
 }
 
-enum PaneLifecycleEvent: Sendable {
+package enum PaneLifecycleEvent: Sendable {
     case surfaceCreated
     case sizeObserved(cols: Int, rows: Int)
     case sizeStabilized
@@ -82,14 +110,14 @@ enum PaneLifecycleEvent: Sendable {
     case tabSwitched(activeTabId: UUID)
 }
 
-enum AttachError: Error, Sendable, Equatable {
+package enum AttachError: Error, Sendable, Equatable {
     case surfaceNotFound
     case surfaceAlreadyAttached
     case backendUnavailable(reason: String)
     case timeout
 }
 
-enum FilesystemEvent: Sendable {
+package enum FilesystemEvent: Sendable {
     case worktreeRegistered(worktreeId: UUID, repoId: UUID, rootPath: URL)
     case worktreeUnregistered(worktreeId: UUID, repoId: UUID)
     case filesChanged(changeset: FileChangeset)
@@ -98,18 +126,18 @@ enum FilesystemEvent: Sendable {
     case branchChanged(worktreeId: UUID, repoId: UUID, from: String, to: String)
 }
 
-struct FileChangeset: Sendable {
-    let worktreeId: WorktreeId
-    let repoId: UUID
-    let rootPath: URL
-    let paths: [String]
-    let containsGitInternalChanges: Bool
-    let suppressedIgnoredPathCount: Int
-    let suppressedGitInternalPathCount: Int
-    let timestamp: ContinuousClock.Instant
-    let batchSeq: UInt64
+package struct FileChangeset: Sendable {
+    package let worktreeId: WorktreeId
+    package let repoId: UUID
+    package let rootPath: URL
+    package let paths: [String]
+    package let containsGitInternalChanges: Bool
+    package let suppressedIgnoredPathCount: Int
+    package let suppressedGitInternalPathCount: Int
+    package let timestamp: ContinuousClock.Instant
+    package let batchSeq: UInt64
 
-    init(
+    package init(
         worktreeId: WorktreeId,
         repoId: UUID? = nil,
         rootPath: URL,
@@ -132,17 +160,17 @@ struct FileChangeset: Sendable {
     }
 }
 
-struct GitWorkingTreeSummary: Sendable, Equatable {
-    let changed: Int
-    let staged: Int
-    let untracked: Int
-    let linesAdded: Int
-    let linesDeleted: Int
-    let aheadCount: Int?
-    let behindCount: Int?
-    let hasUpstream: Bool?
+package struct GitWorkingTreeSummary: Sendable, Equatable {
+    package let changed: Int
+    package let staged: Int
+    package let untracked: Int
+    package let linesAdded: Int
+    package let linesDeleted: Int
+    package let aheadCount: Int?
+    package let behindCount: Int?
+    package let hasUpstream: Bool?
 
-    init(
+    package init(
         changed: Int,
         staged: Int,
         untracked: Int,
@@ -163,12 +191,12 @@ struct GitWorkingTreeSummary: Sendable, Equatable {
     }
 }
 
-struct GitWorkingTreeSnapshot: Sendable, Equatable {
-    let worktreeId: UUID
-    let repoId: UUID
+package struct GitWorkingTreeSnapshot: Sendable, Equatable {
+    package let worktreeId: UUID
+    package let repoId: UUID
     let rootPath: URL
-    let summary: GitWorkingTreeSummary
-    let branch: String?
+    package let summary: GitWorkingTreeSummary
+    package let branch: String?
 
     init(
         worktreeId: UUID,
@@ -185,29 +213,35 @@ struct GitWorkingTreeSnapshot: Sendable, Equatable {
     }
 }
 
-enum ArtifactEvent: Sendable {
+package enum ArtifactEvent: Sendable {
     case diffProduced(worktreeId: UUID, artifact: DiffArtifact)
     case approvalRequested(request: ApprovalRequest)
     case approvalDecided(decision: ApprovalDecision)
 }
 
-struct DiffArtifact: Sendable {
-    let diffId: UUID
-    let worktreeId: UUID
-    let patchData: Data
+package struct DiffArtifact: Sendable {
+    package let diffId: UUID
+    package let worktreeId: UUID
+    package let patchData: Data
+
+    package init(diffId: UUID, worktreeId: UUID, patchData: Data) {
+        self.diffId = diffId
+        self.worktreeId = worktreeId
+        self.patchData = patchData
+    }
 }
 
-struct ApprovalRequest: Sendable {
-    let id: UUID
-    let summary: String
+package struct ApprovalRequest: Sendable {
+    package let id: UUID
+    package let summary: String
 }
 
-struct ApprovalDecision: Sendable {
+package struct ApprovalDecision: Sendable {
     let requestId: UUID
     let approved: Bool
 }
 
-enum SecurityEvent: Sendable {
+package enum SecurityEvent: Sendable {
     case networkEgressBlocked(destination: String, rule: String)
     case filesystemAccessDenied(path: String, operation: String)
     case secretAccessed(secretId: String, consumerId: String)
@@ -217,14 +251,14 @@ enum SecurityEvent: Sendable {
     case sandboxHealthChanged(healthy: Bool)
 }
 
-enum ExecutionBackend: Sendable, Equatable, Hashable, Codable {
+package enum ExecutionBackend: Sendable, Equatable, Hashable, Codable {
     case local
     case docker(image: String)
     case gondolin(policyId: String)
     case remote(host: String)
 }
 
-enum RuntimeErrorEvent: Error, Sendable {
+package enum RuntimeErrorEvent: Error, Sendable {
     case surfaceCrashed(reason: String)
     case commandTimeout(commandId: UUID)
     case commandDispatchFailed(command: String, underlyingDescription: String)
@@ -236,27 +270,27 @@ enum RuntimeErrorEvent: Error, Sendable {
 // Ghostty payload enums are colocated with GhosttyEvent because they are associated
 // value types of a core runtime contract. Moving them under Features/Terminal would
 // introduce a Core -> Features import.
-enum GhosttyCloseTabMode: Sendable, Equatable {
+package enum GhosttyCloseTabMode: Sendable, Equatable {
     case thisTab
     case otherTabs
     case rightTabs
 }
 
-enum GhosttyGotoTabTarget: Sendable, Equatable {
+package enum GhosttyGotoTabTarget: Sendable, Equatable {
     case previous
     case next
     case last
     case index(Int)
 }
 
-enum GhosttySplitDirection: Sendable, Equatable {
+package enum GhosttySplitDirection: Sendable, Equatable {
     case left
     case right
     case up
     case down
 }
 
-enum GhosttyGotoSplitDirection: Sendable, Equatable {
+package enum GhosttyGotoSplitDirection: Sendable, Equatable {
     case previous
     case next
     case left
@@ -265,34 +299,46 @@ enum GhosttyGotoSplitDirection: Sendable, Equatable {
     case down
 }
 
-enum GhosttyResizeSplitDirection: Sendable, Equatable {
+package enum GhosttyResizeSplitDirection: Sendable, Equatable {
     case left
     case right
     case up
     case down
 }
 
-struct ProgressState: Sendable, Equatable {
-    enum Kind: Sendable, Equatable {
+package struct ProgressState: Sendable, Equatable {
+    package enum Kind: Sendable, Equatable {
         case set
         case error
         case indeterminate
         case paused
     }
 
-    let kind: Kind
-    let percent: UInt8?
+    package let kind: Kind
+    package let percent: UInt8?
+
+    package init(kind: Kind, percent: UInt8?) {
+        self.kind = kind
+        self.percent = percent
+    }
 }
 
-struct TerminalSizeConstraints: Sendable, Equatable {
+package struct TerminalSizeConstraints: Sendable, Equatable {
     let minWidth: UInt32
     let minHeight: UInt32
     let maxWidth: UInt32
     let maxHeight: UInt32
+
+    package init(minWidth: UInt32, minHeight: UInt32, maxWidth: UInt32, maxHeight: UInt32) {
+        self.minWidth = minWidth
+        self.minHeight = minHeight
+        self.maxWidth = maxWidth
+        self.maxHeight = maxHeight
+    }
 }
 
-struct GhosttyInputTrigger: Sendable, Equatable {
-    enum TriggerTag: Sendable, Equatable {
+package struct GhosttyInputTrigger: Sendable, Equatable {
+    package enum TriggerTag: Sendable, Equatable {
         case physical
         case unicode
         case catchAll
@@ -301,46 +347,59 @@ struct GhosttyInputTrigger: Sendable, Equatable {
     let tag: TriggerTag
     let key: UInt32?
     let modifiers: UInt32
+
+    package init(tag: TriggerTag, key: UInt32?, modifiers: UInt32) {
+        self.tag = tag
+        self.key = key
+        self.modifiers = modifiers
+    }
 }
 
-enum GhosttyKeyTableChange: Sendable, Equatable {
+package enum GhosttyKeyTableChange: Sendable, Equatable {
     case activate(name: String)
     case deactivate
     case deactivateAll
 }
 
-enum TerminalColorKind: Sendable, Equatable {
+package enum TerminalColorKind: Sendable, Equatable {
     case foreground
     case background
     case cursor
     case palette(index: UInt8)
 }
 
-struct TerminalColorChange: Sendable, Equatable {
+package struct TerminalColorChange: Sendable, Equatable {
     let kind: TerminalColorKind
     let red: UInt8
     let green: UInt8
     let blue: UInt8
+
+    package init(kind: TerminalColorKind, red: UInt8, green: UInt8, blue: UInt8) {
+        self.kind = kind
+        self.red = red
+        self.green = green
+        self.blue = blue
+    }
 }
 
-enum TitlePromptScope: Sendable, Equatable {
+package enum TitlePromptScope: Sendable, Equatable {
     case surface
     case tab
 }
 
-enum OpenURLKind: Sendable, Equatable {
+package enum OpenURLKind: Sendable, Equatable {
     case unknown
     case text
     case html
 }
 
-enum SecureInputMode: Sendable, Equatable {
+package enum SecureInputMode: Sendable, Equatable {
     case on
     case off
     case toggle
 }
 
-enum TerminalMouseShape: Sendable, Equatable {
+package enum TerminalMouseShape: Sendable, Equatable {
     case text
     case pointer
     case crosshair
@@ -348,7 +407,7 @@ enum TerminalMouseShape: Sendable, Equatable {
     case other(rawValue: UInt32)
 }
 
-enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
+package enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
     case newTab
     case closeTab(mode: GhosttyCloseTabMode)
     case gotoTab(target: GhosttyGotoTabTarget)
@@ -393,7 +452,7 @@ enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
     case deferred(tag: UInt32)
     case unhandled(tag: UInt32)
 
-    var actionPolicy: ActionPolicy {
+    package var actionPolicy: ActionPolicy {
         switch self {
         case .progressReportUpdated:
             return .lossy(consolidationKey: "progress")
@@ -428,7 +487,7 @@ enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
         }
     }
 
-    var eventName: EventIdentifier {
+    package var eventName: EventIdentifier {
         switch self {
         case .newTab: return .newTab
         case .closeTab: return .closeTab
@@ -476,12 +535,12 @@ enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
     }
 }
 
-struct ScrollbarState: Sendable, Equatable {
-    let top: Int
-    let bottom: Int
-    let total: Int
+package struct ScrollbarState: Sendable, Equatable {
+    package let top: Int
+    package let bottom: Int
+    package let total: Int
 
-    init(top: Int, bottom: Int, total: Int) {
+    package init(top: Int, bottom: Int, total: Int) {
         precondition(top >= 0, "ScrollbarState.top must be non-negative")
         precondition(bottom >= top, "ScrollbarState.bottom must be >= top")
         precondition(total >= bottom, "ScrollbarState.total must be >= bottom")
@@ -490,27 +549,37 @@ struct ScrollbarState: Sendable, Equatable {
         self.total = total
     }
 
-    var visibleRowCount: Int {
+    package var visibleRowCount: Int {
         bottom - top
     }
 
-    var isPinnedToBottom: Bool {
+    package var isPinnedToBottom: Bool {
         bottom >= total
     }
 }
 
-struct TerminalSearchState: Sendable, Equatable {
-    var query: String
-    var totalMatches: Int?
-    var selectedMatchIndex: Int?
+package struct TerminalSearchState: Sendable, Equatable {
+    package var query: String
+    package var totalMatches: Int?
+    package var selectedMatchIndex: Int?
+
+    package init(
+        query: String,
+        totalMatches: Int? = nil,
+        selectedMatchIndex: Int? = nil
+    ) {
+        self.query = query
+        self.totalMatches = totalMatches
+        self.selectedMatchIndex = selectedMatchIndex
+    }
 }
 
-enum BrowserEvent: PaneKindEvent, Sendable {
+package enum BrowserEvent: PaneKindEvent, Sendable {
     case navigationCompleted(url: URL, statusCode: Int?)
     case pageLoaded(url: URL)
     case consoleMessage(level: ConsoleLevel, message: String)
 
-    var actionPolicy: ActionPolicy {
+    package var actionPolicy: ActionPolicy {
         switch self {
         case .consoleMessage:
             return .lossy(consolidationKey: "console")
@@ -519,7 +588,7 @@ enum BrowserEvent: PaneKindEvent, Sendable {
         }
     }
 
-    var eventName: EventIdentifier {
+    package var eventName: EventIdentifier {
         switch self {
         case .navigationCompleted: return .navigationCompleted
         case .pageLoaded: return .pageLoaded
@@ -528,7 +597,7 @@ enum BrowserEvent: PaneKindEvent, Sendable {
     }
 }
 
-enum ConsoleLevel: String, Sendable {
+package enum ConsoleLevel: String, Sendable {
     case log
     case warn
     case error
@@ -536,35 +605,41 @@ enum ConsoleLevel: String, Sendable {
     case info
 }
 
-enum DiffEvent: PaneKindEvent, Sendable {
+package enum DiffEvent: PaneKindEvent, Sendable {
     case diffLoaded(stats: DiffStats)
 
-    var actionPolicy: ActionPolicy {
+    package var actionPolicy: ActionPolicy {
         switch self {
         case .diffLoaded:
             return .critical
         }
     }
 
-    var eventName: EventIdentifier {
+    package var eventName: EventIdentifier {
         switch self {
         case .diffLoaded: return .diffLoaded
         }
     }
 }
 
-struct DiffStats: Sendable, Equatable {
-    let filesChanged: Int
-    let insertions: Int
-    let deletions: Int
+package struct DiffStats: Sendable, Equatable {
+    package let filesChanged: Int
+    package let insertions: Int
+    package let deletions: Int
+
+    package init(filesChanged: Int, insertions: Int, deletions: Int) {
+        self.filesChanged = filesChanged
+        self.insertions = insertions
+        self.deletions = deletions
+    }
 }
 
-enum EditorEvent: PaneKindEvent, Sendable {
+package enum EditorEvent: PaneKindEvent, Sendable {
     case contentSaved(path: String)
     case fileOpened(path: String, language: String?)
     case diagnosticsUpdated(path: String, errors: Int, warnings: Int)
 
-    var actionPolicy: ActionPolicy {
+    package var actionPolicy: ActionPolicy {
         switch self {
         case .contentSaved, .fileOpened:
             return .critical
@@ -573,7 +648,7 @@ enum EditorEvent: PaneKindEvent, Sendable {
         }
     }
 
-    var eventName: EventIdentifier {
+    package var eventName: EventIdentifier {
         switch self {
         case .contentSaved: return .contentSaved
         case .fileOpened: return .fileOpened

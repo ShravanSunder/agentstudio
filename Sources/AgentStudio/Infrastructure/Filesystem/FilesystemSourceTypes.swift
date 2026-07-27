@@ -1,16 +1,31 @@
 import Foundation
 
-enum FilesystemSourceKind: Hashable, Sendable {
+package enum FilesystemSourceKind: Hashable, Sendable {
     case watchedParentMembership
 }
 
-struct FilesystemSourceID: Hashable, Sendable {
-    let kind: FilesystemSourceKind
-    let rootID: UUID
+package struct FilesystemSourceID: Hashable, Sendable {
+    package let kind: FilesystemSourceKind
+    package let rootID: UUID
+
+    package init(kind: FilesystemSourceKind, rootID: UUID) {
+        self.kind = kind
+        self.rootID = rootID
+    }
 }
 
-struct FSEventRegistrationToken: Hashable, Sendable {
-    let sourceID: FilesystemSourceID
-    let registrationGeneration: UInt64
-    let rootGeneration: UInt64
+package struct FSEventRegistrationToken: Hashable, Sendable {
+    package let sourceID: FilesystemSourceID
+    package let registrationGeneration: UInt64
+    package let rootGeneration: UInt64
+
+    package init(
+        sourceID: FilesystemSourceID,
+        registrationGeneration: UInt64,
+        rootGeneration: UInt64
+    ) {
+        self.sourceID = sourceID
+        self.registrationGeneration = registrationGeneration
+        self.rootGeneration = rootGeneration
+    }
 }

@@ -1,4 +1,5 @@
 import AgentStudioGit
+import AgentStudioInfrastructure
 import Dispatch
 import Foundation
 import os
@@ -9,7 +10,7 @@ typealias AgentStudioGitStatusReader =
         AgentStudioGit.GitStatusOptions
     ) async throws -> AgentStudioGit.GitStatusSnapshot
 
-struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
+package struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "AgentStudioGitWorkingTree")
 
     private let statusReader: AgentStudioGitStatusReader
@@ -17,16 +18,14 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     private let timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler
     private let activeReadRegistry: AgentStudioGitActiveStatusReadRegistry
 
-    init(
+    package init(
         client: any AgentStudioGit.AgentStudioGitLocalClient = AgentStudioGit.LibGit2AgentStudioGitLocalClient(),
-        timeout: Duration = AppPolicies.GitRefresh.defaultStatusReadTimeout,
-        timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler = DispatchAgentStudioGitStatusTimeoutScheduler(),
-        activeReadRegistry: AgentStudioGitActiveStatusReadRegistry = AgentStudioGitActiveStatusReadRegistry()
+        timeout: Duration = AppPolicies.GitRefresh.defaultStatusReadTimeout
     ) {
         self.init(
             timeout: timeout,
-            timeoutScheduler: timeoutScheduler,
-            activeReadRegistry: activeReadRegistry,
+            timeoutScheduler: DispatchAgentStudioGitStatusTimeoutScheduler(),
+            activeReadRegistry: AgentStudioGitActiveStatusReadRegistry(),
             statusReader: { worktreePath, options in
                 try await client.status(for: worktreePath, options: options)
             }
@@ -45,7 +44,7 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
         self.activeReadRegistry = activeReadRegistry
     }
 
-    func statusResult(for rootPath: URL, pathspecs: [String]?) async -> GitWorkingTreeStatusResult {
+    package func statusResult(for rootPath: URL, pathspecs: [String]?) async -> GitWorkingTreeStatusResult {
         await Self.computeStatusResult(
             rootPath: rootPath,
             pathspecs: pathspecs,

@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import Foundation
 import GhosttyKit
@@ -20,7 +22,7 @@ typealias GhosttyMetadataActionRouter = (
 
 extension Ghostty {
     /// Owns Ghostty action-tag handling, host-side suppression, and trace emission.
-    enum ActionRouter {
+    package enum ActionRouter {
         @MainActor private static var runtimeRegistryOverride: RuntimeRegistry = .shared
         @MainActor static var startupTraceRecorder: AgentStudioStartupTraceRecorder?
         static let actionTraceQueueStore = GhosttyActionTraceQueueStore()
@@ -586,17 +588,17 @@ extension Ghostty {
         }
 
         @MainActor
-        static func bindTraceRuntime(_ runtime: AgentStudioTraceRuntime?) {
+        package static func bindTraceRuntime(_ runtime: AgentStudioTraceRuntime?) {
             actionTraceQueueStore.bind(runtime)
         }
 
         @MainActor
-        static func bindStartupTraceRecorder(_ recorder: AgentStudioStartupTraceRecorder?) {
+        package static func bindStartupTraceRecorder(_ recorder: AgentStudioStartupTraceRecorder?) {
             startupTraceRecorder = recorder
         }
 
         @MainActor
-        static func drainTraceRuntimeForActionRouting() async {
+        package static func drainTraceRuntimeForActionRouting() async {
             do {
                 try await actionTraceQueueStore.drain()
             } catch {

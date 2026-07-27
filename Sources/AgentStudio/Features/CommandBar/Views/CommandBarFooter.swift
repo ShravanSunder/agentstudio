@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
 // MARK: - CommandBarFooter
@@ -5,10 +6,14 @@ import SwiftUI
 /// Two-row keyboard hints footer.
 /// Row 1 shows action shortcuts with separate key badges. Row 2 shows
 /// navigation hints as dimmer plain text, with dismiss right-aligned.
-struct CommandBarFooter: View {
+package struct CommandBarFooter: View {
     let hints: [FooterHint]
 
-    var body: some View {
+    package init(hints: [FooterHint]) {
+        self.hints = hints
+    }
+
+    package var body: some View {
         let rows = Self.displayRows(for: FooterHintBuilder.layout(for: hints))
 
         VStack(spacing: AppStyles.CommandBar.Footer.rowSpacing) {

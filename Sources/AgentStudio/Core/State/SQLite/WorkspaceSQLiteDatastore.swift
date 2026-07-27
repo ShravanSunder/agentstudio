@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import Foundation
 import GRDB
 
-actor WorkspaceSQLiteDatastore {
+package actor WorkspaceSQLiteDatastore {
     private struct ApplicationLocalRepositoryBundle: Sendable {
         let databaseWriter: any DatabaseWriter
 
@@ -517,7 +518,7 @@ actor WorkspaceSQLiteDatastore {
         }
     }
 
-    func loadWorkspaceSettings(workspaceId: UUID) async -> LocalSettingsLoadResult {
+    package func loadWorkspaceSettings(workspaceId: UUID) async -> LocalSettingsLoadResult {
         do {
             let repository = try await localRepositoryForRestore(
                 workspaceId: workspaceId,
@@ -537,7 +538,7 @@ actor WorkspaceSQLiteDatastore {
         }
     }
 
-    func saveWorkspaceSettings(
+    package func saveWorkspaceSettings(
         editor: WorkspaceLocalRepository.EditorPreferencesRecord,
         repoExplorer: WorkspaceLocalRepository.RepoExplorerPreferencesRecord,
         inboxNotification: WorkspaceLocalRepository.InboxNotificationPreferencesRecord,
@@ -554,7 +555,7 @@ actor WorkspaceSQLiteDatastore {
         try repository.replaceInboxNotificationPreferences(inboxNotification, updatedAt: updatedAt)
     }
 
-    func performLocalRestoreOperation<Output: Sendable>(
+    package func performLocalRestoreOperation<Output: Sendable>(
         workspaceId: UUID,
         _ operation: @Sendable (WorkspaceLocalRepository) throws -> Output
     ) async -> LocalRepositoryOperationResult<Output> {
@@ -573,7 +574,7 @@ actor WorkspaceSQLiteDatastore {
         }
     }
 
-    func performLocalSaveOperation<Output: Sendable>(
+    package func performLocalSaveOperation<Output: Sendable>(
         workspaceId: UUID,
         _ operation: @Sendable (WorkspaceLocalRepository) throws -> Output
     ) async throws -> Output {

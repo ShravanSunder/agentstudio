@@ -1,8 +1,9 @@
+import AgentStudioInfrastructure
 import AppKit
 import Foundation
 
 // swiftlint:disable identifier_name
-enum ShortcutCharacterKey: String, CaseIterable, Sendable {
+package enum ShortcutCharacterKey: String, CaseIterable, Sendable {
     case a
     case b
     case d
@@ -34,7 +35,7 @@ enum ShortcutCharacterKey: String, CaseIterable, Sendable {
     case digit8 = "8"
     case digit9 = "9"
 
-    var displayString: String {
+    package var displayString: String {
         switch self {
         case .leftBracket:
             return "["
@@ -49,13 +50,13 @@ enum ShortcutCharacterKey: String, CaseIterable, Sendable {
 }
 // swiftlint:enable identifier_name
 
-enum ShortcutArrowKey: CaseIterable, Sendable {
+package enum ShortcutArrowKey: CaseIterable, Sendable {
     case left
     case right
     case down
     case up
 
-    var displayString: String {
+    package var displayString: String {
         switch self {
         case .left:
             return "←"
@@ -69,13 +70,13 @@ enum ShortcutArrowKey: CaseIterable, Sendable {
     }
 }
 
-enum ShortcutInputKey: Hashable, Sendable {
+package enum ShortcutInputKey: Hashable, Sendable {
     case character(ShortcutCharacterKey)
     case arrow(ShortcutArrowKey)
     case enter
     case escape
 
-    var displayString: String {
+    package var displayString: String {
         switch self {
         case .character(let key):
             return key.displayString
@@ -89,11 +90,16 @@ enum ShortcutInputKey: Hashable, Sendable {
     }
 }
 
-struct ShortcutTrigger: Hashable, Sendable {
-    let key: ShortcutInputKey
-    let modifiers: Set<KeyBinding.Modifier>
+package struct ShortcutTrigger: Hashable, Sendable {
+    package let key: ShortcutInputKey
+    package let modifiers: Set<KeyBinding.Modifier>
 
-    var displayString: String {
+    package init(key: ShortcutInputKey, modifiers: Set<KeyBinding.Modifier>) {
+        self.key = key
+        self.modifiers = modifiers
+    }
+
+    package var displayString: String {
         var keys: [String] = []
         if modifiers.contains(.command) { keys.append("⌘") }
         if modifiers.contains(.shift) { keys.append("⇧") }
@@ -103,17 +109,17 @@ struct ShortcutTrigger: Hashable, Sendable {
         return keys.joined()
     }
 
-    var displayText: ShortcutDisplayText {
+    package var displayText: ShortcutDisplayText {
         ShortcutDisplayText(value: displayString)
     }
 
-    var keyBinding: KeyBinding? {
+    package var keyBinding: KeyBinding? {
         guard case .character(let key) = key else { return nil }
         return KeyBinding(key: key.rawValue, modifiers: modifiers)
     }
 }
 
-enum ShortcutContext: CaseIterable, Hashable {
+package enum ShortcutContext: CaseIterable, Hashable {
     case global
     case managementLayer
     case terminalAppOwned
@@ -123,18 +129,18 @@ enum ShortcutContext: CaseIterable, Hashable {
     case emptyDrawer
 }
 
-struct AppShortcutSpec: Equatable {
+package struct AppShortcutSpec: Equatable {
     /// Primary trigger — what shows in the command bar / menus.
-    let trigger: ShortcutTrigger
+    package let trigger: ShortcutTrigger
 
     /// Alternate triggers keyed by the exact contexts where they are
     /// valid. This prevents a context-specific raw character binding
     /// from inheriting the broader contexts of the primary trigger.
-    let alternateTriggers: [ShortcutTrigger: Set<ShortcutContext>]
+    package let alternateTriggers: [ShortcutTrigger: Set<ShortcutContext>]
 
-    let contexts: Set<ShortcutContext>
+    package let contexts: Set<ShortcutContext>
 
-    init(
+    package init(
         trigger: ShortcutTrigger,
         alternateTriggers: [ShortcutTrigger: Set<ShortcutContext>] = [:],
         contexts: Set<ShortcutContext>
@@ -152,7 +158,7 @@ struct AppShortcutSpec: Equatable {
     /// Today the only context that prefers an alternate is
     /// `.emptyDrawer`, which prefers a no-modifier raw-character
     /// trigger when one exists. Other contexts use the primary.
-    func displayTrigger(in context: ShortcutContext) -> ShortcutTrigger {
+    package func displayTrigger(in context: ShortcutContext) -> ShortcutTrigger {
         if context == .emptyDrawer,
             let rawCharacterAlternate = alternateTriggers.first(where: { trigger, contexts in
                 trigger.modifiers.isEmpty && contexts.contains(context)
@@ -163,7 +169,7 @@ struct AppShortcutSpec: Equatable {
         return trigger
     }
 
-    func matches(_ candidate: ShortcutTrigger, in context: ShortcutContext) -> Bool {
+    package func matches(_ candidate: ShortcutTrigger, in context: ShortcutContext) -> Bool {
         if candidate == trigger {
             return contexts.contains(context)
         }
@@ -174,7 +180,7 @@ struct AppShortcutSpec: Equatable {
     }
 }
 
-enum AppShortcut: String, CaseIterable {
+package enum AppShortcut: String, CaseIterable {
     case closeTab
     case newTab
     case undoCloseTab
@@ -232,7 +238,7 @@ enum AppShortcut: String, CaseIterable {
     case managementLayerCreateBrowser
     case managementLayerExit
 
-    var spec: AppShortcutSpec {
+    package var spec: AppShortcutSpec {
         switch self {
         case .closeTab:
             return .init(
@@ -451,12 +457,12 @@ enum AppShortcut: String, CaseIterable {
         }
     }
 
-    var trigger: ShortcutTrigger { spec.trigger }
+    package var trigger: ShortcutTrigger { spec.trigger }
 
     /// All triggers (primary + alternates) that dispatch this command.
     var triggers: [ShortcutTrigger] { [spec.trigger] + Array(spec.alternateTriggers.keys) }
 
-    var command: AppCommand {
+    package var command: AppCommand {
         switch self {
         case .closeTab:
             return .closeTab
@@ -572,12 +578,12 @@ enum AppShortcut: String, CaseIterable {
             return .managementLayerExit
         }
     }
-    var contexts: Set<ShortcutContext> { spec.contexts }
+    package var contexts: Set<ShortcutContext> { spec.contexts }
     var keyBinding: KeyBinding? { trigger.keyBinding }
 }
 
 extension AppShortcut {
-    var requiresPaneTargetFallback: Bool {
+    package var requiresPaneTargetFallback: Bool {
         switch self {
         case .addDrawerPane:
             return true
@@ -598,7 +604,7 @@ extension AppShortcut {
         }
     }
 
-    func displayKeyBinding(in context: ShortcutContext) -> KeyBinding? {
+    package func displayKeyBinding(in context: ShortcutContext) -> KeyBinding? {
         spec.displayTrigger(in: context).keyBinding
     }
 
@@ -628,8 +634,8 @@ extension AppShortcut {
     }
 }
 
-enum ShortcutDecoder {
-    static func decode(event: NSEvent) -> ShortcutTrigger? {
+package enum ShortcutDecoder {
+    package static func decode(event: NSEvent) -> ShortcutTrigger? {
         decode(
             keyCode: event.keyCode,
             modifierFlags: event.modifierFlags,
@@ -637,7 +643,7 @@ enum ShortcutDecoder {
         )
     }
 
-    static func decode(
+    package static func decode(
         keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
         charactersIgnoringModifiers: String?
@@ -667,7 +673,7 @@ enum ShortcutDecoder {
         return .init(key: .character(key), modifiers: modifiers)
     }
 
-    static func shortcut(
+    package static func shortcut(
         for trigger: ShortcutTrigger,
         in context: ShortcutContext
     ) -> AppShortcut? {

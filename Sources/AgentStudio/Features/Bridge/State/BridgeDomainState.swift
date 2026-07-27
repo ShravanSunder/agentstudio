@@ -6,20 +6,20 @@ import Observation
 /// This is the bridge pane's native domain state.
 @Observable
 @MainActor
-final class PaneDomainState {
-    let diff = DiffState()
+package final class PaneDomainState {
+    package let diff = DiffState()
     let review = ReviewState()
     let connection = ConnectionState()
 }
 
 @Observable
 @MainActor
-final class DiffState {
-    private(set) var status: DiffStatus = .idle
+package final class DiffState {
+    package private(set) var status: DiffStatus = .idle
     private(set) var error: String?
     private(set) var epoch: Int = 0
     private(set) var files: [String: FileManifest] = [:]
-    private(set) var packageMetadata: BridgeReviewPackage?
+    package private(set) var packageMetadata: BridgeReviewPackage?
     private(set) var packageDelta: BridgeReviewDelta?
 
     func setStatus(_ status: DiffStatus, error: String? = nil) {
@@ -67,7 +67,7 @@ final class DiffState {
     }
 }
 
-enum DiffStatus: String, Codable, Equatable, Sendable {
+package enum DiffStatus: String, Codable, Equatable, Sendable {
     case idle, loading, ready, error
 }
 

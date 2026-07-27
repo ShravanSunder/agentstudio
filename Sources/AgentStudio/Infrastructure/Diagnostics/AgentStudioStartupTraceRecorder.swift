@@ -1,6 +1,6 @@
 import Foundation
 
-final class AgentStudioStartupTraceRecorder: @unchecked Sendable {
+package final class AgentStudioStartupTraceRecorder: @unchecked Sendable {
     private let traceRuntime: AgentStudioTraceRuntime?
     private let eventQueue: AgentStudioTraceEventQueue?
     private let lock = NSLock()
@@ -18,7 +18,7 @@ final class AgentStudioStartupTraceRecorder: @unchecked Sendable {
         case childExited
     }
 
-    init(traceRuntime: AgentStudioTraceRuntime?) {
+    package init(traceRuntime: AgentStudioTraceRuntime?) {
         self.traceRuntime = traceRuntime
         if let traceRuntime, traceRuntime.isEnabled {
             self.eventQueue = AgentStudioTraceEventQueue(traceRuntime: traceRuntime)
@@ -27,7 +27,7 @@ final class AgentStudioStartupTraceRecorder: @unchecked Sendable {
         }
     }
 
-    func recordAppStartup(
+    package func recordAppStartup(
         _ body: String,
         phase: String,
         outcome: String? = nil,
@@ -41,7 +41,7 @@ final class AgentStudioStartupTraceRecorder: @unchecked Sendable {
         record(tag: .appStartup, body: body, attributes: mergedAttributes)
     }
 
-    func recordWorkspaceBootStep(rawValue: String, purpose: String) {
+    package func recordWorkspaceBootStep(rawValue: String, purpose: String) {
         recordAppStartup(
             "workspace.boot.step",
             phase: "workspace_boot",
@@ -52,7 +52,7 @@ final class AgentStudioStartupTraceRecorder: @unchecked Sendable {
         )
     }
 
-    func recordTerminalStartup(
+    package func recordTerminalStartup(
         _ body: String,
         paneID: UUID,
         parentPaneID: UUID? = nil,
@@ -80,7 +80,7 @@ final class AgentStudioStartupTraceRecorder: @unchecked Sendable {
         record(tag: .terminalStartup, body: body, attributes: mergedAttributes)
     }
 
-    func recordTerminalCommandReceived(
+    package func recordTerminalCommandReceived(
         commandName: String,
         source: String,
         attributes: [String: AgentStudioTraceValue] = [:]
@@ -96,7 +96,7 @@ final class AgentStudioStartupTraceRecorder: @unchecked Sendable {
         )
     }
 
-    func recordFirstGhosttyAction(paneID: UUID, surfaceID: UUID, actionName: String) {
+    package func recordFirstGhosttyAction(paneID: UUID, surfaceID: UUID, actionName: String) {
         guard
             shouldRecordFirst(
                 key: paneSurfaceKey(paneID: paneID, surfaceID: surfaceID),
@@ -114,7 +114,7 @@ final class AgentStudioStartupTraceRecorder: @unchecked Sendable {
         )
     }
 
-    func recordFirstOutput(paneID: UUID, surfaceID: UUID?) {
+    package func recordFirstOutput(paneID: UUID, surfaceID: UUID?) {
         guard
             shouldRecordFirst(
                 key: paneSurfaceKey(paneID: paneID, surfaceID: surfaceID),
@@ -129,7 +129,7 @@ final class AgentStudioStartupTraceRecorder: @unchecked Sendable {
         )
     }
 
-    func recordCwdReady(paneID: UUID, surfaceID: UUID?) {
+    package func recordCwdReady(paneID: UUID, surfaceID: UUID?) {
         guard
             shouldRecordFirst(
                 key: paneSurfaceKey(paneID: paneID, surfaceID: surfaceID),
@@ -144,7 +144,7 @@ final class AgentStudioStartupTraceRecorder: @unchecked Sendable {
         )
     }
 
-    func recordTitleReady(paneID: UUID, surfaceID: UUID?) {
+    package func recordTitleReady(paneID: UUID, surfaceID: UUID?) {
         guard
             shouldRecordFirst(
                 key: paneSurfaceKey(paneID: paneID, surfaceID: surfaceID),
@@ -159,7 +159,7 @@ final class AgentStudioStartupTraceRecorder: @unchecked Sendable {
         )
     }
 
-    func recordChildExited(paneID: UUID, surfaceID: UUID, actionName: String) {
+    package func recordChildExited(paneID: UUID, surfaceID: UUID, actionName: String) {
         guard
             shouldRecordFirst(
                 key: paneSurfaceKey(paneID: paneID, surfaceID: surfaceID),
@@ -178,7 +178,7 @@ final class AgentStudioStartupTraceRecorder: @unchecked Sendable {
         )
     }
 
-    func drain() async throws {
+    package func drain() async throws {
         try await eventQueue?.drain()
         if eventQueue == nil {
             try await traceRuntime?.flush()

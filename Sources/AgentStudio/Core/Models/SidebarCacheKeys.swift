@@ -4,42 +4,42 @@ import Foundation
 ///
 /// Tags keep repo groups and inbox groups from crossing at compile time while
 /// both persist as plain strings.
-struct SidebarCacheKey<Tag>: Codable, Sendable, ExpressibleByStringLiteral {
-    let rawValue: String
+package struct SidebarCacheKey<Tag>: Codable, Sendable, ExpressibleByStringLiteral {
+    package let rawValue: String
 
-    init(_ rawValue: String) {
+    package init(_ rawValue: String) {
         self.rawValue = rawValue
     }
 
-    init(stringLiteral value: String) {
+    package init(stringLiteral value: String) {
         self.rawValue = value
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         self.rawValue = try container.decode(String.self)
     }
 
-    func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
     }
 }
 
 extension SidebarCacheKey: Equatable {
-    static func == (lhs: Self, rhs: Self) -> Bool {
+    package static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.rawValue == rhs.rawValue
     }
 }
 
 extension SidebarCacheKey: Hashable {
-    func hash(into hasher: inout Hasher) {
+    package func hash(into hasher: inout Hasher) {
         hasher.combine(rawValue)
     }
 }
 
-enum SidebarGroupKeyTag {}
-enum InboxNotificationGroupKeyTag {}
+package enum SidebarGroupKeyTag {}
+package enum InboxNotificationGroupKeyTag {}
 
-typealias SidebarGroupKey = SidebarCacheKey<SidebarGroupKeyTag>
-typealias InboxNotificationGroupKey = SidebarCacheKey<InboxNotificationGroupKeyTag>
+package typealias SidebarGroupKey = SidebarCacheKey<SidebarGroupKeyTag>
+package typealias InboxNotificationGroupKey = SidebarCacheKey<InboxNotificationGroupKeyTag>

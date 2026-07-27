@@ -3,16 +3,18 @@ import Observation
 
 @MainActor
 @Observable
-final class ArrangementInlineRenameState {
+package final class ArrangementInlineRenameState {
     struct CommitPayload: Equatable {
         let arrangementId: UUID
         let name: String
     }
 
-    private(set) var editingArrangementId: UUID?
+    package private(set) var editingArrangementId: UUID?
     private(set) var draftName: String = ""
 
-    func beginEditing(arrangementId: UUID, currentName: String, isDefault: Bool) {
+    package init() {}
+
+    package func beginEditing(arrangementId: UUID, currentName: String, isDefault: Bool) {
         guard !isDefault else { return }
         editingArrangementId = arrangementId
         draftName = currentName

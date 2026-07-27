@@ -1,8 +1,9 @@
+import AgentStudioCore
 import Foundation
 
 // MARK: - WorktreeOpenState
 
-enum WorktreeOpenState: Equatable, Sendable {
+package enum WorktreeOpenState: Equatable, Sendable {
     case notOpen
     case singlePane
     case multiplePanes
@@ -10,7 +11,7 @@ enum WorktreeOpenState: Equatable, Sendable {
 
 // MARK: - WorktreePresence
 
-struct WorktreePresence: Equatable, Sendable {
+package struct WorktreePresence: Equatable, Sendable {
     let worktreeId: UUID
     let repoId: UUID
     let worktreeName: String

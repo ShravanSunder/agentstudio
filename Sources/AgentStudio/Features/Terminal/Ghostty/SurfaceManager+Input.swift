@@ -2,7 +2,7 @@ import Foundation
 import GhosttyKit
 
 extension SurfaceManager {
-    func sendInput(_ input: String, toPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+    package func sendInput(_ input: String, toPaneId paneId: UUID) -> Result<Void, SurfaceError> {
         guard let surfaceId = surfaceId(forPaneId: paneId) else {
             return .failure(.surfaceNotFound)
         }
@@ -12,7 +12,7 @@ extension SurfaceManager {
         }.map { _ in () }
     }
 
-    func clearScrollback(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+    package func clearScrollback(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
         guard let surfaceId = surfaceId(forPaneId: paneId) else {
             return .failure(.surfaceNotFound)
         }

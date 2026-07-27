@@ -1,4 +1,4 @@
-enum BridgeTelemetryPriority: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+package enum BridgeTelemetryPriority: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case hot
     case warm
     case cold

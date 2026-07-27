@@ -1,12 +1,18 @@
 import AppKit
 import SwiftUI
 
-struct AccessibilityPressBridge: NSViewRepresentable {
+package struct AccessibilityPressBridge: NSViewRepresentable {
     let identifier: String
     let label: String
     let action: @MainActor () -> Void
 
-    func makeNSView(context _: Context) -> AccessibilityPressBridgeView {
+    package init(identifier: String, label: String, action: @escaping @MainActor () -> Void) {
+        self.identifier = identifier
+        self.label = label
+        self.action = action
+    }
+
+    package func makeNSView(context _: Context) -> AccessibilityPressBridgeView {
         let view = AccessibilityPressBridgeView()
         view.identifier = NSUserInterfaceItemIdentifier(identifier)
         view.label = label
@@ -14,7 +20,7 @@ struct AccessibilityPressBridge: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: AccessibilityPressBridgeView, context _: Context) {
+    package func updateNSView(_ nsView: AccessibilityPressBridgeView, context _: Context) {
         nsView.identifier = NSUserInterfaceItemIdentifier(identifier)
         nsView.label = label
         nsView.action = action
@@ -22,27 +28,27 @@ struct AccessibilityPressBridge: NSViewRepresentable {
 }
 
 @MainActor
-final class AccessibilityPressBridgeView: NSView {
+package final class AccessibilityPressBridgeView: NSView {
     var label = ""
     var action: @MainActor () -> Void = {}
 
-    override func isAccessibilityElement() -> Bool {
+    package override func isAccessibilityElement() -> Bool {
         true
     }
 
-    override func accessibilityRole() -> NSAccessibility.Role? {
+    package override func accessibilityRole() -> NSAccessibility.Role? {
         .button
     }
 
-    override func accessibilityIdentifier() -> String {
+    package override func accessibilityIdentifier() -> String {
         identifier?.rawValue ?? ""
     }
 
-    override func accessibilityLabel() -> String? {
+    package override func accessibilityLabel() -> String? {
         label
     }
 
-    override func accessibilityPerformPress() -> Bool {
+    package override func accessibilityPerformPress() -> Bool {
         action()
         return true
     }

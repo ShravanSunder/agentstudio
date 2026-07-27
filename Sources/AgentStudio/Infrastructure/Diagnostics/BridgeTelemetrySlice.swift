@@ -1,4 +1,4 @@
-enum BridgeTelemetrySlice: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+package enum BridgeTelemetrySlice: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case diffStatus = "diff_status"
     case diffFiles = "diff_files"
     case reviewThreads = "review_threads"

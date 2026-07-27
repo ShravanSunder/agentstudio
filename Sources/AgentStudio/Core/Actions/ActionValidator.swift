@@ -3,8 +3,8 @@ import Foundation
 
 /// Wrapper that proves an action has passed validation.
 /// Only WorkspaceCommandValidator can create instances (fileprivate init).
-struct ValidatedAction: Equatable {
-    let action: WorkspaceActionCommand
+package struct ValidatedAction: Equatable {
+    package let action: WorkspaceActionCommand
 
     fileprivate init(_ action: WorkspaceActionCommand) {
         self.action = action
@@ -12,7 +12,7 @@ struct ValidatedAction: Equatable {
 }
 
 /// Validation errors for rejected actions.
-enum ActionValidationError: Error, Equatable {
+package enum ActionValidationError: Error, Equatable {
     case repoNotFound(repoId: UUID)
     case tabNotFound(tabId: UUID)
     case emptyName
@@ -38,13 +38,13 @@ enum ActionValidationError: Error, Equatable {
     case invalidVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID)
 }
 
-enum DrawerLayoutValidationFailure: Error, Equatable, Sendable, CustomStringConvertible {
+package enum DrawerLayoutValidationFailure: Error, Equatable, Sendable, CustomStringConvertible {
     case missingLayout
     case insertionTargetRejected(UUID)
     case resultingLayoutWouldCreateThirdRow
     case projectedMove(DrawerProjectedMoveFailure)
 
-    var description: String {
+    package var description: String {
         switch self {
         case .missingLayout:
             return "missingLayout"
@@ -61,9 +61,9 @@ enum DrawerLayoutValidationFailure: Error, Equatable, Sendable, CustomStringConv
 /// Pure-function validation engine.
 /// Takes a resolved action and a state snapshot, returns validated or error.
 /// No side effects, no UI dependencies, no NSViews.
-enum WorkspaceCommandValidator {
+package enum WorkspaceCommandValidator {
 
-    static func validate(
+    package static func validate(
         _ action: WorkspaceActionCommand,
         state: ActionStateSnapshot
     ) -> Result<ValidatedAction, ActionValidationError> {

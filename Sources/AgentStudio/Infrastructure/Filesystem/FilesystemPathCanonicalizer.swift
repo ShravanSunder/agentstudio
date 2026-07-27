@@ -1,48 +1,48 @@
 import Darwin
 import Foundation
 
-enum FilesystemVolumeCasePolicy: Hashable, Sendable {
+package enum FilesystemVolumeCasePolicy: Hashable, Sendable {
     case caseSensitive
     case caseInsensitive
 }
 
-enum FilesystemVolumeUnicodePolicy: Hashable, Sendable {
+package enum FilesystemVolumeUnicodePolicy: Hashable, Sendable {
     case canonicalEquivalent
 }
 
-enum FilesystemPathComponentPolicy: Hashable, Sendable {
+package enum FilesystemPathComponentPolicy: Hashable, Sendable {
     case absolutePOSIX
 }
 
-enum FilesystemVolumeFormat: Hashable, Sendable {
+package enum FilesystemVolumeFormat: Hashable, Sendable {
     case apfs
     case hfs
 }
 
-enum FilesystemLocalVolumeIdentity: Hashable, Sendable {
+package enum FilesystemLocalVolumeIdentity: Hashable, Sendable {
     case opaqueBytes(Data)
     case numeric(UInt64)
     case text(String)
 }
 
-struct FilesystemVolumeSemantics: Hashable, Sendable {
-    let identity: FilesystemLocalVolumeIdentity
-    let format: FilesystemVolumeFormat
-    let casePolicy: FilesystemVolumeCasePolicy
-    let unicodePolicy: FilesystemVolumeUnicodePolicy
-    let componentPolicy: FilesystemPathComponentPolicy
+package struct FilesystemVolumeSemantics: Hashable, Sendable {
+    package let identity: FilesystemLocalVolumeIdentity
+    package let format: FilesystemVolumeFormat
+    package let casePolicy: FilesystemVolumeCasePolicy
+    package let unicodePolicy: FilesystemVolumeUnicodePolicy
+    package let componentPolicy: FilesystemPathComponentPolicy
 
-    var isLocal: Bool { true }
+    package var isLocal: Bool { true }
 }
 
-struct FilesystemCanonicalPathAlias: Hashable, Sendable {
-    let path: String
-    let components: [String]
+package struct FilesystemCanonicalPathAlias: Hashable, Sendable {
+    package let path: String
+    package let components: [String]
 }
 
-struct FilesystemRegisteredRootAliases: Hashable, Sendable {
-    let standardizedLexical: FilesystemCanonicalPathAlias
-    let onceResolvedCanonical: FilesystemCanonicalPathAlias
+package struct FilesystemRegisteredRootAliases: Hashable, Sendable {
+    package let standardizedLexical: FilesystemCanonicalPathAlias
+    package let onceResolvedCanonical: FilesystemCanonicalPathAlias
 }
 
 struct FilesystemCanonicalizedAuthorizedRoot: Hashable, Sendable {
@@ -55,7 +55,7 @@ struct FilesystemContainedDiscoveryCandidate: Hashable, Sendable {
     let canonicalAlias: FilesystemCanonicalPathAlias
 }
 
-enum FilesystemDiscoveryCandidateRejection: Hashable, Sendable {
+package enum FilesystemDiscoveryCandidateRejection: Hashable, Sendable {
     case notAbsoluteFileURL
     case unavailable
     case volumeSemanticsMismatch
@@ -67,7 +67,7 @@ enum FilesystemDiscoveryCandidateClassification: Hashable, Sendable {
     case rejected(FilesystemDiscoveryCandidateRejection)
 }
 
-struct FilesystemPathCanonicalizer: Sendable {
+package struct FilesystemPathCanonicalizer: Sendable {
     func canonicalizeAuthorizedRoot(
         authorizedBoundary: URL,
         registeredRoot: URL

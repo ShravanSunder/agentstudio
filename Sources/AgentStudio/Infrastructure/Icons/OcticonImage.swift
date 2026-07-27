@@ -1,11 +1,17 @@
 import SwiftUI
 
-struct OcticonImage: View {
-    let name: String
-    let size: CGFloat
-    let loader: OcticonLoader
+package struct OcticonImage: View {
+    package let name: String
+    package let size: CGFloat
+    package let loader: OcticonLoader
 
-    var body: some View {
+    package init(name: String, size: CGFloat, loader: OcticonLoader) {
+        self.name = name
+        self.size = size
+        self.loader = loader
+    }
+
+    package var body: some View {
         Group {
             if let image = loader.image(named: name) {
                 Image(nsImage: image)

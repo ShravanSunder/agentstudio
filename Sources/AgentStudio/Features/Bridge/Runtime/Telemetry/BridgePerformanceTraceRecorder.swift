@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import Foundation
 
-protocol BridgePerformanceTraceRecording: Sendable {
+package protocol BridgePerformanceTraceRecording: Sendable {
     func record(sample: BridgeTelemetrySample, receivedAtUnixNano: UInt64) async
     func recordDrop(
         reason: BridgeTelemetryDropReason,

@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import Foundation
 
-struct CommandDisplayDescriptor: Equatable, Sendable {
+package struct CommandDisplayDescriptor: Equatable, Sendable {
     let provenance: CommandDisplayProvenance
     let label: String
     let helpText: String
@@ -8,33 +9,33 @@ struct CommandDisplayDescriptor: Equatable, Sendable {
     let shortcutDisplayText: ShortcutDisplayText?
 }
 
-enum CommandDisplayProvenance: Equatable, Sendable {
+package enum CommandDisplayProvenance: Equatable, Sendable {
     case appCommand(rawValue: String)
     case localAction(rawValue: String)
     case localShortcut(rawValue: String)
     case dynamicData(DynamicTooltipReason)
 }
 
-enum DynamicTooltipReason: Equatable, Sendable {
+package enum DynamicTooltipReason: Equatable, Sendable {
     case filesystemPath
     case userDataLabel
     case stateReadout
     case compositeMenuSummary
 }
 
-enum TooltipCopyStyle: Equatable, Sendable {
+package enum TooltipCopyStyle: Equatable, Sendable {
     case compact
     case helpText
     case label(includeShortcut: Bool = true)
 }
 
-enum ControlTooltipSource: Equatable, Sendable {
+package enum ControlTooltipSource: Equatable, Sendable {
     case display(CommandDisplayDescriptor, style: TooltipCopyStyle = .compact)
     case dynamicData(DynamicTooltipReason, text: String, shortcut: ShortcutDisplayText? = nil)
 }
 
-enum ControlTooltipResolver {
-    static func resolve(_ source: ControlTooltipSource) -> ControlTooltipRenderValue {
+package enum ControlTooltipResolver {
+    package static func resolve(_ source: ControlTooltipSource) -> ControlTooltipRenderValue {
         switch source {
         case .display(let descriptor, let style):
             return resolveDisplay(descriptor, style: style)

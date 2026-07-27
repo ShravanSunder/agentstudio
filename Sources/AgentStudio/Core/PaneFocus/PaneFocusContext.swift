@@ -1,12 +1,12 @@
 import Foundation
 
-enum PaneManagementFocusScope: Sendable, Equatable {
+package enum PaneManagementFocusScope: Sendable, Equatable {
     case mainRow
     case drawer(parentPaneId: UUID)
 }
 
-struct PaneFocusContext: Sendable, Equatable {
-    enum PaneKind: Sendable, Equatable {
+package struct PaneFocusContext: Sendable, Equatable {
+    package enum PaneKind: Sendable, Equatable {
         case terminal
         case webview
         case bridge
@@ -14,29 +14,29 @@ struct PaneFocusContext: Sendable, Equatable {
         case unknown
     }
 
-    enum ManagementLayerState: Sendable, Equatable {
+    package enum ManagementLayerState: Sendable, Equatable {
         case inactive
         case active(scope: PaneManagementFocusScope)
     }
 
-    enum WindowState: Sendable, Equatable {
+    package enum WindowState: Sendable, Equatable {
         case background
         case focused
         case key
     }
 
-    enum MountedContentState: Sendable, Equatable {
+    package enum MountedContentState: Sendable, Equatable {
         case unmounted
         case nonTerminal(acceptsFirstResponder: Bool)
         case terminal(surfaceId: UUID?)
     }
 
-    struct ActiveDrawerContext: Sendable, Equatable {
+    package struct ActiveDrawerContext: Sendable, Equatable {
         let parentPaneId: UUID
         let paneId: UUID?
         let isEmpty: Bool
 
-        init(parentPaneId: UUID, paneId: UUID?, isEmpty: Bool = false) {
+        package init(parentPaneId: UUID, paneId: UUID?, isEmpty: Bool = false) {
             self.parentPaneId = parentPaneId
             self.paneId = paneId
             self.isEmpty = isEmpty
@@ -46,15 +46,15 @@ struct PaneFocusContext: Sendable, Equatable {
     let activeTabId: UUID?
     let activePaneId: UUID?
     let activeDrawer: ActiveDrawerContext?
-    let targetPaneId: UUID?
-    let targetTabId: UUID?
+    package let targetPaneId: UUID?
+    package let targetTabId: UUID?
     let targetPaneKind: PaneKind
     let targetPaneIsAlreadyActive: Bool
     let targetMountedContent: MountedContentState
     let managementLayer: ManagementLayerState
     let windowState: WindowState
 
-    init(
+    package init(
         activeTabId: UUID?,
         activePaneId: UUID?,
         activeDrawer: ActiveDrawerContext?,

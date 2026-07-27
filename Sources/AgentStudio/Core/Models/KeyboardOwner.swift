@@ -2,7 +2,7 @@ import Foundation
 
 /// Derived value naming who currently owns keyboard interpretation.
 /// Never stored, never manually set.
-enum KeyboardOwner: Equatable, Sendable {
+package enum KeyboardOwner: Equatable, Sendable {
     case otherWindow
     case managementLayer
     case sidebar(SidebarSurface)
@@ -16,7 +16,7 @@ extension KeyboardOwner {
     /// surfaces. Callers that are about to present another key window must query
     /// this owner before that presentation steals key status from the workspace.
     @MainActor
-    static func current(
+    package static func current(
         windowLifecycle: WindowLifecycleAtom,
         managementLayer: ManagementLayerAtom,
         uiState: WorkspaceSidebarState

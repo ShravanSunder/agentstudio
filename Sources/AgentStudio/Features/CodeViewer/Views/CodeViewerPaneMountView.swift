@@ -1,13 +1,14 @@
+import AgentStudioCore
 import AppKit
 
-final class CodeViewerPaneMountView: NSView, PaneMountedContent {
-    let paneId: UUID
+package final class CodeViewerPaneMountView: NSView, PaneMountedContent {
+    package let paneId: UUID
     private let state: CodeViewerState
     private let initialText: String?
     private let scrollView = NSScrollView()
     private let textView = NSTextView()
 
-    init(paneId: UUID, state: CodeViewerState, initialText: String? = nil) {
+    package init(paneId: UUID, state: CodeViewerState, initialText: String? = nil) {
         self.paneId = paneId
         self.state = state
         self.initialText = initialText
@@ -20,9 +21,9 @@ final class CodeViewerPaneMountView: NSView, PaneMountedContent {
         fatalError("init(coder:) not supported")
     }
 
-    override var acceptsFirstResponder: Bool { true }
+    package override var acceptsFirstResponder: Bool { true }
 
-    func setContentInteractionEnabled(_ enabled: Bool) {
+    package func setContentInteractionEnabled(_ enabled: Bool) {
         textView.isSelectable = enabled
     }
 

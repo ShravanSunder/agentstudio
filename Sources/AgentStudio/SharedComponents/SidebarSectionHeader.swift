@@ -1,11 +1,22 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-struct SidebarSectionHeaderRow<Content: View, TrailingContent: View>: View {
+package struct SidebarSectionHeaderRow<Content: View, TrailingContent: View>: View {
     let isCollapsed: Bool
     @ViewBuilder let content: () -> Content
     @ViewBuilder let trailingContent: () -> TrailingContent
 
-    var body: some View {
+    package init(
+        isCollapsed: Bool,
+        @ViewBuilder content: @escaping () -> Content,
+        @ViewBuilder trailingContent: @escaping () -> TrailingContent
+    ) {
+        self.isCollapsed = isCollapsed
+        self.content = content
+        self.trailingContent = trailingContent
+    }
+
+    package var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.sectionHeaderChevronLabelSpacing) {
             Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                 .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
@@ -23,7 +34,7 @@ struct SidebarSectionHeaderRow<Content: View, TrailingContent: View>: View {
 }
 
 extension SidebarSectionHeaderRow where TrailingContent == EmptyView {
-    init(
+    package init(
         isCollapsed: Bool,
         @ViewBuilder content: @escaping () -> Content
     ) {

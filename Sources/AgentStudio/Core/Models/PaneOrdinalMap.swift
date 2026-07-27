@@ -1,10 +1,10 @@
 import Foundation
 
-struct PaneOrdinalMap: Equatable, Sendable {
+package struct PaneOrdinalMap: Equatable, Sendable {
     let paneIdByOrdinal: [Int: UUID]
     let ordinalByPaneId: [UUID: Int]
 
-    init(orderedPaneIds: [UUID]) {
+    package init(orderedPaneIds: [UUID]) {
         var paneIdByOrdinal: [Int: UUID] = [:]
         var ordinalByPaneId: [UUID: Int] = [:]
 
@@ -18,11 +18,11 @@ struct PaneOrdinalMap: Equatable, Sendable {
         self.ordinalByPaneId = ordinalByPaneId
     }
 
-    func paneId(forOrdinal ordinal: Int) -> UUID? {
+    package func paneId(forOrdinal ordinal: Int) -> UUID? {
         paneIdByOrdinal[ordinal]
     }
 
-    func ordinal(forPaneId paneId: UUID) -> Int? {
+    package func ordinal(forPaneId paneId: UUID) -> Int? {
         ordinalByPaneId[paneId]
     }
 }

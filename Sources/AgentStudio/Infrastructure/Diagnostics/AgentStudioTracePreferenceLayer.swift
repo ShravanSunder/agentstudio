@@ -1,13 +1,27 @@
 import Foundation
 
-struct AgentStudioTracePreferenceLayer: Equatable, Sendable {
+package struct AgentStudioTracePreferenceLayer: Equatable, Sendable {
     let enabled: Bool?
     let traceTags: String?
     let traceBackend: String?
     let traceFlush: String?
     let otlpEndpoint: String?
 
-    static func invalidSemanticField(in observability: [String: Any]) -> String? {
+    package init(
+        enabled: Bool?,
+        traceTags: String?,
+        traceBackend: String?,
+        traceFlush: String?,
+        otlpEndpoint: String?
+    ) {
+        self.enabled = enabled
+        self.traceTags = traceTags
+        self.traceBackend = traceBackend
+        self.traceFlush = traceFlush
+        self.otlpEndpoint = otlpEndpoint
+    }
+
+    package static func invalidSemanticField(in observability: [String: Any]) -> String? {
         if let invalidTraceTags = invalidTraceTags(in: observability["traceTags"]) {
             return invalidTraceTags
         }
@@ -20,7 +34,7 @@ struct AgentStudioTracePreferenceLayer: Equatable, Sendable {
         return nil
     }
 
-    static func rejectedOTLPEndpointSelector(_ rawValue: String?) -> String? {
+    package static func rejectedOTLPEndpointSelector(_ rawValue: String?) -> String? {
         guard let trimmedValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmedValue.isEmpty else {
             return nil
         }

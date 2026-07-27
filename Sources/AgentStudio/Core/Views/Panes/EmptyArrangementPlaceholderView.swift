@@ -1,9 +1,12 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-struct EmptyArrangementPlaceholderView: View {
+package struct EmptyArrangementPlaceholderView: View {
     static let title = "No panes visible"
 
-    var body: some View {
+    package init() {}
+
+    package var body: some View {
         VStack(spacing: AppStyles.General.Spacing.standard) {
             Image(systemName: "rectangle.split.3x1")
                 .font(.system(size: AppStyles.General.Typography.text2xl, weight: .medium))

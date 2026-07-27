@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 extension FilesystemActor {
@@ -5,7 +6,7 @@ extension FilesystemActor {
         _ = await refreshWatchedFolders(watchedPaths)
     }
 
-    func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary {
+    package func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary {
         if let activeRefresh = watchedFolderScanState.manualRefreshState.task {
             _ = await activeRefresh.value
             return await refreshWatchedFolders(watchedPaths)

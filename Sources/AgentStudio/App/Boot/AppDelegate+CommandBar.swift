@@ -1,4 +1,6 @@
 import AgentStudioAppIPC
+import AgentStudioCommandBar
+import AgentStudioCore
 import AgentStudioProgrammaticControl
 import AppKit
 

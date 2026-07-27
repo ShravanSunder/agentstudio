@@ -1,6 +1,6 @@
 import Foundation
 
-enum RuntimeEnvelope: Sendable {
+package enum RuntimeEnvelope: Sendable {
     case system(SystemEnvelope)
     case worktree(WorktreeEnvelope)
     case pane(PaneEnvelope)
@@ -10,7 +10,7 @@ enum RuntimeEnvelopeSchema {
     static let current: UInt16 = 1
 }
 
-enum SystemScopedEvent: Sendable {
+package enum SystemScopedEvent: Sendable {
     case topology(TopologyEvent)
     case appLifecycle(AppLifecycleEvent)
     case focusChanged(FocusChangeEvent)
@@ -18,17 +18,17 @@ enum SystemScopedEvent: Sendable {
     case workspaceActivity(WorkspaceActivityEvent)
 }
 
-enum LinkedWorktreeInfo: Sendable, Equatable {
+package enum LinkedWorktreeInfo: Sendable, Equatable {
     case scanned([URL])
     case notScanned
 }
 
-struct DiscoveredRepoTopologyInfo: Sendable, Equatable {
-    let repoPath: URL
-    let linkedWorktrees: LinkedWorktreeInfo
+package struct DiscoveredRepoTopologyInfo: Sendable, Equatable {
+    package let repoPath: URL
+    package let linkedWorktrees: LinkedWorktreeInfo
 }
 
-enum TopologyEvent: Sendable {
+package enum TopologyEvent: Sendable {
     case repoDiscovered(
         repoPath: URL,
         parentPath: URL,
@@ -43,30 +43,30 @@ enum TopologyEvent: Sendable {
     case worktreeUnregistered(worktreeId: UUID, repoId: UUID)
 }
 
-enum AppLifecycleEvent: Sendable {
+package enum AppLifecycleEvent: Sendable {
     case appLaunched
     case appTerminating
     case tabSwitched(activeTabId: UUID)
 }
 
-enum FocusChangeEvent: Sendable {
+package enum FocusChangeEvent: Sendable {
     case activePaneChanged(paneId: PaneId?)
     case activeWorktreeChanged(worktreeId: UUID?)
 }
 
-enum ConfigChangeEvent: Sendable {
+package enum ConfigChangeEvent: Sendable {
     case watchedPathsUpdated(paths: [URL])
     case workspacePersistenceUpdated
 }
 
-enum WorktreeScopedEvent: Sendable {
+package enum WorktreeScopedEvent: Sendable {
     case filesystem(FilesystemEvent)
     case gitWorkingDirectory(GitWorkingDirectoryEvent)
     case forge(ForgeEvent)
     case security(SecurityEvent)
 }
 
-enum GitWorkingDirectoryEvent: Sendable {
+package enum GitWorkingDirectoryEvent: Sendable {
     case snapshotChanged(snapshot: GitWorkingTreeSnapshot)
     case branchChanged(worktreeId: UUID, repoId: UUID, from: String, to: String)
     case originChanged(repoId: UUID, from: String, to: String)
@@ -76,32 +76,32 @@ enum GitWorkingDirectoryEvent: Sendable {
     case diffAvailable(diffId: UUID, worktreeId: UUID, repoId: UUID)
 }
 
-enum ForgeEvent: Sendable {
+package enum ForgeEvent: Sendable {
     case pullRequestCountsChanged(repoId: UUID, countsByBranch: [String: Int])
     case checksUpdated(repoId: UUID, status: ForgeChecksStatus)
     case refreshFailed(repoId: UUID, error: String)
     case rateLimited(repoId: UUID, retryAfterSeconds: Int)
 }
 
-enum ForgeChecksStatus: String, Sendable {
+package enum ForgeChecksStatus: String, Sendable {
     case passing
     case failing
     case pending
     case unknown
 }
 
-struct SystemEnvelope: Sendable {
-    let eventId: UUID
-    let source: SystemSource
-    let seq: UInt64
+package struct SystemEnvelope: Sendable {
+    package let eventId: UUID
+    package let source: SystemSource
+    package let seq: UInt64
     let timestamp: ContinuousClock.Instant
     let schemaVersion: UInt16
     let correlationId: UUID?
     let causationId: UUID?
     let commandId: UUID?
-    let event: SystemScopedEvent
+    package let event: SystemScopedEvent
 
-    init(
+    package init(
         eventId: UUID = UUID(),
         source: SystemSource,
         seq: UInt64,
@@ -124,20 +124,20 @@ struct SystemEnvelope: Sendable {
     }
 }
 
-struct WorktreeEnvelope: Sendable {
-    let eventId: UUID
-    let source: EventSource
-    let seq: UInt64
-    let timestamp: ContinuousClock.Instant
+package struct WorktreeEnvelope: Sendable {
+    package let eventId: UUID
+    package let source: EventSource
+    package let seq: UInt64
+    package let timestamp: ContinuousClock.Instant
     let schemaVersion: UInt16
-    let correlationId: UUID?
+    package let correlationId: UUID?
     let causationId: UUID?
-    let commandId: UUID?
-    let repoId: UUID
-    let worktreeId: UUID?
-    let event: WorktreeScopedEvent
+    package let commandId: UUID?
+    package let repoId: UUID
+    package let worktreeId: UUID?
+    package let event: WorktreeScopedEvent
 
-    init(
+    package init(
         eventId: UUID = UUID(),
         source: EventSource,
         seq: UInt64,
@@ -164,20 +164,20 @@ struct WorktreeEnvelope: Sendable {
     }
 }
 
-struct PaneEnvelope: Sendable {
-    let eventId: UUID
-    let source: EventSource
-    let seq: UInt64
-    let timestamp: ContinuousClock.Instant
-    let schemaVersion: UInt16
-    let correlationId: UUID?
-    let causationId: UUID?
-    let commandId: UUID?
-    let paneId: PaneId
-    let paneKind: PaneContentType
-    let event: PaneRuntimeEvent
+package struct PaneEnvelope: Sendable {
+    package let eventId: UUID
+    package let source: EventSource
+    package let seq: UInt64
+    package let timestamp: ContinuousClock.Instant
+    package let schemaVersion: UInt16
+    package let correlationId: UUID?
+    package let causationId: UUID?
+    package let commandId: UUID?
+    package let paneId: PaneId
+    package let paneKind: PaneContentType
+    package let event: PaneRuntimeEvent
 
-    init(
+    package init(
         eventId: UUID = UUID(),
         source: EventSource,
         seq: UInt64,

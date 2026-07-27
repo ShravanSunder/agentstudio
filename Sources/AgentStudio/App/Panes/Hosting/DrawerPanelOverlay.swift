@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioEditorChooser
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 

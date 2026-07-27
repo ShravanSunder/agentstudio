@@ -1,6 +1,6 @@
 import Foundation
 
-struct BridgeReviewItemDescriptor: Codable, Equatable, Sendable {
+package struct BridgeReviewItemDescriptor: Codable, Equatable, Sendable {
     enum Kind: String, Codable, Equatable, Sendable {
         case file
         case diff

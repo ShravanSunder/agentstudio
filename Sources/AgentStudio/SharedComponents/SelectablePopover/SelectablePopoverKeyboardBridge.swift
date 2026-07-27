@@ -7,12 +7,12 @@ private let selectablePopoverKeyboardBridgeLogger = Logger(
     category: "SelectablePopoverKeyboardBridge"
 )
 
-struct SelectablePopoverAuxiliaryAction<ItemID: Hashable> {
+package struct SelectablePopoverAuxiliaryAction<ItemID: Hashable> {
     let key: Character
     let perform: @MainActor (ItemID) -> Void
 }
 
-struct SelectablePopoverKeyboardBridge<ItemID: Hashable>: NSViewRepresentable {
+package struct SelectablePopoverKeyboardBridge<ItemID: Hashable>: NSViewRepresentable {
     let items: [SelectablePopoverKeyboardItem<ItemID>]
     let selectedItemId: ItemID?
     let auxiliaryAction: SelectablePopoverAuxiliaryAction<ItemID>?
@@ -21,13 +21,31 @@ struct SelectablePopoverKeyboardBridge<ItemID: Hashable>: NSViewRepresentable {
     let onDismiss: () -> Void
     let matchesAdditionalDismissShortcut: (NSEvent) -> Bool
 
-    func makeNSView(context _: Context) -> SelectablePopoverFocusCapturingView<ItemID> {
+    package init(
+        items: [SelectablePopoverKeyboardItem<ItemID>],
+        selectedItemId: ItemID?,
+        auxiliaryAction: SelectablePopoverAuxiliaryAction<ItemID>?,
+        onSelect: @escaping (ItemID) -> Void,
+        onHighlight: @escaping (ItemID) -> Void,
+        onDismiss: @escaping () -> Void,
+        matchesAdditionalDismissShortcut: @escaping (NSEvent) -> Bool
+    ) {
+        self.items = items
+        self.selectedItemId = selectedItemId
+        self.auxiliaryAction = auxiliaryAction
+        self.onSelect = onSelect
+        self.onHighlight = onHighlight
+        self.onDismiss = onDismiss
+        self.matchesAdditionalDismissShortcut = matchesAdditionalDismissShortcut
+    }
+
+    package func makeNSView(context _: Context) -> SelectablePopoverFocusCapturingView<ItemID> {
         let view = SelectablePopoverFocusCapturingView<ItemID>()
         update(view)
         return view
     }
 
-    func updateNSView(_ nsView: SelectablePopoverFocusCapturingView<ItemID>, context _: Context) {
+    package func updateNSView(_ nsView: SelectablePopoverFocusCapturingView<ItemID>, context _: Context) {
         update(nsView)
         // Defer first-responder handoff past SwiftUI's update tick to avoid
         // re-entering state observers while the representable is refreshing.
@@ -53,7 +71,7 @@ struct SelectablePopoverKeyboardBridge<ItemID: Hashable>: NSViewRepresentable {
     }
 }
 
-final class SelectablePopoverFocusCapturingView<ItemID: Hashable>: NSView {
+package final class SelectablePopoverFocusCapturingView<ItemID: Hashable>: NSView {
     var items: [SelectablePopoverKeyboardItem<ItemID>] = []
     var selectedItemId: ItemID?
     var auxiliaryAction: SelectablePopoverAuxiliaryAction<ItemID>?
@@ -63,9 +81,9 @@ final class SelectablePopoverFocusCapturingView<ItemID: Hashable>: NSView {
     var matchesAdditionalDismissShortcut: ((NSEvent) -> Bool)?
     private var localMonitor: Any?
 
-    override var acceptsFirstResponder: Bool { true }
+    package override var acceptsFirstResponder: Bool { true }
 
-    override func viewDidMoveToWindow() {
+    package override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
 
         if window == nil {
@@ -76,14 +94,14 @@ final class SelectablePopoverFocusCapturingView<ItemID: Hashable>: NSView {
         installMonitorIfNeeded()
     }
 
-    override func keyDown(with event: NSEvent) {
+    package override func keyDown(with event: NSEvent) {
         guard apply(event) else {
             super.keyDown(with: event)
             return
         }
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    package override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if apply(event) {
             return true
         }
@@ -91,22 +109,22 @@ final class SelectablePopoverFocusCapturingView<ItemID: Hashable>: NSView {
         return super.performKeyEquivalent(with: event)
     }
 
-    override func cancelOperation(_ sender: Any?) {
+    package override func cancelOperation(_ sender: Any?) {
         _ = sender
         onDismiss?()
     }
 
-    override func moveUp(_ sender: Any?) {
+    package override func moveUp(_ sender: Any?) {
         _ = sender
         highlightSelection(delta: -1)
     }
 
-    override func moveDown(_ sender: Any?) {
+    package override func moveDown(_ sender: Any?) {
         _ = sender
         highlightSelection(delta: 1)
     }
 
-    override func insertNewline(_ sender: Any?) {
+    package override func insertNewline(_ sender: Any?) {
         _ = sender
         activateCurrentSelection()
     }

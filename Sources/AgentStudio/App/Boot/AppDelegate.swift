@@ -1,4 +1,10 @@
 import AgentStudioAppIPC
+import AgentStudioBridge
+import AgentStudioCommandBar
+import AgentStudioCore
+import AgentStudioInboxNotification
+import AgentStudioInfrastructure
+import AgentStudioTerminal
 import AppKit
 import SwiftUI
 import os.log

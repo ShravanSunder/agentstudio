@@ -2,10 +2,12 @@ import CryptoKit
 import Foundation
 
 #if DEBUG
-    actor BridgeObservabilitySmokeReviewSourceProvider: BridgeReviewSourceProvider {
-        static let diffId = UUID(uuidString: "33733733-7337-4337-9337-337337337337")!
+    package actor BridgeObservabilitySmokeReviewSourceProvider: BridgeReviewSourceProvider {
+        package static let diffId = UUID(uuidString: "33733733-7337-4337-9337-337337337337")!
         static let repoId = UUID(uuidString: "11111111-3370-4337-9337-337337337337")!
-        static let worktreeId = UUID(uuidString: "22222222-3370-4337-9337-337337337337")!
+        package static let worktreeId = UUID(uuidString: "22222222-3370-4337-9337-337337337337")!
+
+        package init() {}
 
         private static let baseContent = """
             struct BridgeObservabilitySmoke {
@@ -37,11 +39,13 @@ import Foundation
             mimeType: "text/x-swift"
         )
 
-        func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint {
+        package func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint {
             request.endpoint
         }
 
-        func compareEndpoints(_ request: BridgeEndpointComparisonRequest) async throws -> BridgeEndpointComparison {
+        package func compareEndpoints(_ request: BridgeEndpointComparisonRequest) async throws
+            -> BridgeEndpointComparison
+        {
             BridgeEndpointComparison(
                 baseEndpoint: request.baseEndpoint,
                 headEndpoint: request.headEndpoint,
@@ -49,7 +53,7 @@ import Foundation
             )
         }
 
-        func readTree(_ request: BridgeTreeReadRequest) async throws -> BridgeTreeReadResult {
+        package func readTree(_ request: BridgeTreeReadRequest) async throws -> BridgeTreeReadResult {
             let descriptor = try BridgeReviewPackageBuilder.build(
                 request: BridgeReviewPackageBuildRequest(
                     packageId: "bridge-observability-smoke-tree",
@@ -80,7 +84,7 @@ import Foundation
             return BridgeTreeReadResult(endpoint: request.endpoint, descriptors: descriptor)
         }
 
-        func readReviewItemDescriptor(_ request: BridgeReviewItemDescriptorRequest) async throws
+        package func readReviewItemDescriptor(_ request: BridgeReviewItemDescriptorRequest) async throws
             -> BridgeReviewItemDescriptor
         {
             let package = try BridgeReviewPackageBuilder.build(
@@ -116,7 +120,7 @@ import Foundation
             return descriptor
         }
 
-        func resolveCheckpointEndpoint(_ request: BridgeCheckpointEndpointRequest) async throws
+        package func resolveCheckpointEndpoint(_ request: BridgeCheckpointEndpointRequest) async throws
             -> BridgeSourceEndpoint
         {
             BridgeSourceEndpoint(
@@ -131,7 +135,7 @@ import Foundation
             )
         }
 
-        func loadContent(_ request: BridgeContentLoadRequest) async throws -> BridgeContentLoadResult {
+        package func loadContent(_ request: BridgeContentLoadRequest) async throws -> BridgeContentLoadResult {
             let content: String
             switch request.handle.role {
             case .base:

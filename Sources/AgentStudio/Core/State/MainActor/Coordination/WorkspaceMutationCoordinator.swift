@@ -3,32 +3,32 @@ import os.log
 
 @MainActor
 package final class WorkspaceMutationCoordinator {
-    enum RestorePaneResult: Equatable {
+    package enum RestorePaneResult: Equatable {
         case restored
         case failedMissingDrawerParent(UUID?)
         case failedLayoutInsertion(tabId: UUID, anchorPaneId: UUID?)
     }
 
-    enum CloseEntry {
+    package enum CloseEntry {
         case tab(TabCloseSnapshot)
         case pane(PaneCloseSnapshot)
     }
 
-    struct TabCloseSnapshot {
-        let tab: Tab
-        let panes: [Pane]
-        let tabIndex: Int
+    package struct TabCloseSnapshot {
+        package let tab: Tab
+        package let panes: [Pane]
+        package let tabIndex: Int
     }
 
-    struct PaneCloseSnapshot {
-        let pane: Pane
-        let drawerChildPanes: [Pane]
-        let drawerViewsByArrangementId: [UUID: DrawerView]
-        let tabId: UUID
-        let anchorPaneId: UUID?
-        let direction: Layout.SplitDirection
+    package struct PaneCloseSnapshot {
+        package let pane: Pane
+        package let drawerChildPanes: [Pane]
+        package let drawerViewsByArrangementId: [UUID: DrawerView]
+        package let tabId: UUID
+        package let anchorPaneId: UUID?
+        package let direction: Layout.SplitDirection
 
-        init(
+        package init(
             pane: Pane,
             drawerChildPanes: [Pane],
             drawerViewsByArrangementId: [UUID: DrawerView] = [:],
@@ -75,7 +75,7 @@ package final class WorkspaceMutationCoordinator {
     }
 
     @discardableResult
-    func removePane(_ paneId: UUID) -> Bool {
+    package func removePane(_ paneId: UUID) -> Bool {
         let removedPane = workspacePaneAtom.pane(paneId)
         let removedDrawerIds = Set([removedPane?.drawer?.drawerId].compactMap(\.self))
         let removedPaneIds = Set([paneId] + (removedPane?.drawer?.paneIds ?? []))
@@ -90,7 +90,7 @@ package final class WorkspaceMutationCoordinator {
     }
 
     @discardableResult
-    func backgroundPane(_ paneId: UUID) -> Bool {
+    package func backgroundPane(_ paneId: UUID) -> Bool {
         guard let backgroundedPane = workspacePaneAtom.pane(paneId) else {
             Logger(subsystem: "com.agentstudio", category: "WorkspaceMutationCoordinator")
                 .warning("backgroundPane: pane \(paneId) not found")
@@ -118,7 +118,7 @@ package final class WorkspaceMutationCoordinator {
     }
 
     @discardableResult
-    func reactivatePane(
+    package func reactivatePane(
         _ paneId: UUID,
         inTab tabId: UUID,
         at targetPaneId: UUID,
@@ -188,7 +188,7 @@ package final class WorkspaceMutationCoordinator {
         )
     }
 
-    func snapshotForClose(tabId: UUID) -> TabCloseSnapshot? {
+    package func snapshotForClose(tabId: UUID) -> TabCloseSnapshot? {
         let tabs = workspaceTab.tabs
         guard let tabIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         let tab = tabs[tabIndex]
@@ -209,7 +209,7 @@ package final class WorkspaceMutationCoordinator {
         return TabCloseSnapshot(tab: tab, panes: allPanes, tabIndex: tabIndex)
     }
 
-    func snapshotForPaneClose(paneId: UUID, inTab tabId: UUID) -> PaneCloseSnapshot? {
+    package func snapshotForPaneClose(paneId: UUID, inTab tabId: UUID) -> PaneCloseSnapshot? {
         guard let closedPane = workspacePaneAtom.pane(paneId), let tab = workspaceTab.tab(tabId) else {
             return nil
         }
@@ -255,7 +255,7 @@ package final class WorkspaceMutationCoordinator {
         )
     }
 
-    func restoreFromSnapshot(_ snapshot: TabCloseSnapshot) {
+    package func restoreFromSnapshot(_ snapshot: TabCloseSnapshot) {
         for pane in snapshot.panes {
             _ = workspacePaneAtom.insertRestoredPane(pane)
         }
@@ -274,7 +274,7 @@ package final class WorkspaceMutationCoordinator {
     }
 
     @discardableResult
-    func restoreFromPaneSnapshot(_ snapshot: PaneCloseSnapshot) -> RestorePaneResult {
+    package func restoreFromPaneSnapshot(_ snapshot: PaneCloseSnapshot) -> RestorePaneResult {
         _ = workspacePaneAtom.insertRestoredPane(snapshot.pane)
         for child in snapshot.drawerChildPanes {
             _ = workspacePaneAtom.insertRestoredPane(child)

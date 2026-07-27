@@ -1,3 +1,9 @@
+import AgentStudioBridge
+import AgentStudioCore
+import AgentStudioEditorChooser
+import AgentStudioInboxNotification
+import AgentStudioInfrastructure
+import AgentStudioTerminal
 import AppKit
 import GhosttyKit
 import Observation
@@ -2845,7 +2851,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return true
     }
 
-    private func resolveMainPaneOrdinalTarget(for command: AppCommand) -> (tab: Tab, paneId: UUID)? {
+    private func resolveMainPaneOrdinalTarget(for command: AppCommand) -> (tab: AgentStudioCore.Tab, paneId: UUID)? {
         guard
             let ordinal = mainPaneOrdinal(for: command),
             let activeTabId = store.tabLayoutAtom.activeTabId,

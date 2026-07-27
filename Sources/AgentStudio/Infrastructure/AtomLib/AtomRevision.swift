@@ -2,14 +2,14 @@ import Observation
 
 @MainActor
 @Observable
-final class AtomRevision {
-    private(set) var value: Int
+package final class AtomRevision {
+    package private(set) var value: Int
 
-    init(value: Int = 0) {
+    package init(value: Int = 0) {
         self.value = value
     }
 
-    func bump() {
+    package func bump() {
         value += 1
     }
 }

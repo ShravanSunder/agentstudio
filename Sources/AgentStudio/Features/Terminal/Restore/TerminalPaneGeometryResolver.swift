@@ -1,8 +1,10 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import CoreGraphics
 import Foundation
 
-enum TerminalPaneGeometryResolver {
-    static func resolveFrames(
+package enum TerminalPaneGeometryResolver {
+    package static func resolveFrames(
         for layout: Layout,
         in availableRect: CGRect,
         dividerThickness: CGFloat,
@@ -21,7 +23,7 @@ enum TerminalPaneGeometryResolver {
         }
     }
 
-    static func resolveFrames(
+    package static func resolveFrames(
         for layout: DrawerGridLayout,
         in availableRect: CGRect,
         dividerThickness: CGFloat,

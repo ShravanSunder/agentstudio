@@ -1,12 +1,14 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 
-struct TerminalRuntimeSnapshotFacts: Sendable, Equatable {
-    let rendererHealthy: Bool?
-    let readOnly: Bool?
-    let secureInput: Bool?
+package struct TerminalRuntimeSnapshotFacts: Sendable, Equatable {
+    package let rendererHealthy: Bool?
+    package let readOnly: Bool?
+    package let secureInput: Bool?
 }
 
 @MainActor
-protocol TerminalRuntimeSnapshotFactProviding: PaneRuntime {
+package protocol TerminalRuntimeSnapshotFactProviding: PaneRuntime {
     func terminalRuntimeSnapshotFacts() -> TerminalRuntimeSnapshotFacts
 }

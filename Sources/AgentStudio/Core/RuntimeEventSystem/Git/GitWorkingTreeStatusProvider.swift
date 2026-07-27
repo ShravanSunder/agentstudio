@@ -1,6 +1,6 @@
 import Foundation
 
-enum GitOriginResolution: Sendable, Equatable {
+package enum GitOriginResolution: Sendable, Equatable {
     case awaitingResolution
     case confirmedAbsent
     case resolved(String)
@@ -12,15 +12,15 @@ enum GitOriginResolution: Sendable, Equatable {
 /// it needs the per-path axes that drive the emitted summary counts (staged,
 /// unstaged/changed, untracked) plus enough rename signal to guard the fold.
 /// `path`/`previousPath` are repo-relative, matching pathspec semantics.
-struct GitWorkingTreeStatusEntry: Sendable, Equatable {
-    let path: String
-    let previousPath: String?
-    let hasStagedChange: Bool
-    let hasUnstagedChange: Bool
-    let isUntracked: Bool
-    let isRename: Bool
+package struct GitWorkingTreeStatusEntry: Sendable, Equatable {
+    package let path: String
+    package let previousPath: String?
+    package let hasStagedChange: Bool
+    package let hasUnstagedChange: Bool
+    package let isUntracked: Bool
+    package let isRename: Bool
 
-    init(
+    package init(
         path: String,
         previousPath: String? = nil,
         hasStagedChange: Bool,
@@ -37,19 +37,19 @@ struct GitWorkingTreeStatusEntry: Sendable, Equatable {
     }
 }
 
-struct GitWorkingTreeStatus: Sendable, Equatable {
-    let summary: GitWorkingTreeSummary
-    let branch: String?
-    let originResolution: GitOriginResolution
+package struct GitWorkingTreeStatus: Sendable, Equatable {
+    package let summary: GitWorkingTreeSummary
+    package let branch: String?
+    package let originResolution: GitOriginResolution
     /// True only for a pathspec-scoped read containing a standalone add,
     /// delete, or untracked entry that may be one visible half of a rename.
-    let containsPathIdentityAmbiguity: Bool
+    package let containsPathIdentityAmbiguity: Bool
     /// Per-file entries consistent with `summary`. When a status is constructed
     /// from a summary alone, canonical placeholder entries are synthesized so the
     /// projector's scoped fold can reconstruct the same counts.
-    let entries: [GitWorkingTreeStatusEntry]
+    package let entries: [GitWorkingTreeStatusEntry]
 
-    init(
+    package init(
         summary: GitWorkingTreeSummary,
         branch: String?,
         originResolution: GitOriginResolution,
@@ -63,7 +63,7 @@ struct GitWorkingTreeStatus: Sendable, Equatable {
         self.containsPathIdentityAmbiguity = containsPathIdentityAmbiguity
     }
 
-    init(
+    package init(
         summary: GitWorkingTreeSummary,
         branch: String?,
         originResolution: GitOriginResolution
@@ -76,7 +76,7 @@ struct GitWorkingTreeStatus: Sendable, Equatable {
         )
     }
 
-    init(
+    package init(
         summary: GitWorkingTreeSummary,
         branch: String?,
         origin: String?
@@ -89,7 +89,7 @@ struct GitWorkingTreeStatus: Sendable, Equatable {
         )
     }
 
-    var origin: String? {
+    package var origin: String? {
         switch originResolution {
         case .resolved(let origin):
             origin
@@ -100,7 +100,7 @@ struct GitWorkingTreeStatus: Sendable, Equatable {
 
     /// Recomputes the three emitted file counts from an entry set, mirroring the
     /// SDK summary mapping (changed==unstaged file count, staged, untracked).
-    static func fileCounts(
+    package static func fileCounts(
         for entries: [GitWorkingTreeStatusEntry]
     ) -> (changed: Int, staged: Int, untracked: Int) {
         var changed = 0
@@ -155,7 +155,7 @@ struct GitWorkingTreeStatus: Sendable, Equatable {
     }
 }
 
-enum GitWorkingTreeStatusUnavailableReason: String, Sendable, Equatable {
+package enum GitWorkingTreeStatusUnavailableReason: String, Sendable, Equatable {
     case providerReturnedNil = "provider_returned_nil"
     case timeout
     case readAlreadyInFlight = "read_already_in_flight"
@@ -164,16 +164,20 @@ enum GitWorkingTreeStatusUnavailableReason: String, Sendable, Equatable {
     case sdkError = "sdk_error"
 }
 
-struct GitWorkingTreeStatusUnavailable: Sendable, Equatable {
-    let reason: GitWorkingTreeStatusUnavailableReason
+package struct GitWorkingTreeStatusUnavailable: Sendable, Equatable {
+    package let reason: GitWorkingTreeStatusUnavailableReason
+
+    package init(reason: GitWorkingTreeStatusUnavailableReason) {
+        self.reason = reason
+    }
 }
 
-enum GitWorkingTreeStatusResult: Sendable, Equatable {
+package enum GitWorkingTreeStatusResult: Sendable, Equatable {
     case available(GitWorkingTreeStatus)
     case unavailable(GitWorkingTreeStatusUnavailable)
 }
 
-protocol GitWorkingTreeStatusProvider: Sendable {
+package protocol GitWorkingTreeStatusProvider: Sendable {
     /// Reads working-tree status. A non-`nil` `pathspecs` scopes the entry walk to
     /// just those repo-relative paths (see `GitStatusOptions.pathspecs`); line,
     /// branch, and sync facts remain full-worktree. `nil` is a full status.
@@ -181,11 +185,11 @@ protocol GitWorkingTreeStatusProvider: Sendable {
 }
 
 extension GitWorkingTreeStatusProvider {
-    func statusResult(for rootPath: URL) async -> GitWorkingTreeStatusResult {
+    package func statusResult(for rootPath: URL) async -> GitWorkingTreeStatusResult {
         await statusResult(for: rootPath, pathspecs: nil)
     }
 
-    func status(for rootPath: URL, pathspecs: [String]? = nil) async -> GitWorkingTreeStatus? {
+    package func status(for rootPath: URL, pathspecs: [String]? = nil) async -> GitWorkingTreeStatus? {
         switch await statusResult(for: rootPath, pathspecs: pathspecs) {
         case .available(let status):
             status

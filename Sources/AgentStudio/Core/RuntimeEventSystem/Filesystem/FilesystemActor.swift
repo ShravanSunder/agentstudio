@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import os
 
@@ -5,7 +6,7 @@ import os
 ///
 /// The actor owns filesystem path ingestion, deepest-root ownership routing for nested roots,
 /// priority-aware flush ordering, and envelope emission onto `EventBus`.
-actor FilesystemActor {
+package actor FilesystemActor {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemActor")
     static let maxPathsPerFilesChangedEvent = 256
 
@@ -89,7 +90,7 @@ actor FilesystemActor {
     var logicalDebtSnapshotPublicationRevision: UInt64 = 0
     private var hasShutdown = false
 
-    init(
+    package init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
         watchedFolderScanScheduler: WatchedFolderScanScheduler = .production(),
@@ -135,7 +136,7 @@ actor FilesystemActor {
         }
     }
 
-    func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async {
+    package func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async {
         startIngressTaskIfNeeded()
 
         let canonicalRootPath = FilesystemRootOwnership.canonicalRootPath(for: rootPath)
@@ -161,7 +162,7 @@ actor FilesystemActor {
         )
     }
 
-    func unregister(worktreeId: UUID) async {
+    package func unregister(worktreeId: UUID) async {
         let removedRoot = roots.removeValue(forKey: worktreeId)
         pendingChangesByWorktreeId.removeValue(forKey: worktreeId)
         if activePaneWorktreeId == worktreeId {
@@ -178,7 +179,7 @@ actor FilesystemActor {
         )
     }
 
-    func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
+    package func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
         let desiredWorktreeIds = Set(assertion.contextsByWorktreeId.keys)
         let removedWorktreeIds = Set(roots.keys).subtracting(desiredWorktreeIds)
         for worktreeId in removedWorktreeIds.sorted(by: Self.sortWorktreeIds) {
@@ -199,11 +200,11 @@ actor FilesystemActor {
     }
 
     /// Test seam for deterministic ingress without OS-level FSEvents.
-    func enqueueRawPaths(worktreeId: UUID, paths: [String]) async {
+    package func enqueueRawPaths(worktreeId: UUID, paths: [String]) async {
         await ingestRawPaths(worktreeId: worktreeId, paths: paths)
     }
 
-    func setActivity(worktreeId: UUID, isActiveInApp: Bool) {
+    package func setActivity(worktreeId: UUID, isActiveInApp: Bool) {
         guard var root = roots[worktreeId] else {
             Self.logger.debug(
                 "Ignored setActivity for unregistered worktree \(worktreeId.uuidString, privacy: .public)"
@@ -214,16 +215,16 @@ actor FilesystemActor {
         roots[worktreeId] = root
     }
 
-    func setActivePaneWorktree(worktreeId: UUID?) {
+    package func setActivePaneWorktree(worktreeId: UUID?) {
         activePaneWorktreeId = worktreeId
     }
 
-    func start() async {
+    package func start() async {
         // Ingress/drain tasks are initialized during actor init; start is explicit for
         // lifecycle parity with other filesystem source conformers.
     }
 
-    func shutdown() async {
+    package func shutdown() async {
         guard !hasShutdown else { return }
         watchedFolderScanState.isShuttingDown = true
         let activeIngressTask = ingressTask

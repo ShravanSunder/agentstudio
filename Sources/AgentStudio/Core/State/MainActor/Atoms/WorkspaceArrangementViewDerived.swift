@@ -12,7 +12,17 @@ package struct WorkspaceArrangementViewDerived {
     let paneAtom: WorkspacePaneAtom
     let managementLayerAtom: ManagementLayerAtom
 
-    func activeVisiblePaneIds(forTab tabId: UUID) -> [UUID] {
+    package init(
+        tabLayoutAtom: WorkspaceTabLayoutAtom,
+        paneAtom: WorkspacePaneAtom,
+        managementLayerAtom: ManagementLayerAtom
+    ) {
+        self.tabLayoutAtom = tabLayoutAtom
+        self.paneAtom = paneAtom
+        self.managementLayerAtom = managementLayerAtom
+    }
+
+    package func activeVisiblePaneIds(forTab tabId: UUID) -> [UUID] {
         guard let arrangement = tabLayoutAtom.tab(tabId)?.activeArrangement else {
             workspaceArrangementViewLogger.warning("activeVisiblePaneIds: tab \(tabId) not found")
             return []
@@ -24,12 +34,12 @@ package struct WorkspaceArrangementViewDerived {
         )
     }
 
-    func effectiveShowsMinimizedPanes(forTab tabId: UUID) -> Bool {
+    package func effectiveShowsMinimizedPanes(forTab tabId: UUID) -> Bool {
         guard let arrangement = tabLayoutAtom.tab(tabId)?.activeArrangement else { return true }
         return effectiveShowsMinimizedPanes(for: arrangement)
     }
 
-    func drawerView(forParent parentPaneId: UUID) -> DrawerView? {
+    package func drawerView(forParent parentPaneId: UUID) -> DrawerView? {
         guard
             let tab = tabLayoutAtom.tabContaining(paneId: parentPaneId),
             let drawer = paneAtom.pane(parentPaneId)?.drawer
@@ -40,7 +50,7 @@ package struct WorkspaceArrangementViewDerived {
         return drawer.paneIds.isEmpty ? DrawerView() : nil
     }
 
-    func drawerVisiblePaneIds(forParent parentPaneId: UUID) -> [UUID] {
+    package func drawerVisiblePaneIds(forParent parentPaneId: UUID) -> [UUID] {
         guard
             let tab = tabLayoutAtom.tabContaining(paneId: parentPaneId),
             let drawerView = drawerView(forParent: parentPaneId)

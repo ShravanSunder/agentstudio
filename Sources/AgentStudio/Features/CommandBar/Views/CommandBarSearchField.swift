@@ -1,10 +1,12 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import SwiftUI
 
 // MARK: - CommandBarSearchField
 
 /// Search input with scope icon and placeholder per scope.
 /// Uses NSTextField wrapper for keyboard interception (arrows, Enter, Escape).
-struct CommandBarSearchField: View {
+package struct CommandBarSearchField: View {
     @Bindable var state: CommandBarState
     let octiconLoader: OcticonLoader
     let onArrowUp: () -> Void
@@ -13,7 +15,25 @@ struct CommandBarSearchField: View {
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onBackspaceOnEmpty: () -> Void
 
-    var body: some View {
+    package init(
+        state: CommandBarState,
+        octiconLoader: OcticonLoader,
+        onArrowUp: @escaping () -> Void,
+        onArrowDown: @escaping () -> Void,
+        onEnter: @escaping (EnterModifier) -> Void,
+        onShortcutTrigger: @escaping (ShortcutTrigger) -> Bool,
+        onBackspaceOnEmpty: @escaping () -> Void
+    ) {
+        self.state = state
+        self.octiconLoader = octiconLoader
+        self.onArrowUp = onArrowUp
+        self.onArrowDown = onArrowDown
+        self.onEnter = onEnter
+        self.onShortcutTrigger = onShortcutTrigger
+        self.onBackspaceOnEmpty = onBackspaceOnEmpty
+    }
+
+    package var body: some View {
         HStack(spacing: 10) {
             if state.isNested, let pillLabel = state.scopePillLabel {
                 CommandBarScopePill(

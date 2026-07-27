@@ -3,15 +3,17 @@ import Observation
 
 @Observable
 @MainActor
-final class AppLifecycleAtom {
-    private(set) var isActive = false
-    private(set) var isTerminating = false
+package final class AppLifecycleAtom {
+    package private(set) var isActive = false
+    package private(set) var isTerminating = false
 
-    func setActive(_ isActive: Bool) {
+    package init() {}
+
+    package func setActive(_ isActive: Bool) {
         self.isActive = isActive
     }
 
-    func markTerminating() {
+    package func markTerminating() {
         isTerminating = true
     }
 }

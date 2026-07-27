@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// State machine definition for a session's lifecycle.

@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import Foundation
 import GhosttyKit
@@ -5,11 +7,11 @@ import Observation
 import QuartzCore
 
 extension Ghostty {
-    enum SurfaceStartupStrategy: Equatable {
+    package enum SurfaceStartupStrategy: Equatable {
         /// Pass this command directly to Ghostty when creating the surface.
         case surfaceCommand(String?)
 
-        var startupCommandForSurface: String? {
+        package var startupCommandForSurface: String? {
             if case .surfaceCommand(let command) = self {
                 return command
             }
@@ -33,10 +35,10 @@ extension Ghostty {
     }
 
     /// Configuration for creating a new surface
-    struct SurfaceConfiguration {
+    package struct SurfaceConfiguration {
         var launchDirectory: String?
         var startupStrategy: SurfaceStartupStrategy
-        var initialFrame: NSRect?
+        package internal(set) var initialFrame: NSRect?
         var fontSize: Float?
         var environmentVariables: [String: String]
 
@@ -52,7 +54,7 @@ extension Ghostty {
             )
         }
 
-        init(
+        package init(
             launchDirectory: String? = nil,
             startupStrategy: SurfaceStartupStrategy = .surfaceCommand(nil),
             initialFrame: NSRect? = nil,
@@ -68,7 +70,7 @@ extension Ghostty {
     }
 
     /// NSView subclass that renders a Ghostty terminal surface
-    final class SurfaceView: NSView {
+    package final class SurfaceView: NSView {
         struct SurfaceGeometry: Equatable, Sendable {
             let contentScaleX: Double
             let contentScaleY: Double
@@ -519,9 +521,9 @@ extension Ghostty {
 
         // MARK: - View Lifecycle
 
-        override var acceptsFirstResponder: Bool { true }
+        package override var acceptsFirstResponder: Bool { true }
 
-        override func becomeFirstResponder() -> Bool {
+        package override func becomeFirstResponder() -> Bool {
             let result = super.becomeFirstResponder()
             if result {
                 focused = true
@@ -534,7 +536,7 @@ extension Ghostty {
             return result
         }
 
-        override func resignFirstResponder() -> Bool {
+        package override func resignFirstResponder() -> Bool {
             let result = super.resignFirstResponder()
             if result {
                 focused = false
@@ -547,7 +549,7 @@ extension Ghostty {
             return result
         }
 
-        override func viewDidMoveToWindow() {
+        package override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             let isReparent = wasDetachedFromWindow && window != nil
             let viewId = ObjectIdentifier(self)
@@ -595,7 +597,7 @@ extension Ghostty {
             }
         }
 
-        override func updateTrackingAreas() {
+        package override func updateTrackingAreas() {
             super.updateTrackingAreas()
             // Remove all existing tracking areas
             for area in trackingAreas {
@@ -611,13 +613,13 @@ extension Ghostty {
             addTrackingArea(trackingArea)
         }
 
-        override func mouseEntered(with event: NSEvent) {
+        package override func mouseEntered(with event: NSEvent) {
             // Block hover tracking during management layer — pane content is non-interactive.
             guard !atom(\.managementLayer).isActive else { return }
             sendMousePos(event)
         }
 
-        override func mouseExited(with event: NSEvent) {
+        package override func mouseExited(with event: NSEvent) {
             guard !atom(\.managementLayer).isActive else { return }
             guard let surface else { return }
             let mods = ghosttyMods(from: event.modifierFlags)
@@ -625,7 +627,7 @@ extension Ghostty {
             ghostty_surface_mouse_pos(surface, -1, -1, mods)
         }
 
-        override func viewDidChangeBackingProperties() {
+        package override func viewDidChangeBackingProperties() {
             super.viewDidChangeBackingProperties()
 
             guard let window else { return }
@@ -678,7 +680,7 @@ extension Ghostty {
             return nodes.joined(separator: " -> ")
         }
 
-        override func setFrameSize(_ newSize: NSSize) {
+        package override func setFrameSize(_ newSize: NSSize) {
             super.setFrameSize(newSize)
             RestoreTrace.log("Ghostty.SurfaceView.setFrameSize newSize=\(NSStringFromSize(newSize))")
             sizeDidChange(newSize, source: "setFrameSize")

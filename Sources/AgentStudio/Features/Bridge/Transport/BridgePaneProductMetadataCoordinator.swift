@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 
 enum BridgePaneProductMetadataCoordinatorError: Error, Equatable {

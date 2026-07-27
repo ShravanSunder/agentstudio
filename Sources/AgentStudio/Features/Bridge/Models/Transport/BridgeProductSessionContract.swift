@@ -1,8 +1,8 @@
 import Foundation
 
-enum BridgeProductWireContract {
+package enum BridgeProductWireContract {
     static let version = 2
-    static let capabilityByteLength = 32
+    package static let capabilityByteLength = 32
     static let requestMethod = "POST"
     static let commandRoute = "agentstudio://rpc/command"
     static let streamRoute = "agentstudio://rpc/stream"
@@ -39,7 +39,7 @@ enum BridgeProductWireContract {
     static let terminalFrameReserve = 1
 }
 
-enum BridgeProductSurface: String, Codable, Equatable, Hashable, Sendable {
+package enum BridgeProductSurface: String, Codable, Equatable, Hashable, Sendable {
     case review
     case file
 }

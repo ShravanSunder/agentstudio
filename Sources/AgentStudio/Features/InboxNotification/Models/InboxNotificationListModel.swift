@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 
 enum InboxNotificationListNavigationDirection: Sendable {
@@ -10,8 +13,8 @@ enum InboxNotificationListEndpoint: Sendable {
     case last
 }
 
-struct InboxNotificationListSection: Identifiable, Equatable, Sendable {
-    let id: String
+package struct InboxNotificationListSection: Identifiable, Equatable, Sendable {
+    package let id: String
     let header: InboxNotificationListSectionHeader?
     let notifications: [InboxNotification]
     let isCollapsed: Bool
@@ -37,7 +40,7 @@ extension Array where Element == InboxNotificationListSection {
     }
 }
 
-struct InboxNotificationListSectionHeader: Equatable, Sendable {
+package struct InboxNotificationListSectionHeader: Equatable, Sendable {
     enum SourceKind: Equatable, Sendable {
         case repo(organizationName: String?)
         case pane
@@ -64,7 +67,7 @@ struct InboxNotificationListSectionHeader: Equatable, Sendable {
     }
 }
 
-struct InboxNotificationRepoGroupPresentation: Equatable, Sendable {
+package struct InboxNotificationRepoGroupPresentation: Equatable, Sendable {
     let groupId: String?
     let title: String
     let organizationName: String?
@@ -131,10 +134,10 @@ private struct InboxNotificationListItem: Sendable {
     }
 }
 
-struct InboxNotificationListModel: Equatable, Sendable {
-    static let empty = Self(sections: [])
+package struct InboxNotificationListModel: Equatable, Sendable {
+    package static let empty = Self(sections: [])
 
-    let sections: [InboxNotificationListSection]
+    package let sections: [InboxNotificationListSection]
 
     init(sections: [InboxNotificationListSection]) {
         self.sections = sections

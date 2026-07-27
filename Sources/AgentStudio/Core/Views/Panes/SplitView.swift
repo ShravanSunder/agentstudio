@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
 /// A split view shows a left and right (or top and bottom) view with a divider in the middle for resizing.

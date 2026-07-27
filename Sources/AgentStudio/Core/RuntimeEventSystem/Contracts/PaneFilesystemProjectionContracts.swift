@@ -1,43 +1,69 @@
 import Foundation
 
-struct FilesystemProjectionTopologyEntry: Sendable, Equatable {
-    let repoId: UUID
-    let worktreeId: UUID
-    let rootPath: URL
-    let isUnavailable: Bool
+package struct FilesystemProjectionTopologyEntry: Sendable, Equatable {
+    package let repoId: UUID
+    package let worktreeId: UUID
+    package let rootPath: URL
+    package let isUnavailable: Bool
+
+    package init(repoId: UUID, worktreeId: UUID, rootPath: URL, isUnavailable: Bool) {
+        self.repoId = repoId
+        self.worktreeId = worktreeId
+        self.rootPath = rootPath
+        self.isUnavailable = isUnavailable
+    }
 }
 
-struct FilesystemProjectionPaneEntry: Sendable, Equatable {
-    let paneId: UUID
-    let paneKind: PaneContentType
-    let repoId: UUID?
-    let worktreeId: UUID?
-    let cwd: URL?
+package struct FilesystemProjectionPaneEntry: Sendable, Equatable {
+    package let paneId: UUID
+    package let paneKind: PaneContentType
+    package let repoId: UUID?
+    package let worktreeId: UUID?
+    package let cwd: URL?
+
+    package init(
+        paneId: UUID,
+        paneKind: PaneContentType,
+        repoId: UUID?,
+        worktreeId: UUID?,
+        cwd: URL?
+    ) {
+        self.paneId = paneId
+        self.paneKind = paneKind
+        self.repoId = repoId
+        self.worktreeId = worktreeId
+        self.cwd = cwd
+    }
 }
 
-struct FilesystemProjectionPaneUpdate: Sendable, Equatable {
-    enum Kind: Sendable, Equatable {
+package struct FilesystemProjectionPaneUpdate: Sendable, Equatable {
+    package enum Kind: Sendable, Equatable {
         case upsert(FilesystemProjectionPaneEntry)
         case remove(paneId: UUID)
     }
 
-    let requestGeneration: UInt64
-    let kind: Kind
+    package let requestGeneration: UInt64
+    package let kind: Kind
+
+    package init(requestGeneration: UInt64, kind: Kind) {
+        self.requestGeneration = requestGeneration
+        self.kind = kind
+    }
 }
 
-struct FilesystemSourceSyncRequest: Sendable, Equatable {
-    let requestGeneration: UInt64
-    let paneContextGeneration: UInt64
-    let topologyEntries: [FilesystemProjectionTopologyEntry]
-    let paneEntries: [FilesystemProjectionPaneEntry]
-    let appliedContextsByWorktreeId: [UUID: WorktreeFilesystemContext]
-    let appliedActivityByWorktreeId: [UUID: Bool]
-    let activePaneWorktreeId: UUID?
-    let appliedActivePaneWorktreeId: UUID?
-    let sidebarVisibleWorktreeIds: Set<UUID>
-    let appliedSidebarVisibleWorktreeIds: Set<UUID>
+package struct FilesystemSourceSyncRequest: Sendable, Equatable {
+    package let requestGeneration: UInt64
+    package let paneContextGeneration: UInt64
+    package let topologyEntries: [FilesystemProjectionTopologyEntry]
+    package let paneEntries: [FilesystemProjectionPaneEntry]
+    package let appliedContextsByWorktreeId: [UUID: WorktreeFilesystemContext]
+    package let appliedActivityByWorktreeId: [UUID: Bool]
+    package let activePaneWorktreeId: UUID?
+    package let appliedActivePaneWorktreeId: UUID?
+    package let sidebarVisibleWorktreeIds: Set<UUID>
+    package let appliedSidebarVisibleWorktreeIds: Set<UUID>
 
-    init(
+    package init(
         requestGeneration: UInt64,
         paneContextGeneration: UInt64,
         topologyEntries: [FilesystemProjectionTopologyEntry],
@@ -62,70 +88,175 @@ struct FilesystemSourceSyncRequest: Sendable, Equatable {
     }
 }
 
-struct FilesystemSourceSyncDiff: Sendable, Equatable {
-    struct Registration: Sendable, Equatable {
-        let worktreeId: UUID
-        let repoId: UUID
-        let rootPath: URL
+package struct FilesystemSourceSyncDiff: Sendable, Equatable {
+    package struct Registration: Sendable, Equatable {
+        package let worktreeId: UUID
+        package let repoId: UUID
+        package let rootPath: URL
+
+        package init(worktreeId: UUID, repoId: UUID, rootPath: URL) {
+            self.worktreeId = worktreeId
+            self.repoId = repoId
+            self.rootPath = rootPath
+        }
     }
 
-    struct ActivityUpdate: Sendable, Equatable {
-        let worktreeId: UUID
-        let isActiveInApp: Bool
+    package struct ActivityUpdate: Sendable, Equatable {
+        package let worktreeId: UUID
+        package let isActiveInApp: Bool
+
+        package init(worktreeId: UUID, isActiveInApp: Bool) {
+            self.worktreeId = worktreeId
+            self.isActiveInApp = isActiveInApp
+        }
     }
 
-    let requestGeneration: UInt64
-    let contextsByWorktreeId: [UUID: WorktreeFilesystemContext]
-    let unregisterWorktreeIds: [UUID]
-    let registerWorktrees: [Registration]
-    let activityUpdates: [ActivityUpdate]
-    let activityByWorktreeId: [UUID: Bool]
-    let activePaneWorktreeId: UUID?
-    let shouldUpdateActivePaneWorktree: Bool
-    let sidebarVisibleWorktreeIds: Set<UUID>
-    let shouldUpdateSidebarVisibleWorktrees: Bool
-    let validPaneIds: Set<UUID>
-    let validWorktreeIds: Set<UUID>
+    package let requestGeneration: UInt64
+    package let contextsByWorktreeId: [UUID: WorktreeFilesystemContext]
+    package let unregisterWorktreeIds: [UUID]
+    package let registerWorktrees: [Registration]
+    package let activityUpdates: [ActivityUpdate]
+    package let activityByWorktreeId: [UUID: Bool]
+    package let activePaneWorktreeId: UUID?
+    package let shouldUpdateActivePaneWorktree: Bool
+    package let sidebarVisibleWorktreeIds: Set<UUID>
+    package let shouldUpdateSidebarVisibleWorktrees: Bool
+    package let validPaneIds: Set<UUID>
+    package let validWorktreeIds: Set<UUID>
+
+    package init(
+        requestGeneration: UInt64,
+        contextsByWorktreeId: [UUID: WorktreeFilesystemContext],
+        unregisterWorktreeIds: [UUID],
+        registerWorktrees: [Registration],
+        activityUpdates: [ActivityUpdate],
+        activityByWorktreeId: [UUID: Bool],
+        activePaneWorktreeId: UUID?,
+        shouldUpdateActivePaneWorktree: Bool,
+        sidebarVisibleWorktreeIds: Set<UUID>,
+        shouldUpdateSidebarVisibleWorktrees: Bool,
+        validPaneIds: Set<UUID>,
+        validWorktreeIds: Set<UUID>
+    ) {
+        self.requestGeneration = requestGeneration
+        self.contextsByWorktreeId = contextsByWorktreeId
+        self.unregisterWorktreeIds = unregisterWorktreeIds
+        self.registerWorktrees = registerWorktrees
+        self.activityUpdates = activityUpdates
+        self.activityByWorktreeId = activityByWorktreeId
+        self.activePaneWorktreeId = activePaneWorktreeId
+        self.shouldUpdateActivePaneWorktree = shouldUpdateActivePaneWorktree
+        self.sidebarVisibleWorktreeIds = sidebarVisibleWorktreeIds
+        self.shouldUpdateSidebarVisibleWorktrees = shouldUpdateSidebarVisibleWorktrees
+        self.validPaneIds = validPaneIds
+        self.validWorktreeIds = validWorktreeIds
+    }
 }
 
-struct PaneFilesystemProjectionRequest: Sendable {
-    let requestGeneration: UInt64
-    let paneContextGeneration: UInt64
-    let topologyGeneration: UInt64
-    let envelope: RuntimeEnvelope
+package struct PaneFilesystemProjectionRequest: Sendable {
+    package let requestGeneration: UInt64
+    package let paneContextGeneration: UInt64
+    package let topologyGeneration: UInt64
+    package let envelope: RuntimeEnvelope
+
+    package init(
+        requestGeneration: UInt64,
+        paneContextGeneration: UInt64,
+        topologyGeneration: UInt64,
+        envelope: RuntimeEnvelope
+    ) {
+        self.requestGeneration = requestGeneration
+        self.paneContextGeneration = paneContextGeneration
+        self.topologyGeneration = topologyGeneration
+        self.envelope = envelope
+    }
 }
 
-struct PaneFilesystemProjectionResult: Sendable {
-    let requestGeneration: UInt64
-    let paneContextGeneration: UInt64
-    let topologyGeneration: UInt64
-    let intents: [PaneFilesystemProjectionIntent]
-    let worktreeCount: Int
-    let paneCount: Int
+package struct PaneFilesystemProjectionResult: Sendable {
+    package let requestGeneration: UInt64
+    package let paneContextGeneration: UInt64
+    package let topologyGeneration: UInt64
+    package let intents: [PaneFilesystemProjectionIntent]
+    package let worktreeCount: Int
+    package let paneCount: Int
+
+    package init(
+        requestGeneration: UInt64,
+        paneContextGeneration: UInt64,
+        topologyGeneration: UInt64,
+        intents: [PaneFilesystemProjectionIntent],
+        worktreeCount: Int,
+        paneCount: Int
+    ) {
+        self.requestGeneration = requestGeneration
+        self.paneContextGeneration = paneContextGeneration
+        self.topologyGeneration = topologyGeneration
+        self.intents = intents
+        self.worktreeCount = worktreeCount
+        self.paneCount = paneCount
+    }
 }
 
-struct PaneFilesystemCWDSubtreeProjection: Sendable {
-    let paneId: UUID
-    let paneKind: PaneContentType
-    let context: PaneFilesystemContext
-    let paths: [String]
-    let batchSequence: UInt64
-    let timestamp: ContinuousClock.Instant
-    let correlationId: UUID?
-    let commandId: UUID?
+package struct PaneFilesystemCWDSubtreeProjection: Sendable {
+    package let paneId: UUID
+    package let paneKind: PaneContentType
+    package let context: PaneFilesystemContext
+    package let paths: [String]
+    package let batchSequence: UInt64
+    package let timestamp: ContinuousClock.Instant
+    package let correlationId: UUID?
+    package let commandId: UUID?
+
+    package init(
+        paneId: UUID,
+        paneKind: PaneContentType,
+        context: PaneFilesystemContext,
+        paths: [String],
+        batchSequence: UInt64,
+        timestamp: ContinuousClock.Instant,
+        correlationId: UUID?,
+        commandId: UUID?
+    ) {
+        self.paneId = paneId
+        self.paneKind = paneKind
+        self.context = context
+        self.paths = paths
+        self.batchSequence = batchSequence
+        self.timestamp = timestamp
+        self.correlationId = correlationId
+        self.commandId = commandId
+    }
 }
 
-struct PaneFilesystemGitProjection: Sendable {
-    let paneId: UUID
-    let paneKind: PaneContentType
-    let context: PaneFilesystemContext
-    let summary: GitWorkingTreeSummary
-    let timestamp: ContinuousClock.Instant
-    let correlationId: UUID?
-    let commandId: UUID?
+package struct PaneFilesystemGitProjection: Sendable {
+    package let paneId: UUID
+    package let paneKind: PaneContentType
+    package let context: PaneFilesystemContext
+    package let summary: GitWorkingTreeSummary
+    package let timestamp: ContinuousClock.Instant
+    package let correlationId: UUID?
+    package let commandId: UUID?
+
+    package init(
+        paneId: UUID,
+        paneKind: PaneContentType,
+        context: PaneFilesystemContext,
+        summary: GitWorkingTreeSummary,
+        timestamp: ContinuousClock.Instant,
+        correlationId: UUID?,
+        commandId: UUID?
+    ) {
+        self.paneId = paneId
+        self.paneKind = paneKind
+        self.context = context
+        self.summary = summary
+        self.timestamp = timestamp
+        self.correlationId = correlationId
+        self.commandId = commandId
+    }
 }
 
-enum PaneFilesystemProjectionIntent: Sendable {
+package enum PaneFilesystemProjectionIntent: Sendable {
     case cwdSubtreeChanged(PaneFilesystemCWDSubtreeProjection)
     case gitWorkingTreeInCwd(PaneFilesystemGitProjection)
 }

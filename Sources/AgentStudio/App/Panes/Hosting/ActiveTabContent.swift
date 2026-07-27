@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioEditorChooser
+import AgentStudioInfrastructure
 import SwiftUI
 
 /// Legacy active-tab SwiftUI root preserved for diagnostics and transitional tests.

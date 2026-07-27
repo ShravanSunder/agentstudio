@@ -1,3 +1,7 @@
+import AgentStudioBridge
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTerminal
 import AppKit
 import Foundation
 import GhosttyKit
@@ -353,7 +357,7 @@ final class WorkspaceSurfaceCoordinator {
     // MARK: - Webview State Sync
 
     private func setupPrePersistHook() {
-        store.prePersistHook = { [weak self] in
+        store.setPrePersistHook { [weak self] in
             self?.syncWebviewStates()
         }
     }

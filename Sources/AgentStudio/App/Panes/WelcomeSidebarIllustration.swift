@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
 import SwiftUI
 
 // MARK: - Pinned Constants

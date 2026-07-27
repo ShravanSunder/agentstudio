@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 enum RepositoryTopologyMutationError: Error, Equatable {
@@ -8,12 +9,12 @@ enum RepositoryTopologyMutationError: Error, Equatable {
 }
 
 extension WorkspaceMutationCoordinator {
-    func performBatchedTopologyMutation(_ mutation: () -> Void) {
+    package func performBatchedTopologyMutation(_ mutation: () -> Void) {
         repositoryTopologyAtom.withDeferredWorktreePathIndexRebuild(mutation)
     }
 
     @discardableResult
-    func addRepo(at path: URL) -> Repo {
+    package func addRepo(at path: URL) -> Repo {
         let normalizedPath = path.standardizedFileURL
         let incomingStableKey = StableKey.fromPath(normalizedPath)
         if let existing = repositoryTopologyAtom.repos.first(where: {
@@ -52,7 +53,7 @@ extension WorkspaceMutationCoordinator {
     }
 
     @discardableResult
-    func ensureMainWorktree(at path: URL) -> Worktree {
+    package func ensureMainWorktree(at path: URL) -> Worktree {
         let normalizedPath = path.standardizedFileURL
         let incomingStableKey = StableKey.fromPath(normalizedPath)
         if let repositoryIndex = repositoryTopologyAtom.repos.firstIndex(where: {
@@ -100,7 +101,7 @@ extension WorkspaceMutationCoordinator {
         return mainWorktree
     }
 
-    func removeRepo(_ repositoryID: UUID) {
+    package func removeRepo(_ repositoryID: UUID) {
         guard repositoryTopologyAtom.repo(repositoryID) != nil else { return }
         applyTopology(
             repositories: repositoryTopologyAtom.repos.filter { $0.id != repositoryID },
@@ -109,7 +110,7 @@ extension WorkspaceMutationCoordinator {
         )
     }
 
-    func markRepoUnavailable(_ repositoryID: UUID) {
+    package func markRepoUnavailable(_ repositoryID: UUID) {
         guard repositoryTopologyAtom.repo(repositoryID) != nil else { return }
         applyTopology(
             repositories: repositoryTopologyAtom.repos,
@@ -118,7 +119,7 @@ extension WorkspaceMutationCoordinator {
         )
     }
 
-    func setRepoFavorite(_ repositoryID: UUID, isFavorite: Bool) {
+    package func setRepoFavorite(_ repositoryID: UUID, isFavorite: Bool) {
         guard let repository = repositoryTopologyAtom.repo(repositoryID) else { return }
         repositoryTopologyAtom.applyValidatedRepositoryMetadata(
             repositoryID: repositoryID,
@@ -170,7 +171,7 @@ extension WorkspaceMutationCoordinator {
     }
 
     @discardableResult
-    func addWatchedPath(_ path: URL) -> WatchedPath? {
+    package func addWatchedPath(_ path: URL) -> WatchedPath? {
         let normalizedPath = path.standardizedFileURL
         let incomingStableKey = StableKey.fromPath(normalizedPath)
         if let existing = repositoryTopologyAtom.watchedPaths.first(where: { $0.stableKey == incomingStableKey }) {
@@ -196,7 +197,7 @@ extension WorkspaceMutationCoordinator {
     }
 
     @discardableResult
-    func reassociateRepo(
+    package func reassociateRepo(
         _ repositoryID: UUID,
         to newPath: URL,
         discoveredWorktrees: [Worktree]
@@ -212,7 +213,7 @@ extension WorkspaceMutationCoordinator {
     }
 
     @discardableResult
-    func reassociateRepo(
+    package func reassociateRepo(
         _ repositoryID: UUID,
         to newPath: URL,
         scannedWorktrees: RepositoryScannedWorktrees,
@@ -230,7 +231,7 @@ extension WorkspaceMutationCoordinator {
     }
 
     @discardableResult
-    func reconcileScannedWorktrees(
+    package func reconcileScannedWorktrees(
         _ repositoryID: UUID,
         scannedWorktrees: RepositoryScannedWorktrees,
         traceId: UUID
@@ -244,7 +245,7 @@ extension WorkspaceMutationCoordinator {
     }
 
     @discardableResult
-    func reconcileDiscoveredWorktrees(
+    package func reconcileDiscoveredWorktrees(
         _ repositoryID: UUID,
         worktrees: [Worktree]
     ) -> RepositoryWorktreeReconciliationResult {

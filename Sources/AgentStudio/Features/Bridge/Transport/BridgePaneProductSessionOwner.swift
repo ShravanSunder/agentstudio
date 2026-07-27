@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-struct BridgeProductSessionInstallation: Sendable {
+package struct BridgeProductSessionInstallation: Sendable {
     let bootstrap: BridgeProductSessionBootstrap
     let capabilityBytes: [UInt8]
     let productAdmissionGate: BridgeProductAdmissionGate
@@ -123,7 +123,7 @@ struct BridgePaneProductSessionOwnerSnapshot: Equatable, Sendable {
     )
 }
 
-actor BridgePaneProductSessionOwner {
+package actor BridgePaneProductSessionOwner {
     let schemeRouter: BridgeProductSchemeSessionRouter
     nonisolated let productAdmissionGate: BridgeProductAdmissionGate
 
@@ -137,7 +137,7 @@ actor BridgePaneProductSessionOwner {
     private let telemetryRecorder: (any BridgePerformanceTraceRecording)?
     private var installationAwaitingRetirementRetry: BridgeProductSessionInstallation?
 
-    func activeBootstrap() -> BridgeProductSessionBootstrap? {
+    package func activeBootstrap() -> BridgeProductSessionBootstrap? {
         activeInstallation?.bootstrap
     }
 

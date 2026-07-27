@@ -23,7 +23,7 @@ import Foundation
 ///   ▸ drawer new-row band     region = the band itself (top or
 ///                                      bottom 1/5 of the panel)
 ///                             marker = nil
-struct DropTargetVisual: Equatable, Sendable {
+package struct DropTargetVisual: Equatable, Sendable {
     let region: CGRect
     let insertionMarker: CGRect?
 

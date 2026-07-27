@@ -1,6 +1,6 @@
 import Foundation
 
-enum DropSizingMode: Hashable, Sendable {
+package enum DropSizingMode: Hashable, Sendable {
     case halveTarget
     case proportional
 }

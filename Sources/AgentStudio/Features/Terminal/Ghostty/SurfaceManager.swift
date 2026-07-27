@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import Foundation
 import GhosttyKit
@@ -10,13 +12,13 @@ private let logger = Logger(subsystem: "com.agentstudio", category: "SurfaceMana
 /// Provides crash isolation, health monitoring, and undo support
 @MainActor
 @Observable
-final class SurfaceManager {
-    static let shared = SurfaceManager()
+package final class SurfaceManager {
+    package static let shared = SurfaceManager()
 
-    struct SurfaceCWDChangeEvent: Sendable {
+    package struct SurfaceCWDChangeEvent: Sendable {
         let surfaceId: UUID
-        let paneId: UUID?
-        let cwd: URL?
+        package let paneId: UUID?
+        package let cwd: URL?
     }
 
     // MARK: - Published State
@@ -131,15 +133,15 @@ final class SurfaceManager {
         cwdChangeContinuation.finish()
     }
 
-    var surfaceCWDChanges: AsyncStream<SurfaceCWDChangeEvent> {
+    package var surfaceCWDChanges: AsyncStream<SurfaceCWDChangeEvent> {
         cwdChangeStream
     }
 
-    func setPerformanceTraceRecorder(_ recorder: AgentStudioPerformanceTraceRecorder?) {
+    package func setPerformanceTraceRecorder(_ recorder: AgentStudioPerformanceTraceRecorder?) {
         performanceTraceRecorder = recorder
     }
 
-    func setAppCommandDispatcher(_ dispatcher: any AppCommandDispatching) {
+    package func setAppCommandDispatcher(_ dispatcher: any AppCommandDispatching) {
         appCommandDispatcher = dispatcher
     }
 
@@ -150,7 +152,7 @@ final class SurfaceManager {
     ///   - config: Ghostty surface configuration
     ///   - metadata: Metadata to associate with the surface
     /// - Returns: Result with the managed surface or error
-    func createSurface(
+    package func createSurface(
         config: Ghostty.SurfaceConfiguration,
         metadata: SurfaceMetadata
     ) -> Result<ManagedSurface, SurfaceError> {
@@ -243,7 +245,7 @@ final class SurfaceManager {
     ///   - paneId: ID of the pane to attach to
     /// - Returns: The surface view if successful
     @discardableResult
-    func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? {
+    package func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? {
         RestoreTrace.log("SurfaceManager.attach requested surface=\(surfaceId) pane=\(paneId)")
         // Check hidden surfaces first
         if var managed = hiddenSurfaces.removeValue(forKey: surfaceId) {
@@ -297,7 +299,7 @@ final class SurfaceManager {
     /// - Parameters:
     ///   - surfaceId: ID of the surface to detach
     ///   - reason: Why the surface is being detached
-    func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {
+    package func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {
         guard var managed = activeSurfaces.removeValue(forKey: surfaceId) else {
             logger.warning("Surface not found for detach: \(surfaceId)")
             RestoreTrace.log("SurfaceManager.detach missing surface=\(surfaceId) reason=\(String(describing: reason))")
@@ -398,7 +400,7 @@ final class SurfaceManager {
 
     /// Restore the most recently closed surface
     /// - Returns: The restored surface if available
-    func undoClose() -> ManagedSurface? {
+    package func undoClose() -> ManagedSurface? {
         guard let entry = undoStack.popLast() else {
             logger.info("Nothing to undo")
             return nil
@@ -420,7 +422,7 @@ final class SurfaceManager {
     /// Used when an undo attempt targets the wrong pane and the surface must remain restorable.
     /// Re-queued entries are inserted at the oldest position so they don't immediately
     /// re-poison the next undo pop with the same mismatch.
-    func requeueUndo(_ surfaceId: UUID) {
+    package func requeueUndo(_ surfaceId: UUID) {
         guard
             var managed = activeSurfaces.removeValue(forKey: surfaceId) ?? hiddenSurfaces.removeValue(forKey: surfaceId)
         else {
@@ -465,7 +467,7 @@ final class SurfaceManager {
     // MARK: - Surface Destruction
 
     /// Permanently destroy a surface
-    func destroy(_ surfaceId: UUID) {
+    package func destroy(_ surfaceId: UUID) {
         detachTerminalLocalActions(surfaceID: surfaceId, paneID: paneId(for: surfaceId))
         // Remove from all collections
         if let managed = activeSurfaces.removeValue(forKey: surfaceId) {
@@ -799,7 +801,7 @@ extension SurfaceManager {
 
     /// Sync all surface focus states. Only activeSurfaceId gets focus=true; all others get false.
     /// Mirrors Ghostty's BaseTerminalController.syncFocusToSurfaceTree() pattern.
-    func syncFocus(activeSurfaceId: UUID?) {
+    package func syncFocus(activeSurfaceId: UUID?) {
         RestoreTrace.log(
             "SurfaceManager.syncFocus activeSurface=\(activeSurfaceId?.uuidString ?? "nil") activeCount=\(activeSurfaces.count)"
         )

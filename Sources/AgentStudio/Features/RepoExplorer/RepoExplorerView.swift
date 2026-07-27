@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import AppKit
 import Foundation
 import SwiftUI
@@ -12,7 +15,7 @@ private enum RepoSidebarToolbarTooltipTarget: Hashable {
 
 /// Sidebar content grouped by repository identity (worktree family / remote).
 @MainActor
-struct RepoExplorerView: View {
+package struct RepoExplorerView: View {
     typealias SidebarProjection = RepoExplorerSidebarProjection
 
     let store: WorkspaceStore
@@ -35,7 +38,7 @@ struct RepoExplorerView: View {
     static let headerLayoutPolicy = SidebarHeaderLayout<EmptyView, EmptyView, EmptyView, EmptyView>.policy
     static let tooltipCoordinateSpaceName = "repoSidebarHeaderTooltips"
 
-    init(
+    package init(
         store: WorkspaceStore,
         octiconLoader: OcticonLoader,
         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom,
@@ -152,7 +155,7 @@ struct RepoExplorerView: View {
         return repoCache.worktreeFactsSnapshot().filter { sidebarWorktreeIds.contains($0.key) }
     }
 
-    var body: some View {
+    package var body: some View {
         VStack(spacing: 0) {
             RepoExplorerFocusBridge(
                 uiState: uiState

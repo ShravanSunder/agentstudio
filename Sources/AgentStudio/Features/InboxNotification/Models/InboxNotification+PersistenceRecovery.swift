@@ -1,7 +1,10 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 
 extension InboxNotification {
-    static func persistenceRecovery(_ event: PersistenceRecoveryEvent) -> InboxNotification {
+    package static func persistenceRecovery(_ event: PersistenceRecoveryEvent) -> InboxNotification {
         InboxNotification(
             id: UUID(),
             timestamp: Date(),

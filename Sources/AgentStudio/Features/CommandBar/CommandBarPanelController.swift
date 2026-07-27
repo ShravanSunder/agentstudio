@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 import os.log
@@ -10,11 +12,11 @@ private let controllerLogger = Logger(subsystem: "com.agentstudio", category: "C
 /// Owns the CommandBarState and wires it to the panel.
 /// All methods must be called on the main thread (enforced by AppKit caller context).
 @MainActor
-final class CommandBarPanelController {
+package final class CommandBarPanelController {
 
     // MARK: - State
 
-    let state = CommandBarState()
+    package let state = CommandBarState()
 
     // MARK: - Dependencies
 
@@ -36,13 +38,13 @@ final class CommandBarPanelController {
     private weak var parentWindow: NSWindow?
     private var workspaceWindowId: UUID?
 
-    var isKeyWindow: Bool {
+    package var isKeyWindow: Bool {
         panel?.isKeyWindow == true
     }
 
     // MARK: - Initialization
 
-    init(
+    package init(
         store: WorkspaceStore,
         octiconLoader: OcticonLoader,
         repoCache: RepoCacheAtom,
@@ -72,15 +74,15 @@ final class CommandBarPanelController {
 
     /// Show the command bar. If already visible with a different prefix, switch in-place.
     /// If already visible with the same prefix (or no prefix), preserve current state.
-    func show(parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
+    package func show(parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
         show(mode: .defaultScope(.everything), parentWindow: parentWindow, workspaceWindowId: workspaceWindowId)
     }
 
-    func show(prefix: String, parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
+    package func show(prefix: String, parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
         show(mode: .prefix(prefix), parentWindow: parentWindow, workspaceWindowId: workspaceWindowId)
     }
 
-    func show(defaultRootScope: CommandBarScope, parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
+    package func show(defaultRootScope: CommandBarScope, parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
         show(mode: .defaultScope(defaultRootScope), parentWindow: parentWindow, workspaceWindowId: workspaceWindowId)
     }
 
@@ -136,7 +138,7 @@ final class CommandBarPanelController {
     }
 
     /// Dismiss the command bar and clean up.
-    func dismiss() {
+    package func dismiss() {
         guard state.isVisible else { return }
 
         state.dismiss()

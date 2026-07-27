@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-enum WorkspaceFocusOwner: Equatable, Sendable {
+package enum WorkspaceFocusOwner: Equatable, Sendable {
     case mainPane(paneId: UUID?)
     case emptyDrawer(parentPaneId: UUID)
     case drawerPane(parentPaneId: UUID, paneId: UUID)
@@ -10,17 +10,17 @@ enum WorkspaceFocusOwner: Equatable, Sendable {
 @MainActor
 @Observable
 package final class WorkspaceFocusOwnerAtom {
-    private(set) var owner: WorkspaceFocusOwner = .mainPane(paneId: nil)
+    package private(set) var owner: WorkspaceFocusOwner = .mainPane(paneId: nil)
 
-    func focusMainPane(_ paneId: UUID?) {
+    package func focusMainPane(_ paneId: UUID?) {
         owner = .mainPane(paneId: paneId)
     }
 
-    func focusEmptyDrawer(parentPaneId: UUID) {
+    package func focusEmptyDrawer(parentPaneId: UUID) {
         owner = .emptyDrawer(parentPaneId: parentPaneId)
     }
 
-    func focusDrawerPane(parentPaneId: UUID, paneId: UUID) {
+    package func focusDrawerPane(parentPaneId: UUID, paneId: UUID) {
         owner = .drawerPane(parentPaneId: parentPaneId, paneId: paneId)
     }
 }

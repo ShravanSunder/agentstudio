@@ -8,23 +8,23 @@ private let eventReplayBufferLogger = Logger(subsystem: "com.agentstudio", categ
 /// Uses a ring buffer to preserve append order and supports gap-aware replay queries
 /// via `eventsSince(seq:)`.
 @MainActor
-final class EventReplayBuffer {
-    struct Config: Sendable {
+package final class EventReplayBuffer {
+    package struct Config: Sendable {
         let maxEvents: Int
         let maxBytes: Int
         let ttl: Duration
 
-        init(maxEvents: Int = 1000, maxBytes: Int = 1_048_576, ttl: Duration = .seconds(300)) {
+        package init(maxEvents: Int = 1000, maxBytes: Int = 1_048_576, ttl: Duration = .seconds(300)) {
             self.maxEvents = max(1, maxEvents)
             self.maxBytes = max(1, maxBytes)
             self.ttl = ttl
         }
     }
 
-    struct ReplayResult: Sendable {
-        let events: [RuntimeEnvelope]
-        let nextSeq: UInt64
-        let gapDetected: Bool
+    package struct ReplayResult: Sendable {
+        package let events: [RuntimeEnvelope]
+        package let nextSeq: UInt64
+        package let gapDetected: Bool
     }
 
     struct BufferStats: Sendable, Equatable {
@@ -47,14 +47,14 @@ final class EventReplayBuffer {
     private var countValue: Int = 0
     private var estimatedBytesValue: Int = 0
 
-    init(config: Config = Config(), clock: ContinuousClock = ContinuousClock()) {
+    package init(config: Config = Config(), clock: ContinuousClock = ContinuousClock()) {
         self.config = config
         self.clock = clock
         self.ring = Array(repeating: nil, count: config.maxEvents)
     }
 
     /// Compatibility initializer for older call sites/tests that only set capacity.
-    convenience init(capacity: Int = 200) {
+    package convenience init(capacity: Int = 200) {
         self.init(
             config: Config(
                 maxEvents: max(1, capacity),
@@ -64,7 +64,7 @@ final class EventReplayBuffer {
         )
     }
 
-    func append(_ envelope: RuntimeEnvelope) {
+    package func append(_ envelope: RuntimeEnvelope) {
         evictStale(now: clock.now)
 
         let envelopeSize = Self.estimateSize(envelope)
@@ -88,7 +88,7 @@ final class EventReplayBuffer {
         return orderedEntries().map(\.envelope)
     }
 
-    func eventsSince(seq: UInt64) -> ReplayResult {
+    package func eventsSince(seq: UInt64) -> ReplayResult {
         evictStale(now: clock.now)
         let ordered = orderedEntries().map(\.envelope)
         guard let oldest = ordered.first?.seq else {

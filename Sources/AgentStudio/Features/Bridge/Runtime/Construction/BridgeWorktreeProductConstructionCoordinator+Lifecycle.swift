@@ -1,5 +1,5 @@
 extension BridgeWorktreeProductConstructionCoordinator {
-    func shutdown() async {
+    package func shutdown() async {
         if !isClosed {
             beginShutdown()
         }

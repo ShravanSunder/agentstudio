@@ -1,3 +1,5 @@
+import AgentStudioCommandBar
+import AgentStudioInfrastructure
 import SwiftUI
 
 // MARK: - Launcher preview scope (for clickable pills + preview swap)

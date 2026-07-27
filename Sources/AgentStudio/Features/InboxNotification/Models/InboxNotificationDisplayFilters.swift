@@ -1,4 +1,4 @@
-enum InboxNotificationContentMode: String, Sendable, Codable, Equatable, CaseIterable {
+package enum InboxNotificationContentMode: String, Sendable, Codable, Equatable, CaseIterable {
     case rollUpAlerts
     case activity
     case all
@@ -28,7 +28,7 @@ enum InboxNotificationContentMode: String, Sendable, Codable, Equatable, CaseIte
     }
 }
 
-enum InboxNotificationRowStateFilter: String, Sendable, Codable, Equatable, CaseIterable {
+package enum InboxNotificationRowStateFilter: String, Sendable, Codable, Equatable, CaseIterable {
     case unreadOnly
     case all
 
@@ -51,7 +51,15 @@ enum InboxNotificationRowStateFilter: String, Sendable, Codable, Equatable, Case
     }
 }
 
-struct InboxNotificationDisplayOverride: Sendable, Equatable {
-    let contentMode: InboxNotificationContentMode
-    let rowStateFilter: InboxNotificationRowStateFilter
+package struct InboxNotificationDisplayOverride: Sendable, Equatable {
+    package let contentMode: InboxNotificationContentMode
+    package let rowStateFilter: InboxNotificationRowStateFilter
+
+    package init(
+        contentMode: InboxNotificationContentMode,
+        rowStateFilter: InboxNotificationRowStateFilter
+    ) {
+        self.contentMode = contentMode
+        self.rowStateFilter = rowStateFilter
+    }
 }

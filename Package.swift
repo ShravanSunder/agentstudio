@@ -29,22 +29,29 @@ let package = Package(
             name: "AgentStudio",
             dependencies: [
                 "AgentStudioAppIPC",
+                "AgentStudioBridge",
+                "AgentStudioCodeViewer",
+                "AgentStudioCommandBar",
+                "AgentStudioCore",
+                "AgentStudioEditorChooser",
+                "AgentStudioInboxNotification",
+                "AgentStudioInfrastructure",
+                "AgentStudioRepoExplorer",
+                "AgentStudioSharedComponents",
+                "AgentStudioTerminal",
+                "AgentStudioWebview",
                 "GhosttyKit",
-                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
-                .product(name: "GRDB", package: "GRDB.swift"),
-                .product(name: "Logging", package: "swift-log"),
-                .product(name: "Metrics", package: "swift-metrics"),
-                .product(name: "Tracing", package: "swift-distributed-tracing"),
-                .product(name: "OTel", package: "swift-otel"),
-                .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
-                .product(name: "AgentStudioGit", package: "agentstudio-git"),
             ],
             path: "Sources/AgentStudio",
             exclude: [
+                "Core",
+                "Features",
+                "Infrastructure",
                 "Resources/Info.plist",
                 "Resources/AppIcon.svg",
                 "Resources/terminfo-src",
                 "Resources/AgentStudio.entitlements",
+                "SharedComponents",
             ],
             resources: [
                 .process("Resources/Icons.xcassets"),
@@ -73,6 +80,145 @@ let package = Package(
                 .linkedFramework("AuthenticationServices"),
                 .linkedLibrary("z"),
                 .linkedLibrary("c++"),
+            ]
+        ),
+        .target(
+            name: "AgentStudioInfrastructure",
+            dependencies: [
+                .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "Metrics", package: "swift-metrics"),
+                .product(name: "Tracing", package: "swift-distributed-tracing"),
+                .product(name: "OTel", package: "swift-otel"),
+                .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
+                .product(name: "AgentStudioGit", package: "agentstudio-git"),
+            ],
+            path: "Sources/AgentStudio/Infrastructure",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioSharedComponents",
+            dependencies: [
+                "AgentStudioInfrastructure"
+            ],
+            path: "Sources/AgentStudio/SharedComponents",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioCore",
+            dependencies: [
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+                .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "AgentStudioGit", package: "agentstudio-git"),
+            ],
+            path: "Sources/AgentStudio/Core",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioBridge",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioProgrammaticControl",
+                "AgentStudioSharedComponents",
+                .product(name: "AgentStudioGit", package: "agentstudio-git"),
+            ],
+            path: "Sources/AgentStudio/Features/Bridge",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioCodeViewer",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+            ],
+            path: "Sources/AgentStudio/Features/CodeViewer",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioCommandBar",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+            ],
+            path: "Sources/AgentStudio/Features/CommandBar",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioEditorChooser",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+            ],
+            path: "Sources/AgentStudio/Features/EditorChooser",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioInboxNotification",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            path: "Sources/AgentStudio/Features/InboxNotification",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioRepoExplorer",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+            ],
+            path: "Sources/AgentStudio/Features/RepoExplorer",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioTerminal",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+                "GhosttyKit",
+            ],
+            path: "Sources/AgentStudio/Features/Terminal",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioWebview",
+            dependencies: [
+                "AgentStudioCore",
+                "AgentStudioInfrastructure",
+                "AgentStudioSharedComponents",
+            ],
+            path: "Sources/AgentStudio/Features/Webview",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
             ]
         ),
         .target(

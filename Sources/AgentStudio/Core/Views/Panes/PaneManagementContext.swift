@@ -1,15 +1,15 @@
 import Foundation
 
-enum PaneManagementIcon: Equatable {
+package enum PaneManagementIcon: Equatable {
     case octicon(String)
     case system(String)
 }
 
-struct PaneManagementIdentityRow: Equatable, Identifiable {
-    let id: String
-    let icon: PaneManagementIcon
-    let text: String
-    let toolTip: String?
+package struct PaneManagementIdentityRow: Equatable, Identifiable {
+    package let id: String
+    package let icon: PaneManagementIcon
+    package let text: String
+    package let toolTip: String?
 }
 
 package struct WorkspaceStatusChipsModel: Equatable {
@@ -23,13 +23,13 @@ package struct WorkspaceStatusChipsModel: Equatable {
 }
 
 @MainActor
-struct PaneManagementContext: Equatable {
-    let identityRows: [PaneManagementIdentityRow]
-    let statusChips: WorkspaceStatusChipsModel?
-    let targetPath: URL?
-    let showsIdentityBlock: Bool
+package struct PaneManagementContext: Equatable {
+    package let identityRows: [PaneManagementIdentityRow]
+    package let statusChips: WorkspaceStatusChipsModel?
+    package let targetPath: URL?
+    package let showsIdentityBlock: Bool
 
-    static func project(
+    package static func project(
         paneId: UUID,
         store: WorkspaceStore,
         notificationCountForWorktree: (UUID) -> Int = { _ in 0 }

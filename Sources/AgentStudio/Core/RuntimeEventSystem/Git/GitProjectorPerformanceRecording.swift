@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// Recording seam the git working-directory projector depends on.
@@ -7,7 +8,7 @@ import Foundation
 /// telemetry, including the circuit-breaker open/close facts, can be observed
 /// in unit tests with a spy. `AgentStudioPerformanceTraceRecorder` is the
 /// production conformer; it forwards to OTLP/JSONL exactly as before.
-protocol GitProjectorPerformanceRecording: Sendable {
+package protocol GitProjectorPerformanceRecording: Sendable {
     var isEnabled: Bool { get }
 
     func record(

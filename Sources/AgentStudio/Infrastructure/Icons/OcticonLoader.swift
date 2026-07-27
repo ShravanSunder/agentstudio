@@ -1,15 +1,15 @@
 import AppKit
 
 @MainActor
-final class OcticonLoader {
+package final class OcticonLoader {
     private let resourceRootURL: URL
     private var cache: [String: NSImage] = [:]
 
-    init(resourceRootURL: URL) {
+    package init(resourceRootURL: URL) {
         self.resourceRootURL = resourceRootURL
     }
 
-    func image(named name: String) -> NSImage? {
+    package func image(named name: String) -> NSImage? {
         if let cached = cache[name] {
             return cached
         }

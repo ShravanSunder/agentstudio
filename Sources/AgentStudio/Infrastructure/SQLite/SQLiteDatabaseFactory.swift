@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-enum SQLiteDatabaseFactory {
+package enum SQLiteDatabaseFactory {
     enum FactoryError: Error, Equatable {
         case bytePreservingStartupReaderRequiresFileURL
         case invalidBytePreservingStartupReaderURL
@@ -13,7 +13,7 @@ enum SQLiteDatabaseFactory {
         try DatabaseQueue(named: nil, configuration: makeConfiguration(label: label))
     }
 
-    static func makeFileBackedPool(
+    package static func makeFileBackedPool(
         at databaseURL: URL,
         label: String = "AgentStudio.sqlite.file"
     ) throws -> DatabasePool {
@@ -27,7 +27,7 @@ enum SQLiteDatabaseFactory {
         return try DatabasePool(path: databaseURL.path, configuration: configuration)
     }
 
-    static func makeBytePreservingStartupReader(
+    package static func makeBytePreservingStartupReader(
         at databaseURL: URL,
         label: String = "AgentStudio.sqlite.byte-preserving-startup-reader"
     ) throws -> DatabaseQueue {

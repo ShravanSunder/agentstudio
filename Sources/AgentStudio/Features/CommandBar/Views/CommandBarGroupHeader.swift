@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
 // MARK: - CommandBarGroupHeader

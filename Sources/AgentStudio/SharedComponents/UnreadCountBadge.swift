@@ -1,9 +1,14 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-struct UnreadCountBadge: View {
+package struct UnreadCountBadge: View {
     let text: String
 
-    var body: some View {
+    package init(text: String) {
+        self.text = text
+    }
+
+    package var body: some View {
         Text(text)
             .font(.system(size: AppStyles.Components.NotificationBadge.fontSize, weight: .bold))
             .foregroundStyle(.white)

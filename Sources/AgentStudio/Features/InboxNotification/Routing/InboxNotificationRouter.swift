@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 import Observation
 import os.log
@@ -7,7 +10,7 @@ private let inboxNotificationRouterLogger = Logger(
     category: "InboxNotificationRouter"
 )
 @MainActor
-final class InboxNotificationRouter {
+package final class InboxNotificationRouter {
     private struct ObservedPaneClearOutcome: Sendable, Equatable {
         let clearedCount: Int
         let keepCount: Int
@@ -109,7 +112,7 @@ final class InboxNotificationRouter {
         traceRuntime: traceRuntime
     )
 
-    init(
+    package init(
         bus: EventBus<RuntimeEnvelope>,
         inboxAtom: InboxNotificationAtom,
         prefsAtom: InboxNotificationPrefsAtom,
@@ -148,7 +151,7 @@ final class InboxNotificationRouter {
         traceQueue?.cancel()
     }
 
-    func stop() async {
+    package func stop() async {
         isStarted = false
         let busTask = busTask
         busTask?.cancel()
@@ -170,7 +173,7 @@ final class InboxNotificationRouter {
         pinnedToBottomByPaneId.removeAll()
     }
 
-    func flushTraceRecords() async {
+    package func flushTraceRecords() async {
         do {
             try await traceQueue?.flush()
         } catch {
@@ -181,7 +184,7 @@ final class InboxNotificationRouter {
         }
     }
 
-    func start() async {
+    package func start() async {
         guard busTask == nil, focusTask == nil else { return }
         isStarted = true
         attendedPaneIdSnapshot = currentAttendedPaneId()

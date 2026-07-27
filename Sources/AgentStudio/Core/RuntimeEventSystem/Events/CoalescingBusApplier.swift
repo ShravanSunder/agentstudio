@@ -1,12 +1,13 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// Coalesces high-volume bus facts off the main actor, then applies one keyed batch on MainActor.
-final class CoalescingBusApplier<Key: Hashable & Sendable, Pending: Sendable, Envelope: Sendable>:
+package final class CoalescingBusApplier<Key: Hashable & Sendable, Pending: Sendable, Envelope: Sendable>:
     @unchecked Sendable
 {
-    typealias PendingBatch = [Key: Pending]
-    typealias Accumulate = @Sendable (inout PendingBatch, Envelope) -> Void
-    typealias Apply = @MainActor @Sendable (PendingBatch) async -> Void
+    package typealias PendingBatch = [Key: Pending]
+    package typealias Accumulate = @Sendable (inout PendingBatch, Envelope) -> Void
+    package typealias Apply = @MainActor @Sendable (PendingBatch) async -> Void
 
     private struct State: Sendable {
         var pendingBatch: PendingBatch = [:]
@@ -23,7 +24,7 @@ final class CoalescingBusApplier<Key: Hashable & Sendable, Pending: Sendable, En
     private let flushStream: AsyncStream<Void>
     private let flushContinuation: AsyncStream<Void>.Continuation
 
-    init(
+    package init(
         flushInterval: Duration,
         delay: AsyncDelay = .taskSleep,
         accumulate: @escaping Accumulate,
@@ -45,7 +46,7 @@ final class CoalescingBusApplier<Key: Hashable & Sendable, Pending: Sendable, En
         flushContinuation.finish()
     }
 
-    func accumulate(_ envelope: Envelope) {
+    package func accumulate(_ envelope: Envelope) {
         var shouldScheduleFlush = false
         lock.lock()
         if !state.isClosed {
@@ -81,11 +82,11 @@ final class CoalescingBusApplier<Key: Hashable & Sendable, Pending: Sendable, En
         await finish(flushTask: flushTask)
     }
 
-    func startFlushTask() -> Task<Void, Never> {
+    package func startFlushTask() -> Task<Void, Never> {
         Task { await runFlushLoop() }
     }
 
-    func flushPending() async {
+    package func flushPending() async {
         guard let batch = takePendingBatch() else { return }
         await applyBatch(batch)
     }
@@ -96,7 +97,7 @@ final class CoalescingBusApplier<Key: Hashable & Sendable, Pending: Sendable, En
         await flushPending()
     }
 
-    func finish(flushTask: Task<Void, Never>) async {
+    package func finish(flushTask: Task<Void, Never>) async {
         markClosed()
         flushContinuation.finish()
         flushTask.cancel()

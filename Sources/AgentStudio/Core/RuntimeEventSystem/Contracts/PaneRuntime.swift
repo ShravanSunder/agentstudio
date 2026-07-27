@@ -5,7 +5,7 @@ import Foundation
 /// The runtime owns command execution, event emission, lifecycle state, and replay queries
 /// for exactly one pane identity (`paneId`).
 @MainActor
-protocol PaneRuntime: AnyObject {
+package protocol PaneRuntime: AnyObject {
     /// Stable runtime identity for registry routing and envelope attribution.
     var paneId: PaneId { get }
     /// Runtime-owned pane metadata snapshot used for routing and command validation.
@@ -33,4 +33,4 @@ protocol PaneRuntime: AnyObject {
 /// Legacy/fake runtimes that only support `subscribe()` are bridged to the bus
 /// by `WorkspaceSurfaceCoordinator`.
 @MainActor
-protocol BusPostingPaneRuntime: PaneRuntime {}
+package protocol BusPostingPaneRuntime: PaneRuntime {}

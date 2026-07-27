@@ -26,8 +26,8 @@ extension BridgeSourcePathContainmentError: CustomStringConvertible, LocalizedEr
     }
 }
 
-enum BridgeSourcePathContainment: Sendable {
-    static func resolveRegularFile(
+package enum BridgeSourcePathContainment: Sendable {
+    package static func resolveRegularFile(
         rootURL: URL,
         relativePath: String
     ) throws -> URL {

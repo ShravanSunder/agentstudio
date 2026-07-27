@@ -1,4 +1,6 @@
+import AgentStudioCore
 import AgentStudioGit
+import AgentStudioInfrastructure
 import Foundation
 
 typealias BridgeWorktreeTrackedFilePathsLoader = @Sendable (URL) async throws -> Set<String>

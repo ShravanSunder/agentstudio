@@ -12,7 +12,8 @@ private let navigationLogger = Logger(subsystem: "com.agentstudio", category: "B
 /// (`http`/`https`) are opened in the default browser instead.
 /// All other schemes (file, ftp, etc.) are blocked silently.
 ///
-final class BridgeNavigationDecider: WebPage.NavigationDeciding {
+package final class BridgeNavigationDecider: WebPage.NavigationDeciding {
+    package init() {}
 
     // MARK: - Allowed Schemes
 
@@ -28,7 +29,7 @@ final class BridgeNavigationDecider: WebPage.NavigationDeciding {
     // MARK: - NavigationDeciding
 
     @MainActor
-    func decidePolicy(
+    package func decidePolicy(
         for action: WebPage.NavigationAction,
         preferences: inout WebPage.NavigationPreferences
     ) async -> WKNavigationActionPolicy {

@@ -1,5 +1,5 @@
 import Foundation
 
-typealias PaneFocusTriggerHandler = @MainActor (PaneFocusTrigger) -> Void
+package typealias PaneFocusTriggerHandler = @MainActor (PaneFocusTrigger) -> Void
 
 typealias PaneFocusRefocusHandler = @MainActor (PaneRefocusRequestTrigger.Reason) -> Void

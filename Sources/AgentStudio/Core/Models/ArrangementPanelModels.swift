@@ -1,14 +1,15 @@
+import AgentStudioInfrastructure
 import Foundation
 import SwiftUI
 
-struct PaneVisibilityInfo: Identifiable, Equatable {
-    let id: UUID
+package struct PaneVisibilityInfo: Identifiable, Equatable {
+    package let id: UUID
     let title: String
     let isMinimized: Bool
 }
 
-struct ArrangementInfo: Identifiable, Equatable {
-    let id: UUID
+package struct ArrangementInfo: Identifiable, Equatable {
+    package let id: UUID
     let name: String
     let isDefault: Bool
     let isActive: Bool
@@ -36,7 +37,7 @@ struct ArrangementPanelDisplayState: Equatable {
     }
 }
 
-enum ArrangementPanelPopoverPlacement {
+package enum ArrangementPanelPopoverPlacement {
     case tabBar
     case minimizedBar
 
@@ -44,11 +45,11 @@ enum ArrangementPanelPopoverPlacement {
         .center
     }
 
-    var attachmentAnchor: PopoverAttachmentAnchor {
+    package var attachmentAnchor: PopoverAttachmentAnchor {
         .point(sourceAttachmentPoint)
     }
 
-    var arrowEdge: Edge {
+    package var arrowEdge: Edge {
         .leading
     }
 }
@@ -57,8 +58,8 @@ enum ArrangementPanelPopoverPlacement {
 /// starts from outside the popover (e.g. via the command palette). Targets
 /// only renames whose arrangement belongs to the currently active tab,
 /// and only when the popover is not already presented.
-enum ArrangementPopoverAutoOpen {
-    static func shouldOpen(
+package enum ArrangementPopoverAutoOpen {
+    package static func shouldOpen(
         editingArrangementId: UUID?,
         activeTabArrangements: [ArrangementInfo]?,
         isPresented: Bool

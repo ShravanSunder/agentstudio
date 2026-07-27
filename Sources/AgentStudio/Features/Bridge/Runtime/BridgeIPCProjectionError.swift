@@ -1,7 +1,7 @@
 import Foundation
 
-struct BridgeIPCProjectionError: Error, Equatable, Sendable {
-    enum Reason: String, Equatable, Sendable {
+package struct BridgeIPCProjectionError: Error, Equatable, Sendable {
+    package enum Reason: String, Equatable, Sendable {
         case packageUnavailable
         case itemNotFound
         case contentUnavailable
@@ -9,5 +9,5 @@ struct BridgeIPCProjectionError: Error, Equatable, Sendable {
         case validationRejected
     }
 
-    let reason: Reason
+    package let reason: Reason
 }

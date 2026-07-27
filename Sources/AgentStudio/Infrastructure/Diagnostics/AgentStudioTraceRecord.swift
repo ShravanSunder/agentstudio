@@ -1,6 +1,6 @@
 import Foundation
 
-enum AgentStudioTraceSeverity: String, Encodable, Equatable, Sendable {
+package enum AgentStudioTraceSeverity: String, Encodable, Equatable, Sendable {
     case trace = "TRACE"
     case debug = "DEBUG"
     case info = "INFO"
@@ -37,14 +37,14 @@ struct AgentStudioTraceRecord: Encodable, Equatable, Sendable {
     }
 }
 
-enum AgentStudioTraceValue: Encodable, Equatable, Sendable {
+package enum AgentStudioTraceValue: Encodable, Equatable, Sendable {
     case bool(Bool)
     case double(Double)
     case int(Int)
     case string(String)
     case stringArray([String])
 
-    func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
         case .bool(let value):

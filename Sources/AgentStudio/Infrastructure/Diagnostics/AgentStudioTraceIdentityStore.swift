@@ -31,7 +31,7 @@ package struct AgentStudioTraceIdentitySnapshot: Equatable, Sendable {
     static let empty = Self()
 }
 
-enum AgentStudioTraceIdentityUpdateOutcome: Equatable, Sendable {
+package enum AgentStudioTraceIdentityUpdateOutcome: Equatable, Sendable {
     case applied
     case equalSuppressed
 }

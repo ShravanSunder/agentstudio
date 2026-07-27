@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+
 enum BridgeTelemetryScope: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case swift
     case web

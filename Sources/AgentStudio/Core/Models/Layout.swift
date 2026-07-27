@@ -1,24 +1,25 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// Flat pane strip layout shared by pane containers.
 /// Every pane is a direct sibling in left-to-right order with a preserved width ratio.
-struct Layout: Codable, Hashable, Sendable {
-    struct PaneEntry: Codable, Hashable, Sendable {
+package struct Layout: Codable, Hashable, Sendable {
+    package struct PaneEntry: Codable, Hashable, Sendable {
         let paneId: UUID
         let ratio: Double
     }
 
-    enum SplitDirection: String, Codable, Hashable, Sendable {
+    package enum SplitDirection: String, Codable, Hashable, Sendable {
         case horizontal
         case vertical
     }
 
-    enum Position: Sendable {
+    package enum Position: Sendable {
         case before
         case after
     }
 
-    let panes: [PaneEntry]
+    package let panes: [PaneEntry]
     let dividerIds: [UUID]
 
     init() {
@@ -54,15 +55,15 @@ struct Layout: Codable, Hashable, Sendable {
         )
     }
 
-    var isEmpty: Bool { panes.isEmpty }
+    package var isEmpty: Bool { panes.isEmpty }
 
-    var isSplit: Bool { panes.count > 1 }
+    package var isSplit: Bool { panes.count > 1 }
 
-    var paneIds: [UUID] { panes.map(\.paneId) }
+    package var paneIds: [UUID] { panes.map(\.paneId) }
 
     var ratios: [Double] { panes.map(\.ratio) }
 
-    func contains(_ paneId: UUID) -> Bool {
+    package func contains(_ paneId: UUID) -> Bool {
         panes.contains { $0.paneId == paneId }
     }
 
@@ -312,6 +313,6 @@ struct Layout: Codable, Hashable, Sendable {
     }
 }
 
-enum FocusDirection: Equatable, Hashable, Sendable {
+package enum FocusDirection: Equatable, Hashable, Sendable {
     case left, right, up, down
 }

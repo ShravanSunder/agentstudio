@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 
-struct EditorChooserMenuStyle: Equatable {
+package struct EditorChooserMenuStyle: Equatable {
     var menuWidth: CGFloat
     var outerPadding: CGFloat
     var rowSpacing: CGFloat
@@ -14,7 +15,7 @@ struct EditorChooserMenuStyle: Equatable {
     var badgeCornerRadius: CGFloat
     var bookmarkHitSize: CGFloat
 
-    static let standard = Self(
+    package static let standard = Self(
         menuWidth: AppStyles.Components.EditorChooser.menuWidth,
         outerPadding: AppStyles.Components.EditorChooser.outerPadding,
         rowSpacing: AppStyles.Components.EditorChooser.rowSpacing,

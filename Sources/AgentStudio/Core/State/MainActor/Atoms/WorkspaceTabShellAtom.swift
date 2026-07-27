@@ -19,7 +19,7 @@ package final class WorkspaceTabShellAtom {
         self.cursorAtom = cursorAtom
     }
 
-    var activeTabId: UUID? {
+    package var activeTabId: UUID? {
         cursorAtom.activeTabId
     }
 

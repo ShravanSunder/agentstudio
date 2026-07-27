@@ -1,12 +1,12 @@
 import Foundation
 
-enum TerminalAccumulatorDrainClass: String, Equatable, Sendable {
+package enum TerminalAccumulatorDrainClass: String, Equatable, Sendable {
     case immediate
     case titleWindow = "title_window"
     case exactBarrier = "exact_barrier"
 }
 
-struct TerminalAccumulatorDrainPerformanceSnapshot: Equatable, Sendable {
+package struct TerminalAccumulatorDrainPerformanceSnapshot: Equatable, Sendable {
     let drainClass: TerminalAccumulatorDrainClass
     let offeredCount: UInt64
     let replacedCount: UInt64
@@ -17,39 +17,103 @@ struct TerminalAccumulatorDrainPerformanceSnapshot: Equatable, Sendable {
     let activityAggregateCount: UInt64
     let retainedEntryCount: UInt64
     let retainedSizeBytes: UInt64
+
+    package init(
+        drainClass: TerminalAccumulatorDrainClass,
+        offeredCount: UInt64,
+        replacedCount: UInt64,
+        equalSuppressedCount: UInt64,
+        scheduledDrainCount: UInt64,
+        followUpDrainCount: UInt64,
+        mainActorTaskCount: UInt64,
+        activityAggregateCount: UInt64,
+        retainedEntryCount: UInt64,
+        retainedSizeBytes: UInt64
+    ) {
+        self.drainClass = drainClass
+        self.offeredCount = offeredCount
+        self.replacedCount = replacedCount
+        self.equalSuppressedCount = equalSuppressedCount
+        self.scheduledDrainCount = scheduledDrainCount
+        self.followUpDrainCount = followUpDrainCount
+        self.mainActorTaskCount = mainActorTaskCount
+        self.activityAggregateCount = activityAggregateCount
+        self.retainedEntryCount = retainedEntryCount
+        self.retainedSizeBytes = retainedSizeBytes
+    }
 }
 
-struct TerminalCompactApplyPerformanceSnapshot: Equatable, Sendable {
+package struct TerminalCompactApplyPerformanceSnapshot: Equatable, Sendable {
     let equalWriteSuppressedCount: UInt64
     let activityProjectionRoundTrip: TerminalActivityProjectionRoundTripPerformance
+
+    package init(
+        equalWriteSuppressedCount: UInt64,
+        activityProjectionRoundTrip: TerminalActivityProjectionRoundTripPerformance
+    ) {
+        self.equalWriteSuppressedCount = equalWriteSuppressedCount
+        self.activityProjectionRoundTrip = activityProjectionRoundTrip
+    }
 }
 
-enum TerminalActivityProjectionRoundTripPerformance: Equatable, Sendable {
+package enum TerminalActivityProjectionRoundTripPerformance: Equatable, Sendable {
     case notSubmitted
     case completed(Duration)
 }
 
-struct FilesystemEffectPerformanceSnapshot: Equatable, Sendable {
+package struct FilesystemEffectPerformanceSnapshot: Equatable, Sendable {
     let fullReconciliationRequestCount: UInt64
     let affectedKeyRequestCount: UInt64
+
+    package init(
+        fullReconciliationRequestCount: UInt64,
+        affectedKeyRequestCount: UInt64
+    ) {
+        self.fullReconciliationRequestCount = fullReconciliationRequestCount
+        self.affectedKeyRequestCount = affectedKeyRequestCount
+    }
 }
 
-struct TraceIdentityPerformanceSnapshot: Equatable, Sendable {
+package struct TraceIdentityPerformanceSnapshot: Equatable, Sendable {
     let refreshRequestCount: UInt64
     let coalescedRequestCount: UInt64
     let fleetCaptureCount: UInt64
     let equalSnapshotSuppressedCount: UInt64
+
+    package init(
+        refreshRequestCount: UInt64,
+        coalescedRequestCount: UInt64,
+        fleetCaptureCount: UInt64,
+        equalSnapshotSuppressedCount: UInt64
+    ) {
+        self.refreshRequestCount = refreshRequestCount
+        self.coalescedRequestCount = coalescedRequestCount
+        self.fleetCaptureCount = fleetCaptureCount
+        self.equalSnapshotSuppressedCount = equalSnapshotSuppressedCount
+    }
 }
 
-final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
-    struct TopologyLookupFact: Hashable, Sendable {
+package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
+    package struct TopologyLookupFact: Hashable, Sendable {
         let normalizedCWD: String
         let worktreePathIndexGeneration: UInt64
         let repoId: UUID?
         let worktreeId: UUID?
+
+        package init(
+            normalizedCWD: String,
+            worktreePathIndexGeneration: UInt64,
+            repoId: UUID?,
+            worktreeId: UUID?
+        ) {
+            self.normalizedCWD = normalizedCWD
+            self.worktreePathIndexGeneration = worktreePathIndexGeneration
+            self.repoId = repoId
+            self.worktreeId = worktreeId
+        }
     }
 
-    enum Event: String, Sendable {
+    package enum Event: String, Sendable {
         case atomDerived = "performance.atom.derived"
         case atomMutation = "performance.atom.mutation"
         case atomRead = "performance.atom.read"
@@ -101,7 +165,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     private let processMemorySampler: AgentStudioProcessMemorySampler?
     private let runtimeDeliveryPerformanceReporter: RuntimeDeliveryPerformanceReporter?
 
-    init(
+    package init(
         traceRuntime: AgentStudioTraceRuntime?,
         runtimeDeliveryPerformanceReporter: RuntimeDeliveryPerformanceReporter? = nil,
         processMemorySampleWait: @escaping AgentStudioProcessMemorySampler.WaitForNextSample =
@@ -145,11 +209,11 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         runtimeDeliveryPerformanceReporter?.disable()
     }
 
-    var isEnabled: Bool {
+    package var isEnabled: Bool {
         eventQueue != nil
     }
 
-    func record(
+    package func record(
         _ event: Event,
         attributes: [String: AgentStudioTraceValue] = [:]
     ) {
@@ -162,7 +226,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         )
     }
 
-    func recordDuration(
+    package func recordDuration(
         _ event: Event,
         duration: Duration,
         attributes: [String: AgentStudioTraceValue] = [:]
@@ -172,7 +236,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         record(event, attributes: mergedAttributes)
     }
 
-    func recordRepoAndWorktreeLookup(
+    package func recordRepoAndWorktreeLookup(
         duration: Duration,
         indexCount: Int,
         hasMatch: Bool,
@@ -189,7 +253,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         )
     }
 
-    func recordTerminalAccumulatorDrain(
+    package func recordTerminalAccumulatorDrain(
         _ snapshot: TerminalAccumulatorDrainPerformanceSnapshot,
         queueAge: Duration
     ) {
@@ -222,7 +286,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         )
     }
 
-    func recordTerminalCompactApply(
+    package func recordTerminalCompactApply(
         _ snapshot: TerminalCompactApplyPerformanceSnapshot,
         serviceTime: Duration
     ) {
@@ -246,7 +310,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         )
     }
 
-    func recordFilesystemEffectSnapshot(_ snapshot: FilesystemEffectPerformanceSnapshot) {
+    package func recordFilesystemEffectSnapshot(_ snapshot: FilesystemEffectPerformanceSnapshot) {
         record(
             .filesystemEffectSnapshot,
             attributes: [
@@ -258,7 +322,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         )
     }
 
-    func recordTraceIdentitySnapshot(_ snapshot: TraceIdentityPerformanceSnapshot) {
+    package func recordTraceIdentitySnapshot(_ snapshot: TraceIdentityPerformanceSnapshot) {
         record(
             .traceIdentitySnapshot,
             attributes: [
@@ -294,7 +358,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         return result
     }
 
-    func drain() async throws {
+    package func drain() async throws {
         await processMemorySampler?.stop()
         runtimeDeliveryPerformanceReporter?.disable()
         try await eventQueue?.drain()
@@ -303,7 +367,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         }
     }
 
-    static func milliseconds(from duration: Duration) -> Double {
+    package static func milliseconds(from duration: Duration) -> Double {
         let components = duration.components
         let secondsMilliseconds = Double(components.seconds) * 1000
         let attosecondsMilliseconds = Double(components.attoseconds) / 1_000_000_000_000_000

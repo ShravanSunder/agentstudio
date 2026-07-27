@@ -1,9 +1,10 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
 // MARK: - CommandBarResultsList
 
 /// Grouped scrollable list with results. Shows group headers per section.
-struct CommandBarResultsList: View {
+package struct CommandBarResultsList: View {
     let groups: [CommandBarItemGroup]
     let octiconLoader: OcticonLoader
     let selectedIndex: Int
@@ -11,7 +12,7 @@ struct CommandBarResultsList: View {
     let dimmedItemIds: Set<String>
     let onSelect: (CommandBarItem) -> Void
 
-    init(
+    package init(
         groups: [CommandBarItemGroup],
         octiconLoader: OcticonLoader,
         selectedIndex: Int,
@@ -27,7 +28,7 @@ struct CommandBarResultsList: View {
         self.onSelect = onSelect
     }
 
-    var body: some View {
+    package var body: some View {
         if groups.isEmpty || groups.allSatisfy({ $0.items.isEmpty }) {
             emptyState
         } else {

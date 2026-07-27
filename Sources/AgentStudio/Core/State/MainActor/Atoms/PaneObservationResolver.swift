@@ -1,7 +1,7 @@
 import Foundation
 
-enum PaneObservationResolver {
-    static func isPaneCurrentlyAttended(
+package enum PaneObservationResolver {
+    package static func isPaneCurrentlyAttended(
         paneId: UUID,
         attendedPaneId: UUID?,
         pane: (UUID) -> Pane?,
@@ -10,7 +10,7 @@ enum PaneObservationResolver {
         currentAttendedPaneId(attendedPaneId: attendedPaneId, pane: pane, drawerView: drawerView) == paneId
     }
 
-    static func currentAttendedPaneId(
+    package static func currentAttendedPaneId(
         attendedPaneId: UUID?,
         pane: (UUID) -> Pane?,
         drawerView: (UUID) -> DrawerView? = { _ in nil }
@@ -28,7 +28,7 @@ enum PaneObservationResolver {
         return attendedPaneId
     }
 
-    static func currentObservedPaneIds(
+    package static func currentObservedPaneIds(
         attendedPaneId: UUID?,
         activeTab: Tab?,
         pane: (UUID) -> Pane?,
@@ -52,7 +52,7 @@ enum PaneObservationResolver {
         return observedPaneIds
     }
 
-    static func currentRenderedPaneIds(activeTab: Tab?, fallbackPaneId: UUID) -> [UUID] {
+    package static func currentRenderedPaneIds(activeTab: Tab?, fallbackPaneId: UUID) -> [UUID] {
         guard let activeTab else { return [fallbackPaneId] }
         if let zoomedPaneId = activeTab.zoomedPaneId {
             return [zoomedPaneId]

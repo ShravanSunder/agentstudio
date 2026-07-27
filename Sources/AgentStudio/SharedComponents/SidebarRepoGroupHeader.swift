@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-struct SidebarRepoGroupHeader<TrailingContent: View>: View {
+package struct SidebarRepoGroupHeader<TrailingContent: View>: View {
     let isCollapsed: Bool
     let octiconLoader: OcticonLoader
     let icon: AppEntityIcon
@@ -9,7 +10,7 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
     let onToggle: () -> Void
     @ViewBuilder let trailingContent: () -> TrailingContent
 
-    static var chromePolicy: SidebarHeaderChromePolicy {
+    package static var chromePolicy: SidebarHeaderChromePolicy {
         SidebarSourceGroupHeader<TrailingContent>.chromePolicy
     }
 
@@ -17,7 +18,7 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
         SidebarSourceGroupHeader<TrailingContent>.leadingInset
     }
 
-    init(
+    package init(
         isCollapsed: Bool,
         octiconLoader: OcticonLoader,
         icon: AppEntityIcon = .repo,
@@ -35,7 +36,7 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
         self.trailingContent = trailingContent
     }
 
-    var body: some View {
+    package var body: some View {
         SidebarSourceGroupHeader(
             isCollapsed: isCollapsed,
             octiconLoader: octiconLoader,
@@ -51,7 +52,7 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
 }
 
 extension SidebarRepoGroupHeader where TrailingContent == EmptyView {
-    init(
+    package init(
         isCollapsed: Bool,
         octiconLoader: OcticonLoader,
         icon: AppEntityIcon = .repo,

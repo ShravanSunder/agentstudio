@@ -1,7 +1,7 @@
 import Foundation
 
 // swiftlint:disable discouraged_none_name
-enum InboxNotificationGrouping: String, Sendable, Codable, Equatable, CaseIterable {
+package enum InboxNotificationGrouping: String, Sendable, Codable, Equatable, CaseIterable {
     case byTab
     case byRepo
     case byPane
@@ -9,7 +9,7 @@ enum InboxNotificationGrouping: String, Sendable, Codable, Equatable, CaseIterab
 }
 // swiftlint:enable discouraged_none_name
 
-enum InboxNotificationSort: String, Sendable, Codable, Equatable, CaseIterable {
+package enum InboxNotificationSort: String, Sendable, Codable, Equatable, CaseIterable {
     case newestFirst
     case oldestFirst
 }

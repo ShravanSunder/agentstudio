@@ -1,4 +1,7 @@
+import AgentStudioCore
+import AgentStudioInboxNotification
 import AgentStudioProgrammaticControl
+import AgentStudioRepoExplorer
 import Foundation
 
 struct AppCommandIPCSpec: Equatable, Sendable {

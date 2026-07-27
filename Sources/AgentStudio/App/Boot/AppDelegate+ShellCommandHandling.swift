@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioRepoExplorer
 import Foundation
 
 extension AppDelegate: ShellCommandHandling {

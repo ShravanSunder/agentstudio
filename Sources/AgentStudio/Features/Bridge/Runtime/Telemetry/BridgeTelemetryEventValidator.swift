@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+
 enum BridgeTelemetryEventValidationResult: Equatable, Sendable {
     case accepted
     case dropped(BridgeTelemetryDropReason)

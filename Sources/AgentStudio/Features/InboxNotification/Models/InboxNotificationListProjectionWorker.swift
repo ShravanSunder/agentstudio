@@ -1,34 +1,87 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 
-struct InboxNotificationListProjectionKey: Equatable, Sendable {
-    let notifications: [InboxNotification]
-    let grouping: InboxNotificationGrouping
-    let sort: InboxNotificationSort
-    let searchText: String
-    let filter: InboxFilter?
-    let contentMode: InboxNotificationContentMode
-    let rowStateFilter: InboxNotificationRowStateFilter
-    let collapsedGroups: Set<InboxNotificationGroupKey>
-    let repoPresentationFingerprint: String
+package struct InboxNotificationListProjectionKey: Equatable, Sendable {
+    package let notifications: [InboxNotification]
+    package let grouping: InboxNotificationGrouping
+    package let sort: InboxNotificationSort
+    package let searchText: String
+    package let filter: InboxFilter?
+    package let contentMode: InboxNotificationContentMode
+    package let rowStateFilter: InboxNotificationRowStateFilter
+    package let collapsedGroups: Set<InboxNotificationGroupKey>
+    package let repoPresentationFingerprint: String
+
+    package init(
+        notifications: [InboxNotification],
+        grouping: InboxNotificationGrouping,
+        sort: InboxNotificationSort,
+        searchText: String,
+        filter: InboxFilter?,
+        contentMode: InboxNotificationContentMode,
+        rowStateFilter: InboxNotificationRowStateFilter,
+        collapsedGroups: Set<InboxNotificationGroupKey>,
+        repoPresentationFingerprint: String
+    ) {
+        self.notifications = notifications
+        self.grouping = grouping
+        self.sort = sort
+        self.searchText = searchText
+        self.filter = filter
+        self.contentMode = contentMode
+        self.rowStateFilter = rowStateFilter
+        self.collapsedGroups = collapsedGroups
+        self.repoPresentationFingerprint = repoPresentationFingerprint
+    }
 }
 
-struct InboxNotificationListProjectionRequest: Equatable, Sendable {
-    let generation: Int
-    let key: InboxNotificationListProjectionKey
-    let trigger: AppPolicies.SidebarProjection.Trigger
-    let repoPresentationByRepoId: [UUID: InboxNotificationRepoGroupPresentation]
+package struct InboxNotificationListProjectionRequest: Equatable, Sendable {
+    package let generation: Int
+    package let key: InboxNotificationListProjectionKey
+    package let trigger: AppPolicies.SidebarProjection.Trigger
+    package let repoPresentationByRepoId: [UUID: InboxNotificationRepoGroupPresentation]
+
+    package init(
+        generation: Int,
+        key: InboxNotificationListProjectionKey,
+        trigger: AppPolicies.SidebarProjection.Trigger,
+        repoPresentationByRepoId: [UUID: InboxNotificationRepoGroupPresentation]
+    ) {
+        self.generation = generation
+        self.key = key
+        self.trigger = trigger
+        self.repoPresentationByRepoId = repoPresentationByRepoId
+    }
 }
 
-struct InboxNotificationListProjectionResult: Equatable, Sendable {
-    let generation: Int
-    let key: InboxNotificationListProjectionKey
-    let trigger: AppPolicies.SidebarProjection.Trigger
-    let model: InboxNotificationListModel
-    let workerDuration: Duration
+package struct InboxNotificationListProjectionResult: Equatable, Sendable {
+    package let generation: Int
+    package let key: InboxNotificationListProjectionKey
+    package let trigger: AppPolicies.SidebarProjection.Trigger
+    package let model: InboxNotificationListModel
+    package let workerDuration: Duration
+
+    package init(
+        generation: Int,
+        key: InboxNotificationListProjectionKey,
+        trigger: AppPolicies.SidebarProjection.Trigger,
+        model: InboxNotificationListModel,
+        workerDuration: Duration
+    ) {
+        self.generation = generation
+        self.key = key
+        self.trigger = trigger
+        self.model = model
+        self.workerDuration = workerDuration
+    }
 }
 
-actor InboxNotificationListProjectionWorker {
-    func project(_ request: InboxNotificationListProjectionRequest) async throws
+package actor InboxNotificationListProjectionWorker {
+    package init() {}
+
+    package func project(_ request: InboxNotificationListProjectionRequest) async throws
         -> InboxNotificationListProjectionResult
     {
         // Runs CPU-bound list projection outside actor/main-actor isolation; cancellation is forwarded below.

@@ -1,7 +1,7 @@
 import Foundation
 
-enum PaneFocusOrchestrator {
-    static func decide(
+package enum PaneFocusOrchestrator {
+    package static func decide(
         trigger: PaneFocusTrigger,
         context: PaneFocusContext
     ) -> PaneFocusDecision {

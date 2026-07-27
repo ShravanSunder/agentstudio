@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 enum BridgePaneProductReviewMetadataSourceError: Error, Equatable {

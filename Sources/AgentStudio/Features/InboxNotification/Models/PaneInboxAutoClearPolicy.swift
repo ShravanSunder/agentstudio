@@ -1,11 +1,13 @@
 import Foundation
 
-enum PaneInboxAutoClearDecision: Sendable, Equatable {
+package enum PaneInboxAutoClearDecision: Sendable, Equatable {
     case clear
     case keep(reason: String)
 }
 
-struct PaneInboxAutoClearPolicy: Sendable {
+package struct PaneInboxAutoClearPolicy: Sendable {
+    package init() {}
+
     func decision(
         notification: InboxNotification,
         isSourcePaneAttended: Bool,

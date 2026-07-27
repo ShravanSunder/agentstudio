@@ -1,4 +1,7 @@
+import AgentStudioCore
+import AgentStudioInboxNotification
 import AgentStudioProgrammaticControl
+import AgentStudioRepoExplorer
 import Foundation
 
 /// Protocol for objects that execute commands against the active workspace.

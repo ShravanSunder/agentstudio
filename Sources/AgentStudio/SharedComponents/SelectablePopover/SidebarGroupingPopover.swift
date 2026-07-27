@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-struct SidebarGroupingPopover<Item: Hashable, Icon: View>: View {
+package struct SidebarGroupingPopover<Item: Hashable, Icon: View>: View {
     let items: [Item]
     let selectedItem: Item
     let icon: (Item) -> Icon
@@ -9,7 +10,23 @@ struct SidebarGroupingPopover<Item: Hashable, Icon: View>: View {
     let onDismiss: () -> Void
     @State private var highlightedItem: Item?
 
-    var body: some View {
+    package init(
+        items: [Item],
+        selectedItem: Item,
+        @ViewBuilder icon: @escaping (Item) -> Icon,
+        label: @escaping (Item) -> String,
+        onSelect: @escaping (Item) -> Void,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.items = items
+        self.selectedItem = selectedItem
+        self.icon = icon
+        self.label = label
+        self.onSelect = onSelect
+        self.onDismiss = onDismiss
+    }
+
+    package var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.General.Spacing.tight) {
             ForEach(items, id: \.self) { item in
                 Button {

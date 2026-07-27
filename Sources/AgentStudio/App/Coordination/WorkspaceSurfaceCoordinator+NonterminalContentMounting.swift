@@ -1,3 +1,6 @@
+import AgentStudioCodeViewer
+import AgentStudioCore
+import AgentStudioWebview
 import AppKit
 import Foundation
 

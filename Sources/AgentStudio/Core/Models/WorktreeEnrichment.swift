@@ -4,11 +4,11 @@ import Foundation
 /// Rebuildable cache data; not canonical workspace identity.
 package struct WorktreeEnrichment: Codable, Hashable, Sendable {
     let worktreeId: UUID
-    let repoId: UUID
-    var branch: String
+    package let repoId: UUID
+    package private(set) var branch: String
     var isMainWorktree: Bool
     var snapshot: GitWorkingTreeSnapshot?
-    var updatedAt: Date
+    package private(set) var updatedAt: Date
 
     enum CodingKeys: String, CodingKey {
         case worktreeId
@@ -18,7 +18,7 @@ package struct WorktreeEnrichment: Codable, Hashable, Sendable {
         case updatedAt
     }
 
-    init(
+    package init(
         worktreeId: UUID,
         repoId: UUID,
         branch: String,
@@ -51,6 +51,11 @@ package struct WorktreeEnrichment: Codable, Hashable, Sendable {
         try container.encode(branch, forKey: .branch)
         try container.encode(isMainWorktree, forKey: .isMainWorktree)
         try container.encode(updatedAt, forKey: .updatedAt)
+    }
+
+    package mutating func updateBranch(_ branch: String, updatedAt: Date = Date()) {
+        self.branch = branch
+        self.updatedAt = updatedAt
     }
 
     package static func == (lhs: Self, rhs: Self) -> Bool {

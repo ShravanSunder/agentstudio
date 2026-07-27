@@ -1,10 +1,10 @@
 import Foundation
 
-struct RepoWorktreeCacheFacts: Equatable, Sendable {
-    var enrichment: WorktreeEnrichment?
-    var pullRequestCount: Int?
+package struct RepoWorktreeCacheFacts: Equatable, Sendable {
+    package var enrichment: WorktreeEnrichment?
+    package var pullRequestCount: Int?
 
-    init(
+    package init(
         enrichment: WorktreeEnrichment? = nil,
         pullRequestCount: Int? = nil
     ) {
@@ -12,11 +12,11 @@ struct RepoWorktreeCacheFacts: Equatable, Sendable {
         self.pullRequestCount = pullRequestCount
     }
 
-    static func == (lhs: Self, rhs: Self) -> Bool {
+    package static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.hasSameCacheContent(as: rhs)
     }
 
-    func hasSameCacheContent(as other: Self) -> Bool {
+    package func hasSameCacheContent(as other: Self) -> Bool {
         let enrichmentMatches =
             switch (enrichment, other.enrichment) {
             case (.none, .none):

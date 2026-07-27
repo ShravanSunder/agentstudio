@@ -1,9 +1,10 @@
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 
 /// Floating popover panel for managing pane arrangements.
 /// Shows pane visibility toggles, arrangement chips, and save controls.
-struct ArrangementPanel: View {
+package struct ArrangementPanel: View {
     let tabId: UUID
     let workspaceWindowId: UUID?
     let panes: [PaneVisibilityInfo]
@@ -22,6 +23,32 @@ struct ArrangementPanel: View {
     @State private var hasClaimedFocus = false
     @State private var focusedArrangementId: UUID?
 
+    package init(
+        tabId: UUID,
+        workspaceWindowId: UUID?,
+        panes: [PaneVisibilityInfo],
+        arrangements: [ArrangementInfo],
+        inlineRenameState: ArrangementInlineRenameState,
+        onPaneAction: @escaping (WorkspaceActionCommand) -> Void,
+        onSaveArrangement: @escaping () -> Void,
+        onDismiss: @escaping () -> Void,
+        showsMinimizedPanesBinding: Binding<Bool>,
+        highlightPaneId: UUID? = nil,
+        showsMinimizedBarToggle: Bool = true
+    ) {
+        self.tabId = tabId
+        self.workspaceWindowId = workspaceWindowId
+        self.panes = panes
+        self.arrangements = arrangements
+        self.inlineRenameState = inlineRenameState
+        self.onPaneAction = onPaneAction
+        self.onSaveArrangement = onSaveArrangement
+        self.onDismiss = onDismiss
+        self.showsMinimizedPanesBinding = showsMinimizedPanesBinding
+        self.highlightPaneId = highlightPaneId
+        self.showsMinimizedBarToggle = showsMinimizedBarToggle
+    }
+
     private var displayState: ArrangementPanelDisplayState {
         ArrangementPanelDisplayState(
             visiblePanes: panes,
@@ -37,7 +64,7 @@ struct ArrangementPanel: View {
         return .arrangementPanel(tabId: tabId)
     }
 
-    var body: some View {
+    package var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Arrangements")
                 .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))

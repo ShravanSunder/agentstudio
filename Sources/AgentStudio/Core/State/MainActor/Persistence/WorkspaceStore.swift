@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import os.log
@@ -8,7 +9,7 @@ enum WorkspaceStoreError: Error {
     case missingSQLiteSaveCoordinator
 }
 
-enum WorkspaceStoreLoadFailure: Error, Equatable, Sendable {
+package enum WorkspaceStoreLoadFailure: Error, Equatable, Sendable {
     case missingSQLiteDatastore
     case sqliteUnavailable(WorkspaceSQLiteDatastoreFailure)
     case defaultWorkspaceInitializationFailed(WorkspaceSQLiteDatastoreFailure)
@@ -17,7 +18,7 @@ enum WorkspaceStoreLoadFailure: Error, Equatable, Sendable {
     case compositionApplyFailed(WorkspacePreparedCompositionApplyFailure)
     case topologyRejected(RepositoryTopologyIdentityRejection)
 
-    var diagnosticCode: WorkspaceStartupFailureDiagnosticCode {
+    package var diagnosticCode: WorkspaceStartupFailureDiagnosticCode {
         switch self {
         case .missingSQLiteDatastore:
             .missingSQLiteDatastore
@@ -37,7 +38,7 @@ enum WorkspaceStoreLoadFailure: Error, Equatable, Sendable {
     }
 }
 
-enum WorkspaceStartupFailureDiagnosticCode: String, Equatable, Sendable {
+package enum WorkspaceStartupFailureDiagnosticCode: String, Equatable, Sendable {
     case missingSQLiteDatastore = "missing_sqlite_datastore"
     case sqliteUnavailable = "sqlite_unavailable"
     case defaultWorkspaceInitializationFailed = "default_workspace_initialization_failed"
@@ -47,7 +48,7 @@ enum WorkspaceStartupFailureDiagnosticCode: String, Equatable, Sendable {
     case topologyRejected = "topology_rejected"
 }
 
-enum WorkspaceStoreLoadResult: Equatable, Sendable {
+package enum WorkspaceStoreLoadResult: Equatable, Sendable {
     case loaded(WorkspacePreparedCompositionAcceptance)
     case initializedDefaultWorkspace(WorkspacePreparedCompositionAcceptance)
     case failed(WorkspaceStoreLoadFailure)
@@ -59,21 +60,21 @@ enum WorkspaceStoreLoadResult: Equatable, Sendable {
 /// and flushing. Workspace-domain
 /// mutations live on the owning atoms or `WorkspaceMutationCoordinator`.
 @MainActor
-final class WorkspaceStore {
-    let identityAtom: WorkspaceIdentityAtom
-    let windowMemoryAtom: WorkspaceWindowMemoryAtom
-    let repositoryTopologyAtom: RepositoryTopologyAtom
+package final class WorkspaceStore {
+    package let identityAtom: WorkspaceIdentityAtom
+    package let windowMemoryAtom: WorkspaceWindowMemoryAtom
+    package let repositoryTopologyAtom: RepositoryTopologyAtom
     let paneGraphAtom: WorkspacePaneGraphAtom
     let drawerCursorAtom: WorkspaceDrawerCursorAtom
-    let paneAtom: WorkspacePaneAtom
-    let tabShellAtom: WorkspaceTabShellAtom
+    package let paneAtom: WorkspacePaneAtom
+    package let tabShellAtom: WorkspaceTabShellAtom
     let tabCursorAtom: WorkspaceTabCursorAtom
     let tabGraphAtom: WorkspaceTabGraphAtom
     let arrangementCursorAtom: WorkspaceArrangementCursorAtom
     let panePresentationAtom: WorkspacePanePresentationAtom
-    let tabArrangementAtom: WorkspaceTabArrangementAtom
-    let tabLayoutAtom: WorkspaceTabLayoutAtom
-    let mutationCoordinator: WorkspaceMutationCoordinator
+    package let tabArrangementAtom: WorkspaceTabArrangementAtom
+    package let tabLayoutAtom: WorkspaceTabLayoutAtom
+    package let mutationCoordinator: WorkspaceMutationCoordinator
 
     private let sqliteDatastore: WorkspaceSQLiteDatastore?
     private let sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator?
@@ -87,11 +88,11 @@ final class WorkspaceStore {
     private var isApplyingInitialComposition = false
     private(set) var isDirty: Bool = false
 
-    var isAutosaveObservationActive: Bool {
+    package var isAutosaveObservationActive: Bool {
         isObservingPersistedState
     }
 
-    init(
+    package init(
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
         repositoryTopologyAtom: RepositoryTopologyAtom,
@@ -158,7 +159,7 @@ final class WorkspaceStore {
 
     // MARK: - Persistence
 
-    func loadCanonicalComposition() async -> WorkspaceStoreLoadResult {
+    package func loadCanonicalComposition() async -> WorkspaceStoreLoadResult {
         guard let sqliteDatastore else {
             return .failed(.missingSQLiteDatastore)
         }
@@ -264,7 +265,7 @@ final class WorkspaceStore {
     }
 
     @discardableResult
-    func flushAsync() async -> WorkspaceStoreFlushOutcome {
+    package func flushAsync() async -> WorkspaceStoreFlushOutcome {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         let outcome = await persistNow()
@@ -272,9 +273,13 @@ final class WorkspaceStore {
         return outcome
     }
 
-    var prePersistHook: (() -> Void)?
+    private var prePersistHook: (() -> Void)?
 
-    func startObserving() {
+    package func setPrePersistHook(_ hook: @escaping () -> Void) {
+        prePersistHook = hook
+    }
+
+    package func startObserving() {
         guard !isObservingPersistedState else { return }
         isObservingPersistedState = true
         withObservationTracking {
@@ -377,11 +382,11 @@ final class WorkspaceStore {
 
 }
 
-enum WorkspaceStoreFlushOutcome: Equatable {
+package enum WorkspaceStoreFlushOutcome: Equatable {
     case persisted
     case failed(String)
 
-    var succeeded: Bool {
+    package var succeeded: Bool {
         if case .persisted = self {
             return true
         }

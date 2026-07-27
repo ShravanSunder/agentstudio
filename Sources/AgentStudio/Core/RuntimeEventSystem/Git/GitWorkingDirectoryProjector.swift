@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import os
 
@@ -11,7 +12,7 @@ import os
 /// Output:
 /// - `.filesystem(.gitSnapshotChanged)`
 /// - `.filesystem(.branchChanged)` (optional derivative fact)
-actor GitWorkingDirectoryProjector {
+package actor GitWorkingDirectoryProjector {
     static let logger = Logger(subsystem: "com.agentstudio", category: "GitWorkingDirectoryProjector")
 
     let runtimeBus: EventBus<RuntimeEnvelope>
@@ -87,7 +88,7 @@ actor GitWorkingDirectoryProjector {
         worktreeTasks.count
     }
 
-    init(
+    package init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
         envelopeClock: ContinuousClock = ContinuousClock(),
@@ -133,7 +134,7 @@ actor GitWorkingDirectoryProjector {
         statusBackoffTasks.removeAll(keepingCapacity: false)
     }
 
-    func start() async {
+    package func start() async {
         guard subscriptionTask == nil else { return }
         isShuttingDown = false
         let stream = await runtimeBus.subscribe(
@@ -151,7 +152,7 @@ actor GitWorkingDirectoryProjector {
         startPeriodicRefreshLoopIfNeeded()
     }
 
-    func shutdown() async {
+    package func shutdown() async {
         isShuttingDown = true
         let subscription = subscriptionTask
         subscriptionTask?.cancel()
@@ -271,7 +272,7 @@ actor GitWorkingDirectoryProjector {
         }
     }
 
-    func assertTopology(_ assertion: FilesystemTopologyAssertion) {
+    package func assertTopology(_ assertion: FilesystemTopologyAssertion) {
         guard shouldApplyTopologyAssertion(assertion) else { return }
 
         latestTopologyAssertion = assertion
@@ -298,7 +299,7 @@ actor GitWorkingDirectoryProjector {
         }
     }
 
-    func setActivity(worktreeId: UUID, isActiveInApp: Bool) {
+    package func setActivity(worktreeId: UUID, isActiveInApp: Bool) {
         if isActiveInApp {
             activeWorktreeIds.insert(worktreeId)
             enqueueImmediateRefreshIfRegistered(worktreeId: worktreeId)
@@ -307,13 +308,13 @@ actor GitWorkingDirectoryProjector {
         }
     }
 
-    func setActivePaneWorktree(worktreeId: UUID?) {
+    package func setActivePaneWorktree(worktreeId: UUID?) {
         activePaneWorktreeId = worktreeId
         guard let worktreeId else { return }
         enqueueImmediateRefreshIfRegistered(worktreeId: worktreeId)
     }
 
-    func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) {
+    package func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) {
         let newlyVisibleWorktreeIds = worktreeIds.subtracting(sidebarVisibleWorktreeIds)
         sidebarVisibleWorktreeIds = worktreeIds
         for worktreeId in newlyVisibleWorktreeIds.sorted(by: { $0.uuidString < $1.uuidString }) {
@@ -321,7 +322,7 @@ actor GitWorkingDirectoryProjector {
         }
     }
 
-    func refreshRegisteredWorktreesImmediately() {
+    package func refreshRegisteredWorktreesImmediately() {
         for worktreeId in rootPathByWorktreeId.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
             enqueueImmediateRefreshIfRegistered(worktreeId: worktreeId)
         }

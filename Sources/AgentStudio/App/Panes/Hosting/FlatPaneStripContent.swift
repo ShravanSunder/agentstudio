@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioEditorChooser
+import AgentStudioInfrastructure
 import SwiftUI
 import os.log
 
@@ -24,7 +27,7 @@ enum PaneSegmentMissingHostDisposition: Equatable {
 }
 
 struct FlatPaneStripContent: View {
-    let layout: Layout
+    let layout: AgentStudioCore.Layout
     let octiconLoader: OcticonLoader
     let tabId: UUID
     let activePaneId: UUID?
@@ -142,7 +145,7 @@ private struct PaneSegmentSlotView: View {
     let octiconLoader: OcticonLoader
     let tabId: UUID
     let activePaneId: UUID?
-    let layout: Layout
+    let layout: AgentStudioCore.Layout
     let collapsedPaneWidth: CGFloat
     let onSaveArrangement: (() -> Void)?
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator

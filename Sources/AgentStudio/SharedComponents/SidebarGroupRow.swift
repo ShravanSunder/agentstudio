@@ -1,11 +1,22 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-struct SidebarGroupRow: View {
+package struct SidebarGroupRow: View {
     let octiconLoader: OcticonLoader
     let repoTitle: String
     let organizationName: String?
 
-    var body: some View {
+    package init(
+        octiconLoader: OcticonLoader,
+        repoTitle: String,
+        organizationName: String?
+    ) {
+        self.octiconLoader = octiconLoader
+        self.repoTitle = repoTitle
+        self.organizationName = organizationName
+    }
+
+    package var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
             AppEntityIcon.repo.swiftUIImage(
                 loader: octiconLoader,

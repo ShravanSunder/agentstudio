@@ -2,19 +2,19 @@ import Foundation
 
 /// A git worktree within a repo — structure-only.
 /// All enrichment data (branch, status) comes from RepoCacheAtom via the event bus.
-struct Worktree: Codable, Identifiable, Hashable, Sendable {
-    let id: UUID
-    let repoId: UUID
-    var name: String
-    var path: URL
-    var isMainWorktree: Bool
-    var note: String?
+package struct Worktree: Codable, Identifiable, Hashable, Sendable {
+    package let id: UUID
+    package let repoId: UUID
+    package var name: String
+    package var path: URL
+    package var isMainWorktree: Bool
+    package var note: String?
 
     /// Deterministic identity derived from filesystem path via SHA-256.
     /// Used for zmx session ID segment. Survives reinstall/data loss, breaks on directory move.
-    var stableKey: String { StableKey.fromPath(path) }
+    package var stableKey: String { StableKey.fromPath(path) }
 
-    init(
+    package init(
         id: UUID = UUID(),
         repoId: UUID,
         name: String,
@@ -30,7 +30,7 @@ struct Worktree: Codable, Identifiable, Hashable, Sendable {
         self.note = note
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decode(UUID.self, forKey: .id)
         self.repoId = try container.decode(UUID.self, forKey: .repoId)

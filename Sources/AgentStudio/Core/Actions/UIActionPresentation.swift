@@ -1,9 +1,16 @@
+import AgentStudioInfrastructure
 import Foundation
 
-struct ActionSpec: Equatable, Sendable {
-    let label: String
-    let helpText: String
-    let icon: CommandIcon
+package struct ActionSpec: Equatable, Sendable {
+    package let label: String
+    package let helpText: String
+    package let icon: CommandIcon
+
+    package init(label: String, helpText: String, icon: CommandIcon) {
+        self.label = label
+        self.helpText = helpText
+        self.icon = icon
+    }
 }
 
 extension ActionSpec {
@@ -22,7 +29,7 @@ extension ActionSpec {
             ))
     }
 
-    func controlTooltipRenderValue(
+    package func controlTooltipRenderValue(
         provenance: CommandDisplayProvenance,
         textOverride: String? = nil,
         shortcutText: ShortcutDisplayText? = nil
@@ -52,7 +59,7 @@ extension KeyBinding {
         ShortcutDisplayText(value: displayString)
     }
 
-    var displayString: String {
+    package var displayString: String {
         var keys: [String] = []
         if modifiers.contains(.command) { keys.append("⌘") }
         if modifiers.contains(.shift) { keys.append("⇧") }
@@ -67,7 +74,7 @@ extension KeyBinding {
     }
 }
 
-enum LocalActionSpec {
+package enum LocalActionSpec {
     case quickOpen
     case commandPalette
     case goToPane
@@ -117,7 +124,7 @@ enum LocalActionSpec {
     case toggleDrawer(isExpanded: Bool)
     case addDrawerPane
 
-    var actionSpec: ActionSpec {
+    package var actionSpec: ActionSpec {
         switch self {
         case .quickOpen:
             return ActionSpec(

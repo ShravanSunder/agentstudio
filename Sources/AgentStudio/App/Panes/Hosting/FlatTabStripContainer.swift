@@ -1,8 +1,11 @@
+import AgentStudioCore
+import AgentStudioEditorChooser
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 
 struct FlatTabStripContainer: View {
-    let layout: Layout
+    let layout: AgentStudioCore.Layout
     let octiconLoader: OcticonLoader
     let tabId: UUID
     let activePaneId: UUID?
@@ -53,7 +56,7 @@ struct FlatTabStripContainer: View {
     }
 
     init(
-        layout: Layout,
+        layout: AgentStudioCore.Layout,
         octiconLoader: OcticonLoader,
         tabId: UUID,
         activePaneId: UUID?,

@@ -1,6 +1,9 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 
-enum RepoExplorerGroupingMode: String, CaseIterable, Codable, Hashable, Sendable {
+package enum RepoExplorerGroupingMode: String, CaseIterable, Codable, Hashable, Sendable {
     case repo
     case pane
     case tab
@@ -28,11 +31,11 @@ enum RepoExplorerGroupingMode: String, CaseIterable, Codable, Hashable, Sendable
     }
 }
 
-enum RepoExplorerSortOrder: String, CaseIterable, Codable, Hashable, Sendable {
+package enum RepoExplorerSortOrder: String, CaseIterable, Codable, Hashable, Sendable {
     case ascending
     case descending
 
-    static let `default`: Self = .ascending
+    package static let `default`: Self = .ascending
 
     var toggled: Self {
         switch self {
@@ -53,7 +56,7 @@ enum RepoExplorerSortOrder: String, CaseIterable, Codable, Hashable, Sendable {
     }
 }
 
-enum RepoExplorerVisibilityMode: String, CaseIterable, Codable, Hashable, Sendable {
+package enum RepoExplorerVisibilityMode: String, CaseIterable, Codable, Hashable, Sendable {
     case all
     case favoritesOnly
 }

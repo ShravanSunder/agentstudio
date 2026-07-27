@@ -45,11 +45,11 @@ package final class SidebarCacheState {
         self.expandedGroupAtom = expandedGroupAtom
     }
 
-    var expandedGroups: Set<SidebarGroupKey> {
+    package var expandedGroups: Set<SidebarGroupKey> {
         expandedGroupAtom.expandedGroups
     }
 
-    func setGroupExpanded(_ key: SidebarGroupKey, isExpanded: Bool) {
+    package func setGroupExpanded(_ key: SidebarGroupKey, isExpanded: Bool) {
         expandedGroupAtom.setGroupExpanded(key, isExpanded: isExpanded)
     }
 

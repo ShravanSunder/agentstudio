@@ -1,6 +1,6 @@
 import Foundation
 
-enum PaneFocusDecision: Sendable, Equatable {
+package enum PaneFocusDecision: Sendable, Equatable {
     case noOp(PaneFocusNoOpDecision)
     case contentClick(PaneContentClickFocusDecision)
     case tabClick(PaneTabClickFocusDecision)
@@ -11,7 +11,7 @@ enum PaneFocusDecision: Sendable, Equatable {
     case command(PaneCommandFocusDecision)
 }
 
-struct PaneFocusNoOpDecision: Sendable, Equatable {
+package struct PaneFocusNoOpDecision: Sendable, Equatable {
     let reason: PaneFocusReason
 }
 
@@ -24,83 +24,83 @@ enum PaneFocusReason: Sendable, Equatable {
     case drawerSelectionChanged
 }
 
-enum PaneContentClickSelectionAction: Sendable, Equatable {
+package enum PaneContentClickSelectionAction: Sendable, Equatable {
     case keep
     case selectPane(tabId: UUID, paneId: UUID)
 }
 
-enum PaneContentClickResponderAction: Sendable, Equatable {
+package enum PaneContentClickResponderAction: Sendable, Equatable {
     case preserveCurrentResponder
     case focusPaneHost(paneId: UUID)
 }
 
-enum PaneContentClickRuntimeAction: Sendable, Equatable {
+package enum PaneContentClickRuntimeAction: Sendable, Equatable {
     case preserveRuntimeFocus
     case syncTerminalSurface(paneId: UUID)
 }
 
-enum PaneContentClickOwnershipAction: Sendable, Equatable {
+package enum PaneContentClickOwnershipAction: Sendable, Equatable {
     case preserve
 }
 
-struct PaneContentClickFocusDecision: Sendable, Equatable {
-    let selection: PaneContentClickSelectionAction
-    let responder: PaneContentClickResponderAction
-    let runtime: PaneContentClickRuntimeAction
-    let content: PaneContentClickOwnershipAction
+package struct PaneContentClickFocusDecision: Sendable, Equatable {
+    package let selection: PaneContentClickSelectionAction
+    package let responder: PaneContentClickResponderAction
+    package let runtime: PaneContentClickRuntimeAction
+    package let content: PaneContentClickOwnershipAction
     let reason: PaneFocusReason
 }
 
-enum PaneTabClickSelectionAction: Sendable, Equatable {
+package enum PaneTabClickSelectionAction: Sendable, Equatable {
     case selectTab(UUID)
 }
 
-enum PaneTabClickResponderAction: Sendable, Equatable {
+package enum PaneTabClickResponderAction: Sendable, Equatable {
     case preserveCurrentResponder
 }
 
-enum PaneTabClickRuntimeAction: Sendable, Equatable {
+package enum PaneTabClickRuntimeAction: Sendable, Equatable {
     case preserveRuntimeFocus
 }
 
-struct PaneTabClickFocusDecision: Sendable, Equatable {
-    let selection: PaneTabClickSelectionAction
-    let responder: PaneTabClickResponderAction
-    let runtime: PaneTabClickRuntimeAction
+package struct PaneTabClickFocusDecision: Sendable, Equatable {
+    package let selection: PaneTabClickSelectionAction
+    package let responder: PaneTabClickResponderAction
+    package let runtime: PaneTabClickRuntimeAction
     let reason: PaneFocusReason
 }
 
-enum PaneDrawerSelectionAction: Sendable, Equatable {
+package enum PaneDrawerSelectionAction: Sendable, Equatable {
     case keep
     case selectDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
 }
 
-enum PaneDrawerResponderAction: Sendable, Equatable {
+package enum PaneDrawerResponderAction: Sendable, Equatable {
     case preserveCurrentResponder
     case focusPaneHost(paneId: UUID)
 }
 
-enum PaneDrawerRuntimeAction: Sendable, Equatable {
+package enum PaneDrawerRuntimeAction: Sendable, Equatable {
     case preserveRuntimeFocus
 }
 
-struct PaneDrawerFocusDecision: Sendable, Equatable {
-    let selection: PaneDrawerSelectionAction
-    let responder: PaneDrawerResponderAction
-    let runtime: PaneDrawerRuntimeAction
+package struct PaneDrawerFocusDecision: Sendable, Equatable {
+    package let selection: PaneDrawerSelectionAction
+    package let responder: PaneDrawerResponderAction
+    package let runtime: PaneDrawerRuntimeAction
     let reason: PaneFocusReason
 }
 
-enum PaneKeyboardSelectionAction: Sendable, Equatable {
+package enum PaneKeyboardSelectionAction: Sendable, Equatable {
     case selectPane(tabId: UUID, paneId: UUID)
 }
 
-enum PaneKeyboardResponderAction: Sendable, Equatable {
+package enum PaneKeyboardResponderAction: Sendable, Equatable {
     case preserveCurrentResponder
     case focusPaneHost(paneId: UUID)
 }
 
-enum PaneKeyboardRuntimeAction: Sendable, Equatable {
+package enum PaneKeyboardRuntimeAction: Sendable, Equatable {
     case preserveRuntimeFocus
     case syncTerminalSurface(paneId: UUID)
 }
@@ -110,15 +110,15 @@ enum PaneKeyboardRoutingAction: Sendable, Equatable {
     case consume
 }
 
-struct PaneKeyboardFocusDecision: Sendable, Equatable {
-    let selection: PaneKeyboardSelectionAction
-    let responder: PaneKeyboardResponderAction
-    let runtime: PaneKeyboardRuntimeAction
+package struct PaneKeyboardFocusDecision: Sendable, Equatable {
+    package let selection: PaneKeyboardSelectionAction
+    package let responder: PaneKeyboardResponderAction
+    package let runtime: PaneKeyboardRuntimeAction
     let keyboard: PaneKeyboardRoutingAction
     let reason: PaneFocusReason
 }
 
-enum PaneModeResponderAction: Sendable, Equatable {
+package enum PaneModeResponderAction: Sendable, Equatable {
     case preserveCurrentResponder
     case clearToWindowContent
 }
@@ -128,54 +128,54 @@ enum PaneModeKeyboardRoutingAction: Sendable, Equatable {
     case consume
 }
 
-enum PaneModeContentAction: Sendable, Equatable {
+package enum PaneModeContentAction: Sendable, Equatable {
     case block
     case release
 }
 
-struct PaneModeFocusDecision: Sendable, Equatable {
-    let responder: PaneModeResponderAction
+package struct PaneModeFocusDecision: Sendable, Equatable {
+    package let responder: PaneModeResponderAction
     let keyboard: PaneModeKeyboardRoutingAction
-    let content: PaneModeContentAction
+    package let content: PaneModeContentAction
     let reason: PaneFocusReason
 }
 
-enum PaneRefocusRequestResponderAction: Sendable, Equatable {
+package enum PaneRefocusRequestResponderAction: Sendable, Equatable {
     case preserveCurrentResponder
     case focusPaneHost(paneId: UUID)
     case focusMountedContent(paneId: UUID)
 }
 
-enum PaneRefocusRequestRuntimeAction: Sendable, Equatable {
+package enum PaneRefocusRequestRuntimeAction: Sendable, Equatable {
     case preserveRuntimeFocus
     case syncTerminalSurface(paneId: UUID)
 }
 
-struct PaneRefocusRequestDecision: Sendable, Equatable {
-    let responder: PaneRefocusRequestResponderAction
-    let runtime: PaneRefocusRequestRuntimeAction
+package struct PaneRefocusRequestDecision: Sendable, Equatable {
+    package let responder: PaneRefocusRequestResponderAction
+    package let runtime: PaneRefocusRequestRuntimeAction
     let reason: PaneFocusReason
 }
 
-enum PaneCommandSelectionAction: Sendable, Equatable {
+package enum PaneCommandSelectionAction: Sendable, Equatable {
     case keep
     case selectPane(tabId: UUID, paneId: UUID)
     case selectTab(UUID)
 }
 
-enum PaneCommandResponderAction: Sendable, Equatable {
+package enum PaneCommandResponderAction: Sendable, Equatable {
     case preserveCurrentResponder
     case focusPaneHost(paneId: UUID)
 }
 
-enum PaneCommandRuntimeAction: Sendable, Equatable {
+package enum PaneCommandRuntimeAction: Sendable, Equatable {
     case preserveRuntimeFocus
     case syncTerminalSurface(paneId: UUID)
 }
 
-struct PaneCommandFocusDecision: Sendable, Equatable {
-    let selection: PaneCommandSelectionAction
-    let responder: PaneCommandResponderAction
-    let runtime: PaneCommandRuntimeAction
+package struct PaneCommandFocusDecision: Sendable, Equatable {
+    package let selection: PaneCommandSelectionAction
+    package let responder: PaneCommandResponderAction
+    package let runtime: PaneCommandRuntimeAction
     let reason: PaneFocusReason
 }

@@ -1,3 +1,7 @@
+import AgentStudioCore
+import AgentStudioEditorChooser
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import SwiftUI
 
 @MainActor

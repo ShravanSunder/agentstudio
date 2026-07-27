@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 import Observation
 import os.log
@@ -9,12 +12,12 @@ private let paneInboxNotificationPresenterLogger = Logger(
 
 @MainActor
 @Observable
-final class PaneInboxNotificationPresenter {
-    private(set) var request: PaneInboxRequest?
+package final class PaneInboxNotificationPresenter {
+    package private(set) var request: PaneInboxRequest?
     private var presentedTarget: PaneInboxTarget?
     private let traceQueue: AgentStudioTraceEventQueue?
 
-    init(traceRuntime: AgentStudioTraceRuntime? = nil) {
+    package init(traceRuntime: AgentStudioTraceRuntime? = nil) {
         self.traceQueue = traceRuntime.map(AgentStudioTraceEventQueue.init(traceRuntime:))
     }
 
@@ -22,7 +25,7 @@ final class PaneInboxNotificationPresenter {
         traceQueue?.cancel()
     }
 
-    func open(parentPaneId: UUID, paneIds: [UUID]) {
+    package func open(parentPaneId: UUID, paneIds: [UUID]) {
         request = PaneInboxRequest(id: UUID(), parentPaneId: parentPaneId, paneIds: paneIds, intent: .open)
         tracePaneInboxInteraction(
             body: "paneInbox.requested",
@@ -32,7 +35,7 @@ final class PaneInboxNotificationPresenter {
         )
     }
 
-    func toggle(parentPaneId: UUID, paneIds: [UUID]) {
+    package func toggle(parentPaneId: UUID, paneIds: [UUID]) {
         let target = PaneInboxTarget(parentPaneId: parentPaneId, paneIds: paneIds)
         if presentedTarget == target {
             request = PaneInboxRequest(id: UUID(), parentPaneId: parentPaneId, paneIds: paneIds, intent: .close)
@@ -59,11 +62,11 @@ final class PaneInboxNotificationPresenter {
         open(parentPaneId: parentPaneId, paneIds: paneIds)
     }
 
-    func isPresented(parentPaneId: UUID, paneIds: [UUID]) -> Bool {
+    package func isPresented(parentPaneId: UUID, paneIds: [UUID]) -> Bool {
         presentedTarget == PaneInboxTarget(parentPaneId: parentPaneId, paneIds: paneIds)
     }
 
-    func setPresented(parentPaneId: UUID, paneIds: [UUID], isPresented: Bool) {
+    package func setPresented(parentPaneId: UUID, paneIds: [UUID], isPresented: Bool) {
         let target = PaneInboxTarget(parentPaneId: parentPaneId, paneIds: paneIds)
         if isPresented {
             guard presentedTarget != target else { return }
@@ -80,12 +83,12 @@ final class PaneInboxNotificationPresenter {
         )
     }
 
-    func clearRequest(_ request: PaneInboxRequest) {
+    package func clearRequest(_ request: PaneInboxRequest) {
         guard self.request == request else { return }
         self.request = nil
     }
 
-    func recordRowActivation(notification: InboxNotification, paneIds: [UUID]) {
+    package func recordRowActivation(notification: InboxNotification, paneIds: [UUID]) {
         var attributes: [String: AgentStudioTraceValue] = [
             "agentstudio.action.name": .string("focusPane"),
             "agentstudio.notification.id": .string(notification.id.uuidString),
@@ -105,7 +108,7 @@ final class PaneInboxNotificationPresenter {
         )
     }
 
-    func drainTraceRecords() async {
+    package func drainTraceRecords() async {
         do {
             try await traceQueue?.drain()
         } catch {

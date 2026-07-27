@@ -1,13 +1,13 @@
 import Foundation
 
-struct PaneInboxScope: Equatable {
-    let parentPaneId: UUID
-    let paneIds: [UUID]
+package struct PaneInboxScope: Equatable {
+    package let parentPaneId: UUID
+    package let paneIds: [UUID]
 }
 
 @MainActor
-enum PaneInboxScopeResolver {
-    static func resolve(
+package enum PaneInboxScopeResolver {
+    package static func resolve(
         anchorPaneId: UUID,
         pane: (UUID) -> Pane?
     ) -> PaneInboxScope {

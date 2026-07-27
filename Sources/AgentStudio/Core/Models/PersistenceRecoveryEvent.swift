@@ -4,8 +4,8 @@ import Foundation
 ///
 /// Stores report this without knowing how the app will surface it. The App
 /// composition layer turns it into user-visible UI.
-struct PersistenceRecoveryEvent: Sendable, Equatable {
-    enum Store: String, Sendable, Codable, Equatable {
+package struct PersistenceRecoveryEvent: Sendable, Equatable {
+    package enum Store: String, Sendable, Codable, Equatable {
         case workspace
         case repoCache
         case workspaceSettings
@@ -14,7 +14,7 @@ struct PersistenceRecoveryEvent: Sendable, Equatable {
         case notificationInbox
     }
 
-    enum Recovery: String, Sendable, Codable, Equatable {
+    package enum Recovery: String, Sendable, Codable, Equatable {
         case resetToDefaults
         case rebuiltFromEvents
         case quarantinedAndReset
@@ -23,12 +23,12 @@ struct PersistenceRecoveryEvent: Sendable, Equatable {
         case saveFailed
     }
 
-    let store: Store
-    let workspaceId: UUID?
-    let recovery: Recovery
-    let quarantinedFilename: String?
+    package let store: Store
+    package let workspaceId: UUID?
+    package let recovery: Recovery
+    package let quarantinedFilename: String?
 
-    init(
+    package init(
         store: Store,
         workspaceId: UUID?,
         recovery: Recovery,
@@ -41,4 +41,4 @@ struct PersistenceRecoveryEvent: Sendable, Equatable {
     }
 }
 
-typealias PersistenceRecoveryReporter = @MainActor (PersistenceRecoveryEvent) -> Void
+package typealias PersistenceRecoveryReporter = @MainActor (PersistenceRecoveryEvent) -> Void

@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import SwiftUI
 
 struct TabBarArrangementChip: View {

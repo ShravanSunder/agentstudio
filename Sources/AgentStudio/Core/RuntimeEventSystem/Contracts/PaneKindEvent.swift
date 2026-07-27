@@ -1,11 +1,11 @@
 import Foundation
 
-protocol PaneKindEvent: Sendable {
+package protocol PaneKindEvent: Sendable {
     var actionPolicy: ActionPolicy { get }
     var eventName: EventIdentifier { get }
 }
 
-enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
+package enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
     // Keep identifiers globally unique across all pane kinds. For new events, prefer
     // kind-qualified names when semantic overlap exists (for example, browserNewTab).
     case newTab
@@ -61,7 +61,7 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
     case fsGitWorkingTreeInCwd
     case plugin(String)
 
-    var rawValue: String {
+    package var rawValue: String {
         switch self {
         case .newTab: return "newTab"
         case .closeTab: return "closeTab"
@@ -118,5 +118,5 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
         }
     }
 
-    var description: String { rawValue }
+    package var description: String { rawValue }
 }

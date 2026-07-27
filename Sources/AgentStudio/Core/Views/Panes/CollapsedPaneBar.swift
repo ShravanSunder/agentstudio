@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 
-struct CollapsedPaneBar: View {
+package struct CollapsedPaneBar: View {
     let paneId: UUID
     let octiconLoader: OcticonLoader
     let tabId: UUID
@@ -23,10 +24,10 @@ struct CollapsedPaneBar: View {
         atom(\.managementLayer)
     }
 
-    static let barWidth: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
+    package static let barWidth: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
     static let barHeight: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
 
-    init(
+    package init(
         paneId: UUID,
         octiconLoader: OcticonLoader,
         tabId: UUID,
@@ -58,7 +59,7 @@ struct CollapsedPaneBar: View {
         atom(\.workspacePane).pane(paneId)?.isDrawerChild ?? false
     }
 
-    var body: some View {
+    package var body: some View {
         let paneDisplay = atom(\.paneDisplay)
         let displayParts = paneDisplay.displayParts(for: paneId)
         let iconTint =

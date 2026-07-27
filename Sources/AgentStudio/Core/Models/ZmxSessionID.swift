@@ -1,13 +1,14 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// Durable opaque identity used to create or reattach a terminal session.
 ///
 /// New identities are UUIDv7 strings. Restoration deliberately accepts any
 /// nonblank persisted text verbatim so an existing session is never renamed.
-struct ZmxSessionID: Codable, Hashable, Sendable {
-    let rawValue: String
+package struct ZmxSessionID: Codable, Hashable, Sendable {
+    package let rawValue: String
 
-    static func generateUUIDv7() -> Self {
+    package static func generateUUIDv7() -> Self {
         Self(rawValue: UUIDv7.generate().uuidString)
     }
 
@@ -18,7 +19,7 @@ struct ZmxSessionID: Codable, Hashable, Sendable {
         rawValue = storedText
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let storedText = try container.decode(String.self)
         guard let restoredIdentity = Self(restoring: storedText) else {
@@ -30,7 +31,7 @@ struct ZmxSessionID: Codable, Hashable, Sendable {
         self = restoredIdentity
     }
 
-    func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
     }

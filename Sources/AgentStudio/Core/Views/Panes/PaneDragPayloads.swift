@@ -1,29 +1,34 @@
+import AgentStudioInfrastructure
 import CoreTransferable
 import Foundation
 import UniformTypeIdentifiers
 
 /// Payload for dragging an existing tab.
-struct TabDragPayload: Codable, Transferable {
-    let tabId: UUID
+package struct TabDragPayload: Codable, Transferable {
+    package let tabId: UUID
 
-    static var transferRepresentation: some TransferRepresentation {
+    package init(tabId: UUID) {
+        self.tabId = tabId
+    }
+
+    package static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .agentStudioTab)
     }
 }
 
 /// Payload for dragging an individual pane.
-struct PaneDragPayload: Codable, Transferable {
-    let paneId: UUID
-    let tabId: UUID
-    let drawerParentPaneId: UUID?
+package struct PaneDragPayload: Codable, Transferable {
+    package let paneId: UUID
+    package let tabId: UUID
+    package let drawerParentPaneId: UUID?
 
-    init(paneId: UUID, tabId: UUID, drawerParentPaneId: UUID? = nil) {
+    package init(paneId: UUID, tabId: UUID, drawerParentPaneId: UUID? = nil) {
         self.paneId = paneId
         self.tabId = tabId
         self.drawerParentPaneId = drawerParentPaneId
     }
 
-    static var transferRepresentation: some TransferRepresentation {
+    package static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .agentStudioPane)
     }
 }

@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 
 extension RepoExplorerView {
@@ -42,7 +45,7 @@ extension RepoExplorerView {
         candidatesByWorktreeId.reserveCapacity(paneLocationsByWorktreeId.count)
 
         for (worktreeId, paneLocations) in paneLocationsByWorktreeId {
-            candidatesByWorktreeId[worktreeId] = paneLocations.compactMap { location in
+            candidatesByWorktreeId[worktreeId] = paneLocations.compactMap { location -> BridgePaneCommandCandidate? in
                 guard let pane = panesByPaneId[location.paneId] else { return nil }
                 let isBridgePane: Bool
                 if case .bridgePanel = pane.content {
@@ -222,7 +225,7 @@ extension RepoExplorerView {
         )
     }
 
-    static func resolvedRepos(
+    package static func resolvedRepos(
         _ repos: [RepoPresentationItem],
         enrichmentByRepoId: [UUID: RepoEnrichment]
     ) -> [RepoPresentationItem] {
@@ -250,7 +253,7 @@ extension RepoExplorerView {
         )
     }
 
-    static func branchStatus(
+    package static func branchStatus(
         enrichment: WorktreeEnrichment?,
         pullRequestCount: Int?
     ) -> GitBranchStatus {

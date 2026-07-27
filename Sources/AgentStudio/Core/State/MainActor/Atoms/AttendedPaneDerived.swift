@@ -21,7 +21,7 @@ package struct AttendedPaneDerived {
         self.managementLayer = managementLayer
     }
 
-    var attendedPaneId: UUID? {
+    package var attendedPaneId: UUID? {
         guard windowLifecycle.isWorkspaceWindowKey else { return nil }
         guard !managementLayer.isActive else { return nil }
         return tabLayout.activeTab?.activePaneId

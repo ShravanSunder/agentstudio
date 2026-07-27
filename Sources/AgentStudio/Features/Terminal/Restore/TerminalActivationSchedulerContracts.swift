@@ -1,28 +1,38 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 
-struct TerminalActivationCohort: Equatable, Sendable {
-    let generation: WorkspaceContentMountGeneration
-    let input: TerminalActivationInput
+package struct TerminalActivationCohort: Equatable, Sendable {
+    package let generation: WorkspaceContentMountGeneration
+    package let input: TerminalActivationInput
+
+    package init(
+        generation: WorkspaceContentMountGeneration,
+        input: TerminalActivationInput
+    ) {
+        self.generation = generation
+        self.input = input
+    }
 }
 
-struct TerminalActivationAdmission: Equatable, Sendable {
-    let generation: WorkspaceContentMountGeneration
-    let descriptor: TerminalActivationDescriptor
-    let attempt: Int
+package struct TerminalActivationAdmission: Equatable, Sendable {
+    package let generation: WorkspaceContentMountGeneration
+    package let descriptor: TerminalActivationDescriptor
+    package let attempt: Int
 }
 
-enum TerminalActivationFailure: Equatable, Sendable {
+package enum TerminalActivationFailure: Equatable, Sendable {
     case attachmentRejected(code: String)
     case surfaceCreationFailed(code: String)
     case surfaceAttachmentFailed(code: String)
 }
 
-enum TerminalActivationRetryDirective: Equatable, Sendable {
+package enum TerminalActivationRetryDirective: Equatable, Sendable {
     case retry
     case doNotRetry
 }
 
-enum TerminalActivationAttemptResult: Equatable, Sendable {
+package enum TerminalActivationAttemptResult: Equatable, Sendable {
     case ready(surfaceID: UUID)
     case failed(
         failure: TerminalActivationFailure,
@@ -30,12 +40,12 @@ enum TerminalActivationAttemptResult: Equatable, Sendable {
     )
 }
 
-enum TerminalActivationRetry: Equatable, Sendable {
+package enum TerminalActivationRetry: Equatable, Sendable {
     case notRequested(attemptCount: Int)
     case exhausted(attemptCount: Int)
 }
 
-enum TerminalActivationMemberState: Equatable, Sendable {
+package enum TerminalActivationMemberState: Equatable, Sendable {
     case queued(priority: TerminalActivationVisibilityPriority)
     case attaching
     case ready(surfaceID: UUID)
@@ -55,7 +65,7 @@ enum TerminalActivationMemberState: Equatable, Sendable {
     }
 }
 
-enum TerminalActivationTerminalOutcome: Equatable, Sendable {
+package enum TerminalActivationTerminalOutcome: Equatable, Sendable {
     case ready(surfaceID: UUID)
     case failedTerminal(
         failure: TerminalActivationFailure,
@@ -64,9 +74,9 @@ enum TerminalActivationTerminalOutcome: Equatable, Sendable {
     case cancelledReplaced(replacement: WorkspaceContentMountGeneration)
 }
 
-struct TerminalActivationSettlement: Equatable, Sendable {
-    let generation: WorkspaceContentMountGeneration
-    let outcomesByPaneID: [PaneId: TerminalActivationTerminalOutcome]
+package struct TerminalActivationSettlement: Equatable, Sendable {
+    package let generation: WorkspaceContentMountGeneration
+    package let outcomesByPaneID: [PaneId: TerminalActivationTerminalOutcome]
 }
 
 struct TerminalActivationSchedulerDiagnostics: Equatable, Sendable {
@@ -75,7 +85,7 @@ struct TerminalActivationSchedulerDiagnostics: Equatable, Sendable {
     let workerCount: Int
 }
 
-enum TerminalActivationPromotionResult: Equatable, Sendable {
+package enum TerminalActivationPromotionResult: Equatable, Sendable {
     case promoted(
         from: TerminalActivationVisibilityPriority,
         to: TerminalActivationVisibilityPriority
@@ -86,6 +96,6 @@ enum TerminalActivationPromotionResult: Equatable, Sendable {
 }
 
 @MainActor
-protocol TerminalActivationAdmissionPort: AnyObject, Sendable {
+package protocol TerminalActivationAdmissionPort: AnyObject, Sendable {
     func activate(_ admission: TerminalActivationAdmission) async -> TerminalActivationAttemptResult
 }

@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import GhosttyKit
 
@@ -15,18 +17,18 @@ private actor TerminationDeliveryObservation {
 
 /// Host-side terminal pane container for Ghostty surfaces, overlays, and lifecycle UI.
 /// WorkspaceSurfaceCoordinator creates surfaces and passes them here via displaySurface().
-final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDelegate {
+package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDelegate {
     private static let terminationHandlingRetryTurns = 20
 
-    let paneId: UUID
+    package let paneId: UUID
     let worktree: Worktree?
     let repo: Repo?
 
-    var surfaceId: UUID?
+    package internal(set) var surfaceId: UUID?
 
     // MARK: - Private State
 
-    private(set) var ghosttySurface: Ghostty.SurfaceView?
+    package private(set) var ghosttySurface: Ghostty.SurfaceView?
     private let ghosttyMountView = GhosttyMountView()
     private(set) var surfaceScrollView: TerminalSurfaceScrollView?
     var searchOverlayView: TerminalSearchOverlayView?
@@ -47,7 +49,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     private(set) var hasObservedEffectiveTerminationDelivery = false
     private weak var observedRuntime: TerminalRuntime?
     private weak var runtimeBoundToDisplayedSurface: TerminalRuntime?
-    var onRepairRequested: ((UUID) -> Void)?
+    package var onRepairRequested: ((UUID) -> Void)?
 
     /// The current terminal title
     var title: String {
@@ -58,7 +60,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
     /// Primary initializer — used by WorkspaceSurfaceCoordinator for worktree-bound panes.
     /// Does NOT create a surface; caller must attach one via displaySurface().
-    init(
+    package init(
         worktree: Worktree,
         repo: Repo,
         restoredSurfaceId: UUID,
@@ -85,7 +87,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
     /// Floating terminal initializer — used for drawers and standalone terminals.
     /// No worktree/repo context required.
-    init(
+    package init(
         restoredSurfaceId: UUID,
         paneId: UUID,
         title: String = "Terminal",
@@ -109,7 +111,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     }
 
     /// Placeholder-only initializer used before a surface exists.
-    init(
+    package init(
         paneId: UUID,
         title: String,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
@@ -160,7 +162,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
     private var lastReportedSurfaceSize: NSSize = .zero
 
-    override func layout() {
+    package override func layout() {
         super.layout()
         guard let surface = ghosttySurface, bounds.size.width > 0, bounds.size.height > 0 else { return }
         let currentSize = measuredSurfaceSize(for: surface)
@@ -180,7 +182,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         )
     }
 
-    func forceGeometrySync(reason: StaticString) {
+    package func forceGeometrySync(reason: StaticString) {
         guard let surface = ghosttySurface, window != nil else { return }
         guard bounds.size.width > 0, bounds.size.height > 0 else { return }
         let traceClock = performanceTraceRecorder?.isEnabled == true ? ContinuousClock() : nil
@@ -285,7 +287,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         )
     }
 
-    func displaySurface(
+    package func displaySurface(
         _ surfaceView: Ghostty.SurfaceView,
         geometryVerificationReason: StaticString = "displaySurface"
     ) {
@@ -421,7 +423,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         hasObservedEffectiveTerminationDelivery = false
     }
 
-    func bind(runtime: TerminalRuntime) {
+    package func bind(runtime: TerminalRuntime) {
         let shouldObserveRuntime = observedRuntime !== runtime
         boundRuntime = runtime
         applyRuntimeStateSnapshot(runtime)
@@ -440,14 +442,14 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         scrollToBottomIndicatorView?.actionPerformer = performer
     }
 
-    override func cancelOperation(_ sender: Any?) {
+    package override func cancelOperation(_ sender: Any?) {
         if handleSearchCancelOperation(sender) {
             return
         }
     }
 
     @discardableResult
-    func showPlaceholder(
+    package func showPlaceholder(
         mode: TerminalStatusPlaceholderMode,
         onRetryRequested: ((UUID) -> Void)? = nil,
         onDismissRequested: ((UUID) -> Void)? = nil
@@ -733,15 +735,15 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         return SurfaceManager.shared.hasProcessExited(surfaceId)
     }
 
-    func setContentInteractionEnabled(_ enabled: Bool) {
+    package func setContentInteractionEnabled(_ enabled: Bool) {
         _ = enabled
     }
 
     // MARK: - First Responder
 
-    override var acceptsFirstResponder: Bool { true }
+    package override var acceptsFirstResponder: Bool { true }
 
-    override func becomeFirstResponder() -> Bool {
+    package override func becomeFirstResponder() -> Bool {
         if let surface = ghosttySurface, let window {
             if let surfaceId {
                 SurfaceManager.shared.setFocus(surfaceId, focused: true)
@@ -753,7 +755,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         return super.becomeFirstResponder()
     }
 
-    override func resignFirstResponder() -> Bool {
+    package override func resignFirstResponder() -> Bool {
         if let surfaceId {
             SurfaceManager.shared.setFocus(surfaceId, focused: false)
         }
@@ -762,13 +764,13 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         return super.resignFirstResponder()
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
+    package override func hitTest(_ point: NSPoint) -> NSView? {
         resolvedHitTest(for: point) ?? super.hitTest(point)
     }
 
     /// The current placeholder view, if one is shown. Used by coordinators
     /// to check placeholder state during repair and re-registration flows.
-    var currentPlaceholderView: TerminalStatusPlaceholderView? { placeholderView }
+    package var currentPlaceholderView: TerminalStatusPlaceholderView? { placeholderView }
 }
 
 #if DEBUG

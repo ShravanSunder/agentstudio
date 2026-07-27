@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// Pathspec-scoped status folding: instead of recomputing a full-worktree status

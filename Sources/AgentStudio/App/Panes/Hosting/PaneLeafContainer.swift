@@ -1,3 +1,7 @@
+import AgentStudioCore
+import AgentStudioEditorChooser
+import AgentStudioInfrastructure
+import AgentStudioTerminal
 import AppKit
 import SwiftUI
 
@@ -606,7 +610,7 @@ struct PaneLeafContainer: View {
         }
     }
 
-    private func tabDisplayTitle(tab: Tab) -> String {
+    private func tabDisplayTitle(tab: AgentStudioCore.Tab) -> String {
         atom(\.paneDisplay).tabDisplayLabel(for: tab)
     }
 

@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import SwiftUI
 
@@ -619,7 +621,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         sourceContext: (paneId: UUID, tabId: UUID),
-        destination: (index: Int, tab: Tab),
+        destination: (index: Int, tab: AgentStudioCore.Tab),
         dispatcher: any AppCommandDispatching
     ) -> CommandBarItem? {
         let (tabIndex, tab) = destination
@@ -830,7 +832,7 @@ enum CommandBarDataSource {
 
 extension CommandBarDataSource {
     fileprivate static func tabDisplayTitle(
-        tab: Tab,
+        tab: AgentStudioCore.Tab,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> String {

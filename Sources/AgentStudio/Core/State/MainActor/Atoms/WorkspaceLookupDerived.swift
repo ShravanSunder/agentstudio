@@ -3,25 +3,27 @@ import os.log
 
 private let workspaceLookupLogger = Logger(subsystem: "com.agentstudio", category: "WorkspaceLookupDerived")
 
-struct WorkspacePaneLocation: Equatable, Sendable {
-    let paneId: UUID
-    let tabId: UUID
-    let tabIndex: Int
-    let paneIndexInTab: Int
-    let isActiveInTab: Bool
+package struct WorkspacePaneLocation: Equatable, Sendable {
+    package let paneId: UUID
+    package let tabId: UUID
+    package let tabIndex: Int
+    package let paneIndexInTab: Int
+    package let isActiveInTab: Bool
 }
 
 @MainActor
 package struct WorkspaceLookupDerived {
-    func tabContaining(paneId: UUID) -> Tab? {
+    package init() {}
+
+    package func tabContaining(paneId: UUID) -> Tab? {
         atom(\.workspaceTab).tabContaining(paneId: paneId)
     }
 
-    func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
+    package func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
         atom(\.workspaceRepositoryTopology).repoAndWorktree(containing: cwd)
     }
 
-    func paneLocations(
+    package func paneLocations(
         for worktreeId: UUID,
         workspacePane: WorkspacePaneAtom,
         workspaceTab: WorkspaceTabLayoutDerived
@@ -29,7 +31,7 @@ package struct WorkspaceLookupDerived {
         paneLocationsByWorktreeId(workspacePane: workspacePane, workspaceTab: workspaceTab)[worktreeId] ?? []
     }
 
-    func paneLocations(for worktreeId: UUID) -> [WorkspacePaneLocation] {
+    package func paneLocations(for worktreeId: UUID) -> [WorkspacePaneLocation] {
         paneLocations(
             for: worktreeId,
             workspacePane: atom(\.workspacePane),
@@ -37,7 +39,7 @@ package struct WorkspaceLookupDerived {
         )
     }
 
-    func paneLocationsByWorktreeId(
+    package func paneLocationsByWorktreeId(
         workspacePane: WorkspacePaneAtom,
         workspaceTab: WorkspaceTabLayoutDerived
     ) -> [UUID: [WorkspacePaneLocation]] {

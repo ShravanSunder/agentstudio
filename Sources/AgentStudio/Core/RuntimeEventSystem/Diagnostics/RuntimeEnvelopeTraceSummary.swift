@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import Foundation
 
-struct RuntimeEnvelopeTraceSummary: Sendable, Equatable {
+package struct RuntimeEnvelopeTraceSummary: Sendable, Equatable {
     enum Scope: String, Sendable {
         case pane
         case system
@@ -32,7 +33,7 @@ struct RuntimeEnvelopeTraceSummary: Sendable, Equatable {
         }
     }
 
-    init(_ envelope: PaneEnvelope) {
+    package init(_ envelope: PaneEnvelope) {
         self.scope = .pane
         self.eventId = envelope.eventId
         self.sequence = envelope.seq
@@ -80,7 +81,7 @@ struct RuntimeEnvelopeTraceSummary: Sendable, Equatable {
         self.worktreeId = envelope.worktreeId
     }
 
-    func attributes(
+    package func attributes(
         eventBusName: String,
         consumerName: String
     ) -> [String: AgentStudioTraceValue] {
@@ -122,7 +123,7 @@ struct RuntimeEnvelopeTraceSummary: Sendable, Equatable {
 }
 
 extension RuntimeEnvelopeTraceSummary {
-    static func isHighVolumeActivityOnly(_ event: PaneRuntimeEvent) -> Bool {
+    package static func isHighVolumeActivityOnly(_ event: PaneRuntimeEvent) -> Bool {
         switch event {
         case .terminal(.scrollbarChanged),
             .terminal(.cwdChanged),
@@ -160,7 +161,7 @@ extension ActionPolicy {
 }
 
 extension PaneContentType {
-    var traceName: String {
+    package var traceName: String {
         switch self {
         case .terminal:
             return "terminal"
@@ -183,7 +184,7 @@ extension PaneContentType {
 }
 
 extension PaneRuntimeEvent {
-    var traceEventName: String {
+    package var traceEventName: String {
         switch self {
         case .terminal(let event):
             return event.traceEventName
@@ -216,7 +217,7 @@ extension PaneRuntimeEvent {
 }
 
 extension TerminalActivityEvent {
-    var traceEventName: String {
+    package var traceEventName: String {
         switch self {
         case .paneObservationChanged:
             return "terminalActivity.paneObservationChanged"
@@ -231,7 +232,7 @@ extension TerminalActivityEvent {
 }
 
 extension GhosttyEvent {
-    var traceEventName: String {
+    package var traceEventName: String {
         "terminal.\(eventName.rawValue)"
     }
 }

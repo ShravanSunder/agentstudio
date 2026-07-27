@@ -2,15 +2,15 @@ import Foundation
 import GhosttyKit
 
 extension SurfaceManager {
-    func scrollToBottom(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+    package func scrollToBottom(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
         performBindingAction(.scrollToBottom, forPaneId: paneId)
     }
 
-    func scrollPageUp(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+    package func scrollPageUp(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
         performBindingAction(.scrollPageUp, forPaneId: paneId)
     }
 
-    func jumpToPrompt(delta: Int, forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+    package func jumpToPrompt(delta: Int, forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
         performBindingAction(.jumpToPrompt(delta), forPaneId: paneId)
     }
 

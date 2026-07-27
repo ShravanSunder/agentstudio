@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import AppKit
 
-enum SelectablePopoverKeyboardRouter {
+package enum SelectablePopoverKeyboardRouter {
     private enum KeyCode: UInt16 {
         case escape = 53
         case returnKey = 36
@@ -9,7 +10,7 @@ enum SelectablePopoverKeyboardRouter {
         case upArrow = 126
     }
 
-    static func action<ItemID: Hashable>(
+    package static func action<ItemID: Hashable>(
         for event: NSEvent,
         items: [SelectablePopoverKeyboardItem<ItemID>],
         selectedItemId: ItemID?,
@@ -72,7 +73,7 @@ enum SelectablePopoverKeyboardRouter {
         return .passthrough
     }
 
-    static func defaultSelection<ItemID: Hashable>(
+    package static func defaultSelection<ItemID: Hashable>(
         items: [SelectablePopoverKeyboardItem<ItemID>],
         preferredItemId: ItemID?
     ) -> ItemID? {
@@ -83,7 +84,7 @@ enum SelectablePopoverKeyboardRouter {
         return items.first?.id
     }
 
-    static func currentSelection<ItemID: Hashable>(
+    package static func currentSelection<ItemID: Hashable>(
         items: [SelectablePopoverKeyboardItem<ItemID>],
         selectedItemId: ItemID?
     ) -> ItemID? {
@@ -94,7 +95,7 @@ enum SelectablePopoverKeyboardRouter {
         return items.first?.id
     }
 
-    static func movedSelection<ItemID: Hashable>(
+    package static func movedSelection<ItemID: Hashable>(
         delta: Int,
         items: [SelectablePopoverKeyboardItem<ItemID>],
         selectedItemId: ItemID?

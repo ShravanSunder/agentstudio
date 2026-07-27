@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-enum SidebarSurfaceBackground: Equatable {
+package enum SidebarSurfaceBackground: Equatable {
     case shellChrome
     case windowBackgroundColor
 
@@ -13,12 +14,12 @@ enum SidebarSurfaceBackground: Equatable {
         }
     }
 
-    var color: Color {
+    package var color: Color {
         Color(nsColor: nsColor)
     }
 }
 
-struct SidebarSurfaceChromePolicy: Equatable {
+package struct SidebarSurfaceChromePolicy: Equatable {
     let minimumWidth: CGFloat
     let background: SidebarSurfaceBackground
     let shadowOpacity: CGFloat
@@ -36,32 +37,32 @@ struct SidebarSurfaceChromePolicy: Equatable {
     )
 }
 
-enum SidebarSurfaceListPolicy: Equatable {
+package enum SidebarSurfaceListPolicy: Equatable {
     case nativeSidebarList
 }
 
-enum SidebarRowChromePolicy: Equatable {
+package enum SidebarRowChromePolicy: Equatable {
     case sidebarRowShell
 }
 
-enum SidebarHeaderChromePolicy: Equatable {
+package enum SidebarHeaderChromePolicy: Equatable {
     case plainSectionHeader
     case repoGroupHeader
     case sourceGroupHeader
 }
 
-struct SidebarSurfaceChrome<Content: View>: View {
-    static var policy: SidebarSurfaceChromePolicy {
+package struct SidebarSurfaceChrome<Content: View>: View {
+    package static var policy: SidebarSurfaceChromePolicy {
         .repoMatched
     }
 
     private let content: Content
 
-    init(@ViewBuilder content: () -> Content) {
+    package init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 
-    var body: some View {
+    package var body: some View {
         let policy = Self.policy
         content
             .frame(minWidth: policy.minimumWidth)
@@ -77,7 +78,7 @@ struct SidebarSurfaceChrome<Content: View>: View {
 
 extension View {
     @ViewBuilder
-    func sidebarSurfaceListStyle(_ policy: SidebarSurfaceListPolicy) -> some View {
+    package func sidebarSurfaceListStyle(_ policy: SidebarSurfaceListPolicy) -> some View {
         switch policy {
         case .nativeSidebarList:
             self.listStyle(.sidebar)

@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import AppKit
 import Foundation
 import SwiftUI
@@ -9,8 +12,8 @@ private let inboxNotificationSidebarLogger = Logger(
 )
 
 @MainActor
-struct InboxNotificationSidebarView: View {
-    static let focusTargetIdentifier = NSUserInterfaceItemIdentifier(
+package struct InboxNotificationSidebarView: View {
+    package static let focusTargetIdentifier = NSUserInterfaceItemIdentifier(
         "InboxNotificationSidebarView.focusTarget"
     )
 
@@ -48,7 +51,7 @@ struct InboxNotificationSidebarView: View {
 
     private let flashDelay = AsyncDelay.taskSleep
 
-    init(
+    package init(
         inboxAtom: InboxNotificationAtom,
         octiconLoader: OcticonLoader,
         prefsAtom: InboxNotificationPrefsAtom,
@@ -110,7 +113,7 @@ struct InboxNotificationSidebarView: View {
         self._cachedListModel = State(initialValue: .empty)
     }
 
-    var body: some View {
+    package var body: some View {
         InboxSidebarRootContainer(
             octiconLoader: octiconLoader,
             uiState: uiState,
@@ -214,7 +217,9 @@ struct InboxNotificationSidebarView: View {
             .first ?? fallbackFilterLabel(for: activeFilter)
     }
 
-    static func globalSidebarContentMode(_ contentMode: InboxNotificationContentMode) -> InboxNotificationContentMode {
+    package static func globalSidebarContentMode(
+        _ contentMode: InboxNotificationContentMode
+    ) -> InboxNotificationContentMode {
         contentMode == .rollUpAlerts ? .rollUpAlerts : .all
     }
 
@@ -434,7 +439,7 @@ struct InboxNotificationSidebarView: View {
         configuredTrigger
     }
 
-    static func repoPresentationByRepoId(
+    package static func repoPresentationByRepoId(
         repos: [Repo],
         repoEnrichmentByRepoId: [UUID: RepoEnrichment]
     ) -> [UUID: InboxNotificationRepoGroupPresentation] {
@@ -479,7 +484,7 @@ struct InboxNotificationSidebarView: View {
         )
     }
 
-    static func repoPresentationFingerprint(
+    package static func repoPresentationFingerprint(
         _ presentationsByRepoId: [UUID: InboxNotificationRepoGroupPresentation]
     ) -> String {
         presentationsByRepoId

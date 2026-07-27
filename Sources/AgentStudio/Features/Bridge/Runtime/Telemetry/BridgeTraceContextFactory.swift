@@ -1,10 +1,10 @@
 import Foundation
 
-struct BridgeTraceContextFactory: Sendable {
+package struct BridgeTraceContextFactory: Sendable {
     private let makeTraceIdValue: @Sendable () -> String
     private let makeSpanIdValue: @Sendable () -> String
 
-    init(
+    package init(
         makeTraceId: @escaping @Sendable () -> String,
         makeSpanId: @escaping @Sendable () -> String
     ) {
@@ -33,7 +33,7 @@ struct BridgeTraceContextFactory: Sendable {
         )
     }
 
-    static let live = Self(
+    package static let live = Self(
         makeTraceId: { randomLowercaseHex(byteCount: 16) },
         makeSpanId: { randomLowercaseHex(byteCount: 8) }
     )

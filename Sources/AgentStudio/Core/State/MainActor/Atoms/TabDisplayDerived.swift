@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 package struct TabDisplayDerived {
-    func displayTitle(
+    package func displayTitle(
         for tab: Tab,
         workspacePane: WorkspacePaneAtom,
         workspaceRepositoryTopology: RepositoryTopologyAtom,
@@ -28,7 +28,7 @@ package struct TabDisplayDerived {
         return paneTitles.first ?? "Terminal"
     }
 
-    func title(
+    package func title(
         for pane: Pane,
         workspaceRepositoryTopology: RepositoryTopologyAtom,
         repoCache: RepoCacheAtom

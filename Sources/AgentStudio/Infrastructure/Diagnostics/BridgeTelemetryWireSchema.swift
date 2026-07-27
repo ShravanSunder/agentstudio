@@ -1,7 +1,7 @@
-enum BridgeTelemetryWireSchema {
-    static let unknownRejectedEventName = "unknown"
+package enum BridgeTelemetryWireSchema {
+    package static let unknownRejectedEventName = "unknown"
 
-    static func dropReason(
+    package static func dropReason(
         eventName: String,
         durationMilliseconds: Double?,
         stringAttributes: [String: String],
@@ -34,11 +34,11 @@ enum BridgeTelemetryWireSchema {
         return nil
     }
 
-    static func allowedStringValues(for key: String) -> Set<String>? {
+    package static func allowedStringValues(for key: String) -> Set<String>? {
         allowedStringValuesByAttributeKey[key]
     }
 
-    static func hasCompleteTaxonomy(stringAttributes: [String: String]) -> Bool {
+    package static func hasCompleteTaxonomy(stringAttributes: [String: String]) -> Bool {
         stringAttributes["agentstudio.bridge.phase"] != nil
             && BridgeTelemetryPlane(rawValue: stringAttributes["agentstudio.bridge.plane"] ?? "") != nil
             && BridgeTelemetryPriority(rawValue: stringAttributes["agentstudio.bridge.priority"] ?? "") != nil

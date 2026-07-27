@@ -1,4 +1,6 @@
 import AgentStudioAppIPC
+import AgentStudioBridge
+import AgentStudioCore
 import AgentStudioProgrammaticControl
 import Foundation
 

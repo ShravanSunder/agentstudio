@@ -5,18 +5,18 @@ import Foundation
 /// The input contains only composition-owned values. Repository and worktree
 /// identity, filesystem currentness, and live-session inventory are deliberately
 /// absent; the terminal activation owner supplies those later where applicable.
-struct TerminalActivationInput: Equatable, Sendable {
-    let entries: [TerminalActivationDescriptor]
+package struct TerminalActivationInput: Equatable, Sendable {
+    package let entries: [TerminalActivationDescriptor]
 }
 
-struct TerminalActivationDescriptor: Equatable, Sendable {
+package struct TerminalActivationDescriptor: Equatable, Sendable {
     /// Exact immutable pane accepted by composition validation.
     /// Activation must not reconstruct or reread this value from live state.
-    let pane: Pane
-    let visibilityPriority: TerminalActivationVisibilityPriority
+    package let pane: Pane
+    package let visibilityPriority: TerminalActivationVisibilityPriority
     let hostPlacement: TerminalHostPlacementIdentity
 
-    var paneID: PaneId {
+    package var paneID: PaneId {
         PaneId(existingUUID: pane.id)
     }
 }
@@ -26,25 +26,29 @@ struct TerminalActivationDescriptor: Equatable, Sendable {
 /// The closed content union prevents the nonterminal owner from receiving a
 /// terminal pane. Each case retains the exact accepted pane so mounting never
 /// reconstructs composition or consults live atoms or topology.
-struct NonterminalContentMountInput: Equatable, Sendable {
-    let entries: [NonterminalContentMountDescriptor]
+package struct NonterminalContentMountInput: Equatable, Sendable {
+    package let entries: [NonterminalContentMountDescriptor]
+
+    package init(entries: [NonterminalContentMountDescriptor]) {
+        self.entries = entries
+    }
 }
 
-struct NonterminalContentMountDescriptor: Equatable, Sendable {
-    let content: NonterminalContentMountContent
-    let visibilityPriority: TerminalActivationVisibilityPriority
+package struct NonterminalContentMountDescriptor: Equatable, Sendable {
+    package let content: NonterminalContentMountContent
+    package let visibilityPriority: TerminalActivationVisibilityPriority
     let hostPlacement: TerminalHostPlacementIdentity
 
-    var pane: Pane {
+    package var pane: Pane {
         content.pane
     }
 
-    var paneID: PaneId {
+    package var paneID: PaneId {
         PaneId(existingUUID: pane.id)
     }
 }
 
-enum NonterminalContentMountContent: Equatable, Sendable {
+package enum NonterminalContentMountContent: Equatable, Sendable {
     case webview(Pane)
     case bridgePanel(Pane)
     case codeViewer(Pane)
@@ -58,12 +62,12 @@ enum NonterminalContentMountContent: Equatable, Sendable {
     }
 }
 
-enum TerminalActivationVisibilityPriority: Int, Comparable, Sendable {
+package enum TerminalActivationVisibilityPriority: Int, Comparable, Sendable {
     case activeVisible = 0
     case visible = 1
     case hidden = 2
 
-    static func < (lhs: Self, rhs: Self) -> Bool {
+    package static func < (lhs: Self, rhs: Self) -> Bool {
         lhs.rawValue < rhs.rawValue
     }
 }

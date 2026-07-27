@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-enum FilesystemPathDisposition: Sendable, Equatable {
+package enum FilesystemPathDisposition: Sendable, Equatable {
     case projected
     case gitInternal
     case ignoredByPolicy
@@ -12,13 +12,13 @@ enum FilesystemPathDisposition: Sendable, Equatable {
 /// Current policy:
 /// - suppress `.git` internals from projection-facing changed-path payloads
 /// - apply root-level `.gitignore` rules for projection payload suppression
-struct FilesystemPathFilter: Sendable {
+package struct FilesystemPathFilter: Sendable {
     fileprivate static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemPathFilter")
-    static let empty = Self(ignoredRules: [])
+    package static let empty = Self(ignoredRules: [])
 
     private let ignoredRules: [GitIgnoreRule]
 
-    var estimatedRetainedByteCount: Int {
+    package var estimatedRetainedByteCount: Int {
         ignoredRules.reduce(32) { partialResult, rule in
             partialResult
                 + rule.originalPattern.utf8.count
@@ -27,7 +27,7 @@ struct FilesystemPathFilter: Sendable {
         }
     }
 
-    static func load(forRootPath rootPath: URL) -> Self {
+    package static func load(forRootPath rootPath: URL) -> Self {
         let gitIgnorePath = rootPath.appending(path: ".gitignore")
         let fileContents: String
         do {
@@ -50,11 +50,11 @@ struct FilesystemPathFilter: Sendable {
         return Self(ignoredRules: rules)
     }
 
-    @concurrent nonisolated static func loadOffExecutor(forRootPath rootPath: URL) async -> Self {
+    @concurrent nonisolated package static func loadOffExecutor(forRootPath rootPath: URL) async -> Self {
         load(forRootPath: rootPath)
     }
 
-    func classify(relativePath: String) -> FilesystemPathDisposition {
+    package func classify(relativePath: String) -> FilesystemPathDisposition {
         if Self.isOriginConfigPath(relativePath: relativePath) {
             return .projected
         }
@@ -67,7 +67,7 @@ struct FilesystemPathFilter: Sendable {
         return .projected
     }
 
-    func isIgnored(relativePath: String) -> Bool {
+    package func isIgnored(relativePath: String) -> Bool {
         let normalizedPath = Self.normalized(relativePath: relativePath)
         guard !normalizedPath.isEmpty, normalizedPath != "." else { return false }
 
@@ -80,7 +80,7 @@ struct FilesystemPathFilter: Sendable {
         return ignored
     }
 
-    static func isGitInternal(relativePath: String) -> Bool {
+    package static func isGitInternal(relativePath: String) -> Bool {
         // v1 behavior: treat any path segment named ".git" as internal.
         // This may over-classify certain nested/module layouts; refine if needed later.
         let normalizedPath = normalized(relativePath: relativePath)
@@ -89,7 +89,7 @@ struct FilesystemPathFilter: Sendable {
         return pathComponents.contains(".git")
     }
 
-    static func isOriginConfigPath(relativePath: String) -> Bool {
+    package static func isOriginConfigPath(relativePath: String) -> Bool {
         normalized(relativePath: relativePath) == ".git/config"
     }
 

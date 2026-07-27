@@ -1,3 +1,10 @@
+import AgentStudioBridge
+import AgentStudioCore
+import AgentStudioEditorChooser
+import AgentStudioInboxNotification
+import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
+import AgentStudioSharedComponents
 import AppKit
 import Observation
 import SwiftUI

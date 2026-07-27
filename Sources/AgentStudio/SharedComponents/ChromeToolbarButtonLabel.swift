@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-struct ChromeToolbarButtonLabel: View {
+package struct ChromeToolbarButtonLabel: View {
     let symbolName: String
     var selectedSymbolName: String?
     var isSelected = false
@@ -8,6 +9,24 @@ struct ChromeToolbarButtonLabel: View {
     var badgeText: String?
     var buttonSize = AppStyles.Shell.Chrome.ToolbarButton.size
     var showsBackground = true
+
+    package init(
+        symbolName: String,
+        selectedSymbolName: String? = nil,
+        isSelected: Bool = false,
+        isHovered: Bool = false,
+        badgeText: String? = nil,
+        buttonSize: CGFloat = AppStyles.Shell.Chrome.ToolbarButton.size,
+        showsBackground: Bool = true
+    ) {
+        self.symbolName = symbolName
+        self.selectedSymbolName = selectedSymbolName
+        self.isSelected = isSelected
+        self.isHovered = isHovered
+        self.badgeText = badgeText
+        self.buttonSize = buttonSize
+        self.showsBackground = showsBackground
+    }
 
     private var resolvedSymbolName: String {
         if isSelected, let selectedSymbolName {
@@ -26,7 +45,7 @@ struct ChromeToolbarButtonLabel: View {
         return isHovered ? .primary : .secondary
     }
 
-    var body: some View {
+    package var body: some View {
         Image(systemName: resolvedSymbolName)
             .font(.system(size: AppStyles.Shell.Chrome.ToolbarButton.iconSize, weight: .medium))
             .foregroundStyle(foregroundStyle)
@@ -82,12 +101,22 @@ struct ChromeToolbarCircleBackground: View {
     }
 }
 
-struct ChromeToolbarCapsuleBackground: View {
+package struct ChromeToolbarCapsuleBackground: View {
     var isSelected = false
     var isHovered = false
     var isPressed = false
 
-    var body: some View {
+    package init(
+        isSelected: Bool = false,
+        isHovered: Bool = false,
+        isPressed: Bool = false
+    ) {
+        self.isSelected = isSelected
+        self.isHovered = isHovered
+        self.isPressed = isPressed
+    }
+
+    package var body: some View {
         Capsule()
             .fill(
                 ChromeToolbarControlPalette.fillColor(
@@ -110,8 +139,8 @@ struct ChromeToolbarCapsuleBackground: View {
     }
 }
 
-enum ChromeToolbarControlPalette {
-    static func foregroundColor(isSelected: Bool, isHovered: Bool) -> Color {
+package enum ChromeToolbarControlPalette {
+    package static func foregroundColor(isSelected: Bool, isHovered: Bool) -> Color {
         if isSelected {
             return Color.accentColor
         }

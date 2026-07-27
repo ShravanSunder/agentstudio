@@ -1,192 +1,193 @@
 import SwiftUI
 
-enum AppStyles {
-    enum General {
-        enum Icon {
-            static let compact: CGFloat = 12
-            static let toolbar: CGFloat = 16
-            static let paneAction: CGFloat = 22
-            static let paneSplit: CGFloat = 14
+package enum AppStyles {
+    package enum General {
+        package enum Icon {
+            package static let compact: CGFloat = 12
+            package static let toolbar: CGFloat = 16
+            package static let paneAction: CGFloat = 22
+            package static let paneSplit: CGFloat = 14
         }
 
-        enum Padding {
-            static let icon: CGFloat = 6
-            static let paneControl: CGFloat = 8
+        package enum Padding {
+            package static let icon: CGFloat = 6
+            package static let paneControl: CGFloat = 8
         }
 
-        enum Button {
-            static let compact: CGFloat = Icon.compact + (Padding.icon * 2)
-            static let toolbar: CGFloat = Icon.toolbar + (Padding.icon * 2)
-            static let paneAction: CGFloat = Icon.paneAction + (Padding.paneControl * 2)
-            static let paneSplit: CGFloat = Icon.paneSplit + (Padding.paneControl * 2)
+        package enum Button {
+            package static let compact: CGFloat = Icon.compact + (Padding.icon * 2)
+            package static let toolbar: CGFloat = Icon.toolbar + (Padding.icon * 2)
+            package static let paneAction: CGFloat = Icon.paneAction + (Padding.paneControl * 2)
+            package static let paneSplit: CGFloat = Icon.paneSplit + (Padding.paneControl * 2)
         }
 
-        enum Fill {
-            static let subtle: CGFloat = 0.04
-            static let muted: CGFloat = 0.06
-            static let hover: CGFloat = 0.08
-            static let pressed: CGFloat = 0.10
-            static let active: CGFloat = 0.12
-            static let selected: CGFloat = 0.15
+        package enum Fill {
+            package static let subtle: CGFloat = 0.04
+            package static let muted: CGFloat = 0.06
+            package static let hover: CGFloat = 0.08
+            package static let pressed: CGFloat = 0.10
+            package static let active: CGFloat = 0.12
+            package static let selected: CGFloat = 0.15
         }
 
-        enum CornerRadius {
-            static let bar: CGFloat = 6
-            static let button: CGFloat = 4
-            static let panel: CGFloat = 8
-            static let pill: CGFloat = 14
+        package enum CornerRadius {
+            package static let bar: CGFloat = 6
+            package static let button: CGFloat = 4
+            package static let panel: CGFloat = 8
+            package static let pill: CGFloat = 14
         }
 
-        enum Spacing {
-            static let tight: CGFloat = 4
-            static let standard: CGFloat = 6
-            static let loose: CGFloat = 8
+        package enum Spacing {
+            package static let tight: CGFloat = 4
+            package static let standard: CGFloat = 6
+            package static let loose: CGFloat = 8
         }
 
-        enum Typography {
+        package enum Typography {
             // Smallest readable label for dense chrome affordances.
-            static let textXxs: CGFloat = 9
-            static let textXs: CGFloat = 11
-            static let textSm: CGFloat = 12
-            static let textBase: CGFloat = 13
-            static let textLg: CGFloat = 14
-            static let textXl: CGFloat = 16
-            static let text2xl: CGFloat = 24
-            static let text5xl: CGFloat = 48
+            package static let textXxs: CGFloat = 9
+            package static let textXs: CGFloat = 11
+            package static let textSm: CGFloat = 12
+            package static let textBase: CGFloat = 13
+            package static let textLg: CGFloat = 14
+            package static let textXl: CGFloat = 16
+            package static let text2xl: CGFloat = 24
+            package static let text5xl: CGFloat = 48
         }
 
-        enum Foreground {
-            static let dim: CGFloat = 0.5
-            static let muted: CGFloat = 0.6
-            static let secondary: CGFloat = 0.7
+        package enum Foreground {
+            package static let dim: CGFloat = 0.5
+            package static let muted: CGFloat = 0.6
+            package static let secondary: CGFloat = 0.7
         }
 
-        enum Stroke {
-            static let subtle: CGFloat = 0.10
-            static let muted: CGFloat = 0.15
-            static let hover: CGFloat = 0.20
-            static let visible: CGFloat = 0.25
+        package enum Stroke {
+            package static let subtle: CGFloat = 0.10
+            package static let muted: CGFloat = 0.15
+            package static let hover: CGFloat = 0.20
+            package static let visible: CGFloat = 0.25
         }
 
-        enum Animation {
-            static let fast: Double = 0.12
-            static let standard: Double = 0.20
+        package enum Animation {
+            package static let fast: Double = 0.12
+            package static let standard: Double = 0.20
         }
 
-        enum Layout {
-            static let paneGap: CGFloat = 1
-            static let dropTargetMarkerWidth: CGFloat = 8
-            static let dropTargetPreviewMinimumWidth: CGFloat = 34
-            static let dropTargetPreviewMaxFraction: CGFloat = 0.22
+        package enum Layout {
+            package static let paneGap: CGFloat = 1
+            package static let dropTargetMarkerWidth: CGFloat = 8
+            package static let dropTargetPreviewMinimumWidth: CGFloat = 34
+            package static let dropTargetPreviewMaxFraction: CGFloat = 0.22
         }
     }
 
-    enum Shell {
-        enum Sidebar {
-            static let minimumWidth: CGFloat = 200
-            static let shadowOpacity: CGFloat = 0
-            static let shadowRadius: CGFloat = 0
-            static let shadowOffsetX: CGFloat = 0
-            static let shadowOffsetY: CGFloat = 0
-            static let rowContentSpacing: CGFloat = 4
-            static let rowVerticalInset: CGFloat = 6
-            static let listRowLeadingInset: CGFloat = 2
-            static let groupIconSize: CGFloat = 14
-            static let groupIconColumnWidth: CGFloat = 18
-            static let groupIconTitleSpacing: CGFloat = AppStyles.General.Spacing.standard
-            static let rowLeadingIconColumnWidth: CGFloat = AppStyles.General.Typography.textBase
-            static let sectionHeaderChevronColumnWidth: CGFloat = AppStyles.General.Typography.textBase
-            static let sectionHeaderChevronLabelSpacing: CGFloat = AppStyles.General.Spacing.tight
-            static let groupOrganizationFontSize: CGFloat = AppStyles.General.Typography.textSm
-            static let groupTitleSpacing: CGFloat = AppStyles.General.Spacing.tight
-            static let groupOrganizationMaxWidth: CGFloat = 120
-            static let worktreeIconSize: CGFloat = 11
-            static let branchIconSize: CGFloat = 10
-            static let branchFontSize: CGFloat = AppStyles.General.Typography.textSm
-            static let rowHorizontalInset: CGFloat = AppStyles.General.Spacing.tight / 2
-            static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.bar
-            static let groupRowVerticalPadding: CGFloat = 2
-            static let countBadgeHorizontalPadding: CGFloat = 6
-            static let countBadgeVerticalPadding: CGFloat = 2
-            static let countBadgeBackgroundOpacity: CGFloat = 0.15
-            static let notificationRowUnreadDotSize: CGFloat = 6
-            static let notificationRowTitleSize: CGFloat = AppStyles.General.Typography.textBase
-            static let notificationRowSourceSize: CGFloat = AppStyles.General.Typography.textSm
-            static let notificationRowDetailSize: CGFloat = AppStyles.General.Typography.textSm
-            static let notificationRowTimestampSize: CGFloat = AppStyles.General.Typography.textSm
-            static let chipRowSpacing: CGFloat = 4
-            static let chipContentSpacing: CGFloat = 2
-            static let syncClusterSpacing: CGFloat = 1
-            static let chipHorizontalPadding: CGFloat = 4
-            static let chipIconOnlyHorizontalPadding: CGFloat = 3
-            static let chipVerticalPadding: CGFloat = 2
-            static let chipFontSize: CGFloat = AppStyles.General.Typography.textXs
-            static let chipIconSize: CGFloat = 8
-            static let syncChipIconSize: CGFloat = 7
-            static let chipBackgroundOpacity: CGFloat = AppStyles.General.Fill.hover
-            static let chipBorderOpacity: CGFloat = AppStyles.General.Fill.muted
-            static let chipForegroundOpacity: CGFloat = 0.82
-            static let chipMuteOverlayOpacity: CGFloat = 0.16
-            static let rowSelectedOpacity: CGFloat = AppStyles.General.Fill.selected
-            static let rowHoverOpacity: CGFloat = AppStyles.General.Fill.pressed
-            static let badgeOffset: CGFloat = 4
-            static let badgeHitboxSize: CGFloat = AppStyles.General.Button.compact
+    package enum Shell {
+        package enum Sidebar {
+            package static let minimumWidth: CGFloat = 200
+            package static let shadowOpacity: CGFloat = 0
+            package static let shadowRadius: CGFloat = 0
+            package static let shadowOffsetX: CGFloat = 0
+            package static let shadowOffsetY: CGFloat = 0
+            package static let rowContentSpacing: CGFloat = 4
+            package static let rowVerticalInset: CGFloat = 6
+            package static let listRowLeadingInset: CGFloat = 2
+            package static let groupIconSize: CGFloat = 14
+            package static let groupIconColumnWidth: CGFloat = 18
+            package static let groupIconTitleSpacing: CGFloat = AppStyles.General.Spacing.standard
+            package static let rowLeadingIconColumnWidth: CGFloat = AppStyles.General.Typography.textBase
+            package static let sectionHeaderChevronColumnWidth: CGFloat = AppStyles.General.Typography.textBase
+            package static let sectionHeaderChevronLabelSpacing: CGFloat = AppStyles.General.Spacing.tight
+            package static let groupOrganizationFontSize: CGFloat = AppStyles.General.Typography.textSm
+            package static let groupTitleSpacing: CGFloat = AppStyles.General.Spacing.tight
+            package static let groupOrganizationMaxWidth: CGFloat = 120
+            package static let worktreeIconSize: CGFloat = 11
+            package static let branchIconSize: CGFloat = 10
+            package static let branchFontSize: CGFloat = AppStyles.General.Typography.textSm
+            package static let rowHorizontalInset: CGFloat = AppStyles.General.Spacing.tight / 2
+            package static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.bar
+            package static let groupRowVerticalPadding: CGFloat = 2
+            package static let countBadgeHorizontalPadding: CGFloat = 6
+            package static let countBadgeVerticalPadding: CGFloat = 2
+            package static let countBadgeBackgroundOpacity: CGFloat = 0.15
+            package static let notificationRowUnreadDotSize: CGFloat = 6
+            package static let notificationRowTitleSize: CGFloat = AppStyles.General.Typography.textBase
+            package static let notificationRowSourceSize: CGFloat = AppStyles.General.Typography.textSm
+            package static let notificationRowDetailSize: CGFloat = AppStyles.General.Typography.textSm
+            package static let notificationRowTimestampSize: CGFloat = AppStyles.General.Typography.textSm
+            package static let chipRowSpacing: CGFloat = 4
+            package static let chipContentSpacing: CGFloat = 2
+            package static let syncClusterSpacing: CGFloat = 1
+            package static let chipHorizontalPadding: CGFloat = 4
+            package static let chipIconOnlyHorizontalPadding: CGFloat = 3
+            package static let chipVerticalPadding: CGFloat = 2
+            package static let chipFontSize: CGFloat = AppStyles.General.Typography.textXs
+            package static let chipIconSize: CGFloat = 8
+            package static let syncChipIconSize: CGFloat = 7
+            package static let chipBackgroundOpacity: CGFloat = AppStyles.General.Fill.hover
+            package static let chipBorderOpacity: CGFloat = AppStyles.General.Fill.muted
+            package static let chipForegroundOpacity: CGFloat = 0.82
+            package static let chipMuteOverlayOpacity: CGFloat = 0.16
+            package static let rowSelectedOpacity: CGFloat = AppStyles.General.Fill.selected
+            package static let rowHoverOpacity: CGFloat = AppStyles.General.Fill.pressed
+            package static let badgeOffset: CGFloat = 4
+            package static let badgeHitboxSize: CGFloat = AppStyles.General.Button.compact
 
-            enum SearchField {
-                static let contentSpacing: CGFloat = AppStyles.General.Spacing.standard
-                static let iconSize: CGFloat = AppStyles.General.Typography.textXs
-                static let textSize: CGFloat = AppStyles.General.Typography.textSm
-                static let horizontalPadding: CGFloat = AppStyles.General.Spacing.loose
-                static let verticalPadding: CGFloat = AppStyles.General.Spacing.tight
-                static let outerHorizontalPadding: CGFloat = 8
-                static let outerVerticalPadding: CGFloat = 6
-                static let cornerRadius: CGFloat = AppStyles.General.CornerRadius.bar
-                static let backgroundOpacity: CGFloat = AppStyles.General.Fill.subtle
-                static let borderOpacity: CGFloat = 0
-                static let borderWidth: CGFloat = 0
-                static let clearTransitionDuration: Double = 0.10
+            package enum SearchField {
+                package static let contentSpacing: CGFloat = AppStyles.General.Spacing.standard
+                package static let iconSize: CGFloat = AppStyles.General.Typography.textXs
+                package static let textSize: CGFloat = AppStyles.General.Typography.textSm
+                package static let horizontalPadding: CGFloat = AppStyles.General.Spacing.loose
+                package static let verticalPadding: CGFloat = AppStyles.General.Spacing.tight
+                package static let outerHorizontalPadding: CGFloat = 8
+                package static let outerVerticalPadding: CGFloat = 6
+                package static let cornerRadius: CGFloat = AppStyles.General.CornerRadius.bar
+                package static let backgroundOpacity: CGFloat = AppStyles.General.Fill.subtle
+                package static let borderOpacity: CGFloat = 0
+                package static let borderWidth: CGFloat = 0
+                package static let clearTransitionDuration: Double = 0.10
             }
 
-            enum Header {
-                static let contentPadding: CGFloat = 8
+            package enum Header {
+                package static let contentPadding: CGFloat = 8
             }
 
-            enum EmptyState {
-                static let contentSpacing: CGFloat = 8
-                static let iconOpacity: CGFloat = 0.5
-                static let transitionDuration: Double = AppStyles.General.Animation.fast
+            package enum EmptyState {
+                package static let contentSpacing: CGFloat = 8
+                package static let iconOpacity: CGFloat = 0.5
+                package static let transitionDuration: Double = AppStyles.General.Animation.fast
             }
 
-            enum ToolbarControl {
-                static let cornerRadius = AppStyles.General.CornerRadius.button
-                static let foregroundOpacity = AppStyles.General.Foreground.secondary
-                static let disabledOpacity = AppStyles.General.Foreground.dim
-                static let hoverFillOpacity = AppStyles.General.Fill.hover
-                static let pressedFillOpacity = AppStyles.General.Fill.pressed
-                static let activeFillOpacity = AppStyles.General.Fill.active
-                static let groupingContentSpacing = AppStyles.General.Spacing.tight
-                static let groupingHorizontalPadding = AppStyles.General.Spacing.standard
-                static let groupingLabelMinimumWidth: CGFloat = 32
-                static let groupingChevronSize: CGFloat = 8
-                static let dividerHeight: CGFloat = 16
-                static let popoverRowCornerRadius = AppStyles.General.CornerRadius.button
-                static let popoverRowHorizontalPadding = AppStyles.General.Spacing.standard
-                static let popoverRowVerticalPadding = AppStyles.General.Spacing.tight
-                static let popoverMinimumWidth: CGFloat = 116
+            package enum ToolbarControl {
+                package static let cornerRadius = AppStyles.General.CornerRadius.button
+                package static let foregroundOpacity = AppStyles.General.Foreground.secondary
+                package static let disabledOpacity = AppStyles.General.Foreground.dim
+                package static let hoverFillOpacity = AppStyles.General.Fill.hover
+                package static let pressedFillOpacity = AppStyles.General.Fill.pressed
+                package static let activeFillOpacity = AppStyles.General.Fill.active
+                package static let groupingContentSpacing = AppStyles.General.Spacing.tight
+                package static let groupingHorizontalPadding = AppStyles.General.Spacing.standard
+                package static let groupingLabelMinimumWidth: CGFloat = 32
+                package static let groupingChevronSize: CGFloat = 8
+                package static let dividerHeight: CGFloat = 16
+                package static let popoverRowCornerRadius = AppStyles.General.CornerRadius.button
+                package static let popoverRowHorizontalPadding = AppStyles.General.Spacing.standard
+                package static let popoverRowVerticalPadding = AppStyles.General.Spacing.tight
+                package static let popoverMinimumWidth: CGFloat = 116
             }
 
-            static let groupChildRowLeadingInset: CGFloat =
+            package static let groupChildRowLeadingInset: CGFloat =
                 listRowLeadingInset
                 + AppStyles.General.Typography.textBase
                 + AppStyles.General.Spacing.tight
 
-            static let statusRowLeadingIndent: CGFloat = rowLeadingIconColumnWidth + AppStyles.General.Spacing.tight
+            package static let statusRowLeadingIndent: CGFloat =
+                rowLeadingIconColumnWidth + AppStyles.General.Spacing.tight
 
-            static let chipInfoColor = Color(red: 0.47, green: 0.69, blue: 0.96)
-            static let chipSuccessColor = Color(red: 0.42, green: 0.84, blue: 0.50)
-            static let chipWarningColor = Color(red: 0.93, green: 0.71, blue: 0.34)
-            static let chipDangerColor = Color(red: 0.93, green: 0.41, blue: 0.41)
-            static let accentPaletteHexes: [String] = [
+            package static let chipInfoColor = Color(red: 0.47, green: 0.69, blue: 0.96)
+            package static let chipSuccessColor = Color(red: 0.42, green: 0.84, blue: 0.50)
+            package static let chipWarningColor = Color(red: 0.93, green: 0.71, blue: 0.34)
+            package static let chipDangerColor = Color(red: 0.93, green: 0.41, blue: 0.41)
+            package static let accentPaletteHexes: [String] = [
                 "#F5C451",
                 "#58C4FF",
                 "#A78BFA",
@@ -195,7 +196,7 @@ enum AppStyles {
                 "#F472B6",
             ]
 
-            static func paletteColor(at index: Int) -> Color {
+            package static func paletteColor(at index: Int) -> Color {
                 let hex =
                     accentPaletteHexes.indices.contains(index)
                     ? accentPaletteHexes[index]
@@ -204,258 +205,261 @@ enum AppStyles {
             }
         }
 
-        enum TabBar {
-            static let height: CGFloat = 40
-            static let tabPillHeight: CGFloat = 32
-            static let tabPillSpacing: CGFloat = 2
-            static let titlebarBackground = NSColor(white: 0.12, alpha: 1.0)
+        package enum TabBar {
+            package static let height: CGFloat = 40
+            package static let tabPillHeight: CGFloat = 32
+            package static let tabPillSpacing: CGFloat = 2
+            package static let titlebarBackground = NSColor(white: 0.12, alpha: 1.0)
         }
 
-        enum Chrome {
-            static let tabBarLeadingInset: CGFloat = 80
-            static let tabBarContentLeadingPadding: CGFloat = AppStyles.General.Spacing.loose
-            static let tabBarTopInset: CGFloat = 0
-            static let iconClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
-            static let circledControlSpacing: CGFloat = 12
-            static let tabStripLeadingPadding: CGFloat = 10
-            static let plainToolbarIconSpacing: CGFloat = 0
-            static let dividerHeight: CGFloat = 18
-            static let dividerHorizontalPadding: CGFloat = 12
-            static let windowDragRegionHeight: CGFloat =
+        package enum Chrome {
+            package static let tabBarLeadingInset: CGFloat = 80
+            package static let tabBarContentLeadingPadding: CGFloat = AppStyles.General.Spacing.loose
+            package static let tabBarTopInset: CGFloat = 0
+            package static let iconClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
+            package static let circledControlSpacing: CGFloat = 12
+            package static let tabStripLeadingPadding: CGFloat = 10
+            package static let plainToolbarIconSpacing: CGFloat = 0
+            package static let dividerHeight: CGFloat = 18
+            package static let dividerHorizontalPadding: CGFloat = 12
+            package static let windowDragRegionHeight: CGFloat =
                 AppStyles.Shell.TabBar.height - AppStyles.Shell.TabBar.tabPillHeight
 
-            enum SidebarNav {
-                static let iconSpacing: CGFloat = AppStyles.Shell.Chrome.iconClusterSpacing
-                static let dividerLeadingPadding: CGFloat = 14
-                static let dividerTrailingPadding: CGFloat = 24
+            package enum SidebarNav {
+                package static let iconSpacing: CGFloat = AppStyles.Shell.Chrome.iconClusterSpacing
+                package static let dividerLeadingPadding: CGFloat = 14
+                package static let dividerTrailingPadding: CGFloat = 24
             }
 
-            enum PlainToolbarIcon {
-                static let buttonSize: CGFloat = 24
-                static let iconSize: CGFloat = AppStyles.Shell.Chrome.ToolbarButton.iconSize
+            package enum PlainToolbarIcon {
+                package static let buttonSize: CGFloat = 24
+                package static let iconSize: CGFloat = AppStyles.Shell.Chrome.ToolbarButton.iconSize
             }
 
-            enum ToolbarButton {
-                static let size: CGFloat = 28
-                static let iconSize: CGFloat = 12
-                static let verticalOffset: CGFloat = 2
-                static let baseFillColor = Color(nsColor: NSColor(hex: "#141416") ?? NSColor(white: 0.08, alpha: 1))
-                static let hoverFillColor = Color(nsColor: NSColor(hex: "#242428") ?? NSColor(white: 0.14, alpha: 1))
-                static let pressedFillColor = hoverFillColor
-                static let iconForegroundColor = Color(
+            package enum ToolbarButton {
+                package static let size: CGFloat = 28
+                package static let iconSize: CGFloat = 12
+                package static let verticalOffset: CGFloat = 2
+                package static let baseFillColor = Color(
+                    nsColor: NSColor(hex: "#141416") ?? NSColor(white: 0.08, alpha: 1))
+                package static let hoverFillColor = Color(
+                    nsColor: NSColor(hex: "#242428") ?? NSColor(white: 0.14, alpha: 1))
+                package static let pressedFillColor = hoverFillColor
+                package static let iconForegroundColor = Color(
                     nsColor: NSColor(hex: "#dddddd") ?? NSColor(white: 0.87, alpha: 1))
-                static let hoverIconForegroundColor = Color.white
-                static let selectedFillOpacity: CGFloat = 0.20
-                static let baseStrokeOpacity: CGFloat = AppStyles.General.Stroke.muted
-                static let hoverStrokeColor = Color(nsColor: NSColor(hex: "#dddddd") ?? NSColor(white: 0.87, alpha: 1))
-                static let hoverStrokeOpacity: CGFloat = 0.28
-                static let pressedStrokeColor = hoverStrokeColor
-                static let pressedStrokeOpacity: CGFloat = hoverStrokeOpacity
-                static let selectedStrokeOpacity: CGFloat = 0.30
-                static let badgeOffsetX: CGFloat = 6
-                static let badgeOffsetY: CGFloat = -5
+                package static let hoverIconForegroundColor = Color.white
+                package static let selectedFillOpacity: CGFloat = 0.20
+                package static let baseStrokeOpacity: CGFloat = AppStyles.General.Stroke.muted
+                package static let hoverStrokeColor = Color(
+                    nsColor: NSColor(hex: "#dddddd") ?? NSColor(white: 0.87, alpha: 1))
+                package static let hoverStrokeOpacity: CGFloat = 0.28
+                package static let pressedStrokeColor = hoverStrokeColor
+                package static let pressedStrokeOpacity: CGFloat = hoverStrokeOpacity
+                package static let selectedStrokeOpacity: CGFloat = 0.30
+                package static let badgeOffsetX: CGFloat = 6
+                package static let badgeOffsetY: CGFloat = -5
             }
         }
 
-        enum Titlebar {
-            static let iconSize: CGFloat = 14
-            static let buttonSize: CGFloat = 28
-            static let buttonSpacing: CGFloat = 4
+        package enum Titlebar {
+            package static let iconSize: CGFloat = 14
+            package static let buttonSize: CGFloat = 28
+            package static let buttonSpacing: CGFloat = 4
         }
 
-        enum PaneChrome {
-            static let inactivePaneDimmingOpacity: CGFloat = 0.30
-            static let inactivePaneDimmingDepth: CGFloat = 120
-            static let paneSplitIconSize: CGFloat = AppStyles.General.Icon.paneSplit
-            static let paneSplitButtonSize: CGFloat = AppStyles.General.Button.paneSplit
-            static let maskFadeWidth: CGFloat = 14
-            static let collapsedBarWidth: CGFloat = 40
-            static let background = Color(nsColor: NSColor(white: 0.09, alpha: 1.0))
+        package enum PaneChrome {
+            package static let inactivePaneDimmingOpacity: CGFloat = 0.30
+            package static let inactivePaneDimmingDepth: CGFloat = 120
+            package static let paneSplitIconSize: CGFloat = AppStyles.General.Icon.paneSplit
+            package static let paneSplitButtonSize: CGFloat = AppStyles.General.Button.paneSplit
+            package static let maskFadeWidth: CGFloat = 14
+            package static let collapsedBarWidth: CGFloat = 40
+            package static let background = Color(nsColor: NSColor(white: 0.09, alpha: 1.0))
         }
 
-        enum DrawerToolbar {
-            static let trailingClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
-            static let dividerHeight: CGFloat = 16
-            static let dividerHorizontalPadding: CGFloat = 2
+        package enum DrawerToolbar {
+            package static let trailingClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
+            package static let dividerHeight: CGFloat = 16
+            package static let dividerHorizontalPadding: CGFloat = 2
         }
 
-        enum ManagementLayer {
-            static let modeDimmingOpacity: CGFloat = 0.30
-            static let controlFillOpacity: CGFloat = 0.95
-            static let controlHoverDelta: CGFloat = -0.20
-            static let actionSize: CGFloat = 28
-            static let actionIconSize: CGFloat = 13
-            static let collapsedBarOrdinalForegroundOpacity: CGFloat = 0.92
-            static let dragHandleWidth: CGFloat = 60
-            static let dragHandleHeight: CGFloat = 100
-            static let dragHandleCornerRadius: CGFloat = 20
+        package enum ManagementLayer {
+            package static let modeDimmingOpacity: CGFloat = 0.30
+            package static let controlFillOpacity: CGFloat = 0.95
+            package static let controlHoverDelta: CGFloat = -0.20
+            package static let actionSize: CGFloat = 28
+            package static let actionIconSize: CGFloat = 13
+            package static let collapsedBarOrdinalForegroundOpacity: CGFloat = 0.92
+            package static let dragHandleWidth: CGFloat = 60
+            package static let dragHandleHeight: CGFloat = 100
+            package static let dragHandleCornerRadius: CGFloat = 20
 
-            static func backgroundOpacity(isHovered: Bool) -> CGFloat {
+            package static func backgroundOpacity(isHovered: Bool) -> CGFloat {
                 isHovered ? controlFillOpacity + controlHoverDelta : controlFillOpacity
             }
 
-            static func iconOpacity(isHovered: Bool) -> CGFloat {
+            package static func iconOpacity(isHovered: Bool) -> CGFloat {
                 isHovered ? 1.0 : AppStyles.General.Foreground.muted
             }
         }
     }
 
-    enum WorkspaceFocus {
-        enum Terminal {
-            static let startupOverlayPadding: CGFloat = 28
-            static let startupOverlaySpacing: CGFloat = 16
-            static let errorOverlayCornerRadius: CGFloat = 12
-            static let errorOverlayContentPadding: CGFloat = 32
-            static let errorOverlayContentSpacing: CGFloat = 24
-            static let errorOverlaySectionSpacing: CGFloat = 16
-            static let errorOverlayActionTopPadding: CGFloat = 8
+    package enum WorkspaceFocus {
+        package enum Terminal {
+            package static let startupOverlayPadding: CGFloat = 28
+            package static let startupOverlaySpacing: CGFloat = 16
+            package static let errorOverlayCornerRadius: CGFloat = 12
+            package static let errorOverlayContentPadding: CGFloat = 32
+            package static let errorOverlayContentSpacing: CGFloat = 24
+            package static let errorOverlaySectionSpacing: CGFloat = 16
+            package static let errorOverlayActionTopPadding: CGFloat = 8
         }
 
-        enum Webview {
-            static let navigationBarHorizontalPadding: CGFloat = 8
-            static let navigationBarHeight: CGFloat = 36
-            static let navigationControlsSpacing: CGFloat = 8
-            static let navigationFieldHorizontalPadding: CGFloat = 8
-            static let navigationFieldVerticalPadding: CGFloat = 4
-            static let navigationFieldCornerRadius: CGFloat = 6
+        package enum Webview {
+            package static let navigationBarHorizontalPadding: CGFloat = 8
+            package static let navigationBarHeight: CGFloat = 36
+            package static let navigationControlsSpacing: CGFloat = 8
+            package static let navigationFieldHorizontalPadding: CGFloat = 8
+            package static let navigationFieldVerticalPadding: CGFloat = 4
+            package static let navigationFieldCornerRadius: CGFloat = 6
         }
 
-        enum Bridge {}
+        package enum Bridge {}
 
-        enum CodeViewer {}
+        package enum CodeViewer {}
     }
 
-    enum CommandBar {
-        enum Panel {
-            static let cornerRadius: CGFloat = 12
-            static let horizontalPadding: CGFloat = 12
-            static let nestedDividerOpacity: Double = 0.3
-            static let rootDividerOpacity: Double = 0.15
+    package enum CommandBar {
+        package enum Panel {
+            package static let cornerRadius: CGFloat = 12
+            package static let horizontalPadding: CGFloat = 12
+            package static let nestedDividerOpacity: Double = 0.3
+            package static let rootDividerOpacity: Double = 0.15
         }
 
-        enum Rows {
-            static let iconSpacing: CGFloat = 10
-            static let iconSize: CGFloat = 16
-            static let worktreeOpenIndicatorSize: CGFloat = 6
-            static let rowHeight: CGFloat = 36
-            static let rowHeightWithSecondaryLine: CGFloat = 52
-            static let secondaryLineSpacing: CGFloat = 3
-            static let secondaryLineIconSize: CGFloat = 12
-            static let secondaryLineOpacity: Double = 0.58
-            static let selectedSecondaryLineOpacity: Double = 0.72
-            static let shortcutSpacing: CGFloat = 4
-            static let groupHeaderFontSize: CGFloat = AppStyles.General.Typography.textBase
-            static let groupHeaderOpacity: Double = 0.70
-            static let rowTitleOpacity: Double = 0.92
-            static let selectedRowTitleOpacity: Double = 0.95
-            static let dimmedRowTitleOpacity: Double = 0.40
-            static let fuzzyUnmatchedTitleOpacity: Double = 0.65
-            static let trailingMetadataOpacity: Double = 0.68
-            static let dimmedTrailingMetadataOpacity: Double = 0.40
-            static let scopePillFontSize: CGFloat = AppStyles.General.Typography.textXs
-            static let scopePillTextOpacity: Double = 0.70
-            static let scopePillDismissOpacity: Double = 0.45
-            static let statusContextOpacity: Double = 0.50
-            static let trailingMetadataSpacing: CGFloat = 12
-            static let trailingMetadataMaxWidth: CGFloat = 260
-            static let chevronOpacity: Double = 0.48
-            static let selectedRowCornerRadius: CGFloat = 6
-            static let horizontalPadding: CGFloat = 12
-            static let selectedRowHorizontalInset: CGFloat = 4
+        package enum Rows {
+            package static let iconSpacing: CGFloat = 10
+            package static let iconSize: CGFloat = 16
+            package static let worktreeOpenIndicatorSize: CGFloat = 6
+            package static let rowHeight: CGFloat = 36
+            package static let rowHeightWithSecondaryLine: CGFloat = 52
+            package static let secondaryLineSpacing: CGFloat = 3
+            package static let secondaryLineIconSize: CGFloat = 12
+            package static let secondaryLineOpacity: Double = 0.58
+            package static let selectedSecondaryLineOpacity: Double = 0.72
+            package static let shortcutSpacing: CGFloat = 4
+            package static let groupHeaderFontSize: CGFloat = AppStyles.General.Typography.textBase
+            package static let groupHeaderOpacity: Double = 0.70
+            package static let rowTitleOpacity: Double = 0.92
+            package static let selectedRowTitleOpacity: Double = 0.95
+            package static let dimmedRowTitleOpacity: Double = 0.40
+            package static let fuzzyUnmatchedTitleOpacity: Double = 0.65
+            package static let trailingMetadataOpacity: Double = 0.68
+            package static let dimmedTrailingMetadataOpacity: Double = 0.40
+            package static let scopePillFontSize: CGFloat = AppStyles.General.Typography.textXs
+            package static let scopePillTextOpacity: Double = 0.70
+            package static let scopePillDismissOpacity: Double = 0.45
+            package static let statusContextOpacity: Double = 0.50
+            package static let trailingMetadataSpacing: CGFloat = 12
+            package static let trailingMetadataMaxWidth: CGFloat = 260
+            package static let chevronOpacity: Double = 0.48
+            package static let selectedRowCornerRadius: CGFloat = 6
+            package static let horizontalPadding: CGFloat = 12
+            package static let selectedRowHorizontalInset: CGFloat = 4
         }
 
-        enum Footer {
-            static let primaryOpacity: Double = 0.40
-            static let secondaryOpacity: Double = 0.25
-            static let separatorOpacity: Double = 0.15
-            static let rowHeight: CGFloat = 16
-            static let separatorHorizontalPadding: CGFloat = 6
-            static let rowSpacing: CGFloat = 6
-            static let bottomRowSpacing: CGFloat = 14
-            static let hintSpacing: CGFloat = 4
-            static let topPadding: CGFloat = 6
-            static let bottomPadding: CGFloat = 8
-            static let horizontalPadding: CGFloat = 12
-        }
-    }
-
-    enum Components {
-        enum EditorChooser {
-            static let menuWidth: CGFloat = 220
-            static let outerPadding: CGFloat = AppStyles.General.Spacing.standard
-            static let headerBottomPadding: CGFloat = AppStyles.General.Spacing.tight
-            static let headerContentSpacing: CGFloat = AppStyles.General.Spacing.tight
-            static let shortcutHintHorizontalPadding: CGFloat = 6
-            static let shortcutHintVerticalPadding: CGFloat = 2
-            static let rowSpacing: CGFloat = 2
-            static let rowContentSpacing: CGFloat = AppStyles.General.Spacing.standard
-            static let rowHorizontalPadding: CGFloat = AppStyles.General.Spacing.standard
-            static let rowVerticalPadding: CGFloat = AppStyles.General.Spacing.tight
-            static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
-            static let appIconSize: CGFloat = 14
-            static let badgeSize: CGFloat = 16
-            static let badgeCornerRadius: CGFloat = 5
-            static let bookmarkHitSize: CGFloat = 24
-            static let badgeFontSize: CGFloat = AppStyles.General.Typography.textXs
-            static let badgeFillOpacity: CGFloat = AppStyles.General.Fill.hover
-            static let fallbackIconFontSize: CGFloat = AppStyles.General.Typography.textSm
-            static let selectedRowFillOpacity: CGFloat = AppStyles.General.Fill.selected
-
-            static let chooserButtonContentSpacing: CGFloat = AppStyles.General.Spacing.tight
-            static let chooserButtonHorizontalPadding: CGFloat = AppStyles.General.Spacing.standard
-            static let chooserChevronFontSize: CGFloat = AppStyles.General.Typography.textXxs
-        }
-
-        enum PaneInbox {
-            static let popoverWidth: CGFloat = 320
-            static let popoverHeight: CGFloat = 400
-            static let headerPadding: CGFloat = 12
-            static let headerControlSpacing: CGFloat = AppStyles.General.Spacing.standard
-            static let headerSeparatorHeight: CGFloat = AppStyles.General.Button.compact
-            static let filterButtonHorizontalPadding: CGFloat = AppStyles.General.Spacing.loose
-            static let filterButtonVerticalPadding: CGFloat = AppStyles.General.Spacing.tight
-            static let filterButtonCornerRadius: CGFloat = AppStyles.General.CornerRadius.button
-            static let filterButtonFontSize: CGFloat = AppStyles.General.Typography.textXs
-            static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
-            static let unreadBadgeFontSize: CGFloat = AppStyles.General.Typography.textXxs
-            static let unreadBadgeHorizontalPadding: CGFloat = 4
-            static let unreadBadgeVerticalPadding: CGFloat = 1
-            static let unreadBadgeOffset: CGFloat = 4
-        }
-
-        enum NotificationBadge {
-            static let fontSize: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeFontSize
-            static let horizontalPadding: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeHorizontalPadding
-            static let verticalPadding: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeVerticalPadding
-            static let offset: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeOffset
+        package enum Footer {
+            package static let primaryOpacity: Double = 0.40
+            package static let secondaryOpacity: Double = 0.25
+            package static let separatorOpacity: Double = 0.15
+            package static let rowHeight: CGFloat = 16
+            package static let separatorHorizontalPadding: CGFloat = 6
+            package static let rowSpacing: CGFloat = 6
+            package static let bottomRowSpacing: CGFloat = 14
+            package static let hintSpacing: CGFloat = 4
+            package static let topPadding: CGFloat = 6
+            package static let bottomPadding: CGFloat = 8
+            package static let horizontalPadding: CGFloat = 12
         }
     }
 
-    enum Welcome {
-        static let pageHorizontalPadding: CGFloat = 56
-        static let pageVerticalPadding: CGFloat = 48
-        static let headerMaxWidth: CGFloat = 720
+    package enum Components {
+        package enum EditorChooser {
+            package static let menuWidth: CGFloat = 220
+            package static let outerPadding: CGFloat = AppStyles.General.Spacing.standard
+            package static let headerBottomPadding: CGFloat = AppStyles.General.Spacing.tight
+            package static let headerContentSpacing: CGFloat = AppStyles.General.Spacing.tight
+            package static let shortcutHintHorizontalPadding: CGFloat = 6
+            package static let shortcutHintVerticalPadding: CGFloat = 2
+            package static let rowSpacing: CGFloat = 2
+            package static let rowContentSpacing: CGFloat = AppStyles.General.Spacing.standard
+            package static let rowHorizontalPadding: CGFloat = AppStyles.General.Spacing.standard
+            package static let rowVerticalPadding: CGFloat = AppStyles.General.Spacing.tight
+            package static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
+            package static let appIconSize: CGFloat = 14
+            package static let badgeSize: CGFloat = 16
+            package static let badgeCornerRadius: CGFloat = 5
+            package static let bookmarkHitSize: CGFloat = 24
+            package static let badgeFontSize: CGFloat = AppStyles.General.Typography.textXs
+            package static let badgeFillOpacity: CGFloat = AppStyles.General.Fill.hover
+            package static let fallbackIconFontSize: CGFloat = AppStyles.General.Typography.textSm
+            package static let selectedRowFillOpacity: CGFloat = AppStyles.General.Fill.selected
 
-        static let titleFontSize: CGFloat = 30
-        static let bodyFontSize: CGFloat = AppStyles.General.Typography.textXl
-        static let titleBodyGap: CGFloat = 8
+            package static let chooserButtonContentSpacing: CGFloat = AppStyles.General.Spacing.tight
+            package static let chooserButtonHorizontalPadding: CGFloat = AppStyles.General.Spacing.standard
+            package static let chooserChevronFontSize: CGFloat = AppStyles.General.Typography.textXxs
+        }
 
-        static let recentCardMinWidth: CGFloat = 260
-        static let recentCardGap: CGFloat = 20
+        package enum PaneInbox {
+            package static let popoverWidth: CGFloat = 320
+            package static let popoverHeight: CGFloat = 400
+            package static let headerPadding: CGFloat = 12
+            package static let headerControlSpacing: CGFloat = AppStyles.General.Spacing.standard
+            package static let headerSeparatorHeight: CGFloat = AppStyles.General.Button.compact
+            package static let filterButtonHorizontalPadding: CGFloat = AppStyles.General.Spacing.loose
+            package static let filterButtonVerticalPadding: CGFloat = AppStyles.General.Spacing.tight
+            package static let filterButtonCornerRadius: CGFloat = AppStyles.General.CornerRadius.button
+            package static let filterButtonFontSize: CGFloat = AppStyles.General.Typography.textXs
+            package static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
+            package static let unreadBadgeFontSize: CGFloat = AppStyles.General.Typography.textXxs
+            package static let unreadBadgeHorizontalPadding: CGFloat = 4
+            package static let unreadBadgeVerticalPadding: CGFloat = 1
+            package static let unreadBadgeOffset: CGFloat = 4
+        }
 
-        static let previewWidth: CGFloat = 500
-        static let previewCornerRadius: CGFloat = 16
+        package enum NotificationBadge {
+            package static let fontSize: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeFontSize
+            package static let horizontalPadding: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeHorizontalPadding
+            package static let verticalPadding: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeVerticalPadding
+            package static let offset: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeOffset
+        }
+    }
 
-        static let cardFillOpacity: CGFloat = AppStyles.General.Fill.muted
-        static let cardStrokeOpacity: CGFloat = AppStyles.General.Fill.active
-        static let cardHoverOpacity: CGFloat = AppStyles.Shell.Sidebar.rowHoverOpacity
-        static let interactiveHoverOpacity: CGFloat = AppStyles.General.Fill.hover
+    package enum Welcome {
+        package static let pageHorizontalPadding: CGFloat = 56
+        package static let pageVerticalPadding: CGFloat = 48
+        package static let headerMaxWidth: CGFloat = 720
+
+        package static let titleFontSize: CGFloat = 30
+        package static let bodyFontSize: CGFloat = AppStyles.General.Typography.textXl
+        package static let titleBodyGap: CGFloat = 8
+
+        package static let recentCardMinWidth: CGFloat = 260
+        package static let recentCardGap: CGFloat = 20
+
+        package static let previewWidth: CGFloat = 500
+        package static let previewCornerRadius: CGFloat = 16
+
+        package static let cardFillOpacity: CGFloat = AppStyles.General.Fill.muted
+        package static let cardStrokeOpacity: CGFloat = AppStyles.General.Fill.active
+        package static let cardHoverOpacity: CGFloat = AppStyles.Shell.Sidebar.rowHoverOpacity
+        package static let interactiveHoverOpacity: CGFloat = AppStyles.General.Fill.hover
 
         // Spacing between an h2 section header and its content below.
         // Slightly tighter than launcherSectionGap (which separates top-level
         // sections) but looser than launcherRowGap (row-to-row inside a
         // section). Used by Recent and Shortcuts section headers.
-        static let sectionHeaderToContentSpacing: CGFloat = AppStyles.General.Spacing.loose + 4
+        package static let sectionHeaderToContentSpacing: CGFloat = AppStyles.General.Spacing.loose + 4
 
         // MARK: - Typographic scale (semantic)
         //
@@ -467,23 +471,23 @@ enum AppStyles {
         //   - caption is metadata (chips, footnotes).
         //   - key is keyboard-shortcut glyphs, monospaced and accent-colored.
 
-        enum Typography {
-            static let h1: Font = .system(size: titleFontSize, weight: .semibold)
-            static let h2: Font = .system(size: AppStyles.General.Typography.textLg + 1, weight: .semibold)
-            static let h3: Font = .system(size: AppStyles.General.Typography.textBase, weight: .medium)
-            static let body: Font = .system(size: AppStyles.General.Typography.textXl)
-            static let bodySm: Font = .system(size: AppStyles.General.Typography.textSm)
-            static let caption: Font = .system(size: AppStyles.General.Typography.textXs)
-            static let key: Font = .system(
+        package enum Typography {
+            package static let h1: Font = .system(size: titleFontSize, weight: .semibold)
+            package static let h2: Font = .system(size: AppStyles.General.Typography.textLg + 1, weight: .semibold)
+            package static let h3: Font = .system(size: AppStyles.General.Typography.textBase, weight: .medium)
+            package static let body: Font = .system(size: AppStyles.General.Typography.textXl)
+            package static let bodySm: Font = .system(size: AppStyles.General.Typography.textSm)
+            package static let caption: Font = .system(size: AppStyles.General.Typography.textXs)
+            package static let key: Font = .system(
                 size: AppStyles.General.Typography.textBase,
                 weight: .semibold,
                 design: .monospaced
             )
         }
 
-        enum TextColor {
-            static let h2Opacity: CGFloat = 0.62
-            static let h3Opacity: CGFloat = 0.88
+        package enum TextColor {
+            package static let h2Opacity: CGFloat = 0.62
+            package static let h3Opacity: CGFloat = 0.88
         }
 
         // Launcher composition (new — supersedes hero/scope geometry)
@@ -494,61 +498,61 @@ enum AppStyles {
         // (the "real artifact" illustration), ⌘ shortcut rows on the right
         // (the "action column"). ContentMaxWidth accommodates both side-by-side:
         //   previewWidth (500) + columnsGap (40) + shortcuts column (≥320)
-        static let launcherContentMaxWidth: CGFloat = 900
-        static let launcherPageTopPadding: CGFloat = 72
-        static let launcherRowGap: CGFloat = 20
-        static let launcherSectionGap: CGFloat = 28
-        static let launcherShortcutsColumnsGap: CGFloat = 40
-        static let launcherDividerOpacity: CGFloat =
+        package static let launcherContentMaxWidth: CGFloat = 900
+        package static let launcherPageTopPadding: CGFloat = 72
+        package static let launcherRowGap: CGFloat = 20
+        package static let launcherSectionGap: CGFloat = 28
+        package static let launcherShortcutsColumnsGap: CGFloat = 40
+        package static let launcherDividerOpacity: CGFloat =
             AppStyles.CommandBar.Panel.nestedDividerOpacity
-        static let launcherShortcutKeyColumnWidth: CGFloat = 32
-        static let launcherShortcutKeyTitleGap: CGFloat = 12
-        static let launcherPreviewSubtitleOpacity: CGFloat = 0.50
+        package static let launcherShortcutKeyColumnWidth: CGFloat = 32
+        package static let launcherShortcutKeyTitleGap: CGFloat = 12
+        package static let launcherPreviewSubtitleOpacity: CGFloat = 0.50
 
         // Embedded cmd-P preview — mirrors the real modal with mock data
         // (five worktrees matching WelcomeSidebarIllustration). Height must
         // fit 3 group headers (~23pt) + 5 result rows (36pt) + internal padding
         // with a small margin for breathing room.
-        static let previewResultsHeight: CGFloat = 264
-        static let launcherPreviewCalloutGap: CGFloat = 12
+        package static let previewResultsHeight: CGFloat = 264
+        package static let launcherPreviewCalloutGap: CGFloat = 12
 
         // Scopes callout (clickable pills below the preview)
-        static let scopesCalloutItemGap: CGFloat = 6
-        static let scopesCalloutHorizontalPadding: CGFloat = 10
-        static let scopesCalloutVerticalPadding: CGFloat = 8
-        static let scopesCalloutCornerRadius: CGFloat = 10
+        package static let scopesCalloutItemGap: CGFloat = 6
+        package static let scopesCalloutHorizontalPadding: CGFloat = 10
+        package static let scopesCalloutVerticalPadding: CGFloat = 8
+        package static let scopesCalloutCornerRadius: CGFloat = 10
 
         // Scope pill (inside the callout) — accent-tinted background when
         // selected so the user sees which scope is driving the preview.
-        static let scopesCalloutPillHorizontalPadding: CGFloat = 10
-        static let scopesCalloutPillVerticalPadding: CGFloat = 6
-        static let scopesCalloutPillCornerRadius: CGFloat = 6
-        static let scopesCalloutPillContentSpacing: CGFloat = 6
-        static let scopesCalloutPillSelectedFillOpacity: CGFloat = 0.15
+        package static let scopesCalloutPillHorizontalPadding: CGFloat = 10
+        package static let scopesCalloutPillVerticalPadding: CGFloat = 6
+        package static let scopesCalloutPillCornerRadius: CGFloat = 6
+        package static let scopesCalloutPillContentSpacing: CGFloat = 6
+        package static let scopesCalloutPillSelectedFillOpacity: CGFloat = 0.15
 
         // Crossfade when the selected scope flips the preview's mock data.
         // Short (100ms) — reads as a near-instant swap with just enough
         // softening to avoid a jarring flash.
-        static let launcherPreviewScopeCrossfadeDuration: Double = 0.1
+        package static let launcherPreviewScopeCrossfadeDuration: Double = 0.1
 
         // Shortcut rows in the right column get the same faint-outlined card
         // chrome as the preview + scopes callout, so they read as clickable.
-        static let launcherShortcutRowCornerRadius: CGFloat = 10
-        static let launcherShortcutRowHorizontalPadding: CGFloat = 16
-        static let launcherShortcutRowVerticalPadding: CGFloat = 12
+        package static let launcherShortcutRowCornerRadius: CGFloat = 10
+        package static let launcherShortcutRowHorizontalPadding: CGFloat = 16
+        package static let launcherShortcutRowVerticalPadding: CGFloat = 12
 
         // Folder-intake layout — shared by .noFolders, .scanning, .scanEmpty.
         // The illustration + logo + title + body stay fixed across all three
         // states; only the bottom action region swaps. Keeping the scene
         // continuous avoids the jarring layout rupture users saw on
         // transition between "no folders" → "scanning" → "launcher".
-        static let intakeColumnSpacing: CGFloat = 56
-        static let intakeRightColumnSpacing: CGFloat = 20
-        static let intakeLogoSize: CGFloat = 96
-        static let intakeActionTopPadding: CGFloat = 8
-        static let intakeActionRowSpacing: CGFloat = 10
-        static let intakeScanningSpinnerGap: CGFloat = 10
-        static let intakeScanningTitleOpacity: CGFloat = 0.88
+        package static let intakeColumnSpacing: CGFloat = 56
+        package static let intakeRightColumnSpacing: CGFloat = 20
+        package static let intakeLogoSize: CGFloat = 96
+        package static let intakeActionTopPadding: CGFloat = 8
+        package static let intakeActionRowSpacing: CGFloat = 10
+        package static let intakeScanningSpinnerGap: CGFloat = 10
+        package static let intakeScanningTitleOpacity: CGFloat = 0.88
     }
 
 }

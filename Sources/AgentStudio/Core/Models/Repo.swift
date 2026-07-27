@@ -1,19 +1,19 @@
 import Foundation
 
 /// A git repository that may contain multiple worktrees
-struct Repo: Codable, Identifiable, Hashable, Sendable {
-    let id: UUID
-    var name: String
-    var repoPath: URL
-    var worktrees: [Worktree]
+package struct Repo: Codable, Identifiable, Hashable, Sendable {
+    package let id: UUID
+    package var name: String
+    package var repoPath: URL
+    package var worktrees: [Worktree]
     var createdAt: Date
-    var isFavorite: Bool
+    package var isFavorite: Bool
     var note: String?
-    var tags: [String]
+    package var tags: [String]
 
     /// Deterministic identity derived from filesystem path via SHA-256.
     /// Used for zmx session ID segment. Survives reinstall/data loss, breaks on directory move.
-    var stableKey: String { StableKey.fromPath(repoPath) }
+    package var stableKey: String { StableKey.fromPath(repoPath) }
 
     init(
         id: UUID = UUID(),
@@ -35,7 +35,7 @@ struct Repo: Codable, Identifiable, Hashable, Sendable {
         self.tags = tags
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decode(UUID.self, forKey: .id)
         self.name = try container.decode(String.self, forKey: .name)

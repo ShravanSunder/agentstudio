@@ -1,13 +1,13 @@
 import Foundation
 
 /// Per-arrangement view state for a non-empty drawer.
-struct DrawerView: Codable, Hashable, Sendable {
+package struct DrawerView: Codable, Hashable, Sendable {
     /// Spatial arrangement of panes within the drawer's local grid.
-    var layout: DrawerGridLayout
+    package internal(set) var layout: DrawerGridLayout
     /// Currently focused pane in the drawer. Nil only when empty.
-    var activeChildId: UUID?
+    package var activeChildId: UUID?
     /// Panes currently minimized to narrow vertical bars.
-    var minimizedPaneIds: Set<UUID>
+    package internal(set) var minimizedPaneIds: Set<UUID>
 
     private enum CodingKeys: String, CodingKey {
         case layout
@@ -25,7 +25,7 @@ struct DrawerView: Codable, Hashable, Sendable {
         self.minimizedPaneIds = minimizedPaneIds.intersection(layout.paneIds)
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             layout: try container.decode(DrawerGridLayout.self, forKey: .layout),
@@ -34,7 +34,7 @@ struct DrawerView: Codable, Hashable, Sendable {
         )
     }
 
-    func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(layout, forKey: .layout)
         try container.encodeIfPresent(activeChildId, forKey: .activeChildId)
@@ -50,22 +50,22 @@ struct DrawerView: Codable, Hashable, Sendable {
 
 /// A named complete view of panes within a Tab.
 /// Each tab has exactly one default arrangement and zero or more custom arrangements.
-struct PaneArrangement: Codable, Identifiable, Hashable, Sendable {
-    let id: UUID
+package struct PaneArrangement: Codable, Identifiable, Hashable, Sendable {
+    package let id: UUID
     /// Display name for this arrangement.
-    var name: String
+    package var name: String
     /// Whether this is the default arrangement (exactly one per tab).
-    var isDefault: Bool
+    package var isDefault: Bool
     /// The spatial layout of panes in this arrangement.
-    var layout: Layout
+    package var layout: Layout
     /// Pane IDs currently minimized in this arrangement.
-    var minimizedPaneIds: Set<UUID>
+    package internal(set) var minimizedPaneIds: Set<UUID>
     /// Whether minimized panes are still rendered as collapsed bars.
-    var showsMinimizedPanes: Bool
+    package internal(set) var showsMinimizedPanes: Bool
     /// Focused pane for this arrangement. Nil only when the arrangement has no visible candidate.
-    var activePaneId: UUID?
+    package var activePaneId: UUID?
     /// Per-arrangement drawer view state, keyed by `Drawer.drawerId`.
-    var drawerViews: [UUID: DrawerView]
+    package internal(set) var drawerViews: [UUID: DrawerView]
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -99,7 +99,7 @@ struct PaneArrangement: Codable, Identifiable, Hashable, Sendable {
         self.drawerViews = drawerViews
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)

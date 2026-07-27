@@ -1,3 +1,6 @@
+import AgentStudioBridge
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import Foundation
 

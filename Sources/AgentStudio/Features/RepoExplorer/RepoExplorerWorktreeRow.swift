@@ -1,7 +1,10 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import AppKit
 import SwiftUI
 
-enum RepoExplorerCheckoutIconKind {
+package enum RepoExplorerCheckoutIconKind {
     case mainCheckout
     case gitWorktree
 }
@@ -211,7 +214,7 @@ struct RepoExplorerWorktreeRowContent: View {
     }
 }
 
-struct RepoExplorerWorktreeRow: View {
+package struct RepoExplorerWorktreeRow: View {
     let octiconLoader: OcticonLoader
     let worktree: Worktree
     let checkoutTitle: String
@@ -236,7 +239,51 @@ struct RepoExplorerWorktreeRow: View {
 
     @State private var isHovering = false
 
-    var body: some View {
+    package init(
+        octiconLoader: OcticonLoader,
+        worktree: Worktree,
+        checkoutTitle: String,
+        branchName: String,
+        placementText: String = "",
+        checkoutIconKind: RepoExplorerCheckoutIconKind,
+        iconColor: Color,
+        branchStatus: GitBranchStatus,
+        unreadCount: Int,
+        bridgeCommandResolution: BridgePaneCommandResolution = .create,
+        isFavorite: Bool = false,
+        onToggleFavorite: @escaping () -> Void = {},
+        onUnreadPillTap: @escaping () -> Void = {},
+        onOpen: @escaping () -> Void,
+        onOpenNew: @escaping () -> Void,
+        onReview: @escaping () -> Void,
+        onOpenFiles: @escaping () -> Void,
+        onOpenReviewInNewTab: @escaping () -> Void = {},
+        onOpenFilesInNewTab: @escaping () -> Void = {},
+        onOpenInPane: @escaping () -> Void
+    ) {
+        self.octiconLoader = octiconLoader
+        self.worktree = worktree
+        self.checkoutTitle = checkoutTitle
+        self.branchName = branchName
+        self.placementText = placementText
+        self.checkoutIconKind = checkoutIconKind
+        self.iconColor = iconColor
+        self.branchStatus = branchStatus
+        self.unreadCount = unreadCount
+        self.bridgeCommandResolution = bridgeCommandResolution
+        self.isFavorite = isFavorite
+        self.onToggleFavorite = onToggleFavorite
+        self.onUnreadPillTap = onUnreadPillTap
+        self.onOpen = onOpen
+        self.onOpenNew = onOpenNew
+        self.onReview = onReview
+        self.onOpenFiles = onOpenFiles
+        self.onOpenReviewInNewTab = onOpenReviewInNewTab
+        self.onOpenFilesInNewTab = onOpenFilesInNewTab
+        self.onOpenInPane = onOpenInPane
+    }
+
+    package var body: some View {
         let favoriteControlVisibility = RepoExplorerFavoriteControlVisibility(
             isMainWorktree: worktree.isMainWorktree
         )

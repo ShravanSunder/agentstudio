@@ -1,21 +1,41 @@
 import Foundation
 
-struct BridgePaneCommandCandidate: Equatable, Sendable {
-    let paneId: UUID
-    let worktreeId: UUID
-    let isBridgePane: Bool
-    let isPaneActive: Bool
-    let isCurrentActivePane: Bool
-    let attendanceOrdinal: UInt64?
-    let tabIndex: Int
-    let paneIndexInTab: Int
+package struct BridgePaneCommandCandidate: Equatable, Sendable {
+    package let paneId: UUID
+    package let worktreeId: UUID
+    package let isBridgePane: Bool
+    package let isPaneActive: Bool
+    package let isCurrentActivePane: Bool
+    package let attendanceOrdinal: UInt64?
+    package let tabIndex: Int
+    package let paneIndexInTab: Int
+
+    package init(
+        paneId: UUID,
+        worktreeId: UUID,
+        isBridgePane: Bool,
+        isPaneActive: Bool,
+        isCurrentActivePane: Bool,
+        attendanceOrdinal: UInt64?,
+        tabIndex: Int,
+        paneIndexInTab: Int
+    ) {
+        self.paneId = paneId
+        self.worktreeId = worktreeId
+        self.isBridgePane = isBridgePane
+        self.isPaneActive = isPaneActive
+        self.isCurrentActivePane = isCurrentActivePane
+        self.attendanceOrdinal = attendanceOrdinal
+        self.tabIndex = tabIndex
+        self.paneIndexInTab = paneIndexInTab
+    }
 }
 
-enum BridgePaneCommandResolution: Equatable, Sendable {
+package enum BridgePaneCommandResolution: Equatable, Sendable {
     case reuse(paneId: UUID)
     case create
 
-    func contextualLabel(for command: AppCommand) -> String {
+    package func contextualLabel(for command: AppCommand) -> String {
         switch command {
         case .showBridgeReview, .showBridgeFiles:
             let action =
@@ -30,13 +50,21 @@ enum BridgePaneCommandResolution: Equatable, Sendable {
     }
 }
 
-struct BridgePaneCommandTarget: Equatable, Sendable {
-    let worktreeId: UUID
-    let resolution: BridgePaneCommandResolution
+package struct BridgePaneCommandTarget: Equatable, Sendable {
+    package let worktreeId: UUID
+    package let resolution: BridgePaneCommandResolution
+
+    package init(
+        worktreeId: UUID,
+        resolution: BridgePaneCommandResolution
+    ) {
+        self.worktreeId = worktreeId
+        self.resolution = resolution
+    }
 }
 
-enum BridgePaneCommandResolver {
-    static func resolve(
+package enum BridgePaneCommandResolver {
+    package static func resolve(
         worktreeId: UUID,
         candidates: [BridgePaneCommandCandidate]
     ) -> BridgePaneCommandResolution {

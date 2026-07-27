@@ -1,8 +1,8 @@
 import Foundation
 
 @MainActor
-enum AppShortcutDispatchPolicy {
-    static func shouldRouteAppOwnedKeyEvent(context: KeyboardRoutingContext) -> Bool {
+package enum AppShortcutDispatchPolicy {
+    package static func shouldRouteAppOwnedKeyEvent(context: KeyboardRoutingContext) -> Bool {
         switch context.activeSurface {
         case .commandBar, .transient:
             return false
@@ -11,7 +11,7 @@ enum AppShortcutDispatchPolicy {
         }
     }
 
-    static func shouldDispatchGlobalShortcut(
+    package static func shouldDispatchGlobalShortcut(
         _ shortcut: AppShortcut,
         context: KeyboardRoutingContext
     ) -> Bool {
@@ -22,7 +22,7 @@ enum AppShortcutDispatchPolicy {
         return shouldDispatchFromActiveSurface(shortcut, context: context)
     }
 
-    static func shouldConsumeUnavailableGlobalShortcut(
+    package static func shouldConsumeUnavailableGlobalShortcut(
         _ shortcut: AppShortcut,
         context: KeyboardRoutingContext
     ) -> Bool {
@@ -34,7 +34,7 @@ enum AppShortcutDispatchPolicy {
         }
     }
 
-    static func shouldDispatchTerminalAppOwnedShortcut(
+    package static func shouldDispatchTerminalAppOwnedShortcut(
         _ shortcut: AppShortcut,
         context: KeyboardRoutingContext
     ) -> Bool {
@@ -54,17 +54,17 @@ enum AppShortcutDispatchPolicy {
         }
     }
 
-    static func sourcePaneTarget(for command: AppCommand, sourcePaneId: UUID?) -> UUID? {
+    package static func sourcePaneTarget(for command: AppCommand, sourcePaneId: UUID?) -> UUID? {
         guard let sourcePaneId else { return nil }
         guard isTerminalRuntimeCommand(command) else { return nil }
         return sourcePaneId
     }
 
-    static func shouldSuppressTerminalHostTrigger(_ trigger: ShortcutTrigger) -> Bool {
+    package static func shouldSuppressTerminalHostTrigger(_ trigger: ShortcutTrigger) -> Bool {
         trigger == ShortcutTrigger(key: .character(.k), modifiers: [.command])
     }
 
-    static func isTerminalRuntimeCommand(_ command: AppCommand) -> Bool {
+    package static func isTerminalRuntimeCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
             return true
@@ -106,7 +106,7 @@ enum AppShortcutDispatchPolicy {
         }
     }
 
-    static func isCommandBarActivationShortcut(_ shortcut: AppShortcut) -> Bool {
+    package static func isCommandBarActivationShortcut(_ shortcut: AppShortcut) -> Bool {
         switch shortcut {
         case .newTab, .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes:
             return true

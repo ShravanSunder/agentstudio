@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 enum BridgeTelemetryNativeProjectorError: Error, Equatable {

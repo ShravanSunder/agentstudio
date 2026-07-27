@@ -1,7 +1,8 @@
+import AgentStudioCore
 import Foundation
 import Observation
 
-enum BridgePaneActivity: String, Codable, Equatable, Sendable {
+package enum BridgePaneActivity: String, Codable, Equatable, Sendable {
     case foreground
     case loadedHidden
     case dormant
@@ -13,19 +14,47 @@ enum BridgePaneActivity: String, Codable, Equatable, Sendable {
 /// Key-window, native focus, browser visibility, and active viewer mode are
 /// deliberately absent. They may affect scheduling rank or presentation, but
 /// none of them can mint foreground activity.
-struct BridgePaneActivityFacts: Equatable, Sendable {
-    let residency: SessionResidency
-    let isControllerInstalled: Bool
-    let isInActiveTab: Bool
-    let isInActiveArrangement: Bool
-    let isInExpandedDrawer: Bool
-    let isMinimized: Bool
-    let isZoomExcluded: Bool
-    let isOwningWindowVisible: Bool
-    let isOwningWindowMiniaturized: Bool
-    let isOwningWindowOccluded: Bool
-    let isApplicationActive: Bool
-    let isAuthorityClosed: Bool
+package struct BridgePaneActivityFacts: Equatable, Sendable {
+    package let residency: SessionResidency
+    package let isControllerInstalled: Bool
+    package let isInActiveTab: Bool
+    package let isInActiveArrangement: Bool
+    package let isInExpandedDrawer: Bool
+    package let isMinimized: Bool
+    package let isZoomExcluded: Bool
+    package let isOwningWindowVisible: Bool
+    package let isOwningWindowMiniaturized: Bool
+    package let isOwningWindowOccluded: Bool
+    package let isApplicationActive: Bool
+    package let isAuthorityClosed: Bool
+
+    package init(
+        residency: SessionResidency,
+        isControllerInstalled: Bool,
+        isInActiveTab: Bool,
+        isInActiveArrangement: Bool,
+        isInExpandedDrawer: Bool,
+        isMinimized: Bool,
+        isZoomExcluded: Bool,
+        isOwningWindowVisible: Bool,
+        isOwningWindowMiniaturized: Bool,
+        isOwningWindowOccluded: Bool,
+        isApplicationActive: Bool,
+        isAuthorityClosed: Bool
+    ) {
+        self.residency = residency
+        self.isControllerInstalled = isControllerInstalled
+        self.isInActiveTab = isInActiveTab
+        self.isInActiveArrangement = isInActiveArrangement
+        self.isInExpandedDrawer = isInExpandedDrawer
+        self.isMinimized = isMinimized
+        self.isZoomExcluded = isZoomExcluded
+        self.isOwningWindowVisible = isOwningWindowVisible
+        self.isOwningWindowMiniaturized = isOwningWindowMiniaturized
+        self.isOwningWindowOccluded = isOwningWindowOccluded
+        self.isApplicationActive = isApplicationActive
+        self.isAuthorityClosed = isAuthorityClosed
+    }
 }
 
 /// Sole activity mint for one Bridge pane authority lifetime.
@@ -36,12 +65,14 @@ struct BridgePaneActivityFacts: Equatable, Sendable {
 /// authority is terminal; undo/reopen creates a fresh authority and coordinator.
 @Observable
 @MainActor
-final class BridgePaneActivityCoordinator {
-    private(set) var activity: BridgePaneActivity = .dormant
+package final class BridgePaneActivityCoordinator {
+    package private(set) var activity: BridgePaneActivity = .dormant
     private var hasLoadedInAppLifetime = false
 
+    package init() {}
+
     @discardableResult
-    func update(from facts: BridgePaneActivityFacts) -> BridgePaneActivity {
+    package func update(from facts: BridgePaneActivityFacts) -> BridgePaneActivity {
         if activity == .closed || facts.isAuthorityClosed {
             activity = .closed
             return activity
@@ -58,7 +89,7 @@ final class BridgePaneActivityCoordinator {
         return activity
     }
 
-    func close() {
+    package func close() {
         activity = .closed
     }
 

@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 import Observation
 import os.log
@@ -13,12 +16,12 @@ private let inboxNotificationAtomLogger = Logger(
 /// mutation and derived reads.
 @MainActor
 @Observable
-final class InboxNotificationAtom {
-    struct RetentionOutcome: Sendable, Equatable {
-        static let empty = Self(droppedCount: 0, droppedNotificationIds: [])
+package final class InboxNotificationAtom {
+    package struct RetentionOutcome: Sendable, Equatable {
+        package static let empty = Self(droppedCount: 0, droppedNotificationIds: [])
 
-        let droppedCount: Int
-        let droppedNotificationIds: [UUID]
+        package let droppedCount: Int
+        package let droppedNotificationIds: [UUID]
     }
 
     struct MutationOutcome: Sendable, Equatable {
@@ -27,15 +30,17 @@ final class InboxNotificationAtom {
         let retentionOutcome: RetentionOutcome
     }
 
-    private(set) var notifications: [InboxNotification] = []
-    private(set) var globalUnreadCount = 0
-    private(set) var globalRollUpAlertCount = 0
+    package private(set) var notifications: [InboxNotification] = []
+    package private(set) var globalUnreadCount = 0
+    package private(set) var globalRollUpAlertCount = 0
+
+    package init() {}
 
     func unreadCount(forPaneId paneId: UUID) -> Int {
         unreadCount { $0.paneId == paneId }
     }
 
-    func unreadCount(forWorktreeId worktreeId: UUID) -> Int {
+    package func unreadCount(forWorktreeId worktreeId: UUID) -> Int {
         unreadCount { $0.worktreeId == worktreeId }
     }
 
@@ -56,15 +61,15 @@ final class InboxNotificationAtom {
         }
     }
 
-    func rollUpAlertCount(forWorktreeId worktreeId: UUID) -> Int {
+    package func rollUpAlertCount(forWorktreeId worktreeId: UUID) -> Int {
         rollUpAlertCount { $0.worktreeId == worktreeId }
     }
 
-    func rollUpAlertCount(forTabId tabId: UUID) -> Int {
+    package func rollUpAlertCount(forTabId tabId: UUID) -> Int {
         rollUpAlertCount { $0.tabId == tabId }
     }
 
-    func rollUpAlertCount(forPaneIds paneIds: [UUID]) -> Int {
+    package func rollUpAlertCount(forPaneIds paneIds: [UUID]) -> Int {
         let paneIdSet = Set(paneIds)
         return rollUpAlertCount { notification in
             guard
@@ -77,7 +82,7 @@ final class InboxNotificationAtom {
         }
     }
 
-    func visiblePaneInboxUnreadCount(forPaneIds paneIds: [UUID]) -> Int {
+    package func visiblePaneInboxUnreadCount(forPaneIds paneIds: [UUID]) -> Int {
         let paneIdSet = Set(paneIds)
         return unreadCount { notification in
             guard
@@ -90,7 +95,7 @@ final class InboxNotificationAtom {
         }
     }
 
-    func visiblePaneInboxRollUpAlertCount(forPaneIds paneIds: [UUID]) -> Int {
+    package func visiblePaneInboxRollUpAlertCount(forPaneIds paneIds: [UUID]) -> Int {
         let paneIdSet = Set(paneIds)
         return rollUpAlertCount { notification in
             guard
@@ -103,7 +108,7 @@ final class InboxNotificationAtom {
         }
     }
 
-    func rollUpAlertLane(forPaneIds paneIds: [UUID]) -> InboxNotificationClaimLane? {
+    package func rollUpAlertLane(forPaneIds paneIds: [UUID]) -> InboxNotificationClaimLane? {
         let paneIdSet = Set(paneIds)
         let matchingLanes = notifications.compactMap { notification -> InboxNotificationClaimLane? in
             guard notification.contributesToRollUpAlert else { return nil }
@@ -115,7 +120,7 @@ final class InboxNotificationAtom {
         return nil
     }
 
-    func attentionLane(forPaneIds paneIds: [UUID]) -> InboxNotificationClaimLane? {
+    package func attentionLane(forPaneIds paneIds: [UUID]) -> InboxNotificationClaimLane? {
         let paneIdSet = Set(paneIds)
         let matchingLanes = notifications.compactMap { notification -> InboxNotificationClaimLane? in
             guard notification.contributesToAttentionDot else { return nil }
@@ -168,7 +173,7 @@ final class InboxNotificationAtom {
     }
 
     @discardableResult
-    func append(_ notification: InboxNotification) -> RetentionOutcome {
+    package func append(_ notification: InboxNotification) -> RetentionOutcome {
         let outcome: RetentionOutcome
         if let index = notifications.firstIndex(where: { $0.id == notification.id }) {
             notifications[index] = notification
@@ -247,14 +252,14 @@ final class InboxNotificationAtom {
         InboxNotificationClaimCoalescencePolicy.canCoalesce(existing: existing, incoming: incoming)
     }
 
-    func replaceAll(_ replacement: [InboxNotification]) {
+    package func replaceAll(_ replacement: [InboxNotification]) {
         notifications = replacement
         _ = enforceRetentionCap()
         recalculateGlobalUnreadCount()
     }
 
     @discardableResult
-    func markRead(id: UUID) -> Bool {
+    package func markRead(id: UUID) -> Bool {
         let updated = update(id: id) { $0.isRead = true }
         recalculateGlobalUnreadCount()
         return updated
@@ -264,7 +269,7 @@ final class InboxNotificationAtom {
         markRead(scope: .paneIds([paneId]))
     }
 
-    func markAllRead() {
+    package func markAllRead() {
         markRead(scope: .workspace)
     }
 
@@ -276,7 +281,7 @@ final class InboxNotificationAtom {
     }
 
     @discardableResult
-    func dismissFromPaneInbox(id: UUID) -> Bool {
+    package func dismissFromPaneInbox(id: UUID) -> Bool {
         update(id: id) { $0.isDismissedFromPaneInbox = true }
     }
 
@@ -286,7 +291,7 @@ final class InboxNotificationAtom {
         }
     }
 
-    func clearPaneInbox(paneIds: [UUID]) {
+    package func clearPaneInbox(paneIds: [UUID]) {
         let paneIdSet = Set(paneIds)
         for index in notifications.indices {
             guard let paneId = notifications[index].paneId, paneIdSet.contains(paneId) else { continue }
@@ -306,12 +311,12 @@ final class InboxNotificationAtom {
         recalculateGlobalUnreadCount()
     }
 
-    func clearReadHistory() {
+    package func clearReadHistory() {
         notifications.removeAll(where: \.isRead)
         recalculateGlobalUnreadCount()
     }
 
-    func clearAll() {
+    package func clearAll() {
         notifications.removeAll()
         recalculateGlobalUnreadCount()
     }

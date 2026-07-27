@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import os.log
 
@@ -7,24 +8,24 @@ import os.log
 /// Critical events can be tier-ordered (visible first, hidden second) when a resolver is provided.
 /// Lossy events are consolidated by `(source, consolidationKey)` and emitted on a frame cadence.
 @MainActor
-final class NotificationReducer {
+package final class NotificationReducer {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "NotificationReducer")
 
     private let delay: AsyncDelay
     private let tierResolver: (any VisibilityTierResolver)?
 
     private let criticalContinuation: AsyncStream<RuntimeEnvelope>.Continuation
-    let criticalEvents: AsyncStream<RuntimeEnvelope>
+    package let criticalEvents: AsyncStream<RuntimeEnvelope>
 
     private let batchContinuation: AsyncStream<[RuntimeEnvelope]>.Continuation
-    let batchedEvents: AsyncStream<[RuntimeEnvelope]>
+    package let batchedEvents: AsyncStream<[RuntimeEnvelope]>
 
     private var criticalBufferByTier: [VisibilityTier: [RuntimeEnvelope]] = [:]
     private var criticalFlushTask: Task<Void, Never>?
     private var lossyBuffer: [String: RuntimeEnvelope] = [:]
     private var frameTimer: Task<Void, Never>?
 
-    init(
+    package init(
         clock: (any Clock<Duration> & Sendable)? = nil,
         tierResolver: (any VisibilityTierResolver)? = nil
     ) {
@@ -47,7 +48,7 @@ final class NotificationReducer {
         batchContinuation.finish()
     }
 
-    func submit(_ envelope: RuntimeEnvelope) {
+    package func submit(_ envelope: RuntimeEnvelope) {
         switch envelope.actionPolicy {
         case .critical:
             guard tierResolver != nil else {

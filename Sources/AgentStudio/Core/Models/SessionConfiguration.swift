@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import os.log
 
@@ -5,17 +6,17 @@ private let configLogger = Logger(subsystem: "com.agentstudio", category: "Sessi
 
 /// Configuration for the session restore feature.
 /// Reads from environment variables with sensible defaults.
-struct SessionConfiguration: Sendable {
+package struct SessionConfiguration: Sendable {
     static let zmxPathEnvironmentKey = "AGENTSTUDIO_ZMX_PATH"
 
     /// Whether session restore is enabled. Defaults to true.
     let isEnabled: Bool
 
     /// Path to the zmx binary. Nil if zmx is not found.
-    let zmxPath: String?
+    package let zmxPath: String?
 
     /// Directory for zmx socket/state isolation under the shared app data root.
-    let zmxDir: String
+    package let zmxDir: String
 
     /// How often to run health checks on active sessions (seconds).
     let healthCheckInterval: TimeInterval
@@ -26,7 +27,7 @@ struct SessionConfiguration: Sendable {
     // MARK: - Factory
 
     /// Detect configuration from the current environment.
-    static func detect(
+    package static func detect(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         isDebugBuild: Bool = AppDataPaths.isDebugBuild
     ) -> Self {
@@ -58,7 +59,7 @@ struct SessionConfiguration: Sendable {
     }
 
     /// Whether session restore can actually work (enabled + zmx found).
-    var isOperational: Bool {
+    package var isOperational: Bool {
         isEnabled && zmxPath != nil
     }
 
@@ -85,7 +86,7 @@ struct SessionConfiguration: Sendable {
     /// the `terminfo/` directory. We append `/ghostty` to the directory that holds
     /// `terminfo/` to satisfy this convention.
     ///
-    static func resolveGhosttyResourcesDir(resourceRootURL: URL) -> String? {
+    package static func resolveGhosttyResourcesDir(resourceRootURL: URL) -> String? {
         let sentinel = "/terminfo/78/xterm-ghostty"
         let resourceRootPath = resourceRootURL.path
         guard FileManager.default.fileExists(atPath: resourceRootPath + sentinel) else {
@@ -109,7 +110,7 @@ struct SessionConfiguration: Sendable {
 
     /// Resolve the user's default login shell.
     /// Checks passwd entry first, then SHELL environment variable, then falls back to /bin/zsh.
-    static func defaultShell() -> String {
+    package static func defaultShell() -> String {
         if let pw = getpwuid(getuid()), let shell = pw.pointee.pw_shell {
             return String(cString: shell)
         }

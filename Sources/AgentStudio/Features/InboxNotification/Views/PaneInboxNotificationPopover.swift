@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import SwiftUI
 import os.log
 
@@ -7,7 +10,7 @@ private let paneInboxNotificationPopoverLogger = Logger(
 )
 
 @MainActor
-struct PaneInboxNotificationPopover: View {
+package struct PaneInboxNotificationPopover: View {
     let parentPaneId: UUID
     let octiconLoader: OcticonLoader
     let workspaceWindowId: UUID?
@@ -29,7 +32,7 @@ struct PaneInboxNotificationPopover: View {
     @State private var selectedNotificationId: UUID?
     @State private var displayOverride: InboxNotificationDisplayOverride?
 
-    init(
+    package init(
         parentPaneId: UUID,
         octiconLoader: OcticonLoader,
         workspaceWindowId: UUID?,
@@ -56,7 +59,7 @@ struct PaneInboxNotificationPopover: View {
         _displayOverride = State(initialValue: presentationAtom.consumeTemporaryOverride())
     }
 
-    var body: some View {
+    package var body: some View {
         VStack(spacing: 0) {
             header
             Divider()

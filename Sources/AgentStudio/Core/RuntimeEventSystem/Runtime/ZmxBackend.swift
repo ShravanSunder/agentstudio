@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import os
 
@@ -109,7 +110,7 @@ struct ZmxSessionInventorySnapshot: Equatable, Sendable {
 /// on first `zmx attach`. This means `createPaneSession` only builds a handle
 /// (zero CLI calls), and the actual process starts when the Ghostty surface
 /// executes the attach command.
-final class ZmxBackend: SessionBackend {
+package final class ZmxBackend: SessionBackend {
     /// Default zmx directory for socket/state isolation.
     static let defaultZmxDir: String = {
         AppDataPaths.zmxDirectory().path
@@ -199,7 +200,7 @@ final class ZmxBackend: SessionBackend {
     ///
     /// `ZMX_DIR` must be provided via process environment (Ghostty surface env vars).
     /// zmx auto-creates a daemon on first attach — no separate create step needed.
-    static func buildAttachCommand(
+    package static func buildAttachCommand(
         zmxPath: String,
         sessionID: ZmxSessionID,
         shell: String

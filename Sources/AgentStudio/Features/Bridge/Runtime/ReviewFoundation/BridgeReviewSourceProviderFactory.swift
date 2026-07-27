@@ -1,12 +1,13 @@
+import AgentStudioCore
 import Foundation
 
-enum BridgeReviewRepositoryLocation: Equatable, Sendable {
+package enum BridgeReviewRepositoryLocation: Equatable, Sendable {
     case workspaceSource(URL)
     case launchDirectory(URL)
     case currentWorkingDirectory(URL)
     case unavailable
 
-    var repositoryURL: URL? {
+    package var repositoryURL: URL? {
         switch self {
         case .workspaceSource(let repositoryURL),
             .launchDirectory(let repositoryURL),
@@ -18,8 +19,8 @@ enum BridgeReviewRepositoryLocation: Equatable, Sendable {
     }
 }
 
-enum BridgeReviewSourceProviderFactory {
-    static func repositoryLocation(
+package enum BridgeReviewSourceProviderFactory {
+    package static func repositoryLocation(
         source: BridgePaneSource?,
         launchDirectory: URL?,
         currentWorkingDirectory: URL?
@@ -36,7 +37,7 @@ enum BridgeReviewSourceProviderFactory {
         return .unavailable
     }
 
-    static func gitProvider(
+    package static func gitProvider(
         repositoryPath: URL?,
         gitReadContext: BridgeGitReadContext?
     ) -> any BridgeReviewSourceProvider {
@@ -46,7 +47,7 @@ enum BridgeReviewSourceProviderFactory {
         return makeGitProvider(repositoryPath: repositoryPath, gitReadContext: gitReadContext)
     }
 
-    static func gitProvider(
+    package static func gitProvider(
         location: BridgeReviewRepositoryLocation,
         gitReadContext: BridgeGitReadContext?
     ) -> any BridgeReviewSourceProvider {

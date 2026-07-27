@@ -1,12 +1,18 @@
 import AppKit
 import SwiftUI
 
-struct AccessibilityLabelBridge: NSViewRepresentable {
+package struct AccessibilityLabelBridge: NSViewRepresentable {
     let identifier: String
     let label: String
     var exposesAccessibility = true
 
-    func makeNSView(context _: Context) -> AccessibilityLabelBridgeView {
+    package init(identifier: String, label: String, exposesAccessibility: Bool = true) {
+        self.identifier = identifier
+        self.label = label
+        self.exposesAccessibility = exposesAccessibility
+    }
+
+    package func makeNSView(context _: Context) -> AccessibilityLabelBridgeView {
         let view = AccessibilityLabelBridgeView()
         view.identifier = NSUserInterfaceItemIdentifier(identifier)
         view.label = label
@@ -14,7 +20,7 @@ struct AccessibilityLabelBridge: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: AccessibilityLabelBridgeView, context _: Context) {
+    package func updateNSView(_ nsView: AccessibilityLabelBridgeView, context _: Context) {
         nsView.identifier = NSUserInterfaceItemIdentifier(identifier)
         nsView.label = label
         nsView.exposesAccessibility = exposesAccessibility
@@ -22,24 +28,24 @@ struct AccessibilityLabelBridge: NSViewRepresentable {
 }
 
 @MainActor
-final class AccessibilityLabelBridgeView: NSView {
+package final class AccessibilityLabelBridgeView: NSView {
     var label = ""
     var exposesAccessibility = true
 
-    override func isAccessibilityElement() -> Bool {
+    package override func isAccessibilityElement() -> Bool {
         exposesAccessibility
     }
 
-    override func accessibilityRole() -> NSAccessibility.Role? {
+    package override func accessibilityRole() -> NSAccessibility.Role? {
         .group
     }
 
-    override func accessibilityIdentifier() -> String {
+    package override func accessibilityIdentifier() -> String {
         guard exposesAccessibility else { return "" }
         return identifier?.rawValue ?? ""
     }
 
-    override func accessibilityLabel() -> String? {
+    package override func accessibilityLabel() -> String? {
         guard exposesAccessibility else { return nil }
         return label
     }

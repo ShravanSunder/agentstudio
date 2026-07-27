@@ -1,13 +1,14 @@
+import AgentStudioInfrastructure
 import Foundation
 
 @MainActor
-final class PaneTabActionDispatcher: PaneActionDispatching {
+package final class PaneTabActionDispatcher: PaneActionDispatching {
     private let dispatchClosure: (WorkspaceActionCommand) -> Void
     private let shouldHandleSplitDragPayloadClosure: (SplitDropPayload) -> Bool
     private let shouldAcceptDropClosure: (SplitDropPayload, UUID, DropZoneSide, DropSizingMode) -> Bool
     private let handleDropClosure: (SplitDropPayload, UUID, DropZoneSide, DropSizingMode) -> Void
 
-    init(
+    package init(
         dispatch: @escaping (WorkspaceActionCommand) -> Void,
         shouldHandleSplitDragPayload: @escaping (SplitDropPayload) -> Bool,
         shouldAcceptDrop: @escaping (SplitDropPayload, UUID, DropZoneSide, DropSizingMode) -> Bool,
@@ -19,18 +20,18 @@ final class PaneTabActionDispatcher: PaneActionDispatching {
         self.handleDropClosure = handleDrop
     }
 
-    func dispatch(_ action: WorkspaceActionCommand) {
+    package func dispatch(_ action: WorkspaceActionCommand) {
         if Thread.isMainThread == false {
             RestoreTrace.log("PaneTabActionDispatcher.dispatch offMainThread action=\(String(describing: action))")
         }
         dispatchClosure(action)
     }
 
-    func shouldHandleSplitDragPayload(_ payload: SplitDropPayload) -> Bool {
+    package func shouldHandleSplitDragPayload(_ payload: SplitDropPayload) -> Bool {
         shouldHandleSplitDragPayloadClosure(payload)
     }
 
-    func shouldAcceptDrop(
+    package func shouldAcceptDrop(
         _ payload: SplitDropPayload,
         destinationPaneId: UUID,
         zone: DropZoneSide,
@@ -40,7 +41,7 @@ final class PaneTabActionDispatcher: PaneActionDispatching {
         return result
     }
 
-    func handleDrop(
+    package func handleDrop(
         _ payload: SplitDropPayload,
         destinationPaneId: UUID,
         zone: DropZoneSide,

@@ -1,9 +1,12 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 
 extension InboxNotification {
-    static let fullDiskAccessWarningId = UUID(uuidString: "D15CACC5-A9E5-4E61-9D42-23D1F7D1A11F")!
+    package static let fullDiskAccessWarningId = UUID(uuidString: "D15CACC5-A9E5-4E61-9D42-23D1F7D1A11F")!
 
-    static func fullDiskAccessDenied(
+    package static func fullDiskAccessDenied(
         documentsResult: AgentStudioTCCAccessProbeResult,
         protectedDataResult: AgentStudioTCCAccessProbeResult
     ) -> InboxNotification {

@@ -4,7 +4,7 @@ import Foundation
 /// All available commands in the application.
 /// Every action — keyboard shortcut, menu item, context menu, command bar, search result,
 /// or management layer click — is backed by a command.
-enum AppCommand: String, CaseIterable {
+package enum AppCommand: String, CaseIterable {
     // Tab commands
     case closeTab
     case breakUpTab
@@ -132,7 +132,7 @@ extension AppCommand {
 // MARK: - SearchItemType
 
 /// Types of items that can be searched and targeted by commands.
-enum SearchItemType: String, CaseIterable {
+package enum SearchItemType: String, CaseIterable {
     case repo
     case worktree
     case tab
@@ -143,11 +143,16 @@ enum SearchItemType: String, CaseIterable {
 // MARK: - KeyBinding
 
 /// A keyboard shortcut binding for a command.
-struct KeyBinding: Codable, Hashable, Sendable {
-    var key: String
-    var modifiers: Set<Modifier>
+package struct KeyBinding: Codable, Hashable, Sendable {
+    package var key: String
+    package var modifiers: Set<Modifier>
 
-    enum Modifier: String, Codable, Hashable, Sendable {
+    package init(key: String, modifiers: Set<Modifier>) {
+        self.key = key
+        self.modifiers = modifiers
+    }
+
+    package enum Modifier: String, Codable, Hashable, Sendable {
         case command
         case control
         case option
@@ -158,21 +163,21 @@ struct KeyBinding: Codable, Hashable, Sendable {
 // MARK: - AppCommandSpec
 
 /// Full command definition tying command identity, shortcut, display info, and context together.
-struct AppCommandSpec {
-    let command: AppCommand
-    let shortcut: AppShortcut?
-    let displayShortcutTrigger: ShortcutTrigger?
-    let label: String
-    let icon: CommandIcon
-    let helpText: String
-    let appliesTo: Set<SearchItemType>
-    let requiresManagementLayer: Bool
-    let visibleWhen: Set<FocusRequirement>
-    let commandBarGroupName: String
-    let commandBarGroupPriority: Int
-    let isHiddenInCommandBar: Bool
+package struct AppCommandSpec {
+    package let command: AppCommand
+    package let shortcut: AppShortcut?
+    package let displayShortcutTrigger: ShortcutTrigger?
+    package let label: String
+    package let icon: CommandIcon
+    package let helpText: String
+    package let appliesTo: Set<SearchItemType>
+    package let requiresManagementLayer: Bool
+    package let visibleWhen: Set<FocusRequirement>
+    package let commandBarGroupName: String
+    package let commandBarGroupPriority: Int
+    package let isHiddenInCommandBar: Bool
 
-    init(
+    package init(
         command: AppCommand,
         shortcut: AppShortcut? = nil,
         displayShortcutTrigger: ShortcutTrigger? = nil,
@@ -200,13 +205,13 @@ struct AppCommandSpec {
         self.isHiddenInCommandBar = isHiddenInCommandBar
     }
 
-    var keyBinding: KeyBinding? { shortcut?.keyBinding }
-    var commandBarShortcutTrigger: ShortcutTrigger? { displayShortcutTrigger ?? shortcut?.trigger }
+    package var keyBinding: KeyBinding? { shortcut?.keyBinding }
+    package var commandBarShortcutTrigger: ShortcutTrigger? { displayShortcutTrigger ?? shortcut?.trigger }
 }
 
 /// Feature-facing access to App-owned command execution.
 @MainActor
-protocol AppCommandDispatching: AnyObject, Sendable {
+package protocol AppCommandDispatching: AnyObject, Sendable {
     func dispatch(_ command: AppCommand)
     func dispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType)
     func canDispatch(_ command: AppCommand) -> Bool

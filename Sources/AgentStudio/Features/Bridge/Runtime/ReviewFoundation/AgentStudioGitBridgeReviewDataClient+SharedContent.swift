@@ -1,4 +1,5 @@
 import AgentStudioGit
+import AgentStudioInfrastructure
 import Foundation
 
 extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionClient {

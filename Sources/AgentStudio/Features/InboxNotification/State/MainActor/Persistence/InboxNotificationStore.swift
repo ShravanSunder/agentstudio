@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 import os.log
 
@@ -11,7 +14,7 @@ private let inboxNotificationStoreLogger = Logger(
 /// The atoms remain the live state owners. This store captures bounded immutable snapshots,
 /// delegates database work to `WorkspaceSQLiteDatastore`, and applies restored values.
 @MainActor
-final class InboxNotificationStore {
+package final class InboxNotificationStore {
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let sidebarState: InboxSidebarState
@@ -22,7 +25,7 @@ final class InboxNotificationStore {
     private let sqliteAdapter: InboxNotificationSQLiteDatastoreAdapter
     private var debouncedSaveTask: Task<Void, Never>?
 
-    enum LoadOutcome: Equatable {
+    package enum LoadOutcome: Equatable {
         case sqliteSnapshot
         case defaulted
     }
@@ -32,7 +35,7 @@ final class InboxNotificationStore {
         var collapsedGroups: Set<InboxNotificationGroupKey>
     }
 
-    init(
+    package init(
         inboxAtom: InboxNotificationAtom,
         prefsAtom: InboxNotificationPrefsAtom,
         sidebarState: InboxSidebarState = .init(),
@@ -51,7 +54,7 @@ final class InboxNotificationStore {
     }
 
     @discardableResult
-    func loadAsync() async -> LoadOutcome {
+    package func loadAsync() async -> LoadOutcome {
         switch await sqliteAdapter.load() {
         case .loaded(let snapshot, let recoveryEvents):
             reportRecoveryEvents(recoveryEvents)
@@ -65,12 +68,12 @@ final class InboxNotificationStore {
         }
     }
 
-    func save() async throws {
+    package func save() async throws {
         cancelPendingDebouncedSave()
         try await persistCurrentSnapshot()
     }
 
-    func scheduleDebouncedSave() {
+    package func scheduleDebouncedSave() {
         debouncedSaveTask?.cancel()
         let delay = self.delay
         let debounceDuration = self.debounceDuration

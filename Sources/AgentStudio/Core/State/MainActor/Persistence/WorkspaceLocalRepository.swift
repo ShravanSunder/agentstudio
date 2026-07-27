@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import GRDB
 
-struct WorkspaceLocalRepository: Sendable {
+package struct WorkspaceLocalRepository: Sendable {
     struct ArrangementDrawerCursorKey: Hashable, Equatable, Sendable {
         let arrangementId: UUID
         let drawerId: UUID
@@ -51,16 +51,20 @@ struct WorkspaceLocalRepository: Sendable {
         )
     }
 
-    struct EditorPreferencesRecord: Equatable, Sendable {
-        var bookmarkedEditorId: String?
+    package struct EditorPreferencesRecord: Equatable, Sendable {
+        package private(set) var bookmarkedEditorId: String?
 
-        static let `default` = Self(bookmarkedEditorId: nil)
+        package static let `default` = Self(bookmarkedEditorId: nil)
+
+        package init(bookmarkedEditorId: String?) {
+            self.bookmarkedEditorId = bookmarkedEditorId
+        }
     }
 
-    struct RepoExplorerPreferencesRecord: Equatable, Sendable {
-        let groupingMode: String
-        let sortOrder: String
-        let visibilityMode: String
+    package struct RepoExplorerPreferencesRecord: Equatable, Sendable {
+        package let groupingMode: String
+        package let sortOrder: String
+        package let visibilityMode: String
 
         private init(
             groupingMode: String,
@@ -72,13 +76,13 @@ struct WorkspaceLocalRepository: Sendable {
             self.visibilityMode = visibilityMode
         }
 
-        static let `default` = Self(
+        package static let `default` = Self(
             groupingMode: SQLiteLocalUXStorage.repoExplorerGroupingRepo,
             sortOrder: SQLiteLocalUXStorage.repoExplorerSortAscending,
             visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityAll
         )
 
-        static func validated(
+        package static func validated(
             groupingMode: String,
             sortOrder: String,
             visibilityMode: String
@@ -95,19 +99,24 @@ struct WorkspaceLocalRepository: Sendable {
         }
     }
 
-    struct InboxNotificationPreferencesRecord: Equatable, Sendable {
-        struct ContentFilterTokens: Equatable, Sendable {
-            let contentMode: String
-            let rowStateFilter: String
+    package struct InboxNotificationPreferencesRecord: Equatable, Sendable {
+        package struct ContentFilterTokens: Equatable, Sendable {
+            package let contentMode: String
+            package let rowStateFilter: String
+
+            package init(contentMode: String, rowStateFilter: String) {
+                self.contentMode = contentMode
+                self.rowStateFilter = rowStateFilter
+            }
         }
 
-        let grouping: String
-        let sortOrder: String
-        let bellEnabled: Bool
-        let globalContentMode: String
-        let globalRowStateFilter: String
-        let paneContentMode: String
-        let paneRowStateFilter: String
+        package let grouping: String
+        package let sortOrder: String
+        package let bellEnabled: Bool
+        package let globalContentMode: String
+        package let globalRowStateFilter: String
+        package let paneContentMode: String
+        package let paneRowStateFilter: String
 
         private init(
             grouping: String,
@@ -127,7 +136,7 @@ struct WorkspaceLocalRepository: Sendable {
             self.paneRowStateFilter = paneRowStateFilter
         }
 
-        static let `default` = Self(
+        package static let `default` = Self(
             grouping: SQLiteLocalUXStorage.inboxNotificationGroupingByTab,
             sortOrder: SQLiteLocalUXStorage.inboxNotificationSortNewestFirst,
             bellEnabled: false,
@@ -137,7 +146,7 @@ struct WorkspaceLocalRepository: Sendable {
             paneRowStateFilter: SQLiteLocalUXStorage.inboxNotificationRowStateUnreadOnly
         )
 
-        static func validated(
+        package static func validated(
             grouping: String,
             sortOrder: String,
             bellEnabled: Bool,
@@ -163,8 +172,8 @@ struct WorkspaceLocalRepository: Sendable {
         }
     }
 
-    let workspaceId: UUID
-    let databaseWriter: any DatabaseWriter
+    package let workspaceId: UUID
+    package let databaseWriter: any DatabaseWriter
 
     func migrate() throws {
         try WorkspaceLocalMigrations.migrate(databaseWriter)

@@ -1,10 +1,11 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
 /// Renders the drawer icon bar at the bottom of a pane leaf.
 /// Panel rendering has moved to the tab-level DrawerPanelOverlay so it can
 /// overlay across all panes without being clipped by the pane's bounds.
-struct DrawerOverlay: View {
-    struct TrailingActions {
+package struct DrawerOverlay: View {
+    package struct TrailingActions {
         let canOpenTarget: Bool
         let editorMenuContent: AnyView
         let editorMenuPresented: Binding<Bool>
@@ -15,7 +16,7 @@ struct DrawerOverlay: View {
         let inboxPopoverContent: AnyView?
         let inboxUnreadBadge: PaneInboxUnreadBadge?
 
-        init(
+        package init(
             canOpenTarget: Bool,
             editorMenuContent: AnyView,
             editorMenuPresented: Binding<Bool>,
@@ -46,7 +47,25 @@ struct DrawerOverlay: View {
     let action: (WorkspaceActionCommand) -> Void
     let onPaneFocusTrigger: PaneFocusTriggerHandler
 
-    var body: some View {
+    package init(
+        paneId: UUID,
+        octiconLoader: OcticonLoader,
+        drawer: Drawer?,
+        isIconBarVisible: Bool,
+        trailingActions: TrailingActions?,
+        action: @escaping (WorkspaceActionCommand) -> Void,
+        onPaneFocusTrigger: @escaping PaneFocusTriggerHandler
+    ) {
+        self.paneId = paneId
+        self.octiconLoader = octiconLoader
+        self.drawer = drawer
+        self.isIconBarVisible = isIconBarVisible
+        self.trailingActions = trailingActions
+        self.action = action
+        self.onPaneFocusTrigger = onPaneFocusTrigger
+    }
+
+    package var body: some View {
         DrawerIconBar(
             octiconLoader: octiconLoader,
             isExpanded: drawer?.isExpanded ?? false,

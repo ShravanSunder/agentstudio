@@ -1,10 +1,14 @@
 import Foundation
 
 @MainActor
-struct RuntimeTargetResolver {
+package struct RuntimeTargetResolver {
     let workspaceStore: WorkspaceStore
 
-    func resolve(_ target: RuntimeCommandTarget) -> PaneId? {
+    package init(workspaceStore: WorkspaceStore) {
+        self.workspaceStore = workspaceStore
+    }
+
+    package func resolve(_ target: RuntimeCommandTarget) -> PaneId? {
         let workspacePane = workspaceStore.paneAtom
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: workspaceStore.tabShellAtom,

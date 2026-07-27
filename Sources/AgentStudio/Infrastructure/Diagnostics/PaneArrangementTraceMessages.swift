@@ -1,7 +1,7 @@
 import Foundation
 
-enum PaneArrangementTraceMessages {
-    static func crossTabPaneMove(
+package enum PaneArrangementTraceMessages {
+    package static func crossTabPaneMove(
         paneId: UUID,
         sourceTabId: UUID,
         destTabId: UUID,

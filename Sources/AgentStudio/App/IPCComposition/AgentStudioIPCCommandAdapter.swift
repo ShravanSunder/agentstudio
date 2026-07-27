@@ -1,4 +1,5 @@
 import AgentStudioAppIPC
+import AgentStudioCore
 import AgentStudioProgrammaticControl
 import Foundation
 

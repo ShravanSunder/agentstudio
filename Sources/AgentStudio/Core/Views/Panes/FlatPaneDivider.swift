@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-struct FlatPaneDivider: View {
+package struct FlatPaneDivider: View {
     let dividerId: UUID
     let frame: CGRect
     let resizeIntent: FlatTabStripMetrics.DividerSegment.ResizeIntent
@@ -17,6 +18,28 @@ struct FlatPaneDivider: View {
     @State private var hasStartedResize = false
     @State private var initialLeftWidth: CGFloat = 0
     @State private var initialRightWidth: CGFloat = 0
+
+    package init(
+        dividerId: UUID,
+        frame: CGRect,
+        resizeIntent: FlatTabStripMetrics.DividerSegment.ResizeIntent,
+        resizeLeftPaneWidth: CGFloat,
+        resizeRightPaneWidth: CGFloat,
+        layout: Layout,
+        isSplitResizing: Binding<Bool>,
+        tabId: UUID,
+        actionDispatcher: PaneActionDispatching
+    ) {
+        self.dividerId = dividerId
+        self.frame = frame
+        self.resizeIntent = resizeIntent
+        self.resizeLeftPaneWidth = resizeLeftPaneWidth
+        self.resizeRightPaneWidth = resizeRightPaneWidth
+        self.layout = layout
+        _isSplitResizing = isSplitResizing
+        self.tabId = tabId
+        self.actionDispatcher = actionDispatcher
+    }
 
     /// Pure computation for drag-resize ratio. Extracted for testability.
     nonisolated static func computeResizeRatio(
@@ -54,7 +77,7 @@ struct FlatPaneDivider: View {
         }
     }
 
-    var body: some View {
+    package var body: some View {
         if case .noResize = resizeIntent {
             Color.clear
                 .frame(width: splitterHitSize, height: frame.height)

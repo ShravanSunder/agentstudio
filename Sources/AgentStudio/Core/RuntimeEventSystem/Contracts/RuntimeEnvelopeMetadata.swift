@@ -12,7 +12,7 @@ extension RuntimeEnvelope {
         }
     }
 
-    var seq: UInt64 {
+    package var seq: UInt64 {
         switch self {
         case .system(let envelope):
             return envelope.seq

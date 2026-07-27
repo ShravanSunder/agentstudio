@@ -1,6 +1,6 @@
 import Foundation
 
-enum ProgrammaticControlPaneContentKind: Equatable, Sendable {
+package enum ProgrammaticControlPaneContentKind: Equatable, Sendable {
     case terminal
     case webview
     case bridgePanel
@@ -8,64 +8,64 @@ enum ProgrammaticControlPaneContentKind: Equatable, Sendable {
     case unsupported
 }
 
-enum ProgrammaticControlPaneResidency: Equatable, Sendable {
+package enum ProgrammaticControlPaneResidency: Equatable, Sendable {
     case active
     case pendingUndo
     case backgrounded
     case orphaned
 }
 
-struct ProgrammaticControlWorkspaceSnapshot: Equatable, Sendable {
-    let id: UUID
-    let name: String
-    let tabs: [ProgrammaticControlTabSnapshot]
-    let panes: [ProgrammaticControlPaneSnapshot]
-    let repositories: [ProgrammaticControlRepositorySnapshot]
-    let activeTabId: UUID?
+package struct ProgrammaticControlWorkspaceSnapshot: Equatable, Sendable {
+    package let id: UUID
+    package let name: String
+    package let tabs: [ProgrammaticControlTabSnapshot]
+    package let panes: [ProgrammaticControlPaneSnapshot]
+    package let repositories: [ProgrammaticControlRepositorySnapshot]
+    package let activeTabId: UUID?
 
-    var activeTab: ProgrammaticControlTabSnapshot? {
+    package var activeTab: ProgrammaticControlTabSnapshot? {
         activeTabId.flatMap { tabId in tabs.first { $0.id == tabId } }
     }
 }
 
-struct ProgrammaticControlTabSnapshot: Equatable, Sendable {
-    let id: UUID
-    let name: String
-    let paneIds: [UUID]
-    let activePaneId: UUID?
-    let isActive: Bool
+package struct ProgrammaticControlTabSnapshot: Equatable, Sendable {
+    package let id: UUID
+    package let name: String
+    package let paneIds: [UUID]
+    package let activePaneId: UUID?
+    package let isActive: Bool
 }
 
-struct ProgrammaticControlPaneSnapshot: Equatable, Sendable {
-    let id: UUID
-    let title: String
-    let contentKind: ProgrammaticControlPaneContentKind
-    let residency: ProgrammaticControlPaneResidency
-    let tabId: UUID?
-    let repoId: UUID?
-    let worktreeId: UUID?
-    let isActive: Bool
-    let isDrawerChild: Bool
+package struct ProgrammaticControlPaneSnapshot: Equatable, Sendable {
+    package let id: UUID
+    package let title: String
+    package let contentKind: ProgrammaticControlPaneContentKind
+    package let residency: ProgrammaticControlPaneResidency
+    package let tabId: UUID?
+    package let repoId: UUID?
+    package let worktreeId: UUID?
+    package let isActive: Bool
+    package let isDrawerChild: Bool
 }
 
-struct ProgrammaticControlRepositorySnapshot: Equatable, Sendable {
-    let id: UUID
-    let name: String
-    let path: String
-    let worktrees: [ProgrammaticControlWorktreeSnapshot]
+package struct ProgrammaticControlRepositorySnapshot: Equatable, Sendable {
+    package let id: UUID
+    package let name: String
+    package let path: String
+    package let worktrees: [ProgrammaticControlWorktreeSnapshot]
 }
 
-struct ProgrammaticControlWorktreeSnapshot: Equatable, Sendable {
-    let id: UUID
-    let repoId: UUID
-    let name: String
-    let path: String
-    let isMainWorktree: Bool
+package struct ProgrammaticControlWorktreeSnapshot: Equatable, Sendable {
+    package let id: UUID
+    package let repoId: UUID
+    package let name: String
+    package let path: String
+    package let isMainWorktree: Bool
 }
 
 @MainActor
 extension WorkspaceStore {
-    func programmaticControlSnapshot() -> ProgrammaticControlWorkspaceSnapshot {
+    package func programmaticControlSnapshot() -> ProgrammaticControlWorkspaceSnapshot {
         let tabs = tabLayoutAtom.tabs
         let tabIdByPaneId = tabIdByPaneId(tabs: tabs)
 

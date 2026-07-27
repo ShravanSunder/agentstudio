@@ -1,6 +1,6 @@
 import Foundation
 
-struct BridgeSourceEndpoint: Codable, Equatable, Sendable {
+package struct BridgeSourceEndpoint: Codable, Equatable, Sendable {
     enum Kind: String, Codable, Equatable, Sendable {
         case gitRef
         case workingTree

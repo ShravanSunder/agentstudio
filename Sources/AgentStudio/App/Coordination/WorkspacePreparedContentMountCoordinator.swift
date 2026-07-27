@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioTerminal
 import Foundation
 
 struct WorkspacePreparedContentMountSettlement: Equatable, Sendable {

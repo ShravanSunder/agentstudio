@@ -1,3 +1,9 @@
+import AgentStudioBridge
+import AgentStudioCommandBar
+import AgentStudioCore
+import AgentStudioInboxNotification
+import AgentStudioInfrastructure
+import AgentStudioTerminal
 import AppKit
 import Foundation
 import Observation

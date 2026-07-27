@@ -1,4 +1,4 @@
-struct BridgeTelemetryRuntimePolicy: Equatable, Sendable {
+package struct BridgeTelemetryRuntimePolicy: Equatable, Sendable {
     let isDebugBuild: Bool
 
     static var live: Self {

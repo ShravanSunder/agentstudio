@@ -1,18 +1,19 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-enum HoverTooltipPlacement {
-    static let defaultEdgeInset: CGFloat = 6
-    static let defaultVerticalOffset: CGFloat = -28
-    static let aboveAnchorVerticalOffset: CGFloat = -34
-    static let belowAnchorVerticalOffset: CGFloat = 6
+package enum HoverTooltipPlacement {
+    package static let defaultEdgeInset: CGFloat = 6
+    package static let defaultVerticalOffset: CGFloat = -28
+    package static let aboveAnchorVerticalOffset: CGFloat = -34
+    package static let belowAnchorVerticalOffset: CGFloat = 6
 
-    enum VerticalAnchor {
+    package enum VerticalAnchor {
         case containerTop
         case aboveAnchor
         case belowAnchor
     }
 
-    static func clampedLeadingX(
+    package static func clampedLeadingX(
         anchorFrame: CGRect,
         tooltipSize: CGSize,
         availableWidth: CGFloat,
@@ -23,7 +24,7 @@ enum HoverTooltipPlacement {
         return min(max(edgeInset, proposedLeadingX), maxLeadingX)
     }
 
-    static func positionedY(
+    package static func positionedY(
         anchorFrame: CGRect,
         verticalAnchor: VerticalAnchor,
         verticalOffset: CGFloat
@@ -61,18 +62,18 @@ struct HoverTooltipBubble: View {
     }
 }
 
-struct HoverTooltipAnchorPreferenceKey<Target: Hashable>: PreferenceKey {
-    static var defaultValue: [Target: CGRect] { [:] }
+package struct HoverTooltipAnchorPreferenceKey<Target: Hashable>: PreferenceKey {
+    package static var defaultValue: [Target: CGRect] { [:] }
 
-    static func reduce(value: inout [Target: CGRect], nextValue: () -> [Target: CGRect]) {
+    package static func reduce(value: inout [Target: CGRect], nextValue: () -> [Target: CGRect]) {
         value.merge(nextValue(), uniquingKeysWith: { $1 })
     }
 }
 
 private struct HoverTooltipSizePreferenceKey: PreferenceKey {
-    static let defaultValue: CGSize = .zero
+    package static let defaultValue: CGSize = .zero
 
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+    package static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
         let next = nextValue()
         if next != .zero {
             value = next
@@ -81,7 +82,7 @@ private struct HoverTooltipSizePreferenceKey: PreferenceKey {
 }
 
 extension View {
-    func hoverTooltipAnchor<Target: Hashable>(_ target: Target, in coordinateSpaceName: String) -> some View {
+    package func hoverTooltipAnchor<Target: Hashable>(_ target: Target, in coordinateSpaceName: String) -> some View {
         background(
             GeometryReader { geometryProxy in
                 Color.clear.preference(
@@ -93,7 +94,7 @@ extension View {
     }
 }
 
-struct FloatingHoverTooltipPresenter<Target: Hashable>: View {
+package struct FloatingHoverTooltipPresenter<Target: Hashable>: View {
     let activeTarget: Target?
     let anchorFrames: [Target: CGRect]
     let availableWidth: CGFloat
@@ -104,7 +105,7 @@ struct FloatingHoverTooltipPresenter<Target: Hashable>: View {
 
     @State private var tooltipSize: CGSize = .zero
 
-    init(
+    package init(
         activeTarget: Target?,
         anchorFrames: [Target: CGRect],
         availableWidth: CGFloat,
@@ -122,7 +123,7 @@ struct FloatingHoverTooltipPresenter<Target: Hashable>: View {
         self.tooltipValue = tooltipValue
     }
 
-    var body: some View {
+    package var body: some View {
         if let activeTarget,
             let renderValue = tooltipValue(activeTarget),
             let anchorFrame = anchorFrames[activeTarget]

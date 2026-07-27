@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-struct SidebarSearchField<FocusValue: Hashable>: View {
+package struct SidebarSearchField<FocusValue: Hashable>: View {
     @Binding var text: String
 
     let placeholder: String
@@ -11,7 +12,7 @@ struct SidebarSearchField<FocusValue: Hashable>: View {
     let onExit: () -> Void
     let onDownArrow: (() -> KeyPress.Result)?
 
-    init(
+    package init(
         placeholder: String,
         text: Binding<String>,
         focusedField: FocusState<FocusValue?>.Binding,
@@ -31,7 +32,7 @@ struct SidebarSearchField<FocusValue: Hashable>: View {
         self.onDownArrow = onDownArrow
     }
 
-    var body: some View {
+    package var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.SearchField.contentSpacing) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: AppStyles.Shell.Sidebar.SearchField.iconSize))

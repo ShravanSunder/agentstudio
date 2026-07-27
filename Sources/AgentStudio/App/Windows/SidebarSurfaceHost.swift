@@ -1,3 +1,8 @@
+import AgentStudioCore
+import AgentStudioInboxNotification
+import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
+import AgentStudioSharedComponents
 import SwiftUI
 
 struct SidebarSurfaceSwitchMetricState {

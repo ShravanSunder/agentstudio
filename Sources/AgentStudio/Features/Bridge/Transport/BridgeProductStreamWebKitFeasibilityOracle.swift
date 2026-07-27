@@ -1,6 +1,6 @@
 import Foundation
 
-actor BridgeProductStreamWebKitFeasibilityOracle {
+package actor BridgeProductStreamWebKitFeasibilityOracle {
     private let configuration: BridgeProductStreamWebKitFeasibilityConfiguration
     private enum ProducerLifecycle {
         case acceptingFrames
@@ -61,7 +61,7 @@ actor BridgeProductStreamWebKitFeasibilityOracle {
     private var frameWaiters: [BridgeWebKitFeasibilityFrameReceipt: [UInt64: CheckedContinuation<Bool, Never>]] = [:]
     private var zeroResidueWaiters: [UInt64: CheckedContinuation<Bool, Never>] = [:]
 
-    init(configuration: BridgeProductStreamWebKitFeasibilityConfiguration = .productContract) {
+    package init(configuration: BridgeProductStreamWebKitFeasibilityConfiguration = .productContract) {
         self.configuration = configuration
     }
 
@@ -229,7 +229,7 @@ actor BridgeProductStreamWebKitFeasibilityOracle {
         workerNearCapTiming = nearCapTiming
     }
 
-    func recordWorkerResultAcknowledged() -> Bool {
+    package func recordWorkerResultAcknowledged() -> Bool {
         if cancellationOrder.last == .resultAcknowledged { return true }
         guard workerResultSucceeded,
             cancellationOrder == [.producerStopped, .producerUnregistered],
@@ -241,7 +241,7 @@ actor BridgeProductStreamWebKitFeasibilityOracle {
         return true
     }
 
-    func isComplete() -> Bool {
+    package func isComplete() -> Bool {
         workerResultSucceeded
             && cancellationOrder
                 == [.producerStopped, .producerUnregistered, .resultAcknowledged]
@@ -278,7 +278,7 @@ actor BridgeProductStreamWebKitFeasibilityOracle {
         )
     }
 
-    func proof(timedOut: Bool) -> BridgeProductStreamWebKitFeasibilityProof {
+    package func proof(timedOut: Bool) -> BridgeProductStreamWebKitFeasibilityProof {
         let snapshot = snapshot()
         let gates = ProofGateResults(
             authenticationBeforeBodySucceeded: Self.authenticationBeforeBodySucceeded(snapshot),

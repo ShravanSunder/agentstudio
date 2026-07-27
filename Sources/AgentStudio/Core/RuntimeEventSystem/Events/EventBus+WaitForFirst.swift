@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 extension EventBus {
@@ -11,7 +12,7 @@ extension EventBus {
     /// - Parameter extract: Tests each envelope and returns an extracted value
     ///   on match, or nil to continue waiting.
     /// - Returns: The extracted result, or nil if the stream ended without matching.
-    func waitForFirst<Result: Sendable>(
+    package func waitForFirst<Result: Sendable>(
         policy: BusSubscriberPolicy,
         subscriberName: String,
         _ extract: @Sendable @escaping (Envelope) -> Result?

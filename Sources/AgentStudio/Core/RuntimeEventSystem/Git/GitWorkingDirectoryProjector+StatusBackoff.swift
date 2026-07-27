@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// Status-compute backoff (circuit breaker): a worktree whose git status

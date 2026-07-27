@@ -1,4 +1,4 @@
-enum BridgeTelemetryDropReason: String, CaseIterable, Codable, Equatable, Sendable {
+package enum BridgeTelemetryDropReason: String, CaseIterable, Codable, Equatable, Sendable {
     case decodingFailed = "decoding_failed"
     case disabledScope = "disabled_scope"
     case encodedBatchTooLarge = "encoded_batch_too_large"

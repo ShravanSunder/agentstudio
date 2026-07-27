@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import os.log
@@ -10,7 +12,7 @@ private let terminalActivityRouterLogger = Logger(
 /// Adapts exact runtime facts and off-main terminal activity outcomes to MainActor state.
 /// High-rate terminal samples are contracted before reaching this type.
 @MainActor
-final class TerminalActivityRouter {
+package final class TerminalActivityRouter {
     private struct TraceRequest: Sendable {
         let tag: AgentStudioTraceTag
         let body: String
@@ -37,7 +39,7 @@ final class TerminalActivityRouter {
     private var lastAttendedPaneID: UUID?
     private var derivedActivitySequence: UInt64 = 0
 
-    init(
+    package init(
         bus: EventBus<RuntimeEnvelope>,
         activityAtom: TerminalActivityAtom,
         projector: TerminalActivityProjector? = nil,
@@ -81,7 +83,7 @@ final class TerminalActivityRouter {
         traceWorkerTask?.cancel()
     }
 
-    func start() async {
+    package func start() async {
         guard busTask == nil else { return }
 
         await projector.configure { [weak self] outcomes in
@@ -120,7 +122,7 @@ final class TerminalActivityRouter {
         }
     }
 
-    func stop() async {
+    package func stop() async {
         Ghostty.ActionRouter.unbindTerminalActivityInput(id: projectorBindingID)
         let task = busTask
         task?.cancel()
@@ -133,7 +135,7 @@ final class TerminalActivityRouter {
         await drainTraceRecords()
     }
 
-    func markUnseenActivityObserved(paneId: UUID) {
+    package func markUnseenActivityObserved(paneId: UUID) {
         guard let surfaceID = surfaceIDForPaneID(paneId) else { return }
         Task { @MainActor in
             await Ghostty.ActionRouter.applyOrderedActivityControl(

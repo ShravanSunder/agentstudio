@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-struct SidebarMetadataLine: View {
+package struct SidebarMetadataLine: View {
     let iconSystemName: String?
     let reservesIconColumn: Bool
     let text: String
@@ -10,7 +11,7 @@ struct SidebarMetadataLine: View {
         AppStyles.Shell.Sidebar.branchIconSize
     }
 
-    init(
+    package init(
         iconSystemName: String? = nil,
         reservesIconColumn: Bool = true,
         text: String,
@@ -22,7 +23,7 @@ struct SidebarMetadataLine: View {
         self.prominence = prominence
     }
 
-    var body: some View {
+    package var body: some View {
         HStack(spacing: AppStyles.General.Spacing.tight) {
             if let iconSystemName {
                 Image(systemName: iconSystemName)
@@ -47,7 +48,7 @@ struct SidebarMetadataLine: View {
     }
 }
 
-enum SidebarMetadataProminence: Equatable {
+package enum SidebarMetadataProminence: Equatable {
     case primary
     case secondary
     case tertiary

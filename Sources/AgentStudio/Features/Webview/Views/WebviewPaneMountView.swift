@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 
@@ -7,13 +9,13 @@ import SwiftUI
 /// `WebviewPaneController` (@Observable @MainActor). An `NSHostingView` wraps
 /// the SwiftUI `WebviewPaneContentView` which observes the controller.
 /// Controller lifetime is tied to this NSView's lifetime in the AppKit layout hierarchy.
-final class WebviewPaneMountView: NSView, PaneMountedContent {
-    let paneId: UUID
-    let controller: WebviewPaneController
-    let runtime: WebviewRuntime
+package final class WebviewPaneMountView: NSView, PaneMountedContent {
+    package let paneId: UUID
+    package let controller: WebviewPaneController
+    package let runtime: WebviewRuntime
     private var hostingView: NSHostingView<WebviewPaneContentView>?
 
-    init(paneId: UUID, state: WebviewState) {
+    package init(paneId: UUID, state: WebviewState) {
         self.paneId = paneId
         let controller = WebviewPaneController(paneId: paneId, state: state)
         self.controller = controller
@@ -26,26 +28,26 @@ final class WebviewPaneMountView: NSView, PaneMountedContent {
         fatalError("init(coder:) not supported")
     }
 
-    override var acceptsFirstResponder: Bool { true }
+    package override var acceptsFirstResponder: Bool { true }
 
-    override func setFrameSize(_ newSize: NSSize) {
+    package override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         syncHostingViewFrame()
     }
 
-    override func layout() {
+    package override func layout() {
         super.layout()
         syncHostingViewFrame()
     }
 
-    override func viewDidMoveToWindow() {
+    package override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         setContentInteractionEnabled(!atom(\.managementLayer).isActive)
         syncHostingViewFrame()
     }
 
     /// Capture current tab state for persistence.
-    func currentState() -> WebviewState {
+    package func currentState() -> WebviewState {
         controller.snapshot()
     }
 
@@ -53,7 +55,7 @@ final class WebviewPaneMountView: NSView, PaneMountedContent {
 
     /// Delegates management layer interaction suppression to the controller's
     /// persistent user-script pipeline (current document + future navigations).
-    func setContentInteractionEnabled(_ enabled: Bool) {
+    package func setContentInteractionEnabled(_ enabled: Bool) {
         controller.setWebContentInteractionEnabled(enabled)
     }
 

@@ -1,10 +1,10 @@
 import Foundation
 import Synchronization
 
-struct RuntimeDeliveryChannelToken: Hashable, Sendable {
+package struct RuntimeDeliveryChannelToken: Hashable, Sendable {
     let rawValue: UUID
 
-    static func make() -> Self {
+    package static func make() -> Self {
         Self(rawValue: UUIDv7.generate())
     }
 }
@@ -62,7 +62,9 @@ struct RuntimeDeliveryPerformanceSnapshot: Equatable, Sendable {
     }
 }
 
-final class RuntimeDeliveryPerformanceReporter: Sendable {
+package final class RuntimeDeliveryPerformanceReporter: Sendable {
+    package init() {}
+
     private struct RuntimeChannelState: Sendable {
         var outboundPendingCount: UInt64 = 0
     }
@@ -105,7 +107,7 @@ final class RuntimeDeliveryPerformanceReporter: Sendable {
     private let enabled = Atomic<Bool>(false)
     private let state = Mutex(State())
 
-    func enable() {
+    package func enable() {
         state.withLock { state in
             guard !state.isEnabled else { return }
             state.clearCounts(keepingEnabled: true)
@@ -113,14 +115,14 @@ final class RuntimeDeliveryPerformanceReporter: Sendable {
         }
     }
 
-    func disable() {
+    package func disable() {
         enabled.store(false, ordering: .relaxed)
         state.withLock { state in
             state.clearCounts(keepingEnabled: false)
         }
     }
 
-    func reset() {
+    package func reset() {
         guard enabled.load(ordering: .relaxed) else { return }
         state.withLock { state in
             guard state.isEnabled else { return }
@@ -136,13 +138,13 @@ final class RuntimeDeliveryPerformanceReporter: Sendable {
         }
     }
 
-    func registerRuntimeChannel(_ token: RuntimeDeliveryChannelToken) {
+    package func registerRuntimeChannel(_ token: RuntimeDeliveryChannelToken) {
         withEnabledState { state in
             state.runtimeChannels[token, default: RuntimeChannelState()] = RuntimeChannelState()
         }
     }
 
-    func recordRuntimeChannelOutboundEnqueued(_ token: RuntimeDeliveryChannelToken) {
+    package func recordRuntimeChannelOutboundEnqueued(_ token: RuntimeDeliveryChannelToken) {
         withEnabledState { state in
             var channel = state.runtimeChannels[token, default: RuntimeChannelState()]
             channel.outboundPendingCount = channel.outboundPendingCount.addingClamped(1)
@@ -150,14 +152,14 @@ final class RuntimeDeliveryPerformanceReporter: Sendable {
         }
     }
 
-    func recordRuntimeChannelOutboundDropped() {
+    package func recordRuntimeChannelOutboundDropped() {
         withEnabledState { state in
             state.runtimeChannelOutboundDroppedCount =
                 state.runtimeChannelOutboundDroppedCount.addingClamped(1)
         }
     }
 
-    func recordRuntimeChannelOutboundPosted(_ token: RuntimeDeliveryChannelToken) {
+    package func recordRuntimeChannelOutboundPosted(_ token: RuntimeDeliveryChannelToken) {
         withEnabledState { state in
             guard var channel = state.runtimeChannels[token], channel.outboundPendingCount > 0 else { return }
             channel.outboundPendingCount -= 1
@@ -165,7 +167,7 @@ final class RuntimeDeliveryPerformanceReporter: Sendable {
         }
     }
 
-    func retireRuntimeChannel(_ token: RuntimeDeliveryChannelToken) {
+    package func retireRuntimeChannel(_ token: RuntimeDeliveryChannelToken) {
         withEnabledState { state in
             guard let channel = state.runtimeChannels.removeValue(forKey: token) else { return }
             state.runtimeChannelRetiredUndeliveredCount =
@@ -173,38 +175,38 @@ final class RuntimeDeliveryPerformanceReporter: Sendable {
         }
     }
 
-    func recordEventBusSubscriberAdded() {
+    package func recordEventBusSubscriberAdded() {
         withEnabledState { state in
             state.eventBusActiveSubscriberCount = state.eventBusActiveSubscriberCount.addingClamped(1)
         }
     }
 
-    func recordEventBusDeliveryEnqueued() {
+    package func recordEventBusDeliveryEnqueued() {
         withEnabledState { state in
             state.eventBusActiveDeliveryDebt = state.eventBusActiveDeliveryDebt.addingClamped(1)
         }
     }
 
-    func recordEventBusDeliveryConsumed() {
+    package func recordEventBusDeliveryConsumed() {
         withEnabledState { state in
             guard state.eventBusActiveDeliveryDebt > 0 else { return }
             state.eventBusActiveDeliveryDebt -= 1
         }
     }
 
-    func recordEventBusLiveDrop() {
+    package func recordEventBusLiveDrop() {
         withEnabledState { state in
             state.eventBusLiveDroppedCount = state.eventBusLiveDroppedCount.addingClamped(1)
         }
     }
 
-    func recordEventBusReplayDrop() {
+    package func recordEventBusReplayDrop() {
         withEnabledState { state in
             state.eventBusReplayDroppedCount = state.eventBusReplayDroppedCount.addingClamped(1)
         }
     }
 
-    func recordEventBusSubscriberRemoved(pendingDeliveryCount: UInt64) {
+    package func recordEventBusSubscriberRemoved(pendingDeliveryCount: UInt64) {
         withEnabledState { state in
             if state.eventBusActiveSubscriberCount > 0 {
                 state.eventBusActiveSubscriberCount -= 1

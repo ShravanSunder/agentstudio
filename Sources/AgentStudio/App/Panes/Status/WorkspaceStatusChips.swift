@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import SwiftUI
 
 struct WorkspaceStatusChipRow: View {

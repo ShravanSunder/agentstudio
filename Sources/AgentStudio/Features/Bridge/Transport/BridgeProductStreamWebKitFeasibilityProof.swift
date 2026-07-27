@@ -7,12 +7,12 @@ enum BridgeProductStreamWebKitFeasibilityPolicy {
     static let producerTerminalReserve = 1
 }
 
-struct BridgeProductStreamWebKitFeasibilityConfiguration: Equatable, Sendable {
-    let maximumRequestBodyBytes: Int
-    let nearCapWarmupRequestCount: Int
-    let nearCapMeasuredRequestCount: Int
+package struct BridgeProductStreamWebKitFeasibilityConfiguration: Equatable, Sendable {
+    package let maximumRequestBodyBytes: Int
+    package let nearCapWarmupRequestCount: Int
+    package let nearCapMeasuredRequestCount: Int
 
-    static let productContract = Self(
+    package static let productContract = Self(
         maximumRequestBodyBytes: BridgeProductStreamWebKitFeasibilityPolicy.maxRequestBodyBytes,
         nearCapWarmupRequestCount: 0,
         nearCapMeasuredRequestCount: 0
@@ -84,7 +84,7 @@ enum BridgeProductStreamWebKitFeasibilityRejection: String, Equatable, Sendable 
     case routeBodyMismatch = "route_body_mismatch"
 }
 
-enum BridgeWebKitFeasibilityCancellationEvent: String, Equatable, Sendable {
+package enum BridgeWebKitFeasibilityCancellationEvent: String, Equatable, Sendable {
     case producerStopped = "producer_stopped"
     case producerUnregistered = "producer_unregistered"
     case resultAcknowledged = "result_acknowledged"
@@ -187,12 +187,12 @@ struct BridgeProductStreamWebKitFeasibilitySnapshot: Equatable, Sendable {
     let producers: BridgeWebKitFeasibilityProducerSnapshot
 }
 
-struct BridgeProductStreamWebKitFeasibilityProof: Equatable, Sendable {
-    let authenticationBeforeBodySucceeded: Bool
-    let bodyCapBeforeDecodeSucceeded: Bool
-    let strictRouteDecodeSucceeded: Bool
-    let missingContentLengthAccepted: Bool
-    let exactRequestBodyBytesSucceeded: Bool
+package struct BridgeProductStreamWebKitFeasibilityProof: Equatable, Sendable {
+    package let authenticationBeforeBodySucceeded: Bool
+    package let bodyCapBeforeDecodeSucceeded: Bool
+    package let strictRouteDecodeSucceeded: Bool
+    package let missingContentLengthAccepted: Bool
+    package let exactRequestBodyBytesSucceeded: Bool
     let nearCapRequestBodySucceeded: Bool
     let nearCapBodyByteCount: Int
     let nearCapWarmupRequestCount: Int
@@ -201,28 +201,28 @@ struct BridgeProductStreamWebKitFeasibilityProof: Equatable, Sendable {
     let workerFetchCompletionTiming: BridgeWebKitTimingSummary?
     let swiftAdmissionTiming: BridgeWebKitTimingSummary?
     let swiftDecodeTiming: BridgeWebKitTimingSummary?
-    let bodyReadCount: Int
-    let bodyReadByteCount: Int
-    let decodeCallCount: Int
-    let providerCallCount: Int
-    let unauthorizedBodyReadCount: Int
-    let validBodyByteCount: Int
-    let firstFrameByteCount: Int
-    let validStreamEnded: Bool
-    let workerStartPostObserved: Bool
-    let workerObservedExactFrames: Bool
-    let workerObservedIncrementalFrames: Bool
-    let workerObservedCancellation: Bool
-    let frameReceiptCount: Int
-    let cancellationOrder: [BridgeWebKitFeasibilityCancellationEvent]
-    let activeProducerCount: Int
-    let activeProducerTaskCount: Int
-    let queuedFrameCount: Int
-    let maximumQueuedFrameCount: Int
-    let producerOverflowCount: Int
-    let postTerminalFrameCount: Int
+    package let bodyReadCount: Int
+    package let bodyReadByteCount: Int
+    package let decodeCallCount: Int
+    package let providerCallCount: Int
+    package let unauthorizedBodyReadCount: Int
+    package let validBodyByteCount: Int
+    package let firstFrameByteCount: Int
+    package let validStreamEnded: Bool
+    package let workerStartPostObserved: Bool
+    package let workerObservedExactFrames: Bool
+    package let workerObservedIncrementalFrames: Bool
+    package let workerObservedCancellation: Bool
+    package let frameReceiptCount: Int
+    package let cancellationOrder: [BridgeWebKitFeasibilityCancellationEvent]
+    package let activeProducerCount: Int
+    package let activeProducerTaskCount: Int
+    package let queuedFrameCount: Int
+    package let maximumQueuedFrameCount: Int
+    package let producerOverflowCount: Int
+    package let postTerminalFrameCount: Int
     let requestAPIObservations: [BridgeWebKitRequestAPIObservation]
-    let failureReason: String
+    package let failureReason: String
 
     init(
         authenticationBeforeBodySucceeded: Bool,
@@ -298,7 +298,7 @@ struct BridgeProductStreamWebKitFeasibilityProof: Equatable, Sendable {
         self.failureReason = failureReason
     }
 
-    var succeeded: Bool {
+    package var succeeded: Bool {
         authenticationBeforeBodySucceeded
             && bodyCapBeforeDecodeSucceeded
             && strictRouteDecodeSucceeded
@@ -325,7 +325,7 @@ struct BridgeProductStreamWebKitFeasibilityProof: Equatable, Sendable {
             && failureReason == "none"
     }
 
-    static func failed(reason: String) -> Self {
+    package static func failed(reason: String) -> Self {
         Self(
             authenticationBeforeBodySucceeded: false,
             bodyCapBeforeDecodeSucceeded: false,

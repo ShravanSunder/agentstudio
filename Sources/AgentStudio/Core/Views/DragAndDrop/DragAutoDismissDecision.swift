@@ -1,7 +1,7 @@
 import Foundation
 
-enum DragAutoDismissDecision {
-    static func shouldAutoDismiss(
+package enum DragAutoDismissDecision {
+    package static func shouldAutoDismiss(
         payload: PaneDragPayload,
         destinationTabId: UUID,
         destinationExpandedDrawerParentPaneId: UUID?

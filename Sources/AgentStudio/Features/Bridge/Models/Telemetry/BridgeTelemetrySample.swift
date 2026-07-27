@@ -1,4 +1,4 @@
-struct BridgeTelemetrySample: Codable, Equatable, Sendable {
+package struct BridgeTelemetrySample: Codable, Equatable, Sendable {
     let scope: BridgeTelemetryScope
     let name: String
     let durationMilliseconds: Double?

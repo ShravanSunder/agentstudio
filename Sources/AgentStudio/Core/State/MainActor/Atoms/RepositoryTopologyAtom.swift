@@ -4,10 +4,10 @@ import Observation
 @MainActor
 @Observable
 package final class RepositoryTopologyAtom {
-    private(set) var repos: [Repo] = []
-    private(set) var watchedPaths: [WatchedPath] = []
+    package private(set) var repos: [Repo] = []
+    package private(set) var watchedPaths: [WatchedPath] = []
     private(set) var unavailableRepoIds: Set<UUID> = []
-    private(set) var worktreePathIndexGeneration: UInt64 = 0
+    package private(set) var worktreePathIndexGeneration: UInt64 = 0
 
     @ObservationIgnored private var worktreePathIndex: [WorktreePathIndexEntry] = []
     @ObservationIgnored private var deferredWorktreePathIndexRebuildDepth = 0
@@ -43,7 +43,7 @@ package final class RepositoryTopologyAtom {
         watchedPaths.map(\.id)
     }
 
-    var worktreePathIndexCount: Int {
+    package var worktreePathIndexCount: Int {
         worktreePathIndex.count
     }
 
@@ -82,12 +82,12 @@ package final class RepositoryTopologyAtom {
         }
     }
 
-    func repo(_ id: UUID) -> Repo? {
+    package func repo(_ id: UUID) -> Repo? {
         _ = repos
         return repositoriesByID[id]
     }
 
-    func worktree(_ id: UUID) -> Worktree? {
+    package func worktree(_ id: UUID) -> Worktree? {
         _ = repos
         return worktreesByID[id]
     }
@@ -97,13 +97,13 @@ package final class RepositoryTopologyAtom {
         return watchedPathsByID[id]
     }
 
-    func repo(containing worktreeId: UUID) -> Repo? {
+    package func repo(containing worktreeId: UUID) -> Repo? {
         _ = repos
         guard let worktree = worktreesByID[worktreeId] else { return nil }
         return repositoriesByID[worktree.repoId]
     }
 
-    func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
+    package func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
         guard let cwd else { return nil }
         _ = repos
         _ = worktreePathIndexGeneration
@@ -157,7 +157,7 @@ package final class RepositoryTopologyAtom {
         repositoriesByID[worktree.repoId] = repos[repositoryIndex]
     }
 
-    func isRepoUnavailable(_ repoId: UUID) -> Bool {
+    package func isRepoUnavailable(_ repoId: UUID) -> Bool {
         unavailableRepoIds.contains(repoId)
     }
 

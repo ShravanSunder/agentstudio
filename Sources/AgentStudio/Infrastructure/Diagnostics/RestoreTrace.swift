@@ -1,7 +1,7 @@
 import Foundation
 
 /// Lightweight restore/rehydration trace logger.
-enum RestoreTrace {
+package enum RestoreTrace {
     /// Opt-in with `AGENTSTUDIO_RESTORE_TRACE=1` for local diagnostics.
     private static let enabled: Bool = {
         let raw = ProcessInfo.processInfo.environment["AGENTSTUDIO_RESTORE_TRACE"]?
@@ -22,7 +22,7 @@ enum RestoreTrace {
         return "pid=\(pid) src=\(branch)"
     }()
 
-    static func log(_ message: @autoclosure () -> String) {
+    package static func log(_ message: @autoclosure () -> String) {
         guard enabled else { return }
         debugLog("[restore-trace \(processTag)] \(message())")
     }
@@ -32,11 +32,11 @@ enum RestoreTrace {
 /// Incremented in `DragHandleDragPreview.onAppear` when SwiftUI starts a drag.
 /// Read in every capture view's draggingEntered/Updated/Exited override.
 @MainActor
-enum DragSession {
+package enum DragSession {
     private static var counter: UInt64 = 0
-    private(set) static var current: UInt64 = 0
+    package private(set) static var current: UInt64 = 0
 
-    static func start() -> UInt64 {
+    package static func start() -> UInt64 {
         counter &+= 1
         current = counter
         return current

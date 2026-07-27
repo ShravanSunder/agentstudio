@@ -1,11 +1,11 @@
 import Foundation
 
-struct SelectablePopoverKeyboardItem<ItemID: Hashable>: Equatable, Identifiable {
-    let id: ItemID
-    let shortcutNumber: Int?
-    let supportsAuxiliaryAction: Bool
+package struct SelectablePopoverKeyboardItem<ItemID: Hashable>: Equatable, Identifiable {
+    package let id: ItemID
+    package let shortcutNumber: Int?
+    package let supportsAuxiliaryAction: Bool
 
-    init(
+    package init(
         id: ItemID,
         shortcutNumber: Int? = nil,
         supportsAuxiliaryAction: Bool = false

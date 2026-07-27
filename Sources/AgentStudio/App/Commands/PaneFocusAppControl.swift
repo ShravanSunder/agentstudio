@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 
 enum PaneFocusAppControlError: Error, Equatable, Sendable {

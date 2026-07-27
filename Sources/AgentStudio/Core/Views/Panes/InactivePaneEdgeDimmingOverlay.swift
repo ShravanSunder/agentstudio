@@ -1,9 +1,12 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
 /// Edge-only focus cue for inactive split panes.
 /// Keeps the center readable while dimming the outer band on all four sides.
-struct InactivePaneEdgeDimmingOverlay: View {
-    var body: some View {
+package struct InactivePaneEdgeDimmingOverlay: View {
+    package init() {}
+
+    package var body: some View {
         GeometryReader { geometry in
             let horizontalDepth = min(AppStyles.Shell.PaneChrome.inactivePaneDimmingDepth, geometry.size.width / 2)
             let verticalDepth = min(AppStyles.Shell.PaneChrome.inactivePaneDimmingDepth, geometry.size.height / 2)

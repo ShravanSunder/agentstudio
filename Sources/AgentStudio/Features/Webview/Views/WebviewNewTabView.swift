@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import SwiftUI
 
 /// New tab page showing a search bar, favorites grid, and recent sites.

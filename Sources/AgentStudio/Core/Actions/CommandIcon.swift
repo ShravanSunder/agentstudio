@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 
-enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
+package enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case arrowDown = "arrow.down"
     case arrowDownToLine = "arrow.down.to.line"
     case arrowClockwise = "arrow.clockwise"
@@ -88,19 +89,19 @@ enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case xmarkSquare = "xmark.square"
 }
 
-enum OcticonSymbol: String, CaseIterable, Equatable, Sendable {
+package enum OcticonSymbol: String, CaseIterable, Equatable, Sendable {
     case codeSquare = "octicon-code-square"
     case vscode = "octicon-vscode"
 }
 
-enum CommandIcon: Equatable, Sendable {
+package enum CommandIcon: Equatable, Sendable {
     case system(SystemSymbol)
     case octicon(OcticonSymbol)
 }
 
 extension CommandIcon {
     @ViewBuilder
-    func swiftUIImage(loader: OcticonLoader, size: CGFloat? = nil) -> some View {
+    package func swiftUIImage(loader: OcticonLoader, size: CGFloat? = nil) -> some View {
         switch self {
         case .system(let systemSymbol):
             let image = Image(systemName: systemSymbol.rawValue)
@@ -115,7 +116,7 @@ extension CommandIcon {
         }
     }
 
-    func nsImage(accessibilityDescription: String?) -> NSImage? {
+    package func nsImage(accessibilityDescription: String?) -> NSImage? {
         switch self {
         case .system(let systemSymbol):
             NSImage(

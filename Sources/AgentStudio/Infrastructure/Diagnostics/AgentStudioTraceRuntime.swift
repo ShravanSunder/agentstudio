@@ -8,7 +8,7 @@ import Tracing
     import Glibc
 #endif
 
-struct AgentStudioTraceRuntime: Sendable {
+package struct AgentStudioTraceRuntime: Sendable {
     private let configuration: AgentStudioTraceConfiguration
     private let sinks: [any AgentStudioTraceSink]
     private let baseResource: [String: String]
@@ -18,7 +18,7 @@ struct AgentStudioTraceRuntime: Sendable {
 
     let outputFileURL: URL?
 
-    var isEnabled: Bool {
+    package var isEnabled: Bool {
         configuration.isEnabled && !sinks.isEmpty
     }
 
@@ -95,7 +95,7 @@ struct AgentStudioTraceRuntime: Sendable {
         }
     }
 
-    static func fromEnvironment(
+    package static func fromEnvironment(
         _ environment: [String: String] = ProcessInfo.processInfo.environment,
         preferenceLayer: AgentStudioTracePreferenceLayer? = nil,
         processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier
@@ -109,21 +109,21 @@ struct AgentStudioTraceRuntime: Sendable {
         )
     }
 
-    func isEnabled(_ tag: AgentStudioTraceTag) -> Bool {
+    package func isEnabled(_ tag: AgentStudioTraceTag) -> Bool {
         configuration.isEnabled(tag)
     }
 
-    func timestampUnixNano() -> UInt64 {
+    package func timestampUnixNano() -> UInt64 {
         timeUnixNano()
     }
 
-    func updateIdentitySnapshot(
+    package func updateIdentitySnapshot(
         _ snapshot: AgentStudioTraceIdentitySnapshot
     ) async -> AgentStudioTraceIdentityUpdateOutcome {
         await identityStore.update(snapshot)
     }
 
-    func record(
+    package func record(
         tag: AgentStudioTraceTag,
         body: String,
         severity: AgentStudioTraceSeverity = .info,
@@ -162,7 +162,7 @@ struct AgentStudioTraceRuntime: Sendable {
         await flushFromRecord()
     }
 
-    func flush() async throws {
+    package func flush() async throws {
         var firstError: Error?
         for sink in sinks {
             do {
@@ -180,7 +180,7 @@ struct AgentStudioTraceRuntime: Sendable {
         }
     }
 
-    func shutdown() async throws {
+    package func shutdown() async throws {
         var firstError: Error?
         for sink in sinks {
             do {
@@ -198,7 +198,7 @@ struct AgentStudioTraceRuntime: Sendable {
         }
     }
 
-    func diagnostics() async -> AgentStudioTraceWriterDiagnostics {
+    package func diagnostics() async -> AgentStudioTraceWriterDiagnostics {
         var failedFlushCount = 0
         var lastFlushErrorDescription: String?
         for sink in sinks {

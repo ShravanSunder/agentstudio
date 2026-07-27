@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import Foundation
 
 extension AppCommandSpec {
-    var actionSpec: ActionSpec {
+    package var actionSpec: ActionSpec {
         ActionSpec(
             label: label,
             helpText: helpText,
@@ -32,7 +33,7 @@ extension AppCommandSpec {
         )
     }
 
-    var controlToolTip: String {
+    package var controlToolTip: String {
         controlToolTip()
     }
 
@@ -60,7 +61,7 @@ extension AppCommandSpec {
         return .display(descriptor, style: style)
     }
 
-    func controlTooltipRenderValue(
+    package func controlTooltipRenderValue(
         textOverride: String? = nil,
         includeShortcut: Bool = true,
         shortcutTextOverride: ShortcutDisplayText? = nil

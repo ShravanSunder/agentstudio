@@ -1,10 +1,12 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import Foundation
 import Observation
 import os.log
 
 @MainActor
-protocol TerminalSurfaceCommandDispatching: AnyObject {
+package protocol TerminalSurfaceCommandDispatching: AnyObject {
     func sendInput(_ input: String, toPaneId paneId: UUID) -> Result<Void, SurfaceError>
     func clearScrollback(forPaneId paneId: UUID) -> Result<Void, SurfaceError>
     func scrollToBottom(forPaneId paneId: UUID) -> Result<Void, SurfaceError>
@@ -14,12 +16,12 @@ protocol TerminalSurfaceCommandDispatching: AnyObject {
 
 @MainActor
 @Observable
-final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactProviding {
+package final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactProviding {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "TerminalRuntime")
 
-    let paneId: PaneId
-    private(set) var metadata: PaneMetadata
-    private(set) var lifecycle: PaneRuntimeLifecycle
+    package let paneId: PaneId
+    package private(set) var metadata: PaneMetadata
+    package private(set) var lifecycle: PaneRuntimeLifecycle
     private(set) var commandProgress: ProgressState?
     private(set) var isReadOnly: Bool = false
     private(set) var isSecureInput: Bool = false
@@ -31,12 +33,12 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
     private(set) var mouseShape: TerminalMouseShape?
     private(set) var isMouseVisible: Bool = true
     private var localSearchEpoch: UInt64?
-    let capabilities: Set<PaneCapability>
+    package let capabilities: Set<PaneCapability>
 
     private let eventChannel: PaneRuntimeEventChannel
     private let surfaceCommandDispatcher: any TerminalSurfaceCommandDispatching
 
-    init(
+    package init(
         paneId: PaneId,
         metadata: PaneMetadata,
         clock: ContinuousClock = ContinuousClock(),
@@ -62,7 +64,7 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
     }
 
     @discardableResult
-    func transitionToReady() -> Bool {
+    package func transitionToReady() -> Bool {
         guard lifecycle == .created else {
             Self.logger.warning(
                 "Rejected transitionToReady for pane \(self.paneId.uuid.uuidString, privacy: .public): lifecycle=\(String(describing: self.lifecycle), privacy: .public)"
@@ -73,7 +75,7 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
         return true
     }
 
-    func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
+    package func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
         guard lifecycle == .ready else {
             return .failure(.runtimeNotReady(lifecycle: lifecycle))
         }
@@ -111,11 +113,11 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
         }
     }
 
-    func subscribe() -> AsyncStream<RuntimeEnvelope> {
+    package func subscribe() -> AsyncStream<RuntimeEnvelope> {
         eventChannel.subscribe(isTerminated: lifecycle == .terminated)
     }
 
-    func snapshot() -> PaneRuntimeSnapshot {
+    package func snapshot() -> PaneRuntimeSnapshot {
         eventChannel.snapshot(
             paneId: paneId,
             metadata: metadata,
@@ -124,7 +126,7 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
         )
     }
 
-    func terminalRuntimeSnapshotFacts() -> TerminalRuntimeSnapshotFacts {
+    package func terminalRuntimeSnapshotFacts() -> TerminalRuntimeSnapshotFacts {
         TerminalRuntimeSnapshotFacts(
             rendererHealthy: rendererHealthy,
             readOnly: isReadOnly,
@@ -132,11 +134,11 @@ final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactP
         )
     }
 
-    func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
+    package func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
         eventChannel.eventsSince(seq: seq)
     }
 
-    func shutdown(timeout _: Duration) async -> [UUID] {
+    package func shutdown(timeout _: Duration) async -> [UUID] {
         if lifecycle == .terminated {
             return []
         }

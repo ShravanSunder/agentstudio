@@ -1,6 +1,6 @@
 import Foundation
 
-enum PaneFocusTrigger: Sendable, Equatable {
+package enum PaneFocusTrigger: Sendable, Equatable {
     case contentClick(PaneContentClickFocusTrigger)
     case tabClick(PaneTabClickFocusTrigger)
     case drawer(PaneDrawerFocusTrigger)
@@ -10,60 +10,79 @@ enum PaneFocusTrigger: Sendable, Equatable {
     case command(PaneCommandFocusTrigger)
 }
 
-struct PaneContentClickFocusTrigger: Sendable, Equatable {
-    enum Location: Sendable, Equatable {
+package struct PaneContentClickFocusTrigger: Sendable, Equatable {
+    package enum Location: Sendable, Equatable {
         case content
         case chrome
     }
 
-    enum ClickPhase: Sendable, Equatable {
+    package enum ClickPhase: Sendable, Equatable {
         case completed
     }
 
-    let targetPaneId: UUID
+    package let targetPaneId: UUID
     let location: Location
     let clickPhase: ClickPhase
+
+    package init(targetPaneId: UUID, location: Location, clickPhase: ClickPhase) {
+        self.targetPaneId = targetPaneId
+        self.location = location
+        self.clickPhase = clickPhase
+    }
 }
 
-struct PaneTabClickFocusTrigger: Sendable, Equatable {
-    let targetTabId: UUID
+package struct PaneTabClickFocusTrigger: Sendable, Equatable {
+    package let targetTabId: UUID
+
+    package init(targetTabId: UUID) {
+        self.targetTabId = targetTabId
+    }
 }
 
-enum PaneDrawerFocusTrigger: Sendable, Equatable {
+package enum PaneDrawerFocusTrigger: Sendable, Equatable {
     case selectPane(parentPaneId: UUID, drawerPaneId: UUID)
     case toggle(parentPaneId: UUID)
 }
 
-enum PaneKeyboardFocusTrigger: Sendable, Equatable {
+package enum PaneKeyboardFocusTrigger: Sendable, Equatable {
     case moveToPane(tabId: UUID, paneId: UUID, paneKind: PaneFocusContext.PaneKind)
 }
 
-struct PaneModeFocusTrigger: Sendable, Equatable {
-    enum Transition: Sendable, Equatable {
+package struct PaneModeFocusTrigger: Sendable, Equatable {
+    package enum Transition: Sendable, Equatable {
         case enteredManagementLayer
         case exitedManagementLayer
     }
 
-    enum Source: Sendable, Equatable {
+    package enum Source: Sendable, Equatable {
         case keyboardShortcut
         case command
     }
 
     let transition: Transition
     let source: Source
+
+    package init(transition: Transition, source: Source) {
+        self.transition = transition
+        self.source = source
+    }
 }
 
-struct PaneRefocusRequestTrigger: Sendable, Equatable {
-    enum Reason: Sendable, Equatable {
+package struct PaneRefocusRequestTrigger: Sendable, Equatable {
+    package enum Reason: Sendable, Equatable {
         case explicit
         case windowBecameKey
         case managementLayerExited
     }
 
     let reason: Reason
+
+    package init(reason: Reason) {
+        self.reason = reason
+    }
 }
 
-enum PaneCommandFocusTrigger: Sendable, Equatable {
+package enum PaneCommandFocusTrigger: Sendable, Equatable {
     case focusPane(tabId: UUID, paneId: UUID)
     case selectTab(UUID)
     case paneCreated(paneId: UUID, paneKind: PaneFocusContext.PaneKind)

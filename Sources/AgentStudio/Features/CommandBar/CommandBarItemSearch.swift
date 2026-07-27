@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// Command-bar-specific scoring, filtering, ranking, recency, and tracing.

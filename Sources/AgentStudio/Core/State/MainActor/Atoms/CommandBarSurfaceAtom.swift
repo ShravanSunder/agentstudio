@@ -25,11 +25,11 @@ package final class CommandBarSurfaceAtom {
         return activeSurface?.scope
     }
 
-    func present(scope: CommandBarScope, workspaceWindowId: UUID) {
+    package func present(scope: CommandBarScope, workspaceWindowId: UUID) {
         activeSurface = CommandBarSurface(workspaceWindowId: workspaceWindowId, scope: scope)
     }
 
-    func dismiss(workspaceWindowId: UUID? = nil) {
+    package func dismiss(workspaceWindowId: UUID? = nil) {
         guard let workspaceWindowId else {
             activeSurface = nil
             return

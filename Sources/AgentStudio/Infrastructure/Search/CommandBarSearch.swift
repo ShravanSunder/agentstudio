@@ -3,26 +3,26 @@ import Foundation
 // MARK: - FuzzyMatch Result
 
 /// Result of a fuzzy match: score (lower is better) and matched character ranges.
-struct FuzzyMatchResult {
+package struct FuzzyMatchResult {
     /// Score from 0.0 (perfect match) to 1.0 (no match). Below `threshold` is a match.
-    let score: Double
+    package let score: Double
     /// Ranges of matched characters in the haystack (for highlighting).
-    let matchedRanges: [Range<String.Index>]
+    package let matchedRanges: [Range<String.Index>]
 }
 
 // MARK: - FuzzySearch
 
 /// Lightweight fuzzy matching shared by product search surfaces.
-enum FuzzySearch {
+package enum FuzzySearch {
 
     /// Default score threshold — items scoring above this are rejected.
-    static let defaultThreshold: Double = 0.7
+    package static let defaultThreshold: Double = 0.7
 
     // MARK: - Fuzzy Match (core algorithm)
 
     /// Fuzzy-match `pattern` against `text`. Returns nil if no match.
     /// Score: 0.0 = perfect, 1.0 = worst. Consecutive and word-start matches score better.
-    static func fuzzyMatch(pattern: String, in text: String) -> FuzzyMatchResult? {
+    package static func fuzzyMatch(pattern: String, in text: String) -> FuzzyMatchResult? {
         let patternLower = pattern.lowercased()
         let textLower = text.lowercased()
 
