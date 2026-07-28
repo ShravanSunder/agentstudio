@@ -126,7 +126,8 @@ func makeWorkspaceSQLiteBridgeFixture(workspaceId: UUID) throws -> WorkspaceSQLi
         coreRepository: coreRepository,
         makeLocalRepository: { workspaceId in
             WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
-        }
+        },
+        coreDatabaseStartupProvenance: .createdDuringCurrentStartup
     )
     return .init(
         localQueue: localQueue,
