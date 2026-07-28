@@ -47,9 +47,9 @@ package final class UIStateStore {
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
         switch await sqliteDatastore.loadUIState(workspaceContextId: workspaceId) {
-        case .loaded(let payload):
+        case .loaded(let state):
             isRestoringState = true
-            if let state = payload.state {
+            if let state {
                 atom.hydrate(
                     filterText: state.filterText,
                     isFilterVisible: state.isFilterVisible,
@@ -60,11 +60,9 @@ package final class UIStateStore {
                 atom.clear()
             }
             isRestoringState = false
-            reportRecoveryEvents(payload.recoveryEvents)
-        case .unavailable(let failure, let recoveryEvents):
+        case .unavailable(let failure):
             isRestoringState = false
             atom.clear()
-            reportRecoveryEvents(recoveryEvents)
             uiStateStoreLogger.warning("UI state SQLite restore failed: \(failure.description)")
             recoveryReporter?(
                 .init(
@@ -148,9 +146,4 @@ package final class UIStateStore {
         )
     }
 
-    private func reportRecoveryEvents(_ recoveryEvents: [PersistenceRecoveryEvent]) {
-        for recoveryEvent in recoveryEvents {
-            recoveryReporter?(recoveryEvent)
-        }
-    }
 }

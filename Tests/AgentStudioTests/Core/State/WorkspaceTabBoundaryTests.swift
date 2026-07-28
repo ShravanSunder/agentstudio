@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceTabBoundaryTests {
     @Test
-    func domainReplacementSplitsGraphCursorAndPresentationOwners() {
+    func domainReplacementSplitsGraphAndCursorOwners() {
         let primaryPaneId = UUID()
         let secondaryPaneId = UUID()
         let drawerPaneId = UUID()
@@ -41,8 +41,7 @@ struct WorkspaceTabBoundaryTests {
             name: "Tab",
             allPaneIds: [primaryPaneId, secondaryPaneId, drawerPaneId],
             arrangements: [defaultArrangement, focusedArrangement],
-            activeArrangementId: focusedArrangementId,
-            zoomedPaneId: secondaryPaneId
+            activeArrangementId: focusedArrangementId
         )
         let graphAtom = WorkspaceTabGraphAtom()
         let cursorAtom = WorkspaceArrangementCursorAtom()
@@ -60,17 +59,15 @@ struct WorkspaceTabBoundaryTests {
         #expect(cursorAtom.activeArrangementId(forTab: tabId) == focusedArrangementId)
         #expect(cursorAtom.activePaneId(forArrangement: focusedArrangementId) == secondaryPaneId)
         #expect(cursorAtom.activeChildId(forArrangement: focusedArrangementId, drawerId: drawerId) == drawerPaneId)
-        #expect(presentationAtom.zoomedPaneId(forTab: tabId) == secondaryPaneId)
         #expect(arrangementAtom.arrangementState(tabId)?.activeArrangementId == focusedArrangementId)
         #expect(arrangementAtom.arrangementState(tabId)?.arrangements[1].activePaneId == secondaryPaneId)
         #expect(
             arrangementAtom.arrangementState(tabId)?.arrangements[1].drawerViews[drawerId]?.activeChildId
                 == drawerPaneId)
-        #expect(arrangementAtom.arrangementState(tabId)?.zoomedPaneId == secondaryPaneId)
     }
 
     @Test
-    func insertPaneRoutesGraphCursorAndPresentationTogether() {
+    func insertPaneRoutesGraphAndCursorTogether() {
         let targetPaneId = UUID()
         let insertedPaneId = UUID()
         let tab = Tab(paneId: targetPaneId)
@@ -83,7 +80,6 @@ struct WorkspaceTabBoundaryTests {
             presentationAtom: presentationAtom
         )
         replaceTabComposition([tab], in: arrangementAtom)
-        arrangementAtom.toggleZoom(paneId: targetPaneId, inTab: tab.id)
 
         let didInsert = arrangementAtom.insertPane(
             insertedPaneId,
@@ -97,9 +93,7 @@ struct WorkspaceTabBoundaryTests {
         #expect(didInsert)
         #expect(graphAtom.tabState(tab.id)?.allPaneIds == [targetPaneId, insertedPaneId])
         #expect(cursorAtom.activePaneId(forArrangement: tab.activeArrangementId) == insertedPaneId)
-        #expect(presentationAtom.zoomedPaneId(forTab: tab.id) == nil)
         #expect(arrangementAtom.arrangementState(tab.id)?.activePaneId == insertedPaneId)
-        #expect(arrangementAtom.arrangementState(tab.id)?.zoomedPaneId == nil)
     }
 
     @Test
@@ -139,35 +133,42 @@ struct WorkspaceTabBoundaryTests {
         let firstDrawerPaneId = UUID()
         let secondDrawerPaneId = UUID()
         let drawerId = UUID()
-        let arrangement = PaneArrangement(
-            layout: Layout(paneId: firstPaneId)
-                .inserting(
-                    paneId: secondPaneId,
-                    at: firstPaneId,
-                    direction: .horizontal,
-                    position: .after,
-                    sizingMode: .halveTarget
-                )!,
+        let layout = Layout(paneId: firstPaneId)
+            .inserting(
+                paneId: secondPaneId,
+                at: firstPaneId,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )!
+        let drawerView = DrawerView(
+            layout: DrawerGridLayout(
+                topRow: Layout(paneId: firstDrawerPaneId)
+                    .inserting(
+                        paneId: secondDrawerPaneId,
+                        at: firstDrawerPaneId,
+                        direction: .horizontal,
+                        position: .after,
+                        sizingMode: .halveTarget
+                    )!
+            ),
+            activeChildId: firstDrawerPaneId
+        )
+        let defaultArrangement = PaneArrangement(
+            layout: layout,
             activePaneId: firstPaneId,
-            drawerViews: [
-                drawerId: DrawerView(
-                    layout: DrawerGridLayout(
-                        topRow: Layout(paneId: firstDrawerPaneId)
-                            .inserting(
-                                paneId: secondDrawerPaneId,
-                                at: firstDrawerPaneId,
-                                direction: .horizontal,
-                                position: .after,
-                                sizingMode: .halveTarget
-                            )!
-                    ),
-                    activeChildId: firstDrawerPaneId
-                )
-            ]
+            drawerViews: [drawerId: drawerView]
+        )
+        let arrangement = PaneArrangement(
+            name: "Layout 1",
+            isDefault: false,
+            layout: layout,
+            activePaneId: firstPaneId,
+            drawerViews: [drawerId: drawerView]
         )
         let tab = Tab(
             allPaneIds: [firstPaneId, secondPaneId, firstDrawerPaneId, secondDrawerPaneId],
-            arrangements: [arrangement],
+            arrangements: [defaultArrangement, arrangement],
             activeArrangementId: arrangement.id
         )
         let graphAtom = WorkspaceTabGraphAtom()
@@ -186,118 +187,18 @@ struct WorkspaceTabBoundaryTests {
 
         #expect(cursorAtom.activePaneId(forArrangement: arrangement.id) == nil)
         #expect(cursorAtom.activeChildId(forArrangement: arrangement.id, drawerId: drawerId) == nil)
-        #expect(arrangementAtom.arrangementState(tab.id)?.arrangements[0].activePaneId == nil)
-        #expect(arrangementAtom.arrangementState(tab.id)?.arrangements[0].drawerViews[drawerId]?.activeChildId == nil)
-        #expect(graphAtom.tabState(tab.id)?.arrangements[0].minimizedPaneIds == Set([firstPaneId, secondPaneId]))
+        let projectedArrangement = arrangementAtom.arrangementState(tab.id)?.arrangements.first {
+            $0.id == arrangement.id
+        }
+        let graphArrangement = graphAtom.tabState(tab.id)?.arrangements.first {
+            $0.id == arrangement.id
+        }
+        #expect(projectedArrangement?.activePaneId == nil)
+        #expect(projectedArrangement?.drawerViews[drawerId]?.activeChildId == nil)
+        #expect(graphArrangement?.minimizedPaneIds == Set([firstPaneId, secondPaneId]))
         #expect(
-            graphAtom.tabState(tab.id)?.arrangements[0].drawerViews[drawerId]?.minimizedPaneIds
+            graphArrangement?.drawerViews[drawerId]?.minimizedPaneIds
                 == Set([firstDrawerPaneId, secondDrawerPaneId]))
-    }
-
-    @Test
-    func removePaneClearsPresentationOwnerZoom() {
-        let paneId = UUID()
-        let siblingPaneId = UUID()
-        let tab = Tab(
-            allPaneIds: [paneId, siblingPaneId],
-            arrangements: [
-                PaneArrangement(
-                    layout: Layout(paneId: paneId)
-                        .inserting(
-                            paneId: siblingPaneId,
-                            at: paneId,
-                            direction: .horizontal,
-                            position: .after,
-                            sizingMode: .halveTarget
-                        )!,
-                    activePaneId: paneId
-                )
-            ],
-            activeArrangementId: UUID()
-        )
-        let arrangement = tab.arrangements[0]
-        let presentationAtom = WorkspacePanePresentationAtom()
-        let arrangementAtom = WorkspaceTabArrangementAtom(
-            graphAtom: WorkspaceTabGraphAtom(),
-            cursorAtom: WorkspaceArrangementCursorAtom(),
-            presentationAtom: presentationAtom
-        )
-        let hydratedTab = Tab(
-            id: tab.id,
-            name: tab.name,
-            allPaneIds: tab.allPaneIds,
-            arrangements: [arrangement],
-            activeArrangementId: arrangement.id
-        )
-        replaceTabComposition([hydratedTab], in: arrangementAtom)
-        arrangementAtom.toggleZoom(paneId: paneId, inTab: hydratedTab.id)
-
-        arrangementAtom.removePaneReferences(Set([paneId]))
-
-        #expect(presentationAtom.zoomedPaneId(forTab: hydratedTab.id) == nil)
-        #expect(arrangementAtom.arrangementState(hydratedTab.id)?.zoomedPaneId == nil)
-    }
-
-    @Test
-    func movePaneAcrossTabsClearsSourceAndDestinationPresentationZoom() {
-        let movingPaneId = UUID()
-        let sourceSiblingPaneId = UUID()
-        let destinationPaneId = UUID()
-        let sourceTab = Tab(
-            allPaneIds: [movingPaneId, sourceSiblingPaneId],
-            arrangements: [
-                PaneArrangement(
-                    layout: Layout(paneId: movingPaneId)
-                        .inserting(
-                            paneId: sourceSiblingPaneId,
-                            at: movingPaneId,
-                            direction: .horizontal,
-                            position: .after,
-                            sizingMode: .halveTarget
-                        )!,
-                    activePaneId: movingPaneId
-                )
-            ],
-            activeArrangementId: UUID()
-        )
-        let destinationTab = Tab(paneId: destinationPaneId)
-        let sourceArrangement = sourceTab.arrangements[0]
-        let hydratedSourceTab = Tab(
-            id: sourceTab.id,
-            name: sourceTab.name,
-            allPaneIds: sourceTab.allPaneIds,
-            arrangements: [sourceArrangement],
-            activeArrangementId: sourceArrangement.id
-        )
-        let presentationAtom = WorkspacePanePresentationAtom()
-        let arrangementAtom = WorkspaceTabArrangementAtom(
-            graphAtom: WorkspaceTabGraphAtom(),
-            cursorAtom: WorkspaceArrangementCursorAtom(),
-            presentationAtom: presentationAtom
-        )
-        replaceTabComposition([hydratedSourceTab, destinationTab], in: arrangementAtom)
-        arrangementAtom.toggleZoom(paneId: movingPaneId, inTab: hydratedSourceTab.id)
-        arrangementAtom.toggleZoom(paneId: destinationPaneId, inTab: destinationTab.id)
-
-        let result = arrangementAtom.movePaneAcrossTabs(
-            CrossTabPaneMoveMutation(
-                request: CrossTabPaneMoveRequest(
-                    paneId: movingPaneId,
-                    sourceTabId: hydratedSourceTab.id,
-                    destTabId: destinationTab.id,
-                    targetPaneId: destinationPaneId,
-                    direction: .horizontal,
-                    position: .after
-                ),
-                drawerId: nil,
-                drawerPaneIds: []
-            ))
-
-        #expect(result?.sourceTabClosed == false)
-        #expect(presentationAtom.zoomedPaneId(forTab: hydratedSourceTab.id) == nil)
-        #expect(presentationAtom.zoomedPaneId(forTab: destinationTab.id) == nil)
-        #expect(arrangementAtom.arrangementState(hydratedSourceTab.id)?.zoomedPaneId == nil)
-        #expect(arrangementAtom.arrangementState(destinationTab.id)?.zoomedPaneId == nil)
     }
 
     private func replaceTabComposition(
@@ -309,8 +210,7 @@ struct WorkspaceTabBoundaryTests {
                 tabId: $0.id,
                 allPaneIds: $0.allPaneIds,
                 arrangements: $0.arrangements,
-                activeArrangementId: $0.activeArrangementId,
-                zoomedPaneId: $0.zoomedPaneId
+                activeArrangementId: $0.activeArrangementId
             )
         }
         var activeArrangementIdsByTabId: [UUID: UUID] = [:]
@@ -334,6 +234,5 @@ struct WorkspaceTabBoundaryTests {
             paneCursorsByArrangementId: paneCursorsByArrangementId,
             drawerCursorsByKey: drawerCursorsByKey
         )
-        arrangementAtom.presentationAtom.replaceStates(arrangementStates)
     }
 }

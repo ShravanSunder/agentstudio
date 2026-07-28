@@ -31,6 +31,12 @@ enum WorkspacePersistenceTransformer {
     @concurrent nonisolated static func prepareRepositoryTopologyOffMain(
         _ snapshot: RepositoryTopologySQLiteSnapshot
     ) async -> RepositoryTopologyReplacementPreparation {
+        prepareRepositoryTopology(snapshot)
+    }
+
+    nonisolated static func prepareRepositoryTopology(
+        _ snapshot: RepositoryTopologySQLiteSnapshot
+    ) -> RepositoryTopologyReplacementPreparation {
         RepositoryTopologyReplacement.prepare(
             repositories: runtimeRepos(
                 canonicalRepos: snapshot.repos,

@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct StoreVisibilityTierResolverTests {
     @Test
-    func tier_marksOnlyZoomedPaneVisible_whenTabIsZoomed() throws {
+    func tier_marksOnlyZoomSourcePaneVisible_whenTabIsZoomed() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-visibility-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -26,7 +26,7 @@ struct StoreVisibilityTierResolverTests {
             provider: .zmx,
             facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
-        let tab = Tab(paneId: firstPane.id, name: "Zoomed")
+        let tab = Tab(paneId: firstPane.id, name: "Focused")
         store.appendTab(tab)
         store.insertPane(
             secondPane.id,
@@ -35,7 +35,11 @@ struct StoreVisibilityTierResolverTests {
             direction: .horizontal,
             position: .after, sizingMode: .halveTarget
         )
-        store.toggleZoom(paneId: firstPane.id, inTab: tab.id)
+        store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: firstPane.id,
+            viewerPresentation: .unavailable
+        )
 
         let resolver = StoreVisibilityTierResolver(store: store)
 

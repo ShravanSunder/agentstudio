@@ -9,6 +9,44 @@ enum GhosttyTranslatedActionAdmission: Sendable, Equatable {
     case handledLocally
 }
 
+@MainActor
+protocol TerminalLocalActionDrainHost: AnyObject {
+    var managedSurfaceID: UUID { get }
+    var hostScrollbarState: ScrollbarState? { get }
+    var title: String { get }
+    var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? { get }
+
+    func updateHostScrollbarState(_ state: ScrollbarState)
+    func titleDidChange(_ title: String)
+}
+
+extension Ghostty.SurfaceView: TerminalLocalActionDrainHost {}
+
+@MainActor
+struct TerminalLocalActionMountedHostResolver {
+    struct MountedHost {
+        let host: any TerminalLocalActionDrainHost
+        let paneID: UUID
+    }
+
+    let surfaceForID: (UUID) -> (any TerminalLocalActionDrainHost)?
+    let paneIDForSurfaceID: (UUID) -> UUID?
+
+    func resolve(expectedSurfaceID: UUID) -> MountedHost? {
+        guard
+            let host = surfaceForID(expectedSurfaceID),
+            host.managedSurfaceID == expectedSurfaceID,
+            let paneID = paneIDForSurfaceID(expectedSurfaceID)
+        else { return nil }
+        return MountedHost(host: host, paneID: paneID)
+    }
+
+    static let surfaceManager = Self(
+        surfaceForID: { SurfaceManager.shared.surface(for: $0) },
+        paneIDForSurfaceID: { SurfaceManager.shared.paneId(for: $0) }
+    )
+}
+
 extension Ghostty.ActionRouter {
     static func admitTranslatedActionToTerminalRuntime(
         _ event: GhosttyEvent,
@@ -168,14 +206,23 @@ extension Ghostty.ActionRouter {
 
     @MainActor
     static func drainLocalActions(for surfaceID: UUID) async {
-        guard
-            let surfaceView = SurfaceManager.shared.surface(for: surfaceID),
-            surfaceView.managedSurfaceID == surfaceID,
-            let paneUUID = SurfaceManager.shared.paneId(for: surfaceID)
-        else {
+        await drainLocalActions(
+            for: surfaceID,
+            mountedHostResolver: .surfaceManager
+        )
+    }
+
+    @MainActor
+    static func drainLocalActions(
+        for surfaceID: UUID,
+        mountedHostResolver: TerminalLocalActionMountedHostResolver
+    ) async {
+        guard let mountedHost = mountedHostResolver.resolve(expectedSurfaceID: surfaceID) else {
             retireLocalActions(for: surfaceID)
             return
         }
+        let surfaceView = mountedHost.host
+        let paneUUID = mountedHost.paneID
 
         guard
             let batch = localActionAccumulator.beginDrain(
@@ -187,18 +234,6 @@ extension Ghostty.ActionRouter {
             _ = localActionAccumulator.finishDrain(for: surfaceID)
         }
 
-        let paneID = PaneId(existingUUID: paneUUID)
-        let routedRuntime = runtimeRegistryForActionRouting.runtime(for: paneID) as? TerminalRuntime
-        let runtime =
-            routedRuntime
-            ?? (ObjectIdentifier(runtimeRegistryForActionRouting) != ObjectIdentifier(RuntimeRegistry.shared)
-                ? RuntimeRegistry.shared.runtime(for: paneID) as? TerminalRuntime
-                : nil)
-        guard let runtime else {
-            retireLocalActions(for: surfaceID)
-            return
-        }
-
         let clock = ContinuousClock()
         let compactApplyStartedAt = clock.now
         if let scrollbarState = batch.presentation.scrollbarState,
@@ -206,18 +241,32 @@ extension Ghostty.ActionRouter {
         {
             surfaceView.updateHostScrollbarState(scrollbarState)
         }
-        if let surfaceTitle = batch.titleMetadata?.surfaceTitle,
-            surfaceView.title != surfaceTitle
-        {
-            surfaceView.titleDidChange(surfaceTitle)
-        }
-        let equalWriteSuppressedCount = runtime.applyLocalActionBatch(batch)
-        if let runtimeTitle = batch.titleMetadata?.runtimeTitle {
-            routeContractedTitleMetadata(
-                runtimeTitle,
-                surfaceViewObjectID: ObjectIdentifier(surfaceView),
-                routingLookup: SurfaceManager.shared
-            )
+
+        let paneID = PaneId(existingUUID: paneUUID)
+        let routedRuntime = runtimeRegistryForActionRouting.runtime(for: paneID) as? TerminalRuntime
+        let runtime =
+            routedRuntime
+            ?? (ObjectIdentifier(runtimeRegistryForActionRouting) != ObjectIdentifier(RuntimeRegistry.shared)
+                ? RuntimeRegistry.shared.runtime(for: paneID) as? TerminalRuntime
+                : nil)
+
+        let equalWriteSuppressedCount: Int
+        if let runtime {
+            if let surfaceTitle = batch.titleMetadata?.surfaceTitle,
+                surfaceView.title != surfaceTitle
+            {
+                surfaceView.titleDidChange(surfaceTitle)
+            }
+            equalWriteSuppressedCount = runtime.applyLocalActionBatch(batch)
+            if let runtimeTitle = batch.titleMetadata?.runtimeTitle {
+                routeContractedTitleMetadata(
+                    runtimeTitle,
+                    surfaceViewObjectID: ObjectIdentifier(surfaceView),
+                    routingLookup: SurfaceManager.shared
+                )
+            }
+        } else {
+            equalWriteSuppressedCount = 0
         }
         let compactApplyServiceTime = compactApplyStartedAt.duration(to: clock.now)
         let activityProjectionRoundTrip: TerminalActivityProjectionRoundTripPerformance

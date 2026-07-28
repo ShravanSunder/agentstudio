@@ -8,6 +8,53 @@ package enum WorkspaceLocalMigrations {
                 try database.execute(sql: statement)
             }
         }
+        migrator.registerMigration("002_replace_recent_targets_with_entity_recency") { database in
+            try database.execute(sql: "DROP TABLE local_recent_workspace_target")
+            try database.execute(
+                sql: """
+                    CREATE TABLE local_entity_recency (
+                        entity_kind TEXT NOT NULL,
+                        entity_key TEXT NOT NULL,
+                        interaction_kind TEXT NOT NULL,
+                        last_interacted_at REAL NOT NULL,
+                        PRIMARY KEY (entity_kind, entity_key)
+                    )
+                    """
+            )
+            try database.execute(
+                sql: """
+                    CREATE INDEX idx_local_entity_recency_kind_time
+                    ON local_entity_recency(
+                        entity_kind,
+                        last_interacted_at DESC,
+                        entity_key ASC
+                    )
+                    """
+            )
+            try database.execute(
+                sql: """
+                    CREATE TABLE local_workspace_entity_recency (
+                        workspace_id TEXT NOT NULL,
+                        entity_kind TEXT NOT NULL,
+                        entity_key TEXT NOT NULL,
+                        interaction_kind TEXT NOT NULL,
+                        last_interacted_at REAL NOT NULL,
+                        PRIMARY KEY (workspace_id, entity_kind, entity_key)
+                    )
+                    """
+            )
+            try database.execute(
+                sql: """
+                    CREATE INDEX idx_local_workspace_entity_recency_scope_kind_time
+                    ON local_workspace_entity_recency(
+                        workspace_id,
+                        entity_kind,
+                        last_interacted_at DESC,
+                        entity_key ASC
+                    )
+                    """
+            )
+        }
         return migrator
     }
 

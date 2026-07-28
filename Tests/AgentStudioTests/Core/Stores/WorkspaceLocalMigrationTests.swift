@@ -33,7 +33,8 @@ struct WorkspaceLocalMigrationTests {
             "local_arrangement_drawer_cursor",
             "local_window_state",
             "local_window_sidebar_expanded_group",
-            "local_recent_workspace_target",
+            "local_entity_recency",
+            "local_workspace_entity_recency",
             "local_notification_inbox_collapsed_group",
             "local_notification_inbox_item",
             "local_editor_preferences",
@@ -51,8 +52,8 @@ struct WorkspaceLocalMigrationTests {
         #expect(!tableNames.contains("cache_notification_count"))
     }
 
-    @Test("clean local schema has one initial migration")
-    func cleanLocalSchemaHasOneInitialMigration() throws {
+    @Test("clean local schema has the initial schema and entity recency hard cut")
+    func cleanLocalSchemaHasEntityRecencyHardCutMigration() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
 
         try WorkspaceLocalMigrations.migrate(databaseQueue)
@@ -62,7 +63,62 @@ struct WorkspaceLocalMigrationTests {
             try WorkspaceLocalMigrations.migrator.completedMigrations(database)
         }
 
-        #expect(completedMigrations == ["001_create_application_local_schema"])
+        #expect(
+            completedMigrations
+                == [
+                    "001_create_application_local_schema",
+                    "002_replace_recent_targets_with_entity_recency",
+                ]
+        )
+    }
+
+    @Test("entity recency hard cut discards legacy target rows during migration")
+    func entityRecencyHardCutDiscardsLegacyTargetRows() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "001_create_application_local_schema"
+        )
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO local_recent_workspace_target(
+                        workspace_id, id, path, display_title, subtitle,
+                        repo_id, worktree_id, kind, last_opened_at
+                    ) VALUES (?, 'legacy', '/tmp/legacy', 'Legacy', '', NULL, NULL, 'cwdOnly', 1)
+                    """,
+                arguments: [UUID().uuidString]
+            )
+        }
+
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "002_replace_recent_targets_with_entity_recency"
+        )
+
+        let migratedState = try databaseQueue.read { database in
+            let legacyTableCount = try Int.fetchOne(
+                database,
+                sql: """
+                    SELECT COUNT(*)
+                    FROM sqlite_master
+                    WHERE type = 'table' AND name = 'local_recent_workspace_target'
+                    """
+            )
+            let applicationRowCount = try Int.fetchOne(
+                database,
+                sql: "SELECT COUNT(*) FROM local_entity_recency"
+            )
+            let workspaceRowCount = try Int.fetchOne(
+                database,
+                sql: "SELECT COUNT(*) FROM local_workspace_entity_recency"
+            )
+            return (legacyTableCount, applicationRowCount, workspaceRowCount)
+        }
+
+        #expect(migratedState.0 == 0)
+        #expect(migratedState.1 == 0)
+        #expect(migratedState.2 == 0)
     }
 
     @Test("workspace cursor keys isolate rows in one database")
@@ -176,9 +232,17 @@ struct WorkspaceLocalMigrationTests {
         try databaseQueue.write { database in
             try database.execute(
                 sql: """
-                    INSERT INTO local_recent_workspace_target(
-                        workspace_id, id, path, display_title, subtitle, repo_id, worktree_id, kind, last_opened_at
-                    ) VALUES (?, 'target', '/tmp', 'Title', '', NULL, NULL, 'futureKind', 1)
+                    INSERT INTO local_entity_recency(
+                        entity_kind, entity_key, interaction_kind, last_interacted_at
+                    ) VALUES ('futureKind', 'future-key', 'futureInteraction', 1)
+                    """,
+                arguments: []
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_workspace_entity_recency(
+                        workspace_id, entity_kind, entity_key, interaction_kind, last_interacted_at
+                    ) VALUES (?, 'futureKind', 'future-key', 'futureInteraction', 1)
                     """,
                 arguments: [workspaceId]
             )

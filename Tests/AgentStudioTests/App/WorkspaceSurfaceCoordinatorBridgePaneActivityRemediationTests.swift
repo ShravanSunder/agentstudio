@@ -80,8 +80,8 @@ extension WebKitSerializedTests {
             await harness.finish()
         }
 
-        @Test("expanded Bridge drawer follows the zoomed primary pane")
-        func expandedBridgeDrawerFollowsZoomedPrimaryPane() async throws {
+        @Test("expanded Bridge drawer follows the Zoom source")
+        func expandedBridgeDrawerFollowsZoomSource() async throws {
             // Arrange
             let harness = makeBridgePaneActivityTestHarness()
             enterForegroundNativeEnvironment(harness)
@@ -117,25 +117,29 @@ extension WebKitSerializedTests {
             )
             #expect(harness.store.pane(harness.siblingPane.id)?.drawer?.isExpanded == true)
 
-            // Act — zoom the drawer's owning primary pane.
-            harness.store.tabLayoutAtom.toggleZoom(
-                paneId: harness.siblingPane.id,
-                inTab: harness.tabId
+            // Act — Zoom the drawer's owning primary pane.
+            harness.store.panePresentationAtom.enterZoom(
+                inTab: harness.tabId,
+                sourcePaneId: harness.siblingPane.id,
+                viewerPresentation: .unavailable
             )
             harness.coordinator.refreshBridgePaneActivities()
 
-            // Assert — the child remains visible with its zoomed parent.
+            // Assert — the child remains visible with its Zoom source.
             await expectBridgePaneActivity(
                 .foreground,
                 for: drawerBridgePane.id,
                 in: harness.coordinator,
-                because: "its owning primary pane is zoomed"
+                because: "its owning main pane is the Zoom source"
             )
 
-            // Act — zoom a different primary pane.
-            harness.store.tabLayoutAtom.toggleZoom(
-                paneId: harness.bridgePane.id,
-                inTab: harness.tabId
+            // Act — retarget Zoom to a different primary pane.
+            #expect(
+                harness.store.panePresentationAtom.retargetZoom(
+                    inTab: harness.tabId,
+                    to: harness.bridgePane.id,
+                    viewerPresentation: .unavailable
+                )
             )
             harness.coordinator.refreshBridgePaneActivities()
 
@@ -144,7 +148,44 @@ extension WebKitSerializedTests {
                 .loadedHidden,
                 for: drawerBridgePane.id,
                 in: harness.coordinator,
-                because: "a different primary pane is zoomed"
+                because: "a different primary pane is the Zoom source"
+            )
+
+            await harness.finish()
+        }
+
+        @Test("Zoom makes its minimized Bridge source foreground")
+        func zoomMakesMinimizedBridgeSourceForeground() async throws {
+            // Arrange
+            let harness = makeBridgePaneActivityTestHarness()
+            try await installBridgeControllerAndEnterForeground(harness)
+            #expect(
+                harness.store.tabLayoutAtom.minimizePane(
+                    harness.bridgePane.id,
+                    inTab: harness.tabId
+                )
+            )
+            await expectBridgePaneActivity(
+                .loadedHidden,
+                for: harness.bridgePane.id,
+                in: harness.coordinator,
+                because: "the durable source is minimized before Zoom"
+            )
+
+            // Act
+            harness.store.panePresentationAtom.enterZoom(
+                inTab: harness.tabId,
+                sourcePaneId: harness.bridgePane.id,
+                viewerPresentation: .unavailable
+            )
+            harness.coordinator.refreshBridgePaneActivities()
+
+            // Assert
+            await expectBridgePaneActivity(
+                .foreground,
+                for: harness.bridgePane.id,
+                in: harness.coordinator,
+                because: "Zoom overrides the source's arrangement-local minimized state"
             )
 
             await harness.finish()

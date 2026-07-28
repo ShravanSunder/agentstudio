@@ -6,6 +6,88 @@ import Testing
 
 @Suite("AgentStudio App IPC service command methods")
 struct AgentStudioAppIPCServiceCommandTests {
+    @Test("Arrangements presentation requires an explicit app UI grant")
+    func arrangementsPresentationRequiresExplicitAppUIGrant() async throws {
+        let windowId = UUID()
+        let tabId = UUID()
+        let paneId = UUID()
+        let correlationId = UUID()
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            uiPresentationPort: FakeUIPresentationPort(
+                workspaceWindowId: windowId,
+                arrangementTabId: tabId,
+                arrangementContextPaneId: paneId
+            )
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let unsafeConnection = try await authenticatedConnection(
+            fixture: fixture,
+            kind: .unsafeDebugClient,
+            requestId: 80
+        )
+        defer {
+            unsafeConnection.connection.close()
+        }
+        try sendRequest(
+            connection: unsafeConnection.connection,
+            request: JSONRPCClientRequest(
+                id: .number(81),
+                method: "ui.arrangements.open",
+                params: try JSONRPCCodec.encodeJSONValue(
+                    IPCArrangementsOpenParams(
+                        targetPaneHandle: "pane:\(paneId.uuidString)",
+                        correlationId: correlationId
+                    )
+                )
+            )
+        )
+        let unsafeResponse = try await unsafeConnection.receiveResponse(expectedRequestId: 81)
+        #expect(unsafeResponse.error?.code == -32_002)
+        #expect(unsafeResponse.error?.message == "unauthorized")
+
+        let automationConnection = try await authenticatedConnection(
+            fixture: fixture,
+            kind: .automationClient,
+            requestId: 82,
+            grantedScopes: [
+                IPCPermissionScope(privilege: .uiPresent, target: .app, dataScope: .uiSurface)
+            ]
+        )
+        defer {
+            automationConnection.connection.close()
+        }
+        try sendRequest(
+            connection: automationConnection.connection,
+            request: JSONRPCClientRequest(
+                id: .number(83),
+                method: "ui.arrangements.open",
+                params: try JSONRPCCodec.encodeJSONValue(
+                    IPCArrangementsOpenParams(
+                        targetPaneHandle: "pane:\(paneId.uuidString)",
+                        correlationId: correlationId
+                    )
+                )
+            )
+        )
+        let openResponse = try await automationConnection.receiveResponse(expectedRequestId: 83)
+        #expect(openResponse.error == nil)
+        #expect(
+            try decodeResponseResult(IPCArrangementsOpenResult.self, from: openResponse)
+                == IPCArrangementsOpenResult(
+                    workspaceWindowId: windowId,
+                    tabId: tabId,
+                    contextPaneId: paneId,
+                    correlationId: correlationId
+                )
+        )
+    }
+
     @Test("command execution auth separates unsafe debug from automation and explicit UI presentation")
     func commandExecutionAuthSeparatesUnsafeDebugFromAutomationAndExplicitUIPresentation() async throws {
         let windowId = UUID()

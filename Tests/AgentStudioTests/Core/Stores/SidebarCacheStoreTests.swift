@@ -11,7 +11,7 @@ struct SidebarCacheStoreTests {
     func flushAndRestoreRoundTripsMainWindowExpandedGroups() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
-        let datastore = try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         let atom = SidebarCacheState()
         let expandedGroup = SidebarGroupKey("repo:agent-studio")
         atom.setGroupExpanded(expandedGroup, isExpanded: true)
@@ -32,7 +32,7 @@ struct SidebarCacheStoreTests {
 
         await SidebarCacheStore(
             atom: atom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         ).restoreAsync(for: workspaceId)
 
         #expect(atom.expandedGroups.isEmpty)
@@ -47,7 +47,7 @@ struct SidebarCacheStoreTests {
 
         await SidebarCacheStore(
             atom: atom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: failingWorkspaceLocalSQLiteBackend()),
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: failingWorkspaceLocalSQLiteBackend()),
             recoveryReporter: { reportedRecoveries.append($0) }
         ).restoreAsync(for: workspaceId)
 
@@ -69,7 +69,7 @@ struct SidebarCacheStoreTests {
         let expandedGroup = SidebarGroupKey("repo:agent-studio")
         let store = SidebarCacheStore(
             atom: atom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
@@ -95,7 +95,7 @@ struct SidebarCacheStoreTests {
         let expandedGroup = SidebarGroupKey("repo:agent-studio")
         let store = SidebarCacheStore(
             atom: atom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
@@ -120,7 +120,7 @@ struct SidebarCacheStoreTests {
         let clock = TestPushClock()
         let store = SidebarCacheStore(
             atom: atom,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
@@ -142,7 +142,7 @@ struct SidebarCacheStoreTests {
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let store = SidebarCacheStore(
             atom: SidebarCacheState(),
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
 
         #expect(store.isAutosaveObservationActive == false)

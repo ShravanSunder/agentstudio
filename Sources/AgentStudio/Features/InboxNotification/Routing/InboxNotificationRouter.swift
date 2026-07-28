@@ -256,7 +256,10 @@ package final class InboxNotificationRouter {
         withObservationTracking {
             _ = attendedPane.attendedPaneId
             _ = paneAtom.panes
-            _ = tabLayout.activeTab
+            let activeTab = tabLayout.activeTab
+            _ = activeTab.flatMap {
+                tabLayout.arrangementAtom.presentationAtom.zoomPresentation(forTab: $0.id)
+            }
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.isStarted else { return }
@@ -744,9 +747,13 @@ package final class InboxNotificationRouter {
     }
 
     private func currentObservedPaneIds() -> Set<UUID> {
-        PaneObservationResolver.currentObservedPaneIds(
+        let activeTab = tabLayout.activeTab
+        return PaneObservationResolver.currentObservedPaneIds(
             attendedPaneId: attendedPane.attendedPaneId,
-            activeTab: tabLayout.activeTab,
+            activeTab: activeTab,
+            zoomSourcePaneId: activeTab.flatMap {
+                tabLayout.arrangementAtom.presentationAtom.zoomPresentation(forTab: $0.id)?.sourcePaneId
+            },
             pane: { paneAtom.pane($0) },
             drawerView: drawerView
         )

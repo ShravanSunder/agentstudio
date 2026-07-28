@@ -75,7 +75,8 @@ struct PaneHostingEditorChooserIdentityTests {
             closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
             actionDispatcher: dispatcher,
             onPaneFocusTrigger: { _ in },
-            onOpenPaneGitHub: { _ in }
+            onOpenPaneGitHub: { _ in },
+            toolbarPresentation: .hidden
         )
     }
 }

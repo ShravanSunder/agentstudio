@@ -149,18 +149,28 @@ final class PaneRemovalCascadeTests {
 
     @Test
 
-    func test_removePane_clearsZoom_ifZoomedPaneRemoved() {
+    func test_removePane_clearsZoomPresentation_ifZoomSourceRemoved() {
         let (tab, paneIds) = createTabWithPanes(2)
-        store.toggleZoom(paneId: paneIds[0], inTab: tab.id)
-        #expect(store.tab(tab.id)!.zoomedPaneId == paneIds[0])
+        let companion = ZoomCompanionMetadata(
+            owningTabId: tab.id,
+            resolvedWorktreeId: UUID(),
+            companionPaneId: UUID(),
+            lastZoomVisibility: .visible
+        )
+        store.panePresentationAtom.cacheZoomCompanion(
+            companion,
+            forSourcePane: paneIds[0]
+        )
+        store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: paneIds[0],
+            viewerPresentation: .retainedVisible(companionPaneId: companion.companionPaneId)
+        )
 
         store.removePane(paneIds[0])
 
-        let updatedTab = store.tabs.first { $0.id == tab.id }
-        // Either tab removed (last pane in default) or zoom cleared
-        if let tab = updatedTab {
-            #expect((tab.zoomedPaneId) == nil)
-        }
+        #expect(store.panePresentationAtom.zoomPresentation(forTab: tab.id) == nil)
+        #expect(store.panePresentationAtom.zoomCompanion(forSourcePane: paneIds[0]) == nil)
     }
 
     @Test
@@ -282,18 +292,6 @@ final class PaneRemovalCascadeTests {
         if let tab = updatedTab {
             #expect(tab.activePaneId != paneIds[1])
         }
-    }
-
-    @Test
-
-    func test_removePaneFromLayout_clearsZoom() {
-        let (tab, paneIds) = createTabWithPanes(3)
-        store.toggleZoom(paneId: paneIds[1], inTab: tab.id)
-
-        store.removePaneFromLayout(paneIds[1], inTab: tab.id)
-
-        let updatedTab = store.tab(tab.id)!
-        #expect((updatedTab.zoomedPaneId) == nil)
     }
 
     @Test

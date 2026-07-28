@@ -11,7 +11,7 @@ final class WorkspaceStoreArrangementTests {
     private var store: WorkspaceStore!
 
     init() {
-        store = WorkspaceStore()
+        store = WorkspaceStore(startsObserving: false)
     }
 
     // MARK: - Helpers
@@ -120,7 +120,7 @@ final class WorkspaceStoreArrangementTests {
 
     func test_createArrangement_marksDirty() async {
         let (tab, _) = createTabWithPanes(2)
-        _ = await store.flushAsync()
+        store.startObserving()
         _ = store.createArrangement(
             name: "Test",
             inTab: tab.id
@@ -141,6 +141,37 @@ final class WorkspaceStoreArrangementTests {
 
         let custom = store.tab(tab.id)!.arrangements.first { $0.id == arrId }!
         #expect(custom.minimizedPaneIds == Set([paneIds[1]]))
+    }
+
+    @Test
+    func test_createArrangement_duringZoomActivatesDurableSnapshotAndPreservesRuntimePresentation() throws {
+        let (tab, paneIds) = createTabWithPanes(3)
+        let companionPaneId = UUID()
+        store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: paneIds[0],
+            viewerPresentation: .retainedVisible(companionPaneId: companionPaneId)
+        )
+        let zoomPresentation = try #require(
+            store.panePresentationAtom.zoomPresentation(forTab: tab.id)
+        )
+
+        let arrangementId = try #require(
+            store.createArrangement(name: "Layout 1", inTab: tab.id)
+        )
+
+        let updatedTab = try #require(store.tab(tab.id))
+        let createdArrangement = try #require(
+            updatedTab.arrangements.first(where: { $0.id == arrangementId })
+        )
+        #expect(updatedTab.activeArrangementId == arrangementId)
+        #expect(createdArrangement.layout.paneIds == paneIds)
+        #expect(!createdArrangement.layout.paneIds.contains(companionPaneId))
+        #expect(!updatedTab.allPaneIds.contains(companionPaneId))
+        #expect(
+            store.panePresentationAtom.zoomPresentation(forTab: tab.id)
+                == zoomPresentation
+        )
     }
 
     // MARK: - switchArrangement
@@ -165,17 +196,79 @@ final class WorkspaceStoreArrangementTests {
 
     @Test
 
-    func test_switchArrangement_clearsZoom() {
+    func test_switchArrangement_preservesZoomPresentation() {
         let (tab, paneIds) = createTabWithPanes(3)
         let arrId = store.createArrangement(
             name: "Focus",
             inTab: tab.id
         )!
-        store.toggleZoom(paneId: paneIds[0], inTab: tab.id)
+        store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: paneIds[0],
+            viewerPresentation: .unavailable
+        )
+
+        let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: tab.id)
 
         store.switchArrangement(to: arrId, inTab: tab.id)
 
-        #expect((store.tab(tab.id)!.zoomedPaneId) == nil)
+        #expect(store.panePresentationAtom.zoomPresentation(forTab: tab.id) == zoomPresentation)
+        #expect(store.tab(tab.id)?.activeArrangementId == arrId)
+    }
+
+    @Test
+    func test_switchArrangement_toAlreadyActiveArrangement_preservesZoomPresentation() {
+        let (tab, paneIds) = createTabWithPanes(2)
+        store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: paneIds[0],
+            viewerPresentation: .unavailable
+        )
+
+        let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: tab.id)
+
+        store.switchArrangement(to: tab.activeArrangementId, inTab: tab.id)
+
+        #expect(store.panePresentationAtom.zoomPresentation(forTab: tab.id) == zoomPresentation)
+    }
+
+    @Test
+    func test_switchArrangement_invalidArrangementId_preservesZoomPresentation() {
+        let (tab, paneIds) = createTabWithPanes(2)
+        store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: paneIds[0],
+            viewerPresentation: .unavailable
+        )
+
+        store.switchArrangement(to: UUID(), inTab: tab.id)
+
+        #expect(store.panePresentationAtom.zoomPresentation(forTab: tab.id)?.sourcePaneId == paneIds[0])
+    }
+
+    @Test
+    func test_removeTab_clearsZoomPresentationAndOwnedCompanionCache() {
+        let (tab, paneIds) = createTabWithPanes(2)
+        let companion = ZoomCompanionMetadata(
+            owningTabId: tab.id,
+            resolvedWorktreeId: UUID(),
+            companionPaneId: UUID(),
+            lastZoomVisibility: .hidden
+        )
+        store.panePresentationAtom.cacheZoomCompanion(
+            companion,
+            forSourcePane: paneIds[0]
+        )
+        store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: paneIds[0],
+            viewerPresentation: .retainedHidden(companionPaneId: companion.companionPaneId)
+        )
+
+        store.removeTab(tab.id)
+
+        #expect(store.panePresentationAtom.zoomPresentation(forTab: tab.id) == nil)
+        #expect(store.panePresentationAtom.zoomCompanion(forSourcePane: paneIds[0]) == nil)
     }
 
     @Test
@@ -203,6 +296,7 @@ final class WorkspaceStoreArrangementTests {
             inTab: tab.id
         )!
 
+        store.switchArrangement(to: tab.defaultArrangement.id, inTab: tab.id)
         store.setActivePane(paneIds[1], inTab: tab.id)
 
         store.switchArrangement(to: arrId, inTab: tab.id)
@@ -252,7 +346,7 @@ final class WorkspaceStoreArrangementTests {
     func test_switchArrangement_sameArrangement_noOp() async {
         let (tab, _) = createTabWithPanes(2)
         let defaultArrId = store.tab(tab.id)!.activeArrangementId
-        _ = await store.flushAsync()
+        store.startObserving()
         store.switchArrangement(to: defaultArrId, inTab: tab.id)
 
         // No change, so isDirty should NOT have been set by the switch
@@ -317,7 +411,7 @@ final class WorkspaceStoreArrangementTests {
     }
 
     @Test
-    func test_removeArrangement_activeArrangement_fallbackSkipsMinimizedPane() {
+    func test_removeArrangement_activeArrangement_restoresVisibilityCompleteDefault() {
         let (tab, paneIds) = createTabWithPanes(3)
         _ = store.minimizePane(paneIds[0], inTab: tab.id)
         let arrId = store.createArrangement(
@@ -332,7 +426,7 @@ final class WorkspaceStoreArrangementTests {
         let updatedTab = store.tab(tab.id)!
         #expect(updatedTab.activeArrangementId == updatedTab.defaultArrangement.id)
         #expect(updatedTab.activePaneId == paneIds[2])
-        #expect(updatedTab.defaultArrangement.minimizedPaneIds.contains(paneIds[0]))
+        #expect(updatedTab.defaultArrangement.minimizedPaneIds.isEmpty)
     }
 
     @Test

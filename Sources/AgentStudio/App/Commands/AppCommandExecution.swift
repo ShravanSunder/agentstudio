@@ -1,3 +1,4 @@
+import AgentStudioCommandBar
 import AgentStudioCore
 import AgentStudioInboxNotification
 import AgentStudioProgrammaticControl
@@ -14,6 +15,7 @@ protocol WorkspaceCommandHandling: AnyObject {
     func bridgePaneCommandTarget(worktreeId: UUID) -> BridgePaneCommandTarget?
     func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?)
     func executeMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID)
+    func executeQuickOpenDirectory(_ directory: URL, placement: QuickOpenDirectoryPlacement)
 }
 
 /// Routes app-level commands that do not belong to the workspace command handler.
@@ -160,6 +162,8 @@ extension WorkspaceCommandHandling {
     func bridgePaneCommandTarget(worktreeId _: UUID) -> BridgePaneCommandTarget? {
         nil
     }
+
+    func executeQuickOpenDirectory(_: URL, placement _: QuickOpenDirectoryPlacement) {}
 }
 
 @MainActor

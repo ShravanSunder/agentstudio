@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import SwiftUI
 
 // MARK: - CommandBarResultRow
@@ -12,19 +13,22 @@ struct CommandBarResultRow: View {
     let isSelected: Bool
     let searchQuery: String
     let isDimmed: Bool
+    let onShowActions: @MainActor @Sendable () -> Void
 
     init(
         item: CommandBarItem,
         octiconLoader: OcticonLoader,
         isSelected: Bool,
         searchQuery: String = "",
-        isDimmed: Bool = false
+        isDimmed: Bool = false,
+        onShowActions: @escaping @MainActor @Sendable () -> Void = {}
     ) {
         self.item = item
         self.octiconLoader = octiconLoader
         self.isSelected = isSelected
         self.searchQuery = searchQuery
         self.isDimmed = isDimmed
+        self.onShowActions = onShowActions
     }
 
     var body: some View {
@@ -38,6 +42,16 @@ struct CommandBarResultRow: View {
             )
             .contentShape(Rectangle())
             .opacity(isDimmed ? 0.5 : 1.0)
+            .accessibilityHidden(true)
+            .background(
+                AccessibilityLabelBridge(
+                    identifier: "commandBarResultRow.\(item.id)",
+                    label: item.accessibilityLabel,
+                    role: .row,
+                    help: item.accessibilityHint,
+                    selected: isSelected
+                )
+            )
     }
 
     // MARK: - Highlighted Title
@@ -149,7 +163,25 @@ struct CommandBarResultRow: View {
                     .frame(maxWidth: AppStyles.CommandBar.Rows.trailingMetadataMaxWidth, alignment: .trailing)
             }
 
-            if item.hasChildren {
+            if item.showsActionsButton {
+                Button {
+                    onShowActions()
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
+                        .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Rows.chevronOpacity))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHidden(true)
+                .background(
+                    AccessibilityPressBridge(
+                        identifier: "commandBarResultActions.\(item.id)",
+                        label: "Show actions for \(item.accessibilityLabel)",
+                        help: "Open the location action menu",
+                        action: onShowActions
+                    )
+                )
+            } else if item.hasChildren {
                 Image(systemName: "chevron.right")
                     .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                     .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Rows.chevronOpacity))

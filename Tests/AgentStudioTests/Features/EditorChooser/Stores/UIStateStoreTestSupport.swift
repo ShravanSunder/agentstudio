@@ -23,22 +23,40 @@ func failingEditorChooserWorkspaceLocalSQLiteBackend() -> WorkspaceLocalSQLiteSt
     }
 }
 
+@MainActor
 func editorChooserWorkspaceSQLiteDatastore(
     from localBackend: WorkspaceLocalSQLiteStoreBackend
-) throws -> WorkspaceSQLiteDatastore {
+) async throws -> WorkspaceSQLiteDatastore {
     let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
     let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
     try coreRepository.migrate()
-    return WorkspaceSQLiteDatastore(
+    let backend = WorkspaceSQLiteStoreBackend(
         coreRepository: coreRepository,
-        makeLocalRepository: { workspaceId in
-            try localBackend.repository(for: workspaceId)
-        },
-        makeLocalRestoreRepository: { workspaceId in
-            try localBackend.restoreRepository(for: workspaceId)
-        }
+        localBackend: localBackend,
+        coreDatabaseStartupProvenance: .createdDuringCurrentStartup
+    )
+    let preparedCore = try WorkspaceSQLiteDatastore.strictlyPrepareCore(using: backend)
+    let preparedApplicationLocalRepository: WorkspaceLocalRepository?
+    let preparedLocal: WorkspaceSQLiteDatastore.PreparedLocalDatabase
+    do {
+        preparedApplicationLocalRepository = try localBackend.restoreRepository(
+            for: editorChooserApplicationLocalRepositoryScopeId
+        )
+        preparedLocal = .available(recovery: nil)
+    } catch {
+        preparedApplicationLocalRepository = nil
+        preparedLocal = .unavailable(.init(error))
+    }
+    return WorkspaceSQLiteDatastore(
+        preparedCoreRepository: coreRepository,
+        preparationReceipt: .init(core: preparedCore, local: preparedLocal),
+        preparedApplicationLocalRepository: preparedApplicationLocalRepository
     )
 }
+
+private let editorChooserApplicationLocalRepositoryScopeId = UUID(
+    uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+)
 
 struct EditorChooserWorkspaceLocalSQLiteStoreFixture {
     let repository: WorkspaceLocalRepository

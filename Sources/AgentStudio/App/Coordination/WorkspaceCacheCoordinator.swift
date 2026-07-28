@@ -469,9 +469,6 @@ final class WorkspaceCacheCoordinator {
         guard case .workspaceActivity(let activityEvent) = envelope.event else { return }
 
         switch activityEvent {
-        case .recentTargetOpened(let target):
-            Self.logger.debug("Recording recent target id=\(target.id, privacy: .public)")
-            repoCache.recordRecentTarget(target)
         case .folderScanFinished(let rootPath, let discoveredRepoCount):
             welcomeAtom.completeFolderScan(
                 rootPath: rootPath,

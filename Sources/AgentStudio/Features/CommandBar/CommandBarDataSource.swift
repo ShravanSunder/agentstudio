@@ -14,6 +14,14 @@ enum CommandBarDataSource {
 
     enum Group {
         static let recent = "Recent"
+        static let recentRepositories = "Recent Repositories"
+        static let recentWorktrees = "Recent Worktrees"
+        static let recentPanes = "Recent Panes"
+        static let recentCommands = "Recent Commands"
+        static let current = "Current"
+        static let repositoriesAndWorktrees = "Repositories & Worktrees"
+        static let repositories = "Repositories"
+        static let repos = "Repos"
         static let tabs = "Tabs"
         static let panes = "Panes"
         static let commands = "Commands"
@@ -31,12 +39,17 @@ enum CommandBarDataSource {
     }
 
     enum Priority {
-        static let recent = 0
-        /// Repos and their worktrees.
-        static let worktrees = 1
+        static let recentRepositories = 0
+        static let recentWorktrees = 1
+        static let repositories = 2
+        static let current = 0
+        static let recent = 1
+        static let repositoriesAndWorktrees = 2
+        static let repos = 1
         static let panes = 2
         static let tabs = 3
         static let commands = 4
+        static let paneTabBase = 1
     }
 
     // MARK: - Public API
@@ -44,6 +57,8 @@ enum CommandBarDataSource {
     /// Build all items for the given scope from live app state.
     static func items(
         scope: CommandBarScope,
+        rootQueryState: CommandBarRootQueryState = .empty,
+        recentCommands: [AppCommand] = [],
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: any AppCommandDispatching,
@@ -57,10 +72,13 @@ enum CommandBarDataSource {
         let focus = atom(\.workspacePaneFocus).currentFocus(
             workspaceTab: workspaceTab,
             workspacePane: store.paneAtom,
-            workspaceFocusOwner: atom(\.workspaceFocusOwner)
+            workspaceFocusOwner: atom(\.workspaceFocusOwner),
+            workspacePanePresentation: store.panePresentationAtom
         )
         return items(
             scope: scope,
+            rootQueryState: rootQueryState,
+            recentCommands: recentCommands,
             store: store,
             repoCache: repoCache,
             dispatcher: dispatcher,
@@ -72,6 +90,8 @@ enum CommandBarDataSource {
 
     static func items(
         scope: CommandBarScope,
+        rootQueryState: CommandBarRootQueryState = .empty,
+        recentCommands: [AppCommand] = [],
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: any AppCommandDispatching,
@@ -81,10 +101,12 @@ enum CommandBarDataSource {
     ) -> [CommandBarItem] {
         let clock = ContinuousClock()
         let start = clock.now
-        let items: [CommandBarItem] =
+        let canonicalItems: [CommandBarItem] =
             switch scope {
             case .everything:
                 everythingItems(store: store, repoCache: repoCache, dispatcher: dispatcher, focus: focus)
+            case .quickOpen:
+                quickOpenItems(store: store, dispatcher: dispatcher)
             case .commands:
                 commandItems(dispatcher: dispatcher, store: store, repoCache: repoCache, focus: focus)
             case .panes:
@@ -94,6 +116,16 @@ enum CommandBarDataSource {
             case .inbox:
                 inboxItems(commands: notificationInboxCommands)
             }
+        let items =
+            rootQueryState == .empty
+            ? emptyRootProjection(
+                scope: scope,
+                canonicalItems: canonicalItems,
+                recentCommands: recentCommands,
+                store: store,
+                focus: focus
+            )
+            : canonicalItems
         performanceTraceRecorder?.recordDuration(
             .commandBarItems,
             duration: start.duration(to: clock.now),
@@ -123,7 +155,16 @@ enum CommandBarDataSource {
                     items: groupItems
                 )
             }
-            .sorted { $0.priority < $1.priority }
+            .sorted { lhs, rhs in
+                if lhs.priority != rhs.priority {
+                    return lhs.priority < rhs.priority
+                }
+                let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+                if nameOrder != .orderedSame {
+                    return nameOrder == .orderedAscending
+                }
+                return lhs.name < rhs.name
+            }
     }
 
     static func displayItems(from groups: [CommandBarItemGroup]) -> [CommandBarItem] {
@@ -149,7 +190,14 @@ enum CommandBarDataSource {
                 focus: focus,
                 groupName: Group.commands,
                 priority: Priority.commands))
-        items.append(contentsOf: repoScopeItems(store: store, dispatcher: dispatcher))
+        items.append(
+            contentsOf: allRepoItems(
+                store: store,
+                group: Group.repos,
+                groupPriority: Priority.repos,
+                dispatcher: dispatcher
+            )
+        )
         return items
     }
 
@@ -260,7 +308,7 @@ enum CommandBarDataSource {
                     ),
                     icon: .system(.rectangleStack),
                     group: tabGroupName,
-                    groupPriority: tabIndex,
+                    groupPriority: Priority.paneTabBase + tabIndex,
                     keywords: keywordsForTab(tab, store: store, repoCache: repoCache),
                     action: .dispatchTargeted(.selectTab, target: tab.id, targetType: .tab),
                     command: .selectTab
@@ -289,7 +337,7 @@ enum CommandBarDataSource {
                         icon: iconForPane(pane),
                         iconColor: nil,
                         group: tabGroupName,
-                        groupPriority: tabIndex,
+                        groupPriority: Priority.paneTabBase + tabIndex,
                         keywords: stableUniqueKeywords(paneKeywords),
                         action: .dispatchTargeted(.focusPane, target: capturedPaneId, targetType: targetType),
                         command: .focusPane

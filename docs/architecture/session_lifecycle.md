@@ -324,11 +324,16 @@ AppDelegate.applicationWillTerminate / applicationShouldTerminate
 
 ## Persistence
 
-State is persisted through `WorkspaceSQLiteDatastore` into `core.sqlite` plus
-per-workspace `local.sqlite`. Workspace composition restores only from SQLite;
-legacy workspace JSON import/fallback is not part of the target startup DAG and
-is removed by the persistence hard cut. Preferences JSON remains a separate
-settings concern. See
+State is persisted through `WorkspaceSQLiteDatastore` into authoritative
+`core.sqlite` plus one non-authoritative app-root `local.sqlite`. Boot prepares
+both databases before hydration and retains one writable owner for each
+available database. Core preparation failure stops boot. Classified corruption
+or an orphan local sidecar set triggers one quarantine-and-create-fresh attempt;
+if local preparation remains unavailable, every local slice uses deterministic
+defaults while accepted core startup continues. When local is available, an
+invalid query or decode defaults only its logical slice. Legacy workspace JSON
+and per-workspace local sidecars are not read. Global preferences remain in
+`preferences.global.json`. See
 [Component Architecture — Persistence](component_architecture.md#5-persistence)
 for the full write strategy, filtering, and schema details.
 
@@ -358,7 +363,7 @@ zmx is a ~1000 LOC Zig tool that provides raw byte passthrough with an internal 
 
 ### IPC Protocol
 
-zmx uses a binary protocol over Unix domain sockets. Each message is a packed header followed by a variable-length payload. For future direct-client work, re-verify these protocol details against the pinned `vendor/zmx` sources in the primary worktree before implementation; a shared linked worktree may leave vendor source unhydrated. See [zmx Backend IPC Design](../superpowers/specs/2026-06-13-zmx-backend-ipc-design.md).
+zmx uses a binary protocol over Unix domain sockets. Each message is a packed header followed by a variable-length payload. For future direct-client work, re-verify these protocol details against the pinned `vendor/zmx` sources in the primary worktree before implementation; a shared linked worktree may leave vendor source unhydrated.
 
 **Header format (5 bytes):**
 
@@ -505,7 +510,6 @@ stateDiagram-v2
 | File | Role |
 |------|------|
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper over the canonical workspace atoms |
-| `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | Legacy JSON persistence/import I/O |
 | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime health monitoring and status tracking |
 | `App/Coordination/WorkspaceSurfaceCoordinator.swift` | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |
 | `Core/Models/Pane.swift` | Pane identity and content metadata |

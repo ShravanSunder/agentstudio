@@ -66,7 +66,6 @@ extension WorkspaceTabArrangementAtom {
             workspaceTabArrangementLogger.warning("resizePaneByDelta: tab \(tabId) not found")
             return
         }
-        guard arrangementStates[tabIndex].zoomedPaneId == nil else { return }
         let arrangement = activeArrangement(for: tabIndex)
         guard
             let target = PaneResizeVisibilityResolver.keyboardPair(
@@ -148,7 +147,7 @@ extension WorkspaceTabArrangementAtom {
 package final class WorkspaceTabArrangementAtom {
     let graphAtom: WorkspaceTabGraphAtom
     let cursorAtom: WorkspaceArrangementCursorAtom
-    let presentationAtom: WorkspacePanePresentationAtom
+    package let presentationAtom: WorkspacePanePresentationAtom
 
     package init(
         graphAtom: WorkspaceTabGraphAtom = WorkspaceTabGraphAtom(),
@@ -179,8 +178,7 @@ package final class WorkspaceTabArrangementAtom {
                 tabId: tab.id,
                 allPaneIds: tab.allPaneIds,
                 arrangements: tab.arrangements,
-                activeArrangementId: tab.activeArrangementId,
-                zoomedPaneId: tab.zoomedPaneId
+                activeArrangementId: tab.activeArrangementId
             )
         }
         replaceArrangementStates(
@@ -212,6 +210,7 @@ package final class WorkspaceTabArrangementAtom {
 
     func removeState(_ tabId: UUID) {
         arrangementStates.removeAll { $0.tabId == tabId }
+        presentationAtom.removeZoomTab(tabId)
     }
 
     func insertState(_ state: TabArrangementState, at index: Int) {
@@ -249,7 +248,6 @@ package final class WorkspaceTabArrangementAtom {
         }
 
         var updatedState = currentState
-        updatedState.zoomedPaneId = nil
         for arrangementIndex in updatedState.arrangements.indices {
             if arrangementIndex == arrIndex {
                 updatedState.arrangements[arrangementIndex].layout = updatedActiveLayout
@@ -284,10 +282,6 @@ package final class WorkspaceTabArrangementAtom {
             return
         }
 
-        if arrangementStates[tabIndex].zoomedPaneId == paneId {
-            arrangementStates[tabIndex].zoomedPaneId = nil
-        }
-
         arrangementStates[tabIndex].arrangements = TabArrangementMutationRules.removingUserPane(
             paneId,
             removingDrawerId: drawerId,
@@ -309,9 +303,6 @@ package final class WorkspaceTabArrangementAtom {
                 removingDrawerIds: drawerIds,
                 from: arrangementStates[tabIndex].arrangements
             )
-            if let zoomedPaneId = arrangementStates[tabIndex].zoomedPaneId, paneIds.contains(zoomedPaneId) {
-                arrangementStates[tabIndex].zoomedPaneId = nil
-            }
         }
     }
 
@@ -368,6 +359,7 @@ package final class WorkspaceTabArrangementAtom {
             return nil
         }
         arrangementStates[tabIndex].arrangements.append(arrangement)
+        arrangementStates[tabIndex].activeArrangementId = arrangement.id
         return arrangement.id
     }
 
@@ -425,27 +417,6 @@ package final class WorkspaceTabArrangementAtom {
             return
         }
         arrangementStates[tabIndex].arrangements[arrIndex].name = name
-    }
-
-    func setShowsMinimizedPanes(_ value: Bool, inTab tabId: UUID) {
-        guard let tabIndex = findTabIndex(tabId) else {
-            workspaceTabArrangementLogger.warning("setShowsMinimizedPanes: tab \(tabId) not found")
-            return
-        }
-        let arrangementIndex = activeArrangementIndex(for: tabIndex)
-        arrangementStates[tabIndex].arrangements[arrangementIndex].showsMinimizedPanes = value
-    }
-
-    func toggleZoom(paneId: UUID, inTab tabId: UUID) {
-        guard let tabIndex = findTabIndex(tabId) else {
-            workspaceTabArrangementLogger.warning("toggleZoom: tab \(tabId) not found")
-            return
-        }
-        if arrangementStates[tabIndex].zoomedPaneId == paneId {
-            arrangementStates[tabIndex].zoomedPaneId = nil
-        } else if activeArrangement(for: tabIndex).layout.contains(paneId) {
-            arrangementStates[tabIndex].zoomedPaneId = paneId
-        }
     }
 
     @discardableResult
@@ -643,11 +614,30 @@ package final class WorkspaceTabArrangementAtom {
             workspaceTabArrangementLogger.warning("minimizeDrawerPane: tab \(tabId) not found")
             return false
         }
-        let arrangementIndex = activeArrangementIndex(for: tabIndex)
-        guard var drawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId],
-            drawerView.layout.contains(drawerPaneId)
+        var arrangementIndex = activeArrangementIndex(for: tabIndex)
+        guard let activeDrawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId],
+            activeDrawerView.layout.contains(drawerPaneId)
         else { return false }
 
+        if arrangementStates[tabIndex].arrangements[arrangementIndex].isDefault {
+            let name = ArrangementDerived.nextCustomArrangementName(
+                existing: arrangementStates[tabIndex].arrangements
+            )
+            guard
+                let userArrangement = TabArrangementMutationRules.createArrangement(
+                    name: name,
+                    from: arrangementStates[tabIndex]
+                )
+            else { return false }
+            arrangementStates[tabIndex].arrangements.append(userArrangement)
+            arrangementStates[tabIndex].activeArrangementId = userArrangement.id
+            arrangementIndex = arrangementStates[tabIndex].arrangements.index(
+                before: arrangementStates[tabIndex].arrangements.endIndex
+            )
+        }
+
+        guard var drawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId]
+        else { return false }
         drawerView.minimizedPaneIds.insert(drawerPaneId)
         if drawerView.activeChildId == drawerPaneId {
             drawerView.activeChildId = drawerView.layout.paneIds.first { !drawerView.minimizedPaneIds.contains($0) }
@@ -791,7 +781,6 @@ package final class WorkspaceTabArrangementAtom {
             return nil
         }
 
-        sourceState.zoomedPaneId = sourceState.zoomedPaneId == paneId ? nil : sourceState.zoomedPaneId
         sourceState.arrangements = TabArrangementMutationRules.removingUserPane(
             paneId,
             from: sourceState.arrangements
@@ -808,7 +797,6 @@ package final class WorkspaceTabArrangementAtom {
             sourceState.activeArrangementId = Self.defaultArrangement(in: sourceState).id
         }
 
-        destState.zoomedPaneId = nil
         for movedPaneId in movedPaneIds where !destState.allPaneIds.contains(movedPaneId) {
             destState.allPaneIds.append(movedPaneId)
         }

@@ -16,12 +16,9 @@ enum WorkspaceSQLiteTraceOperation: String, Sendable {
 }
 
 enum WorkspaceSQLiteTracePhase: String, Sendable {
-    case classifyRecovery = "classify_recovery"
     case commitCore = "commit_core"
     case openCore = "open_core"
-    case openLocalRestore = "open_local_restore"
     case openLocalSave = "open_local_save"
-    case quarantineSidecars = "quarantine_sidecars"
     case writeLocal = "write_local"
 }
 
@@ -52,11 +49,42 @@ enum WorkspaceSQLiteTraceDatabase: String, Sendable {
 }
 
 enum WorkspaceSQLiteRecoveryKind: String, Sendable {
-    case coreQuarantine = "core_quarantine"
-    case localQuarantine = "local_quarantine"
-    case notADatabase = "not_a_database"
-    case quarantineFailed = "quarantine_failed"
     case saveFailed = "save_failed"
+}
+
+enum WorkspaceSQLitePreparationPhase: String, Sendable {
+    case prepareCore = "prepare_core"
+    case openLocal = "open_local"
+    case replaceLocal = "replace_local"
+}
+
+enum WorkspaceSQLitePreparationClassification: String, Sendable {
+    case coreAcceptanceFailed = "core_acceptance_failed"
+    case corruptDatabase = "corrupt_database"
+    case freshDatabaseCreationFailed = "fresh_database_creation_failed"
+    case incompleteFileSet = "incomplete_file_set"
+    case localOpenFailed = "local_open_failed"
+    case quarantineFailed = "quarantine_failed"
+}
+
+enum WorkspaceSQLitePreparationRecoveryAttempt: String, Sendable {
+    case notAttempted = "none"
+    case quarantineAndReplace = "quarantine_and_replace"
+}
+
+enum WorkspaceSQLitePreparationDisposition: String, Sendable {
+    case bootStopped = "boot_stopped"
+    case localAvailable = "local_available"
+    case localUnavailable = "local_unavailable"
+}
+
+struct WorkspaceSQLitePreparationTraceRecord: Sendable {
+    var database: WorkspaceSQLiteTraceDatabase
+    var phase: WorkspaceSQLitePreparationPhase
+    var classification: WorkspaceSQLitePreparationClassification
+    var recoveryAttempt: WorkspaceSQLitePreparationRecoveryAttempt
+    var disposition: WorkspaceSQLitePreparationDisposition
+    var sqliteResultCode: Int?
 }
 
 struct WorkspaceSQLiteRecoveryTraceRecord: Sendable {
@@ -144,6 +172,28 @@ struct WorkspaceSQLiteTraceRecorder: Sendable {
                     recoveryKind: record.recoveryKind,
                     error: record.error
                 ))
+        )
+    }
+
+    func recordPreparation(_ record: WorkspaceSQLitePreparationTraceRecord) async {
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.persistence.backend": .string("sqlite"),
+            "agentstudio.persistence.classification": .string(record.classification.rawValue),
+            "agentstudio.persistence.disposition": .string(record.disposition.rawValue),
+            "agentstudio.persistence.phase": .string(record.phase.rawValue),
+            "agentstudio.persistence.recovery.attempt": .string(record.recoveryAttempt.rawValue),
+            "agentstudio.sqlite.database": .string(record.database.rawValue),
+        ]
+        if let sqliteResultCode = record.sqliteResultCode {
+            attributes["agentstudio.sqlite.result_code"] = .int(sqliteResultCode)
+        }
+        let finalAttributes = attributes
+        let isFailure = record.disposition != .localAvailable
+        await traceRuntime?.record(
+            tag: .persistenceRecovery,
+            body: "persistence.bootstrap.\(record.disposition.rawValue)",
+            severity: isFailure ? .error : .warn,
+            attributes: finalAttributes
         )
     }
 

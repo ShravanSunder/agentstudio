@@ -23,8 +23,6 @@ extension WorkspaceActionCommand {
             return "resizeVisiblePanePair"
         case .equalizePanes:
             return "equalizePanes"
-        case .toggleSplitZoom:
-            return "toggleSplitZoom"
         case .moveTab:
             return "moveTab"
         case .reorderTab:
@@ -43,8 +41,6 @@ extension WorkspaceActionCommand {
             return "switchArrangement"
         case .renameArrangement:
             return "renameArrangement"
-        case .setShowsMinimizedPanes:
-            return "setShowsMinimizedPanes"
         case .openWorktree:
             return "openWorktree"
         case .openNewTerminalInTab:
@@ -81,6 +77,8 @@ extension WorkspaceActionCommand {
             return "detachDrawerPane"
         case .addDrawerPane:
             return "addDrawerPane"
+        case .addWebviewDrawerPane:
+            return "addWebviewDrawerPane"
         case .removeDrawerPane:
             return "removeDrawerPane"
         case .toggleDrawer:

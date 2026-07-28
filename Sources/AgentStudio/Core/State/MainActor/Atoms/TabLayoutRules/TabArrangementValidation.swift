@@ -12,6 +12,11 @@ enum TabArrangementValidation {
         var updatedStates = arrangementStates
         for tabIndex in updatedStates.indices {
             let originalPaneIds = Set(updatedStates[tabIndex].allPaneIds)
+            let knownDrawerPaneIds = Set(
+                updatedStates[tabIndex].arrangements.flatMap { arrangement in
+                    arrangement.drawerViews.values.flatMap(\.layout.paneIds)
+                }
+            )
             updatedStates[tabIndex].allPaneIds.removeAll { !validPaneIds.contains($0) }
             updatedStates[tabIndex].arrangements = TabArrangementRepairRules.pruningInvalidPaneIds(
                 validPaneIds: validPaneIds,
@@ -23,6 +28,11 @@ enum TabArrangementValidation {
             )
             updatedStates[tabIndex].arrangements = TabArrangementRepairRules.promotingLiveArrangementToDefault(
                 in: updatedStates[tabIndex].arrangements
+            )
+            updatedStates[tabIndex].arrangements = TabArrangementRepairRules.normalizingDefault(
+                in: updatedStates[tabIndex].arrangements,
+                allPaneIds: updatedStates[tabIndex].allPaneIds,
+                knownDrawerPaneIds: knownDrawerPaneIds
             )
             if !updatedStates[tabIndex].arrangements.isEmpty,
                 activeArrangement(for: tabIndex, arrangementStates: updatedStates).layout.isEmpty,
@@ -57,6 +67,11 @@ enum TabArrangementValidation {
         var seenPaneIds: Set<UUID> = []
 
         for tabIndex in updatedStates.indices {
+            let knownDrawerPaneIds = Set(
+                updatedStates[tabIndex].arrangements.flatMap { arrangement in
+                    arrangement.drawerViews.values.flatMap(\.layout.paneIds)
+                }
+            )
             if updatedStates[tabIndex].arrangements.isEmpty {
                 updatedStates[tabIndex].arrangements = [
                     PaneArrangement(name: "Default", isDefault: true, layout: Layout())
@@ -73,13 +88,12 @@ enum TabArrangementValidation {
             }
 
             let orderedArrangementPaneIds = orderedReferencedPaneIds(in: updatedStates[tabIndex].arrangements)
-            let allArrangementPaneIds = Set(orderedArrangementPaneIds)
             updatedStates[tabIndex].allPaneIds = stableMembershipPaneIds(
                 existingPaneIds: updatedStates[tabIndex].allPaneIds,
                 referencedPaneIds: orderedArrangementPaneIds
             )
 
-            let duplicatePaneIds = allArrangementPaneIds.intersection(seenPaneIds)
+            let duplicatePaneIds = Set(updatedStates[tabIndex].allPaneIds).intersection(seenPaneIds)
             if !duplicatePaneIds.isEmpty {
                 logger.warning(
                     "validating: removing \(duplicatePaneIds.count) duplicate pane(s) from tab \(updatedStates[tabIndex].tabId)"
@@ -122,6 +136,11 @@ enum TabArrangementValidation {
             updatedStates[tabIndex].arrangements = TabArrangementRepairRules.promotingLiveArrangementToDefault(
                 in: updatedStates[tabIndex].arrangements
             )
+            updatedStates[tabIndex].arrangements = TabArrangementRepairRules.normalizingDefault(
+                in: updatedStates[tabIndex].arrangements,
+                allPaneIds: updatedStates[tabIndex].allPaneIds,
+                knownDrawerPaneIds: knownDrawerPaneIds
+            )
             if activeArrangement(for: tabIndex, arrangementStates: updatedStates).layout.isEmpty,
                 let liveArrangement = updatedStates[tabIndex].arrangements.first(where: { !$0.layout.isEmpty })
             {
@@ -134,10 +153,6 @@ enum TabArrangementValidation {
                 updatedStates[tabIndex].activeArrangementId =
                     defaultArrangement(for: tabIndex, arrangementStates: updatedStates).id
             }
-            if let zoomedPaneId = updatedStates[tabIndex].zoomedPaneId, !validPaneIds.contains(zoomedPaneId) {
-                updatedStates[tabIndex].zoomedPaneId = nil
-            }
-
             seenPaneIds.formUnion(validPaneIds)
         }
 
@@ -155,14 +170,13 @@ enum TabArrangementValidation {
         existingPaneIds: [UUID],
         referencedPaneIds: [UUID]
     ) -> [UUID] {
-        let referencedPaneIdSet = Set(referencedPaneIds)
         var seenPaneIds = Set<UUID>()
         var paneIds: [UUID] = []
         for paneId in referencedPaneIds {
             guard seenPaneIds.insert(paneId).inserted else { continue }
             paneIds.append(paneId)
         }
-        for paneId in existingPaneIds where referencedPaneIdSet.contains(paneId) {
+        for paneId in existingPaneIds {
             guard seenPaneIds.insert(paneId).inserted else { continue }
             paneIds.append(paneId)
         }

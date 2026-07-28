@@ -72,7 +72,6 @@ extension WorkspaceTabArrangementAtom {
             paneCursorsByArrangementId: cursorReplacement.paneCursorsByArrangementId,
             drawerCursorsByKey: cursorReplacement.drawerCursorsByKey
         )
-        presentationAtom.replaceStates(states)
     }
 
     private struct ArrangementCursorReplacement {
@@ -122,7 +121,6 @@ extension WorkspaceTabArrangementAtom {
                     isDefault: arrangementGraphState.isDefault,
                     layout: arrangementGraphState.layout,
                     minimizedPaneIds: arrangementGraphState.minimizedPaneIds,
-                    showsMinimizedPanes: arrangementGraphState.showsMinimizedPanes,
                     activePaneId: cursorAtom.activePaneId(forArrangement: arrangementGraphState.id),
                     drawerViews: Dictionary(
                         uniqueKeysWithValues: arrangementGraphState.drawerViews.map { drawerId, drawerGraphState in
@@ -157,8 +155,7 @@ extension WorkspaceTabArrangementAtom {
                 tabId: graphState.tabId,
                 allPaneIds: graphState.allPaneIds,
                 arrangements: arrangements,
-                activeArrangementId: activeArrangementId,
-                zoomedPaneId: presentationAtom.zoomedPaneId(forTab: graphState.tabId)
+                activeArrangementId: activeArrangementId
             )
         }
     }

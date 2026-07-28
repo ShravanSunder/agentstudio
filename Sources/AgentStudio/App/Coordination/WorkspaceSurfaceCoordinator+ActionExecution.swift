@@ -9,10 +9,17 @@ extension WorkspaceSurfaceCoordinator {
         previousVisiblePaneIds: Set<UUID>,
         previouslyMinimizedPaneIds: Set<UUID>,
         newVisiblePaneIds: Set<UUID>,
-        newMinimizedPaneIds: Set<UUID>
+        newMinimizedPaneIds: Set<UUID>,
+        retainedVisiblePaneIds: Set<UUID> = []
     ) -> WorkspaceSurfaceCoordinator.SwitchArrangementTransitions {
-        let previouslyPresentedPaneIds = previousVisiblePaneIds.subtracting(previouslyMinimizedPaneIds)
-        let newlyPresentedPaneIds = newVisiblePaneIds.subtracting(newMinimizedPaneIds)
+        let previouslyPresentedPaneIds =
+            previousVisiblePaneIds
+            .subtracting(previouslyMinimizedPaneIds)
+            .union(retainedVisiblePaneIds)
+        let newlyPresentedPaneIds =
+            newVisiblePaneIds
+            .subtracting(newMinimizedPaneIds)
+            .union(retainedVisiblePaneIds)
         let hiddenPaneIds = previouslyPresentedPaneIds.subtracting(newlyPresentedPaneIds)
         let revealedPaneIds = newlyPresentedPaneIds.subtracting(previouslyPresentedPaneIds)
         return SwitchArrangementTransitions(
@@ -30,13 +37,7 @@ extension WorkspaceSurfaceCoordinator {
             }
         }) {
             store.tabLayoutAtom.setActiveTab(existingTab.id)
-            postRecentTargetOpened(
-                target: .forWorktree(
-                    path: worktree.path,
-                    worktree: worktree,
-                    repo: repo
-                )
-            )
+            recordWorktreeOpened(worktree, in: repo)
             return nil
         }
 
@@ -97,13 +98,7 @@ extension WorkspaceSurfaceCoordinator {
         store.tabLayoutAtom.setActivePane(pane.id, inTab: activeTabId)
         traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
-        postRecentTargetOpened(
-            target: .forWorktree(
-                path: worktree.path,
-                worktree: worktree,
-                repo: repo
-            )
-        )
+        recordWorktreeOpened(worktree, in: repo)
 
         Self.logger.info("Opened worktree '\(worktree.name)' in split pane")
         return pane
@@ -137,113 +132,6 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     @discardableResult
-    func openContextualWebviewInPane(
-        sourcePaneId: UUID,
-        targetTabId: UUID,
-        url: URL,
-        direction: SplitNewDirection = .right
-    ) -> Pane? {
-        guard let targetPane = store.paneAtom.pane(sourcePaneId) else {
-            Self.logger.warning("openContextualWebviewInPane: source pane \(sourcePaneId) not found")
-            return nil
-        }
-        guard store.tabLayoutAtom.tab(targetTabId) != nil else {
-            Self.logger.warning("openContextualWebviewInPane: target tab \(targetTabId) not found")
-            return nil
-        }
-
-        let host = url.host() ?? "GitHub"
-        let context = contextualBrowserMetadata(from: targetPane, fallbackTitle: host)
-        let pane = store.paneAtom.createPane(
-            content: .webview(WebviewState(url: url, title: host, showNavigation: true)),
-            metadata: context.metadata
-        )
-        viewRegistry.ensureSlot(for: pane.id)
-
-        guard createViewForContent(pane: pane) != nil else {
-            Self.logger.error("Contextual webview creation failed — rolling back pane \(pane.id)")
-            store.mutationCoordinator.removePane(pane.id)
-            // Safe immediate deletion: creation failed before the pane entered a rendered layout.
-            viewRegistry.removeSlot(for: pane.id)
-            return nil
-        }
-
-        let layoutDirection = bridgeDirection(direction)
-        let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
-        guard
-            store.tabLayoutAtom.insertPane(
-                pane.id,
-                inTab: targetTabId,
-                at: sourcePaneId,
-                direction: layoutDirection,
-                position: position,
-                sizingMode: .halveTarget
-            )
-        else {
-            Self.logger.error(
-                "openContextualWebviewInPane: failed inserting pane \(pane.id) into tab \(targetTabId)")
-            store.mutationCoordinator.removePane(pane.id)
-            viewRegistry.removeSlot(for: pane.id)
-            return nil
-        }
-        store.tabLayoutAtom.setActivePane(pane.id, inTab: targetTabId)
-
-        Self.logger.info("Opened contextual webview pane \(pane.id) from source pane \(sourcePaneId)")
-        return pane
-    }
-
-    @discardableResult
-    func openContextualWebviewInDrawer(
-        parentPaneId: UUID,
-        url: URL
-    ) -> Pane? {
-        guard let parentPane = store.paneAtom.pane(parentPaneId) else {
-            Self.logger.warning("openContextualWebviewInDrawer: parent pane \(parentPaneId) not found")
-            return nil
-        }
-
-        let host = url.host() ?? "GitHub"
-        let context = contextualBrowserMetadata(from: parentPane, fallbackTitle: host)
-        guard
-            let pane = store.paneAtom.addDrawerPane(
-                to: parentPaneId,
-                content: .webview(WebviewState(url: url, title: host, showNavigation: true)),
-                metadata: context.metadata
-            )
-        else {
-            Self.logger.warning("openContextualWebviewInDrawer: failed to create drawer pane for \(parentPaneId)")
-            return nil
-        }
-
-        viewRegistry.ensureSlot(for: pane.id)
-        guard createViewForContent(pane: pane) != nil else {
-            Self.logger.error("Contextual drawer webview creation failed — rolling back pane \(pane.id)")
-            store.paneAtom.removeDrawerPane(pane.id, from: parentPaneId)
-            // Safe immediate deletion: the synchronous drawer creation rollback completes before rendering resumes.
-            viewRegistry.removeSlot(for: pane.id)
-            return nil
-        }
-        guard let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
-            let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
-        else {
-            Self.logger.error("Contextual drawer webview calibration failed for parent pane \(parentPaneId)")
-            store.paneAtom.removeDrawerPane(pane.id, from: parentPaneId)
-            viewRegistry.removeSlot(for: pane.id)
-            return nil
-        }
-        store.tabArrangementAtom.addDrawerPaneView(
-            drawerId: drawerId,
-            parentPaneId: parentPaneId,
-            drawerPaneId: pane.id,
-            inTab: tabId
-        )
-
-        focusVisiblePaneHost(pane.id)
-        Self.logger.info("Opened contextual drawer webview pane \(pane.id) from parent pane \(parentPaneId)")
-        return pane
-    }
-
-    @discardableResult
     func openFloatingTerminal(launchDirectory: URL?, title: String?) -> Pane? {
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let pane = store.paneAtom.createPane(
@@ -260,15 +148,6 @@ extension WorkspaceSurfaceCoordinator {
         store.tabLayoutAtom.setActiveTab(tab.id)
         traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
-        if let launchDirectory {
-            postRecentTargetOpened(
-                target: .forCwd(
-                    launchDirectory,
-                    title: resolvedTitle,
-                    subtitle: launchDirectory.path
-                )
-            )
-        }
 
         Self.logger.info("Opened floating terminal pane \(pane.id)")
         return pane
@@ -351,6 +230,12 @@ extension WorkspaceSurfaceCoordinator {
             executeClosePane(tabId: tabId, paneId: paneId)
 
         case .extractPaneToTab(let tabId, let paneId):
+            let capturedZoomCompanions = captureZoomCompanions(
+                forSourcePanes: [paneId]
+            )
+            if store.panePresentationAtom.zoomPresentation(forTab: tabId)?.sourcePaneId == paneId {
+                store.panePresentationAtom.cancelZoom(inTab: tabId)
+            }
             guard
                 let newTab = store.tabLayoutAtom.extractPane(
                     paneId,
@@ -361,6 +246,7 @@ extension WorkspaceSurfaceCoordinator {
                 Self.logger.warning("extractPaneToTab: failed to extract pane \(paneId) from tab \(tabId)")
                 break
             }
+            reassociateZoomCompanionsWithCurrentTabs(capturedZoomCompanions)
             guard let pane = store.paneAtom.pane(paneId) else {
                 Self.logger.warning("extractPaneToTab: extracted pane \(paneId) missing after tab extraction")
                 break
@@ -389,9 +275,6 @@ extension WorkspaceSurfaceCoordinator {
 
         case .equalizePanes(let tabId):
             store.tabLayoutAtom.equalizePanes(tabId: tabId)
-
-        case .toggleSplitZoom(let tabId, let paneId):
-            store.tabLayoutAtom.toggleZoom(paneId: paneId, inTab: tabId)
 
         case .moveTab(let tabId, let delta):
             store.tabLayoutAtom.moveTabByDelta(tabId: tabId, delta: delta)
@@ -463,7 +346,10 @@ extension WorkspaceSurfaceCoordinator {
                 previousVisiblePaneIds: previousVisiblePaneIds,
                 previouslyMinimizedPaneIds: previouslyMinimizedPaneIds,
                 newVisiblePaneIds: newVisiblePaneIds,
-                newMinimizedPaneIds: newMinimizedPaneIds
+                newMinimizedPaneIds: newMinimizedPaneIds,
+                retainedVisiblePaneIds: store.panePresentationAtom
+                    .zoomPresentation(forTab: tabId)
+                    .map { [$0.sourcePaneId] } ?? []
             )
 
             // Detach hidden panes before reattaching newly visible panes to avoid
@@ -479,16 +365,8 @@ extension WorkspaceSurfaceCoordinator {
         case .renameArrangement(let tabId, let arrangementId, let name):
             store.tabLayoutAtom.renameArrangement(arrangementId, name: name, inTab: tabId)
 
-        case .setShowsMinimizedPanes(let tabId, let value):
-            let previousVisiblePaneIds = Set(arrangementView.activeVisiblePaneIds(forTab: tabId))
-            store.tabLayoutAtom.setShowsMinimizedPanes(value, inTab: tabId)
-            let newVisiblePaneIds = Set(arrangementView.activeVisiblePaneIds(forTab: tabId))
-            reconcileVisiblePaneTransition(
-                previousVisiblePaneIds: previousVisiblePaneIds,
-                newVisiblePaneIds: newVisiblePaneIds
-            )
-
         case .backgroundPane(let paneId):
+            retireZoomCompanion(forSourcePane: paneId)
             store.mutationCoordinator.backgroundPane(paneId)
 
         case .reactivatePane(let paneId, let targetTabId, let targetPaneId, let direction):
@@ -509,6 +387,7 @@ extension WorkspaceSurfaceCoordinator {
 
         case .purgeOrphanedPane(let paneId):
             guard let pane = store.paneAtom.pane(paneId), pane.residency == .backgrounded else { break }
+            retireZoomCompanion(forSourcePane: paneId)
             teardownView(for: paneId)
             store.paneAtom.purgeOrphanedPane(paneId)
             viewRegistry.retireSlot(for: paneId)
@@ -602,6 +481,9 @@ extension WorkspaceSurfaceCoordinator {
                 ensureTerminalPaneView(drawerPane)
                 focusVisiblePaneHost(drawerPane.id)
             }
+
+        case .addWebviewDrawerPane(let parentPaneId, let state):
+            executeAddWebviewDrawerPane(parentPaneId: parentPaneId, state: state)
 
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
             let drawerBeforeRemoval = store.paneAtom.pane(parentPaneId)?.drawer
@@ -764,35 +646,21 @@ extension WorkspaceSurfaceCoordinator {
         store.tabLayoutAtom.setActiveTab(tab.id)
         traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
-        postRecentTargetOpened(
-            target: .forWorktree(
-                path: resolvedCwd,
-                worktree: worktree,
-                repo: repo,
-                displayTitle: resolvedTitle,
-                subtitle: repo.name
-            )
-        )
+        recordWorktreeOpened(worktree, in: repo)
 
         Self.logger.info("Opened terminal for worktree: \(worktree.name)")
         return pane
     }
 
-    private func postRecentTargetOpened(target: RecentWorkspaceTarget) {
-        let seq = WorkspaceActivitySequence.next()
-        let envelope = RuntimeEnvelope.system(
-            SystemEnvelope(
-                source: .builtin(.coordinator),
-                seq: seq,
-                timestamp: .now,
-                event: .workspaceActivity(.recentTargetOpened(target))
+    func recordWorktreeOpened(_ worktree: Worktree, in repo: Repo) {
+        do {
+            try atom(\.applicationEntityRecency).recordOpened(
+                repositoryStableKey: repo.stableKey,
+                worktreeStableKey: worktree.stableKey,
+                at: Date()
             )
-        )
-
-        Task {
-            guard !Task.isCancelled else { return }
-            await PaneRuntimeEventBus.shared.post(envelope)
-            Self.logger.debug("Posted recent target event id=\(target.id, privacy: .public)")
+        } catch {
+            Self.logger.warning("Worktree recency recording rejected an invalid stable identity")
         }
     }
 
@@ -806,6 +674,7 @@ extension WorkspaceSurfaceCoordinator {
         }
         let closingPaneIds: [UUID]
         if let tab = store.tabLayoutAtom.tab(tabId) {
+            retireZoomCompanions(forSourcePanes: tab.allPaneIds)
             // Pane models remain alive for undo; only their hosts are torn down.
             closingPaneIds = tab.allPaneIds
             for paneId in tab.allPaneIds {
@@ -868,10 +737,16 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     private func executeBreakUpTab(_ tabId: UUID) {
+        let sourcePaneIds = store.tabLayoutAtom.tab(tabId)?.allPaneIds ?? []
+        let capturedZoomCompanions = captureZoomCompanions(
+            forSourcePanes: sourcePaneIds
+        )
+        store.panePresentationAtom.cancelZoom(inTab: tabId)
         let newTabs = store.tabLayoutAtom.breakUpTab(
             tabId,
             drawerPayloadsByParentPaneId: drawerMovePayloadsByParentPaneId(inTab: tabId)
         )
+        reassociateZoomCompanionsWithCurrentTabs(capturedZoomCompanions)
         for newTab in newTabs {
             guard let paneId = newTab.activePaneId else { continue }
             guard let pane = store.paneAtom.pane(paneId) else {
@@ -949,6 +824,7 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         let drawerChildIds = closingPane.drawer?.paneIds ?? []
+        retireZoomCompanion(forSourcePane: paneId)
         teardownDrawerPanes(for: paneId)
         teardownView(for: paneId)
         viewRegistry.retireSlot(for: paneId)

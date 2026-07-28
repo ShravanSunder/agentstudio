@@ -1,9 +1,9 @@
-import AgentStudioCore
 import AgentStudioInfrastructure
 import Foundation
 import GRDB
 import Testing
 
+@testable import AgentStudioCore
 @testable import AgentStudioInboxNotification
 
 @Suite("WorkspaceLocalSchemaContractTests")
@@ -13,12 +13,8 @@ struct WorkspaceLocalSchemaContractTests {
         let sidebarSurfaceStorageValues = Set(
             SidebarSurface.allCases.map { SQLiteLocalUXStorage.storageValue(for: $0) }
         )
-        let recentTargetKindStorageValues = Set(
-            RecentWorkspaceTarget.Kind.allCases.map { SQLiteLocalUXStorage.storageValue(for: $0) }
-        )
 
         #expect(sidebarSurfaceStorageValues == Set(["repos", "inbox"]))
-        #expect(recentTargetKindStorageValues == Set(["worktree", "cwdOnly"]))
     }
 
     @Test("notification claim lane storage matches mergeable lane vocabulary")
@@ -32,72 +28,6 @@ struct WorkspaceLocalSchemaContractTests {
 
         #expect(claimLaneStorageValues == SQLiteInboxNotificationClaimStorage.allLaneStorageValues)
         #expect(mergeableLaneStorageValues == SQLiteInboxNotificationClaimStorage.mergeableLaneStorageValues)
-    }
-
-    @Test("malformed recent targets disappear and valid typed targets survive")
-    func malformedRecentTargetsDisappearAndValidTypedTargetsSurvive() throws {
-        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
-        try WorkspaceLocalMigrations.migrate(databaseQueue)
-        let workspaceId = UUID()
-        let repository = WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: databaseQueue)
-        let validTarget = RecentWorkspaceTarget.forCwd(
-            URL(fileURLWithPath: "/tmp/valid"),
-            lastOpenedAt: Date(timeIntervalSince1970: 2)
-        )
-        let repoId = UUIDv7.generate()
-        let worktreeId = UUIDv7.generate()
-        let worktreePath = URL(fileURLWithPath: "/tmp/valid-worktree")
-        let validWorktreeTarget = RecentWorkspaceTarget.forWorktree(
-            path: worktreePath,
-            worktree: Worktree(id: worktreeId, repoId: repoId, name: "Valid", path: worktreePath),
-            repo: Repo(id: repoId, name: "Repo", repoPath: worktreePath),
-            lastOpenedAt: Date(timeIntervalSince1970: 3)
-        )
-        try repository.replaceRecentTargets(
-            [validTarget, validWorktreeTarget],
-            updatedAt: Date(timeIntervalSince1970: 3)
-        )
-        let malformedRows: [MalformedRecentTargetRow] = [
-            .init(id: "unsupported-kind", repoId: nil, worktreeId: nil, kind: "futureKind"),
-            .init(id: "worktree-neither", repoId: nil, worktreeId: nil, kind: "worktree"),
-            .init(id: "worktree-missing-repo", repoId: nil, worktreeId: worktreeId.uuidString, kind: "worktree"),
-            .init(id: "worktree-missing-worktree", repoId: repoId.uuidString, worktreeId: nil, kind: "worktree"),
-            .init(id: "cwd-with-repo", repoId: repoId.uuidString, worktreeId: nil, kind: "cwdOnly"),
-            .init(id: "cwd-with-worktree", repoId: nil, worktreeId: worktreeId.uuidString, kind: "cwdOnly"),
-            .init(
-                id: "cwd-with-both",
-                repoId: repoId.uuidString,
-                worktreeId: worktreeId.uuidString,
-                kind: "cwdOnly"
-            ),
-            .init(
-                id: "malformed-repo-id",
-                repoId: "not-a-uuid",
-                worktreeId: worktreeId.uuidString,
-                kind: "worktree"
-            ),
-            .init(
-                id: "malformed-worktree-id",
-                repoId: repoId.uuidString,
-                worktreeId: "not-a-uuid",
-                kind: "worktree"
-            ),
-        ]
-        try databaseQueue.write { database in
-            for row in malformedRows {
-                try database.execute(
-                    sql: """
-                        INSERT INTO local_recent_workspace_target(
-                            workspace_id, id, path, display_title, subtitle,
-                            repo_id, worktree_id, kind, last_opened_at
-                        ) VALUES (?, ?, '/tmp/malformed', 'Malformed', '', ?, ?, ?, 1)
-                        """,
-                    arguments: [workspaceId.uuidString, row.id, row.repoId, row.worktreeId, row.kind]
-                )
-            }
-        }
-
-        #expect(try repository.fetchRecentTargets() == [validWorktreeTarget, validTarget])
     }
 
     @Test("validated raw preference tokens round trip and malformed rows use defaults")
@@ -176,7 +106,8 @@ struct WorkspaceLocalSchemaContractTests {
             "idx_local_drawer_cursor_workspace",
             "idx_local_drawer_one_expanded_per_workspace",
             "idx_local_arrangement_drawer_cursor_workspace",
-            "idx_local_recent_target_workspace_time",
+            "idx_local_entity_recency_kind_time",
+            "idx_local_workspace_entity_recency_scope_kind_time",
             "idx_notification_workspace_timestamp",
             "idx_notification_workspace_pane",
             "idx_notification_workspace_tab",
@@ -192,20 +123,13 @@ struct WorkspaceLocalSchemaContractTests {
         #expect(productIndexNames == expectedIndexNames)
     }
 
-    @Test("local window recent target and notification tables match the exact structural contract")
-    func localWindowRecentTargetAndNotificationTablesMatchExactStructuralContract() throws {
+    @Test("local window recency and notification tables match the exact structural contract")
+    func localWindowRecencyAndNotificationTablesMatchExactStructuralContract() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrate(databaseQueue)
 
         try assertLocalSchemaStructuralContract(in: databaseQueue)
     }
-}
-
-private struct MalformedRecentTargetRow {
-    let id: String
-    let repoId: String?
-    let worktreeId: String?
-    let kind: String
 }
 
 private struct LocalSchemaForeignKeyContract: Equatable {
@@ -241,10 +165,13 @@ private let localSchemaExpectedColumns: [String: [(String, Int)]] = [
     "local_window_sidebar_expanded_group": [
         ("window_id", 1), ("group_key", 2),
     ],
-    "local_recent_workspace_target": [
-        ("workspace_id", 1), ("id", 2), ("path", 0), ("display_title", 0),
-        ("subtitle", 0), ("repo_id", 0), ("worktree_id", 0), ("kind", 0),
-        ("last_opened_at", 0),
+    "local_entity_recency": [
+        ("entity_kind", 1), ("entity_key", 2), ("interaction_kind", 0),
+        ("last_interacted_at", 0),
+    ],
+    "local_workspace_entity_recency": [
+        ("workspace_id", 1), ("entity_kind", 2), ("entity_key", 3),
+        ("interaction_kind", 0), ("last_interacted_at", 0),
     ],
     "local_notification_inbox_collapsed_group": [
         ("workspace_id", 1), ("group_key", 2),
@@ -302,7 +229,8 @@ private let localSchemaExpectedTypes: [String: [String]] = [
     "local_arrangement_drawer_cursor": ["TEXT", "TEXT", "TEXT", "TEXT", "REAL"],
     "local_window_state": ["TEXT", "TEXT", "REAL", "TEXT", "TEXT", "INTEGER", "INTEGER", "TEXT", "REAL"],
     "local_window_sidebar_expanded_group": ["TEXT", "TEXT"],
-    "local_recent_workspace_target": ["TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "REAL"],
+    "local_entity_recency": ["TEXT", "TEXT", "TEXT", "REAL"],
+    "local_workspace_entity_recency": ["TEXT", "TEXT", "TEXT", "TEXT", "REAL"],
     "local_notification_inbox_collapsed_group": ["TEXT", "TEXT"],
     "local_notification_inbox_item": [
         "TEXT", "TEXT", "REAL", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "INTEGER",
@@ -332,8 +260,11 @@ private let localSchemaExpectedNotNullColumns: [String: Set<String>] = [
         "sidebar_surface", "updated_at",
     ],
     "local_window_sidebar_expanded_group": ["window_id", "group_key"],
-    "local_recent_workspace_target": [
-        "workspace_id", "id", "path", "display_title", "subtitle", "kind", "last_opened_at",
+    "local_entity_recency": [
+        "entity_kind", "entity_key", "interaction_kind", "last_interacted_at",
+    ],
+    "local_workspace_entity_recency": [
+        "workspace_id", "entity_kind", "entity_key", "interaction_kind", "last_interacted_at",
     ],
     "local_notification_inbox_collapsed_group": ["workspace_id", "group_key"],
     "local_notification_inbox_item": [
@@ -438,7 +369,8 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
         "local_arrangement_drawer_cursor": 0,
         "local_window_state": 3,
         "local_window_sidebar_expanded_group": 0,
-        "local_recent_workspace_target": 0,
+        "local_entity_recency": 0,
+        "local_workspace_entity_recency": 0,
         "local_notification_inbox_collapsed_group": 0,
         "local_notification_inbox_item": 2,
         "local_editor_preferences": 0,
@@ -458,7 +390,8 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
     #expect(tableSQL["local_window_state"]?.contains("is_filter_visible IN (0, 1)") == true)
     #expect(tableSQL["local_window_state"]?.contains("sidebar_collapsed IN (0, 1)") == true)
     #expect(tableSQL["local_window_sidebar_expanded_group"]?.contains("ON DELETE CASCADE") == true)
-    #expect(tableSQL["local_recent_workspace_target"]?.contains("CHECK (") == false)
+    #expect(tableSQL["local_entity_recency"]?.contains("CHECK (") == false)
+    #expect(tableSQL["local_workspace_entity_recency"]?.contains("CHECK (") == false)
     #expect(tableSQL["local_notification_inbox_item"]?.components(separatedBy: "CHECK (").count == 3)
     #expect(tableSQL["local_notification_inbox_item"]?.contains("is_read IN (0, 1)") == true)
     #expect(

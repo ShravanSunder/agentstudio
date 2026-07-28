@@ -49,7 +49,7 @@ struct ShortcutCatalogTests {
     func commandSpecDerivesKeyBindingFromShortcut() {
         let managementLayerDefinition = AppCommandDispatcher.shared.definition(for: .toggleManagementLayer)
         let quickOpenDefinition = AppCommandDispatcher.shared.definition(for: .showCommandBarEverything)
-        let startContextDefinition = AppCommandDispatcher.shared.definition(for: .showCommandBarRepos)
+        let terminalQuickOpenDefinition = AppCommandDispatcher.shared.definition(for: .showCommandBarQuickOpen)
         let addDrawerPaneDefinition = AppCommandDispatcher.shared.definition(for: .addDrawerPane)
         let paneInboxDefinition = AppCommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
 
@@ -57,8 +57,8 @@ struct ShortcutCatalogTests {
         #expect(managementLayerDefinition.keyBinding?.modifiers == [.command])
         #expect(quickOpenDefinition.keyBinding?.key == "p")
         #expect(quickOpenDefinition.keyBinding?.modifiers == [.command])
-        #expect(startContextDefinition.keyBinding?.key == "t")
-        #expect(startContextDefinition.keyBinding?.modifiers == [.command])
+        #expect(terminalQuickOpenDefinition.keyBinding?.key == "t")
+        #expect(terminalQuickOpenDefinition.keyBinding?.modifiers == [.command])
         #expect(addDrawerPaneDefinition.keyBinding?.key == "d")
         #expect(addDrawerPaneDefinition.keyBinding?.modifiers == [.command, .shift])
         #expect(paneInboxDefinition.keyBinding?.key == "u")
@@ -257,8 +257,8 @@ struct ShortcutCatalogTests {
     }
 
     @Test
-    func shortcutDecoder_decodesDrawerEditorShortcuts() {
-        let openBookmarkedEditor = ShortcutDecoder.shortcut(
+    func shortcutDecoder_decodesViewerAndEditorShortcuts() {
+        let showViewer = ShortcutDecoder.shortcut(
             for: .init(key: .character(.o), modifiers: [.command]),
             in: .global
         )
@@ -266,27 +266,37 @@ struct ShortcutCatalogTests {
             for: .init(key: .character(.o), modifiers: [.command, .shift]),
             in: .global
         )
-        let openChooser = ShortcutDecoder.shortcut(
+        let openBookmarkedEditor = ShortcutDecoder.shortcut(
             for: .init(key: .character(.o), modifiers: [.command, .option]),
             in: .global
         )
+        let openChooser = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.o), modifiers: [.command, .control, .option]),
+            in: .global
+        )
 
+        #expect(showViewer?.rawValue == "showViewer")
         #expect(openBookmarkedEditor == .openPaneLocationInBookmarkedEditor)
         #expect(openFinder == .openPaneLocationInFinder)
         #expect(openChooser == .openPaneLocationInEditorMenu)
     }
 
     @Test
-    func shortcutDecoder_decodesPaneNoteAndCurrentPathShortcuts() {
+    func shortcutDecoder_decodesPaneZoomNoteAndCurrentPathShortcuts() {
+        let zoomPane = ShortcutDecoder.shortcut(
+            for: .init(key: .enter, modifiers: [.command, .shift]),
+            in: .global
+        )
         let editNote = ShortcutDecoder.shortcut(
             for: .init(key: .character(.n), modifiers: [.command, .option, .shift]),
             in: .global
         )
         let copyPath = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.o), modifiers: [.command, .option, .shift]),
+            for: .init(key: .character(.o), modifiers: [.option]),
             in: .terminalAppOwned
         )
 
+        #expect(zoomPane?.rawValue == "zoomPane")
         #expect(editNote == .editPaneNote)
         #expect(copyPath == .copyCurrentPanePath)
         #expect(AppShortcut.editPaneNote.command == .editPaneNote)

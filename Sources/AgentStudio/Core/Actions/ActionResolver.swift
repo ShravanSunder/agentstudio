@@ -98,10 +98,8 @@ package enum WorkspaceCommandResolver {
         case .splitLeft:
             return resolveSplit(.left, tabs: tabs, activeTabId: activeTabId)
 
-        case .toggleSplitZoom:
-            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
-            else { return nil }
-            return .toggleSplitZoom(tabId: tab.id, paneId: paneId)
+        case .zoomPane:
+            return nil
 
         case .minimizePane:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
@@ -129,11 +127,11 @@ package enum WorkspaceCommandResolver {
             .newFloatingTerminal,
             .newTerminalInTab, .newTab, .undoCloseTab,
             .newWindow, .closeWindow,
-            .showCommandBarEverything, .showCommandBarCommands,
+            .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
-            .openWebview, .showBridgeReview, .showBridgeFiles,
+            .openWebview, .showViewer, .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement, .saveArrangement,
@@ -169,11 +167,11 @@ package enum WorkspaceCommandResolver {
             .newFloatingTerminal,
             .newTerminalInTab, .newTab, .undoCloseTab, .renameTab,
             .newWindow, .closeWindow,
-            .showCommandBarEverything, .showCommandBarCommands,
+            .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
-            .openWebview, .showBridgeReview, .showBridgeFiles,
+            .openWebview, .showViewer, .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
@@ -205,7 +203,7 @@ package enum WorkspaceCommandResolver {
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .splitRight, .splitLeft,
-            .toggleSplitZoom, .minimizePane, .expandPane:
+            .zoomPane, .minimizePane, .expandPane:
             return false
         }
     }
@@ -266,6 +264,7 @@ package enum WorkspaceCommandResolver {
         from tabs: [T],
         activeTabId: UUID?,
         isManagementLayerActive: Bool,
+        zoomSourcePaneIdByTabId: [UUID: UUID] = [:],
         knownRepoIds: Set<UUID> = [],
         knownWorktreeIds: Set<UUID> = [],
         drawerParentByPaneId: [UUID: UUID] = [:],
@@ -288,6 +287,7 @@ package enum WorkspaceCommandResolver {
             },
             activeTabId: activeTabId,
             isManagementLayerActive: isManagementLayerActive,
+            zoomSourcePaneIdByTabId: zoomSourcePaneIdByTabId,
             knownRepoIds: knownRepoIds,
             knownWorktreeIds: knownWorktreeIds,
             drawerParentByPaneId: drawerParentByPaneId,

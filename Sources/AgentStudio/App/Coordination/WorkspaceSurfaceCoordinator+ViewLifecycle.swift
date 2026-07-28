@@ -147,7 +147,7 @@ extension WorkspaceSurfaceCoordinator {
         switch result {
         case .success(let managed):
             traceSurfaceCreateSucceeded(pane: pane, surfaceID: managed.id)
-            viewRegistry.unregister(pane.id)
+            unregisterHostedView(for: pane.id)
             RestoreTrace.log(
                 "createView success pane=\(pane.id) surface=\(managed.id) initialSurfaceFrame=\(NSStringFromRect(managed.surface.frame))"
             )
@@ -257,7 +257,7 @@ extension WorkspaceSurfaceCoordinator {
         switch result {
         case .success(let managed):
             traceSurfaceCreateSucceeded(pane: pane, surfaceID: managed.id)
-            viewRegistry.unregister(pane.id)
+            unregisterHostedView(for: pane.id)
             RestoreTrace.log(
                 "createFloatingSurface success pane=\(pane.id) surface=\(managed.id) initialSurfaceFrame=\(NSStringFromRect(managed.surface.frame))"
             )
@@ -441,7 +441,7 @@ extension WorkspaceSurfaceCoordinator {
                 "Preserving replacement bridge view while retiring prior controller for pane \(paneId)"
             )
         } else {
-            viewRegistry.unregister(paneId)
+            unregisterHostedView(for: paneId)
         }
         refreshBridgePaneActivities()
 
@@ -456,6 +456,11 @@ extension WorkspaceSurfaceCoordinator {
             runtime.removeSession(paneId)
         }
         Self.logger.debug("Tore down view for pane \(paneId)")
+    }
+
+    func unregisterHostedView(for paneId: UUID) {
+        viewRegistry.unregister(paneId)
+        recoverZoomCompanionAfterResourceLoss(for: paneId)
     }
 
     /// Detach a pane's surface for a view switch (hide, not destroy).

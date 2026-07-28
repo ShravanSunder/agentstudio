@@ -392,7 +392,6 @@ extension WorkspaceStore {
         else { return }
         tabArrangementAtom.expandDrawerPane(drawerPaneId, drawerId: drawerId, tabId: tabId)
     }
-    package func toggleZoom(paneId: UUID, inTab tabId: UUID) { tabLayoutAtom.toggleZoom(paneId: paneId, inTab: tabId) }
     @discardableResult
     package func minimizePane(_ paneId: UUID, inTab tabId: UUID) -> Bool {
         tabLayoutAtom.minimizePane(paneId, inTab: tabId)

@@ -40,8 +40,8 @@ struct WorkspaceSurfaceArrangementSwitchHostTests {
                 sizingMode: .halveTarget
             )
             let allPanesArrangementId = harness.store.createArrangement(name: "All panes", inTab: tab.id)!
+            harness.store.switchArrangement(to: tab.defaultArrangement.id, inTab: tab.id)
             #expect(harness.store.minimizePane(hiddenPane.id, inTab: tab.id))
-            harness.store.tabLayoutAtom.setShowsMinimizedPanes(false, inTab: tab.id)
             harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
             harness.windowLifecycleStore.recordLaunchLayoutSettled()
 

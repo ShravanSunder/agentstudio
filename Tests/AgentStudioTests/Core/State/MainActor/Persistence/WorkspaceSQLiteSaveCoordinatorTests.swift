@@ -12,7 +12,7 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
     @Test("shallow capture prepares the exact current composition off-main")
     func shallowCapturePreparesExactCurrentCompositionOffMain() async throws {
         // Arrange
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         let persistedAt = Date(timeIntervalSince1970: 1_784_000_004)
         let expectedTabs = fixture.tabLayoutAtom.tabs
 
@@ -32,13 +32,17 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
     @Test("valid save writes the exact current composition bundle")
     func validSaveWritesExactCurrentCompositionBundle() async throws {
         // Arrange
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         let persistedAt = Date(timeIntervalSince1970: 1_784_000_000)
         let expected = await fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
 
         // Act
         let saved = try await fixture.coordinator.save(persistedAt: persistedAt)
-        let loadedWorkspace = await fixture.datastore.loadWorkspaceSnapshot()
+        let reloadDatastore = try await preparedWorkspaceSQLiteDatastore(
+            coreRepository: fixture.coreRepository,
+            preparedApplicationLocalRepository: fixture.preparedApplicationLocalRepository
+        )
+        let loadedWorkspace = await reloadDatastore.loadWorkspaceSnapshot()
 
         // Assert
         #expect(saved == expected)
@@ -53,7 +57,7 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
     @Test("topology changes cannot change captured composition")
     func topologyChangesCannotChangeCapturedComposition() async throws {
         // Arrange
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         let persistedAt = Date(timeIntervalSince1970: 1_784_000_003)
         let beforeTopologyChange = await fixture.coordinator.captureCurrentSaveBundle(
             persistedAt: persistedAt
@@ -86,7 +90,7 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
     @Test("invalid current composition is rejected before datastore write")
     func invalidCurrentCompositionIsRejectedBeforeDatastoreWrite() async throws {
         // Arrange
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         let missingTabID = UUIDv7.generate()
         fixture.tabLayoutAtom.shellAtom.cursorAtom.replaceActiveTab(missingTabID)
 
@@ -107,7 +111,7 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
     @Test("successful save acknowledgement does not mutate canonical atoms or cursors")
     func successfulSaveAcknowledgementDoesNotMutateCanonicalAtomsOrCursors() async throws {
         // Arrange
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         let persistedAt = Date(timeIntervalSince1970: 1_784_000_002)
         let before = await fixture.coordinator.captureCurrentSaveBundle(persistedAt: persistedAt)
 
@@ -122,7 +126,7 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
     @Test("save bundle omits panes explicitly held for pending undo")
     func saveBundleOmitsExplicitPendingUndoPanes() async throws {
         // Arrange
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         let pendingUndoPane = makeUnownedPane(
             title: "Pending undo",
             residency: .pendingUndo(expiresAt: Date(timeIntervalSince1970: 1_784_000_300))
@@ -141,7 +145,7 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
     @Test("pending undo projection preserves strict rejection for an active unowned pane")
     func pendingUndoProjectionPreservesStrictRejectionForActiveUnownedPane() async throws {
         // Arrange
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         let activeUnownedPane = makeUnownedPane(title: "Active unowned", residency: .active)
         fixture.workspacePaneAtom.addPane(activeUnownedPane)
 
@@ -165,13 +169,15 @@ private struct WorkspaceSQLiteSaveCoordinatorFixture {
     let repositoryTopologyAtom: RepositoryTopologyAtom
     let workspacePaneAtom: WorkspacePaneAtom
     let tabLayoutAtom: WorkspaceTabLayoutAtom
+    let coreRepository: WorkspaceCoreRepository
+    let preparedApplicationLocalRepository: WorkspaceLocalRepository
     let datastore: WorkspaceSQLiteDatastore
     let coordinator: WorkspaceSQLiteSaveCoordinator
     let probe: WorkspaceSQLiteSaveCoordinatorProbe
 }
 
 @MainActor
-private func makeFixture() throws -> WorkspaceSQLiteSaveCoordinatorFixture {
+private func makeFixture() async throws -> WorkspaceSQLiteSaveCoordinatorFixture {
     let workspaceID = UUIDv7.generate()
     let paneID = PaneId.generateUUIDv7().uuid
     let drawerID = UUIDv7.generate()
@@ -229,17 +235,22 @@ private func makeFixture() throws -> WorkspaceSQLiteSaveCoordinatorFixture {
     try WorkspaceCoreMigrations.migrate(coreQueue)
     try WorkspaceLocalMigrations.migrate(localQueue)
     let probe = WorkspaceSQLiteSaveCoordinatorProbe()
-    let datastore = WorkspaceSQLiteDatastore(
-        coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
-        makeLocalRepository: {
-            WorkspaceLocalRepository(workspaceId: $0, databaseWriter: localQueue)
-        },
+    let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
+    let preparedApplicationLocalRepository = WorkspaceLocalRepository(
+        workspaceId: workspaceID,
+        databaseWriter: localQueue
+    )
+    let datastore = try await preparedWorkspaceSQLiteDatastore(
+        coreRepository: coreRepository,
+        preparedApplicationLocalRepository: preparedApplicationLocalRepository,
         probe: { event in await probe.record(event) }
     )
     return WorkspaceSQLiteSaveCoordinatorFixture(
         repositoryTopologyAtom: repositoryTopologyAtom,
         workspacePaneAtom: workspacePaneAtom,
         tabLayoutAtom: tabLayoutAtom,
+        coreRepository: coreRepository,
+        preparedApplicationLocalRepository: preparedApplicationLocalRepository,
         datastore: datastore,
         coordinator: WorkspaceSQLiteSaveCoordinator(
             identityAtom: identityAtom,

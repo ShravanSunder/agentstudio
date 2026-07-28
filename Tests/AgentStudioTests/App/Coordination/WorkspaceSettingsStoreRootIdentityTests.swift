@@ -2,6 +2,10 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioEditorChooser
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioRepoExplorer
 
 @MainActor
 @Suite(.serialized)
@@ -14,7 +18,7 @@ struct WorkspaceSettingsStoreRootIdentityTests {
         let appDelegate = AppDelegate()
         appDelegate.atomStore = atomStore
         let settingsStore = appDelegate.makeWorkspaceSettingsStore(
-            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
+            sqliteDatastore: try await workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
 
         atomStore.editorPreference.setBookmarkedEditor("cursor")

@@ -285,6 +285,11 @@ extension WorkspaceSurfaceCoordinator {
     ) {
         let layoutDirection = bridgeDirection(direction)
         let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
+        let sourcePaneIds = store.tabLayoutAtom.tab(sourceTabId)?.allPaneIds ?? []
+        let capturedZoomCompanions = captureZoomCompanions(
+            forSourcePanes: sourcePaneIds
+        )
+        store.panePresentationAtom.cancelZoom(inTab: sourceTabId)
 
         store.tabLayoutAtom.mergeTab(
             sourceId: sourceTabId,
@@ -294,6 +299,7 @@ extension WorkspaceSurfaceCoordinator {
             position: position,
             drawerPayloadsByParentPaneId: drawerMovePayloadsByParentPaneId(inTab: sourceTabId)
         )
+        reassociateZoomCompanionsWithCurrentTabs(capturedZoomCompanions)
     }
 
     func executeRepair(_ repairAction: RepairAction) {

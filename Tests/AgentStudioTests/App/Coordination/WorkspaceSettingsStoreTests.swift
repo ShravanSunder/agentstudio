@@ -16,7 +16,7 @@ struct WorkspaceSettingsStoreTests {
     @Test
     func flushAndRestoreRoundTripsTypedSQLiteSettings() async throws {
         let workspaceId = UUID()
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         let editorPreference = EditorPreferenceAtom()
         let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
         let inboxPreferences = InboxNotificationPrefsAtom()
@@ -65,7 +65,7 @@ struct WorkspaceSettingsStoreTests {
 
     @Test
     func restoreMissingRowsAppliesTypedDefaults() async throws {
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         let editorPreference = EditorPreferenceAtom()
         let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
         let inboxPreferences = InboxNotificationPrefsAtom()
@@ -91,10 +91,81 @@ struct WorkspaceSettingsStoreTests {
         )
     }
 
-    @Test
-    func restoreInvalidProductVocabularyDefaultsEachTypedPreferenceLane() async throws {
+    @Test(
+        "one unavailable settings table defaults only its owning preference lane",
+        arguments: SettingsPreferenceLane.allCases
+    )
+    func unavailableSettingsTableDefaultsOnlyItsOwningLane(
+        _ unavailableLane: SettingsPreferenceLane
+    ) async throws {
         let workspaceId = UUID()
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
+        let repository = WorkspaceLocalRepository(
+            workspaceId: workspaceId,
+            databaseWriter: fixture.localDatabaseQueue
+        )
+        try repository.replaceEditorPreferences(
+            .init(bookmarkedEditorId: "cursor"),
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        try repository.replaceRepoExplorerPreferences(
+            try #require(
+                WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
+                    groupingMode: SQLiteLocalUXStorage.repoExplorerGroupingPane,
+                    sortOrder: SQLiteLocalUXStorage.repoExplorerSortDescending,
+                    visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityFavoritesOnly
+                )
+            ),
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        try repository.replaceInboxNotificationPreferences(
+            try #require(
+                WorkspaceLocalRepository.InboxNotificationPreferencesRecord.validated(
+                    grouping: SQLiteLocalUXStorage.inboxNotificationGroupingByRepo,
+                    sortOrder: SQLiteLocalUXStorage.inboxNotificationSortOldestFirst,
+                    bellEnabled: true,
+                    globalFilter: .init(
+                        contentMode: SQLiteLocalUXStorage.inboxNotificationContentActivity,
+                        rowStateFilter: SQLiteLocalUXStorage.inboxNotificationRowStateAll
+                    ),
+                    paneFilter: .init(
+                        contentMode: SQLiteLocalUXStorage.inboxNotificationContentAll,
+                        rowStateFilter: SQLiteLocalUXStorage.inboxNotificationRowStateAll
+                    )
+                )
+            ),
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        try await fixture.localDatabaseQueue.write { database in
+            try database.execute(sql: "DROP TABLE \(unavailableLane.tableName)")
+        }
+        let editorPreference = EditorPreferenceAtom()
+        let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
+        let inboxPreferences = InboxNotificationPrefsAtom()
+
+        await makeStore(
+            datastore: fixture.datastore,
+            editorPreference: editorPreference,
+            repoExplorerPreferences: repoExplorerPreferences,
+            inboxPreferences: inboxPreferences
+        ).restoreAsync(for: workspaceId)
+
+        #expect(editorPreference.bookmarkedEditorId == (unavailableLane == .editor ? nil : "cursor"))
+        #expect(repoExplorerPreferences.groupingMode == (unavailableLane == .repoExplorer ? .repo : .pane))
+        #expect(
+            inboxPreferences.grouping
+                == (unavailableLane == .inboxNotification ? .byTab : .byRepo)
+        )
+        let tableStillMissing = try await fixture.localDatabaseQueue.read { database in
+            try !database.tableExists(unavailableLane.tableName)
+        }
+        #expect(tableStillMissing)
+    }
+
+    @Test
+    func invalidPreferenceDefaultsWithoutHydrationWriteAndRepairsOnNextSave() async throws {
+        let workspaceId = UUID()
+        let fixture = try await makeFixture()
         try await fixture.localDatabaseQueue.write { database in
             try database.execute(
                 sql: """
@@ -119,7 +190,7 @@ struct WorkspaceSettingsStoreTests {
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 arguments: [
-                    workspaceId.uuidString, "unsupported", "oldestFirst", 1,
+                    workspaceId.uuidString, "byRepo", "oldestFirst", 1,
                     "activity", "all", "all", "unreadOnly", 1,
                 ]
             )
@@ -127,31 +198,56 @@ struct WorkspaceSettingsStoreTests {
         let editorPreference = EditorPreferenceAtom()
         let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
         let inboxPreferences = InboxNotificationPrefsAtom()
-
-        await makeStore(
+        let store = makeStore(
             datastore: fixture.datastore,
             editorPreference: editorPreference,
             repoExplorerPreferences: repoExplorerPreferences,
             inboxPreferences: inboxPreferences
-        ).restoreAsync(for: workspaceId)
+        )
+
+        await store.restoreAsync(for: workspaceId)
 
         #expect(editorPreference.bookmarkedEditorId == "cursor")
         #expect(repoExplorerPreferences.groupingMode == .repo)
         #expect(repoExplorerPreferences.sortOrder == .ascending)
         #expect(repoExplorerPreferences.repoVisibilityMode == .all)
-        #expect(inboxPreferences.grouping == .byTab)
-        #expect(inboxPreferences.sort == .newestFirst)
-        #expect(!inboxPreferences.bellEnabled)
-        #expect(inboxPreferences.globalInboxContentMode == .rollUpAlerts)
-        #expect(inboxPreferences.globalInboxRowStateFilter == .unreadOnly)
-        #expect(inboxPreferences.paneInboxContentMode == .rollUpAlerts)
+        #expect(inboxPreferences.grouping == .byRepo)
+        #expect(inboxPreferences.sort == .oldestFirst)
+        #expect(inboxPreferences.bellEnabled)
+        #expect(inboxPreferences.globalInboxContentMode == .activity)
+        #expect(inboxPreferences.globalInboxRowStateFilter == .all)
+        #expect(inboxPreferences.paneInboxContentMode == .all)
         #expect(inboxPreferences.paneInboxRowStateFilter == .unreadOnly)
+
+        let groupingAfterHydration = try await repoExplorerGrouping(
+            workspaceId: workspaceId,
+            databaseQueue: fixture.localDatabaseQueue
+        )
+        #expect(groupingAfterHydration == "unsupported")
+
+        editorPreference.setBookmarkedEditor("zed")
+        try await store.flush(for: workspaceId)
+
+        let groupingAfterSave = try await repoExplorerGrouping(
+            workspaceId: workspaceId,
+            databaseQueue: fixture.localDatabaseQueue
+        )
+        #expect(groupingAfterSave == "repo")
+        let repository = WorkspaceLocalRepository(
+            workspaceId: workspaceId,
+            databaseWriter: fixture.localDatabaseQueue
+        )
+        #expect(try repository.fetchEditorPreferences().bookmarkedEditorId == "zed")
+        #expect(
+            try repository.fetchInboxNotificationPreferences().grouping
+                == SQLiteLocalUXStorage.inboxNotificationGroupingByRepo
+        )
     }
 
     @Test
     func unavailableLocalDatabaseDefaultsWithoutBlockingAndReportsRecovery() async throws {
         let workspaceId = UUID()
-        let datastore = try makeFailingDatastore()
+        let datastore = try await makeFailingDatastore()
         let editorPreference = EditorPreferenceAtom()
         let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
         let inboxPreferences = InboxNotificationPrefsAtom()
@@ -183,7 +279,7 @@ struct WorkspaceSettingsStoreTests {
     @Test
     func observedSettingsMutationsAutosaveSettledTypedValues() async throws {
         let workspaceId = UUID()
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         let editorPreference = EditorPreferenceAtom()
         let repoExplorerPreferences = RepoExplorerSidebarPrefsAtom()
         let inboxPreferences = InboxNotificationPrefsAtom()
@@ -223,7 +319,7 @@ struct WorkspaceSettingsStoreTests {
     func restoreCancelsPendingDebouncedSaveForPreviousWorkspace() async throws {
         let workspaceAId = UUID()
         let workspaceBId = UUID()
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         let editorPreference = EditorPreferenceAtom()
         let clock = TestPushClock()
         let store = makeStore(
@@ -251,7 +347,7 @@ struct WorkspaceSettingsStoreTests {
     @Test
     func flushFailureReportsSaveFailedRecovery() async throws {
         let workspaceId = UUID()
-        let datastore = try makeFailingDatastore()
+        let datastore = try await makeFailingDatastore()
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let store = makeStore(
             datastore: datastore,
@@ -271,7 +367,7 @@ struct WorkspaceSettingsStoreTests {
 
     @Test
     func autosaveObservationStateIsExplicitlyArmed() async throws {
-        let fixture = try makeFixture()
+        let fixture = try await makeFixture()
         let store = makeStore(datastore: fixture.datastore)
 
         #expect(!store.isAutosaveObservationActive)
@@ -301,28 +397,29 @@ struct WorkspaceSettingsStoreTests {
         )
     }
 
-    private func makeFixture() throws -> SettingsFixture {
+    private func makeFixture() async throws -> SettingsFixture {
         let localDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrate(localDatabaseQueue)
         let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
         try coreRepository.migrate()
-        let datastore = WorkspaceSQLiteDatastore(
+        let datastore = try await preparedWorkspaceSQLiteDatastore(
             coreRepository: coreRepository,
-            makeLocalRepository: { workspaceId in
-                WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localDatabaseQueue)
-            }
+            preparedApplicationLocalRepository: WorkspaceLocalRepository(
+                workspaceId: UUID(),
+                databaseWriter: localDatabaseQueue
+            )
         )
         return .init(datastore: datastore, localDatabaseQueue: localDatabaseQueue)
     }
 
-    private func makeFailingDatastore() throws -> WorkspaceSQLiteDatastore {
+    private func makeFailingDatastore() async throws -> WorkspaceSQLiteDatastore {
         let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
         try coreRepository.migrate()
-        return WorkspaceSQLiteDatastore(
+        return try await preparedWorkspaceSQLiteDatastore(
             coreRepository: coreRepository,
-            makeLocalRepository: { _ in throw CocoaError(.fileNoSuchFile) }
+            localUnavailable: .init(CocoaError(.fileNoSuchFile))
         )
     }
 
@@ -348,4 +445,38 @@ struct WorkspaceSettingsStoreTests {
 private struct SettingsFixture {
     let datastore: WorkspaceSQLiteDatastore
     let localDatabaseQueue: DatabaseQueue
+}
+
+enum SettingsPreferenceLane: CaseIterable {
+    case editor
+    case repoExplorer
+    case inboxNotification
+
+    var tableName: String {
+        switch self {
+        case .editor:
+            "local_editor_preferences"
+        case .repoExplorer:
+            "local_repo_explorer_preferences"
+        case .inboxNotification:
+            "local_inbox_notification_preferences"
+        }
+    }
+}
+
+private func repoExplorerGrouping(
+    workspaceId: UUID,
+    databaseQueue: DatabaseQueue
+) async throws -> String? {
+    try await databaseQueue.read { database in
+        try String.fetchOne(
+            database,
+            sql: """
+                SELECT grouping_mode
+                FROM local_repo_explorer_preferences
+                WHERE workspace_id = ?
+                """,
+            arguments: [workspaceId.uuidString]
+        )
+    }
 }

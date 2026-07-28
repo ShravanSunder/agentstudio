@@ -4,24 +4,91 @@ import SwiftUI
 
 package struct PaneVisibilityInfo: Identifiable, Equatable {
     package let id: UUID
-    let title: String
-    let isMinimized: Bool
+    package let title: String
+    package let isMinimized: Bool
+    package let supportsZoom: Bool
+
+    package init(
+        id: UUID,
+        title: String,
+        isMinimized: Bool,
+        supportsZoom: Bool = false
+    ) {
+        self.id = id
+        self.title = title
+        self.isMinimized = isMinimized
+        self.supportsZoom = supportsZoom
+    }
+
+    package var statusSystemImageName: String? {
+        isMinimized ? "eye.slash.fill" : nil
+    }
+}
+
+package enum ArrangementPanelRole: Equatable, Sendable {
+    case defaultArrangement
+    case userLayout
 }
 
 package struct ArrangementInfo: Identifiable, Equatable {
     package let id: UUID
-    let name: String
-    let isDefault: Bool
-    let isActive: Bool
+    package let name: String
+    package let role: ArrangementPanelRole
+    package let isActive: Bool
+
+    package init(
+        id: UUID,
+        name: String,
+        role: ArrangementPanelRole,
+        isActive: Bool
+    ) {
+        self.id = id
+        self.name = name
+        self.role = role
+        self.isActive = isActive
+    }
+
+    package var isDefault: Bool {
+        role == .defaultArrangement
+    }
+}
+
+package struct ArrangementPanelZoomSourceIdentity: Equatable, Sendable {
+    package let title: String
+    package let detail: String?
+    package let fullPath: String?
+
+    package init(title: String, detail: String?, fullPath: String?) {
+        self.title = title
+        self.detail = detail
+        self.fullPath = fullPath
+    }
+}
+
+package struct ArrangementPanelZoomMode: Equatable, Sendable {
+    package let label: String
+    package let sourceIdentity: ArrangementPanelZoomSourceIdentity?
+
+    package init(
+        label: String,
+        sourceIdentity: ArrangementPanelZoomSourceIdentity? = nil
+    ) {
+        self.label = label
+        self.sourceIdentity = sourceIdentity
+    }
 }
 
 struct ArrangementPanelDisplayState: Equatable {
     let visiblePanes: [PaneVisibilityInfo]
+    let zoomMode: ArrangementPanelZoomMode?
     let arrangements: [ArrangementInfo]
-    let allowsMinimizedBarToggle: Bool
 
     var hasVisiblePanes: Bool {
         !visiblePanes.isEmpty
+    }
+
+    var allowsArrangementCreation: Bool {
+        true
     }
 
     var showsSaveArrangementButton: Bool {
@@ -29,11 +96,11 @@ struct ArrangementPanelDisplayState: Equatable {
     }
 
     var showsPaneVisibilitySection: Bool {
-        hasVisiblePanes
+        hasVisiblePanes && zoomMode == nil
     }
 
-    var showsMinimizedBarToggle: Bool {
-        hasVisiblePanes && allowsMinimizedBarToggle
+    var arrangementTriggerLabel: String? {
+        zoomMode?.label ?? arrangements.first(where: \.isActive)?.name
     }
 }
 
@@ -76,8 +143,8 @@ package enum ArrangementPopoverAutoOpen {
 /// Pure decision for whether a chip in the popover shows the rename pencil.
 /// Default arrangements are not renameable, so the affordance is hidden.
 enum ArrangementChipAffordance {
-    static func showsRenamePencil(isDefault: Bool) -> Bool {
-        !isDefault
+    static func showsRenamePencil(role: ArrangementPanelRole) -> Bool {
+        role == .userLayout
     }
 }
 

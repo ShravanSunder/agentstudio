@@ -1,3 +1,4 @@
+import AgentStudioCommandBar
 import AgentStudioCore
 import Foundation
 import Observation
@@ -90,6 +91,17 @@ final class AppCommandDispatcher: AppCommandDispatching {
             sourceTabId: sourceTabId,
             targetTabId: targetTabId
         )
+    }
+
+    func dispatchQuickOpenDirectory(
+        _ directory: URL,
+        placement: QuickOpenDirectoryPlacement
+    ) {
+        guard let handler else {
+            Self.logger.warning("Quick Open directory dispatch had no workspace handler")
+            return
+        }
+        handler.executeQuickOpenDirectory(directory, placement: placement)
     }
 
     func canDispatch(_ command: AppCommand) -> Bool {

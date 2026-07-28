@@ -14,6 +14,8 @@ struct CommandBarTextField: NSViewRepresentable {
     let onEnter: (EnterModifier) -> Void
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onBackspaceOnEmpty: () -> Void
+    let onTabForward: () -> Void
+    let onShiftTabBack: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -113,6 +115,12 @@ struct CommandBarTextField: NSViewRepresentable {
                     return true
                 }
                 return false
+            case #selector(NSResponder.insertTab(_:)):
+                parent.onTabForward()
+                return true
+            case #selector(NSResponder.insertBacktab(_:)):
+                parent.onShiftTabBack()
+                return true
             default:
                 return false
             }

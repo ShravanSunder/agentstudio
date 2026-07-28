@@ -13,7 +13,7 @@ final class PaneContentWiringTests {
 
     init() {
         installTestCoreAtomsIfNeeded()
-        store = WorkspaceStore()
+        store = WorkspaceStore(startsObserving: false)
     }
 
     // MARK: - WorkspaceStore.createPane(content:)
@@ -75,7 +75,7 @@ final class PaneContentWiringTests {
     @Test
 
     func test_createPane_marksDirty() async {
-        _ = await store.flushAsync()
+        store.startObserving()
         _ = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://test.com")!, showNavigation: false)),
             metadata: PaneMetadata(title: "Web")
@@ -200,8 +200,7 @@ final class PaneContentWiringTests {
             metadata: PaneMetadata(title: "Web")
         )
         store.appendTab(Tab(paneId: pane.id))
-        let flushOutcome = await store.flushAsync()
-        try #require(flushOutcome == .persisted)
+        store.startObserving()
         #expect(!(store.isDirty))
 
         // Act
@@ -219,8 +218,7 @@ final class PaneContentWiringTests {
             metadata: PaneMetadata(title: "Web")
         )
         store.appendTab(Tab(paneId: pane.id))
-        let flushOutcome = await store.flushAsync()
-        try #require(flushOutcome == .persisted)
+        store.startObserving()
         #expect(!store.isDirty)
 
         store.syncPaneWebviewState(pane.id, state: state)
@@ -452,19 +450,19 @@ final class PaneContentWiringTests {
         #expect(registry.peekSlotForTesting(paneId) == nil)
     }
 
-    @Test("container-level surface survives render-mode switches without finalizing tombstones")
-    func viewRegistry_containerSurface_modeSwitch_doesNotFinalize() {
+    @Test("container-level surface survives rendered-set changes without finalizing tombstones")
+    func viewRegistry_containerSurface_renderedSetChange_doesNotFinalize() {
         let registry = ViewRegistry()
-        let zoomedPaneId = UUID()
+        let retainedPaneId = UUID()
         let otherPaneId = UUID()
-        let zoomedSlot = registry.ensureSlot(for: zoomedPaneId)
+        let retainedSlot = registry.ensureSlot(for: retainedPaneId)
         _ = registry.ensureSlot(for: otherPaneId)
 
-        registry.surfaceRenderedIds("tab:tab1", ids: [zoomedPaneId, otherPaneId])
+        registry.surfaceRenderedIds("tab:tab1", ids: [retainedPaneId, otherPaneId])
         registry.retireSlot(for: otherPaneId)
 
-        registry.surfaceRenderedIds("tab:tab1", ids: [zoomedPaneId])
-        #expect(registry.peekSlotForTesting(zoomedPaneId) === zoomedSlot)
+        registry.surfaceRenderedIds("tab:tab1", ids: [retainedPaneId])
+        #expect(registry.peekSlotForTesting(retainedPaneId) === retainedSlot)
         #expect(registry.isRetiredForTesting(otherPaneId) == false)
         #expect(registry.peekSlotForTesting(otherPaneId) == nil)
     }

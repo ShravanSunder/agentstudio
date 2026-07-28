@@ -18,7 +18,7 @@ enum WorkspaceHomeCardIcon: Equatable {
 
 struct WorkspaceRecentCardModel: Equatable, Identifiable {
     let id: String
-    let target: RecentWorkspaceTarget
+    let target: ApplicationRecentEntity
     let title: String
     let detail: String
     let icon: WorkspaceHomeCardIcon
@@ -43,7 +43,7 @@ struct WorkspaceEmptyStateModel: Equatable {
         return nil
     }
 
-    var recentTargets: [RecentWorkspaceTarget] {
+    var recentEntities: [ApplicationRecentEntity] {
         recentCards.map(\.target)
     }
 
@@ -79,13 +79,14 @@ enum WorkspaceLauncherProjector {
         }
 
         if workspaceTab.tabs.isEmpty {
+            let applicationRecency = atom(\.applicationEntityRecency)
             let checkoutColorHexByRepoId = projectCheckoutColorHexByRepoId(
                 store: store,
                 repoCache: repoCache
             )
             let visibleCards = Array(
                 projectRecentCards(
-                    recentTargets: repoCache.recentTargets,
+                    recentEntities: applicationRecency.recentEntities,
                     store: store,
                     repoCache: repoCache,
                     inboxAtom: inboxAtom,
@@ -104,15 +105,15 @@ enum WorkspaceLauncherProjector {
     }
 
     private static func projectRecentCards(
-        recentTargets: [RecentWorkspaceTarget],
+        recentEntities: [ApplicationEntityRecency],
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         inboxAtom: InboxNotificationAtom,
         checkoutColorHexByRepoId: [UUID: String]
     ) -> [WorkspaceRecentCardModel] {
-        recentTargets.compactMap { target in
+        recentEntities.compactMap { recency in
             projectCard(
-                target: target,
+                target: recency.entity,
                 store: store,
                 repoCache: repoCache,
                 inboxAtom: inboxAtom,
@@ -122,16 +123,37 @@ enum WorkspaceLauncherProjector {
     }
 
     private static func projectCard(
-        target: RecentWorkspaceTarget,
+        target: ApplicationRecentEntity,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         inboxAtom: InboxNotificationAtom,
         checkoutColorHexByRepoId: [UUID: String]
     ) -> WorkspaceRecentCardModel? {
-        if let worktreeId = target.worktreeId,
-            let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-            let repo = store.repositoryTopologyAtom.repo(containing: worktreeId)
-        {
+        switch target {
+        case .repository(let repositoryStableKey):
+            guard
+                let repo = store.repositoryTopologyAtom.repo(stableKey: repositoryStableKey),
+                !store.repositoryTopologyAtom.isRepoUnavailable(repo.id),
+                let worktree = canonicalDefaultWorktree(in: repo)
+            else {
+                return nil
+            }
+            return makeWorktreeCard(
+                target: target,
+                worktree: worktree,
+                repo: repo,
+                repoCache: repoCache,
+                inboxAtom: inboxAtom,
+                iconColorHex: checkoutColorHexByRepoId[repo.id]
+            )
+        case .worktree(let worktreeStableKey):
+            guard
+                let worktree = store.repositoryTopologyAtom.worktree(stableKey: worktreeStableKey),
+                let repo = store.repositoryTopologyAtom.repo(containing: worktree.id),
+                !store.repositoryTopologyAtom.isRepoUnavailable(repo.id)
+            else {
+                return nil
+            }
             return makeWorktreeCard(
                 target: target,
                 worktree: worktree,
@@ -141,23 +163,10 @@ enum WorkspaceLauncherProjector {
                 iconColorHex: checkoutColorHexByRepoId[repo.id]
             )
         }
-
-        if let resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: target.path) {
-            return makeWorktreeCard(
-                target: target,
-                worktree: resolvedContext.worktree,
-                repo: resolvedContext.repo,
-                repoCache: repoCache,
-                inboxAtom: inboxAtom,
-                iconColorHex: checkoutColorHexByRepoId[resolvedContext.repo.id]
-            )
-        }
-
-        return nil
     }
 
     private static func makeWorktreeCard(
-        target: RecentWorkspaceTarget,
+        target: ApplicationRecentEntity,
         worktree: Worktree,
         repo: Repo,
         repoCache: RepoCacheAtom,
@@ -191,9 +200,9 @@ enum WorkspaceLauncherProjector {
         }()
 
         return WorkspaceRecentCardModel(
-            id: target.id,
+            id: "recent:\(target.storageKind):\(target.storageKey)",
             target: target,
-            title: target.displayTitle,
+            title: cardTitle(target: target, repo: repo, worktree: worktree),
             detail: branchName,
             icon: worktree.isMainWorktree ? .mainWorktree : .gitWorktree,
             statusChips: chipModel,
@@ -202,6 +211,37 @@ enum WorkspaceLauncherProjector {
             repoName: repo.name,
             worktreeDisplayName: worktreeDisplayName
         )
+    }
+
+    static func resolveActivationWorktree(
+        target: ApplicationRecentEntity,
+        repositoryTopology: RepositoryTopologyAtom
+    ) -> Worktree? {
+        repositoryTopology.activationWorktree(for: target)
+    }
+
+    static func pruneStaleTarget(
+        _ target: ApplicationRecentEntity,
+        applicationRecency: ApplicationEntityRecencyAtom
+    ) {
+        applicationRecency.remove(target)
+    }
+
+    private static func canonicalDefaultWorktree(in repo: Repo) -> Worktree? {
+        repo.worktrees.first(where: \.isMainWorktree) ?? repo.worktrees.first
+    }
+
+    private static func cardTitle(
+        target: ApplicationRecentEntity,
+        repo: Repo,
+        worktree: Worktree
+    ) -> String {
+        switch target {
+        case .repository:
+            repo.name
+        case .worktree:
+            worktree.name
+        }
     }
 
     private static func projectCheckoutColorHexByRepoId(

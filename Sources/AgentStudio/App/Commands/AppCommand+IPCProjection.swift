@@ -53,7 +53,7 @@ struct AppCommandIPCExposure: Equatable, Sendable {
             .closePane, .extractPaneToTab, .movePaneToTab, .focusPane, .splitRight, .splitLeft,
             .equalizePanes, .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
             .focusNextPane, .focusPrevPane, .focusPane1, .focusPane2, .focusPane3, .focusPane4,
-            .focusPane5, .focusPane6, .focusPane7, .focusPane8, .focusPane9, .toggleSplitZoom,
+            .focusPane5, .focusPane6, .focusPane7, .focusPane8, .focusPane9, .zoomPane,
             .minimizePane, .expandPane, .switchArrangement, .previousArrangement, .nextArrangement,
             .cycleArrangement, .saveArrangement, .deleteArrangement, .renameArrangement, .enterDrawer,
             .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown, .focusDrawerPaneRight,
@@ -77,12 +77,12 @@ struct AppCommandIPCExposure: Equatable, Sendable {
             .addRepoFavorite, .removeRepoFavorite:
             return [.sidebarStateMutate]
         case .editPaneNote, .watchFolder, .removeRepo, .openWorktree, .openWorktreeInPane,
-            .openWebview, .showBridgeReview, .showBridgeFiles,
+            .openWebview, .showViewer, .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
             return [.layoutMutate]
         case .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .copyCurrentPanePath, .signInGitHub, .signInGoogle, .filterSidebar, .showCommandBarEverything,
-            .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
+            .showCommandBarQuickOpen, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
             return [.workspaceRead]
         }
     }
@@ -132,6 +132,17 @@ extension AppCommand {
             switch self {
             case .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
                 .uiPresentation()
+            case .zoomPane:
+                .headless(
+                    targetKinds: [.pane],
+                    requiredPrivileges: [.layoutMutate]
+                )
+            case .showViewer:
+                AppCommandIPCExposure(
+                    executionModes: [],
+                    targetKinds: [],
+                    requiredPrivileges: []
+                )
             case .showInboxNotifications, .showWorktreeSidebar:
                 AppCommandIPCExposure(
                     executionModes: [.headless, .requiresInteractiveInput],

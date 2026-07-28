@@ -85,74 +85,6 @@ struct PaneCloseTransitionCoordinatorTests {
         #expect(clock.pendingSleepCount == 0)
     }
 
-    @Test("zoomed panes still route close through the transition coordinator")
-    func zoomedPane_wiringKeepsCloseTransitionOnTheContainerPath() async {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-pane-close-transition-test-\(UUID().uuidString)")
-        let store = WorkspaceStore()
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let clock = TestPushClock()
-        let paneId = UUID()
-        let coordinator = PaneCloseTransitionCoordinator(clock: clock)
-        var closeActionFired = false
-        var closeActionContinuation: CheckedContinuation<Void, Never>?
-        let viewRegistry = ViewRegistry()
-        let paneHost = PaneHostView(paneId: paneId)
-        viewRegistry.register(paneHost, for: paneId)
-        let dispatcher = PaneTabActionDispatcher(
-            dispatch: { _ in
-                closeActionFired = true
-                closeActionContinuation?.resume()
-                closeActionContinuation = nil
-            },
-            shouldHandleSplitDragPayload: { _ in true },
-            shouldAcceptDrop: { _, _, _, _ in false },
-            handleDrop: { _, _, _, _ in }
-        )
-        let container = FlatTabStripContainer(
-            layout: Layout(paneId: paneId),
-            octiconLoader: makeTestOcticonLoader(),
-            tabId: UUID(),
-            activePaneId: paneId,
-            zoomedPaneId: paneId,
-            minimizedPaneIds: [],
-            closeTransitionCoordinator: coordinator,
-            actionDispatcher: dispatcher,
-            onPaneFocusTrigger: { _ in },
-            store: store,
-            repoCache: RepoCacheAtom(),
-            editorChooser: EditorChooserState(),
-            viewRegistry: viewRegistry,
-            appLifecycleStore: AppLifecycleAtom(),
-            onOpenPaneGitHub: { _ in },
-            workspaceWindowId: nil
-        )
-
-        guard let leaf = container.zoomedPaneLeafContainer() else {
-            Issue.record("Expected zoomed pane leaf container to be built")
-            return
-        }
-
-        #expect(leaf.closeTransitionCoordinator === coordinator)
-
-        leaf.beginCloseTransition()
-        #expect(closeActionFired == false)
-
-        await clock.waitForPendingSleepCount()
-        clock.advance(by: .milliseconds(120))
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            if closeActionFired {
-                continuation.resume()
-            } else {
-                closeActionContinuation = continuation
-            }
-        }
-
-        #expect(closeActionFired == true)
-        #expect(coordinator.closingPaneIds.contains(paneId) == false)
-    }
-
     @Test("drawer child close transition removes the last drawer pane into empty drawer context")
     func drawerChildCloseTransition_lastDrawerPane_landsInEmptyDrawerContext() async throws {
         let harness = makeHarness()
@@ -216,7 +148,8 @@ struct PaneCloseTransitionCoordinatorTests {
             actionDispatcher: actionDispatcher,
             onPaneFocusTrigger: { _ in },
             onOpenPaneGitHub: { _ in },
-            workspaceWindowId: nil
+            workspaceWindowId: nil,
+            toolbarPresentation: .hidden
         )
 
         window.makeFirstResponder(drawerHost)

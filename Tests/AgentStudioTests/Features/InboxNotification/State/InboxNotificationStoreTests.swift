@@ -1,10 +1,10 @@
-import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import GRDB
 import Testing
 
+@testable import AgentStudioCore
 @testable import AgentStudioInboxNotification
 
 @MainActor
@@ -13,30 +13,43 @@ struct InboxNotificationStoreTests {
     private func makeSQLiteAdapter(
         workspaceId: UUID,
         fixture: InboxNotificationSQLiteRepositoryFixture
-    ) throws -> InboxNotificationSQLiteDatastoreAdapter {
+    ) async throws -> InboxNotificationSQLiteDatastoreAdapter {
         let localBackend = WorkspaceLocalSQLiteStoreBackend { _ in
             WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: fixture.databaseQueue)
         }
         return InboxNotificationSQLiteDatastoreAdapter(
             workspaceId: workspaceId,
-            datastore: try makeWorkspaceSQLiteDatastore(from: localBackend)
+            datastore: try await makeWorkspaceSQLiteDatastore(from: localBackend)
         )
     }
 
     private func makeWorkspaceSQLiteDatastore(
         from localBackend: WorkspaceLocalSQLiteStoreBackend
-    ) throws -> WorkspaceSQLiteDatastore {
+    ) async throws -> WorkspaceSQLiteDatastore {
         let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
         try coreRepository.migrate()
-        return WorkspaceSQLiteDatastore(
+        let backend = WorkspaceSQLiteStoreBackend(
             coreRepository: coreRepository,
-            makeLocalRepository: { workspaceId in
-                try localBackend.repository(for: workspaceId)
-            },
-            makeLocalRestoreRepository: { workspaceId in
-                try localBackend.restoreRepository(for: workspaceId)
-            }
+            localBackend: localBackend,
+            coreDatabaseStartupProvenance: .createdDuringCurrentStartup
+        )
+        let preparedCore = try WorkspaceSQLiteDatastore.strictlyPrepareCore(using: backend)
+        let preparedApplicationLocalRepository: WorkspaceLocalRepository?
+        let preparedLocal: WorkspaceSQLiteDatastore.PreparedLocalDatabase
+        do {
+            preparedApplicationLocalRepository = try localBackend.restoreRepository(
+                for: inboxApplicationLocalRepositoryScopeId
+            )
+            preparedLocal = .available(recovery: nil)
+        } catch {
+            preparedApplicationLocalRepository = nil
+            preparedLocal = .unavailable(.init(error))
+        }
+        return WorkspaceSQLiteDatastore(
+            preparedCoreRepository: coreRepository,
+            preparationReceipt: .init(core: preparedCore, local: preparedLocal),
+            preparedApplicationLocalRepository: preparedApplicationLocalRepository
         )
     }
 
@@ -48,7 +61,7 @@ struct InboxNotificationStoreTests {
         clock: (any Clock<Duration> & Sendable)? = nil,
         debounceDuration: Duration = .milliseconds(500),
         recoveryReporter: PersistenceRecoveryReporter? = nil
-    ) throws -> InboxNotificationStore {
+    ) async throws -> InboxNotificationStore {
         InboxNotificationStore(
             inboxAtom: inboxAtom,
             prefsAtom: InboxNotificationPrefsAtom(),
@@ -56,7 +69,7 @@ struct InboxNotificationStoreTests {
             clock: clock,
             debounceDuration: debounceDuration,
             recoveryReporter: recoveryReporter,
-            sqliteAdapter: try makeSQLiteAdapter(workspaceId: workspaceId, fixture: fixture)
+            sqliteAdapter: try await makeSQLiteAdapter(workspaceId: workspaceId, fixture: fixture)
         )
     }
 
@@ -69,7 +82,7 @@ struct InboxNotificationStoreTests {
         let notification = makeNotification(title: "SQLite")
         sourceAtom.append(notification)
         sourceSidebar.setGroupCollapsed(InboxNotificationGroupKey("repo:agent-studio"), isCollapsed: true)
-        let sourceStore = try makeStore(
+        let sourceStore = try await makeStore(
             workspaceId: workspaceId,
             fixture: fixture,
             inboxAtom: sourceAtom,
@@ -80,7 +93,7 @@ struct InboxNotificationStoreTests {
 
         let restoredAtom = InboxNotificationAtom()
         let restoredSidebar = InboxSidebarState()
-        let restoredStore = try makeStore(
+        let restoredStore = try await makeStore(
             workspaceId: workspaceId,
             fixture: fixture,
             inboxAtom: restoredAtom,
@@ -102,7 +115,7 @@ struct InboxNotificationStoreTests {
         let sidebarState = InboxSidebarState()
         sidebarState.setGroupCollapsed(InboxNotificationGroupKey("repo:stale"), isCollapsed: true)
         sidebarState.setPendingFilter(.repo(id: UUID()))
-        let store = try makeStore(
+        let store = try await makeStore(
             workspaceId: workspaceId,
             fixture: fixture,
             inboxAtom: inboxAtom,
@@ -129,7 +142,7 @@ struct InboxNotificationStoreTests {
         let sidebarState = InboxSidebarState()
         sidebarState.setGroupCollapsed(InboxNotificationGroupKey("repo:stale"), isCollapsed: true)
         var reportedRecoveries: [PersistenceRecoveryEvent] = []
-        let store = try makeStore(
+        let store = try await makeStore(
             workspaceId: workspaceId,
             fixture: fixture,
             inboxAtom: inboxAtom,
@@ -154,7 +167,7 @@ struct InboxNotificationStoreTests {
         let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
         let inboxAtom = InboxNotificationAtom()
         let clock = TestPushClock()
-        let store = try makeStore(
+        let store = try await makeStore(
             workspaceId: workspaceId,
             fixture: fixture,
             inboxAtom: inboxAtom,
@@ -184,7 +197,7 @@ struct InboxNotificationStoreTests {
             try database.execute(sql: "DROP TABLE local_notification_inbox_item")
         }
         var reportedRecoveries: [PersistenceRecoveryEvent] = []
-        let store = try makeStore(
+        let store = try await makeStore(
             workspaceId: workspaceId,
             fixture: fixture,
             recoveryReporter: { reportedRecoveries.append($0) }
@@ -213,3 +226,7 @@ struct InboxNotificationStoreTests {
         )
     }
 }
+
+private let inboxApplicationLocalRepositoryScopeId = UUID(
+    uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+)

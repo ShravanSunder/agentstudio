@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 import Testing
 
@@ -9,16 +12,19 @@ final class CommandBarStateTests {
     private var state: CommandBarState!
 
     private static let recentsKey = "CommandBarRecentItemIds"
+    private static let recentCommandsKey = "CommandBarRecentCommands"
 
     init() {
         // Isolate UserDefaults — clear recents key before each test
         UserDefaults.standard.removeObject(forKey: Self.recentsKey)
+        UserDefaults.standard.removeObject(forKey: Self.recentCommandsKey)
         state = CommandBarState()
     }
 
     deinit {
         // Clean up UserDefaults after each test
         UserDefaults.standard.removeObject(forKey: Self.recentsKey)
+        UserDefaults.standard.removeObject(forKey: Self.recentCommandsKey)
         state = nil
     }
 
@@ -32,6 +38,7 @@ final class CommandBarStateTests {
         #expect(state.navigationStack.isEmpty)
         #expect(state.selectedIndex == 0)
         #expect(state.recentItemIds.isEmpty)
+        #expect(state.recentCommands.isEmpty)
     }
 
     // MARK: - Show / Dismiss
@@ -64,6 +71,19 @@ final class CommandBarStateTests {
         // Assert
         #expect(state.isVisible)
         #expect(state.rawInput == "$ ")
+    }
+
+    @Test
+    func test_show_quickOpenScope_hasDedicatedIdentityWithoutPrefix() {
+        state.show(defaultScope: .quickOpen)
+
+        #expect(state.isVisible)
+        #expect(state.rawInput.isEmpty)
+        #expect(state.activePrefix == nil)
+        #expect(state.activeScope == .quickOpen)
+        #expect(state.currentScope == .quickOpen)
+        #expect(state.rootScopeLabel == "Quick Open")
+        #expect(state.placeholder == "Open a terminal...")
     }
 
     @Test
@@ -364,6 +384,38 @@ final class CommandBarStateTests {
     }
 
     @Test
+    func test_popLevel_removesOnlyCurrentLevelAndClearsSelectionState() {
+        // Arrange
+        state.pushLevel(makeCommandBarLevel(id: "level-1"))
+        state.pushLevel(makeCommandBarLevel(id: "level-2"))
+        state.rawInput = "filter text"
+        state.selectedIndex = 3
+
+        // Act
+        state.popLevel()
+
+        // Assert
+        #expect(state.navigationStack.map(\.id) == ["level-1"])
+        #expect(state.rawInput.isEmpty)
+        #expect(state.selectedIndex == 0)
+    }
+
+    @Test
+    func test_popLevel_atRootDoesNothing() {
+        // Arrange
+        state.rawInput = "root search"
+        state.selectedIndex = 2
+
+        // Act
+        state.popLevel()
+
+        // Assert
+        #expect(state.navigationStack.isEmpty)
+        #expect(state.rawInput == "root search")
+        #expect(state.selectedIndex == 2)
+    }
+
+    @Test
     func test_isNested_afterPush_returnsTrue() {
         // Act
         state.pushLevel(makeCommandBarLevel())
@@ -398,56 +450,86 @@ final class CommandBarStateTests {
     }
 
     @Test
-    func test_scopePillLabel_returnsScopeLabelWhenPresent() {
-        // Arrange
-        let level = makeCommandBarLevel(title: "Actions", parentLabel: "Worktrees", scopeLabel: "Worktrees")
+    func test_breadcrumbLabels_includeRootAndTypedNestedLevels() {
+        state.show(prefix: "#")
+        state.pushLevel(
+            makeCommandBarLevel(
+                title: "actual",
+                scopeLabel: "Repository",
+                breadcrumbIcon: .coloredRepo(
+                    colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0]
+                )
+            )
+        )
+        state.pushLevel(
+            makeCommandBarLevel(
+                title: "actual",
+                scopeLabel: "Worktree",
+                breadcrumbIcon: .checkout(
+                    colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0],
+                    isMain: true
+                )
+            )
+        )
 
-        // Act
-        state.pushLevel(level)
-
-        // Assert
-        #expect(state.scopePillLabel == "Worktrees")
+        #expect(state.breadcrumbLabels == ["Repositories", "Repository actual", "Worktree actual"])
+        #expect(state.breadcrumbItems.map(\.label) == ["Repositories", "actual", "actual"])
+        #expect(
+            state.breadcrumbItems.map(\.icon) == [
+                nil,
+                .coloredRepo(
+                    colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0]
+                ),
+                .checkout(
+                    colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0],
+                    isMain: true
+                ),
+            ])
     }
 
     @Test
-    func test_scopePillLabel_returnsLevelTitle() {
-        // Arrange
-        let level = makeCommandBarLevel(title: "Close Tab")
+    func test_navigateToBreadcrumb_retainsSelectedAncestorAndClearsSelectionState() {
+        state.pushLevel(makeCommandBarLevel(id: "repository"))
+        state.pushLevel(makeCommandBarLevel(id: "worktree"))
+        state.rawInput = "filter"
+        state.selectedIndex = 3
 
-        // Act
-        state.pushLevel(level)
+        state.navigateToBreadcrumb(at: 1)
 
-        // Assert
-        #expect(state.scopePillLabel == "Close Tab")
+        #expect(state.navigationStack.map(\.id) == ["repository"])
+        #expect(state.rawInput.isEmpty)
+        #expect(state.selectedIndex == 0)
     }
 
     @Test
-    func test_backRowLabel_returnsTitleWhenScopeLabelPresent() {
-        let level = makeCommandBarLevel(title: "Actions", parentLabel: "Worktrees", scopeLabel: "Worktrees")
+    func test_navigateToBreadcrumb_rootClearsAllNestedLevels() {
+        state.pushLevel(makeCommandBarLevel(id: "repository"))
+        state.pushLevel(makeCommandBarLevel(id: "worktree"))
 
-        state.pushLevel(level)
+        state.navigateToBreadcrumb(at: 0)
 
-        #expect(state.backRowLabel == "Actions")
-    }
-
-    @Test
-    func test_backRowLabel_nestedWithoutScopeLabel_returnsNil() {
-        let level = makeCommandBarLevel(title: "Actions", parentLabel: "Worktrees", scopeLabel: nil)
-
-        state.pushLevel(level)
-
-        #expect(state.backRowLabel == nil)
+        #expect(state.navigationStack.isEmpty)
     }
 
     // MARK: - Selection
 
     @Test
-    func test_rawInput_didSet_resetsSelectedIndex() {
-        // Arrange
+    func test_rawInput_retainsRootSelectionAndResetsNestedSelection() {
+        // Arrange — root projection preserves identity across meaningful query changes.
         state.selectedIndex = 5
 
         // Act
         state.rawInput = "new text"
+
+        // Assert
+        #expect(state.selectedIndex == 5)
+
+        // Arrange — nested levels rebuild per query and retain the existing reset behavior.
+        state.pushLevel(makeCommandBarLevel())
+        state.selectedIndex = 5
+
+        // Act
+        state.rawInput = "nested text"
 
         // Assert
         #expect(state.selectedIndex == 0)
@@ -561,6 +643,91 @@ final class CommandBarStateTests {
         #expect(state.recentItemIds.last == "item-3")
     }
 
+    @Test
+    func test_recordRecentCommand_deduplicatesMovesToFrontAndCapsAtEight() {
+        let commands: [AppCommand] = [
+            .closeTab,
+            .renameTab,
+            .newTab,
+            .closePane,
+            .focusPane,
+            .toggleSidebar,
+            .showInboxNotifications,
+            .openWebview,
+            .watchFolder,
+            .closeTab,
+        ]
+
+        for command in commands {
+            state.recordRecentCommand(command)
+        }
+
+        #expect(state.recentCommands.count == 8)
+        #expect(state.recentCommands.first == .closeTab)
+        #expect(state.recentCommands.filter { $0 == .closeTab }.count == 1)
+        #expect(!state.recentCommands.contains(.renameTab))
+    }
+
+    @Test
+    func test_loadRecents_filtersMalformedCommandValuesAndRoundTripsTypedCommands() {
+        UserDefaults.standard.set(
+            [
+                AppCommand.closePane.rawValue,
+                "not-an-app-command",
+                AppCommand.closeTab.rawValue,
+                AppCommand.closePane.rawValue,
+            ],
+            forKey: Self.recentCommandsKey
+        )
+
+        state.loadRecents()
+
+        #expect(state.recentCommands == [.closePane, .closeTab])
+    }
+
+    @Test
+    func test_normalizedRootQuery_trimsEdgesAndPreservesInternalWhitespace() {
+        state.show(prefix: ">")
+        state.rawInput = ">   close  pane   "
+
+        #expect(state.normalizedRootQuery == "close  pane")
+        #expect(state.hasMeaningfulRootQuery)
+    }
+
+    @Test
+    func test_whitespaceOnlyRootQuery_remainsEmptyProjection() {
+        state.show(prefix: "#")
+        state.rawInput = "#    "
+
+        #expect(state.normalizedRootQuery.isEmpty)
+        #expect(!state.hasMeaningfulRootQuery)
+    }
+
+    @Test
+    func test_rootAndNestedBreadcrumbRetainScopeIdentityAndAncestry() {
+        state.show(prefix: "#")
+        state.pushLevel(
+            CommandBarLevel(
+                id: "repository",
+                title: "agent-studio",
+                scopeLabel: "Repository",
+                items: []
+            )
+        )
+        state.pushLevel(
+            CommandBarLevel(
+                id: "worktree",
+                title: "feature",
+                scopeLabel: "Worktree",
+                items: []
+            )
+        )
+
+        #expect(state.rootScopeLabel == "Repositories")
+        #expect(state.breadcrumbLabels == ["Repositories", "Repository agent-studio", "Worktree feature"])
+        #expect(state.breadcrumbLabel == "Repositories › Repository agent-studio › Worktree feature")
+    }
+
     // MARK: - Placeholder
 
     @Test
@@ -644,20 +811,6 @@ final class CommandBarStateTests {
 
         // Assert
         #expect(state.scopeIcon == "magnifyingglass")
-    }
-
-    // MARK: - Scope Pill at Root (nil behavior)
-
-    @Test
-    func test_scopePillLabel_atRoot_returnsNil() {
-        // Assert — no nested level, should be nil
-        #expect(state.scopePillLabel == nil)
-    }
-
-    @Test
-    func test_backRowLabel_atRoot_returnsNil() {
-        // Assert
-        #expect(state.backRowLabel == nil)
     }
 
     // MARK: - Selection Edge Cases (out-of-bounds initial state)

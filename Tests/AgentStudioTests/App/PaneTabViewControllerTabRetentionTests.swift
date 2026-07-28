@@ -501,42 +501,6 @@ struct PaneTabViewControllerTabRetentionTests {
         #expect(harness.viewRegistry.slot(for: pane.id).host === latePaneHost)
     }
 
-    @Test
-    func switchingZoomTarget_mountsTheNewZoomedPaneHost() throws {
-        let harness = makeHarness()
-        defer {
-            PaneViewRepresentable.onDismantleForTesting = nil
-            try? FileManager.default.removeItem(at: harness.tempDir)
-        }
-
-        let firstPane = harness.store.createPane(
-            launchDirectory: harness.tempDir,
-            provider: .zmx
-        )
-        let secondPane = harness.store.createPane(
-            launchDirectory: harness.tempDir,
-            provider: .zmx
-        )
-        let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
-
-        let firstPaneHost = PaneHostView(paneId: firstPane.id)
-        let secondPaneHost = PaneHostView(paneId: secondPane.id)
-        harness.viewRegistry.register(firstPaneHost, for: firstPane.id)
-        harness.viewRegistry.register(secondPaneHost, for: secondPane.id)
-        harness.controller.view.layoutSubtreeIfNeeded()
-
-        harness.store.toggleZoom(paneId: firstPane.id, inTab: tab.id)
-        harness.controller.view.layoutSubtreeIfNeeded()
-        #expect(firstPaneHost.window != nil)
-        #expect(secondPaneHost.window == nil)
-
-        harness.store.toggleZoom(paneId: secondPane.id, inTab: tab.id)
-        harness.controller.view.layoutSubtreeIfNeeded()
-        #expect(firstPaneHost.window == nil)
-        #expect(secondPaneHost.window != nil)
-    }
 }
 
 @MainActor

@@ -539,9 +539,17 @@ final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
 
 struct FakeUIPresentationPort: AppIPCUIPresentationPort {
     let workspaceWindowId: UUID?
+    let arrangementTabId: UUID
+    let arrangementContextPaneId: UUID?
 
-    nonisolated init(workspaceWindowId: UUID? = UUID()) {
+    nonisolated init(
+        workspaceWindowId: UUID? = UUID(),
+        arrangementTabId: UUID = UUID(),
+        arrangementContextPaneId: UUID? = nil
+    ) {
         self.workspaceWindowId = workspaceWindowId
+        self.arrangementTabId = arrangementTabId
+        self.arrangementContextPaneId = arrangementContextPaneId
     }
 
     func openCommandBar(_ params: IPCCommandBarOpenParams) throws -> IPCCommandBarOpenResult {
@@ -551,6 +559,18 @@ struct FakeUIPresentationPort: AppIPCUIPresentationPort {
         return IPCCommandBarOpenResult(
             workspaceWindowId: workspaceWindowId,
             scope: params.scope,
+            correlationId: params.correlationId
+        )
+    }
+
+    func openArrangements(_ params: IPCArrangementsOpenParams) throws -> IPCArrangementsOpenResult {
+        guard let workspaceWindowId else {
+            throw AppIPCUIPresentationError(reason: .noActiveWindow)
+        }
+        return IPCArrangementsOpenResult(
+            workspaceWindowId: workspaceWindowId,
+            tabId: arrangementTabId,
+            contextPaneId: arrangementContextPaneId,
             correlationId: params.correlationId
         )
     }

@@ -15,6 +15,8 @@ package final class RepositoryTopologyAtom {
     @ObservationIgnored private var repositoriesByID: [UUID: Repo] = [:]
     @ObservationIgnored private var worktreesByID: [UUID: Worktree] = [:]
     @ObservationIgnored private var watchedPathsByID: [UUID: WatchedPath] = [:]
+    @ObservationIgnored private var repositoryIDsByStableKey: [String: UUID] = [:]
+    @ObservationIgnored private var worktreeIDsByStableKey: [String: UUID] = [:]
 
     package init() {}
 
@@ -92,6 +94,41 @@ package final class RepositoryTopologyAtom {
     package func worktree(_ id: UUID) -> Worktree? {
         _ = repos
         return worktreesByID[id]
+    }
+
+    package func repo(stableKey: String) -> Repo? {
+        _ = repos
+        guard let repositoryID = repositoryIDsByStableKey[stableKey] else { return nil }
+        return repo(repositoryID)
+    }
+
+    package func worktree(stableKey: String) -> Worktree? {
+        _ = repos
+        guard let worktreeID = worktreeIDsByStableKey[stableKey] else { return nil }
+        return worktree(worktreeID)
+    }
+
+    package func activationWorktree(for recentEntity: ApplicationRecentEntity) -> Worktree? {
+        switch recentEntity {
+        case .repository(let repositoryStableKey):
+            guard
+                let repository = repo(stableKey: repositoryStableKey),
+                !isRepoUnavailable(repository.id)
+            else {
+                return nil
+            }
+            return repository.worktrees.first(where: \.isMainWorktree)
+                ?? repository.worktrees.first
+        case .worktree(let worktreeStableKey):
+            guard
+                let worktree = worktree(stableKey: worktreeStableKey),
+                let repository = repo(containing: worktree.id),
+                !isRepoUnavailable(repository.id)
+            else {
+                return nil
+            }
+            return worktree
+        }
     }
 
     func watchedPath(_ id: UUID) -> WatchedPath? {
@@ -175,6 +212,10 @@ package final class RepositoryTopologyAtom {
         repositoriesByID = Dictionary(uniqueKeysWithValues: repos.map { ($0.id, $0) })
         worktreesByID = Dictionary(uniqueKeysWithValues: repos.flatMap(\.worktrees).map { ($0.id, $0) })
         watchedPathsByID = Dictionary(uniqueKeysWithValues: watchedPaths.map { ($0.id, $0) })
+        repositoryIDsByStableKey = Dictionary(uniqueKeysWithValues: repos.map { ($0.stableKey, $0.id) })
+        worktreeIDsByStableKey = Dictionary(
+            uniqueKeysWithValues: repos.flatMap(\.worktrees).map { ($0.stableKey, $0.id) }
+        )
     }
 
     private func rebuildWorktreePathIndexAndBumpGeneration() {

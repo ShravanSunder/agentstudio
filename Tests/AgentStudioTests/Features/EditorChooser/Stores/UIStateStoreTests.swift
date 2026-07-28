@@ -13,7 +13,7 @@ struct UIStateStoreTests {
     func flushAndRestoreRoundTripsMainWindowSidebarState() async throws {
         let workspaceId = UUID()
         let fixture = try makeEditorChooserWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
-        let datastore = try editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        let datastore = try await editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         let atom = WorkspaceSidebarState()
         let store = UIStateStore(atom: atom, sqliteDatastore: datastore)
         atom.setFilterText("agent")
@@ -46,7 +46,7 @@ struct UIStateStoreTests {
 
         await UIStateStore(
             atom: atom,
-            sqliteDatastore: try editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
+            sqliteDatastore: try await editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         ).restoreAsync(for: workspaceId)
 
         #expect(atom.filterText.isEmpty)
@@ -66,7 +66,7 @@ struct UIStateStoreTests {
 
         await UIStateStore(
             atom: atom,
-            sqliteDatastore: try editorChooserWorkspaceSQLiteDatastore(
+            sqliteDatastore: try await editorChooserWorkspaceSQLiteDatastore(
                 from: failingEditorChooserWorkspaceLocalSQLiteBackend()
             ),
             recoveryReporter: { reportedRecoveries.append($0) }
@@ -90,7 +90,7 @@ struct UIStateStoreTests {
         let clock = TestPushClock()
         let store = UIStateStore(
             atom: atom,
-            sqliteDatastore: try editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            sqliteDatastore: try await editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
@@ -117,7 +117,7 @@ struct UIStateStoreTests {
         let clock = TestPushClock()
         let store = UIStateStore(
             atom: WorkspaceSidebarState(),
-            sqliteDatastore: try editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            sqliteDatastore: try await editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
@@ -142,7 +142,7 @@ struct UIStateStoreTests {
         let clock = TestPushClock()
         let store = UIStateStore(
             atom: atom,
-            sqliteDatastore: try editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            sqliteDatastore: try await editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
@@ -164,7 +164,7 @@ struct UIStateStoreTests {
         let fixture = try makeEditorChooserWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let store = UIStateStore(
             atom: WorkspaceSidebarState(),
-            sqliteDatastore: try editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
+            sqliteDatastore: try await editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
 
         #expect(store.isAutosaveObservationActive == false)

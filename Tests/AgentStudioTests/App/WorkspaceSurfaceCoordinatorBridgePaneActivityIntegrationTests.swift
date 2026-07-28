@@ -37,7 +37,7 @@ extension WebKitSerializedTests {
                 case .minimized:
                     "minimized pane"
                 case .zoomExcluded:
-                    "zoom-excluded pane"
+                    "Zoom-excluded pane"
                 case .backgroundedResidency:
                     "backgrounded residency"
                 }
@@ -369,9 +369,14 @@ extension WebKitSerializedTests {
                     )
                 )
             case .zoomExcluded:
-                harness.store.tabLayoutAtom.toggleZoom(
-                    paneId: harness.siblingPane.id,
-                    inTab: harness.tabId
+                guard harness.store.tabLayoutAtom.tab(harness.tabId) != nil else {
+                    Issue.record("Expected activity fixture tab")
+                    return
+                }
+                harness.store.panePresentationAtom.enterZoom(
+                    inTab: harness.tabId,
+                    sourcePaneId: harness.siblingPane.id,
+                    viewerPresentation: .unavailable
                 )
             case .backgroundedResidency:
                 harness.store.paneAtom.setResidency(.backgrounded, for: harness.bridgePane.id)

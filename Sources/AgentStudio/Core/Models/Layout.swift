@@ -7,6 +7,11 @@ package struct Layout: Codable, Hashable, Sendable {
     package struct PaneEntry: Codable, Hashable, Sendable {
         let paneId: UUID
         let ratio: Double
+
+        package init(paneId: UUID, ratio: Double) {
+            self.paneId = paneId
+            self.ratio = ratio
+        }
     }
 
     package enum SplitDirection: String, Codable, Hashable, Sendable {
@@ -32,7 +37,7 @@ package struct Layout: Codable, Hashable, Sendable {
         self.dividerIds = []
     }
 
-    init(panes: [PaneEntry], dividerIds: [UUID]) {
+    package init(panes: [PaneEntry], dividerIds: [UUID]) {
         precondition(
             dividerIds.count == max(panes.count - 1, 0),
             "Layout divider count must equal pane count minus one"

@@ -195,7 +195,6 @@ package struct WorkspaceLocalSQLiteStoreBackend: Sendable {
 }
 
 enum WorkspaceLocalSQLiteStoreBackendError: Error {
-    case recoveredFromCorruption(UUID, quarantinedFilename: String? = nil)
     case quarantineFailed(UUID, quarantinedFilename: String? = nil)
 }
 
@@ -556,7 +555,6 @@ enum WorkspaceSQLiteStateBridge {
             isDefault: arrangement.isDefault,
             layout: arrangement.layout,
             minimizedPaneIds: arrangement.minimizedPaneIds,
-            showsMinimizedPanes: arrangement.showsMinimizedPanes,
             drawerViews: arrangement.drawerViews.mapValues { drawerView in
                 .init(
                     layout: drawerView.layout,
@@ -694,8 +692,7 @@ enum WorkspaceSQLiteStateBridge {
             allPaneIds: state.allPaneIds,
             arrangements: arrangements,
             activeArrangementId: activeArrangementId,
-            colorHex: shell.colorHex,
-            zoomedPaneId: nil
+            colorHex: shell.colorHex
         )
     }
 

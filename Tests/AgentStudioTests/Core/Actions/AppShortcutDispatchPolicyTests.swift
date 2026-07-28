@@ -27,7 +27,7 @@ struct TerminalAppOwnedShortcutPolicyTests {
         )
 
         #expect(AppShortcut.newTab.spec.contexts.contains(.terminalAppOwned))
-        #expect(AppShortcut.newTab.command == .showCommandBarRepos)
+        #expect(AppShortcut.newTab.command == .showCommandBarQuickOpen)
         #expect(
             AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(
                 .showCommandBarEverything, context: context))
@@ -116,6 +116,7 @@ struct TerminalAppOwnedShortcutPolicyTests {
         #expect(
             AppShortcutDispatchPolicy.sourcePaneTarget(for: .showPaneInboxNotifications, sourcePaneId: sourcePaneId)
                 == nil)
+        #expect(AppShortcutDispatchPolicy.sourcePaneTarget(for: .zoomPane, sourcePaneId: sourcePaneId) == nil)
         #expect(AppShortcutDispatchPolicy.sourcePaneTarget(for: .scrollToBottom, sourcePaneId: nil) == nil)
     }
 }

@@ -649,6 +649,22 @@ final class WorkspaceActionExecutorTests {
     }
 
     @Test
+    func test_computeSwitchArrangementTransitions_keepsZoomSourcePresented() {
+        let sourcePaneId = UUID()
+
+        let transitions = WorkspaceActionExecutor.computeSwitchArrangementTransitions(
+            previousVisiblePaneIds: [sourcePaneId],
+            previouslyMinimizedPaneIds: [],
+            newVisiblePaneIds: [sourcePaneId],
+            newMinimizedPaneIds: [sourcePaneId],
+            retainedVisiblePaneIds: [sourcePaneId]
+        )
+
+        #expect(transitions.hiddenPaneIds.isEmpty)
+        #expect(transitions.paneIdsToReattach.isEmpty)
+    }
+
+    @Test
     func test_execute_switchArrangement_updatesStoreState() {
         // Arrange: tab with panes A, B, C. Default arrangement has all 3.
         let pA = store.createPane()

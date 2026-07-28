@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import SwiftUI
 import os.log
@@ -34,7 +35,9 @@ package final class CommandBarState {
                 rawInput = normalizedPrefix
                 return
             }
-            selectedIndex = 0
+            if isNested {
+                selectedIndex = 0
+            }
         }
     }
 
@@ -57,6 +60,8 @@ package final class CommandBarState {
 
     /// Persisted recent item IDs, ordered most-recent-first.
     var recentItemIds: [String] = []
+    /// Persisted typed command history, ordered most-recent-first.
+    private(set) var recentCommands: [AppCommand] = []
 
     // MARK: - Computed — Prefix Parsing
 
@@ -72,6 +77,14 @@ package final class CommandBarState {
     var searchQuery: String {
         guard let prefix = activePrefix else { return rawInput }
         return String(rawInput.dropFirst(prefix.count))
+    }
+
+    var normalizedRootQuery: String {
+        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var hasMeaningfulRootQuery: Bool {
+        !normalizedRootQuery.isEmpty
     }
 
     /// Current scope derived from prefix.
@@ -98,14 +111,48 @@ package final class CommandBarState {
     /// Current level for display (last in stack, or nil for root).
     var currentLevel: CommandBarLevel? { navigationStack.last }
 
-    /// Pill label: shows scopeLabel if set, otherwise falls back to title.
-    var scopePillLabel: String? { currentLevel?.scopeLabel ?? currentLevel?.title }
+    var rootScopeLabel: String {
+        switch currentScope {
+        case .everything: return "Main"
+        case .quickOpen: return "Quick Open"
+        case .commands: return "Commands"
+        case .panes: return "Panes"
+        case .repos: return "Repositories"
+        case .inbox: return "Inbox"
+        }
+    }
 
-    /// Back row label: shows title when scopeLabel is set (pill shows category),
-    /// nil when scopeLabel is absent (pill already shows title, bare ‹ suffices).
-    var backRowLabel: String? {
-        guard let level = currentLevel else { return nil }
-        return level.scopeLabel != nil ? level.title : nil
+    var breadcrumbLabels: [String] {
+        breadcrumbItems.map(\.accessibilityLabel)
+    }
+
+    var breadcrumbItems: [CommandBarBreadcrumbItem] {
+        [
+            CommandBarBreadcrumbItem(
+                label: rootScopeLabel,
+                accessibilityLabel: rootScopeLabel,
+                icon: nil
+            )
+        ]
+            + navigationStack.map { level in
+                let accessibilityLabel = typedBreadcrumbLabel(for: level)
+                return CommandBarBreadcrumbItem(
+                    label: level.breadcrumbIcon == nil ? accessibilityLabel : level.title,
+                    accessibilityLabel: accessibilityLabel,
+                    icon: level.breadcrumbIcon
+                )
+            }
+    }
+
+    var breadcrumbLabel: String {
+        breadcrumbLabels.joined(separator: " › ")
+    }
+
+    private func typedBreadcrumbLabel(for level: CommandBarLevel) -> String {
+        guard let scopeLabel = level.scopeLabel, scopeLabel != level.title else {
+            return level.title
+        }
+        return "\(scopeLabel) \(level.title)"
     }
 
     // MARK: - Placeholder
@@ -117,6 +164,7 @@ package final class CommandBarState {
         }
         switch activeScope {
         case .everything: return "Search or jump to..."
+        case .quickOpen: return "Open a terminal..."
         case .commands: return "Run a command..."
         case .panes: return "Search panes..."
         case .repos: return "Open repo or worktree..."
@@ -129,6 +177,7 @@ package final class CommandBarState {
         if isNested { return "magnifyingglass" }
         switch activeScope {
         case .everything: return "magnifyingglass"
+        case .quickOpen: return "terminal"
         case .commands: return "chevron.right.2"
         case .panes: return "terminal"
         case .repos: return "octicon-repo"
@@ -228,6 +277,22 @@ package final class CommandBarState {
         selectedIndex = 0
     }
 
+    /// Pop the current nested level while preserving its parent.
+    func popLevel() {
+        guard !navigationStack.isEmpty else { return }
+        navigationStack.removeLast()
+        rawInput = ""
+        selectedIndex = 0
+    }
+
+    /// Navigate directly to an ancestor represented by a breadcrumb index.
+    func navigateToBreadcrumb(at index: Int) {
+        guard index >= 0, index < breadcrumbLabels.count - 1 else { return }
+        navigationStack = Array(navigationStack.prefix(index))
+        rawInput = ""
+        selectedIndex = 0
+    }
+
     /// Pop back to root level.
     func popToRoot() {
         navigationStack = []
@@ -251,15 +316,25 @@ package final class CommandBarState {
     func recordRecent(itemId: String) {
         recentItemIds.removeAll { $0 == itemId }
         recentItemIds.insert(itemId, at: 0)
-        if recentItemIds.count > 8 {
-            recentItemIds = Array(recentItemIds.prefix(8))
+        if recentItemIds.count > AppPolicies.CommandBar.maximumHistoryCount {
+            recentItemIds = Array(recentItemIds.prefix(AppPolicies.CommandBar.maximumHistoryCount))
         }
         persistRecents()
+    }
+
+    func recordRecentCommand(_ command: AppCommand) {
+        recentCommands.removeAll { $0 == command }
+        recentCommands.insert(command, at: 0)
+        if recentCommands.count > AppPolicies.CommandBar.maximumHistoryCount {
+            recentCommands = Array(recentCommands.prefix(AppPolicies.CommandBar.maximumHistoryCount))
+        }
+        persistRecentCommands()
     }
 
     // MARK: - Persistence
 
     private static let recentsKey = "CommandBarRecentItemIds"
+    private static let recentCommandsKey = "CommandBarRecentCommands"
 
     private static func normalizedLeadingPrefix(for input: String, previousInput: String) -> String? {
         guard previousInput.isEmpty else { return nil }
@@ -269,9 +344,21 @@ package final class CommandBarState {
 
     func loadRecents() {
         recentItemIds = UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []
+        let storedCommandValues = UserDefaults.standard.stringArray(forKey: Self.recentCommandsKey) ?? []
+        var seenCommands: Set<AppCommand> = []
+        recentCommands =
+            storedCommandValues
+            .compactMap(AppCommand.init(rawValue:))
+            .filter { seenCommands.insert($0).inserted }
+            .prefix(AppPolicies.CommandBar.maximumHistoryCount)
+            .map(\.self)
     }
 
     private func persistRecents() {
         UserDefaults.standard.set(recentItemIds, forKey: Self.recentsKey)
+    }
+
+    private func persistRecentCommands() {
+        UserDefaults.standard.set(recentCommands.map(\.rawValue), forKey: Self.recentCommandsKey)
     }
 }

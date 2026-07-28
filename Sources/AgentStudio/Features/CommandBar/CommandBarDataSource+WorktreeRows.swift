@@ -24,6 +24,20 @@ extension CommandBarDataSource {
         store: WorkspaceStore,
         dispatcher: any AppCommandDispatching
     ) -> [CommandBarItem] {
+        allRepoItems(
+            store: store,
+            group: Group.repositories,
+            groupPriority: Priority.repositories,
+            dispatcher: dispatcher
+        )
+    }
+
+    static func allRepoItems(
+        store: WorkspaceStore,
+        group: String,
+        groupPriority: Int,
+        dispatcher: any AppCommandDispatching
+    ) -> [CommandBarItem] {
         let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
         return store.repositoryTopologyAtom.repos
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -32,6 +46,8 @@ extension CommandBarDataSource {
                     repo: repo,
                     store: store,
                     presenceByWorktreeId: presenceByWorktreeId,
+                    group: group,
+                    groupPriority: groupPriority,
                     dispatcher: dispatcher
                 )
             }
@@ -49,7 +65,7 @@ extension CommandBarDataSource {
                     repo: repo,
                     presence: presence,
                     group: Group.worktrees,
-                    groupPriority: Priority.worktrees
+                    groupPriority: Priority.repositories
                 )
             }
         }
@@ -79,7 +95,25 @@ extension CommandBarDataSource {
     static func repoRootItem(
         repo: Repo,
         store: WorkspaceStore,
+        dispatcher: any AppCommandDispatching
+    ) -> CommandBarItem {
+        let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
+        return repoRootItem(
+            repo: repo,
+            store: store,
+            presenceByWorktreeId: presenceByWorktreeId,
+            group: Group.repos,
+            groupPriority: Priority.repos,
+            dispatcher: dispatcher
+        )
+    }
+
+    static func repoRootItem(
+        repo: Repo,
+        store: WorkspaceStore,
         presenceByWorktreeId: [UUID: WorktreePresence],
+        group: String,
+        groupPriority: Int,
         dispatcher: any AppCommandDispatching
     ) -> CommandBarItem {
         let level = buildRepoLevel(
@@ -93,8 +127,8 @@ extension CommandBarDataSource {
             title: repo.name,
             subtitle: repoRootSubtitle(repo: repo, presenceByWorktreeId: presenceByWorktreeId),
             icon: .system(.folder),
-            group: "Repos",
-            groupPriority: 0,
+            group: group,
+            groupPriority: groupPriority,
             keywords: repoRootKeywords(repo: repo),
             hasChildren: true,
             action: .navigateRepo(level)
@@ -217,18 +251,25 @@ extension CommandBarDataSource {
     ) -> CommandBarLevel {
         let defaultWorktree = repo.worktrees.first(where: \.isMainWorktree) ?? repo.worktrees.first
         var items: [CommandBarItem] = []
+        let canOpenInCurrentTab = store.tabLayoutAtom.activeTabId != nil
 
         if let defaultWorktree {
             items.append(
+                contentsOf: terminalWorktreeActionItems(
+                    worktreeId: defaultWorktree.id,
+                    canOpenInCurrentTab: canOpenInCurrentTab
+                )
+            )
+            items.append(
                 copyPathItem(
-                    id: "repo-\(repo.id.uuidString)", path: defaultWorktree.path, group: "Open", groupPriority: 0)
+                    id: "repo-\(repo.id.uuidString)", path: defaultWorktree.path, group: "Path", groupPriority: 1)
             )
             items.append(
                 revealInFinderItem(
                     id: "repo-\(repo.id.uuidString)",
                     path: defaultWorktree.path,
-                    group: "Open",
-                    groupPriority: 0
+                    group: "Path",
+                    groupPriority: 1
                 )
             )
         }
@@ -257,7 +298,7 @@ extension CommandBarDataSource {
                         subtitle: worktreePresenceSubtitle(presence: presence, worktree: worktree),
                         icon: worktree.isMainWorktree ? .system(.starFill) : .system(.arrowTriangleBranch),
                         group: "Worktrees",
-                        groupPriority: 1,
+                        groupPriority: 2,
                         keywords: worktreeKeywords(worktree: worktree, repo: repo, includeFullPath: true),
                         hasChildren: true,
                         action: .navigate(level),
@@ -266,16 +307,33 @@ extension CommandBarDataSource {
                 }
         )
 
+        if let defaultWorktree {
+            let bridgeResolution =
+                dispatcher
+                .bridgePaneCommandTarget(worktreeId: defaultWorktree.id)?
+                .resolution ?? .create
+            items.append(
+                contentsOf: bridgeWorktreeActionItems(
+                    worktreeId: defaultWorktree.id,
+                    resolution: bridgeResolution,
+                    groupPriority: 3
+                )
+            )
+        }
+
         return CommandBarLevel(
             id: "level-repo-\(repo.id.uuidString)",
             title: repo.name,
             parentLabel: "Repos",
-            scopeLabel: "Repo",
+            scopeLabel: "Repository",
+            breadcrumbIcon: .coloredRepo(
+                colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0]
+            ),
             items: items
         )
     }
 
-    private static func emptyWorktreePresence(worktree: Worktree, repo: Repo) -> WorktreePresence {
+    static func emptyWorktreePresence(worktree: Worktree, repo: Repo) -> WorktreePresence {
         WorktreePresence(
             worktreeId: worktree.id,
             repoId: repo.id,
@@ -302,40 +360,31 @@ extension CommandBarDataSource {
         dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
         let worktreeId = presence.worktreeId
-        let newTabShortcut = ShortcutTrigger(key: .enter, modifiers: [.command])
         let bridgeResolution =
             dispatcher.bridgePaneCommandTarget(worktreeId: worktreeId)?
             .resolution ?? .create
-        var items = [
-            copyPathItem(id: "wt-\(worktreeId.uuidString)", path: worktree.path, group: "Open", groupPriority: 0),
-            revealInFinderItem(id: "wt-\(worktreeId.uuidString)", path: worktree.path, group: "Open", groupPriority: 0),
-            CommandBarItem(
-                id: "wt-new-tab-\(worktreeId.uuidString)",
-                title: AppCommand.openNewTerminalInTab.definition.label,
-                icon: .system(.plusRectangle),
-                shortcutTrigger: newTabShortcut,
-                group: "Open",
-                groupPriority: 0,
-                action: .dispatchTargeted(.openNewTerminalInTab, target: worktreeId, targetType: .worktree),
-                command: .openNewTerminalInTab
-            ),
-        ]
-        items.append(contentsOf: bridgeWorktreeActionItems(worktreeId: worktreeId, resolution: bridgeResolution))
-
-        if canOpenInCurrentTab {
-            let currentTabShortcut = ShortcutTrigger(key: .enter, modifiers: [.option])
-            items.append(
-                CommandBarItem(
-                    id: "wt-add-pane-\(worktreeId.uuidString)",
-                    title: "New pane in current tab",
-                    icon: .system(.rectangleSplit2x1),
-                    shortcutTrigger: currentTabShortcut,
-                    group: "Open",
-                    groupPriority: 0,
-                    action: .dispatchTargeted(.openWorktreeInPane, target: worktreeId, targetType: .worktree),
-                    command: .openWorktreeInPane
-                ))
-        }
+        var items = terminalWorktreeActionItems(
+            worktreeId: worktreeId,
+            canOpenInCurrentTab: canOpenInCurrentTab
+        )
+        items.append(
+            copyPathItem(id: "wt-\(worktreeId.uuidString)", path: worktree.path, group: "Path", groupPriority: 1)
+        )
+        items.append(
+            revealInFinderItem(
+                id: "wt-\(worktreeId.uuidString)",
+                path: worktree.path,
+                group: "Path",
+                groupPriority: 1
+            )
+        )
+        items.append(
+            contentsOf: bridgeWorktreeActionItems(
+                worktreeId: worktreeId,
+                resolution: bridgeResolution,
+                groupPriority: 2
+            )
+        )
 
         items.append(
             contentsOf: presence.openPanes.map { location in
@@ -345,7 +394,7 @@ extension CommandBarDataSource {
                     subtitle: locationSubtitle(for: location),
                     icon: .system(.terminal),
                     group: "Navigate to",
-                    groupPriority: 1,
+                    groupPriority: 3,
                     action: .dispatchTargeted(.focusPane, target: location.paneId, targetType: .pane),
                     command: .focusPane
                 )
@@ -356,9 +405,50 @@ extension CommandBarDataSource {
             id: "level-wt-\(worktreeId.uuidString)",
             title: presence.worktreeName,
             parentLabel: presence.repoName,
-            scopeLabel: presence.repoName,
+            scopeLabel: "Worktree",
+            breadcrumbIcon: .checkout(
+                colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0],
+                isMain: worktree.isMainWorktree
+            ),
             items: items
         )
+    }
+
+    private static func terminalWorktreeActionItems(
+        worktreeId: UUID,
+        canOpenInCurrentTab: Bool
+    ) -> [CommandBarItem] {
+        var items: [CommandBarItem] = []
+        if canOpenInCurrentTab {
+            let currentTabShortcut = ShortcutTrigger(key: .enter, modifiers: [.option])
+            items.append(
+                CommandBarItem(
+                    id: "wt-add-pane-\(worktreeId.uuidString)",
+                    title: "New pane in current tab",
+                    icon: .system(.rectangleSplit2x1),
+                    shortcutTrigger: currentTabShortcut,
+                    group: "Terminal",
+                    groupPriority: 0,
+                    action: .dispatchTargeted(.openWorktreeInPane, target: worktreeId, targetType: .worktree),
+                    command: .openWorktreeInPane
+                )
+            )
+        }
+
+        let newTabShortcut = ShortcutTrigger(key: .enter, modifiers: [.command])
+        items.append(
+            CommandBarItem(
+                id: "wt-new-tab-\(worktreeId.uuidString)",
+                title: AppCommand.openNewTerminalInTab.definition.label,
+                icon: .system(.plusRectangle),
+                shortcutTrigger: newTabShortcut,
+                group: "Terminal",
+                groupPriority: 0,
+                action: .dispatchTargeted(.openNewTerminalInTab, target: worktreeId, targetType: .worktree),
+                command: .openNewTerminalInTab
+            )
+        )
+        return items
     }
 
     static func buildWorktreeActionsLevel(
@@ -383,15 +473,16 @@ extension CommandBarDataSource {
 
     private static func bridgeWorktreeActionItems(
         worktreeId: UUID,
-        resolution: BridgePaneCommandResolution
+        resolution: BridgePaneCommandResolution,
+        groupPriority: Int
     ) -> [CommandBarItem] {
         [
             CommandBarItem(
                 id: "wt-review-\(worktreeId.uuidString)",
                 title: resolution.contextualLabel(for: .showBridgeReview),
                 icon: AppCommand.showBridgeReview.definition.icon,
-                group: "Open",
-                groupPriority: 0,
+                group: "Panes",
+                groupPriority: groupPriority,
                 keywords: ["review", "bridge", "diff"],
                 action: .dispatchTargeted(.showBridgeReview, target: worktreeId, targetType: .worktree),
                 command: .showBridgeReview
@@ -400,8 +491,8 @@ extension CommandBarDataSource {
                 id: "wt-files-\(worktreeId.uuidString)",
                 title: resolution.contextualLabel(for: .showBridgeFiles),
                 icon: AppCommand.showBridgeFiles.definition.icon,
-                group: "Open",
-                groupPriority: 0,
+                group: "Panes",
+                groupPriority: groupPriority,
                 keywords: ["files", "bridge", "worktree"],
                 action: .dispatchTargeted(.showBridgeFiles, target: worktreeId, targetType: .worktree),
                 command: .showBridgeFiles
@@ -410,8 +501,8 @@ extension CommandBarDataSource {
                 id: "wt-review-new-tab-\(worktreeId.uuidString)",
                 title: AppCommand.openBridgeReviewInNewTab.definition.label,
                 icon: AppCommand.openBridgeReviewInNewTab.definition.icon,
-                group: "Open",
-                groupPriority: 0,
+                group: "Panes",
+                groupPriority: groupPriority,
                 keywords: ["review", "bridge", "diff", "new", "tab"],
                 action: .dispatchTargeted(
                     .openBridgeReviewInNewTab,
@@ -424,8 +515,8 @@ extension CommandBarDataSource {
                 id: "wt-files-new-tab-\(worktreeId.uuidString)",
                 title: AppCommand.openBridgeFilesInNewTab.definition.label,
                 icon: AppCommand.openBridgeFilesInNewTab.definition.icon,
-                group: "Open",
-                groupPriority: 0,
+                group: "Panes",
+                groupPriority: groupPriority,
                 keywords: ["files", "bridge", "worktree", "new", "tab"],
                 action: .dispatchTargeted(
                     .openBridgeFilesInNewTab,

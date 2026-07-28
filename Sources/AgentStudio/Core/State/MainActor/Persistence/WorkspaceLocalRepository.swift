@@ -32,7 +32,6 @@ package struct WorkspaceLocalRepository: Sendable {
         var windowState: WindowStateRecord?
         var sidebarState: SidebarStateRecord?
         var expandedGroups: Set<SidebarGroupKey>
-        var recentTargets: [RecentWorkspaceTarget]
     }
 
     struct CacheStateRecord: Equatable, Sendable {
@@ -323,26 +322,46 @@ package struct WorkspaceLocalRepository: Sendable {
         }
     }
 
-    package func replaceRecentTargets(_ recentTargets: [RecentWorkspaceTarget], updatedAt: Date) throws {
+    func replaceApplicationEntityRecency(_ recentEntities: [ApplicationEntityRecency]) throws {
         try databaseWriter.write { database in
-            try WorkspaceLocalRepositoryStorage.replaceRecentTargetRows(
+            try WorkspaceLocalRepositoryStorage.replaceApplicationEntityRecencyRows(
                 database,
-                workspaceId: workspaceId,
-                recentTargets: recentTargets,
-                updatedAt: updatedAt
+                recentEntities: recentEntities
             )
         }
     }
 
-    package func fetchRecentTargets() throws -> [RecentWorkspaceTarget] {
+    func fetchApplicationEntityRecency() throws -> [ApplicationEntityRecency] {
         try databaseWriter.read { database in
-            try WorkspaceLocalRepositoryStorage.fetchRecentTargetRows(database, workspaceId: workspaceId)
+            try WorkspaceLocalRepositoryStorage.fetchApplicationEntityRecencyRows(database)
         }
     }
 
-    func hasRecentTargetsState() throws -> Bool {
+    func replaceWorkspaceEntityRecency(_ recentEntities: [WorkspaceEntityRecency]) throws {
+        try databaseWriter.write { database in
+            try WorkspaceLocalRepositoryStorage.replaceWorkspaceEntityRecencyRows(
+                database,
+                workspaceId: workspaceId,
+                recentEntities: recentEntities
+            )
+        }
+    }
+
+    func fetchWorkspaceEntityRecency() throws -> [WorkspaceEntityRecency] {
         try databaseWriter.read { database in
-            try WorkspaceLocalRepositoryStorage.hasRecentTargetStateRows(database, workspaceId: workspaceId)
+            try WorkspaceLocalRepositoryStorage.fetchWorkspaceEntityRecencyRows(
+                database,
+                workspaceId: workspaceId
+            )
+        }
+    }
+
+    func deleteWorkspaceEntityRecency() throws {
+        try databaseWriter.write { database in
+            try WorkspaceLocalRepositoryStorage.deleteWorkspaceEntityRecencyRows(
+                database,
+                workspaceId: workspaceId
+            )
         }
     }
 
@@ -387,13 +406,13 @@ package struct WorkspaceLocalRepository: Sendable {
         }
     }
 
-    package func fetchEditorPreferences() throws -> EditorPreferencesRecord {
+    func fetchEditorPreferences() throws -> EditorPreferencesRecord {
         try databaseWriter.read { database in
             try WorkspaceLocalRepositoryStorage.fetchEditorPreferencesRows(database, workspaceId: workspaceId)
         }
     }
 
-    package func replaceRepoExplorerPreferences(
+    func replaceRepoExplorerPreferences(
         _ preferences: RepoExplorerPreferencesRecord,
         updatedAt: Date
     ) throws {
@@ -407,13 +426,13 @@ package struct WorkspaceLocalRepository: Sendable {
         }
     }
 
-    package func fetchRepoExplorerPreferences() throws -> RepoExplorerPreferencesRecord {
+    func fetchRepoExplorerPreferences() throws -> RepoExplorerPreferencesRecord {
         try databaseWriter.read { database in
             try WorkspaceLocalRepositoryStorage.fetchRepoExplorerPreferencesRows(database, workspaceId: workspaceId)
         }
     }
 
-    package func replaceInboxNotificationPreferences(
+    func replaceInboxNotificationPreferences(
         _ preferences: InboxNotificationPreferencesRecord,
         updatedAt: Date
     ) throws {
@@ -427,7 +446,7 @@ package struct WorkspaceLocalRepository: Sendable {
         }
     }
 
-    package func fetchInboxNotificationPreferences() throws -> InboxNotificationPreferencesRecord {
+    func fetchInboxNotificationPreferences() throws -> InboxNotificationPreferencesRecord {
         try databaseWriter.read { database in
             try WorkspaceLocalRepositoryStorage.fetchInboxNotificationPreferencesRows(
                 database,
@@ -439,7 +458,6 @@ package struct WorkspaceLocalRepository: Sendable {
 
 enum WorkspaceLocalRepositoryError: Error, Equatable {
     case unsupportedSidebarSurface(String)
-    case unsupportedRecentTargetKind(String)
     case malformedWorkspaceId(String)
     case malformedTabId(String)
     case malformedArrangementId(String)

@@ -31,13 +31,15 @@ final class WorkspaceActionExecutor {
         previousVisiblePaneIds: Set<UUID>,
         previouslyMinimizedPaneIds: Set<UUID>,
         newVisiblePaneIds: Set<UUID>,
-        newMinimizedPaneIds: Set<UUID>
+        newMinimizedPaneIds: Set<UUID>,
+        retainedVisiblePaneIds: Set<UUID> = []
     ) -> SwitchArrangementTransitions {
         WorkspaceSurfaceCoordinator.computeSwitchArrangementTransitions(
             previousVisiblePaneIds: previousVisiblePaneIds,
             previouslyMinimizedPaneIds: previouslyMinimizedPaneIds,
             newVisiblePaneIds: newVisiblePaneIds,
-            newMinimizedPaneIds: newMinimizedPaneIds
+            newMinimizedPaneIds: newMinimizedPaneIds,
+            retainedVisiblePaneIds: retainedVisiblePaneIds
         )
     }
 
@@ -76,6 +78,43 @@ final class WorkspaceActionExecutor {
         coordinator.requestBridgePaneSurface(surface, paneId: paneId)
     }
 
+    @discardableResult
+    func reconcileZoomCompanion(
+        sourcePaneId: UUID,
+        owningTabId: UUID,
+        viewerSurfaceRequest: @MainActor (BridgeProductSurface, UUID) -> Bool
+    ) -> ZoomViewerPresentation {
+        coordinator.reconcileZoomCompanion(
+            sourcePaneId: sourcePaneId,
+            owningTabId: owningTabId,
+            viewerSurfaceRequest: viewerSurfaceRequest
+        )
+    }
+
+    func refreshZoomCompanionActivities() {
+        coordinator.refreshBridgePaneActivities()
+    }
+
+    func detachZoomSourceAfterExitIfHidden(
+        sourcePaneId: UUID,
+        tabId: UUID
+    ) {
+        guard !arrangementView.activeVisiblePaneIds(forTab: tabId).contains(sourcePaneId) else {
+            return
+        }
+        coordinator.detachForViewSwitch(paneId: sourcePaneId)
+    }
+
+    func reattachZoomSourceForPresentationIfHidden(
+        sourcePaneId: UUID,
+        tabId: UUID
+    ) {
+        guard !arrangementView.activeVisiblePaneIds(forTab: tabId).contains(sourcePaneId) else {
+            return
+        }
+        coordinator.reattachForViewSwitch(paneId: sourcePaneId)
+    }
+
     /// Open an independent read-only Bridge review pane in a new tab.
     @discardableResult
     func openBridgeReviewInNewTab(worktreeId: UUID? = nil) -> Pane? {
@@ -86,32 +125,6 @@ final class WorkspaceActionExecutor {
     @discardableResult
     func openBridgeFilesInNewTab(worktreeId: UUID? = nil) -> Pane? {
         coordinator.openBridgeFilesInNewTab(worktreeId: worktreeId)
-    }
-
-    @discardableResult
-    func openContextualWebviewInPane(
-        sourcePaneId: UUID,
-        targetTabId: UUID,
-        url: URL,
-        direction: SplitNewDirection = .right
-    ) -> Pane? {
-        coordinator.openContextualWebviewInPane(
-            sourcePaneId: sourcePaneId,
-            targetTabId: targetTabId,
-            url: url,
-            direction: direction
-        )
-    }
-
-    @discardableResult
-    func openContextualWebviewInDrawer(
-        parentPaneId: UUID,
-        url: URL
-    ) -> Pane? {
-        coordinator.openContextualWebviewInDrawer(
-            parentPaneId: parentPaneId,
-            url: url
-        )
     }
 
     /// Undo the last close operation (tab or pane).
@@ -152,6 +165,9 @@ final class WorkspaceActionExecutor {
             from: tabLayout.tabs,
             activeTabId: tabLayout.activeTabId,
             isManagementLayerActive: atom(\.managementLayer).isActive,
+            zoomSourcePaneIdByTabId: store.panePresentationAtom.zoomPresentationsByTabId.mapValues(
+                \.sourcePaneId
+            ),
             knownRepoIds: Set(repositoryTopology.repos.map(\.id)),
             knownWorktreeIds: Set(repositoryTopology.repos.flatMap(\.worktrees).map(\.id)),
             drawerParentByPaneId: drawerParentByPaneId(),

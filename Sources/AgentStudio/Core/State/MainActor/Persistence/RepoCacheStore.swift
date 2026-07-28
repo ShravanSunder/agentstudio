@@ -11,7 +11,6 @@ struct RepoCacheSaveCapture: Sendable {
     let pullRequestCountByWorktreeID: [UUID: Int]
     let sourceRevision: UInt64
     let lastRebuiltAt: Date?
-    let recentTargets: [RecentWorkspaceTarget]
 }
 
 struct RepoCachePersistedProjection: Equatable, Sendable {
@@ -20,7 +19,6 @@ struct RepoCachePersistedProjection: Equatable, Sendable {
     let pullRequestCountByWorktreeID: [UUID: Int]
     let sourceRevision: UInt64
     let lastRebuiltAt: Date?
-    let recentTargets: [RecentWorkspaceTarget]
 }
 
 enum RepoCacheRepoEnrichmentProjection: Equatable, Sendable {
@@ -56,7 +54,6 @@ struct RepoCacheWorktreeEnrichmentProjection: Equatable, Sendable {
 
 struct PreparedRepoCacheSave: Sendable {
     let cacheState: WorkspaceLocalRepository.CacheStateRecord
-    let recentTargets: [RecentWorkspaceTarget]
     let projection: RepoCachePersistedProjection
     let shouldPersist: Bool
 }
@@ -83,12 +80,10 @@ enum RepoCacheSavePreparer {
             },
             pullRequestCountByWorktreeID: capture.pullRequestCountByWorktreeID,
             sourceRevision: capture.sourceRevision,
-            lastRebuiltAt: capture.lastRebuiltAt,
-            recentTargets: capture.recentTargets
+            lastRebuiltAt: capture.lastRebuiltAt
         )
         return PreparedRepoCacheSave(
             cacheState: cacheState,
-            recentTargets: capture.recentTargets,
             projection: projection,
             shouldPersist: force || projection != previousProjection
         )
@@ -98,7 +93,6 @@ enum RepoCacheSavePreparer {
 @MainActor
 package final class RepoCacheStore {
     private let cacheAtom: RepoEnrichmentCacheAtom
-    private let recentTargetAtom: RecentWorkspaceTargetAtom
     private let sqliteDatastore: WorkspaceSQLiteDatastore
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
@@ -114,14 +108,12 @@ package final class RepoCacheStore {
 
     package init(
         cacheAtom: RepoEnrichmentCacheAtom,
-        recentTargetAtom: RecentWorkspaceTargetAtom,
         sqliteDatastore: WorkspaceSQLiteDatastore,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.cacheAtom = cacheAtom
-        self.recentTargetAtom = recentTargetAtom
         self.sqliteDatastore = sqliteDatastore
         self.persistDebounceDuration = persistDebounceDuration
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
@@ -137,7 +129,6 @@ package final class RepoCacheStore {
     ) {
         self.init(
             cacheAtom: atom.enrichmentCacheAtom,
-            recentTargetAtom: atom.recentTargetAtom,
             sqliteDatastore: sqliteDatastore,
             persistDebounceDuration: persistDebounceDuration,
             clock: clock,
@@ -159,10 +150,9 @@ package final class RepoCacheStore {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
-        switch await sqliteDatastore.loadRepoCacheState(workspaceId: workspaceId) {
-        case .loaded(let payload):
+        switch await sqliteDatastore.loadRepoCacheState() {
+        case .loaded(let cacheState):
             isRestoringState = true
-            let cacheState = payload.cacheState
             cacheAtom.hydrate(
                 .init(
                     repoEnrichmentByRepoId: cacheState.repoEnrichmentByRepoId,
@@ -172,14 +162,10 @@ package final class RepoCacheStore {
                     lastRebuiltAt: cacheState.lastRebuiltAt
                 )
             )
-            recentTargetAtom.hydrate(recentTargets: payload.recentTargets)
             isRestoringState = false
-            reportRecoveryEvents(payload.recoveryEvents)
-        case .unavailable(let failure, let recoveryEvents):
+        case .unavailable(let failure):
             isRestoringState = false
             cacheAtom.clear()
-            recentTargetAtom.clear()
-            reportRecoveryEvents(recoveryEvents)
             repoCacheStoreLogger.warning("Repo cache SQLite restore failed: \(failure.description)")
             recoveryReporter?(
                 .init(
@@ -209,7 +195,6 @@ package final class RepoCacheStore {
         isObservingCacheState = true
         withObservationTracking {
             _ = cacheAtom.cacheRevision
-            _ = recentTargetAtom.recentTargets
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 // Repo cache write owners are @MainActor; this traps if ownership changes.
@@ -250,9 +235,7 @@ package final class RepoCacheStore {
         guard preparedSave.shouldPersist else { return }
         do {
             try await sqliteDatastore.saveRepoCacheState(
-                cacheState: preparedSave.cacheState,
-                recentTargets: preparedSave.recentTargets,
-                workspaceId: workspaceId
+                cacheState: preparedSave.cacheState
             )
             lastPersistedProjection = preparedSave.projection
         } catch {
@@ -269,14 +252,8 @@ package final class RepoCacheStore {
             worktreeEnrichmentByWorktreeID: cacheAtom.worktreeEnrichmentSnapshot(),
             pullRequestCountByWorktreeID: cacheAtom.pullRequestCountSnapshot(),
             sourceRevision: cacheAtom.sourceRevision,
-            lastRebuiltAt: cacheAtom.lastRebuiltAt,
-            recentTargets: recentTargetAtom.recentTargets
+            lastRebuiltAt: cacheAtom.lastRebuiltAt
         )
     }
 
-    private func reportRecoveryEvents(_ recoveryEvents: [PersistenceRecoveryEvent]) {
-        for recoveryEvent in recoveryEvents {
-            recoveryReporter?(recoveryEvent)
-        }
-    }
 }

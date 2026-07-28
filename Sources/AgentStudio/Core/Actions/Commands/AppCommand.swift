@@ -32,7 +32,7 @@ package enum AppCommand: String, CaseIterable {
     case focusNextPane, focusPrevPane
     case focusPane1, focusPane2, focusPane3, focusPane4, focusPane5
     case focusPane6, focusPane7, focusPane8, focusPane9
-    case toggleSplitZoom
+    case zoomPane
     case minimizePane
     case expandPane
     // Arrangement commands
@@ -102,11 +102,13 @@ package enum AppCommand: String, CaseIterable {
     case closeWindow
     // Search/navigation
     case showCommandBarEverything
+    case showCommandBarQuickOpen
     case showCommandBarCommands
     case showCommandBarPanes
     case showCommandBarRepos
     // Webview commands
     case openWebview
+    case showViewer
     case showBridgeReview
     case showBridgeFiles
     case openBridgeReviewInNewTab
@@ -188,7 +190,7 @@ package struct AppCommandSpec {
         requiresManagementLayer: Bool = false,
         visibleWhen: Set<FocusRequirement> = [],
         commandBarGroupName: String = "Commands",
-        commandBarGroupPriority: Int = 8,
+        commandBarGroupPriority: Int = AppCommand.CommandBarGroupPriority.miscellaneous,
         isHiddenInCommandBar: Bool = false
     ) {
         self.command = command

@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import AppKit
 import SwiftUI
 
@@ -8,10 +9,11 @@ package struct CollapsedPaneBar: View {
     let tabId: UUID
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onFocus: () -> Void
     let onSaveArrangement: (() -> Void)?
+    let onToggleZoom: (UUID?) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
-    let ordinal: Int?
     let workspaceWindowId: UUID?
 
     @State private var isHovered = false
@@ -20,9 +22,6 @@ package struct CollapsedPaneBar: View {
     @State private var isArrangementPanelPresented = false
     @State private var arrangementPopoverToggleGate = PopoverToggleGate()
     @State private var arrangementInlineRenameState = ArrangementInlineRenameState()
-    private var managementLayer: ManagementLayerAtom {
-        atom(\.managementLayer)
-    }
 
     package static let barWidth: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
     static let barHeight: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
@@ -33,10 +32,11 @@ package struct CollapsedPaneBar: View {
         tabId: UUID,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
+        onFocus: @escaping () -> Void,
         onSaveArrangement: (() -> Void)? = nil,
+        onToggleZoom: @escaping (UUID?) -> Void = { _ in },
         dropTargetCoordinateSpace: String? = nil,
         useDrawerFramePreference: Bool = false,
-        ordinal: Int? = nil,
         workspaceWindowId: UUID? = nil
     ) {
         self.paneId = paneId
@@ -44,10 +44,11 @@ package struct CollapsedPaneBar: View {
         self.tabId = tabId
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
+        self.onFocus = onFocus
         self.onSaveArrangement = onSaveArrangement
+        self.onToggleZoom = onToggleZoom
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
-        self.ordinal = ordinal
         self.workspaceWindowId = workspaceWindowId
     }
 
@@ -69,9 +70,7 @@ package struct CollapsedPaneBar: View {
             ?? Color.secondary.opacity(0.92)
 
         VStack(spacing: AppStyles.General.Spacing.standard) {
-            if managementLayer.isActive, let ordinal {
-                ManagementOrdinalShortcutHint(ordinal: ordinal, variant: .collapsedBar)
-            }
+            ManagementMinimizedPaneHint()
 
             expandButton
 
@@ -153,10 +152,11 @@ package struct CollapsedPaneBar: View {
     private var arrangementButton: some View {
         let arrangement = atom(\.arrangement)
         let panes = arrangement.paneVisibilityItems(for: tabId)
+        let zoomMode = arrangement.zoomMode(for: tabId)
         let arrangements = arrangement.arrangementItems(for: tabId)
 
         return Button {
-            arrangementPopoverToggleGate.toggle(isPresented: &isArrangementPanelPresented)
+            toggleArrangementPopover()
         } label: {
             Image(systemName: "rectangle.3.group")
                 .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
@@ -175,6 +175,14 @@ package struct CollapsedPaneBar: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityHidden(true)
+        .background {
+            AccessibilityPressBridge(
+                identifier: "collapsed-pane-bar-arrangements",
+                label: LocalActionSpec.arrangements.actionSpec.label,
+                action: toggleArrangementPopover
+            )
+        }
         .onHover { isArrangementHovered = $0 }
         .help(LocalActionSpec.arrangements.actionSpec.helpText)
         .onChange(of: atom(\.arrangementPanelPresentation).pendingRequest?.id) { _, _ in
@@ -198,23 +206,26 @@ package struct CollapsedPaneBar: View {
             ArrangementPanel(
                 tabId: tabId,
                 workspaceWindowId: workspaceWindowId,
+                octiconLoader: octiconLoader,
                 panes: panes,
+                zoomMode: zoomMode,
                 arrangements: arrangements,
                 inlineRenameState: arrangementInlineRenameState,
                 onPaneAction: { action in
-                    isArrangementPanelPresented = false
                     actionDispatcher.dispatch(action)
+                },
+                onToggleZoom: { sourcePaneId in
+                    onToggleZoom(sourcePaneId)
                 },
                 onSaveArrangement: { onSaveArrangement?() },
                 onDismiss: dismissArrangementPopover,
-                showsMinimizedPanesBinding: Binding(
-                    get: { atom(\.arrangementView).effectiveShowsMinimizedPanes(forTab: tabId) },
-                    set: { actionDispatcher.dispatch(.setShowsMinimizedPanes(tabId: tabId, value: $0)) }
-                ),
-                highlightPaneId: paneId,
-                showsMinimizedBarToggle: false
+                highlightPaneId: paneId
             )
         }
+    }
+
+    private func toggleArrangementPopover() {
+        arrangementPopoverToggleGate.toggle(isPresented: &isArrangementPanelPresented)
     }
 
     private func dismissArrangementPopover() {

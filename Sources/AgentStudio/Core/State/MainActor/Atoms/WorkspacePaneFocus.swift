@@ -15,6 +15,8 @@ package enum FocusRequirement: Hashable, CaseIterable, Sendable {
     case paneIsWebview
     case paneIsBridge
     case paneIsCodeViewer
+    case supportsTerminalZoom
+    case hasActiveTerminalZoom
 }
 
 /// App-wide workspace pane focus snapshot shared by command visibility and other UI readers.

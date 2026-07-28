@@ -21,7 +21,6 @@ struct WorkspaceSQLiteSaveCapture: Sendable {
     let activeArrangementIDsByTabID: [UUID: UUID]
     let paneCursorsByArrangementID: [UUID: ArrangementPaneCursorState]
     let drawerCursorsByKey: [ArrangementDrawerCursorKey: ArrangementDrawerCursorState]
-    let zoomedPaneIDsByTabID: [UUID: UUID]
     let activeTabID: UUID?
     let sidebarWidth: CGFloat
     let windowFrame: CGRect?
@@ -54,7 +53,6 @@ enum WorkspaceSQLiteSavePreparation {
                     isDefault: graphArrangement.isDefault,
                     layout: graphArrangement.layout,
                     minimizedPaneIds: graphArrangement.minimizedPaneIds,
-                    showsMinimizedPanes: graphArrangement.showsMinimizedPanes,
                     activePaneId: capture.paneCursorsByArrangementID[graphArrangement.id]?.activePaneId,
                     drawerViews: Dictionary(
                         uniqueKeysWithValues: graphArrangement.drawerViews.map { drawerID, drawerGraphState in
@@ -91,8 +89,7 @@ enum WorkspaceSQLiteSavePreparation {
                 allPaneIds: graphState.allPaneIds,
                 arrangements: arrangements,
                 activeArrangementId: activeArrangementID,
-                colorHex: shell.colorHex,
-                zoomedPaneId: capture.zoomedPaneIDsByTabID[graphState.tabId]
+                colorHex: shell.colorHex
             )
         }
         return WorkspaceSQLiteSaveBundle(
@@ -145,7 +142,6 @@ package final class WorkspaceSQLiteSaveCoordinator {
             activeArrangementIDsByTabID: arrangementAtom.cursorAtom.activeArrangementIdsByTabId,
             paneCursorsByArrangementID: arrangementAtom.cursorAtom.paneCursorsByArrangementId,
             drawerCursorsByKey: arrangementAtom.cursorAtom.drawerCursorsByKey,
-            zoomedPaneIDsByTabID: arrangementAtom.presentationAtom.zoomedPaneIdsByTabId,
             activeTabID: workspaceTabLayoutAtom.activeTabId,
             sidebarWidth: windowMemoryAtom.sidebarWidth,
             windowFrame: windowMemoryAtom.windowFrame,

@@ -443,6 +443,10 @@ private struct PaneAgentTestUIPresentationPort: AppIPCUIPresentationPort {
     func openCommandBar(_: IPCCommandBarOpenParams) throws -> IPCCommandBarOpenResult {
         throw AppIPCUIPresentationError(reason: .noActiveWindow)
     }
+
+    func openArrangements(_: IPCArrangementsOpenParams) throws -> IPCArrangementsOpenResult {
+        throw AppIPCUIPresentationError(reason: .noActiveWindow)
+    }
 }
 
 private struct PaneAgentTestSidebarPort: AppIPCSidebarPort {

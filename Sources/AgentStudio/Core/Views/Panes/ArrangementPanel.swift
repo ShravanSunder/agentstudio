@@ -1,59 +1,69 @@
 import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import AppKit
 import SwiftUI
+
+private enum ArrangementPanelTooltipTarget: Hashable {
+    case saveArrangement
+}
 
 /// Floating popover panel for managing pane arrangements.
 /// Shows pane visibility toggles, arrangement chips, and save controls.
 package struct ArrangementPanel: View {
     let tabId: UUID
     let workspaceWindowId: UUID?
+    let octiconLoader: OcticonLoader
     let panes: [PaneVisibilityInfo]
+    let zoomMode: ArrangementPanelZoomMode?
     let arrangements: [ArrangementInfo]
     @Bindable var inlineRenameState: ArrangementInlineRenameState
     let onPaneAction: (WorkspaceActionCommand) -> Void
+    let onToggleZoom: (UUID?) -> Void
     let onSaveArrangement: () -> Void
     let onDismiss: () -> Void
-    let showsMinimizedPanesBinding: Binding<Bool>
     var highlightPaneId: UUID?
-    var showsMinimizedBarToggle = true
 
     @State private var highlightVisible = false
     @State private var hoveredArrangementId: UUID?
     @State private var isSaveButtonHovered = false
-    @State private var hasClaimedFocus = false
+    @State private var tooltipFrames: [ArrangementPanelTooltipTarget: CGRect] = [:]
     @State private var focusedArrangementId: UUID?
 
     package init(
         tabId: UUID,
         workspaceWindowId: UUID?,
+        octiconLoader: OcticonLoader,
         panes: [PaneVisibilityInfo],
+        zoomMode: ArrangementPanelZoomMode?,
         arrangements: [ArrangementInfo],
         inlineRenameState: ArrangementInlineRenameState,
         onPaneAction: @escaping (WorkspaceActionCommand) -> Void,
+        onToggleZoom: @escaping (UUID?) -> Void,
         onSaveArrangement: @escaping () -> Void,
         onDismiss: @escaping () -> Void,
-        showsMinimizedPanesBinding: Binding<Bool>,
-        highlightPaneId: UUID? = nil,
-        showsMinimizedBarToggle: Bool = true
+        highlightPaneId: UUID? = nil
     ) {
         self.tabId = tabId
         self.workspaceWindowId = workspaceWindowId
+        self.octiconLoader = octiconLoader
         self.panes = panes
+        self.zoomMode = zoomMode
         self.arrangements = arrangements
         self.inlineRenameState = inlineRenameState
         self.onPaneAction = onPaneAction
+        self.onToggleZoom = onToggleZoom
         self.onSaveArrangement = onSaveArrangement
         self.onDismiss = onDismiss
-        self.showsMinimizedPanesBinding = showsMinimizedPanesBinding
         self.highlightPaneId = highlightPaneId
-        self.showsMinimizedBarToggle = showsMinimizedBarToggle
     }
+
+    private static let tooltipCoordinateSpaceName = "arrangementPanelTooltip"
 
     private var displayState: ArrangementPanelDisplayState {
         ArrangementPanelDisplayState(
             visiblePanes: panes,
-            arrangements: arrangements,
-            allowsMinimizedBarToggle: showsMinimizedBarToggle
+            zoomMode: zoomMode,
+            arrangements: arrangements
         )
     }
 
@@ -62,6 +72,13 @@ package struct ArrangementPanel: View {
             return .arrangementRename(tabId: tabId, arrangementId: editingArrangementId)
         }
         return .arrangementPanel(tabId: tabId)
+    }
+
+    private var saveArrangementTooltip: ControlTooltipRenderValue {
+        let actionSpec = LocalActionSpec.saveCurrentLayoutAsArrangement.actionSpec
+        return actionSpec.controlTooltipRenderValue(
+            provenance: .localAction(rawValue: actionSpec.label)
+        )
     }
 
     package var body: some View {
@@ -91,8 +108,17 @@ package struct ArrangementPanel: View {
                         )
                     )
                     .onHover { isSaveButtonHovered = $0 }
-                    .help(LocalActionSpec.saveCurrentLayoutAsArrangement.actionSpec.helpText)
+                    .hoverTooltipAnchor(
+                        ArrangementPanelTooltipTarget.saveArrangement,
+                        in: Self.tooltipCoordinateSpaceName
+                    )
+                    .controlHelp(saveArrangementTooltip)
+                    .disabled(!displayState.allowsArrangementCreation)
                 }
+            }
+
+            if let zoomMode {
+                zoomModeSection(zoomMode)
             }
 
             if displayState.showsPaneVisibilitySection {
@@ -110,49 +136,28 @@ package struct ArrangementPanel: View {
                     }
                 }
 
-                if displayState.showsMinimizedBarToggle {
-                    HStack(spacing: 6) {
-                        Text("Show minimized panes")
-                            .font(.system(size: AppStyles.General.Typography.textXs))
-                            .foregroundStyle(.secondary)
-
-                        let minimizedCount = panes.filter(\.isMinimized).count
-                        if minimizedCount > 0 {
-                            Text("\(minimizedCount)")
-                                .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, AppStyles.General.Spacing.tight)
-                                .padding(.vertical, 1)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.white.opacity(AppStyles.General.Fill.hover))
-                                )
-                                .fixedSize()
-                        }
-
-                        Spacer()
-
-                        Toggle(
-                            "",
-                            isOn: showsMinimizedPanesBinding
-                        )
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
-                        .labelsHidden()
-                    }
-                    .padding(.top, AppStyles.General.Spacing.standard)
-
-                    if !showsMinimizedPanesBinding.wrappedValue && atom(\.managementLayer).isActive {
-                        Text("Minimized panes are always shown in management mode")
-                            .font(.system(size: AppStyles.General.Typography.textXs))
-                            .foregroundStyle(.tertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
             }
         }
         .padding(10)
         .frame(minWidth: 400, idealWidth: 475, maxWidth: 575)
+        .overlay {
+            GeometryReader { geometry in
+                FloatingHoverTooltipPresenter(
+                    activeTarget: isSaveButtonHovered ? .saveArrangement : nil,
+                    anchorFrames: tooltipFrames,
+                    availableWidth: geometry.size.width
+                ) { target in
+                    switch target {
+                    case .saveArrangement:
+                        saveArrangementTooltip
+                    }
+                }
+            }
+        }
+        .coordinateSpace(name: Self.tooltipCoordinateSpaceName)
+        .onPreferenceChange(HoverTooltipAnchorPreferenceKey<ArrangementPanelTooltipTarget>.self) {
+            tooltipFrames = $0
+        }
         .transientKeyboardSurface(
             transientSurfaceKind,
             workspaceWindowId: workspaceWindowId,
@@ -184,12 +189,109 @@ package struct ArrangementPanel: View {
         )
     }
 
+    private func zoomModeSection(_ zoomMode: ArrangementPanelZoomMode) -> some View {
+        VStack(alignment: .leading, spacing: AppStyles.General.Spacing.standard) {
+            Divider()
+                .padding(.vertical, 2)
+
+            Text("Pane Zoom")
+                .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .textCase(.uppercase)
+
+            HStack(alignment: .center, spacing: AppStyles.General.Spacing.standard) {
+                if let sourceIdentity = zoomMode.sourceIdentity {
+                    VStack(alignment: .leading, spacing: AppStyles.General.Spacing.tight) {
+                        Text(sourceIdentity.title)
+                            .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+
+                        if let detail = sourceIdentity.detail {
+                            Text(detail)
+                                .font(.system(size: AppStyles.General.Typography.textXs))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(sourceIdentity.title)
+                    .accessibilityValue(
+                        sourceIdentity.fullPath
+                            ?? sourceIdentity.detail
+                            ?? sourceIdentity.title
+                    )
+                    .help(sourceIdentity.fullPath ?? sourceIdentity.title)
+                }
+
+                Spacer(minLength: 0)
+
+                zoomModeButton(zoomMode)
+            }
+            .accessibilityElement(children: .contain)
+            .background {
+                AccessibilityLabelBridge(
+                    identifier: "arrangement-panel-zoom-status",
+                    label: "Pane Zoom"
+                )
+            }
+        }
+    }
+
+    private func zoomModeButton(_ zoomMode: ArrangementPanelZoomMode) -> some View {
+        Button {
+            onToggleZoom(nil)
+        } label: {
+            HStack(spacing: AppStyles.General.Spacing.tight) {
+                AppCommand.zoomPane.definition.icon.swiftUIImage(
+                    loader: octiconLoader,
+                    size: AppStyles.General.Typography.textSm
+                )
+                Text(zoomMode.label)
+                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
+            }
+            .padding(.horizontal, AppStyles.General.Spacing.standard)
+            .frame(height: AppStyles.General.Button.compact)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .background(
+            RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.button)
+                .fill(Color.white.opacity(AppStyles.General.Fill.active))
+        )
+        .controlHelp(AppCommand.zoomPane.definition.controlTooltipRenderValue())
+        .accessibilityHidden(true)
+        .background {
+            AccessibilityPressBridge(
+                identifier: "arrangement-panel-zoom-pane",
+                label: zoomMode.label
+            ) {
+                onToggleZoom(nil)
+            }
+        }
+    }
+
     private func paneRow(_ pane: PaneVisibilityInfo) -> some View {
         HStack(spacing: AppStyles.General.Spacing.standard) {
-            Circle()
-                .fill(pane.isMinimized ? Color.clear : Color.white.opacity(AppStyles.General.Foreground.dim))
-                .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                .frame(width: 8, height: 8)
+            Group {
+                if let statusSystemImageName = pane.statusSystemImageName {
+                    Image(systemName: statusSystemImageName)
+                        .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                } else {
+                    Circle()
+                        .fill(Color.white.opacity(AppStyles.General.Foreground.dim))
+                        .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                        .frame(width: 8, height: 8)
+                }
+            }
+            .frame(
+                width: AppStyles.General.Typography.textSm,
+                height: AppStyles.General.Typography.textSm
+            )
 
             Text(pane.title)
                 .font(.system(size: AppStyles.General.Typography.textXs))
@@ -198,6 +300,31 @@ package struct ArrangementPanel: View {
                 .truncationMode(.tail)
 
             Spacer()
+
+            if pane.supportsZoom {
+                Button {
+                    onToggleZoom(pane.id)
+                } label: {
+                    AppCommand.zoomPane.definition.icon.swiftUIImage(
+                        loader: octiconLoader,
+                        size: AppStyles.General.Typography.textSm
+                    )
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .controlHelp(AppCommand.zoomPane.definition.controlTooltipRenderValue())
+                .accessibilityHidden(true)
+                .background {
+                    AccessibilityPressBridge(
+                        identifier: "arrangement-panel-pane-\(pane.id.uuidString)-zoom",
+                        label: AppCommand.zoomPane.definition.label
+                    ) {
+                        onToggleZoom(pane.id)
+                    }
+                }
+            }
 
             Button {
                 if pane.isMinimized {
@@ -212,6 +339,21 @@ package struct ArrangementPanel: View {
                     .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
+            .accessibilityHidden(true)
+            .background {
+                AccessibilityPressBridge(
+                    identifier: "arrangement-panel-pane-\(pane.id.uuidString)-visibility",
+                    label: pane.isMinimized
+                        ? LocalActionSpec.showPane.actionSpec.label
+                        : LocalActionSpec.hidePane.actionSpec.label
+                ) {
+                    if pane.isMinimized {
+                        onPaneAction(.expandPane(tabId: tabId, paneId: pane.id))
+                    } else {
+                        onPaneAction(.minimizePane(tabId: tabId, paneId: pane.id))
+                    }
+                }
+            }
             .help(
                 pane.isMinimized
                     ? LocalActionSpec.showPane.actionSpec.helpText
@@ -243,7 +385,6 @@ package struct ArrangementPanel: View {
                         set: { isFocused in
                             if isFocused {
                                 focusedArrangementId = arrangement.id
-                                hasClaimedFocus = true
                             } else if focusedArrangementId == arrangement.id {
                                 focusedArrangementId = nil
                             }
@@ -260,17 +401,6 @@ package struct ArrangementPanel: View {
                 .frame(minWidth: 72)
                 .onAppear {
                     focusedArrangementId = arrangement.id
-                    hasClaimedFocus = true
-                }
-                .onDisappear {
-                    hasClaimedFocus = false
-                }
-                .onChange(of: focusedArrangementId) { _, newValue in
-                    guard hasClaimedFocus,
-                        newValue != arrangement.id,
-                        inlineRenameState.editingArrangementId == arrangement.id
-                    else { return }
-                    cancelInlineRename()
                 }
             } else {
                 arrangementChipBody(arrangement)
@@ -319,7 +449,7 @@ package struct ArrangementPanel: View {
             }
             .buttonStyle(.plain)
 
-            if ArrangementChipAffordance.showsRenamePencil(isDefault: arrangement.isDefault) {
+            if ArrangementChipAffordance.showsRenamePencil(role: arrangement.role) {
                 Button {
                     inlineRenameState.beginEditing(
                         arrangementId: arrangement.id,

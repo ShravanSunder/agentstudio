@@ -18,6 +18,65 @@ struct RepositoryTopologyAtomTests {
         case name
     }
 
+    @Test("stable-key lookups resolve the same live entities as UUID lookups")
+    func stableKeyLookupsResolveTheSameLiveEntitiesAsUUIDLookups() throws {
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let repository = coordinator.addRepo(
+            at: URL(fileURLWithPath: "/tmp/agentstudio-topology-stable-key")
+        )
+        let worktree = try #require(repository.worktrees.single)
+
+        #expect(atom.repo(stableKey: repository.stableKey) == atom.repo(repository.id))
+        #expect(atom.worktree(stableKey: worktree.stableKey) == atom.worktree(worktree.id))
+
+        coordinator.setRepoFavorite(repository.id, isFavorite: true)
+        try coordinator.updateWorktreeNote(worktree.id, note: "current")
+
+        #expect(atom.repo(stableKey: repository.stableKey)?.isFavorite == true)
+        #expect(atom.worktree(stableKey: worktree.stableKey)?.note == "current")
+    }
+
+    @Test("stable-key lookups refresh after path changes, reconciliation, and removal")
+    func stableKeyLookupsRefreshAfterStructuralChanges() throws {
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let originalPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-stable-key-original")
+        let movedPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-stable-key-moved")
+        let linkedPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-stable-key-linked")
+        let repository = coordinator.addRepo(at: originalPath)
+        let originalRepositoryStableKey = repository.stableKey
+        let originalWorktreeStableKey = try #require(repository.worktrees.single).stableKey
+
+        _ = coordinator.reassociateRepo(
+            repository.id,
+            to: movedPath,
+            discoveredWorktrees: [
+                Worktree(
+                    repoId: repository.id,
+                    name: movedPath.lastPathComponent,
+                    path: movedPath,
+                    isMainWorktree: true
+                ),
+                Worktree(
+                    repoId: repository.id,
+                    name: linkedPath.lastPathComponent,
+                    path: linkedPath
+                ),
+            ]
+        )
+
+        #expect(atom.repo(stableKey: originalRepositoryStableKey) == nil)
+        #expect(atom.worktree(stableKey: originalWorktreeStableKey) == nil)
+        #expect(atom.repo(stableKey: StableKey.fromPath(movedPath))?.id == repository.id)
+        #expect(atom.worktree(stableKey: StableKey.fromPath(linkedPath))?.path == linkedPath)
+
+        coordinator.removeRepo(repository.id)
+
+        #expect(atom.repo(stableKey: StableKey.fromPath(movedPath)) == nil)
+        #expect(atom.worktree(stableKey: StableKey.fromPath(linkedPath)) == nil)
+    }
+
     @Test("path lookup resolves current repository metadata without rebuilding structural index")
     func pathLookupResolvesCurrentRepositoryMetadata() throws {
         let atom = RepositoryTopologyAtom()

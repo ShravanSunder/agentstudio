@@ -78,7 +78,7 @@ package struct SurfaceMetadata: Codable, Equatable {
         self.lastActiveAt = Date()
     }
 
-    var cwd: URL? {
+    package var cwd: URL? {
         get { contextFacets.cwd }
         set { contextFacets.cwd = newValue }
     }

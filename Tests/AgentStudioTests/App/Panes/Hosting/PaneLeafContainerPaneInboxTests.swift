@@ -71,7 +71,8 @@ struct PaneLeafContainerPaneInboxTests {
             onPaneFocusTrigger: { _ in },
             onOpenPaneGitHub: { _ in },
             paneInboxPresentation: presentation,
-            workspaceWindowId: nil
+            workspaceWindowId: nil,
+            toolbarPresentation: .terminal(TerminalToolbarModel())
         )
 
         #expect(paneLeafContainer.editorChooser === editorChooser)

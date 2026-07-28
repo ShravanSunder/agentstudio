@@ -14,6 +14,8 @@ package struct CommandBarSearchField: View {
     let onEnter: (EnterModifier) -> Void
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onBackspaceOnEmpty: () -> Void
+    let onTabForward: () -> Void
+    let onShiftTabBack: () -> Void
 
     package init(
         state: CommandBarState,
@@ -22,7 +24,9 @@ package struct CommandBarSearchField: View {
         onArrowDown: @escaping () -> Void,
         onEnter: @escaping (EnterModifier) -> Void,
         onShortcutTrigger: @escaping (ShortcutTrigger) -> Bool,
-        onBackspaceOnEmpty: @escaping () -> Void
+        onBackspaceOnEmpty: @escaping () -> Void,
+        onTabForward: @escaping () -> Void,
+        onShiftTabBack: @escaping () -> Void
     ) {
         self.state = state
         self.octiconLoader = octiconLoader
@@ -31,18 +35,13 @@ package struct CommandBarSearchField: View {
         self.onEnter = onEnter
         self.onShortcutTrigger = onShortcutTrigger
         self.onBackspaceOnEmpty = onBackspaceOnEmpty
+        self.onTabForward = onTabForward
+        self.onShiftTabBack = onShiftTabBack
     }
 
     package var body: some View {
         HStack(spacing: 10) {
-            if state.isNested, let pillLabel = state.scopePillLabel {
-                CommandBarScopePill(
-                    label: pillLabel,
-                    onDismiss: { state.popToRoot() }
-                )
-            } else {
-                scopeIconView
-            }
+            scopeIconView
 
             CommandBarTextField(
                 text: $state.rawInput,
@@ -51,8 +50,11 @@ package struct CommandBarSearchField: View {
                 onArrowDown: onArrowDown,
                 onEnter: onEnter,
                 onShortcutTrigger: onShortcutTrigger,
-                onBackspaceOnEmpty: onBackspaceOnEmpty
+                onBackspaceOnEmpty: onBackspaceOnEmpty,
+                onTabForward: onTabForward,
+                onShiftTabBack: onShiftTabBack
             )
+            .accessibilityLabel("Search \(state.breadcrumbLabel)")
         }
         .padding(.horizontal, 12)
         .frame(height: 44)

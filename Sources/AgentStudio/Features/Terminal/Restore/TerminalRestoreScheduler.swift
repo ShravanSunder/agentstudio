@@ -63,8 +63,8 @@ package final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolv
     private func isVisible(_ paneId: PaneId) -> Bool {
         guard let store, let activeTab = store.tabLayoutAtom.activeTab else { return false }
 
-        if let zoomedPaneId = activeTab.zoomedPaneId {
-            return zoomedPaneId == paneId.uuid
+        if let sourcePaneId = store.panePresentationAtom.zoomPresentation(forTab: activeTab.id)?.sourcePaneId {
+            return sourcePaneId == paneId.uuid
         }
 
         if activeTab.activePaneIds.contains(paneId.uuid) {

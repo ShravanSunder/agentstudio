@@ -26,7 +26,7 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
         )
         let store = WorkspaceStore(
             identityAtom: identityAtom,
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         )
         let anchorPane = store.createPane(title: "Anchor")
         let parentPane = store.createPane(title: "Parent")
@@ -76,7 +76,7 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
         )
         let store = WorkspaceStore(
             identityAtom: identityAtom,
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         )
         let parentPane = store.createPane(title: "Parent")
         let tab = Tab(paneId: parentPane.id, name: "Drawer Detach")
@@ -128,7 +128,7 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
         )
         let store = WorkspaceStore(
             identityAtom: identityAtom,
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         )
         let anchorPane = store.createPane(title: "Anchor")
         let parentPane = store.createPane(title: "Parent")
@@ -152,7 +152,7 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
         #expect((await store.flushAsync()).succeeded)
 
         let dormantStore = WorkspaceStore(
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         )
         _ = await dormantStore.loadCanonicalComposition()
         #expect(dormantStore.tab(tab.id)?.allPaneIds == [anchorPane.id])
@@ -186,7 +186,7 @@ struct WorkspaceSQLiteStoreBridgePersistenceTests {
         )
 
         let restoredStore = WorkspaceStore(
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         )
         await restoredStore.loadCanonicalComposition()
         let restoredTab = try #require(restoredStore.tab(tab.id))

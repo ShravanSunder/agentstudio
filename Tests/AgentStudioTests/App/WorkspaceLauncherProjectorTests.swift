@@ -15,6 +15,7 @@ struct WorkspaceLauncherProjectorTests {
 
     private func makeStore(atoms: AtomRegistry) -> WorkspaceStore {
         atoms.core.repoCache.clear()
+        atoms.core.applicationEntityRecency.clear()
         let store = WorkspaceStore(
             identityAtom: atoms.core.workspaceIdentity,
             windowMemoryAtom: atoms.core.workspaceWindowMemory,
@@ -23,6 +24,20 @@ struct WorkspaceLauncherProjectorTests {
             tabLayoutAtom: atoms.core.workspaceTabLayout,
             mutationCoordinator: atoms.core.workspaceMutationCoordinator)
         return store
+    }
+
+    private func recordWorktreeRecency(
+        atoms: AtomRegistry,
+        worktree: Worktree,
+        at timestamp: Date = Date(timeIntervalSince1970: 100)
+    ) throws {
+        atoms.core.applicationEntityRecency.record(
+            try ApplicationEntityRecency(
+                entity: .worktree(worktreeStableKey: worktree.stableKey),
+                interaction: .opened,
+                lastInteractedAt: timestamp
+            )
+        )
     }
 
     @Test
@@ -130,8 +145,8 @@ struct WorkspaceLauncherProjectorTests {
     }
 
     @Test
-    func project_reposButNoTabs_returnsLauncherStateWithEnrichedCards() {
-        withWorkspaceLauncherAtomRegistry { atoms in
+    func project_reposButNoTabs_returnsLauncherStateWithEnrichedCards() throws {
+        try withWorkspaceLauncherAtomRegistry { atoms in
             let store = WorkspaceStore(
                 identityAtom: atoms.core.workspaceIdentity,
                 windowMemoryAtom: atoms.core.workspaceWindowMemory,
@@ -204,7 +219,7 @@ struct WorkspaceLauncherProjectorTests {
                     isDismissedFromPaneInbox: false
                 )
             )
-            atoms.core.repoCache.recordRecentTarget(.forWorktree(path: worktree.path, worktree: worktree, repo: repo))
+            try recordWorktreeRecency(atoms: atoms, worktree: worktree)
 
             let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
@@ -221,8 +236,8 @@ struct WorkspaceLauncherProjectorTests {
     }
 
     @Test
-    func project_reposAndTabsPresent_returnsEmptyLauncherModel() {
-        withWorkspaceLauncherAtomRegistry { atoms in
+    func project_reposAndTabsPresent_returnsEmptyLauncherModel() throws {
+        try withWorkspaceLauncherAtomRegistry { atoms in
             let store = WorkspaceStore(
                 identityAtom: atoms.core.workspaceIdentity,
                 windowMemoryAtom: atoms.core.workspaceWindowMemory,
@@ -244,7 +259,7 @@ struct WorkspaceLauncherProjectorTests {
                 facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
             )
             store.tabLayoutAtom.appendTab(Tab(paneId: pane.id))
-            atoms.core.repoCache.recordRecentTarget(.forWorktree(path: worktree.path, worktree: worktree, repo: repo))
+            try recordWorktreeRecency(atoms: atoms, worktree: worktree)
 
             let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
@@ -255,23 +270,25 @@ struct WorkspaceLauncherProjectorTests {
     }
 
     @Test
-    func project_launcherCapsAtFifteenAndShowsOpenAllForTwoOrMoreTargets() {
-        withWorkspaceLauncherAtomRegistry { atoms in
+    func project_launcherCapsAtFifteenAndShowsOpenAllForTwoOrMoreTargets() throws {
+        try withWorkspaceLauncherAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
             let repo = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
-            guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
-                Issue.record("Expected main worktree")
-                return
+            let worktrees = (0..<20).map { index in
+                Worktree(
+                    repoId: repo.id,
+                    name: "worktree-\(index)",
+                    path: repo.repoPath.appending(path: "worktree-\(index)"),
+                    isMainWorktree: index == 0
+                )
             }
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
 
-            let cache = atoms.core.repoCache
-            for index in 0..<20 {
-                cache.recordRecentTarget(
-                    .forCwd(
-                        worktree.path.appending(path: "nested-\(index)"),
-                        title: "nested-\(index)",
-                        subtitle: repo.name
-                    )
+            for (index, worktree) in worktrees.enumerated() {
+                try recordWorktreeRecency(
+                    atoms: atoms,
+                    worktree: worktree,
+                    at: Date(timeIntervalSince1970: TimeInterval(index))
                 )
             }
 
@@ -283,19 +300,141 @@ struct WorkspaceLauncherProjectorTests {
     }
 
     @Test
-    func project_unresolvedRecentTarget_isDroppedFromLauncherCards() {
-        withWorkspaceLauncherAtomRegistry { atoms in
+    func project_applicationWorktreeRecency_usesLiveTopologyPresentation() throws {
+        try withWorkspaceLauncherAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
-            _ = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
-
-            let cache = atoms.core.repoCache
-            cache.recordRecentTarget(.forCwd(URL(fileURLWithPath: "/tmp/missing-project")))
+            let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/live-recency-repo"))
+            let originalWorktree = try #require(store.repo(repo.id)?.worktrees.first)
+            let recency = try ApplicationEntityRecency(
+                entity: .worktree(worktreeStableKey: originalWorktree.stableKey),
+                interaction: .opened,
+                lastInteractedAt: Date(timeIntervalSince1970: 500)
+            )
+            atoms.core.applicationEntityRecency.record(recency)
+            let liveWorktree = Worktree(
+                id: originalWorktree.id,
+                repoId: repo.id,
+                name: "live-worktree-name",
+                path: originalWorktree.path,
+                isMainWorktree: originalWorktree.isMainWorktree
+            )
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [liveWorktree])
 
             let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
-            #expect(result.kind == .launcher)
+            #expect(result.recentCards.count == 1)
+            #expect(
+                result.recentCards[0].target
+                    == .worktree(worktreeStableKey: liveWorktree.stableKey)
+            )
+            #expect(result.recentCards[0].title == "live-worktree-name")
+        }
+    }
+
+    @Test
+    func project_applicationRepositoryRecency_resolvesLiveCanonicalDefaultWorktree() throws {
+        try withWorkspaceLauncherAtomRegistry { atoms in
+            let store = makeStore(atoms: atoms)
+            let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/live-repository-recency"))
+            let secondary = Worktree(
+                repoId: repo.id,
+                name: "secondary",
+                path: repo.repoPath.appending(path: "secondary")
+            )
+            let main = Worktree(
+                repoId: repo.id,
+                name: "main",
+                path: repo.repoPath,
+                isMainWorktree: true
+            )
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [secondary, main])
+            atoms.core.applicationEntityRecency.record(
+                try ApplicationEntityRecency(
+                    entity: .repository(repositoryStableKey: repo.stableKey),
+                    interaction: .opened,
+                    lastInteractedAt: Date(timeIntervalSince1970: 600)
+                )
+            )
+
+            let result = WorkspaceLauncherProjector.project(
+                store: store,
+                inboxAtom: atoms.inboxNotification
+            )
+            let activationWorktree = WorkspaceLauncherProjector.resolveActivationWorktree(
+                target: .repository(repositoryStableKey: repo.stableKey),
+                repositoryTopology: store.repositoryTopologyAtom
+            )
+
+            #expect(result.recentCards.count == 1)
+            #expect(result.recentCards[0].title == repo.name)
+            #expect(activationWorktree?.stableKey == main.stableKey)
+            #expect(activationWorktree?.isMainWorktree == true)
+        }
+    }
+
+    @Test
+    func staleApplicationRecency_resolvesNoActivationAndPrunesWithoutRecording() throws {
+        try withWorkspaceLauncherAtomRegistry { atoms in
+            let store = makeStore(atoms: atoms)
+            _ = store.addRepo(at: URL(fileURLWithPath: "/tmp/current-repository"))
+            let staleTarget = ApplicationRecentEntity.worktree(
+                worktreeStableKey: StableKey.fromPath(
+                    URL(fileURLWithPath: "/tmp/missing-worktree")
+                )
+            )
+            atoms.core.applicationEntityRecency.record(
+                try ApplicationEntityRecency(
+                    entity: staleTarget,
+                    interaction: .opened,
+                    lastInteractedAt: Date(timeIntervalSince1970: 700)
+                )
+            )
+
+            let activationWorktree = WorkspaceLauncherProjector.resolveActivationWorktree(
+                target: staleTarget,
+                repositoryTopology: store.repositoryTopologyAtom
+            )
+            let recencyCountBeforePrune = atoms.core.applicationEntityRecency.recentEntities.count
+            WorkspaceLauncherProjector.pruneStaleTarget(
+                staleTarget,
+                applicationRecency: atoms.core.applicationEntityRecency
+            )
+
+            #expect(activationWorktree == nil)
+            #expect(recencyCountBeforePrune == 1)
+            #expect(atoms.core.applicationEntityRecency.recentEntities.isEmpty)
+        }
+    }
+
+    @Test
+    func unavailableRepositoryRecency_projectsNoCardsAndResolvesNoActivation() throws {
+        try withWorkspaceLauncherAtomRegistry { atoms in
+            let store = makeStore(atoms: atoms)
+            let repository = store.addRepo(at: URL(filePath: "/tmp/unavailable-recent-repository"))
+            let worktree = try #require(repository.worktrees.first)
+            try atoms.core.applicationEntityRecency.recordOpened(
+                repositoryStableKey: repository.stableKey,
+                worktreeStableKey: worktree.stableKey,
+                at: Date(timeIntervalSince1970: 800)
+            )
+            store.markRepoUnavailable(repository.id)
+
+            let result = WorkspaceLauncherProjector.project(
+                store: store,
+                inboxAtom: atoms.inboxNotification
+            )
+            let repositoryActivation = WorkspaceLauncherProjector.resolveActivationWorktree(
+                target: .repository(repositoryStableKey: repository.stableKey),
+                repositoryTopology: store.repositoryTopologyAtom
+            )
+            let worktreeActivation = WorkspaceLauncherProjector.resolveActivationWorktree(
+                target: .worktree(worktreeStableKey: worktree.stableKey),
+                repositoryTopology: store.repositoryTopologyAtom
+            )
+
             #expect(result.recentCards.isEmpty)
-            #expect(result.showsOpenAll == false)
+            #expect(repositoryActivation == nil)
+            #expect(worktreeActivation == nil)
         }
     }
 }

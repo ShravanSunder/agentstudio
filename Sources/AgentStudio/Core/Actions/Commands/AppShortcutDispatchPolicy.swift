@@ -74,7 +74,7 @@ package enum AppShortcutDispatchPolicy {
             .closePane, .extractPaneToTab, .movePaneToTab, .focusPane, .splitRight, .splitLeft,
             .equalizePanes, .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
             .focusNextPane, .focusPrevPane, .focusPane1, .focusPane2, .focusPane3, .focusPane4,
-            .focusPane5, .focusPane6, .focusPane7, .focusPane8, .focusPane9, .toggleSplitZoom,
+            .focusPane5, .focusPane6, .focusPane7, .focusPane8, .focusPane9, .zoomPane,
             .minimizePane, .expandPane, .switchArrangement, .previousArrangement, .nextArrangement,
             .cycleArrangement, .saveArrangement, .deleteArrangement, .renameArrangement,
             .enterDrawer, .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown,
@@ -98,8 +98,9 @@ package enum AppShortcutDispatchPolicy {
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow, .closeWindow,
-            .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes,
-            .showCommandBarRepos, .openWebview, .showBridgeReview, .showBridgeFiles,
+            .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
+            .showCommandBarPanes, .showCommandBarRepos, .openWebview, .showViewer,
+            .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:
             return false
@@ -111,7 +112,8 @@ package enum AppShortcutDispatchPolicy {
         case .newTab, .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes:
             return true
         case .closeTab, .undoCloseTab, .nextTab, .prevTab, .showArrangementPanel,
-            .previousArrangement, .nextArrangement, .addDrawerPane, .toggleDrawer, .scrollToBottom,
+            .previousArrangement, .nextArrangement, .zoomPane, .showViewer,
+            .addDrawerPane, .toggleDrawer, .scrollToBottom,
             .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .toggleSidebar, .filterSidebar,
@@ -191,6 +193,7 @@ package enum AppShortcutDispatchPolicy {
             return true
         case .closeTab, .undoCloseTab, .newTab, .showArrangementPanel, .addDrawerPane,
             .toggleDrawer, .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .zoomPane, .showViewer,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
             .toggleManagementLayer, .toggleSidebar, .filterSidebar, .showInboxNotifications,
@@ -211,7 +214,7 @@ package enum AppShortcutDispatchPolicy {
             return false
         case .toggleSidebar, .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab,
             .showArrangementPanel, .previousArrangement, .nextArrangement,
-            .addDrawerPane, .toggleDrawer, .openPaneLocationInBookmarkedEditor,
+            .zoomPane, .showViewer, .addDrawerPane, .toggleDrawer, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .showInboxNotifications,
             .showPaneInboxNotifications, .showWorktreeSidebar, .newWindow, .closeWindow,
@@ -238,7 +241,8 @@ package enum AppShortcutDispatchPolicy {
             return true
         case .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab, .showArrangementPanel,
             .previousArrangement, .nextArrangement, .addDrawerPane, .toggleDrawer, .scrollToBottom,
-            .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
+            .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt, .zoomPane, .showViewer,
+            .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .showPaneInboxNotifications,
             .newWindow, .closeWindow, .selectTab1, .selectTab2, .selectTab3, .selectTab4,

@@ -54,7 +54,6 @@ struct DrawerPanel: View {
     let tabId: UUID
     let activeChildId: UUID?
     let minimizedPaneIds: Set<UUID>
-    let showsMinimizedPanes: Bool
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let height: CGFloat
     let store: WorkspaceStore
@@ -65,6 +64,7 @@ struct DrawerPanel: View {
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
     let onPaneFocusTrigger: PaneFocusTriggerHandler
+    let onFocusParentPane: () -> Void
     let appLifecycleStore: AppLifecycleAtom
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
@@ -89,7 +89,6 @@ struct DrawerPanel: View {
         Self.renderedPaneIds(
             layout: layout,
             minimizedPaneIds: minimizedPaneIds,
-            showsMinimizedPanes: showsMinimizedPanes,
             isManagementLayerActive: managementLayer.isActive
         )
     }
@@ -101,7 +100,6 @@ struct DrawerPanel: View {
         tabId: UUID,
         activeChildId: UUID?,
         minimizedPaneIds: Set<UUID>,
-        showsMinimizedPanes: Bool,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         height: CGFloat,
         store: WorkspaceStore,
@@ -112,6 +110,7 @@ struct DrawerPanel: View {
         onResize: @escaping (CGFloat) -> Void,
         onDismiss: @escaping () -> Void,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
+        onFocusParentPane: @escaping () -> Void,
         appLifecycleStore: AppLifecycleAtom,
         paneInboxPresentation: PaneInboxPresentation?,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
@@ -126,7 +125,6 @@ struct DrawerPanel: View {
         self.tabId = tabId
         self.activeChildId = activeChildId
         self.minimizedPaneIds = minimizedPaneIds
-        self.showsMinimizedPanes = showsMinimizedPanes
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.height = height
         self.store = store
@@ -137,6 +135,7 @@ struct DrawerPanel: View {
         self.onResize = onResize
         self.onDismiss = onDismiss
         self.onPaneFocusTrigger = onPaneFocusTrigger
+        self.onFocusParentPane = onFocusParentPane
         self.appLifecycleStore = appLifecycleStore
         self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
@@ -206,11 +205,12 @@ struct DrawerPanel: View {
             activePaneId: activeChildId,
             minimizedPaneIds: minimizedPaneIds,
             ordinalMap: PaneOrdinalMap(orderedPaneIds: layout.paneIds),
-            collapsedPaneWidth: managementLayer.isActive || showsMinimizedPanes ? CollapsedPaneBar.barWidth : 0,
+            collapsedPaneWidth: managementLayer.isActive ? CollapsedPaneBar.barWidth : 0,
             onSaveArrangement: nil,
             closeTransitionCoordinator: closeTransitionCoordinator,
             actionDispatcher: drawerActionDispatcher,
             onPaneFocusTrigger: onPaneFocusTrigger,
+            onFocusPane: { _ in onFocusParentPane() },
             store: store,
             repoCache: repoCache,
             editorChooser: editorChooser,
@@ -221,7 +221,16 @@ struct DrawerPanel: View {
             paneInboxPresentation: paneInboxPresentation,
             onOpenPaneGitHub: onOpenPaneGitHub,
             notificationCountForWorktree: notificationCountForWorktree,
-            workspaceWindowId: workspaceWindowId
+            workspaceWindowId: workspaceWindowId,
+            paneSurfaceToolbarPresentation: { paneId in
+                guard let pane = store.paneAtom.pane(paneId) else {
+                    return .hidden
+                }
+                return PaneSurfaceToolbarResolver.resolve(
+                    content: pane.content,
+                    placement: .drawerChild
+                )
+            }
         )
     }
 
@@ -332,10 +341,9 @@ struct DrawerPanel: View {
     static func renderedPaneIds(
         layout: DrawerGridLayout,
         minimizedPaneIds: Set<UUID>,
-        showsMinimizedPanes: Bool,
         isManagementLayerActive: Bool
     ) -> Set<UUID> {
-        guard !isManagementLayerActive && !showsMinimizedPanes else {
+        guard !isManagementLayerActive else {
             return Set(layout.paneIds)
         }
         return Set(layout.paneIds.filter { !minimizedPaneIds.contains($0) })
@@ -387,7 +395,6 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                     tabId: UUID(),
                     activeChildId: nil,
                     minimizedPaneIds: [],
-                    showsMinimizedPanes: true,
                     closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                     height: 200,
                     store: store,
@@ -398,6 +405,7 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                     onResize: { _ in },
                     onDismiss: {},
                     onPaneFocusTrigger: { _ in },
+                    onFocusParentPane: {},
                     appLifecycleStore: AppLifecycleAtom(),
                     paneInboxPresentation: nil,
                     onOpenPaneGitHub: { _ in },

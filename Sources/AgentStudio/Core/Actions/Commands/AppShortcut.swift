@@ -189,6 +189,8 @@ package enum AppShortcut: String, CaseIterable {
     case showArrangementPanel
     case previousArrangement
     case nextArrangement
+    case zoomPane
+    case showViewer
     case addDrawerPane
     case toggleDrawer
     case scrollToBottom
@@ -280,6 +282,16 @@ package enum AppShortcut: String, CaseIterable {
                 trigger: .init(key: .character(.l), modifiers: [.command, .option]),
                 contexts: [.global, .terminalAppOwned]
             )
+        case .zoomPane:
+            return .init(
+                trigger: .init(key: .enter, modifiers: [.command, .shift]),
+                contexts: [.global, .terminalAppOwned]
+            )
+        case .showViewer:
+            return .init(
+                trigger: .init(key: .character(.o), modifiers: [.command]),
+                contexts: [.global, .terminalAppOwned]
+            )
         case .addDrawerPane:
             // Primary: cmd-shift-D fires globally (also in
             // terminal-app-owned context). Alternate: raw-character
@@ -319,7 +331,7 @@ package enum AppShortcut: String, CaseIterable {
             )
         case .openPaneLocationInBookmarkedEditor:
             return .init(
-                trigger: .init(key: .character(.o), modifiers: [.command]),
+                trigger: .init(key: .character(.o), modifiers: [.command, .option]),
                 contexts: [.global, .terminalAppOwned]
             )
         case .openPaneLocationInFinder:
@@ -329,7 +341,7 @@ package enum AppShortcut: String, CaseIterable {
             )
         case .openPaneLocationInEditorMenu:
             return .init(
-                trigger: .init(key: .character(.o), modifiers: [.command, .option]),
+                trigger: .init(key: .character(.o), modifiers: [.command, .control, .option]),
                 contexts: [.global, .terminalAppOwned]
             )
         case .editPaneNote:
@@ -339,7 +351,7 @@ package enum AppShortcut: String, CaseIterable {
             )
         case .copyCurrentPanePath:
             return .init(
-                trigger: .init(key: .character(.o), modifiers: [.command, .option, .shift]),
+                trigger: .init(key: .character(.o), modifiers: [.option]),
                 contexts: [.global, .terminalAppOwned]
             )
         case .toggleManagementLayer:
@@ -467,7 +479,7 @@ package enum AppShortcut: String, CaseIterable {
         case .closeTab:
             return .closeTab
         case .newTab:
-            return .showCommandBarRepos
+            return .showCommandBarQuickOpen
         case .undoCloseTab:
             return .undoCloseTab
         case .nextTab:
@@ -480,6 +492,10 @@ package enum AppShortcut: String, CaseIterable {
             return .previousArrangement
         case .nextArrangement:
             return .nextArrangement
+        case .zoomPane:
+            return .zoomPane
+        case .showViewer:
+            return .showViewer
         case .addDrawerPane:
             return .addDrawerPane
         case .toggleDrawer:
@@ -588,7 +604,8 @@ extension AppShortcut {
         case .addDrawerPane:
             return true
         case .closeTab, .undoCloseTab, .newTab, .nextTab, .prevTab, .showArrangementPanel,
-            .previousArrangement, .nextArrangement, .toggleDrawer, .scrollToBottom, .scrollPageUp,
+            .previousArrangement, .nextArrangement, .zoomPane, .showViewer,
+            .toggleDrawer, .scrollToBottom, .scrollPageUp,
             .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .toggleSidebar, .filterSidebar,

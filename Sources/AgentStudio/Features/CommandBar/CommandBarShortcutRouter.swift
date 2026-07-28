@@ -3,6 +3,7 @@ import Foundation
 
 enum CommandBarShortcutRoute {
     case dismiss
+    case showScope(CommandBarScope)
     case showPrefix(String?)
     case executeRow(CommandBarItem)
     case executeSelected(EnterModifier)
@@ -17,6 +18,10 @@ enum CommandBarShortcutRouter {
     ) -> CommandBarShortcutRoute {
         if CommandBarGlobalKeyRouter.isDismissTrigger(trigger) {
             return .dismiss
+        }
+
+        if let reservedScope = CommandBarGlobalKeyRouter.reservedScope(for: trigger) {
+            return .showScope(reservedScope)
         }
 
         if let reservedPrefix = CommandBarGlobalKeyRouter.reservedPrefix(for: trigger) {

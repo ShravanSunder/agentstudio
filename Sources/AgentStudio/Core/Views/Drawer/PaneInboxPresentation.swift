@@ -95,6 +95,7 @@ package struct PaneInboxPresentation {
             editorMenuPresented: baseTrailingActions.editorMenuPresented,
             buttonTitle: baseTrailingActions.buttonTitle,
             onOpenFinder: baseTrailingActions.onOpenFinder,
+            onCopyPath: baseTrailingActions.onCopyPath,
             onOpenInbox: { openRollUpAlerts(parentPaneId, paneIds) },
             inboxPopoverPresented: inboxPopoverPresented,
             inboxPopoverContent: popoverContent(

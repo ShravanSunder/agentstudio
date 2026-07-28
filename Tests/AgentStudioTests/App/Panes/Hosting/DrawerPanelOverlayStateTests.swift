@@ -13,7 +13,7 @@ struct DrawerPanelOverlayStateTests {
     // MARK: - Rendered drawer pane projection
 
     @Test
-    func drawerPanelRenderedPaneIds_followsArrangementShowMinimizedPolicy() {
+    func drawerPanelRenderedPaneIds_hidesMinimizedPanesOutsideManagement() {
         let visiblePaneId = UUID()
         let minimizedPaneId = UUID()
         let layout = DrawerGridLayout(
@@ -30,7 +30,6 @@ struct DrawerPanelOverlayStateTests {
         let renderedPaneIds = DrawerPanel.renderedPaneIds(
             layout: layout,
             minimizedPaneIds: [minimizedPaneId],
-            showsMinimizedPanes: false,
             isManagementLayerActive: false
         )
 
@@ -55,7 +54,6 @@ struct DrawerPanelOverlayStateTests {
         let renderedPaneIds = DrawerPanel.renderedPaneIds(
             layout: layout,
             minimizedPaneIds: [minimizedPaneId],
-            showsMinimizedPanes: false,
             isManagementLayerActive: true
         )
 

@@ -59,15 +59,14 @@ extension AppDelegate {
                     ),
                     commandPort: AgentStudioIPCCommandAdapter(
                         workspaceId: store.identityAtom.workspaceId,
-                        repositoryTargetAuthorizer: WorkspaceRepositoryTargetAuthorizationPort(
-                            repositoryExists: { [repositoryTopology = store.repositoryTopologyAtom] repositoryId in
-                                repositoryTopology.repo(repositoryId) != nil
-                            }
-                        ),
+                        targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store),
                         windowLifecycleReader: windowLifecycleReader,
                         shellCommandHandler: self
                     ),
-                    uiPresentationPort: AgentStudioIPCUIPresentationAdapter(presenter: self),
+                    uiPresentationPort: AgentStudioIPCUIPresentationAdapter(
+                        presenter: self,
+                        targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store)
+                    ),
                     sidebarPort: AgentStudioIPCSidebarAdapter(
                         repoPrefs: atomStore.repoExplorerSidebarPrefs,
                         inboxPrefs: atomStore.inboxNotificationPrefs,
@@ -140,6 +139,16 @@ extension AppDelegate {
                 privilege: .appCommandExecute,
                 target: .app,
                 dataScope: .unspecified
+            ),
+            IPCPermissionScope(
+                privilege: .layoutMutate,
+                target: .app,
+                dataScope: .paneContext
+            ),
+            IPCPermissionScope(
+                privilege: .uiPresent,
+                target: .app,
+                dataScope: .uiSurface
             ),
             IPCPermissionScope(
                 privilege: .sidebarStateMutate,

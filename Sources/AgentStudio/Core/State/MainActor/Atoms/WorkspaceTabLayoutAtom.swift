@@ -176,20 +176,12 @@ package final class WorkspaceTabLayoutAtom {
         arrangementAtom.renameArrangement(arrangementId, name: name, inTab: tabId)
     }
 
-    package func setShowsMinimizedPanes(_ value: Bool, inTab tabId: UUID) {
-        arrangementAtom.setShowsMinimizedPanes(value, inTab: tabId)
-    }
-
     package func renameTab(_ tabId: UUID, name: String) {
         shellAtom.renameTab(tabId, name: name)
     }
 
     func setTabColorHex(_ colorHex: String?, tabId: UUID) throws {
         try shellAtom.setTabColorHex(colorHex, tabId: tabId)
-    }
-
-    package func toggleZoom(paneId: UUID, inTab tabId: UUID) {
-        arrangementAtom.toggleZoom(paneId: paneId, inTab: tabId)
     }
 
     @discardableResult
@@ -296,8 +288,7 @@ package final class WorkspaceTabLayoutAtom {
             tabId: tab.id,
             allPaneIds: tab.allPaneIds,
             arrangements: tab.arrangements,
-            activeArrangementId: tab.activeArrangementId,
-            zoomedPaneId: tab.zoomedPaneId
+            activeArrangementId: tab.activeArrangementId
         )
     }
 }

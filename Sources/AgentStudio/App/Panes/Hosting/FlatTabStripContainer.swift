@@ -4,18 +4,28 @@ import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 
+struct MinimizedPaneBarPresentation: Equatable {
+    let rendersBars: Bool
+
+    init(
+        managementLayerActive: Bool,
+        arrangementPanelPresented: Bool
+    ) {
+        rendersBars = managementLayerActive || arrangementPanelPresented
+    }
+}
+
 struct FlatTabStripContainer: View {
     let layout: AgentStudioCore.Layout
     let octiconLoader: OcticonLoader
     let tabId: UUID
     let activePaneId: UUID?
-    let zoomedPaneId: UUID?
     let minimizedPaneIds: Set<UUID>
     let visiblePaneIds: [UUID]?
-    let showsMinimizedPanes: Bool
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
+    let onFocusPane: (UUID) -> Void
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let editorChooser: EditorChooserState
@@ -23,8 +33,10 @@ struct FlatTabStripContainer: View {
     let appLifecycleStore: AppLifecycleAtom
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
+    let onToggleZoom: (UUID?) -> Void
     let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
+    let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
 
     @State private var paneFrames: [UUID: CGRect] = [:]
     @State private var iconBarFrame: CGRect = .zero
@@ -55,18 +67,29 @@ struct FlatTabStripContainer: View {
         atom(\.managementLayer)
     }
 
+    private var minimizedPaneBarPresentation: MinimizedPaneBarPresentation {
+        let arrangementPanelPresented = atom(\.transientKeyboardSurface)
+            .isArrangementPanelPresented(
+                forTab: tabId,
+                workspaceWindowId: workspaceWindowId
+            )
+        return MinimizedPaneBarPresentation(
+            managementLayerActive: managementLayer.isActive,
+            arrangementPanelPresented: arrangementPanelPresented
+        )
+    }
+
     init(
         layout: AgentStudioCore.Layout,
         octiconLoader: OcticonLoader,
         tabId: UUID,
         activePaneId: UUID?,
-        zoomedPaneId: UUID?,
         minimizedPaneIds: Set<UUID>,
         visiblePaneIds: [UUID]? = nil,
-        showsMinimizedPanes: Bool = true,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
+        onFocusPane: @escaping (UUID) -> Void,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         editorChooser: EditorChooserState,
@@ -74,20 +97,21 @@ struct FlatTabStripContainer: View {
         appLifecycleStore: AppLifecycleAtom,
         paneInboxPresentation: PaneInboxPresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
+        onToggleZoom: @escaping (UUID?) -> Void = { _ in },
         notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
-        workspaceWindowId: UUID? = nil
+        workspaceWindowId: UUID? = nil,
+        paneSurfaceToolbarPresentation: @escaping (UUID) -> PaneSurfaceToolbarPresentation
     ) {
         self.layout = layout
         self.octiconLoader = octiconLoader
         self.tabId = tabId
         self.activePaneId = activePaneId
-        self.zoomedPaneId = zoomedPaneId
         self.minimizedPaneIds = minimizedPaneIds
         self.visiblePaneIds = visiblePaneIds
-        self.showsMinimizedPanes = showsMinimizedPanes
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
         self.onPaneFocusTrigger = onPaneFocusTrigger
+        self.onFocusPane = onFocusPane
         self.store = store
         self.repoCache = repoCache
         self.editorChooser = editorChooser
@@ -95,8 +119,10 @@ struct FlatTabStripContainer: View {
         self.appLifecycleStore = appLifecycleStore
         self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
+        self.onToggleZoom = onToggleZoom
         self.notificationCountForWorktree = notificationCountForWorktree
         self.workspaceWindowId = workspaceWindowId
+        self.paneSurfaceToolbarPresentation = paneSurfaceToolbarPresentation
     }
 
     private var onSaveArrangement: (() -> Void)? {
@@ -115,10 +141,12 @@ struct FlatTabStripContainer: View {
     }
 
     var body: some View {
+        let minimizedPaneBarPresentation = minimizedPaneBarPresentation
+
         GeometryReader { tabGeometry in
             let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
             let isInactivePersistentTab = store.tabLayoutAtom.activeTabId != tabId
-            let rendersMinimizedBars = managementLayer.isActive || showsMinimizedPanes
+            let rendersMinimizedBars = minimizedPaneBarPresentation.rendersBars
             let effectiveCollapsedWidth: CGFloat = rendersMinimizedBars ? CollapsedPaneBar.barWidth : 0
             let effectiveVisiblePaneIds =
                 visiblePaneIds
@@ -141,12 +169,10 @@ struct FlatTabStripContainer: View {
                 minimizedPaneIds: minimizedPaneIds,
                 collapsedPaneWidth: effectiveCollapsedWidth
             )
-            let mainOrdinalMap = PaneOrdinalMap(orderedPaneIds: layout.paneIds)
+            let expandedPaneIds = layout.paneIds.filter { !minimizedPaneIds.contains($0) }
+            let mainOrdinalMap = PaneOrdinalMap(orderedPaneIds: expandedPaneIds)
             let surfaceId = "tab:\(tabId)"
             let renderedPaneIds: Set<UUID> = {
-                if let zoomedPaneId {
-                    return [zoomedPaneId]
-                }
                 if effectiveVisiblePaneIds.isEmpty {
                     return []
                 } else if metrics.allMinimized {
@@ -235,24 +261,18 @@ struct FlatTabStripContainer: View {
         }
         .animation(
             .easeOut(duration: AppStyles.General.Animation.standard),
-            value: managementLayer.isActive || showsMinimizedPanes
+            value: minimizedPaneBarPresentation
         )
-        .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: managementLayer.isActive)
+        .animation(
+            .easeOut(duration: AppStyles.General.Animation.fast),
+            value: minimizedPaneBarPresentation
+        )
         .coordinateSpace(name: "tabContainer")
     }
 
     @ViewBuilder
     private func primaryPaneLayer(_ state: PrimaryPaneLayerState) -> some View {
-        if let zoomedPane = zoomedPaneLeafContainer() {
-            ZStack(alignment: .topLeading) {
-                zoomedPane
-                    .id(zoomedPaneId)
-                    .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
-                zoomBadge()
-            }
-        } else if state.effectiveVisiblePaneIds.isEmpty {
-            EmptyArrangementPlaceholderView()
-        } else if state.metrics.allMinimized {
+        if state.metrics.allMinimized {
             if state.rendersMinimizedBars {
                 HStack(spacing: 0) {
                     ForEach(layout.paneIds, id: \.self) { paneId in
@@ -262,16 +282,21 @@ struct FlatTabStripContainer: View {
                             tabId: tabId,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             actionDispatcher: actionDispatcher,
+                            onFocus: { onFocusPane(paneId) },
                             onSaveArrangement: onSaveArrangement,
+                            onToggleZoom: onToggleZoom,
                             dropTargetCoordinateSpace: "tabContainer",
-                            ordinal: state.mainOrdinalMap.ordinal(forPaneId: paneId),
                             workspaceWindowId: workspaceWindowId
                         )
                         .frame(width: CollapsedPaneBar.barWidth)
                     }
                     Spacer()
                 }
+            } else {
+                EmptyArrangementPlaceholderView()
             }
+        } else if state.effectiveVisiblePaneIds.isEmpty {
+            EmptyArrangementPlaceholderView()
         } else {
             FlatPaneStripContent(
                 layout: layout,
@@ -282,9 +307,11 @@ struct FlatTabStripContainer: View {
                 ordinalMap: state.mainOrdinalMap,
                 collapsedPaneWidth: state.effectiveCollapsedWidth,
                 onSaveArrangement: onSaveArrangement,
+                onToggleZoom: onToggleZoom,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
                 onPaneFocusTrigger: onPaneFocusTrigger,
+                onFocusPane: onFocusPane,
                 store: store,
                 repoCache: repoCache,
                 editorChooser: editorChooser,
@@ -295,33 +322,11 @@ struct FlatTabStripContainer: View {
                 paneInboxPresentation: paneInboxPresentation,
                 onOpenPaneGitHub: onOpenPaneGitHub,
                 notificationCountForWorktree: notificationCountForWorktree,
-                workspaceWindowId: workspaceWindowId
+                workspaceWindowId: workspaceWindowId,
+                paneSurfaceToolbarPresentation: paneSurfaceToolbarPresentation
             )
             .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: state.closingPaneIds)
             .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: minimizedPaneIds)
-        }
-    }
-
-    private func zoomBadge() -> some View {
-        VStack {
-            HStack {
-                Spacer()
-                Text("ZOOM")
-                    .font(
-                        .system(
-                            size: AppStyles.General.Typography.textSm,
-                            weight: .medium,
-                            design: .monospaced
-                        )
-                    )
-                    .foregroundStyle(.white.opacity(AppStyles.General.Foreground.secondary))
-                    .padding(.horizontal, AppStyles.General.Spacing.standard)
-                    .padding(.vertical, AppStyles.General.Layout.paneGap)
-                    .background(Capsule().fill(.white.opacity(AppStyles.General.Stroke.muted)))
-                    .padding(AppStyles.General.Spacing.loose)
-                    .allowsHitTesting(false)
-            }
-            Spacer()
         }
     }
 
@@ -340,6 +345,7 @@ struct FlatTabStripContainer: View {
             iconBarFrame: iconBarFrame,
             actionDispatcher: actionDispatcher,
             onPaneFocusTrigger: onPaneFocusTrigger,
+            onFocusPane: onFocusPane,
             paneInboxPresentation: paneInboxPresentation,
             onOpenPaneGitHub: onOpenPaneGitHub,
             notificationCountForWorktree: notificationCountForWorktree,
@@ -430,33 +436,6 @@ struct FlatTabStripContainer: View {
             .frame(width: drawerBounds.width, height: drawerBounds.height)
             .position(x: captureGeometry.panelFrameInTab.midX, y: captureGeometry.panelFrameInTab.midY)
         }
-    }
-
-    func zoomedPaneLeafContainer() -> PaneLeafContainer? {
-        guard let zoomedPaneId, let zoomedView = viewRegistry.view(for: zoomedPaneId) else {
-            return nil
-        }
-        let ordinal = PaneOrdinalMap(orderedPaneIds: layout.paneIds).ordinal(forPaneId: zoomedPaneId)
-
-        return PaneLeafContainer(
-            paneHost: zoomedView,
-            octiconLoader: octiconLoader,
-            tabId: tabId,
-            isActive: true,
-            isSplit: false,
-            isSplitResizing: false,
-            store: store,
-            repoCache: repoCache,
-            editorChooser: editorChooser,
-            closeTransitionCoordinator: closeTransitionCoordinator,
-            actionDispatcher: actionDispatcher,
-            onPaneFocusTrigger: onPaneFocusTrigger,
-            onOpenPaneGitHub: onOpenPaneGitHub,
-            notificationCountForWorktree: notificationCountForWorktree,
-            paneInboxPresentation: paneInboxPresentation,
-            ordinal: ordinal,
-            workspaceWindowId: workspaceWindowId
-        )
     }
 
     private func startDropTargetMouseUpMonitor() {

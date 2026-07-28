@@ -87,6 +87,7 @@ public struct AppIPCMethodRegistry: Sendable {
             Self.method("command.list", .systemRead, .queryReader),
             Self.method("command.execute", .appCommandExecute, .appCommand),
             Self.method("ui.commandBar.open", .uiPresent, .uiPresentation),
+            Self.method("ui.arrangements.open", .uiPresent, .uiPresentation),
             Self.method("sidebar.grouping.get", .workspaceRead, .queryReader),
             Self.method("sidebar.surface.get", .workspaceRead, .queryReader),
             Self.method("permission.request", .permissionRequest, .permissionBroker, resultSemantics: .accepted),

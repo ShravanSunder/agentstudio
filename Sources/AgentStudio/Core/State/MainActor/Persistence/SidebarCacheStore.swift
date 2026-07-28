@@ -47,15 +47,13 @@ package final class SidebarCacheStore {
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
         switch await sqliteDatastore.loadSidebarState(workspaceContextId: workspaceId) {
-        case .loaded(let payload):
+        case .loaded(let expandedGroups):
             isRestoringState = true
-            atom.setExpandedGroups(payload.expandedGroups)
+            atom.setExpandedGroups(expandedGroups)
             isRestoringState = false
-            reportRecoveryEvents(payload.recoveryEvents)
-        case .unavailable(let failure, let recoveryEvents):
+        case .unavailable(let failure):
             isRestoringState = false
             atom.clear()
-            reportRecoveryEvents(recoveryEvents)
             sidebarCacheStoreLogger.warning("Sidebar cache SQLite restore failed: \(failure.description)")
             recoveryReporter?(
                 .init(
@@ -127,9 +125,4 @@ package final class SidebarCacheStore {
         )
     }
 
-    private func reportRecoveryEvents(_ recoveryEvents: [PersistenceRecoveryEvent]) {
-        for recoveryEvent in recoveryEvents {
-            recoveryReporter?(recoveryEvent)
-        }
-    }
 }

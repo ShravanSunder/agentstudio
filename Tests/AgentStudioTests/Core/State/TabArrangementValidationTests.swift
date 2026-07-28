@@ -20,8 +20,7 @@ struct TabArrangementValidationTests {
             allPaneIds: [sharedPane],
             arrangements: [firstArrangement],
             activeArrangementId: firstArrangement.id,
-            activePaneId: sharedPane,
-            zoomedPaneId: nil
+            activePaneId: sharedPane
         )
         let secondArrangement = PaneArrangement(
             name: "Default",
@@ -37,8 +36,7 @@ struct TabArrangementValidationTests {
             allPaneIds: [sharedPane, uniquePane],
             arrangements: [secondArrangement],
             activeArrangementId: secondArrangement.id,
-            activePaneId: sharedPane,
-            zoomedPaneId: nil
+            activePaneId: sharedPane
         )
 
         let validated = TabArrangementValidation.validating([first, second])
@@ -81,8 +79,7 @@ struct TabArrangementValidationTests {
             allPaneIds: [parentPane, validDrawerPane, invalidDrawerPane],
             arrangements: [arrangement],
             activeArrangementId: arrangement.id,
-            activePaneId: parentPane,
-            zoomedPaneId: nil
+            activePaneId: parentPane
         )
 
         let validated = TabArrangementValidation.pruningInvalidPaneIds(
@@ -114,14 +111,49 @@ struct TabArrangementValidationTests {
             allPaneIds: [parentPane, drawerPane],
             arrangements: [arrangement],
             activeArrangementId: arrangement.id,
-            activePaneId: parentPane,
-            zoomedPaneId: nil
+            activePaneId: parentPane
         )
 
         let validated = TabArrangementValidation.validating([state])
 
         #expect(Set(validated[0].allPaneIds) == Set([parentPane, drawerPane]))
         #expect(validated[0].arrangements[0].drawerViews[drawerId]?.layout.paneIds == [drawerPane])
+    }
+
+    @Test
+    func validate_doesNotPromoteOrphanedDrawerChildIntoDefaultMainLayout() {
+        let removedParentPane = UUID()
+        let survivingDrawerPane = UUID()
+        let drawerId = UUID()
+        let defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: removedParentPane),
+            drawerViews: [
+                drawerId: DrawerView(
+                    layout: DrawerGridLayout(topRow: Layout(paneId: survivingDrawerPane))
+                )
+            ]
+        )
+        let state = TabArrangementState(
+            tabId: UUID(),
+            allPaneIds: [removedParentPane, survivingDrawerPane],
+            arrangements: [defaultArrangement],
+            activeArrangementId: defaultArrangement.id,
+            activePaneId: removedParentPane
+        )
+
+        let validated = TabArrangementValidation.pruningInvalidPaneIds(
+            validPaneIds: [survivingDrawerPane],
+            from: [state],
+            drawerParentPaneIdByDrawerId: [drawerId: removedParentPane]
+        )
+
+        #expect(
+            validated.allSatisfy { state in
+                state.arrangements.allSatisfy { !$0.layout.contains(survivingDrawerPane) }
+            }
+        )
     }
 
     @Test
@@ -152,12 +184,108 @@ struct TabArrangementValidationTests {
             allPaneIds: [secondDrawerPane, firstDrawerPane, parentPane],
             arrangements: [arrangement],
             activeArrangementId: arrangement.id,
-            activePaneId: parentPane,
-            zoomedPaneId: nil
+            activePaneId: parentPane
         )
 
         let validated = TabArrangementValidation.validating([state])
 
         #expect(validated[0].allPaneIds == [parentPane, firstDrawerPane, secondDrawerPane])
+    }
+
+    @Test
+    func validate_normalizesDefaultToAllMainPanesWithoutMinimizedPanes() throws {
+        let paneA = UUID()
+        let paneB = UUID()
+        var defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: paneA)
+        )
+        defaultArrangement.minimizedPaneIds = [paneA]
+        let userLayout = PaneArrangement(
+            name: "Layout 1",
+            isDefault: false,
+            layout: Layout.autoTiled([paneB, paneA]),
+            minimizedPaneIds: [paneB]
+        )
+        let state = TabArrangementState(
+            tabId: UUID(),
+            allPaneIds: [paneA, paneB],
+            arrangements: [defaultArrangement, userLayout],
+            activeArrangementId: userLayout.id,
+            activePaneId: paneA
+        )
+
+        let validatedState = try #require(TabArrangementValidation.validating([state]).first)
+        let validatedDefault = try #require(validatedState.arrangements.first(where: { $0.isDefault }))
+        let validatedUserLayout = try #require(validatedState.arrangements.first(where: { !$0.isDefault }))
+
+        #expect(validatedDefault.layout.paneIds == [paneA, paneB])
+        #expect(validatedDefault.minimizedPaneIds.isEmpty)
+        #expect(validatedUserLayout.layout.paneIds == [paneB, paneA])
+        #expect(validatedUserLayout.minimizedPaneIds == Set([paneB]))
+    }
+
+    @Test
+    func validate_preservesUnreferencedDurableMembershipAndAddsItToDefault() throws {
+        let paneA = UUID()
+        let paneB = UUID()
+        let defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: paneA)
+        )
+        let state = TabArrangementState(
+            tabId: UUID(),
+            allPaneIds: [paneA, paneB],
+            arrangements: [defaultArrangement],
+            activeArrangementId: defaultArrangement.id,
+            activePaneId: paneA
+        )
+
+        let validatedState = try #require(TabArrangementValidation.validating([state]).first)
+        let validatedDefault = try #require(validatedState.arrangements.first(where: { $0.isDefault }))
+
+        #expect(validatedState.allPaneIds == [paneA, paneB])
+        #expect(validatedDefault.layout.paneIds == [paneA, paneB])
+    }
+
+    @Test
+    func validate_removesDuplicateUnreferencedMembershipFromLaterTab() throws {
+        let sharedPane = UUID()
+        let laterPane = UUID()
+        let firstDefault = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: sharedPane)
+        )
+        let laterDefault = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: laterPane)
+        )
+        let firstState = TabArrangementState(
+            tabId: UUID(),
+            allPaneIds: [sharedPane],
+            arrangements: [firstDefault],
+            activeArrangementId: firstDefault.id,
+            activePaneId: sharedPane
+        )
+        let laterState = TabArrangementState(
+            tabId: UUID(),
+            allPaneIds: [sharedPane, laterPane],
+            arrangements: [laterDefault],
+            activeArrangementId: laterDefault.id,
+            activePaneId: laterPane
+        )
+
+        let validatedStates = TabArrangementValidation.validating([firstState, laterState])
+        let validatedLaterState = try #require(validatedStates.last)
+        let validatedLaterDefault = try #require(
+            validatedLaterState.arrangements.first(where: { $0.isDefault })
+        )
+
+        #expect(validatedLaterState.allPaneIds == [laterPane])
+        #expect(validatedLaterDefault.layout.paneIds == [laterPane])
     }
 }

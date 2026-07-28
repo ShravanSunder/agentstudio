@@ -312,6 +312,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             workspaceName: "Composed Drawer Restore",
             createdAt: Date(timeIntervalSince1970: 1_700_000_089)
         )
+        let sqliteDatastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         try fixture.coreRepository.upsertWorkspace(
             .init(
                 id: workspaceId,
@@ -320,7 +321,6 @@ struct WorkspaceDrawerRestoreIntegrationTests {
                 updatedAt: identityAtom.createdAt
             )
         )
-        let sqliteDatastore = workspaceSQLiteDatastore(from: fixture.backend)
         let store = WorkspaceStore(
             identityAtom: identityAtom,
             sqliteDatastore: sqliteDatastore
@@ -370,7 +370,7 @@ struct WorkspaceDrawerRestoreIntegrationTests {
 
         #expect(flushOutcome.succeeded)
         let restoredStore = WorkspaceStore(
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         )
         _ = await restoredStore.loadCanonicalComposition()
         let restoredViewRegistry = ViewRegistry()

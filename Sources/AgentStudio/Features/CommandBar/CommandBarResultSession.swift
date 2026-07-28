@@ -10,6 +10,7 @@ final class CommandBarResultSession {
         let scope: CommandBarScope
         let focus: WorkspacePaneFocus
         let rootSessionGeneration: Int
+        let queryState: CommandBarRootQueryState
     }
 
     private struct CachedRootItemSnapshot {
@@ -23,6 +24,7 @@ final class CommandBarResultSession {
     @ObservationIgnored private let notificationInboxCommands: InboxNotificationCommands?
     @ObservationIgnored private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     @ObservationIgnored private var cachedRootItemSnapshot: CachedRootItemSnapshot?
+    @ObservationIgnored private var lastDisplayedItemIDs: [String] = []
     @ObservationIgnored private var isRootItemSnapshotInvalidated = false
     @ObservationIgnored private var rootItemSnapshotObservationGeneration = 0
     private(set) var rootItemSnapshotInvalidationRevision = 0
@@ -53,7 +55,7 @@ final class CommandBarResultSession {
         let itemSnapshot = buildItemSnapshot(state: state, focus: currentContext)
         let searchDocument = CommandBarSearchDocument(
             items: itemSnapshot.items,
-            query: state.searchQuery,
+            query: state.isNested ? state.searchQuery : state.normalizedRootQuery,
             recentIds: state.recentItemIds
         )
         let filteredItems = CommandBarSearch.filter(
@@ -64,8 +66,16 @@ final class CommandBarResultSession {
         )
         let groups = CommandBarDataSource.grouped(filteredItems)
         let displayedItems = CommandBarDataSource.displayItems(from: groups)
+        let selectedIndex = reconciledSelectedIndex(
+            requestedIndex: state.selectedIndex,
+            displayedItems: displayedItems
+        )
+        if state.selectedIndex != selectedIndex {
+            state.selectedIndex = selectedIndex
+        }
+        lastDisplayedItemIDs = displayedItems.map(\.id)
         let selectedItem = Self.selectedItem(
-            selectedIndex: state.selectedIndex,
+            selectedIndex: selectedIndex,
             displayedItems: displayedItems
         )
 
@@ -102,10 +112,13 @@ final class CommandBarResultSession {
             )
         }
 
+        let queryState: CommandBarRootQueryState =
+            state.hasMeaningfulRootQuery ? .meaningful : .empty
         let identity = RootItemSnapshotCacheIdentity(
             scope: state.activeScope,
             focus: focus,
-            rootSessionGeneration: state.rootSessionGeneration
+            rootSessionGeneration: state.rootSessionGeneration,
+            queryState: queryState
         )
         if let cachedRootItemSnapshot,
             cachedRootItemSnapshot.identity == identity,
@@ -115,7 +128,12 @@ final class CommandBarResultSession {
             return cachedRootItemSnapshot.snapshot
         }
 
-        let snapshot = trackedRootItemSnapshot(scope: state.activeScope, focus: focus)
+        let snapshot = trackedRootItemSnapshot(
+            scope: state.activeScope,
+            queryState: queryState,
+            recentCommands: state.recentCommands,
+            focus: focus
+        )
         cachedRootItemSnapshot = CachedRootItemSnapshot(identity: identity, snapshot: snapshot)
         isRootItemSnapshotInvalidated = false
         rootItemSnapshotBuildCount += 1
@@ -124,6 +142,8 @@ final class CommandBarResultSession {
 
     private func trackedRootItemSnapshot(
         scope: CommandBarScope,
+        queryState: CommandBarRootQueryState,
+        recentCommands: [AppCommand],
         focus: WorkspacePaneFocus
     ) -> CommandBarItemSnapshot {
         rootItemSnapshotObservationGeneration += 1
@@ -134,6 +154,8 @@ final class CommandBarResultSession {
                 isNested: false,
                 items: CommandBarDataSource.items(
                     scope: scope,
+                    rootQueryState: queryState,
+                    recentCommands: recentCommands,
                     store: store,
                     repoCache: repoCache,
                     dispatcher: dispatcher,
@@ -177,7 +199,8 @@ final class CommandBarResultSession {
         return atom(\.workspacePaneFocus).currentFocus(
             workspaceTab: workspaceTab,
             workspacePane: store.paneAtom,
-            workspaceFocusOwner: atom(\.workspaceFocusOwner)
+            workspaceFocusOwner: atom(\.workspaceFocusOwner),
+            workspacePanePresentation: store.panePresentationAtom
         )
     }
 
@@ -194,6 +217,22 @@ final class CommandBarResultSession {
             return false
         }
         return true
+    }
+
+    private func reconciledSelectedIndex(
+        requestedIndex: Int,
+        displayedItems: [CommandBarItem]
+    ) -> Int {
+        guard !displayedItems.isEmpty else { return 0 }
+
+        if lastDisplayedItemIDs.indices.contains(requestedIndex) {
+            let selectedItemID = lastDisplayedItemIDs[requestedIndex]
+            if let preservedIndex = displayedItems.firstIndex(where: { $0.id == selectedItemID }) {
+                return preservedIndex
+            }
+        }
+
+        return min(max(requestedIndex, 0), displayedItems.count - 1)
     }
 
     private static func selectedItem(

@@ -80,71 +80,111 @@ enum WorkspaceLocalRepositoryCodecs {
         )
     }
 
-    static func insertRecentWorkspaceTarget(
+    static func insertApplicationEntityRecency(
         _ database: Database,
-        workspaceIdString: String,
-        target: RecentWorkspaceTarget
+        recency: ApplicationEntityRecency
     ) throws {
         try database.execute(
             sql: """
-                INSERT INTO local_recent_workspace_target(
-                    workspace_id, id, path, display_title, subtitle, repo_id, worktree_id, kind, last_opened_at
+                INSERT INTO local_entity_recency(
+                    entity_kind, entity_key, interaction_kind, last_interacted_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?)
                 """,
             arguments: [
-                workspaceIdString,
-                target.id,
-                target.path.standardizedFileURL.path,
-                target.displayTitle,
-                target.subtitle,
-                target.repoId?.uuidString,
-                target.worktreeId?.uuidString,
-                SQLiteLocalUXStorage.storageValue(for: target.kind),
-                target.lastOpenedAt.timeIntervalSince1970,
+                recency.entity.storageKind,
+                recency.entity.storageKey,
+                recency.interaction.rawValue,
+                recency.lastInteractedAt.timeIntervalSince1970,
             ]
         )
     }
 
-    static func fetchRecentWorkspaceTargets(
-        _ database: Database,
-        workspaceIdString: String
-    ) throws -> [RecentWorkspaceTarget] {
+    static func fetchApplicationEntityRecency(_ database: Database) throws -> [ApplicationEntityRecency] {
         let rows = try Row.fetchAll(
             database,
             sql: """
-                SELECT id, path, display_title, subtitle, repo_id, worktree_id, kind, last_opened_at
-                FROM local_recent_workspace_target
-                WHERE workspace_id = ?
-                ORDER BY last_opened_at DESC, id ASC
-                """,
-            arguments: [workspaceIdString]
+                SELECT entity_kind, entity_key, interaction_kind, last_interacted_at
+                FROM local_entity_recency
+                ORDER BY last_interacted_at DESC, entity_kind ASC, entity_key ASC
+                """
         )
-        return rows.compactMap { try? decodeRecentWorkspaceTarget($0) }
+        return rows.compactMap { try? decodeApplicationEntityRecency($0) }
     }
 
-    static func decodeRecentWorkspaceTarget(_ row: Row) throws -> RecentWorkspaceTarget {
-        let kindValue: String = row["kind"]
-        guard let kind = SQLiteLocalUXStorage.recentWorkspaceTargetKind(from: kindValue) else {
-            throw WorkspaceLocalRepositoryError.unsupportedRecentTargetKind(kindValue)
-        }
-        let repoIdString: String? = row["repo_id"]
-        let worktreeIdString: String? = row["worktree_id"]
-        let payload = RecentWorkspaceTargetPayload(
-            id: row["id"],
-            path: URL(fileURLWithPath: row["path"]).standardizedFileURL,
-            displayTitle: row["display_title"],
-            subtitle: row["subtitle"],
-            repoId: try repoIdString.map { try uuid($0, WorkspaceLocalRepositoryError.malformedRepoId) },
-            worktreeId: try worktreeIdString.map {
-                try uuid($0, WorkspaceLocalRepositoryError.malformedWorktreeId)
-            },
-            kind: kind,
-            lastOpenedAt: Date(timeIntervalSince1970: row["last_opened_at"])
+    static func insertWorkspaceEntityRecency(
+        _ database: Database,
+        recency: WorkspaceEntityRecency
+    ) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO local_workspace_entity_recency(
+                    workspace_id, entity_kind, entity_key, interaction_kind, last_interacted_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+            arguments: [
+                recency.workspaceID.uuidString,
+                recency.entity.storageKind,
+                recency.entity.storageKey,
+                recency.interaction.rawValue,
+                recency.lastInteractedAt.timeIntervalSince1970,
+            ]
         )
-        return try JSONDecoder().decode(
-            RecentWorkspaceTarget.self,
-            from: JSONEncoder().encode(payload)
+    }
+
+    static func fetchWorkspaceEntityRecency(
+        _ database: Database,
+        workspaceID: UUID
+    ) throws -> [WorkspaceEntityRecency] {
+        let rows = try Row.fetchAll(
+            database,
+            sql: """
+                SELECT workspace_id, entity_kind, entity_key, interaction_kind, last_interacted_at
+                FROM local_workspace_entity_recency
+                WHERE workspace_id = ?
+                ORDER BY last_interacted_at DESC, entity_kind ASC, entity_key ASC
+                """,
+            arguments: [workspaceID.uuidString]
+        )
+        return rows.compactMap { try? decodeWorkspaceEntityRecency($0) }
+    }
+
+    private static func decodeApplicationEntityRecency(_ row: Row) throws -> ApplicationEntityRecency {
+        let interactionValue: String = row["interaction_kind"]
+        guard let interaction = EntityRecencyInteraction(rawValue: interactionValue) else {
+            throw EntityRecencyValidationError.unsupportedInteraction
+        }
+        return try ApplicationEntityRecency(
+            entity: ApplicationRecentEntity(
+                storageKind: row["entity_kind"],
+                storageKey: row["entity_key"]
+            ),
+            interaction: interaction,
+            lastInteractedAt: Date(timeIntervalSince1970: row["last_interacted_at"])
+        )
+    }
+
+    private static func decodeWorkspaceEntityRecency(_ row: Row) throws -> WorkspaceEntityRecency {
+        let workspaceIDString: String = row["workspace_id"]
+        guard
+            let workspaceID = UUID(uuidString: workspaceIDString),
+            workspaceID.uuidString == workspaceIDString
+        else {
+            throw EntityRecencyValidationError.invalidEntityKey
+        }
+        let interactionValue: String = row["interaction_kind"]
+        guard let interaction = EntityRecencyInteraction(rawValue: interactionValue) else {
+            throw EntityRecencyValidationError.unsupportedInteraction
+        }
+        return try WorkspaceEntityRecency(
+            workspaceID: workspaceID,
+            entity: WorkspaceRecentEntity(
+                storageKind: row["entity_kind"],
+                storageKey: row["entity_key"]
+            ),
+            interaction: interaction,
+            lastInteractedAt: Date(timeIntervalSince1970: row["last_interacted_at"])
         )
     }
 
@@ -283,14 +323,4 @@ enum WorkspaceLocalRepositoryCodecs {
         }
     }
 
-    private struct RecentWorkspaceTargetPayload: Codable {
-        let id: String
-        let path: URL
-        let displayTitle: String
-        let subtitle: String
-        let repoId: UUID?
-        let worktreeId: UUID?
-        let kind: RecentWorkspaceTarget.Kind
-        let lastOpenedAt: Date
-    }
 }

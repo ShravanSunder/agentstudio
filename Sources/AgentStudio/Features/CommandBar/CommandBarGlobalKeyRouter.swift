@@ -2,10 +2,12 @@ import AgentStudioCore
 import Foundation
 
 enum CommandBarGlobalKeyRouter {
+    static func reservedScope(for trigger: ShortcutTrigger) -> CommandBarScope? {
+        trigger == AppShortcut.newTab.trigger ? .quickOpen : nil
+    }
+
     static func reservedPrefix(for trigger: ShortcutTrigger) -> String?? {
         switch trigger {
-        case AppShortcut.newTab.trigger:
-            return .some("#")
         case AppShortcut.showCommandBarEverything.trigger:
             return .some(nil)
         case AppShortcut.showCommandBarCommands.trigger:

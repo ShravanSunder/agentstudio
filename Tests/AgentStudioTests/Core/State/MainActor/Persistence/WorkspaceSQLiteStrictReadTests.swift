@@ -18,6 +18,7 @@ struct WorkspaceSQLiteStrictReadTests {
             localDatabaseURL: rootDirectory.appending(path: "local.sqlite")
         ).makeDatastore()
 
+        _ = await datastore.prepareDatabasesForBoot()
         let result = await datastore.loadWorkspaceSnapshot()
 
         guard case .uninitialized = result else {
@@ -43,6 +44,7 @@ struct WorkspaceSQLiteStrictReadTests {
             localDatabaseURL: rootDirectory.appending(path: "local.sqlite")
         ).makeDatastore()
 
+        _ = await datastore.prepareDatabasesForBoot()
         let result = await datastore.loadWorkspaceSnapshot()
 
         guard case .unavailable(let failure) = result else {
@@ -65,6 +67,7 @@ struct WorkspaceSQLiteStrictReadTests {
             localDatabaseURL: rootDirectory.appending(path: "local.sqlite")
         ).makeDatastore()
 
+        _ = await datastore.prepareDatabasesForBoot()
         let result = await datastore.loadWorkspaceSnapshot()
 
         guard case .unavailable = result else {
@@ -92,6 +95,7 @@ struct WorkspaceSQLiteStrictReadTests {
         try corruptBytes.write(to: localDatabaseURL)
         let datastore = factory.makeDatastore()
 
+        let preparationResult = await datastore.prepareDatabasesForBoot()
         let result = await datastore.loadWorkspaceSnapshot()
 
         guard case .loaded(let snapshot) = result else {
@@ -105,16 +109,17 @@ struct WorkspaceSQLiteStrictReadTests {
         #expect(snapshot.panes.single?.drawer?.isExpanded == false)
         #expect(snapshot.sidebarWidth == 250)
         #expect(try containsQuarantineArtifact(in: rootDirectory))
+        guard case .prepared(let receipt) = preparationResult else {
+            Issue.record("Expected local replacement preparation receipt")
+            return
+        }
+        #expect(receipt.local == .available(recovery: .init(reason: .corruptDatabase)))
 
         guard case .loaded(let settings) = await datastore.loadWorkspaceSettings(workspaceId: workspaceId) else {
             Issue.record("Expected the reset local database to remain readable")
             return
         }
-        #expect(
-            settings.recoveryEvents.contains { event in
-                event.workspaceId == workspaceId && event.recovery == .quarantinedAndReset
-            }
-        )
+        #expect(settings.editor == .loaded(.default))
     }
 
     @Test("missing local database is recreated while authoritative core loads with local defaults")
@@ -132,6 +137,7 @@ struct WorkspaceSQLiteStrictReadTests {
         try removeSQLiteDatabaseAndSidecars(for: localDatabaseURL)
         let datastore = factory.makeDatastore()
 
+        _ = await datastore.prepareDatabasesForBoot()
         let result = await datastore.loadWorkspaceSnapshot()
 
         guard case .loaded(let snapshot) = result else {
@@ -172,6 +178,7 @@ struct WorkspaceSQLiteStrictReadTests {
         ).makeDatastore()
 
         // Act
+        _ = await datastore.prepareDatabasesForBoot()
         let result = await datastore.loadWorkspaceSnapshot()
 
         // Assert
@@ -187,39 +194,51 @@ struct WorkspaceSQLiteStrictReadTests {
     @Test("missing active selection is rejected without selecting the preferred workspace")
     func missingActiveSelectionIsRejectedWithoutSelectingPreferredWorkspace() async throws {
         let workspaceId = UUIDv7.generate()
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+        let rootDirectory = try makeStrictReadTemporaryDirectory(prefix: "missing-selection")
+        let coreDatabaseURL = rootDirectory.appending(path: "core.sqlite")
+        let factory = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: coreDatabaseURL,
+            localDatabaseURL: rootDirectory.appending(path: "local.sqlite")
+        )
+        try await seedStrictReadWorkspace(
+            workspace: .emptyFixture(id: workspaceId, name: "Strict Selection"),
+            factory: factory
+        )
+        let corePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: coreDatabaseURL,
             label: "AgentStudio.sqlite.strict-read.missing-selection.core"
         )
-        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
-            label: "AgentStudio.sqlite.strict-read.missing-selection.local"
-        )
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        try WorkspaceLocalMigrations.migrate(localQueue)
-        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
-        let backend = WorkspaceSQLiteStoreBackend(
-            coreRepository: coreRepository,
-            makeLocalRepository: { workspaceId in
-                WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
-            }
-        )
-        try backend.save(
-            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Strict Selection"))
-        )
-        try await coreQueue.write { database in
+        try await corePool.write { database in
             try database.execute(
                 sql: "UPDATE app_workspace_selection SET active_workspace_id = NULL WHERE singleton_id = 1"
             )
         }
-        let selectionBeforeLoad = try activeWorkspaceSelection(in: coreQueue)
-        let datastore = workspaceSQLiteDatastore(from: backend)
+        try corePool.close()
+        let selectionReader = try SQLiteDatabaseFactory.makeBytePreservingStartupReader(
+            at: coreDatabaseURL,
+            label: "AgentStudio.sqlite.strict-read.missing-selection.selection-before"
+        )
+        let selectionBeforeLoad = try activeWorkspaceSelection(in: selectionReader)
+        try selectionReader.close()
+        let datastore = factory.makeDatastore()
 
+        let preparationResult = await datastore.prepareDatabasesForBoot()
         let result = await datastore.loadWorkspaceSnapshot()
 
+        guard case .failed = preparationResult else {
+            Issue.record("Expected strict preparation failure, got \(preparationResult)")
+            return
+        }
         guard case .unavailable = result else {
             Issue.record("Expected strict failure for missing active selection, got \(result)")
             return
         }
-        #expect(try activeWorkspaceSelection(in: coreQueue) == selectionBeforeLoad)
+        let selectionAfterReader = try SQLiteDatabaseFactory.makeBytePreservingStartupReader(
+            at: coreDatabaseURL,
+            label: "AgentStudio.sqlite.strict-read.missing-selection.selection-after"
+        )
+        #expect(try activeWorkspaceSelection(in: selectionAfterReader) == selectionBeforeLoad)
+        try selectionAfterReader.close()
     }
 
     @Test("core committed before a local open failure remains readable")
@@ -241,10 +260,9 @@ struct WorkspaceSQLiteStrictReadTests {
             makeLocalRepository: { _ in localRepository }
         )
         try backend.save(.emptyTopologyFixture(workspace: seededSnapshot))
-        let datastore = WorkspaceSQLiteDatastore(
+        let datastore = try await preparedWorkspaceSQLiteDatastore(
             coreRepository: coreRepository,
-            makeLocalRepository: { _ in localRepository },
-            makeLocalRestoreRepository: { _ in throw CocoaError(.fileReadNoPermission) }
+            localUnavailable: .init(CocoaError(.fileReadNoPermission))
         )
         let result = await datastore.loadWorkspaceSnapshot()
 
@@ -293,9 +311,9 @@ struct WorkspaceSQLiteStrictReadTests {
             .init(sidebarWidth: 420, windowFrame: nil),
             updatedAt: Date(timeIntervalSince1970: 200)
         )
-        let datastore = WorkspaceSQLiteDatastore(
+        let datastore = try await preparedWorkspaceSQLiteDatastore(
             coreRepository: coreRepository,
-            makeLocalRepository: { _ in independentLocalRepository }
+            preparedApplicationLocalRepository: independentLocalRepository
         )
 
         let result = await datastore.loadWorkspaceSnapshot()
@@ -332,7 +350,9 @@ struct WorkspaceSQLiteStrictReadTests {
         }
         try localPool.close()
 
-        let result = await factory.makeDatastore().loadWorkspaceSnapshot()
+        let datastore = factory.makeDatastore()
+        _ = await datastore.prepareDatabasesForBoot()
+        let result = await datastore.loadWorkspaceSnapshot()
 
         guard case .loaded(let snapshot) = result else {
             Issue.record("Expected core with independently defaulted cursor state, got \(result)")
@@ -412,8 +432,9 @@ struct WorkspaceSQLiteStrictReadTests {
         let selectionBeforeLoad = try activeWorkspaceSelection(in: coreQueue)
         let localCursorBeforeLoad = try localRepository.fetchCursorState()
         let localWindowBeforeLoad = try localRepository.fetchWindowState()
-        let datastore = workspaceSQLiteDatastore(from: backend)
+        let datastore = try await preparedWorkspaceSQLiteDatastore(from: backend)
 
+        _ = await datastore.prepareDatabasesForBoot()
         let result = await datastore.loadWorkspaceSnapshot()
 
         guard case .loaded(let snapshot) = result else {
@@ -428,8 +449,8 @@ struct WorkspaceSQLiteStrictReadTests {
         #expect(try localRepository.fetchWindowState() == localWindowBeforeLoad)
     }
 
-    @Test("preexisting valid snapshot preserves core bytes then opens a writable steady backend")
-    func preexistingValidSnapshotLoadsBytePreservingThenSavesThroughWritableBackend() async throws {
+    @Test("preexisting valid snapshot prepares, loads, and saves through the retained writable owner")
+    func preexistingValidSnapshotPreparesLoadsAndSavesThroughRetainedWritableOwner() async throws {
         // Arrange
         let workspaceId = UUIDv7.generate()
         let rootDirectory = try makeStrictReadTemporaryDirectory(prefix: "valid-file-backed")
@@ -440,10 +461,10 @@ struct WorkspaceSQLiteStrictReadTests {
             localDatabaseURL: localDatabaseURL
         )
         try await seedStrictReadWorkspace(workspaceId: workspaceId, factory: factory)
-        let coreFilesBeforeLoad = try strictReadDatabaseFiles(at: coreDatabaseURL)
         let datastore = factory.makeDatastore()
 
         // Act
+        _ = await datastore.prepareDatabasesForBoot()
         let loadResult = await datastore.loadWorkspaceSnapshot()
 
         // Assert
@@ -452,12 +473,12 @@ struct WorkspaceSQLiteStrictReadTests {
             return
         }
         #expect(loadedSnapshot.id == workspaceId)
-        #expect(try strictReadDatabaseFiles(at: coreDatabaseURL) == coreFilesBeforeLoad)
+        #expect(try !containsQuarantineArtifact(in: rootDirectory))
 
         let updatedAt = Date()
         let updatedSnapshot = WorkspaceSQLiteSnapshot.emptyFixture(
             id: workspaceId,
-            name: "Saved After Byte-Preserving Startup",
+            name: "Saved After Explicit Preparation",
             updatedAt: updatedAt
         )
         try await datastore.saveWorkspaceSnapshotBundle(.emptyTopologyFixture(workspace: updatedSnapshot))
@@ -465,7 +486,7 @@ struct WorkspaceSQLiteStrictReadTests {
             Issue.record("Expected the steady writable backend to reload its save")
             return
         }
-        #expect(reloadedSnapshot.name == "Saved After Byte-Preserving Startup")
+        #expect(reloadedSnapshot.name == "Saved After Explicit Preparation")
         #expect(reloadedSnapshot.updatedAt.timeIntervalSince1970 == updatedAt.timeIntervalSince1970)
     }
 }
@@ -521,6 +542,7 @@ private func seedStrictReadWorkspace(
     factory: WorkspaceSQLiteDatastoreFactory
 ) async throws {
     let datastore = factory.makeDatastore()
+    _ = await datastore.prepareDatabasesForBoot()
     try await datastore.saveWorkspaceSnapshotBundle(
         .emptyTopologyFixture(workspace: workspace)
     )

@@ -221,21 +221,6 @@ final class TabArrangementTests {
         #expect(decoded.arrangements.first { !$0.isDefault }?.name == "Focus")
     }
 
-    @Test
-
-    func test_codable_zoomedPaneId_isTransient() throws {
-        let paneId = UUID()
-        let tab = Tab(paneId: paneId)
-        var mutableTab = tab
-        mutableTab.zoomedPaneId = paneId
-
-        let data = try JSONEncoder().encode(mutableTab)
-        let decoded = try JSONDecoder().decode(Tab.self, from: data)
-
-        // zoomedPaneId is excluded from CodingKeys, should be nil after decode
-        #expect((decoded.zoomedPaneId) == nil)
-    }
-
     // MARK: - PaneArrangement Model
 
     @Test

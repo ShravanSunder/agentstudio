@@ -4,25 +4,27 @@ import AgentStudioProgrammaticControl
 import Foundation
 
 @MainActor
-protocol WorkspaceRepositoryTargetAuthorizing: AnyObject {
+protocol WorkspaceDurableTargetAuthorizing: AnyObject {
     func containsRepository(id: UUID) -> Bool
+    func containsTab(id: UUID) -> Bool
+    func containsPane(id: UUID) -> Bool
 }
 
 @MainActor
 struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
     private let workspaceId: UUID
-    private let repositoryTargetAuthorizer: any WorkspaceRepositoryTargetAuthorizing
+    private let targetAuthorizer: any WorkspaceDurableTargetAuthorizing
     private let windowLifecycleReader: any WorkspaceWindowLifecycleReading
     private weak var shellCommandHandler: (any ShellCommandHandling)?
 
     init(
         workspaceId: UUID,
-        repositoryTargetAuthorizer: any WorkspaceRepositoryTargetAuthorizing,
+        targetAuthorizer: any WorkspaceDurableTargetAuthorizing,
         windowLifecycleReader: any WorkspaceWindowLifecycleReading,
         shellCommandHandler: any ShellCommandHandling
     ) {
         self.workspaceId = workspaceId
-        self.repositoryTargetAuthorizer = repositoryTargetAuthorizer
+        self.targetAuthorizer = targetAuthorizer
         self.windowLifecycleReader = windowLifecycleReader
         self.shellCommandHandler = shellCommandHandler
     }
@@ -71,6 +73,9 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
             )
         } catch AppCommandArgumentDecodingError.validationRejected {
             throw AppIPCCommandError(reason: .validationRejected)
+        }
+        guard params.targetHandle != nil || definition.ipcExposure.targetKinds.isEmpty else {
+            throw AppIPCCommandError(reason: .requiresTarget)
         }
 
         let lifecycle = windowLifecycleReader.snapshot()
@@ -146,11 +151,21 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
         }
         switch handle.kind {
         case .repo:
-            guard repositoryTargetAuthorizer.containsRepository(id: targetId) else {
+            guard targetAuthorizer.containsRepository(id: targetId) else {
                 throw AppIPCCommandError(reason: .targetNotFound)
             }
             return (targetId, .repo)
-        case .window, .workspace, .tab, .pane:
+        case .tab:
+            guard targetAuthorizer.containsTab(id: targetId) else {
+                throw AppIPCCommandError(reason: .targetNotFound)
+            }
+            return (targetId, .tab)
+        case .pane:
+            guard targetAuthorizer.containsPane(id: targetId) else {
+                throw AppIPCCommandError(reason: .targetNotFound)
+            }
+            return (targetId, .pane)
+        case .window, .workspace:
             throw AppIPCCommandError(reason: .targetNotFound)
         }
     }

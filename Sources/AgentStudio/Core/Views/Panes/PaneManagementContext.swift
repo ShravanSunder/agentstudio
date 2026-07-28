@@ -51,7 +51,7 @@ package struct PaneManagementContext: Equatable {
             ?? workspaceLookup.repoAndWorktree(containing: pane?.metadata.cwd).map {
                 (repo: $0.repo, worktree: $0.worktree)
             }
-        let resolvedTargetPath = pane?.metadata.cwd ?? resolvedContext?.worktree.path
+        let resolvedTargetPath = pane?.metadata.cwd
         let hasWorkspaceAssociation =
             pane?.repoId != nil
             || pane?.worktreeId != nil

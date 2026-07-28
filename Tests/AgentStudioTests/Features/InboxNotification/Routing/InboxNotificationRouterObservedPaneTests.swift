@@ -681,13 +681,13 @@ struct InboxNotificationRouterObservedPaneTests {
         await stop(fixture)
     }
 
-    private func makeWindowKey(_ atom: WindowLifecycleAtom) {
+    func makeWindowKey(_ atom: WindowLifecycleAtom) {
         let id = UUID()
         atom.recordWindowRegistered(id)
         atom.recordWindowBecameKey(id)
     }
 
-    private func addTerminalPane(
+    func addTerminalPane(
         _ paneId: PaneId,
         to fixture: Fixture
     ) -> UUID {
@@ -720,7 +720,7 @@ struct InboxNotificationRouterObservedPaneTests {
         return tab.id
     }
 
-    private func addVisiblePaneToActiveTab(
+    func addVisiblePaneToActiveTab(
         _ paneId: PaneId,
         to fixture: Fixture
     ) {
@@ -795,7 +795,7 @@ struct InboxNotificationRouterObservedPaneTests {
         )
     }
 
-    private func makeNotification(
+    func makeNotification(
         kind: InboxNotificationKind,
         paneId: UUID,
         timestamp: Date = Date(timeIntervalSince1970: 100)
@@ -837,7 +837,7 @@ struct InboxNotificationRouterObservedPaneTests {
         haystack.components(separatedBy: needle).count - 1
     }
 
-    private func stop(_ fixture: Fixture) async {
+    func stop(_ fixture: Fixture) async {
         await fixture.router.stop()
         await fixture.tracker.stop()
     }

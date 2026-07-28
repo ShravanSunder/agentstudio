@@ -150,7 +150,7 @@ package enum ChromeToolbarControlPalette {
         return AppStyles.Shell.Chrome.ToolbarButton.iconForegroundColor
     }
 
-    static func fillColor(isSelected: Bool, isHovered: Bool, isPressed: Bool = false) -> Color {
+    package static func fillColor(isSelected: Bool, isHovered: Bool, isPressed: Bool = false) -> Color {
         if isSelected {
             return Color.accentColor.opacity(AppStyles.Shell.Chrome.ToolbarButton.selectedFillOpacity)
         }
@@ -163,7 +163,7 @@ package enum ChromeToolbarControlPalette {
         return AppStyles.Shell.Chrome.ToolbarButton.baseFillColor
     }
 
-    static func strokeColor(isSelected: Bool, isHovered: Bool, isPressed: Bool = false) -> Color {
+    package static func strokeColor(isSelected: Bool, isHovered: Bool, isPressed: Bool = false) -> Color {
         if isSelected {
             return Color.accentColor.opacity(AppStyles.Shell.Chrome.ToolbarButton.selectedStrokeOpacity)
         }

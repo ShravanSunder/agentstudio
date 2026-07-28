@@ -19,9 +19,6 @@ package struct Tab: Codable, Identifiable, Hashable, Sendable {
     package private(set) var activeArrangementId: UUID
     /// Optional durable tab display color as canonical `#RRGGBB`.
     package internal(set) var colorHex: String?
-    /// Display-only zoom state — NOT persisted. When set, the zoomed pane fills the tab.
-    package internal(set) var zoomedPaneId: UUID?
-
     enum CodingKeys: String, CodingKey {
         case id
         case name
@@ -29,7 +26,6 @@ package struct Tab: Codable, Identifiable, Hashable, Sendable {
         case arrangements
         case activeArrangementId
         case colorHex
-        // zoomedPaneId excluded — transient, not persisted
     }
 
     /// Create a tab with a single pane.
@@ -47,7 +43,6 @@ package struct Tab: Codable, Identifiable, Hashable, Sendable {
         self.arrangements = [defaultArrangement]
         self.activeArrangementId = defaultArrangement.id
         self.colorHex = nil
-        self.zoomedPaneId = nil
     }
 
     /// Create a tab with an existing layout and arrangements.
@@ -58,8 +53,7 @@ package struct Tab: Codable, Identifiable, Hashable, Sendable {
         allPaneIds: [UUID],
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
-        colorHex: String? = nil,
-        zoomedPaneId: UUID? = nil
+        colorHex: String? = nil
     ) {
         precondition(!arrangements.isEmpty, "Tab must have at least one arrangement")
         precondition(arrangements.filter(\.isDefault).count == 1, "Tab must have exactly one default arrangement")
@@ -69,7 +63,6 @@ package struct Tab: Codable, Identifiable, Hashable, Sendable {
         self.arrangements = arrangements
         self.activeArrangementId = activeArrangementId
         self.colorHex = colorHex.map(TabShell.canonicalColorHex)
-        self.zoomedPaneId = zoomedPaneId
     }
 
     init(
@@ -78,8 +71,7 @@ package struct Tab: Codable, Identifiable, Hashable, Sendable {
         panes: [UUID],
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
-        colorHex: String? = nil,
-        zoomedPaneId: UUID? = nil
+        colorHex: String? = nil
     ) {
         self.init(
             id: id,
@@ -87,8 +79,7 @@ package struct Tab: Codable, Identifiable, Hashable, Sendable {
             allPaneIds: panes,
             arrangements: arrangements,
             activeArrangementId: activeArrangementId,
-            colorHex: colorHex,
-            zoomedPaneId: zoomedPaneId
+            colorHex: colorHex
         )
     }
 

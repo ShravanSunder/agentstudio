@@ -59,6 +59,10 @@ package struct TabSnapshot: Equatable {
         visiblePaneIds.contains(paneId)
     }
 
+    func laysOutPane(_ paneId: UUID) -> Bool {
+        layoutPaneIds.contains(paneId)
+    }
+
     func arrangement(_ arrangementId: UUID) -> ArrangementSnapshot? {
         arrangements.first { $0.id == arrangementId }
     }
@@ -71,6 +75,8 @@ package struct ActionStateSnapshot: Equatable {
     let tabs: [TabSnapshot]
     let activeTabId: UUID?
     let isManagementLayerActive: Bool
+    /// Runtime-only Zoom source pane keyed by owning tab.
+    let zoomSourcePaneIdByTabId: [UUID: UUID]
     let knownRepoIds: Set<UUID>
     let knownWorktreeIds: Set<UUID>
     /// Drawer child -> parent layout pane mapping for drag/drop policy checks.
@@ -87,6 +93,7 @@ package struct ActionStateSnapshot: Equatable {
         tabs: [TabSnapshot],
         activeTabId: UUID?,
         isManagementLayerActive: Bool,
+        zoomSourcePaneIdByTabId: [UUID: UUID] = [:],
         knownRepoIds: Set<UUID> = [],
         knownWorktreeIds: Set<UUID> = [],
         drawerParentByPaneId: [UUID: UUID] = [:],
@@ -95,6 +102,7 @@ package struct ActionStateSnapshot: Equatable {
         self.tabs = tabs
         self.activeTabId = activeTabId
         self.isManagementLayerActive = isManagementLayerActive
+        self.zoomSourcePaneIdByTabId = zoomSourcePaneIdByTabId
         self.knownRepoIds = knownRepoIds
         self.knownWorktreeIds = knownWorktreeIds
         self.drawerParentByPaneId = drawerParentByPaneId
@@ -162,6 +170,7 @@ package struct ActionStateSnapshot: Equatable {
         lhs.tabs == rhs.tabs
             && lhs.activeTabId == rhs.activeTabId
             && lhs.isManagementLayerActive == rhs.isManagementLayerActive
+            && lhs.zoomSourcePaneIdByTabId == rhs.zoomSourcePaneIdByTabId
             && lhs.knownRepoIds == rhs.knownRepoIds
             && lhs.knownWorktreeIds == rhs.knownWorktreeIds
             && lhs.drawerParentByPaneId == rhs.drawerParentByPaneId

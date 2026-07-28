@@ -228,33 +228,56 @@ enum WorkspaceLocalRepositoryStorage {
         return Set<SidebarGroupKey>(values.map { SidebarGroupKey($0) })
     }
 
-    static func replaceRecentTargetRows(
+    static func replaceApplicationEntityRecencyRows(
         _ database: Database,
-        workspaceId: UUID,
-        recentTargets: [RecentWorkspaceTarget],
-        updatedAt _: Date
+        recentEntities: [ApplicationEntityRecency]
     ) throws {
-        let workspaceIdString = workspaceId.uuidString
-        try deleteWorkspaceRows(
-            database,
-            table: "local_recent_workspace_target",
-            workspaceIdString: workspaceIdString
-        )
-        for target in recentTargets {
-            try WorkspaceLocalRepositoryCodecs.insertRecentWorkspaceTarget(
+        try database.execute(sql: "DELETE FROM local_entity_recency")
+        for recency in recentEntities {
+            try WorkspaceLocalRepositoryCodecs.insertApplicationEntityRecency(
                 database,
-                workspaceIdString: workspaceIdString,
-                target: target
+                recency: recency
             )
         }
     }
 
-    static func fetchRecentTargetRows(
+    static func fetchApplicationEntityRecencyRows(
+        _ database: Database
+    ) throws -> [ApplicationEntityRecency] {
+        try WorkspaceLocalRepositoryCodecs.fetchApplicationEntityRecency(database)
+    }
+
+    static func replaceWorkspaceEntityRecencyRows(
+        _ database: Database,
+        workspaceId: UUID,
+        recentEntities: [WorkspaceEntityRecency]
+    ) throws {
+        try deleteWorkspaceEntityRecencyRows(database, workspaceId: workspaceId)
+        for recency in recentEntities where recency.workspaceID == workspaceId {
+            try WorkspaceLocalRepositoryCodecs.insertWorkspaceEntityRecency(
+                database,
+                recency: recency
+            )
+        }
+    }
+
+    static func fetchWorkspaceEntityRecencyRows(
         _ database: Database,
         workspaceId: UUID
-    ) throws -> [RecentWorkspaceTarget] {
-        try WorkspaceLocalRepositoryCodecs.fetchRecentWorkspaceTargets(
+    ) throws -> [WorkspaceEntityRecency] {
+        try WorkspaceLocalRepositoryCodecs.fetchWorkspaceEntityRecency(
             database,
+            workspaceID: workspaceId
+        )
+    }
+
+    static func deleteWorkspaceEntityRecencyRows(
+        _ database: Database,
+        workspaceId: UUID
+    ) throws {
+        try deleteWorkspaceRows(
+            database,
+            table: "local_workspace_entity_recency",
             workspaceIdString: workspaceId.uuidString
         )
     }
@@ -331,10 +354,6 @@ enum WorkspaceLocalRepositoryStorage {
 
     static func hasExpandedGroupStateRows(_ database: Database, workspaceId _: UUID) throws -> Bool {
         try mainWindowExists(database)
-    }
-
-    static func hasRecentTargetStateRows(_ database: Database, workspaceId: UUID) throws -> Bool {
-        try workspaceRowExists(database, table: "local_recent_workspace_target", workspaceId: workspaceId)
     }
 
     static func hasCacheStateRows(_ database: Database, workspaceId _: UUID) throws -> Bool {

@@ -35,9 +35,11 @@ struct FlatPaneStripContent: View {
     let ordinalMap: PaneOrdinalMap
     let collapsedPaneWidth: CGFloat
     let onSaveArrangement: (() -> Void)?
+    var onToggleZoom: (UUID?) -> Void = { _ in }
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
+    let onFocusPane: (UUID) -> Void
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let editorChooser: EditorChooserState
@@ -49,6 +51,7 @@ struct FlatPaneStripContent: View {
     let onOpenPaneGitHub: (UUID) -> Void
     let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
+    let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
     @State private var isSplitResizing = false
 
     var body: some View {
@@ -75,10 +78,11 @@ struct FlatPaneStripContent: View {
                                 tabId: tabId,
                                 closeTransitionCoordinator: closeTransitionCoordinator,
                                 actionDispatcher: actionDispatcher,
+                                onFocus: { onFocusPane(paneId) },
                                 onSaveArrangement: onSaveArrangement,
+                                onToggleZoom: onToggleZoom,
                                 dropTargetCoordinateSpace: coordinateSpaceName,
                                 useDrawerFramePreference: useDrawerFramePreference,
-                                ordinal: ordinalMap.ordinal(forPaneId: paneId),
                                 workspaceWindowId: workspaceWindowId
                             )
                             .frame(width: collapsedPaneWidth)
@@ -98,9 +102,11 @@ struct FlatPaneStripContent: View {
                             layout: layout,
                             collapsedPaneWidth: collapsedPaneWidth,
                             onSaveArrangement: onSaveArrangement,
+                            onToggleZoom: onToggleZoom,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             actionDispatcher: actionDispatcher,
                             onPaneFocusTrigger: onPaneFocusTrigger,
+                            onFocusPane: onFocusPane,
                             store: store,
                             repoCache: repoCache,
                             editorChooser: editorChooser,
@@ -114,7 +120,8 @@ struct FlatPaneStripContent: View {
                             viewRegistry: viewRegistry,
                             paneSlot: paneSlot,
                             ordinal: ordinalMap.ordinal(forPaneId: segment.paneId),
-                            workspaceWindowId: workspaceWindowId
+                            workspaceWindowId: workspaceWindowId,
+                            paneSurfaceToolbarPresentation: paneSurfaceToolbarPresentation
                         )
                         .id("\(segment.paneId.uuidString)-registered=\(paneSlot.host != nil)")
                         .frame(width: segment.frame.width, height: segment.frame.height)
@@ -148,9 +155,11 @@ private struct PaneSegmentSlotView: View {
     let layout: AgentStudioCore.Layout
     let collapsedPaneWidth: CGFloat
     let onSaveArrangement: (() -> Void)?
+    let onToggleZoom: (UUID?) -> Void
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
+    let onFocusPane: (UUID) -> Void
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let editorChooser: EditorChooserState
@@ -165,6 +174,7 @@ private struct PaneSegmentSlotView: View {
     @Bindable var paneSlot: ViewRegistry.PaneViewSlot
     let ordinal: Int?
     let workspaceWindowId: UUID?
+    let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
 
     var body: some View {
         ZStack {
@@ -176,10 +186,11 @@ private struct PaneSegmentSlotView: View {
                         tabId: tabId,
                         closeTransitionCoordinator: closeTransitionCoordinator,
                         actionDispatcher: actionDispatcher,
+                        onFocus: { onFocusPane(segment.paneId) },
                         onSaveArrangement: onSaveArrangement,
+                        onToggleZoom: onToggleZoom,
                         dropTargetCoordinateSpace: coordinateSpaceName,
                         useDrawerFramePreference: useDrawerFramePreference,
-                        ordinal: ordinal,
                         workspaceWindowId: workspaceWindowId
                     )
                 }
@@ -203,7 +214,8 @@ private struct PaneSegmentSlotView: View {
                     useDrawerFramePreference: useDrawerFramePreference,
                     paneInboxPresentation: paneInboxPresentation,
                     ordinal: ordinal,
-                    workspaceWindowId: workspaceWindowId
+                    workspaceWindowId: workspaceWindowId,
+                    toolbarPresentation: paneSurfaceToolbarPresentation(segment.paneId)
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
             } else {

@@ -84,6 +84,9 @@ package final class WorkspaceMutationCoordinator {
                 .warning("removePane: pane \(paneId) not found")
             return false
         }
+        for removedPaneId in removedPaneIds {
+            workspaceTabArrangementAtom.presentationAtom.removeZoomSourcePane(removedPaneId)
+        }
         workspaceTabArrangementAtom.removePaneReferences(removedPaneIds, removingDrawerIds: removedDrawerIds)
         removeEmptyTabs()
         return true
@@ -325,8 +328,7 @@ package final class WorkspaceMutationCoordinator {
             tabId: tab.id,
             allPaneIds: tab.allPaneIds,
             arrangements: tab.arrangements,
-            activeArrangementId: tab.activeArrangementId,
-            zoomedPaneId: tab.zoomedPaneId
+            activeArrangementId: tab.activeArrangementId
         )
     }
 

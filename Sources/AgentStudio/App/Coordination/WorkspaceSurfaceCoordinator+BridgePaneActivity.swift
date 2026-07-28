@@ -7,6 +7,7 @@ import Observation
 extension WorkspaceSurfaceCoordinator {
     private struct BridgePaneActivityInput {
         let paneId: UUID
+        let resolvedWorktree: Worktree?
         let facts: BridgePaneActivityFacts
     }
 
@@ -41,6 +42,11 @@ extension WorkspaceSurfaceCoordinator {
         bridgePaneActivityCoordinatorsByPaneId[paneId]?.close()
         removeBridgeGitReadActivity(for: paneId)
         viewRegistry.allBridgeViews[paneId]?.controller.applyBridgePaneActivity(.closed)
+    }
+
+    func retireBridgePaneActivityAuthority(for paneId: UUID) {
+        closeBridgePaneActivityAuthority(for: paneId)
+        bridgePaneActivityCoordinatorsByPaneId.removeValue(forKey: paneId)
     }
 
     func closeAllBridgePaneActivityAuthorities() {
@@ -97,13 +103,14 @@ extension WorkspaceSurfaceCoordinator {
             ?? .hidden
         let isApplicationActive = appLifecycleStore.isActive && !appLifecycleStore.isTerminating
 
-        return bridgePanes.map { pane in
+        let durableInputs = bridgePanes.map { pane in
             let workspaceFacts = workspaceActivityFacts(for: pane)
             let isControllerInstalled =
                 viewRegistry.allBridgeViews[pane.id] != nil
                 && bridgePaneRetirementTasksByPaneId[pane.id] == nil
             return BridgePaneActivityInput(
                 paneId: pane.id,
+                resolvedWorktree: resolvedWorktreeContext(for: pane)?.worktree,
                 facts: BridgePaneActivityFacts(
                     residency: pane.residency,
                     isControllerInstalled: isControllerInstalled,
@@ -120,6 +127,46 @@ extension WorkspaceSurfaceCoordinator {
                 )
             )
         }
+
+        let activeTabId = store.tabLayoutAtom.activeTabId
+        let zoomCompanions = store.panePresentationAtom.zoomCompanionsBySourcePaneId
+        let companionInputs: [BridgePaneActivityInput] =
+            zoomCompanions.compactMap { sourcePaneId, companion in
+                guard let resolvedWorktree = store.repositoryTopologyAtom.worktree(companion.resolvedWorktreeId)
+                else {
+                    return nil
+                }
+                let zoomPresentation = store.panePresentationAtom.zoomPresentation(
+                    forTab: companion.owningTabId
+                )
+                let isVisibleZoom =
+                    zoomPresentation?.sourcePaneId == sourcePaneId
+                    && zoomPresentation?.viewerPresentation
+                        == .retainedVisible(companionPaneId: companion.companionPaneId)
+                let isInActiveTab = activeTabId == companion.owningTabId
+                let isControllerInstalled =
+                    viewRegistry.allBridgeViews[companion.companionPaneId] != nil
+                    && bridgePaneRetirementTasksByPaneId[companion.companionPaneId] == nil
+                return BridgePaneActivityInput(
+                    paneId: companion.companionPaneId,
+                    resolvedWorktree: resolvedWorktree,
+                    facts: BridgePaneActivityFacts(
+                        residency: .active,
+                        isControllerInstalled: isControllerInstalled,
+                        isInActiveTab: isInActiveTab,
+                        isInActiveArrangement: isInActiveTab && isVisibleZoom,
+                        isInExpandedDrawer: false,
+                        isMinimized: false,
+                        isZoomExcluded: !isVisibleZoom,
+                        isOwningWindowVisible: windowPresentationFacts.isVisible,
+                        isOwningWindowMiniaturized: windowPresentationFacts.isMiniaturized,
+                        isOwningWindowOccluded: windowPresentationFacts.isOccluded,
+                        isApplicationActive: isApplicationActive,
+                        isAuthorityClosed: false
+                    )
+                )
+            }
+        return durableInputs + companionInputs
     }
 
     private func applyBridgePaneActivityInputs(_ inputs: [BridgePaneActivityInput]) {
@@ -128,15 +175,22 @@ extension WorkspaceSurfaceCoordinator {
             guard let activityCoordinator = bridgePaneActivityCoordinatorsByPaneId[input.paneId]
             else { continue }
             let activity = activityCoordinator.update(from: input.facts)
-            updateBridgeGitReadActivity(for: input.paneId, activity: activity)
+            updateBridgeGitReadActivity(
+                for: input.paneId,
+                resolvedWorktree: input.resolvedWorktree,
+                activity: activity
+            )
             viewRegistry.allBridgeViews[input.paneId]?.controller.applyBridgePaneActivity(activity)
         }
     }
 
-    private func updateBridgeGitReadActivity(for paneId: UUID, activity: BridgePaneActivity) {
+    private func updateBridgeGitReadActivity(
+        for paneId: UUID,
+        resolvedWorktree: Worktree?,
+        activity: BridgePaneActivity
+    ) {
         guard activity != .closed,
-            let pane = store.paneAtom.pane(paneId),
-            let worktree = resolvedWorktreeContext(for: pane)?.worktree
+            let resolvedWorktree
         else {
             removeBridgeGitReadActivity(for: paneId)
             return
@@ -158,7 +212,7 @@ extension WorkspaceSurfaceCoordinator {
             await precedingPropagation?.value
             await scheduler.updatePaneActivity(
                 paneKey: BridgeGitReadPaneKey(token: paneId.uuidString),
-                worktreeKey: BridgeGitReadWorktreeKey(token: worktree.stableKey),
+                worktreeKey: BridgeGitReadWorktreeKey(token: resolvedWorktree.stableKey),
                 rank: rank
             )
         }
@@ -197,6 +251,7 @@ extension WorkspaceSurfaceCoordinator {
             isInActiveTab
             && !pane.isDrawerChild
             && activeTab.activePaneIds.contains(pane.id)
+        let sourcePaneId = store.panePresentationAtom.zoomPresentation(forTab: activeTab.id)?.sourcePaneId
 
         var isInExpandedDrawer = false
         var isMinimized = false
@@ -211,8 +266,11 @@ extension WorkspaceSurfaceCoordinator {
         } else if !pane.isDrawerChild {
             isMinimized = activeTab.activeMinimizedPaneIds.contains(pane.id)
         }
+        if sourcePaneId == pane.id {
+            isMinimized = false
+        }
 
-        let isZoomExcluded = activeTab.zoomedPaneId.map { $0 != owningLayoutPaneId } ?? false
+        let isZoomExcluded = sourcePaneId.map { $0 != owningLayoutPaneId } ?? false
         return WorkspaceActivityFacts(
             isInActiveTab: isInActiveTab,
             isInActiveArrangement: isInActiveArrangement,

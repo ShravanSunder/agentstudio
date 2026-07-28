@@ -21,7 +21,6 @@ struct PaneArrangementGraphState: Equatable, Hashable, Identifiable, Sendable {
     var isDefault: Bool
     var layout: Layout
     var minimizedPaneIds: Set<UUID>
-    var showsMinimizedPanes: Bool
     var drawerViews: [UUID: DrawerViewGraphState]
 
     init(
@@ -30,7 +29,6 @@ struct PaneArrangementGraphState: Equatable, Hashable, Identifiable, Sendable {
         isDefault: Bool,
         layout: Layout,
         minimizedPaneIds: Set<UUID>,
-        showsMinimizedPanes: Bool,
         drawerViews: [UUID: DrawerViewGraphState]
     ) {
         self.id = id
@@ -38,7 +36,6 @@ struct PaneArrangementGraphState: Equatable, Hashable, Identifiable, Sendable {
         self.isDefault = isDefault
         self.layout = layout
         self.minimizedPaneIds = minimizedPaneIds.intersection(layout.paneIds)
-        self.showsMinimizedPanes = showsMinimizedPanes
         self.drawerViews = drawerViews
     }
 
@@ -49,7 +46,6 @@ struct PaneArrangementGraphState: Equatable, Hashable, Identifiable, Sendable {
             isDefault: arrangement.isDefault,
             layout: arrangement.layout,
             minimizedPaneIds: arrangement.minimizedPaneIds,
-            showsMinimizedPanes: arrangement.showsMinimizedPanes,
             drawerViews: arrangement.drawerViews.mapValues(DrawerViewGraphState.init)
         )
     }

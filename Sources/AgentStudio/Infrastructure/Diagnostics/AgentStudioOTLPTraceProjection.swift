@@ -148,10 +148,13 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.terminal.geometry.reason",
         "agentstudio.performance.terminal.surface.source",
         "agentstudio.persistence.backend",
+        "agentstudio.persistence.classification",
+        "agentstudio.persistence.disposition",
         "agentstudio.persistence.lane",
         "agentstudio.persistence.operation",
         "agentstudio.persistence.outcome",
         "agentstudio.persistence.phase",
+        "agentstudio.persistence.recovery.attempt",
         "agentstudio.persistence.recovery.kind",
         "agentstudio.runtime.action_policy",
         "agentstudio.runtime.event",
@@ -238,6 +241,7 @@ package enum AgentStudioOTLPTraceProjection {
     ]
 
     private static let allowedNumericAttributeKeys: Set<String> = Set([
+        "agentstudio.sqlite.result_code",
         "agentstudio.bridge.batch.sample_count",
         "agentstudio.bridge.content.byte_count",
         "agentstudio.bridge.content.byte_length",

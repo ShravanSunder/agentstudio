@@ -310,56 +310,56 @@ package struct RepoExplorerWorktreeRow: View {
         }
         .contextMenu {
             Button {
-                onOpenNew()
-            } label: {
-                menuLabel(actionSpec: LocalActionSpec.openInNewTab.actionSpec)
-            }
-
-            Button {
-                onReview()
-            } label: {
-                menuLabel(
-                    actionSpec: contextualBridgeActionSpec(
-                        command: .showBridgeReview
-                    )
-                )
-            }
-
-            Button {
-                onOpenFiles()
-            } label: {
-                menuLabel(
-                    actionSpec: contextualBridgeActionSpec(
-                        command: .showBridgeFiles
-                    )
-                )
-            }
-
-            Button {
-                onOpenReviewInNewTab()
-            } label: {
-                menuLabel(actionSpec: AppCommand.openBridgeReviewInNewTab.definition.actionSpec)
-            }
-
-            Button {
-                onOpenFilesInNewTab()
-            } label: {
-                menuLabel(actionSpec: AppCommand.openBridgeFilesInNewTab.definition.actionSpec)
-            }
-
-            Button {
-                onOpenInPane()
-            } label: {
-                menuLabel(actionSpec: LocalActionSpec.openInPaneSplit.actionSpec)
-            }
-
-            Divider()
-
-            Button {
                 onOpen()
             } label: {
                 menuLabel(actionSpec: LocalActionSpec.goToTerminal.actionSpec)
             }
+
+            Menu {
+                Button {
+                    onOpenInPane()
+                } label: {
+                    menuLabel(actionSpec: AppCommand.openWorktreeInPane.definition.actionSpec)
+                }
+
+                Button {
+                    onReview()
+                } label: {
+                    menuLabel(actionSpec: AppCommand.showBridgeReview.definition.actionSpec)
+                }
+
+                Button {
+                    onOpenFiles()
+                } label: {
+                    menuLabel(actionSpec: AppCommand.showBridgeFiles.definition.actionSpec)
+                }
+            } label: {
+                menuLabel(actionSpec: LocalActionSpec.openInCurrentTabMenu.actionSpec)
+            }
+
+            Menu {
+                Button {
+                    onOpenNew()
+                } label: {
+                    menuLabel(actionSpec: AppCommand.openNewTerminalInTab.definition.actionSpec)
+                }
+
+                Button {
+                    onOpenReviewInNewTab()
+                } label: {
+                    menuLabel(actionSpec: AppCommand.openBridgeReviewInNewTab.definition.actionSpec)
+                }
+
+                Button {
+                    onOpenFilesInNewTab()
+                } label: {
+                    menuLabel(actionSpec: AppCommand.openBridgeFilesInNewTab.definition.actionSpec)
+                }
+            } label: {
+                menuLabel(actionSpec: LocalActionSpec.openInNewTabMenu.actionSpec)
+            }
+
+            Divider()
 
             if favoriteControlVisibility.showsContextMenuAction {
                 let favoriteActionSpec = RepoExplorerWorktreeRowContent.favoriteActionSpec(isFavorite: isFavorite)
@@ -373,7 +373,7 @@ package struct RepoExplorerWorktreeRow: View {
                 }
             }
 
-            Menu(LocalActionSpec.openInMenu.actionSpec.label) {
+            Menu {
                 Button {
                     openInCursor()
                 } label: {
@@ -385,6 +385,8 @@ package struct RepoExplorerWorktreeRow: View {
                 } label: {
                     menuLabel(actionSpec: LocalActionSpec.openInVSCode.actionSpec)
                 }
+            } label: {
+                menuLabel(actionSpec: LocalActionSpec.openInEditorMenu.actionSpec)
             }
 
             Divider()
@@ -409,15 +411,6 @@ package struct RepoExplorerWorktreeRow: View {
 
     private func openInVSCode() {
         ExternalWorkspaceOpener.openInVSCode(worktree.path)
-    }
-
-    private func contextualBridgeActionSpec(command: AppCommand) -> ActionSpec {
-        let definition = command.definition
-        return ActionSpec(
-            label: bridgeCommandResolution.contextualLabel(for: command),
-            helpText: definition.helpText,
-            icon: definition.icon
-        )
     }
 
     @ViewBuilder

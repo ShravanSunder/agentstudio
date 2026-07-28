@@ -21,7 +21,8 @@ struct CommandBarGlobalKeyRouterTests {
 
     @Test
     func reservedPaletteTriggersMapToExpectedPrefixes() {
-        #expect(CommandBarGlobalKeyRouter.reservedPrefix(for: AppShortcut.newTab.trigger) == .some("#"))
+        #expect(CommandBarGlobalKeyRouter.reservedScope(for: AppShortcut.newTab.trigger) == .quickOpen)
+        #expect(CommandBarGlobalKeyRouter.reservedPrefix(for: AppShortcut.newTab.trigger) == nil)
         #expect(
             CommandBarGlobalKeyRouter.reservedPrefix(
                 for: AppShortcut.showCommandBarEverything.trigger

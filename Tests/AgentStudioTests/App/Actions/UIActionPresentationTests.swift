@@ -20,7 +20,7 @@ struct UIActionPresentationTests {
     func controlToolTip_withShortcutAndNoOverride_usesLabelAndShortcut() {
         let toolTip = AppCommand.openPaneLocationInEditorMenu.definition.controlToolTip
 
-        #expect(toolTip == "Open In Menu (⌘⌥O)")
+        #expect(toolTip == "Open In Menu (⌘⌥⌃O)")
     }
 
     @Test
@@ -48,7 +48,7 @@ struct UIActionPresentationTests {
             textOverride: "Open in Editor"
         )
 
-        #expect(toolTip == "Open in Editor (⌘⌥O)")
+        #expect(toolTip == "Open in Editor (⌘⌥⌃O)")
     }
 
     @Test
@@ -101,7 +101,7 @@ struct UIActionPresentationTests {
             textOverride: "Open in Editor"
         )
 
-        #expect(toolTip == "Open in Editor (⌘⌥O)")
+        #expect(toolTip == "Open in Editor (⌘⌥⌃O)")
     }
 
     @Test
@@ -135,9 +135,19 @@ struct UIActionPresentationTests {
     }
 
     @Test
+    func copyPathUsesDocumentOnDocumentEverywhere() {
+        #expect(LocalActionSpec.copyPath.actionSpec.icon == .system(.documentOnDocument))
+        #expect(AppCommand.copyCurrentPanePath.definition.icon == .system(.documentOnDocument))
+    }
+
+    @Test
     func worktreeTabActionsUseTerminalAndBridgeLabels() {
-        #expect(LocalActionSpec.openInNewTab.actionSpec.label == "Open Terminal in New Tab")
-        #expect(LocalActionSpec.openInPaneSplit.actionSpec.label == "Open Terminal in Pane (Split)")
+        #expect(LocalActionSpec.openInCurrentTabMenu.actionSpec.label == "Open in Current Tab")
+        #expect(LocalActionSpec.openInNewTabMenu.actionSpec.label == "Open in New Tab")
+        #expect(LocalActionSpec.openInEditorMenu.actionSpec.label == "Open in Editor")
+        #expect(AppCommand.openWorktreeInPane.definition.actionSpec.label == "Open Worktree in Pane")
+        #expect(AppCommand.openNewTerminalInTab.definition.actionSpec.label == "Open Terminal in New Tab")
+        #expect(AppCommand.showViewer.definition.actionSpec.label == "Worktree Viewer")
         #expect(AppCommand.showBridgeReview.definition.actionSpec.label == "Review")
         #expect(AppCommand.showBridgeFiles.definition.actionSpec.label == "Files")
         #expect(AppCommand.openBridgeReviewInNewTab.definition.actionSpec.label == "Open Review in New Tab")

@@ -167,8 +167,7 @@ struct WorkspaceCompositionPreparerTests {
     func acceptedCompositionPreservesPaneAndTabValuesExactly() throws {
         // Arrange
         let pane = makeCompositionPane()
-        var tab = makeCompositionTab(paneID: pane.id)
-        tab.zoomedPaneId = pane.id
+        let tab = makeCompositionTab(paneID: pane.id)
         let snapshot = WorkspaceSQLiteSnapshot(
             id: UUIDv7.generate(),
             name: "Projection",

@@ -5,7 +5,27 @@ extension WorkspaceSQLiteStoreBackend {
         localRepositoryForWorkspaceId: @Sendable (UUID) async throws -> WorkspaceLocalRepository
     ) async throws -> WorkspaceCoreLoadSnapshot {
         let authoritativeSnapshot = try strictlySelectedAuthoritativeSnapshot()
+        return try await loadCompletedSnapshot(
+            authoritativeSnapshot: authoritativeSnapshot,
+            localRepositoryForWorkspaceId: localRepositoryForWorkspaceId
+        )
+    }
+
+    func loadCompletedSnapshot(
+        authoritativeSnapshot: WorkspaceCoreRepository.AuthoritativeSnapshot,
+        localRepositoryForWorkspaceId: @Sendable (UUID) async throws -> WorkspaceLocalRepository
+    ) async throws -> WorkspaceCoreLoadSnapshot {
         let localRepository = try? await localRepositoryForWorkspaceId(authoritativeSnapshot.workspace.id)
+        return try loadCompletedSnapshot(
+            authoritativeSnapshot: authoritativeSnapshot,
+            localRepository: localRepository
+        )
+    }
+
+    func loadCompletedSnapshot(
+        authoritativeSnapshot: WorkspaceCoreRepository.AuthoritativeSnapshot,
+        localRepository: WorkspaceLocalRepository?
+    ) throws -> WorkspaceCoreLoadSnapshot {
         let localCursorState = localRepository.flatMap { repository in
             try? repository.fetchCursorState()
         }

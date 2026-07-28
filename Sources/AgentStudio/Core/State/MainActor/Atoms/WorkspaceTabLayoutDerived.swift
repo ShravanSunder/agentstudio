@@ -19,8 +19,7 @@ package struct WorkspaceTabLayoutDerived {
             allPaneIds: arrangementState.allPaneIds,
             arrangements: arrangementState.arrangements,
             activeArrangementId: arrangementState.activeArrangementId,
-            colorHex: shell.colorHex,
-            zoomedPaneId: arrangementState.zoomedPaneId
+            colorHex: shell.colorHex
         )
     }
 

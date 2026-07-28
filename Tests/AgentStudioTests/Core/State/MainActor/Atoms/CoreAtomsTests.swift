@@ -21,7 +21,8 @@ struct CoreAtomsTests {
         let workspacePanePresentation = WorkspacePanePresentationAtom()
         let windowLifecycle = WindowLifecycleAtom()
         let repoEnrichmentCache = RepoEnrichmentCacheAtom()
-        let recentWorkspaceTarget = RecentWorkspaceTargetAtom()
+        let applicationEntityRecency = ApplicationEntityRecencyAtom()
+        let workspaceEntityRecency = WorkspaceEntityRecencyAtom()
         let sidebarExpandedGroup = SidebarExpandedGroupAtom()
         let arrangementPanelPresentation = ArrangementPanelPresentationAtom()
         let workspaceSidebarMemory = WorkspaceSidebarMemoryAtom()
@@ -47,7 +48,8 @@ struct CoreAtomsTests {
             workspacePanePresentation: workspacePanePresentation,
             windowLifecycle: windowLifecycle,
             repoEnrichmentCache: repoEnrichmentCache,
-            recentWorkspaceTarget: recentWorkspaceTarget,
+            applicationEntityRecency: applicationEntityRecency,
+            workspaceEntityRecency: workspaceEntityRecency,
             sidebarExpandedGroup: sidebarExpandedGroup,
             arrangementPanelPresentation: arrangementPanelPresentation,
             workspaceSidebarMemory: workspaceSidebarMemory,
@@ -73,7 +75,8 @@ struct CoreAtomsTests {
         #expect(coreAtoms.workspacePanePresentation === workspacePanePresentation)
         #expect(coreAtoms.windowLifecycle === windowLifecycle)
         #expect(coreAtoms.repoEnrichmentCache === repoEnrichmentCache)
-        #expect(coreAtoms.recentWorkspaceTarget === recentWorkspaceTarget)
+        #expect(coreAtoms.applicationEntityRecency === applicationEntityRecency)
+        #expect(coreAtoms.workspaceEntityRecency === workspaceEntityRecency)
         #expect(coreAtoms.sidebarExpandedGroup === sidebarExpandedGroup)
         #expect(coreAtoms.arrangementPanelPresentation === arrangementPanelPresentation)
         #expect(coreAtoms.workspaceSidebarMemory === workspaceSidebarMemory)
@@ -101,7 +104,6 @@ struct CoreAtomsTests {
         #expect(coreAtoms.workspaceTabLayout.arrangementAtom === coreAtoms.workspaceTabArrangement)
         #expect(coreAtoms.workspaceMutationCoordinator.repositoryTopologyAtom === coreAtoms.workspaceRepositoryTopology)
         #expect(coreAtoms.repoCache.enrichmentCacheAtom === coreAtoms.repoEnrichmentCache)
-        #expect(coreAtoms.repoCache.recentTargetAtom === coreAtoms.recentWorkspaceTarget)
 
         let sidebarGroup = SidebarGroupKey("repo:core-atoms")
         coreAtoms.sidebarExpandedGroup.setGroupExpanded(sidebarGroup, isExpanded: true)

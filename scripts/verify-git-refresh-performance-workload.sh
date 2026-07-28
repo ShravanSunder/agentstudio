@@ -521,7 +521,6 @@ write_workspace_json() {
     fi
     printf ']},\n'
     printf '          "minimizedPaneIds": [],\n'
-    printf '          "showsMinimizedPanes": true,\n'
     printf '          "activePaneId": "%s",\n' "${PANE_IDS[0]}"
     printf '          "drawerViews": []\n'
     printf '        }\n'

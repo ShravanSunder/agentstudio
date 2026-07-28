@@ -31,12 +31,12 @@ final class GhosttySurfaceShortcutTests {
     }
 
     @Test
-    func test_appOwnedShortcuts_containsCmdTRepoCommandBar() {
+    func test_appOwnedShortcuts_containsCmdTQuickOpen() {
         #expect(
             Ghostty.SurfaceView.appOwnedShortcuts.contains(.newTab),
-            "Expected repo command bar in appOwnedShortcuts"
+            "Expected Quick Open in appOwnedShortcuts"
         )
-        #expect(AppShortcut.newTab.command == .showCommandBarRepos)
+        #expect(AppShortcut.newTab.command == .showCommandBarQuickOpen)
     }
 
     @Test

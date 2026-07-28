@@ -11,6 +11,7 @@ package struct CommandBarResultsList: View {
     let searchQuery: String
     let dimmedItemIds: Set<String>
     let onSelect: (CommandBarItem) -> Void
+    let onShowActions: @MainActor @Sendable (CommandBarItem) -> Void
 
     package init(
         groups: [CommandBarItemGroup],
@@ -18,7 +19,8 @@ package struct CommandBarResultsList: View {
         selectedIndex: Int,
         searchQuery: String = "",
         dimmedItemIds: Set<String> = [],
-        onSelect: @escaping (CommandBarItem) -> Void
+        onSelect: @escaping (CommandBarItem) -> Void,
+        onShowActions: @escaping @MainActor @Sendable (CommandBarItem) -> Void = { _ in }
     ) {
         self.groups = groups
         self.octiconLoader = octiconLoader
@@ -26,6 +28,7 @@ package struct CommandBarResultsList: View {
         self.searchQuery = searchQuery
         self.dimmedItemIds = dimmedItemIds
         self.onSelect = onSelect
+        self.onShowActions = onShowActions
     }
 
     package var body: some View {
@@ -46,7 +49,8 @@ package struct CommandBarResultsList: View {
                                     octiconLoader: octiconLoader,
                                     isSelected: flatIndex == selectedIndex,
                                     searchQuery: searchQuery,
-                                    isDimmed: dimmedItemIds.contains(item.id)
+                                    isDimmed: dimmedItemIds.contains(item.id),
+                                    onShowActions: { onShowActions(item) }
                                 )
                                 .id(item.id)
                                 .onTapGesture {

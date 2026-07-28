@@ -150,29 +150,6 @@ struct WorkspaceLocalRepositoryTests {
     func workspaceMemoryRoundTripsThroughLocalMemoryRows() throws {
         let workspaceId = UUID(uuidString: "10000000-0000-0000-0000-000000000003")!
         let repository = try makeWorkspaceLocalRepositoryFixture(workspaceId: workspaceId).repository
-        let repoId = UUID(uuidString: "10000000-0000-0000-0000-000000000013")!
-        let worktreeId = UUID(uuidString: "10000000-0000-0000-0000-000000000023")!
-        let cwdTarget = RecentWorkspaceTarget.forCwd(
-            URL(fileURLWithPath: "/tmp/agent-studio"),
-            title: "agent-studio",
-            subtitle: "cwd",
-            lastOpenedAt: Date(timeIntervalSince1970: 300)
-        )
-        let worktreeTarget = RecentWorkspaceTarget.forWorktree(
-            path: URL(fileURLWithPath: "/tmp/agent-studio/sqlite"),
-            worktree: .init(
-                id: worktreeId,
-                repoId: repoId,
-                name: "sqlite",
-                path: URL(fileURLWithPath: "/tmp/agent-studio/sqlite")
-            ),
-            repo: .init(
-                id: repoId,
-                name: "agent-studio",
-                repoPath: URL(fileURLWithPath: "/tmp/agent-studio")
-            ),
-            lastOpenedAt: Date(timeIntervalSince1970: 301)
-        )
         let memoryState = WorkspaceLocalRepository.WorkspaceMemoryRecord(
             windowState: .init(
                 sidebarWidth: 312.5,
@@ -184,8 +161,7 @@ struct WorkspaceLocalRepositoryTests {
                 sidebarCollapsed: true,
                 sidebarSurface: .inbox
             ),
-            expandedGroups: [SidebarGroupKey("repo:agent-studio")],
-            recentTargets: [worktreeTarget, cwdTarget]
+            expandedGroups: [SidebarGroupKey("repo:agent-studio")]
         )
 
         try seedWorkspaceMemoryLanes(
@@ -198,8 +174,8 @@ struct WorkspaceLocalRepositoryTests {
         #expect(restoredState == memoryState)
     }
 
-    @Test("window state replacement preserves sidebar groups and recent targets")
-    func windowStateReplacementPreservesSidebarGroupsAndRecentTargets() throws {
+    @Test("window state replacement preserves sidebar groups")
+    func windowStateReplacementPreservesSidebarGroups() throws {
         let workspaceId = UUID(uuidString: "10000000-0000-0000-0000-000000000203")!
         let repository = try makeWorkspaceLocalRepositoryFixture(workspaceId: workspaceId).repository
         let initialMemoryState = WorkspaceLocalRepository.WorkspaceMemoryRecord(
@@ -210,13 +186,7 @@ struct WorkspaceLocalRepositoryTests {
                 sidebarCollapsed: false,
                 sidebarSurface: .repos
             ),
-            expandedGroups: [SidebarGroupKey("repo:agent-studio")],
-            recentTargets: [
-                RecentWorkspaceTarget.forCwd(
-                    URL(fileURLWithPath: "/tmp/agent-studio"),
-                    lastOpenedAt: Date(timeIntervalSince1970: 100)
-                )
-            ]
+            expandedGroups: [SidebarGroupKey("repo:agent-studio")]
         )
         let replacementWindowState = WorkspaceLocalRepository.WindowStateRecord(
             sidebarWidth: 420,
@@ -237,11 +207,10 @@ struct WorkspaceLocalRepositoryTests {
         #expect(restoredState.windowState == replacementWindowState)
         #expect(restoredState.sidebarState == initialMemoryState.sidebarState)
         #expect(restoredState.expandedGroups == initialMemoryState.expandedGroups)
-        #expect(restoredState.recentTargets == initialMemoryState.recentTargets)
     }
 
-    @Test("sidebar state replacement preserves window groups and recent targets")
-    func sidebarStateReplacementPreservesWindowGroupsAndRecentTargets() throws {
+    @Test("sidebar state replacement preserves window and groups")
+    func sidebarStateReplacementPreservesWindowAndGroups() throws {
         let workspaceId = UUID(uuidString: "10000000-0000-0000-0000-000000000204")!
         let repository = try makeWorkspaceLocalRepositoryFixture(workspaceId: workspaceId).repository
         let initialMemoryState = WorkspaceLocalRepository.WorkspaceMemoryRecord(
@@ -255,13 +224,7 @@ struct WorkspaceLocalRepositoryTests {
                 sidebarCollapsed: false,
                 sidebarSurface: .repos
             ),
-            expandedGroups: [SidebarGroupKey("repo:old")],
-            recentTargets: [
-                RecentWorkspaceTarget.forCwd(
-                    URL(fileURLWithPath: "/tmp/old"),
-                    lastOpenedAt: Date(timeIntervalSince1970: 100)
-                )
-            ]
+            expandedGroups: [SidebarGroupKey("repo:old")]
         )
         let replacementSidebarState = WorkspaceLocalRepository.SidebarStateRecord(
             filterText: "new",
@@ -284,11 +247,10 @@ struct WorkspaceLocalRepositoryTests {
         #expect(restoredState.windowState == initialMemoryState.windowState)
         #expect(restoredState.sidebarState == replacementSidebarState)
         #expect(restoredState.expandedGroups == initialMemoryState.expandedGroups)
-        #expect(restoredState.recentTargets == initialMemoryState.recentTargets)
     }
 
-    @Test("expanded groups replacement preserves window sidebar and recent targets")
-    func expandedGroupsReplacementPreservesWindowSidebarAndRecentTargets() throws {
+    @Test("expanded groups replacement preserves window and sidebar")
+    func expandedGroupsReplacementPreservesWindowAndSidebar() throws {
         let workspaceId = UUID(uuidString: "10000000-0000-0000-0000-000000000205")!
         let repository = try makeWorkspaceLocalRepositoryFixture(workspaceId: workspaceId).repository
         let initialMemoryState = WorkspaceLocalRepository.WorkspaceMemoryRecord(
@@ -299,13 +261,7 @@ struct WorkspaceLocalRepositoryTests {
                 sidebarCollapsed: false,
                 sidebarSurface: .repos
             ),
-            expandedGroups: [SidebarGroupKey("repo:old")],
-            recentTargets: [
-                RecentWorkspaceTarget.forCwd(
-                    URL(fileURLWithPath: "/tmp/recent"),
-                    lastOpenedAt: Date(timeIntervalSince1970: 100)
-                )
-            ]
+            expandedGroups: [SidebarGroupKey("repo:old")]
         )
         let replacementExpandedGroups: Set<SidebarGroupKey> = [
             SidebarGroupKey("repo:new"),
@@ -326,51 +282,6 @@ struct WorkspaceLocalRepositoryTests {
         #expect(restoredState.windowState == initialMemoryState.windowState)
         #expect(restoredState.sidebarState == initialMemoryState.sidebarState)
         #expect(restoredState.expandedGroups == replacementExpandedGroups)
-        #expect(restoredState.recentTargets == initialMemoryState.recentTargets)
-    }
-
-    @Test("recent targets replacement preserves window sidebar and expanded groups")
-    func recentTargetsReplacementPreservesWindowSidebarAndExpandedGroups() throws {
-        let workspaceId = UUID(uuidString: "10000000-0000-0000-0000-000000000206")!
-        let repository = try makeWorkspaceLocalRepositoryFixture(workspaceId: workspaceId).repository
-        let initialMemoryState = WorkspaceLocalRepository.WorkspaceMemoryRecord(
-            windowState: .init(sidebarWidth: 300, windowFrame: nil),
-            sidebarState: .init(
-                filterText: "repo",
-                isFilterVisible: true,
-                sidebarCollapsed: false,
-                sidebarSurface: .repos
-            ),
-            expandedGroups: [SidebarGroupKey("repo:agent-studio")],
-            recentTargets: [
-                RecentWorkspaceTarget.forCwd(
-                    URL(fileURLWithPath: "/tmp/old"),
-                    lastOpenedAt: Date(timeIntervalSince1970: 100)
-                )
-            ]
-        )
-        let replacementTargets = [
-            RecentWorkspaceTarget.forCwd(
-                URL(fileURLWithPath: "/tmp/new"),
-                lastOpenedAt: Date(timeIntervalSince1970: 200)
-            )
-        ]
-
-        try seedWorkspaceMemoryLanes(
-            repository,
-            memoryState: initialMemoryState,
-            updatedAt: Date(timeIntervalSince1970: 100)
-        )
-        try repository.replaceRecentTargets(
-            replacementTargets,
-            updatedAt: Date(timeIntervalSince1970: 200)
-        )
-        let restoredState = try readWorkspaceMemoryLanes(repository)
-
-        #expect(restoredState.windowState == initialMemoryState.windowState)
-        #expect(restoredState.sidebarState == initialMemoryState.sidebarState)
-        #expect(restoredState.expandedGroups == initialMemoryState.expandedGroups)
-        #expect(restoredState.recentTargets == replacementTargets)
     }
 
     @Test("empty row sets remain empty without marker rows")
@@ -379,15 +290,11 @@ struct WorkspaceLocalRepositoryTests {
         let repository = try makeWorkspaceLocalRepositoryFixture(workspaceId: workspaceId).repository
 
         #expect(try repository.hasExpandedGroupsState() == false)
-        #expect(try repository.hasRecentTargetsState() == false)
 
         try repository.replaceExpandedGroups([], updatedAt: Date(timeIntervalSince1970: 100))
-        try repository.replaceRecentTargets([], updatedAt: Date(timeIntervalSince1970: 100))
 
         #expect(try repository.fetchExpandedGroups().isEmpty)
-        #expect(try repository.fetchRecentTargets().isEmpty)
         #expect(try repository.hasExpandedGroupsState())
-        #expect(try repository.hasRecentTargetsState() == false)
     }
 
     @Test("cache state round trips through cache rows")
@@ -437,8 +344,8 @@ struct WorkspaceLocalRepositoryTests {
         )
     }
 
-    @Test("reset cache rows preserves local memory and recent targets")
-    func resetCacheRowsPreservesLocalMemoryAndRecentTargets() throws {
+    @Test("reset cache rows preserves local memory")
+    func resetCacheRowsPreservesLocalMemory() throws {
         let workspaceId = UUID(uuidString: "10000000-0000-0000-0000-000000000005")!
         let repository = try makeWorkspaceLocalRepositoryFixture(workspaceId: workspaceId).repository
         let repoId = UUID(uuidString: "10000000-0000-0000-0000-000000000015")!
@@ -446,10 +353,6 @@ struct WorkspaceLocalRepositoryTests {
         let arrangementId = UUID(uuidString: "10000000-0000-0000-0000-000000000125")!
         let paneId = UUID(uuidString: "10000000-0000-0000-0000-000000000135")!
         let drawerId = UUID(uuidString: "10000000-0000-0000-0000-000000000145")!
-        let target = RecentWorkspaceTarget.forCwd(
-            URL(fileURLWithPath: "/tmp/agent-studio"),
-            lastOpenedAt: Date(timeIntervalSince1970: 100)
-        )
         let cursorState = WorkspaceLocalRepository.CursorStateRecord(
             activeTabId: tabId,
             activeArrangementIdsByTabId: [tabId: arrangementId],
@@ -467,8 +370,7 @@ struct WorkspaceLocalRepositoryTests {
                 sidebarCollapsed: false,
                 sidebarSurface: .repos
             ),
-            expandedGroups: [SidebarGroupKey("repo:agent-studio")],
-            recentTargets: [target]
+            expandedGroups: [SidebarGroupKey("repo:agent-studio")]
         )
         try repository.replaceCursorState(
             cursorState: cursorState,
@@ -520,7 +422,6 @@ private func seedWorkspaceMemoryLanes(
     try repository.replaceWindowState(memoryState.windowState, updatedAt: updatedAt)
     try repository.replaceSidebarState(memoryState.sidebarState, updatedAt: updatedAt)
     try repository.replaceExpandedGroups(memoryState.expandedGroups, updatedAt: updatedAt)
-    try repository.replaceRecentTargets(memoryState.recentTargets, updatedAt: updatedAt)
 }
 
 private func readWorkspaceMemoryLanes(
@@ -529,8 +430,7 @@ private func readWorkspaceMemoryLanes(
     .init(
         windowState: try repository.fetchWindowState(),
         sidebarState: try repository.fetchSidebarState(),
-        expandedGroups: try repository.fetchExpandedGroups(),
-        recentTargets: try repository.fetchRecentTargets()
+        expandedGroups: try repository.fetchExpandedGroups()
     )
 }
 

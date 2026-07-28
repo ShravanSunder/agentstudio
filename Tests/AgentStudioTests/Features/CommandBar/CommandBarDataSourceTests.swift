@@ -156,27 +156,43 @@ struct CommandBarDataSourceTests {
         #expect(groups.contains("Repo"))
         #expect(groups.contains("Window"))
         #expect(groups.contains("Webview"))
-        #expect(groups.contains("Bridge"))
+        #expect(!groups.contains("Viewer"))
     }
 
     @Test
-    func test_commandsScope_includesAllBridgeCommands() {
+    func test_commandsScope_hidesViewerOutsideZoom() {
         let store = makeStore()
 
         let items = CommandBarDataSource.items(
             scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
-        let bridgeItems = Dictionary(
+        let viewerItems = items.filter { $0.group == "Viewer" }
+
+        #expect(viewerItems.isEmpty)
+    }
+
+    @Test
+    func test_commandsScope_includesOneViewerCommandDuringTerminalZoom() throws {
+        let store = makeRichCommandStore()
+        let tabId = try #require(store.activeTabId)
+        let sourcePaneId = try #require(store.tab(tabId)?.activePaneId)
+        store.panePresentationAtom.enterZoom(
+            inTab: tabId,
+            sourcePaneId: sourcePaneId,
+            viewerPresentation: .unavailable
+        )
+
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
+        let viewerItems = Dictionary(
             uniqueKeysWithValues:
                 items
-                .filter { $0.group == "Bridge" }
+                .filter { $0.group == "Worktree Viewer" }
                 .map { ($0.id, $0) }
         )
 
-        #expect(bridgeItems["cmd-showBridgeReview"]?.title == "Review")
-        #expect(bridgeItems["cmd-showBridgeFiles"]?.title == "Files")
-        #expect(bridgeItems["cmd-openBridgeReviewInNewTab"]?.title == "Open Review in New Tab")
-        #expect(bridgeItems["cmd-openBridgeFilesInNewTab"]?.title == "Open Files in New Tab")
-        #expect(bridgeItems.values.allSatisfy { !$0.hasChildren })
+        #expect(viewerItems.count == 1)
+        #expect(viewerItems["cmd-showViewer"]?.title == "Worktree Viewer")
+        #expect(viewerItems.values.allSatisfy { !$0.hasChildren })
     }
 
     @Test
@@ -868,39 +884,41 @@ struct CommandBarDataSourceTests {
 
     @Test
     func test_reposScope_usesFlatGroupForSingleWorktreeRepos() {
-        let store = makeStore()
-        let repo = store.addRepo(at: URL(filePath: "/tmp/test-repo"))
-        store.reconcileDiscoveredWorktrees(
-            repo.id,
-            worktrees: [
-                Worktree(
-                    repoId: repo.id,
-                    name: "main",
-                    path: URL(filePath: "/tmp/test-repo"),
-                    isMainWorktree: true
-                )
-            ])
+        withTestCoreAtoms { _ in
+            let store = makeStore()
+            let repo = store.addRepo(at: URL(filePath: "/tmp/test-repo"))
+            store.reconcileDiscoveredWorktrees(
+                repo.id,
+                worktrees: [
+                    Worktree(
+                        repoId: repo.id,
+                        name: "main",
+                        path: URL(filePath: "/tmp/test-repo"),
+                        isMainWorktree: true
+                    )
+                ])
 
-        // Act
-        let items = CommandBarDataSource.items(
-            scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
+            // Act
+            let items = CommandBarDataSource.items(
+                scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
-        // Assert
-        #expect(items.count == 1)
-        #expect(items.allSatisfy { $0.id.hasPrefix("repo-") })
-        #expect(items.allSatisfy { $0.group == "Repos" })
+            // Assert
+            #expect(items.count == 1)
+            #expect(items.allSatisfy { $0.id.hasPrefix("repo-") })
+            #expect(items.allSatisfy { $0.group == "Repositories" })
 
-        let repoItem = items.first
-        #expect(repoItem?.title == repo.name)
-        #expect(repoItem?.hasChildren == true)
-        guard case .navigateRepo(let level) = repoItem?.action else {
-            Issue.record("Expected repo row to drill into repo level")
-            return
+            let repoItem = items.first
+            #expect(repoItem?.title == repo.name)
+            #expect(repoItem?.hasChildren == true)
+            guard case .navigateRepo(let level) = repoItem?.action else {
+                Issue.record("Expected repo row to drill into repo level")
+                return
+            }
+            let mainItem = level.items.first { $0.id.hasPrefix("repo-wt-") }
+            #expect(mainItem?.title == "main")
+            #expect(mainItem?.icon == .system(.starFill))
+            #expect(mainItem?.subtitle == "main worktree")
         }
-        let mainItem = level.items.first { $0.id.hasPrefix("repo-wt-") }
-        #expect(mainItem?.title == "main")
-        #expect(mainItem?.icon == .system(.starFill))
-        #expect(mainItem?.subtitle == "main worktree")
 
     }
 
@@ -932,7 +950,7 @@ struct CommandBarDataSourceTests {
         #expect(items.first?.title == repo.name)
         #expect(items.first?.hasChildren == true)
         #expect(groups.count == 1)
-        #expect(groups.first?.name == "Repos")
+        #expect(groups.first?.name == "Repositories")
         guard case .navigateRepo(let level) = items.first?.action else {
             Issue.record("Expected repo row to drill into repo level")
             return

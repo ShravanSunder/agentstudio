@@ -258,4 +258,127 @@ struct WorkspacePaneFocusDerivedTests {
             #expect(focus.paneContentType == .webview)
         }
     }
+
+    @Test
+    func terminalMainPaneSupportsZoomWhileWebviewDrawerHasKeyboardFocus() {
+        withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let parentPane = store.createPane()
+            let tab = Tab(paneId: parentPane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            store.setActivePane(parentPane.id, inTab: tab.id)
+            let drawerPane = atoms.workspacePane.addDrawerPane(
+                to: parentPane.id,
+                content: .webview(WebviewState(url: URL(string: "https://drawer.example")!)),
+                metadata: PaneMetadata(contentType: .browser, title: "Drawer")
+            )
+            if let drawerPane {
+                atoms.workspaceFocusOwner.focusDrawerPane(
+                    parentPaneId: parentPane.id,
+                    paneId: drawerPane.id
+                )
+            }
+
+            let focus = atom(\.workspacePaneFocus).currentFocus(
+                workspaceTab: atom(\.workspaceTab),
+                workspacePane: atom(\.workspacePane),
+                workspaceFocusOwner: atom(\.workspaceFocusOwner)
+            )
+
+            #expect(focus.paneContentType == .webview)
+            #expect(focus.satisfiedRequirements.contains(.supportsTerminalZoom))
+        }
+    }
+
+    @Test
+    func terminalDrawerDoesNotEnableZoomForWebviewMainPane() {
+        withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let parentPane = store.createPane(
+                content: .webview(WebviewState(url: URL(string: "https://main.example")!)),
+                metadata: PaneMetadata(contentType: .browser, title: "Main Webview")
+            )
+            let tab = Tab(paneId: parentPane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            store.setActivePane(parentPane.id, inTab: tab.id)
+            let drawerPane = atoms.workspacePane.addDrawerPane(
+                to: parentPane.id,
+                content: .terminal(
+                    TerminalState(
+                        provider: .zmx,
+                        lifetime: .persistent,
+                        zmxSessionID: .generateUUIDv7()
+                    )
+                ),
+                metadata: PaneMetadata(contentType: .terminal, title: "Drawer Terminal")
+            )
+            if let drawerPane {
+                atoms.workspaceFocusOwner.focusDrawerPane(
+                    parentPaneId: parentPane.id,
+                    paneId: drawerPane.id
+                )
+            }
+
+            let focus = atom(\.workspacePaneFocus).currentFocus(
+                workspaceTab: atom(\.workspaceTab),
+                workspacePane: atom(\.workspacePane),
+                workspaceFocusOwner: atom(\.workspaceFocusOwner)
+            )
+
+            #expect(focus.paneContentType == .terminal)
+            #expect(!focus.satisfiedRequirements.contains(.supportsTerminalZoom))
+        }
+    }
+
+    @Test
+    func activeTerminalZoomRequirementDoesNotDependOnFocusedDrawerChild() {
+        withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let sourcePane = store.createPane()
+            let tab = Tab(paneId: sourcePane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            store.setActivePane(sourcePane.id, inTab: tab.id)
+            let drawerPane = atoms.workspacePane.addDrawerPane(
+                to: sourcePane.id,
+                content: .webview(WebviewState(url: URL(string: "https://zoom-drawer.example")!)),
+                metadata: PaneMetadata(contentType: .browser, title: "Drawer")
+            )
+            if let drawerPane {
+                atoms.workspaceFocusOwner.focusDrawerPane(
+                    parentPaneId: sourcePane.id,
+                    paneId: drawerPane.id
+                )
+            }
+            atoms.workspacePanePresentation.enterZoom(
+                inTab: tab.id,
+                sourcePaneId: sourcePane.id,
+                viewerPresentation: .unavailable
+            )
+
+            let focus = atom(\.workspacePaneFocus).currentFocus(
+                workspaceTab: atom(\.workspaceTab),
+                workspacePane: atom(\.workspacePane),
+                workspaceFocusOwner: atom(\.workspaceFocusOwner)
+            )
+
+            #expect(focus.paneContentType == .webview)
+            #expect(focus.satisfiedRequirements.contains(.supportsTerminalZoom))
+            #expect(focus.satisfiedRequirements.contains(.hasActiveTerminalZoom))
+        }
+    }
 }

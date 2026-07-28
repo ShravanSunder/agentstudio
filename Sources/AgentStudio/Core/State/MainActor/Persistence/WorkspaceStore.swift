@@ -71,7 +71,7 @@ package final class WorkspaceStore {
     let tabCursorAtom: WorkspaceTabCursorAtom
     let tabGraphAtom: WorkspaceTabGraphAtom
     let arrangementCursorAtom: WorkspaceArrangementCursorAtom
-    let panePresentationAtom: WorkspacePanePresentationAtom
+    package let panePresentationAtom: WorkspacePanePresentationAtom
     package let tabArrangementAtom: WorkspaceTabArrangementAtom
     package let tabLayoutAtom: WorkspaceTabLayoutAtom
     package let mutationCoordinator: WorkspaceMutationCoordinator

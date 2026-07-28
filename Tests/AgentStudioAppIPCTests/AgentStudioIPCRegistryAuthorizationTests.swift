@@ -11,7 +11,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "orchestration."]
 
-        #expect(registry.definitions.count == 49)
+        #expect(registry.definitions.count == 50)
         #expect(registry.definition(named: "pane.snapshot") == nil)
         for definition in registry.definitions {
             #expect(!definition.paramsSchema.name.isEmpty)
@@ -31,6 +31,10 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let commandBarOpen = try #require(registry.definition(named: "ui.commandBar.open"))
         #expect(commandBarOpen.privilegeClasses == [.uiPresent])
         #expect(commandBarOpen.executionOwner == .uiPresentation)
+
+        let arrangementsOpen = try #require(registry.definition(named: "ui.arrangements.open"))
+        #expect(arrangementsOpen.privilegeClasses == [.uiPresent])
+        #expect(arrangementsOpen.executionOwner == .uiPresentation)
 
         #expect(registry.definition(named: "sidebar.grouping.set") == nil)
         #expect(registry.definition(named: "sidebar.surface.set") == nil)
@@ -621,6 +625,66 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         try service.authorize(
             principal: principal,
             methodName: "ui.commandBar.open",
+            requestedTarget: .app,
+            activePaneId: nil
+        )
+
+        try service.authorize(
+            principal: principal,
+            methodName: "ui.arrangements.open",
+            requestedTarget: .app,
+            activePaneId: nil
+        )
+    }
+
+    @Test("arrangements presentation is absent from unsafe debug and automation special allowlists")
+    func arrangementsPresentationIsAbsentFromSpecialAllowlists() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let grantLedger = GrantLedger()
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: grantLedger,
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let unsafePrincipal = IPCPrincipal(
+            principalId: UUID(),
+            runtimeId: UUID(),
+            accessMode: .unsafeDebug,
+            kind: .unsafeDebugClient,
+            approvalAuthority: .noApprovalAuthority
+        )
+        let automationPrincipal = IPCPrincipal(
+            principalId: UUID(),
+            runtimeId: UUID(),
+            accessMode: .unsafeDebug,
+            kind: .automationClient,
+            approvalAuthority: .noApprovalAuthority
+        )
+
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: unsafePrincipal,
+                methodName: "ui.arrangements.open",
+                requestedTarget: .app,
+                activePaneId: nil
+            )
+        }
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: automationPrincipal,
+                methodName: "ui.arrangements.open",
+                requestedTarget: .app,
+                activePaneId: nil
+            )
+        }
+
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .uiPresent, target: .app, dataScope: .uiSurface),
+            to: automationPrincipal.principalId
+        )
+        try service.authorize(
+            principal: automationPrincipal,
+            methodName: "ui.arrangements.open",
             requestedTarget: .app,
             activePaneId: nil
         )

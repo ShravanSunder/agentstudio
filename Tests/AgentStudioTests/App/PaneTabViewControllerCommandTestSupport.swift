@@ -5,6 +5,7 @@ import SwiftUI
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
 @testable import AgentStudioCore
 @testable import AgentStudioInboxNotification
 @testable import AgentStudioInfrastructure
@@ -33,6 +34,8 @@ struct PaneTabViewControllerCommandHarness {
     let viewRegistry: ViewRegistry
     let runtimeRegistry: RuntimeRegistry
     let surfaceManager: MockPaneTabCommandSurfaceManager
+    let bridgeGitReadScheduler: BridgeGitReadScheduler
+    let appLifecycleStore: AppLifecycleAtom
     let windowLifecycleStore: WindowLifecycleAtom
     let tempDir: URL
     let tabRenamePopoverState: TabRenamePopoverState
@@ -48,14 +51,18 @@ func makeHarness(
     closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
     arrangementPanelPresentation: ArrangementPanelPresentationAtom = ArrangementPanelPresentationAtom(),
     windowLifecycleStore: WindowLifecycleAtom? = nil,
-    workspaceWindowId: UUID? = nil
+    workspaceWindowId: UUID? = nil,
+    bridgeGitReadScheduler: BridgeGitReadScheduler = BridgeGitReadScheduler(topology: .recoveryBaseline),
+    bridgeViewerSurfaceRequestHandler: (@MainActor (BridgeProductSurface, UUID) -> Bool)? = nil
 ) -> Harness {
     makePaneTabViewControllerCommandHarness(
         createSurfaceResult: createSurfaceResult,
         closeTransitionCoordinator: closeTransitionCoordinator,
         arrangementPanelPresentation: arrangementPanelPresentation,
         windowLifecycleStore: windowLifecycleStore,
-        workspaceWindowId: workspaceWindowId
+        workspaceWindowId: workspaceWindowId,
+        bridgeGitReadScheduler: bridgeGitReadScheduler,
+        bridgeViewerSurfaceRequestHandler: bridgeViewerSurfaceRequestHandler
     )
 }
 
@@ -65,7 +72,9 @@ func makePaneTabViewControllerCommandHarness(
     closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
     arrangementPanelPresentation: ArrangementPanelPresentationAtom = ArrangementPanelPresentationAtom(),
     windowLifecycleStore injectedWindowLifecycleStore: WindowLifecycleAtom? = nil,
-    workspaceWindowId: UUID? = nil
+    workspaceWindowId: UUID? = nil,
+    bridgeGitReadScheduler: BridgeGitReadScheduler = BridgeGitReadScheduler(topology: .recoveryBaseline),
+    bridgeViewerSurfaceRequestHandler: (@MainActor (BridgeProductSurface, UUID) -> Bool)? = nil
 ) -> PaneTabViewControllerCommandHarness {
     // Command execution still reads the app-global management-layer atom for
     // visibility and shortcut policy. Reset it so parallel suites cannot leak
@@ -100,7 +109,9 @@ func makePaneTabViewControllerCommandHarness(
         surfaceManager: surfaceManager,
         runtimeRegistry: runtimeRegistry,
         closeTransitionCoordinator: closeTransitionCoordinator,
+        bridgeGitReadScheduler: bridgeGitReadScheduler,
         windowLifecycleStore: windowLifecycleStore,
+        appLifecycleStore: appLifecycleStore,
         bridgePaneAttendance: atomRegistry.bridgePaneAttendance
     )
     let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
@@ -142,6 +153,7 @@ func makePaneTabViewControllerCommandHarness(
         tabRenamePopoverState: tabRenamePopoverState,
         arrangementInlineRenameState: arrangementInlineRenameState,
         arrangementPanelPresentation: arrangementPanelPresentation,
+        bridgeViewerSurfaceRequestHandler: bridgeViewerSurfaceRequestHandler,
         registersAsCommandHandler: false
     )
     return PaneTabViewControllerCommandHarness(
@@ -154,6 +166,8 @@ func makePaneTabViewControllerCommandHarness(
         viewRegistry: viewRegistry,
         runtimeRegistry: runtimeRegistry,
         surfaceManager: surfaceManager,
+        bridgeGitReadScheduler: bridgeGitReadScheduler,
+        appLifecycleStore: appLifecycleStore,
         windowLifecycleStore: windowLifecycleStore,
         tempDir: tempDir,
         tabRenamePopoverState: tabRenamePopoverState,
@@ -307,6 +321,7 @@ final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {
 
     private(set) var createSurfaceCallCount = 0
     private(set) var lastCreatedSurfaceMetadata: SurfaceMetadata?
+    private(set) var attachedSurfaceRequests: [(surfaceId: UUID, paneId: UUID)] = []
 
     init(createSurfaceResult: Result<ManagedSurface, SurfaceError>) {
         self.createSurfaceResult = createSurfaceResult
@@ -330,7 +345,8 @@ final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {
 
     @discardableResult
     func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? {
-        nil
+        attachedSurfaceRequests.append((surfaceId: surfaceId, paneId: paneId))
+        return nil
     }
 
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}

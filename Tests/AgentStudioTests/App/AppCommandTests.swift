@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCommandBar
 @testable import AgentStudioCore
 @testable import AgentStudioTestSupport
 
@@ -9,6 +10,7 @@ import Testing
 
 final class MockCommandHandler: WorkspaceCommandHandling {
     var executedCommands: [(AppCommand, UUID?, SearchItemType?)] = []
+    var quickOpenDirectoryRequests: [(directory: URL, placement: QuickOpenDirectoryPlacement)] = []
     var canExecuteResult: Bool = true
     var targetedCanExecuteResult: Bool?
     var extractedPaneRequests: [(tabId: UUID, paneId: UUID, targetTabIndex: Int?)] = []
@@ -20,6 +22,10 @@ final class MockCommandHandler: WorkspaceCommandHandling {
 
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
         executedCommands.append((command, target, targetType))
+    }
+
+    func executeQuickOpenDirectory(_ directory: URL, placement: QuickOpenDirectoryPlacement) {
+        quickOpenDirectoryRequests.append((directory, placement))
     }
 
     func canExecute(_ command: AppCommand) -> Bool {
@@ -225,13 +231,54 @@ final class AppCommandTests {
     }
 
     @Test
-    func test_toggleSplitZoom_hasDistinctZoomIcon() {
-        let splitZoom = AppCommandDispatcher.shared.definition(for: .toggleSplitZoom)
+    func test_zoomPane_presentsForSinglePaneTabsWithNarrowHeadlessIPC() {
+        let zoomPane = AppCommandDispatcher.shared.definition(for: .zoomPane)
         let expandPane = AppCommandDispatcher.shared.definition(for: .expandPane)
+        let ipcEntry = zoomPane.ipcCommandListEntry
+        let canonicalZoomSymbol = SystemSymbol(
+            rawValue: "arrow.down.left.and.arrow.up.right.rectangle"
+        )
 
-        #expect(splitZoom.icon == .system(.plusMagnifyingglass))
+        #expect(zoomPane.label == "Pane Zoom")
+        #expect(zoomPane.helpText == "Zoom the active pane")
+        #expect(zoomPane.appliesTo == [.pane])
+        #expect(!zoomPane.visibleWhen.contains(.hasMultiplePanes))
+        #expect(zoomPane.icon == canonicalZoomSymbol.map(CommandIcon.system))
         #expect(expandPane.icon == .system(.arrowUpLeftAndArrowDownRight))
-        #expect(splitZoom.icon != expandPane.icon)
+        #expect(zoomPane.icon != expandPane.icon)
+        #expect(ipcEntry.executionModes == [.headless])
+        #expect(ipcEntry.targetKinds == [.pane])
+        #expect(ipcEntry.requiredPrivileges == [.layoutMutate])
+    }
+
+    @Test
+    func test_zoomPane_hardCutPreservesInputFocusCommandIdentities() {
+        #expect(AppCommand.zoomPane.rawValue == "zoomPane")
+        #expect(AppCommand(rawValue: "focus") == nil)
+        #expect(AppCommand.focusPane.rawValue == "focusPane")
+        #expect(AppCommand.focusPaneLeft.rawValue == "focusPaneLeft")
+        #expect(AppCommand.focusPaneRight.rawValue == "focusPaneRight")
+        #expect(AppCommand.focusPaneUp.rawValue == "focusPaneUp")
+        #expect(AppCommand.focusPaneDown.rawValue == "focusPaneDown")
+        #expect(AppCommand.focusNextPane.rawValue == "focusNextPane")
+        #expect(AppCommand.focusPrevPane.rawValue == "focusPrevPane")
+        #expect(AppCommand.focusDrawerPaneUp.rawValue == "focusDrawerPaneUp")
+        #expect(AppCommand.focusDrawerPaneLeft.rawValue == "focusDrawerPaneLeft")
+        #expect(AppCommand.focusDrawerPaneDown.rawValue == "focusDrawerPaneDown")
+        #expect(AppCommand.focusDrawerPaneRight.rawValue == "focusDrawerPaneRight")
+    }
+
+    @Test
+    func test_commandCatalog_exposesOneContextualZoomViewerCommand() throws {
+        let viewerDefinitions = AppCommand.allCases
+            .map(\.definition)
+            .filter { $0.label == "Worktree Viewer" }
+
+        let viewer = try #require(viewerDefinitions.first)
+        #expect(viewerDefinitions.count == 1)
+        #expect(viewer.command == .showViewer)
+        #expect(viewer.appliesTo.isEmpty)
+        #expect(viewer.visibleWhen == [.supportsTerminalZoom])
     }
 
     // MARK: - AppCommandDispatcher
@@ -417,19 +464,19 @@ final class AppCommandTests {
         #expect(toggleInboxSort.shortcut == nil)
         #expect(toggleInboxSort.icon == .system(.arrowUpArrowDown))
         #expect(toggleInboxSort.commandBarGroupName == "Inbox")
-        #expect(toggleInboxSort.commandBarGroupPriority == sidebarInbox.commandBarGroupPriority)
+        #expect(toggleInboxSort.commandBarGroupPriority != sidebarInbox.commandBarGroupPriority)
         #expect(!toggleInboxSort.isHiddenInCommandBar)
         #expect(clearReadInbox.label == "Clear Read Inbox Notifications")
         #expect(clearReadInbox.shortcut == nil)
         #expect(clearReadInbox.icon == .system(.deleteLeft))
         #expect(clearReadInbox.commandBarGroupName == "Inbox")
-        #expect(clearReadInbox.commandBarGroupPriority == sidebarInbox.commandBarGroupPriority)
+        #expect(clearReadInbox.commandBarGroupPriority == toggleInboxSort.commandBarGroupPriority)
         #expect(!clearReadInbox.isHiddenInCommandBar)
         #expect(clearAllInbox.label == "Clear All Inbox Notifications")
         #expect(clearAllInbox.shortcut == nil)
         #expect(clearAllInbox.icon == .system(.deleteLeft))
         #expect(clearAllInbox.commandBarGroupName == "Inbox")
-        #expect(clearAllInbox.commandBarGroupPriority == sidebarInbox.commandBarGroupPriority)
+        #expect(clearAllInbox.commandBarGroupPriority == toggleInboxSort.commandBarGroupPriority)
         #expect(!clearAllInbox.isHiddenInCommandBar)
         #expect(paneInbox.shortcut == .showPaneInboxNotifications)
         #expect(paneInbox.appliesTo == [.pane])

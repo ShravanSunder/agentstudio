@@ -279,8 +279,9 @@ package enum AppStyles {
 
         package enum DrawerToolbar {
             package static let trailingClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
+            package static let labeledActionTrailingPadding: CGFloat = AppStyles.General.Spacing.standard
             package static let dividerHeight: CGFloat = 16
-            package static let dividerHorizontalPadding: CGFloat = 2
+            package static let dividerHorizontalPadding = AppStyles.General.Spacing.standard
         }
 
         package enum ManagementLayer {
@@ -405,7 +406,7 @@ package enum AppStyles {
             package static let fallbackIconFontSize: CGFloat = AppStyles.General.Typography.textSm
             package static let selectedRowFillOpacity: CGFloat = AppStyles.General.Fill.selected
 
-            package static let chooserButtonContentSpacing: CGFloat = AppStyles.General.Spacing.tight
+            package static let chooserButtonContentSpacing: CGFloat = AppStyles.General.Spacing.standard
             package static let chooserButtonHorizontalPadding: CGFloat = AppStyles.General.Spacing.standard
             package static let chooserChevronFontSize: CGFloat = AppStyles.General.Typography.textXxs
         }

@@ -3,8 +3,6 @@ import Foundation
 package enum SQLiteLocalUXStorage {
     package static let sidebarSurfaceRepos = "repos"
     package static let sidebarSurfaceInbox = "inbox"
-    package static let recentWorkspaceTargetKindWorktree = "worktree"
-    package static let recentWorkspaceTargetKindCwdOnly = "cwdOnly"
     package static let repoExplorerGroupingRepo = "repo"
     package static let repoExplorerGroupingPane = "pane"
     package static let repoExplorerGroupingTab = "tab"
@@ -66,32 +64,12 @@ package enum SQLiteLocalUXStorage {
         }
     }
 
-    package static func storageValue(for kind: RecentWorkspaceTarget.Kind) -> String {
-        switch kind {
-        case .worktree:
-            recentWorkspaceTargetKindWorktree
-        case .cwdOnly:
-            recentWorkspaceTargetKindCwdOnly
-        }
-    }
-
     package static func sidebarSurface(from rawValue: String) -> SidebarSurface? {
         switch rawValue {
         case sidebarSurfaceRepos:
             .repos
         case sidebarSurfaceInbox:
             .inbox
-        default:
-            nil
-        }
-    }
-
-    package static func recentWorkspaceTargetKind(from rawValue: String) -> RecentWorkspaceTarget.Kind? {
-        switch rawValue {
-        case recentWorkspaceTargetKindWorktree:
-            .worktree
-        case recentWorkspaceTargetKindCwdOnly:
-            .cwdOnly
         default:
             nil
         }

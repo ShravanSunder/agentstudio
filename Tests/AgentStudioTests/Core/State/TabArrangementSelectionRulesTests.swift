@@ -10,8 +10,8 @@ struct TabArrangementSelectionRulesTests {
         let paneA = UUID()
         let paneB = UUID()
         let arrangement = PaneArrangement(
-            name: "Default",
-            isDefault: true,
+            name: "Layout 1",
+            isDefault: false,
             layout: Layout(paneId: paneA)
                 .inserting(
                     paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
@@ -27,8 +27,8 @@ struct TabArrangementSelectionRulesTests {
     func firstUnminimizedPaneId_returnsNilWhenAllVisiblePanesAreMinimized() {
         let paneA = UUID()
         let arrangement = PaneArrangement(
-            name: "Default",
-            isDefault: true,
+            name: "Layout 1",
+            isDefault: false,
             layout: Layout(paneId: paneA),
             minimizedPaneIds: [paneA]
         )
@@ -63,8 +63,8 @@ struct TabArrangementSelectionRulesTests {
         let paneA = UUID()
         let paneB = UUID()
         let arrangement = PaneArrangement(
-            name: "Default",
-            isDefault: true,
+            name: "Layout 1",
+            isDefault: false,
             layout: Layout(paneId: paneA)
                 .inserting(
                     paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
@@ -83,8 +83,8 @@ struct TabArrangementSelectionRulesTests {
     func fallbackActivePaneId_returnsNilWhenAllPanesAreMinimized() {
         let paneA = UUID()
         let arrangement = PaneArrangement(
-            name: "Default",
-            isDefault: true,
+            name: "Layout 1",
+            isDefault: false,
             layout: Layout(paneId: paneA),
             minimizedPaneIds: [paneA]
         )

@@ -58,7 +58,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder!
     var startupTraceRecorder: AgentStudioStartupTraceRecorder!
     var repoCacheStore: RepoCacheStore!
+    var entityRecencyStore: EntityRecencyStore!
     var repositoryTopologyStore: RepositoryTopologyStore!
+    var workspacePaneRecencyObserver: WorkspacePaneRecencyObserver?
     var sidebarCacheStore: SidebarCacheStore!
     var uiStateStore: UIStateStore!
     var workspaceSettingsStore: WorkspaceSettingsStore!
@@ -304,7 +306,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let focus = atom(\.workspacePaneFocus).currentFocus(
             workspaceTab: workspaceTab,
             workspacePane: store.paneAtom,
-            workspaceFocusOwner: atom(\.workspaceFocusOwner)
+            workspaceFocusOwner: atom(\.workspaceFocusOwner),
+            workspacePanePresentation: store.panePresentationAtom
         )
         let isVisible = definition.isVisible(in: focus)
         menuItem.isHidden = !isVisible

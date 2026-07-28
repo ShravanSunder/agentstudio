@@ -111,7 +111,7 @@ serialization remain execution policy rather than module ownership.
 
 Current atom vocabulary:
 
-- **Atoms** own mutable state and synchronous domain operations, for example `ActiveWorkspaceSelectionAtom`, `WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneGraphAtom`, `WorkspaceDrawerCursorAtom`, `WorkspaceTabShellAtom`, `WorkspaceTabCursorAtom`, `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom`, `RepoEnrichmentCacheAtom`, `RecentWorkspaceTargetAtom`, `SidebarExpandedGroupAtom`, `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, `EditorPreferenceAtom`, `EditorChooserRuntimeAtom`, `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom`, `AppLifecycleAtom`, `WindowLifecycleAtom`, `SessionRuntimeAtom`, and feature atoms. `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, `WorkspaceTabLayoutAtom`, and `RepoCacheAtom` remain composed compatibility/read surfaces for existing consumers while split owners land.
+- **Atoms** own mutable state and synchronous domain operations. Application-global owners include `ActiveWorkspaceSelectionAtom`, `RepositoryTopologyAtom`, `RepoEnrichmentCacheAtom`, and `ApplicationEntityRecencyAtom`. Workspace owners include identity, pane/tab/drawer graph and cursors, and `WorkspaceEntityRecencyAtom`. Window-keyed owners hold frame/sidebar shell and expanded-group memory. Runtime-only owners include focus, transient keyboard surfaces, app/window lifecycle, and session runtime. `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, `WorkspaceTabLayoutAtom`, and `RepoCacheAtom` remain composed compatibility/read surfaces for existing consumers.
 - **Persistence wrappers** own load/save boundaries and debounced disk I/O, for example `WorkspaceStore`, `RepoCacheStore`, `SidebarCacheStore`, and `UIStateStore`.
 - **Derived readers** compute projections without owning data, for example `WorkspacePaneDerived`, `WorkspaceTabLayoutDerived`, `WorkspacePaneFocusDerived`, `WorkspaceLookupDerived`, `PaneDisplayDerived`, and `TabDisplayDerived`.
 - **Coordinators** sequence mutations across atoms/stores and runtime systems. They own no durable domain state.
@@ -136,10 +136,15 @@ The old `AppCommand -> AppEventBus -> controller -> WorkspaceActionCommand` chai
 ```
 ActiveWorkspaceSelectionAtom            ← global active workspace id
 
-WorkspaceStore (workspace.state.json persistence wrapper)
+Application-global state
+├── RepositoryTopologyAtom              ← repos, worktrees, watched paths, availability
+├── RepoEnrichmentCacheAtom             ← rebuildable repo/worktree/PR enrichment
+└── ApplicationEntityRecencyAtom        ← repository/worktree recency
+
+WorkspaceStore (core.sqlite + workspace-keyed local cursor/window persistence wrapper)
 ├── WorkspaceIdentityAtom               ← workspace id, name, created-at timestamp
-├── WorkspaceWindowMemoryAtom           ← local sidebar width and window frame
-├── WorkspaceRepositoryTopologyAtom     ← repos, worktrees, watched paths, availability
+├── WorkspaceWindowMemoryAtom           ← window-keyed sidebar width and frame
+├── repositoryTopologyAtom              ← reference to the application-global topology owner
 ├── WorkspacePaneGraphAtom              ← pane identity/content/residency, durable metadata, drawer membership
 ├── WorkspaceDrawerCursorAtom           ← local drawer expansion cursor
 ├── WorkspacePaneAtom                   ← compatibility facade over pane graph + drawer cursor
@@ -152,18 +157,21 @@ WorkspaceStore (workspace.state.json persistence wrapper)
 ├── WorkspaceTabLayoutAtom              ← compatibility read facade
 └── WorkspaceTabLayoutDerived           ← rich tab read model
 
-RepoCacheStore (workspace.cache.json, rebuildable/local cache)
+RepoCacheStore (application local.sqlite, rebuildable global cache)
 ├── RepoEnrichmentCacheAtom            ← origin, identity, branch, git snapshot,
 │                                         PR counts, rebuild metadata
-├── RecentWorkspaceTargetAtom          ← local recent workspace targets
 └── RepoCacheAtom                      ← composed read surface for repo/sidebar UI
 
-WorkspaceSQLiteDatastore (core.sqlite + workspace local.sqlite)
-├── WorkspaceCoreRepository            ← core graph/status rows
-├── cached WorkspaceLocalRepository    ← local UX/cache/inbox sidecar rows
-└── WorkspaceSQLiteSnapshot            ← live actor-crossing snapshot, not legacy JSON
+EntityRecencyStore (application local.sqlite)
+├── ApplicationEntityRecencyAtom       ← global repository/worktree rows
+└── WorkspaceEntityRecencyAtom         ← workspace-keyed pane rows
 
-WorkspaceSidebarMemoryAtom (workspace.ui.json)
+WorkspaceSQLiteDatastore (authoritative core.sqlite + non-authoritative app-root local.sqlite)
+├── WorkspaceCoreRepository            ← authoritative graph/topology rows
+├── cached WorkspaceLocalRepository    ← non-authoritative local UX/cache/inbox rows
+└── WorkspaceSQLiteSnapshot            ← live actor-crossing snapshot, not a row projection
+
+WorkspaceSidebarMemoryAtom (window-keyed rows in app-root local.sqlite)
 ├── filterText, isFilterVisible
 └── sidebarCollapsed, sidebarSurface
 
@@ -210,7 +218,7 @@ Each document owns a specific concern. No two documents are authoritative for th
 |----------|-----------|--------|
 | [Component Architecture](component_architecture.md) | Structural overview — how components compose | Data model (pane, tab, layout, session), service layer, command bar, persistence format, store boundaries, coordinator role, invariants |
 | [Workspace Data Architecture](workspace_data_architecture.md) | Workspace-level data — repos, worktrees, enrichment | Three-tier persistence, canonical vs enrichment models, enrichment pipeline, topology reconciliation, typed filesystem/Git pane-projection admission, affected-key effects, sidebar data flow, ordering/replay contracts |
-| [Atom Persistence Boundaries](atom_persistence_boundaries.md) | Atom-to-SQLite boundary model | Write-owner atom rules, lifecycle lanes, derived read models, legacy import DTOs, row projections, runtime-only surfaces, and Step 0 boundary map |
+| [Atom Persistence Boundaries](atom_persistence_boundaries.md) | Atom-to-SQLite ownership model | Write-owner atom rules, current lifecycle lanes, derived read models, current row projections, runtime-only surfaces, and ownership map |
 | [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane-level runtime contracts | Pane runtime contracts (C1-C16), typed Ghostty source admission and bounded contraction (C7), event envelopes, per-pane event taxonomy, adapter/runtime/coordinator layers, attach and restart contracts, command dispatch, and source/sink/projection vocabulary |
 | [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md) | EventBus threading and coordination | Concrete admission-to-coordination mechanics, actor fan-out, boundary actors, compact MainActor application, semantic projection, connection patterns, and Swift 6.2 threading model |
 | [Window System Design](window_system_design.md) | Window/tab/pane structural model | Window/tab/pane/drawer data model, dynamic views, arrangements, orphaned pane pool, ownership invariants |

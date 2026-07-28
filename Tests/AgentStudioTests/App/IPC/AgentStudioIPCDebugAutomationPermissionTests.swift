@@ -30,6 +30,16 @@ struct AgentStudioIPCDebugAutomationPermissionTests {
                         dataScope: .unspecified
                     ),
                     IPCPermissionScope(
+                        privilege: .layoutMutate,
+                        target: .app,
+                        dataScope: .paneContext
+                    ),
+                    IPCPermissionScope(
+                        privilege: .uiPresent,
+                        target: .app,
+                        dataScope: .uiSurface
+                    ),
+                    IPCPermissionScope(
                         privilege: .sidebarStateMutate,
                         target: .workspace(workspaceId),
                         dataScope: .sidebarState

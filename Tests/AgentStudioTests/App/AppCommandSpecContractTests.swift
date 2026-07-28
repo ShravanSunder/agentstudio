@@ -101,12 +101,27 @@ struct CommandSpecContractTests {
         #expect(descriptor.label == definition.label)
         #expect(descriptor.helpText == definition.helpText)
         #expect(descriptor.compactTooltipText == "Open in Editor")
-        #expect(descriptor.shortcutDisplayText == ShortcutDisplayText(value: "⌘⌥O"))
+        #expect(descriptor.shortcutDisplayText == ShortcutDisplayText(value: "⌘⌥⌃O"))
         #expect(
             ControlTooltipResolver.resolve(.display(descriptor))
                 == definition.controlTooltipRenderValue(textOverride: "Open in Editor")
         )
-        #expect(definition.controlToolTip(textOverride: "Open in Editor") == "Open in Editor (⌘⌥O)")
+        #expect(definition.controlToolTip(textOverride: "Open in Editor") == "Open in Editor (⌘⌥⌃O)")
+    }
+
+    @Test("Pane Zoom, Viewer, editor, chooser, and Copy Path expose the accepted O-family shortcuts")
+    func paneZoomAndOFamilyCommandsExposeAcceptedShortcuts() {
+        #expect(AppCommand.zoomPane.definition.shortcut?.trigger.displayString == "⌘⇧↵")
+        #expect(AppCommand.showViewer.definition.shortcut?.trigger.displayString == "⌘O")
+        #expect(
+            AppCommand.openPaneLocationInBookmarkedEditor.definition.shortcut?.trigger.displayString
+                == "⌘⌥O"
+        )
+        #expect(
+            AppCommand.openPaneLocationInEditorMenu.definition.shortcut?.trigger.displayString
+                == "⌘⌥⌃O"
+        )
+        #expect(AppCommand.copyCurrentPanePath.definition.shortcut?.trigger.displayString == "⌥O")
     }
 
     @Test("app command tooltip source preserves help-text fallback without shortcut")

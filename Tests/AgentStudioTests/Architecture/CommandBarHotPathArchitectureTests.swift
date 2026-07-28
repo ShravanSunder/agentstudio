@@ -58,6 +58,43 @@ struct CommandBarHotPathArchitectureTests {
             #expect(!source.contains("private var selectedItem"))
         }
     }
+
+    @Test("root projection uses prepared topology identity without filesystem derivation")
+    func rootProjectionAvoidsFilesystemIdentityWork() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/CommandBar/CommandBarDataSource+RootProjection.swift"
+            ),
+            encoding: .utf8
+        )
+        let forbiddenCalls = [
+            ".stableKey",
+            "StableKey.fromPath",
+            "resolvingSymlinksInPath",
+            "FileManager",
+            "contentsOfDirectory",
+            "fileExists",
+            "resourceValues",
+        ]
+
+        for forbiddenCall in forbiddenCalls {
+            #expect(!source.contains(forbiddenCall))
+        }
+    }
+
+    @Test("Quick Open projection does not resolve filesystem aliases on the main actor")
+    func quickOpenProjectionAvoidsFilesystemAliasResolution() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/CommandBar/CommandBarDataSource+QuickOpen.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(!source.contains("resolvingSymlinksInPath"))
+    }
 }
 
 extension String {
