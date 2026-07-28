@@ -43,9 +43,7 @@ enum PaneObservationResolver {
         )
         var observedPaneIds = Set<UUID>()
         for paneId in activePaneIds {
-            if zoomSourcePaneId == paneId {
-                observedPaneIds.insert(paneId)
-            } else if let drawer = pane(paneId)?.drawer, drawer.isExpanded {
+            if let drawer = pane(paneId)?.drawer, drawer.isExpanded {
                 if let view = drawerView(paneId),
                     let activeChildId = view.activeChildId,
                     !view.minimizedPaneIds.contains(activeChildId)

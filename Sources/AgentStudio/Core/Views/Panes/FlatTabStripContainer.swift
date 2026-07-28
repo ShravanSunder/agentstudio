@@ -263,9 +263,7 @@ struct FlatTabStripContainer: View {
 
     @ViewBuilder
     private func primaryPaneLayer(_ state: PrimaryPaneLayerState) -> some View {
-        if state.effectiveVisiblePaneIds.isEmpty {
-            EmptyArrangementPlaceholderView()
-        } else if state.metrics.allMinimized {
+        if state.metrics.allMinimized {
             if state.rendersMinimizedBars {
                 HStack(spacing: 0) {
                     ForEach(layout.paneIds, id: \.self) { paneId in
@@ -284,7 +282,11 @@ struct FlatTabStripContainer: View {
                     }
                     Spacer()
                 }
+            } else {
+                EmptyArrangementPlaceholderView()
             }
+        } else if state.effectiveVisiblePaneIds.isEmpty {
+            EmptyArrangementPlaceholderView()
         } else {
             FlatPaneStripContent(
                 layout: layout,

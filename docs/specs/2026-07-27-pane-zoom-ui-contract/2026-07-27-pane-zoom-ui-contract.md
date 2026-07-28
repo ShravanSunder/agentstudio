@@ -55,15 +55,15 @@ pane membership.
 ### Normal terminal
 
 ```text
-[Zoom] │ [Drawer Toggle] [Add Drawer]
-                           [Editor] │ [Finder] [Copy Path] │ [Notification]
+[Drawer Toggle] [Add Drawer]
+                  [Zoom] [Viewer] [Editor] │ [Finder] [Copy Path] │ [Notification]
 ```
 
 ### Zoomed terminal
 
 ```text
-[Zoom selected] │ [Drawer Toggle] [Add Drawer]
-             [Viewer] [Editor] │ [Finder] [Copy Path] │ [Notification]
+[Drawer Toggle] [Add Drawer]
+         [Zoom selected] [Viewer] [Editor] │ [Finder] [Copy Path] │ [Notification]
 ```
 
 `[Zoom]` in these diagrams denotes the canonical icon-only control. The bottom
@@ -71,8 +71,9 @@ toolbar never renders a visible `Zoom` text label.
 
 The ordering is contractual:
 
-1. Viewer precedes Editor while Zoom is active.
-2. Viewer is absent outside Zoom.
+1. Zoom precedes Viewer, and Viewer precedes Editor, in normal and Zoom states.
+2. Viewer remains available outside Zoom so it can enter Zoom and ensure the
+   Viewer is visible.
 3. Finder precedes Copy Path.
 4. Notification is the final isolated action.
 5. Drawer Toggle and Add Drawer remain adjacent without a divider.
@@ -80,8 +81,8 @@ The ordering is contractual:
 The semantic groups are:
 
 ```text
-pane mode │ drawer structure          pane context │ location          │ alerts
-Zoom      │ Drawer Toggle, Add Drawer Viewer, Editor Finder, Copy Path Notification
+drawer structure          pane context         │ location          │ alerts
+Drawer Toggle, Add Drawer Zoom, Viewer, Editor Finder, Copy Path Notification
 ```
 
 Every icon-only control uses the existing shared square hit target, hover fill,

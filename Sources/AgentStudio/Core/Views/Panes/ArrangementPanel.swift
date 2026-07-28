@@ -306,6 +306,21 @@ struct ArrangementPanel: View {
                     .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
+            .accessibilityHidden(true)
+            .background {
+                AccessibilityPressBridge(
+                    identifier: "arrangement-panel-pane-\(pane.id.uuidString)-visibility",
+                    label: pane.isMinimized
+                        ? LocalActionSpec.showPane.actionSpec.label
+                        : LocalActionSpec.hidePane.actionSpec.label
+                ) {
+                    if pane.isMinimized {
+                        onPaneAction(.expandPane(tabId: tabId, paneId: pane.id))
+                    } else {
+                        onPaneAction(.minimizePane(tabId: tabId, paneId: pane.id))
+                    }
+                }
+            }
             .help(
                 pane.isMinimized
                     ? LocalActionSpec.showPane.actionSpec.helpText

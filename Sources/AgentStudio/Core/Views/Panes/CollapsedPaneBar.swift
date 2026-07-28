@@ -206,7 +206,6 @@ struct CollapsedPaneBar: View {
                 arrangements: arrangements,
                 inlineRenameState: arrangementInlineRenameState,
                 onPaneAction: { action in
-                    isArrangementPanelPresented = false
                     actionDispatcher.dispatch(action)
                 },
                 onToggleZoom: { sourcePaneId in

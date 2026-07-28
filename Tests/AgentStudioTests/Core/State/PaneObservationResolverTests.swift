@@ -90,8 +90,8 @@ struct PaneObservationResolverTests {
         #expect(observedPaneIds == Set([childId, siblingId]))
     }
 
-    @Test("Zoom observes an expanded drawer parent directly")
-    func zoomObservesExpandedDrawerParentDirectly() {
+    @Test("Zoom replaces an expanded drawer source with its active child")
+    func zoomReplacesExpandedDrawerSourceWithActiveChild() {
         let parentId = UUIDv7.generate()
         let childId = UUIDv7.generate()
         let siblingId = UUIDv7.generate()
@@ -114,7 +114,7 @@ struct PaneObservationResolverTests {
             drawerView: { $0 == parentId ? drawerView : nil }
         )
 
-        #expect(observedPaneIds == Set([parentId]))
+        #expect(observedPaneIds == Set([childId]))
     }
 
     private func makeLayoutPane(id: UUID, drawer: Drawer) -> Pane {
