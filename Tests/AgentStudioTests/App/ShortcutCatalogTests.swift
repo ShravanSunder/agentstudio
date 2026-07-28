@@ -256,8 +256,8 @@ struct ShortcutCatalogTests {
     }
 
     @Test
-    func shortcutDecoder_decodesDrawerEditorShortcuts() {
-        let openBookmarkedEditor = ShortcutDecoder.shortcut(
+    func shortcutDecoder_decodesViewerAndEditorShortcuts() {
+        let showViewer = ShortcutDecoder.shortcut(
             for: .init(key: .character(.o), modifiers: [.command]),
             in: .global
         )
@@ -265,27 +265,37 @@ struct ShortcutCatalogTests {
             for: .init(key: .character(.o), modifiers: [.command, .shift]),
             in: .global
         )
-        let openChooser = ShortcutDecoder.shortcut(
+        let openBookmarkedEditor = ShortcutDecoder.shortcut(
             for: .init(key: .character(.o), modifiers: [.command, .option]),
             in: .global
         )
+        let openChooser = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.o), modifiers: [.command, .control, .option]),
+            in: .global
+        )
 
+        #expect(showViewer?.rawValue == "showViewer")
         #expect(openBookmarkedEditor == .openPaneLocationInBookmarkedEditor)
         #expect(openFinder == .openPaneLocationInFinder)
         #expect(openChooser == .openPaneLocationInEditorMenu)
     }
 
     @Test
-    func shortcutDecoder_decodesPaneNoteAndCurrentPathShortcuts() {
+    func shortcutDecoder_decodesPaneZoomNoteAndCurrentPathShortcuts() {
+        let zoomPane = ShortcutDecoder.shortcut(
+            for: .init(key: .enter, modifiers: [.command, .shift]),
+            in: .global
+        )
         let editNote = ShortcutDecoder.shortcut(
             for: .init(key: .character(.n), modifiers: [.command, .option, .shift]),
             in: .global
         )
         let copyPath = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.o), modifiers: [.command, .option, .shift]),
+            for: .init(key: .character(.o), modifiers: [.option]),
             in: .terminalAppOwned
         )
 
+        #expect(zoomPane?.rawValue == "zoomPane")
         #expect(editNote == .editPaneNote)
         #expect(copyPath == .copyCurrentPanePath)
         #expect(AppShortcut.editPaneNote.command == .editPaneNote)

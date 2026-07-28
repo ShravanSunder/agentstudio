@@ -2,6 +2,11 @@ import Foundation
 
 @MainActor
 struct PaneSurfaceToolbarAction {
+    enum SelectionEmphasis: Equatable, Sendable {
+        case standard
+        case accent
+    }
+
     struct State: Equatable, Sendable {
         let label: String
         let accessibilityIdentifier: String
@@ -10,6 +15,7 @@ struct PaneSurfaceToolbarAction {
         let isEnabled: Bool
         let isSelected: Bool
         let visibleLabel: String?
+        let selectionEmphasis: SelectionEmphasis
 
         init(
             label: String,
@@ -18,7 +24,8 @@ struct PaneSurfaceToolbarAction {
             tooltip: ControlTooltipRenderValue,
             isEnabled: Bool,
             isSelected: Bool,
-            visibleLabel: String? = nil
+            visibleLabel: String? = nil,
+            selectionEmphasis: SelectionEmphasis = .standard
         ) {
             self.label = label
             self.accessibilityIdentifier = accessibilityIdentifier
@@ -27,6 +34,7 @@ struct PaneSurfaceToolbarAction {
             self.isEnabled = isEnabled
             self.isSelected = isSelected
             self.visibleLabel = visibleLabel
+            self.selectionEmphasis = selectionEmphasis
         }
     }
 
@@ -42,7 +50,8 @@ struct PaneSurfaceToolbarAction {
                 tooltip: state.tooltip,
                 isEnabled: isEnabled,
                 isSelected: isSelected,
-                visibleLabel: state.visibleLabel
+                visibleLabel: state.visibleLabel,
+                selectionEmphasis: state.selectionEmphasis
             ),
             perform: perform
         )
@@ -54,7 +63,8 @@ struct PaneSurfaceToolbarAction {
         tooltip: ControlTooltipRenderValue,
         isEnabled: Bool,
         isSelected: Bool,
-        visibleLabel: String? = nil
+        visibleLabel: String? = nil,
+        selectionEmphasis: SelectionEmphasis? = nil
     ) -> Self {
         Self(
             state: State(
@@ -64,7 +74,24 @@ struct PaneSurfaceToolbarAction {
                 tooltip: tooltip,
                 isEnabled: isEnabled,
                 isSelected: isSelected,
-                visibleLabel: visibleLabel
+                visibleLabel: visibleLabel,
+                selectionEmphasis: selectionEmphasis ?? state.selectionEmphasis
+            ),
+            perform: perform
+        )
+    }
+
+    func projectingVisibleLabel(_ visibleLabel: String?) -> Self {
+        Self(
+            state: State(
+                label: state.label,
+                accessibilityIdentifier: state.accessibilityIdentifier,
+                icon: state.icon,
+                tooltip: state.tooltip,
+                isEnabled: state.isEnabled,
+                isSelected: state.isSelected,
+                visibleLabel: visibleLabel,
+                selectionEmphasis: state.selectionEmphasis
             ),
             perform: perform
         )
@@ -72,15 +99,21 @@ struct PaneSurfaceToolbarAction {
 }
 
 @MainActor
+struct TerminalModeToolbarActions {
+    let zoomAction: PaneSurfaceToolbarAction
+    let viewerAction: PaneSurfaceToolbarAction
+}
+
+@MainActor
 struct TerminalToolbarModel {
-    let zoomAction: PaneSurfaceToolbarAction?
+    let modeActions: TerminalModeToolbarActions?
     let showArrangementsAction: PaneSurfaceToolbarAction?
 
     init(
-        zoomAction: PaneSurfaceToolbarAction?,
+        modeActions: TerminalModeToolbarActions? = nil,
         showArrangementsAction: PaneSurfaceToolbarAction? = nil
     ) {
-        self.zoomAction = zoomAction
+        self.modeActions = modeActions
         self.showArrangementsAction = showArrangementsAction
     }
 }
@@ -157,8 +190,8 @@ enum PaneSurfaceToolbarPresentation {
 
     var leadingActions: [PaneSurfaceToolbarAction] {
         switch self {
-        case .terminal(let model):
-            [model.zoomAction].compactMap(\.self)
+        case .terminal:
+            []
         case .webview:
             []
         case .codeViewer:
@@ -167,16 +200,23 @@ enum PaneSurfaceToolbarPresentation {
             []
         case .viewer:
             []
-        case .zoom(let model):
-            [model.zoomAction]
+        case .zoom:
+            []
         case .hidden:
             []
         }
     }
 
     var contextActions: [PaneSurfaceToolbarAction] {
-        guard case .zoom(let model) = self else { return [] }
-        return [model.viewerAction]
+        switch self {
+        case .terminal(let model):
+            guard let modeActions = model.modeActions else { return [] }
+            return [modeActions.zoomAction, modeActions.viewerAction]
+        case .zoom(let model):
+            return [model.zoomAction, model.viewerAction]
+        case .webview, .codeViewer, .unsupported, .viewer, .hidden:
+            return []
+        }
     }
 
     var actions: [PaneSurfaceToolbarAction] {
@@ -186,7 +226,7 @@ enum PaneSurfaceToolbarPresentation {
     var zoomAction: PaneSurfaceToolbarAction? {
         switch self {
         case .terminal(let model):
-            model.zoomAction
+            model.modeActions?.zoomAction
         case .zoom(let model):
             model.zoomAction
         case .webview, .codeViewer, .unsupported, .viewer, .hidden:
@@ -225,23 +265,29 @@ enum PaneSurfaceToolbarResolver {
     static func resolve(
         content: PaneContent,
         placement: PaneSurfaceToolbarPlacement,
-        zoomAction: PaneSurfaceToolbarAction? = nil,
+        terminalModeActions: TerminalModeToolbarActions? = nil,
         showArrangementsAction: PaneSurfaceToolbarAction? = nil
     ) -> PaneSurfaceToolbarPresentation {
         if placement == .zoomChild {
             return .hidden
         }
 
-        let resolvedZoomAction =
+        let resolvedTerminalModeActions =
             placement == .normalMainPane
-            ? zoomAction.map { action in
-                action.projectingPresentation(
-                    label: action.state.label,
-                    icon: action.state.icon,
-                    tooltip: action.state.tooltip,
-                    isEnabled: action.state.isEnabled,
-                    isSelected: false,
-                    visibleLabel: nil
+            ? terminalModeActions.map { actions in
+                TerminalModeToolbarActions(
+                    zoomAction: actions.zoomAction.projectingPresentation(
+                        label: actions.zoomAction.state.label,
+                        icon: actions.zoomAction.state.icon,
+                        tooltip: actions.zoomAction.state.tooltip,
+                        isEnabled: actions.zoomAction.state.isEnabled,
+                        isSelected: false,
+                        visibleLabel: nil
+                    ),
+                    viewerAction: actions.viewerAction.resolving(
+                        isEnabled: actions.viewerAction.state.isEnabled,
+                        isSelected: false
+                    )
                 )
             }
             : nil
@@ -250,7 +296,7 @@ enum PaneSurfaceToolbarResolver {
         case .terminal:
             return .terminal(
                 TerminalToolbarModel(
-                    zoomAction: resolvedZoomAction,
+                    modeActions: resolvedTerminalModeActions,
                     showArrangementsAction: showArrangementsAction
                 )
             )
@@ -313,7 +359,8 @@ enum PaneSurfaceToolbarResolver {
                     tooltip: zoomAction.state.tooltip,
                     isEnabled: true,
                     isSelected: true,
-                    visibleLabel: nil
+                    visibleLabel: "Zoomed",
+                    selectionEmphasis: .accent
                 ),
                 showArrangementsAction: showArrangementsAction
             )

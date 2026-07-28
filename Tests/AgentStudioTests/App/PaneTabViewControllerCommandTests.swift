@@ -912,8 +912,8 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.tab(tab.id)?.activePaneId == panes[0].id)
     }
 
-    @Test("focusPane ordinal expands minimized target before focusing")
-    func executeFocusPane2_expandsMinimizedTargetBeforeFocusing() throws {
+    @Test("focusPane ordinal targets only expanded panes")
+    func executeFocusPane2_targetsSecondExpandedPaneWithoutRestoringMinimizedPane() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (tab, panes) = try makeOrdinalTab(in: harness, paneCount: 3)
@@ -922,8 +922,9 @@ struct PaneTabViewControllerCommandTests {
         harness.controller.execute(.focusPane2)
 
         let updatedTab = try #require(harness.store.tab(tab.id))
-        #expect(updatedTab.activePaneId == panes[1].id)
-        #expect(!updatedTab.activeMinimizedPaneIds.contains(panes[1].id))
+        #expect(updatedTab.activePaneId == panes[2].id)
+        #expect(updatedTab.activeMinimizedPaneIds.contains(panes[1].id))
+        #expect(harness.controller.canExecute(.focusPane3) == false)
     }
 
     @Test("focusPane ordinal retargets active Zoom to requested pane")

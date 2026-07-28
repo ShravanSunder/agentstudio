@@ -264,13 +264,13 @@ final class AppCommandTests {
     func test_commandCatalog_exposesOneContextualZoomViewerCommand() throws {
         let viewerDefinitions = AppCommand.allCases
             .map(\.definition)
-            .filter { $0.label == "Viewer" }
+            .filter { $0.label == "Worktree Viewer" }
 
         let viewer = try #require(viewerDefinitions.first)
         #expect(viewerDefinitions.count == 1)
         #expect(viewer.command == .showViewer)
         #expect(viewer.appliesTo.isEmpty)
-        #expect(viewer.visibleWhen == [.hasActiveTerminalZoom])
+        #expect(viewer.visibleWhen == [.supportsTerminalZoom])
     }
 
     // MARK: - AppCommandDispatcher

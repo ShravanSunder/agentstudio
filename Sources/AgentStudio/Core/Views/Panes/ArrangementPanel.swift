@@ -166,6 +166,7 @@ struct ArrangementPanel: View {
             Text("Pane Zoom")
                 .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
                 .foregroundStyle(.tertiary)
+                .textCase(.uppercase)
 
             HStack(alignment: .center, spacing: AppStyles.General.Spacing.standard) {
                 if let sourceIdentity = zoomMode.sourceIdentity {
@@ -243,10 +244,22 @@ struct ArrangementPanel: View {
 
     private func paneRow(_ pane: PaneVisibilityInfo) -> some View {
         HStack(spacing: AppStyles.General.Spacing.standard) {
-            Circle()
-                .fill(pane.isMinimized ? Color.clear : Color.white.opacity(AppStyles.General.Foreground.dim))
-                .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                .frame(width: 8, height: 8)
+            Group {
+                if let statusSystemImageName = pane.statusSystemImageName {
+                    Image(systemName: statusSystemImageName)
+                        .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                } else {
+                    Circle()
+                        .fill(Color.white.opacity(AppStyles.General.Foreground.dim))
+                        .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                        .frame(width: 8, height: 8)
+                }
+            }
+            .frame(
+                width: AppStyles.General.Typography.textSm,
+                height: AppStyles.General.Typography.textSm
+            )
 
             Text(pane.title)
                 .font(.system(size: AppStyles.General.Typography.textXs))

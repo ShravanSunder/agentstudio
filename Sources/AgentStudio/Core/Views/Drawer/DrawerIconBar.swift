@@ -226,9 +226,15 @@ struct DrawerIconBar: View {
 
                         if let trailingActions {
                             HStack(spacing: 0) {
-                                HStack(spacing: AppStyles.Shell.DrawerToolbar.trailingClusterSpacing) {
-                                    ForEach(Array(paneContextActions.enumerated()), id: \.offset) { _, action in
-                                        paneSurfaceActionButton(action)
+                                HStack(spacing: 0) {
+                                    if !paneContextActions.isEmpty {
+                                        HStack(spacing: AppStyles.Shell.DrawerToolbar.trailingClusterSpacing) {
+                                            ForEach(Array(paneContextActions.enumerated()), id: \.offset) { _, action in
+                                                paneSurfaceActionButton(action)
+                                            }
+                                        }
+
+                                        trailingActionDivider
                                     }
 
                                     Button {
@@ -266,6 +272,7 @@ struct DrawerIconBar: View {
                                         )
                                     }
                                     .buttonStyle(.plain)
+                                    .foregroundStyle(isChooserHovered ? .primary : .secondary)
                                     .popover(
                                         isPresented: trailingActions.editorMenuPresented,
                                         arrowEdge: .bottom
@@ -511,21 +518,23 @@ struct DrawerIconBar: View {
                     Text(visibleLabel)
                         .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                         .lineLimit(1)
+                        .padding(.trailing, AppStyles.Shell.DrawerToolbar.labeledActionTrailingPadding)
                 }
             }
             .frame(height: DrawerLayout.iconButtonSize)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(action.state.isSelected || isHovered ? .primary : .secondary)
+        .foregroundStyle(paneSurfaceActionForeground(action, isHovered: isHovered))
         .background(
             RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                .fill(
-                    action.state.isSelected
-                        ? Color.white.opacity(AppStyles.General.Fill.active)
-                        : (isHovered
-                            ? Color.white.opacity(AppStyles.General.Fill.hover)
-                            : Color.clear)
+                .fill(paneSurfaceActionFill(action, isHovered: isHovered))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
+                        .stroke(
+                            paneSurfaceActionStroke(action, isHovered: isHovered),
+                            lineWidth: 1
+                        )
                 )
         )
         .disabled(!action.state.isEnabled)
@@ -546,6 +555,48 @@ struct DrawerIconBar: View {
         .onHover { hovering in
             hoveredPaneSurfaceActionId = hovering ? action.state.accessibilityIdentifier : nil
         }
+    }
+
+    private func paneSurfaceActionForeground(
+        _ action: PaneSurfaceToolbarAction,
+        isHovered: Bool
+    ) -> Color {
+        if action.state.isSelected, action.state.selectionEmphasis == .accent {
+            return ChromeToolbarControlPalette.foregroundColor(
+                isSelected: true,
+                isHovered: isHovered
+            )
+        }
+        return action.state.isSelected || isHovered ? .primary : .secondary
+    }
+
+    private func paneSurfaceActionFill(
+        _ action: PaneSurfaceToolbarAction,
+        isHovered: Bool
+    ) -> Color {
+        if action.state.isSelected, action.state.selectionEmphasis == .accent {
+            return ChromeToolbarControlPalette.fillColor(
+                isSelected: true,
+                isHovered: isHovered
+            )
+        }
+        if action.state.isSelected {
+            return Color.white.opacity(AppStyles.General.Fill.active)
+        }
+        return isHovered ? Color.white.opacity(AppStyles.General.Fill.hover) : Color.clear
+    }
+
+    private func paneSurfaceActionStroke(
+        _ action: PaneSurfaceToolbarAction,
+        isHovered: Bool
+    ) -> Color {
+        guard action.state.isSelected, action.state.selectionEmphasis == .accent else {
+            return .clear
+        }
+        return ChromeToolbarControlPalette.strokeColor(
+            isSelected: true,
+            isHovered: isHovered
+        )
     }
 
     @ViewBuilder

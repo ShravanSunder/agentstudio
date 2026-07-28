@@ -31,11 +31,12 @@ lifecycle.
 | --- | --- | --- | --- | --- |
 | R1-R4, R17 | Command and toolbar | Command name, canonical icon, icon-only bottom control, exact toolbar-order/geometry, and divider tests fail against the current presentation | Focused command and toolbar presentation/mount tests pass | Run after final toolbar diff |
 | R5 | Location actions | Toolbar mount test fails because Copy Path is absent | Copy Path presence, order, enabled state, tooltip, and callback tests pass | Run after final trailing-action diff |
-| R6-R9, R16 | Arrangements UI | Display/projection/presentation tests fail for the selected-row active state, missing explicit Cancel Zoom action, popover dismissal, and unstable rename | Arrangement model, popover state, rename, and mounted-view tests pass | Run after final panel/model diff |
+| R6-R9, R16, R21-R23 | Arrangements UI and pane shortcuts | Display/projection/presentation tests fail for the selected-row active state, missing explicit Cancel Zoom action, popover dismissal, unstable rename, hidden minimized bars, stale minimized ordinals, and minimized-pane shortcut restoration | Arrangement model, popover state, rename, mounted-view, badge, and expanded-pane shortcut tests pass | Run after final panel/model/shortcut diff |
 | R10, R15, R20 | Zoom and Viewer chrome | Container/title/File Viewer tests fail for missing or misplaced management Cancel Zoom control, visible transport ID, Viewer ordinal, or missing live `· Zoom` title | Container, File Viewer, and management-title tests pass for Default and named arrangements | Run after final native/BridgeWeb diff |
 | R11-R14 | Arrangement transitions | Existing lifecycle test is inverted to require preservation and fails while switch clears Zoom; creation test fails while disabled or persisted incorrectly | Switch, traversal, creation, persistence-exclusion, and real teardown tests pass | Run after final coordinator/store diff |
 | R18 | Viewer split memory | Runtime-state test fails because Cancel Zoom deletes the only saved ratio | Per-source runtime memory restores the ratio across hide/show and Cancel/re-entry while SQLite exclusion remains green | Run after final presentation-atom diff |
-| R19 | Spatial transitions | Transition-state/native proof shows instantaneous replacement and Viewer appearance | Zoom expands/contracts from the durable source frame and Viewer opens/closes from center with host continuity | Capture native recording after final container diff |
+| R19 | Presentation transitions | Source audit fails while Zoom mutations still install an animation; native proof shows incorrect Viewer motion | Zoom uses identity replacement while Viewer opens/closes from center with host continuity | Capture native recording after final container diff |
+| R24 | Typed shortcut cutover | Shortcut decoding, tooltip, command catalog, and normal-mode Viewer tests fail against the old O-family bindings and Zoom-local-only Viewer behavior | Accepted bindings decode uniquely, tooltips inherit them, and Viewer enters Zoom visible before becoming a Zoom-local toggle | Run after final shortcut/controller diff |
 | All | Integrated UI | Existing debug app shows stale UI | Fresh PID-targeted screenshots cover all five named states | Capture from a newly built app at final HEAD |
 
 Every behavior row requires observed red/green evidence. If a focused test
@@ -58,6 +59,9 @@ slice 3: Arrangements model/view/popover/rename and transition RED/GREEN
   |
   v
 slice 4: Zoom management chrome/title and Viewer projection RED/GREEN
+  |
+  v
+slice 5: typed shortcut cutover and Viewer entry behavior RED/GREEN
   |
   v
 targeted integration gate
@@ -134,7 +138,7 @@ source.
 
 ## Slice 3 — Arrangements UI and durable transition behavior
 
-Requirements: R6-R9, R11-R14, and R16.
+Requirements: R6-R9, R11-R14, R16, and R21-R23.
 
 Likely files:
 
@@ -153,6 +157,12 @@ Work:
   icon-and-text `Cancel Zoom`; remove selected-list styling.
 - Keep the Arrangements popover open for Zoom, arrangement
   selection/creation, and rename actions.
+- Reveal minimized bars while normal Arrangements is open without changing
+  durable minimized state or activating Management mode.
+- Replace minimized-bar ordinals with `eye.slash.fill` using the same badge
+  geometry, and use the same state symbol in Pane Visibility.
+- Build main-pane ordinals densely from expanded panes only; `Option-1` through
+  `Option-9` must not restore minimized panes.
 - Reproduce and repair the inline rename focus/flicker regression at its source.
 - Keep arrangement creation enabled during Zoom.
 - Route creation through the real validated command path.
@@ -164,9 +174,9 @@ Work:
 - Move the split ratio from one active presentation's disposable state to
   per-source retained runtime memory, restoring it across Viewer hide/show and
   Cancel/re-entry without persisting it.
-- Add state-driven spatial transitions using existing pane geometry and
-  standard animation timing; preserve the same terminal and Viewer hosts
-  throughout every transition.
+- Use identity replacement for Zoom entry, cancellation, and retargeting. Keep
+  Viewer show/hide motion separate and preserve the same terminal and Viewer
+  hosts throughout its center-to-side transition.
 - Save only the underlying durable arrangement and reveal the latest selected
   arrangement when Zoom exits.
 - Preserve existing teardown and invalid-resource cancellation.
@@ -204,6 +214,37 @@ management title for Default and named layouts.
 Split trigger: stop if the title cannot derive from the existing active
 arrangement read model.
 
+## Slice 5 — Typed shortcut cutover
+
+Requirement: R24.
+
+Likely files:
+
+- `Sources/AgentStudio/App/Commands/AppShortcut.swift`
+- `Sources/AgentStudio/App/Commands/AppCommand+Catalog.swift`
+- `Sources/AgentStudio/App/Commands/AppShortcutDispatchPolicy.swift`
+- `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
+- shortcut, command-spec, tooltip, and Zoom command tests
+
+Work:
+
+- Bind Viewer to `Command-O`, the bookmarked/default editor to
+  `Command-Option-O`, the editor chooser to `Command-Option-Control-O`, Copy
+  Path to `Option-O`, and Pane Zoom to `Command-Shift-Return`.
+- Preserve Finder on `Command-Shift-O`.
+- Outside Zoom, make Viewer enter Zoom and ensure Viewer is visible.
+- Inside Zoom, keep Viewer as a visibility toggle that never cancels Zoom.
+- Keep Pane Zoom as the only shortcut that enters or cancels Zoom independently
+  of Viewer visibility.
+- Project every menu, toolbar, and command-row shortcut from the typed command
+  spec rather than adding parallel tooltip text.
+
+Checkpoint: shortcut decoding/catalog tests, tooltip tests, and controller
+state-transition tests pass with unique triggers in every routing context.
+
+Split trigger: stop if the shortcut cutover requires a new keyboard context or
+changes transient-surface ownership.
+
 ## Validation gates
 
 1. Focused RED/GREEN tests after every slice.
@@ -215,7 +256,8 @@ arrangement read model.
 6. `mise run build`.
 7. Fresh debug launch and PID-targeted screenshots:
    normal toolbar, Zoom toolbar with Viewer hidden, Zoom toolbar with Viewer
-   visible, active Arrangements details, and Zoom management chrome.
+   visible, active Arrangements details, Zoom management chrome, and minimized
+   bars revealed by normal Arrangements.
 8. Requirements/diff audit followed by `implementation-review-swarm`.
 
 ## Recovery

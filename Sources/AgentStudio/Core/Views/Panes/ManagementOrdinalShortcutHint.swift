@@ -5,6 +5,21 @@ enum ManagementOrdinalShortcutHintVariant: Equatable {
     case collapsedBar
 }
 
+enum ManagementShortcutBadgeContent: Equatable {
+    case ordinal(Int)
+    case minimized
+
+    var ordinal: Int? {
+        guard case .ordinal(let ordinal) = self else { return nil }
+        return ordinal
+    }
+
+    var systemImageName: String? {
+        guard case .minimized = self else { return nil }
+        return "eye.slash.fill"
+    }
+}
+
 enum ManagementOrdinalShortcutHintPaint: Equatable {
     case black(opacity: CGFloat)
     case white(opacity: CGFloat)
@@ -55,22 +70,55 @@ struct ManagementOrdinalShortcutHint: View {
     }
 
     var body: some View {
+        ManagementShortcutBadge(
+            content: .ordinal(ordinal),
+            variant: variant
+        )
+    }
+}
+
+struct ManagementMinimizedPaneHint: View {
+    var body: some View {
+        ManagementShortcutBadge(
+            content: .minimized,
+            variant: .collapsedBar
+        )
+    }
+}
+
+private struct ManagementShortcutBadge: View {
+    let content: ManagementShortcutBadgeContent
+    let variant: ManagementOrdinalShortcutHintVariant
+
+    var body: some View {
         let style = ManagementOrdinalShortcutHintStyle.resolve(variant: variant)
 
-        Text("\(ordinal)")
-            .font(.system(size: AppStyles.Shell.ManagementLayer.actionIconSize, weight: .bold, design: .rounded))
-            .monospacedDigit()
-            .foregroundStyle(style.foreground.color)
-            .frame(
-                width: AppStyles.Shell.ManagementLayer.actionSize,
-                height: AppStyles.Shell.ManagementLayer.actionSize
+        Group {
+            if let ordinal = content.ordinal {
+                Text("\(ordinal)")
+                    .monospacedDigit()
+            } else if let systemImageName = content.systemImageName {
+                Image(systemName: systemImageName)
+            }
+        }
+        .font(
+            .system(
+                size: AppStyles.Shell.ManagementLayer.actionIconSize,
+                weight: .bold,
+                design: .rounded
             )
-            .background(
-                Circle()
-                    .fill(style.background.color)
-            )
-            .contentShape(Circle())
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+        )
+        .foregroundStyle(style.foreground.color)
+        .frame(
+            width: AppStyles.Shell.ManagementLayer.actionSize,
+            height: AppStyles.Shell.ManagementLayer.actionSize
+        )
+        .background(
+            Circle()
+                .fill(style.background.color)
+        )
+        .contentShape(Circle())
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

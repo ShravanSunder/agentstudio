@@ -4,6 +4,13 @@ import Testing
 @testable import AgentStudio
 
 struct ArrangementPanelDisplayStateTests {
+    @Test("minimized pane status uses the filled hidden-eye symbol")
+    func minimizedPaneStatusUsesFilledHiddenEyeSymbol() {
+        let pane = PaneVisibilityInfo(id: UUID(), title: "Terminal", isMinimized: true)
+
+        #expect(pane.statusSystemImageName == "eye.slash.fill")
+    }
+
     @Test
     func singleVisiblePane_stillShowsArrangementControls() {
         let state = ArrangementPanelDisplayState(

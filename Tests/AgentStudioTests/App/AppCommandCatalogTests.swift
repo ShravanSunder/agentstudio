@@ -118,9 +118,12 @@ final class AppCommandCatalogTests {
     @Test
     func test_dispatcher_showViewer_registered() {
         let def = AppCommandDispatcher.shared.definition(for: .showViewer)
-        #expect(def.label == "Viewer")
-        #expect(def.icon == .system(.rectangleSplit2x1))
-        #expect(def.commandBarGroupName == "Viewer")
+        let canonicalViewerSymbol = SystemSymbol(
+            rawValue: "text.page.badge.magnifyingglass"
+        )
+        #expect(def.label == "Worktree Viewer")
+        #expect(def.icon == canonicalViewerSymbol.map(CommandIcon.system))
+        #expect(def.commandBarGroupName == "Worktree Viewer")
     }
 
     @MainActor
@@ -143,19 +146,19 @@ final class AppCommandCatalogTests {
     @MainActor
 
     @Test
-    func test_dispatcher_zoomPaneAndViewer_haveNoKeyBindings() {
-        #expect(AppCommand.zoomPane.definition.keyBinding == nil)
-        #expect(AppCommand.showViewer.definition.keyBinding == nil)
+    func test_dispatcher_zoomPaneAndViewer_useAcceptedKeyBindings() {
+        #expect(AppCommand.zoomPane.definition.shortcut?.trigger.displayString == "⌘⇧↵")
+        #expect(AppCommand.showViewer.definition.keyBinding == KeyBinding(key: "o", modifiers: [.command]))
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_showViewer_isContextualZoomOnly() {
+    func test_dispatcher_showViewer_isAvailableForZoomEntryAndActiveZoom() {
         let definition = AppCommand.showViewer.definition
 
         #expect(definition.appliesTo.isEmpty)
-        #expect(definition.visibleWhen == [.hasActiveTerminalZoom])
+        #expect(definition.visibleWhen == [.supportsTerminalZoom])
     }
 
     @MainActor

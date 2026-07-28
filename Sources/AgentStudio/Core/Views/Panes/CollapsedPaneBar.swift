@@ -11,7 +11,6 @@ struct CollapsedPaneBar: View {
     let onToggleZoom: (UUID?) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
-    let ordinal: Int?
     let workspaceWindowId: UUID?
 
     @State private var isHovered = false
@@ -20,9 +19,6 @@ struct CollapsedPaneBar: View {
     @State private var isArrangementPanelPresented = false
     @State private var arrangementPopoverToggleGate = PopoverToggleGate()
     @State private var arrangementInlineRenameState = ArrangementInlineRenameState()
-    private var managementLayer: ManagementLayerAtom {
-        atom(\.managementLayer)
-    }
 
     static let barWidth: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
     static let barHeight: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
@@ -37,7 +33,6 @@ struct CollapsedPaneBar: View {
         onToggleZoom: @escaping (UUID?) -> Void = { _ in },
         dropTargetCoordinateSpace: String? = nil,
         useDrawerFramePreference: Bool = false,
-        ordinal: Int? = nil,
         workspaceWindowId: UUID? = nil
     ) {
         self.paneId = paneId
@@ -49,7 +44,6 @@ struct CollapsedPaneBar: View {
         self.onToggleZoom = onToggleZoom
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
-        self.ordinal = ordinal
         self.workspaceWindowId = workspaceWindowId
     }
 
@@ -71,9 +65,7 @@ struct CollapsedPaneBar: View {
             ?? Color.secondary.opacity(0.92)
 
         VStack(spacing: AppStyles.General.Spacing.standard) {
-            if managementLayer.isActive, let ordinal {
-                ManagementOrdinalShortcutHint(ordinal: ordinal, variant: .collapsedBar)
-            }
+            ManagementMinimizedPaneHint()
 
             expandButton
 

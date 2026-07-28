@@ -670,26 +670,45 @@ struct AgentStudioIPCCommandAdapterTests {
 
     // Mutation caught: drawer children are mistaken for canonical durable main-pane targets.
     @Test("zoom pane rejects an explicit drawer-pane IPC target")
-    func zoomPaneRejectsExplicitDrawerPaneTarget() throws {
-        let harness = CommandAdapterHarness()
-        let parentPane = harness.workspaceStore.createPane(title: "Parent")
+    func zoomPaneRejectsExplicitDrawerPaneTarget() async throws {
+        installTestAtomRegistryIfNeeded()
+        let controllerHarness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: controllerHarness.tempDir) }
+        let parentPane = controllerHarness.store.createPane(title: "Parent")
         let tab = Tab(paneId: parentPane.id)
-        harness.workspaceStore.appendTab(tab)
-        let drawerPane = try #require(harness.workspaceStore.addDrawerPane(to: parentPane.id))
+        controllerHarness.store.appendTab(tab)
+        controllerHarness.store.setActiveTab(tab.id)
+        let drawerPane = try #require(controllerHarness.store.addDrawerPane(to: parentPane.id))
+        let adapter = AgentStudioIPCCommandAdapter(
+            workspaceId: controllerHarness.store.identityAtom.workspaceId,
+            targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: controllerHarness.store),
+            windowLifecycleReader: FakeCommandWorkspaceWindowLifecycleReader(
+                snapshot: .singleActiveWindow(UUID())
+            ),
+            shellCommandHandler: RecordingShellCommandHandler()
+        )
 
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
-                    targetHandle: "pane:\(drawerPane.id.uuidString)"
-                )
-            )
-            Issue.record("zoom pane unexpectedly accepted an explicit drawer-pane target")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .targetNotFound)
-        }
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = controllerHarness.controller
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                do {
+                    _ = try adapter.executeCommand(
+                        IPCCommandExecuteParams(
+                            commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
+                            targetHandle: "pane:\(drawerPane.id.uuidString)"
+                        )
+                    )
+                    Issue.record("zoom pane unexpectedly accepted an explicit drawer-pane target")
+                } catch let error as AppIPCCommandError {
+                    #expect(error.reason == .targetNotFound)
+                }
+            }
+        )
 
-        #expect(harness.workspaceStore.panePresentationAtom.zoomPresentation(forTab: tab.id) == nil)
+        #expect(controllerHarness.store.panePresentationAtom.zoomPresentation(forTab: tab.id) == nil)
     }
 
     // Mutation caught: target UUID membership is checked without enforcing the command's handle kind.

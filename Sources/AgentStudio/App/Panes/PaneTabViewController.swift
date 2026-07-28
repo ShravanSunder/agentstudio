@@ -1105,7 +1105,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return PaneSurfaceToolbarResolver.resolve(
             content: pane.content,
             placement: .normalMainPane,
-            zoomAction: paneSurfaceToolbarAction(command: .zoomPane, sourcePaneId: paneId),
+            terminalModeActions: TerminalModeToolbarActions(
+                zoomAction: paneSurfaceToolbarAction(command: .zoomPane, sourcePaneId: paneId),
+                viewerAction: paneSurfaceToolbarAction(command: .showViewer, sourcePaneId: paneId)
+            ),
             showArrangementsAction: paneShowArrangementsAction(
                 sourcePaneId: paneId,
                 sourceTabId: tabId
@@ -1137,19 +1140,49 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         sourcePaneId: UUID
     ) -> PaneSurfaceToolbarAction {
         let definition = command.definition
+        let isEnabled =
+            command == .showViewer
+            ? canExecutePaneSurfaceViewerCommand(sourcePaneId: sourcePaneId)
+            : canExecute(command, target: sourcePaneId, targetType: .pane)
         return PaneSurfaceToolbarAction(
             state: PaneSurfaceToolbarAction.State(
                 label: definition.label,
                 accessibilityIdentifier: paneSurfaceToolbarAccessibilityIdentifier(for: command),
                 icon: definition.icon,
                 tooltip: definition.controlTooltipRenderValue(),
-                isEnabled: canExecute(command, target: sourcePaneId, targetType: .pane),
+                isEnabled: isEnabled,
                 isSelected: false
             ),
             perform: { [weak self] in
-                self?.execute(command, target: sourcePaneId, targetType: .pane)
+                guard let self else { return }
+                if command == .showViewer {
+                    _ = executePaneSurfaceViewerCommand(sourcePaneId: sourcePaneId)
+                } else {
+                    execute(command, target: sourcePaneId, targetType: .pane)
+                }
             }
         )
+    }
+
+    private func canExecutePaneSurfaceViewerCommand(sourcePaneId: UUID) -> Bool {
+        if canExecute(.showViewer, target: sourcePaneId, targetType: .pane) {
+            return true
+        }
+        guard let capability = zoomCommandCapability(explicitPaneId: sourcePaneId) else {
+            return false
+        }
+        return resolvedViewerWorktreeId(forPane: capability.sourcePaneId) != nil
+    }
+
+    private func executePaneSurfaceViewerCommand(sourcePaneId: UUID) -> Bool {
+        switch executeZoomLocalViewerCommand(explicitPaneId: sourcePaneId) {
+        case .notZoomLocal:
+            return enterZoomAndShowViewer(explicitPaneId: sourcePaneId)
+        case .unavailable:
+            return false
+        case .toggled(let didToggle):
+            return didToggle
+        }
     }
 
     func paneShowArrangementsAction(
@@ -2777,7 +2810,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .showViewer:
             switch executeZoomLocalViewerCommand(explicitPaneId: nil) {
             case .notZoomLocal:
-                return false
+                return enterZoomAndShowViewer(explicitPaneId: nil)
             case .unavailable:
                 return false
             case .toggled(let didToggle):
@@ -2787,6 +2820,42 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
             return executeBridgeSurfaceCommand(command, worktreeId: nil)
         default:
+            return false
+        }
+    }
+
+    private func enterZoomAndShowViewer(explicitPaneId: UUID?) -> Bool {
+        let canEnterZoomWithViewer =
+            if let explicitPaneId {
+                canExecutePaneSurfaceViewerCommand(sourcePaneId: explicitPaneId)
+            } else {
+                canExecute(.showViewer)
+            }
+        guard canEnterZoomWithViewer,
+            executeZoomCommand(explicitPaneId: explicitPaneId),
+            let activeTabId = store.tabLayoutAtom.activeTabId,
+            let presentation = store.panePresentationAtom.zoomPresentation(forTab: activeTabId)
+        else {
+            return false
+        }
+
+        switch presentation.viewerPresentation {
+        case .retainedVisible:
+            return true
+        case .retainedHidden:
+            let didShowViewer = withAnimation(
+                .easeInOut(duration: AppStyles.General.Animation.standard)
+            ) {
+                store.panePresentationAtom.setZoomViewerVisible(
+                    true,
+                    forSourcePane: presentation.sourcePaneId
+                )
+            }
+            if didShowViewer {
+                executor.refreshZoomCompanionActivities()
+            }
+            return didShowViewer
+        case .retryable, .unavailable:
             return false
         }
     }
@@ -2903,20 +2972,16 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 sourcePaneId: capability.sourcePaneId,
                 tabId: capability.tabId
             )
-            withAnimation(.easeInOut(duration: AppStyles.General.Animation.standard)) {
-                store.panePresentationAtom.enterZoom(
-                    inTab: capability.tabId,
+            store.panePresentationAtom.enterZoom(
+                inTab: capability.tabId,
+                sourcePaneId: capability.sourcePaneId,
+                viewerPresentation: initialZoomViewerPresentation(
                     sourcePaneId: capability.sourcePaneId,
-                    viewerPresentation: initialZoomViewerPresentation(
-                        sourcePaneId: capability.sourcePaneId,
-                        tabId: capability.tabId
-                    )
+                    tabId: capability.tabId
                 )
-            }
+            )
         case .cancel:
-            withAnimation(.easeInOut(duration: AppStyles.General.Animation.standard)) {
-                store.panePresentationAtom.cancelZoom(inTab: capability.tabId)
-            }
+            store.panePresentationAtom.cancelZoom(inTab: capability.tabId)
             executor.detachZoomSourceAfterExitIfHidden(
                 sourcePaneId: capability.sourcePaneId,
                 tabId: capability.tabId
@@ -2924,18 +2989,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             executor.refreshZoomCompanionActivities()
             return true
         case .retarget:
-            let didRetarget = withAnimation(
-                .easeInOut(duration: AppStyles.General.Animation.standard)
-            ) {
-                store.panePresentationAtom.retargetZoom(
-                    inTab: capability.tabId,
-                    to: capability.sourcePaneId,
-                    viewerPresentation: initialZoomViewerPresentation(
-                        sourcePaneId: capability.sourcePaneId,
-                        tabId: capability.tabId
-                    )
+            let didRetarget = store.panePresentationAtom.retargetZoom(
+                inTab: capability.tabId,
+                to: capability.sourcePaneId,
+                viewerPresentation: initialZoomViewerPresentation(
+                    sourcePaneId: capability.sourcePaneId,
+                    tabId: capability.tabId
                 )
-            }
+            )
             guard didRetarget else {
                 return false
             }
@@ -3278,9 +3339,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func focusMainPaneOrdinal(command: AppCommand) -> Bool {
         guard let target = resolveMainPaneOrdinalTarget(for: command) else { return false }
-        if target.tab.activeMinimizedPaneIds.contains(target.paneId) {
-            dispatchAction(.expandPane(tabId: target.tab.id, paneId: target.paneId))
-        }
         if let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: target.tab.id),
             zoomPresentation.sourcePaneId != target.paneId,
             !executeZoomCommand(explicitPaneId: target.paneId)
@@ -3296,7 +3354,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             let ordinal = mainPaneOrdinal(for: command),
             let activeTabId = store.tabLayoutAtom.activeTabId,
             let tab = store.tabLayoutAtom.tab(activeTabId),
-            let paneId = PaneOrdinalMap(orderedPaneIds: tab.activePaneIds).paneId(forOrdinal: ordinal)
+            let paneId = PaneOrdinalMap(
+                orderedPaneIds: tab.activePaneIds.filter {
+                    !tab.activeMinimizedPaneIds.contains($0)
+                }
+            ).paneId(forOrdinal: ordinal)
         else {
             return nil
         }
@@ -3722,15 +3784,21 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .zoomPane:
             return zoomCommandCapability(explicitPaneId: nil) != nil
         case .showViewer:
-            guard
-                let activeTabId = store.tabLayoutAtom.activeTabId,
-                let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: activeTabId),
-                let sourcePane = store.paneAtom.pane(zoomPresentation.sourcePaneId),
-                case .terminal = sourcePane.content
-            else {
+            if let activeTabId = store.tabLayoutAtom.activeTabId,
+                let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: activeTabId)
+            {
+                guard
+                    let sourcePane = store.paneAtom.pane(zoomPresentation.sourcePaneId),
+                    case .terminal = sourcePane.content
+                else {
+                    return false
+                }
+                return zoomPresentation.viewerPresentation != .unavailable
+            }
+            guard let capability = zoomCommandCapability(explicitPaneId: nil) else {
                 return false
             }
-            return zoomPresentation.viewerPresentation != .unavailable
+            return resolvedViewerWorktreeId(forPane: capability.sourcePaneId) != nil
         case .switchArrangement:
             return store.tabLayoutAtom.activeTabId != nil
         case .previousArrangement, .nextArrangement, .cycleArrangement:

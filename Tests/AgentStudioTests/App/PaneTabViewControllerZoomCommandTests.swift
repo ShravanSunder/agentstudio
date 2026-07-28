@@ -506,8 +506,8 @@ struct PaneTabViewControllerZoomCommandTests {
         )
     }
 
-    @Test("untargeted Viewer has no durable fallback outside Zoom")
-    func untargetedViewerHasNoDurableFallbackOutsideZoom() throws {
+    @Test("untargeted Viewer enters Zoom and ensures the Viewer is visible")
+    func untargetedViewerEntersZoomAndEnsuresViewerIsVisible() throws {
         let activePaneHarness = makeHarness()
         defer { try? FileManager.default.removeItem(at: activePaneHarness.tempDir) }
         _ = makeRepoAndWorktree(activePaneHarness.store, root: activePaneHarness.tempDir)
@@ -518,14 +518,17 @@ struct PaneTabViewControllerZoomCommandTests {
         activePaneHarness.store.setActiveTab(activeTab.id)
         activePaneHarness.store.setActivePane(activePane.id, inTab: activeTab.id)
 
-        let paneIdsBefore = Set(activePaneHarness.store.paneAtom.panes.keys)
-        let tabIdsBefore = Set(activePaneHarness.store.tabs.map(\.id))
-
-        #expect(!activePaneHarness.controller.canExecute(.showViewer))
+        #expect(activePaneHarness.controller.canExecute(.showViewer))
         activePaneHarness.controller.execute(.showViewer)
 
-        #expect(Set(activePaneHarness.store.paneAtom.panes.keys) == paneIdsBefore)
-        #expect(Set(activePaneHarness.store.tabs.map(\.id)) == tabIdsBefore)
+        let presentation = try #require(
+            activePaneHarness.store.panePresentationAtom.zoomPresentation(forTab: activeTab.id)
+        )
+        #expect(presentation.sourcePaneId == activePane.id)
+        guard case .retainedVisible = presentation.viewerPresentation else {
+            Issue.record("Viewer command did not make the Zoom Viewer visible")
+            return
+        }
     }
 
     @Test("Zoom companion metadata never becomes a durable Viewer reuse candidate")

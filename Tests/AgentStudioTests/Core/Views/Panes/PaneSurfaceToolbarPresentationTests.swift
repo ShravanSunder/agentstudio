@@ -83,9 +83,12 @@ struct PaneSurfaceToolbarPresentationTests {
         }
     }
 
-    @Test("only normal terminal panes receive Zoom while Viewer stays Zoom-only")
+    @Test("normal terminal exposes Zoom then Viewer as trailing context actions")
     func normalPaneActionsRespectSemanticRoleAndPlacement() {
         let recorder = ToolbarActionRecorder()
+        let viewerAction = makeAction(label: "Viewer", sourcePaneId: recorder.sourcePaneId) {
+            recorder.recordViewer(sourcePaneId: $0)
+        }
         let zoomAction = makeAction(label: "Pane Zoom", sourcePaneId: recorder.sourcePaneId) {
             recorder.recordZoom(sourcePaneId: $0)
         }
@@ -93,18 +96,27 @@ struct PaneSurfaceToolbarPresentationTests {
         let terminalPresentation = PaneSurfaceToolbarResolver.resolve(
             content: paneContentFixtures[0],
             placement: .normalMainPane,
-            zoomAction: zoomAction
+            terminalModeActions: TerminalModeToolbarActions(
+                zoomAction: zoomAction,
+                viewerAction: viewerAction
+            )
         )
-        #expect(terminalPresentation.actionStatesForTesting.viewer == nil)
+        #expect(terminalPresentation.actionStatesForTesting.viewer?.label == viewerAction.state.label)
+        #expect(terminalPresentation.actionStatesForTesting.viewer?.isSelected == false)
         #expect(terminalPresentation.actionStatesForTesting.zoom?.label == zoomAction.state.label)
         #expect(terminalPresentation.actionStatesForTesting.zoom?.visibleLabel == nil)
         #expect(terminalPresentation.actionStatesForTesting.zoom?.isSelected == false)
-        #expect(terminalPresentation.actions.map(\.state.label) == ["Pane Zoom"])
+        #expect(terminalPresentation.leadingActions.isEmpty)
+        #expect(terminalPresentation.contextActions.map(\.state.label) == ["Pane Zoom", "Viewer"])
+        #expect(terminalPresentation.actions.map(\.state.label) == ["Pane Zoom", "Viewer"])
 
         let webviewPresentation = PaneSurfaceToolbarResolver.resolve(
             content: paneContentFixtures[1],
             placement: .normalMainPane,
-            zoomAction: zoomAction
+            terminalModeActions: TerminalModeToolbarActions(
+                zoomAction: zoomAction,
+                viewerAction: viewerAction
+            )
         )
         #expect(webviewPresentation.actionStatesForTesting.viewer == nil)
         #expect(webviewPresentation.actionStatesForTesting.zoom == nil)
@@ -113,7 +125,10 @@ struct PaneSurfaceToolbarPresentationTests {
         let viewerPresentation = PaneSurfaceToolbarResolver.resolve(
             content: paneContentFixtures[4],
             placement: .normalMainPane,
-            zoomAction: zoomAction
+            terminalModeActions: TerminalModeToolbarActions(
+                zoomAction: zoomAction,
+                viewerAction: viewerAction
+            )
         )
         #expect(viewerPresentation.actionStatesForTesting.viewer == nil)
         #expect(viewerPresentation.actionStatesForTesting.zoom == nil)
@@ -123,7 +138,10 @@ struct PaneSurfaceToolbarPresentationTests {
             let presentation = PaneSurfaceToolbarResolver.resolve(
                 content: content,
                 placement: .normalMainPane,
-                zoomAction: zoomAction
+                terminalModeActions: TerminalModeToolbarActions(
+                    zoomAction: zoomAction,
+                    viewerAction: viewerAction
+                )
             )
 
             #expect(presentation.actions.isEmpty)
@@ -133,7 +151,10 @@ struct PaneSurfaceToolbarPresentationTests {
             let drawerPresentation = PaneSurfaceToolbarResolver.resolve(
                 content: content,
                 placement: .drawerChild,
-                zoomAction: zoomAction
+                terminalModeActions: TerminalModeToolbarActions(
+                    zoomAction: zoomAction,
+                    viewerAction: viewerAction
+                )
             )
 
             #expect(
@@ -199,7 +220,10 @@ struct PaneSurfaceToolbarPresentationTests {
         #expect(presentation.actionStatesForTesting.viewer?.isSelected == testCase.viewerSelected)
         #expect(presentation.actionStatesForTesting.zoom?.isEnabled == true)
         #expect(presentation.actionStatesForTesting.zoom?.isSelected == true)
-        #expect(presentation.actionStatesForTesting.zoom?.visibleLabel == nil)
+        #expect(presentation.actionStatesForTesting.zoom?.selectionEmphasis == .accent)
+        #expect(presentation.actionStatesForTesting.zoom?.visibleLabel == "Zoomed")
+        #expect(presentation.leadingActions.isEmpty)
+        #expect(presentation.contextActions.map(\.state.label) == ["Pane Zoom", "Viewer"])
     }
 
     @Test("toolbar resolution preserves callbacks anchored to the original source pane")
@@ -381,7 +405,7 @@ extension PaneSurfaceToolbarPresentation {
     {
         switch self {
         case .terminal(let model):
-            (nil, model.zoomAction)
+            (model.modeActions?.viewerAction, model.modeActions?.zoomAction)
         case .webview, .codeViewer, .unsupported, .viewer:
             (nil, nil)
         case .zoom(let model):

@@ -1,5 +1,11 @@
 import SwiftUI
 
+@MainActor
+private struct ZoomToolbarMorphSnapshot {
+    let sourcePaneId: UUID
+    let presentation: PaneSurfaceToolbarPresentation
+}
+
 struct SingleTabContent: View {
     let tabId: UUID
     let store: WorkspaceStore
@@ -17,6 +23,11 @@ struct SingleTabContent: View {
     let workspaceWindowId: UUID?
     let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
     let zoomPaneSurfaceToolbarPresentation: (UUID, ZoomViewerPresentation) -> PaneSurfaceToolbarPresentation
+
+    @State private var latestZoomToolbarSnapshot: ZoomToolbarMorphSnapshot?
+    @State private var exitingZoomToolbarSnapshot: ZoomToolbarMorphSnapshot?
+    @State private var showsExitingZoomToolbarLabel = false
+    @State private var zoomToolbarMorphGeneration = UUID()
 
     init(
         tabId: UUID,
@@ -66,40 +77,119 @@ struct SingleTabContent: View {
             arrangementAtom: store.tabArrangementAtom
         )
         let tab = workspaceTab.tab(tabId)
+        let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: tabId)
         // swiftlint:disable:next redundant_discardable_let
         let _ = tab == nil ? Self.traceMissingTab(tabId: tabId) : 0
-        if let tab {
-            if let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: tabId) {
-                zoomContent(
-                    presentation: zoomPresentation,
-                    tab: tab
-                )
-                .background(AppStyles.Shell.PaneChrome.background)
-                .transition(.identity)
-            } else {
-                FlatTabStripContainer(
-                    layout: tab.layout,
-                    tabId: tabId,
-                    activePaneId: tab.activePaneId,
-                    minimizedPaneIds: tab.activeMinimizedPaneIds,
-                    visiblePaneIds: atom(\.arrangementView).activeVisiblePaneIds(forTab: tabId),
-                    closeTransitionCoordinator: closeTransitionCoordinator,
-                    actionDispatcher: actionDispatcher,
-                    onPaneFocusTrigger: onPaneFocusTrigger,
-                    onFocusPane: onFocusPane,
-                    store: store,
-                    repoCache: repoCache,
-                    viewRegistry: viewRegistry,
-                    appLifecycleStore: appLifecycleStore,
-                    paneInboxPresentation: paneInboxPresentation,
-                    onOpenPaneGitHub: onOpenPaneGitHub,
-                    onToggleZoom: onToggleZoom,
-                    notificationCountForWorktree: notificationCountForWorktree,
-                    workspaceWindowId: workspaceWindowId,
-                    paneSurfaceToolbarPresentation: paneSurfaceToolbarPresentation
-                )
-                .background(AppStyles.Shell.PaneChrome.background)
-                .transition(.identity)
+        Group {
+            if let tab {
+                if let zoomPresentation {
+                    zoomContent(
+                        presentation: zoomPresentation,
+                        tab: tab
+                    )
+                    .background(AppStyles.Shell.PaneChrome.background)
+                    .transition(.identity)
+                } else {
+                    FlatTabStripContainer(
+                        layout: tab.layout,
+                        tabId: tabId,
+                        activePaneId: tab.activePaneId,
+                        minimizedPaneIds: tab.activeMinimizedPaneIds,
+                        visiblePaneIds: atom(\.arrangementView).activeVisiblePaneIds(forTab: tabId),
+                        closeTransitionCoordinator: closeTransitionCoordinator,
+                        actionDispatcher: actionDispatcher,
+                        onPaneFocusTrigger: onPaneFocusTrigger,
+                        onFocusPane: onFocusPane,
+                        store: store,
+                        repoCache: repoCache,
+                        viewRegistry: viewRegistry,
+                        appLifecycleStore: appLifecycleStore,
+                        paneInboxPresentation: paneInboxPresentation,
+                        onOpenPaneGitHub: onOpenPaneGitHub,
+                        onToggleZoom: onToggleZoom,
+                        notificationCountForWorktree: notificationCountForWorktree,
+                        workspaceWindowId: workspaceWindowId,
+                        paneSurfaceToolbarPresentation: paneSurfaceToolbarPresentation
+                    )
+                    .background(AppStyles.Shell.PaneChrome.background)
+                    .transition(.identity)
+                }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            exitingZoomToolbar
+        }
+        .onAppear {
+            latestZoomToolbarSnapshot = zoomPresentation.flatMap(zoomToolbarSnapshot)
+        }
+        .onChange(of: zoomPresentation) { _, newPresentation in
+            if let newPresentation {
+                latestZoomToolbarSnapshot = zoomToolbarSnapshot(newPresentation)
+                exitingZoomToolbarSnapshot = nil
+                zoomToolbarMorphGeneration = UUID()
+            } else if let latestZoomToolbarSnapshot {
+                beginZoomToolbarContraction(latestZoomToolbarSnapshot)
+                self.latestZoomToolbarSnapshot = nil
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var exitingZoomToolbar: some View {
+        if let snapshot = exitingZoomToolbarSnapshot,
+            case .zoom(let toolbarModel) = snapshot.presentation
+        {
+            let zoomAction = toolbarModel.zoomAction.projectingVisibleLabel(
+                showsExitingZoomToolbarLabel ? toolbarModel.zoomAction.state.visibleLabel : nil
+            )
+            PaneSurfaceToolbarHost(
+                anchorPaneId: snapshot.sourcePaneId,
+                locationTargetPaneId: snapshot.sourcePaneId,
+                drawer: store.paneAtom.pane(snapshot.sourcePaneId)?.drawer,
+                leadingToolbarActions: [],
+                contextToolbarActions: [zoomAction, toolbarModel.viewerAction],
+                store: store,
+                paneInboxPresentation: nil,
+                workspaceWindowId: workspaceWindowId,
+                actionDispatcher: actionDispatcher,
+                onPaneFocusTrigger: onPaneFocusTrigger
+            )
+            .fixedSize(horizontal: false, vertical: true)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private func zoomToolbarSnapshot(
+        _ presentation: ZoomPresentation
+    ) -> ZoomToolbarMorphSnapshot? {
+        let toolbarPresentation = zoomPaneSurfaceToolbarPresentation(
+            presentation.sourcePaneId,
+            presentation.viewerPresentation
+        )
+        guard case .zoom = toolbarPresentation else { return nil }
+        return ZoomToolbarMorphSnapshot(
+            sourcePaneId: presentation.sourcePaneId,
+            presentation: toolbarPresentation
+        )
+    }
+
+    private func beginZoomToolbarContraction(_ snapshot: ZoomToolbarMorphSnapshot) {
+        let generation = UUID()
+        zoomToolbarMorphGeneration = generation
+        exitingZoomToolbarSnapshot = snapshot
+        showsExitingZoomToolbarLabel = true
+
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation(
+                .easeInOut(duration: AppStyles.General.Animation.standard),
+                completionCriteria: .logicallyComplete
+            ) {
+                showsExitingZoomToolbarLabel = false
+            } completion: {
+                guard zoomToolbarMorphGeneration == generation else { return }
+                exitingZoomToolbarSnapshot = nil
             }
         }
     }

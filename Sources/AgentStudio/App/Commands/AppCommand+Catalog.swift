@@ -322,6 +322,7 @@ extension AppCommand {
         case .zoomPane:
             return AppCommandSpec(
                 command: self,
+                shortcut: .zoomPane,
                 label: "Pane Zoom",
                 icon: .system(.arrowDownLeftAndArrowUpRightRectangle),
                 helpText: "Zoom the active pane",
@@ -902,11 +903,12 @@ extension AppCommand {
         case .showViewer:
             return AppCommandSpec(
                 command: self,
-                label: "Viewer",
-                icon: .system(.rectangleSplit2x1),
-                helpText: "Show or hide the Zoom Viewer",
-                visibleWhen: [.hasActiveTerminalZoom],
-                commandBarGroupName: "Viewer",
+                shortcut: .showViewer,
+                label: "Worktree Viewer",
+                icon: .system(.textPageBadgeMagnifyingglass),
+                helpText: "Show or hide the Worktree Viewer in Pane Zoom",
+                visibleWhen: [.supportsTerminalZoom],
+                commandBarGroupName: "Worktree Viewer",
                 commandBarGroupPriority: CommandBarGroupPriority.webview,
                 ipcExposure: .init(executionModes: [], targetKinds: [], requiredPrivileges: [])
             )

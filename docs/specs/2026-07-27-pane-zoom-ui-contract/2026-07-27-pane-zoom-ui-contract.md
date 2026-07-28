@@ -94,6 +94,33 @@ actual current working directory. Finder and Copy Path share the same path
 availability state. When the terminal has no live actual CWD, both actions are
 unavailable; the worktree root must not be substituted and presented as the
 actual CWD.
+Copy Path uses the `document.on.document` symbol everywhere through the shared
+`LocalActionSpec.copyPath` presentation.
+
+## Keyboard shortcuts
+
+The typed `AppShortcut` and `AppCommandSpec` catalog owns this shortcut family:
+
+| Shortcut | Command | Behavior |
+| --- | --- | --- |
+| `Command-O` | Viewer | Outside Zoom, enter Zoom and ensure Viewer is visible. Inside Zoom, toggle Viewer visibility without exiting Zoom. |
+| `Command-Option-O` | Open in bookmarked editor | Open the active pane's actual location in the configured/default editor. |
+| `Command-Option-Control-O` | Editor chooser | Open the editor chooser for the active pane. |
+| `Option-O` | Copy Path | Copy the active pane's actual current working directory. |
+| `Command-Shift-Return` | Pane Zoom | Enter or cancel Pane Zoom without changing Viewer visibility independently. |
+| `Command-Shift-O` | Finder | Preserve the existing Finder shortcut. |
+
+Viewer is a composite entry/toggle command, not a Zoom-exit command:
+
+```text
+normal                     -- Command-O --> Zoom + Viewer visible
+Zoom + Viewer hidden       -- Command-O --> Zoom + Viewer visible
+Zoom + Viewer visible      -- Command-O --> Zoom + Viewer hidden
+any Zoom state             -- Command-Shift-Return --> normal
+```
+
+Toolbars, command rows, and menus project their shortcut text from the typed
+command catalog. They must not carry parallel tooltip strings.
 
 ## Arrangements panel
 
@@ -108,7 +135,7 @@ ARRANGEMENTS
 [Default] [Add Arrangement]
 
 ────────────────────────────────────────
-PANE VISIBILITY
+Pane Visibility
 
 ● repo | branch | worktree folder                 [Zoom] [Hide]
 ● repo | branch | worktree folder                 [Zoom] [Hide]
@@ -165,6 +192,27 @@ Arrangements control closes it. Inline rename owns keyboard focus until Enter,
 Escape, or an intentional outside click. Starting a rename must not flicker,
 briefly replace the field with a chip, or dismiss and reopen the popover.
 
+### Minimized panes and quick-access ordinals
+
+Opening the normal Arrangements panel temporarily reveals minimized pane bars
+without changing their durable minimized state or activating Management mode.
+Closing Arrangements hides those bars again unless Management mode is active.
+
+A minimized bar uses `eye.slash.fill` in the same circular badge geometry,
+icon scale, and spacing as the ordinal badge it replaces. Minimized rows in
+Pane Visibility use the same filled hidden-eye symbol as their state indicator;
+their trailing Show action remains `eye` because activating it restores the
+pane.
+
+Pane ordinals are quick-access indices for expanded panes, not stable pane
+identities:
+
+- expanded panes are numbered densely in current layout order;
+- minimized panes have no ordinal and show `eye.slash.fill` instead;
+- minimizing or restoring a pane recomputes the expanded-pane ordinals; and
+- `Option-1` through `Option-9` target only expanded panes and never restore a
+  minimized pane.
+
 ### Viewer split memory
 
 The source/Viewer divider ratio is runtime presentation memory owned per Zoom
@@ -174,20 +222,14 @@ the app session. It resets when that source's retained companion is retired,
 the source becomes invalid, or the app restarts. The ratio is not durable
 workspace state and must not be written to SQLite.
 
-### Spatial transitions
+### Presentation transitions
 
-Pane Zoom communicates its spatial relationship to the durable arrangement:
-
-- entering Zoom expands the source pane from its current arrangement frame into
-  the Zoom region;
-- Cancel Zoom contracts the source back into its current arrangement frame;
-- showing Viewer opens the split from the center toward the Viewer side; and
-- hiding Viewer collapses the Viewer back toward the center.
-
-Transitions use the existing `AppStyles.General.Animation.standard` timing and
-the established pane easing unless native surface-host constraints require a
-shorter opacity handoff. Animation must not duplicate, snapshot, or recreate a
-terminal or Viewer host merely to obtain motion.
+Zoom entry, cancellation, and retargeting use identity replacement with no
+animation. Viewer visibility remains a separate transition: showing Viewer
+opens the split from the center toward the Viewer side, and hiding Viewer
+collapses it from the center toward the Viewer side. Viewer motion uses the
+existing `AppStyles.General.Animation.standard` timing and must not duplicate,
+snapshot, or recreate a terminal or Viewer host.
 
 ### Arrangement changes during Zoom
 
@@ -278,10 +320,20 @@ the raw companion identity.
 - R17: The bottom Pane Zoom toolbar control is icon-only.
 - R18: The source/Viewer split ratio is remembered per source across transient
   Zoom presentation changes and remains excluded from durable persistence.
-- R19: Zoom entry/exit and Viewer show/hide use the accepted spatial
-  expansion/contraction transitions without changing host identity.
+- R19: Zoom entry, cancellation, and retargeting do not animate. Viewer
+  show/hide retains the accepted center-to-side transition without changing
+  host identity.
 - R20: Active management chrome places Cancel Zoom immediately left of
   Arrangements at the top-left.
+- R21: Opening normal Arrangements reveals minimized bars without changing
+  minimized state or activating Management mode.
+- R22: Minimized pane bars and Pane Visibility rows use `eye.slash.fill`;
+  minimized bars reuse the ordinal badge geometry and have no number.
+- R23: Pane ordinals and `Option-1` through `Option-9` address only expanded
+  panes in dense layout order and never restore minimized panes.
+- R24: The typed shortcut catalog exposes the accepted Viewer, editor, chooser,
+  Copy Path, Pane Zoom, and Finder bindings; Viewer outside Zoom enters Zoom
+  with Viewer visible, while Viewer inside Zoom only toggles Viewer visibility.
 
 ## Proof expectations
 
@@ -308,8 +360,15 @@ the raw companion identity.
   transport `sourceId`.
 - Runtime-state and mounted split tests assert per-source ratio restoration
   across Viewer hide/show and Cancel/re-entry, plus persistence exclusion.
-- Transition-state tests and native recordings assert direction, duration
-  bounds, terminal/Viewer host continuity, and final geometry.
+- Transition-state tests and native recordings assert identity replacement for
+  Zoom, direction and duration bounds for Viewer, terminal/Viewer host
+  continuity, and final geometry.
+- Shortcut tests assert dense expanded-pane ordinals and prove that targeting
+  an ordinal does not restore minimized panes.
+- Shortcut and controller tests assert exact O-family decoding, typed tooltip
+  projection, Pane Zoom decoding, and the normal-to-Zoom Viewer transition.
+- Native screenshots assert Arrangements reveals minimized bars with matching
+  filled hidden-eye indicators and unchanged badge geometry.
 - PID-targeted native screenshots cover the normal toolbar, Zoom toolbar,
   normal Arrangements panel, active Pane Zoom details, and Viewer companion.
 

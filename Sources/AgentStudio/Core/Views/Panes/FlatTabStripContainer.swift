@@ -1,6 +1,17 @@
 import AppKit
 import SwiftUI
 
+struct MinimizedPaneBarPresentation: Equatable {
+    let rendersBars: Bool
+
+    init(
+        managementLayerActive: Bool,
+        arrangementPanelPresented: Bool
+    ) {
+        rendersBars = managementLayerActive || arrangementPanelPresented
+    }
+}
+
 struct FlatTabStripContainer: View {
     let layout: Layout
     let tabId: UUID
@@ -49,6 +60,18 @@ struct FlatTabStripContainer: View {
 
     private var managementLayer: ManagementLayerAtom {
         atom(\.managementLayer)
+    }
+
+    private var minimizedPaneBarPresentation: MinimizedPaneBarPresentation {
+        let arrangementPanelPresented = atom(\.transientKeyboardSurface)
+            .isArrangementPanelPresented(
+                forTab: tabId,
+                workspaceWindowId: workspaceWindowId
+            )
+        return MinimizedPaneBarPresentation(
+            managementLayerActive: managementLayer.isActive,
+            arrangementPanelPresented: arrangementPanelPresented
+        )
     }
 
     init(
@@ -109,10 +132,12 @@ struct FlatTabStripContainer: View {
     }
 
     var body: some View {
+        let minimizedPaneBarPresentation = minimizedPaneBarPresentation
+
         GeometryReader { tabGeometry in
             let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
             let isInactivePersistentTab = store.tabLayoutAtom.activeTabId != tabId
-            let rendersMinimizedBars = managementLayer.isActive
+            let rendersMinimizedBars = minimizedPaneBarPresentation.rendersBars
             let effectiveCollapsedWidth: CGFloat = rendersMinimizedBars ? CollapsedPaneBar.barWidth : 0
             let effectiveVisiblePaneIds =
                 visiblePaneIds
@@ -135,7 +160,8 @@ struct FlatTabStripContainer: View {
                 minimizedPaneIds: minimizedPaneIds,
                 collapsedPaneWidth: effectiveCollapsedWidth
             )
-            let mainOrdinalMap = PaneOrdinalMap(orderedPaneIds: layout.paneIds)
+            let expandedPaneIds = layout.paneIds.filter { !minimizedPaneIds.contains($0) }
+            let mainOrdinalMap = PaneOrdinalMap(orderedPaneIds: expandedPaneIds)
             let surfaceId = "tab:\(tabId)"
             let renderedPaneIds: Set<UUID> = {
                 if effectiveVisiblePaneIds.isEmpty {
@@ -226,9 +252,12 @@ struct FlatTabStripContainer: View {
         }
         .animation(
             .easeOut(duration: AppStyles.General.Animation.standard),
-            value: managementLayer.isActive
+            value: minimizedPaneBarPresentation
         )
-        .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: managementLayer.isActive)
+        .animation(
+            .easeOut(duration: AppStyles.General.Animation.fast),
+            value: minimizedPaneBarPresentation
+        )
         .coordinateSpace(name: "tabContainer")
     }
 
@@ -249,7 +278,6 @@ struct FlatTabStripContainer: View {
                             onSaveArrangement: onSaveArrangement,
                             onToggleZoom: onToggleZoom,
                             dropTargetCoordinateSpace: "tabContainer",
-                            ordinal: state.mainOrdinalMap.ordinal(forPaneId: paneId),
                             workspaceWindowId: workspaceWindowId
                         )
                         .frame(width: CollapsedPaneBar.barWidth)

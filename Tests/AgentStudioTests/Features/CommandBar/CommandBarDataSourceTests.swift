@@ -172,12 +172,12 @@ struct CommandBarDataSourceTests {
         let viewerItems = Dictionary(
             uniqueKeysWithValues:
                 items
-                .filter { $0.group == "Viewer" }
+                .filter { $0.group == "Worktree Viewer" }
                 .map { ($0.id, $0) }
         )
 
         #expect(viewerItems.count == 1)
-        #expect(viewerItems["cmd-showViewer"]?.title == "Viewer")
+        #expect(viewerItems["cmd-showViewer"]?.title == "Worktree Viewer")
         #expect(viewerItems.values.allSatisfy { !$0.hasChildren })
     }
 

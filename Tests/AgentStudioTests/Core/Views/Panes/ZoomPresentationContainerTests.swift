@@ -78,7 +78,7 @@ struct ZoomPresentationContainerTests {
         #expect(toolbarModel.viewerAction.state.isSelected)
         #expect(toolbarModel.zoomAction.state.isEnabled)
         #expect(toolbarModel.zoomAction.state.isSelected)
-        #expect(toolbarModel.zoomAction.state.visibleLabel == nil)
+        #expect(toolbarModel.zoomAction.state.visibleLabel == "Zoomed")
         #expect(fixture.recorder.viewerSourcePaneIds.isEmpty)
         #expect(fixture.recorder.zoomSourcePaneIds.isEmpty)
 
@@ -180,9 +180,9 @@ struct ZoomPresentationContainerTests {
         let toolbarIdentifiers = identifiers.filter { $0.hasPrefix("paneSurfaceToolbar.") }
         #expect(
             toolbarIdentifiers == [
-                "paneSurfaceToolbar.zoom",
                 "paneSurfaceToolbar.drawerToggle",
                 "paneSurfaceToolbar.drawerAdd",
+                "paneSurfaceToolbar.zoom",
                 "paneSurfaceToolbar.viewer",
                 "paneSurfaceToolbar.editor",
                 "paneSurfaceToolbar.finder",
@@ -209,7 +209,7 @@ struct ZoomPresentationContainerTests {
         #expect(!identifiers.contains("paneManagement.openBrowser"))
     }
 
-    @Test("normal terminal orders Zoom before source Drawer and trailing controls without Viewer")
+    @Test("normal terminal places Zoom and Viewer before Editor in the trailing controls")
     func normalPaneOrdersOwnedToolbarControls() {
         let state = mountedPaneLeafState(
             toolbarPresentation: PaneSurfaceToolbarResolver.resolve(
@@ -221,15 +221,19 @@ struct ZoomPresentationContainerTests {
                     )
                 ),
                 placement: .normalMainPane,
-                zoomAction: makeProbeAction(label: "Pane Zoom")
+                terminalModeActions: TerminalModeToolbarActions(
+                    zoomAction: makeProbeAction(label: "Pane Zoom"),
+                    viewerAction: makeProbeAction(label: "Viewer")
+                )
             )
         )
 
         #expect(
             state.accessibilityIdentifiers.filter { $0.hasPrefix("paneSurfaceToolbar.") } == [
-                "paneSurfaceToolbar.zoom",
                 "paneSurfaceToolbar.drawerToggle",
                 "paneSurfaceToolbar.drawerAdd",
+                "paneSurfaceToolbar.zoom",
+                "paneSurfaceToolbar.viewer",
                 "paneSurfaceToolbar.editor",
                 "paneSurfaceToolbar.finder",
                 "paneSurfaceToolbar.copyPath",
@@ -249,7 +253,10 @@ struct ZoomPresentationContainerTests {
                     )
                 ),
                 placement: .normalMainPane,
-                zoomAction: makeProbeAction(label: "Pane Zoom")
+                terminalModeActions: TerminalModeToolbarActions(
+                    zoomAction: makeProbeAction(label: "Pane Zoom"),
+                    viewerAction: makeProbeAction(label: "Viewer")
+                )
             ),
             paneInboxPresentation: makePaneInboxPresentation()
         )
@@ -257,15 +264,16 @@ struct ZoomPresentationContainerTests {
         try expectToolbarGeometry(
             state.toolbarControlFrames,
             expectedControlOrder: [
-                "paneSurfaceToolbar.zoom",
                 "paneSurfaceToolbar.drawerToggle",
                 "paneSurfaceToolbar.drawerAdd",
+                "paneSurfaceToolbar.zoom",
+                "paneSurfaceToolbar.viewer",
                 "paneSurfaceToolbar.editor",
                 "paneSurfaceToolbar.finder",
                 "paneSurfaceToolbar.copyPath",
                 "paneSurfaceToolbar.inbox",
             ],
-            paneModeIdentifiers: ["paneSurfaceToolbar.zoom"]
+            paneModeIdentifiers: ["paneSurfaceToolbar.zoom", "paneSurfaceToolbar.viewer"]
         )
     }
 
@@ -327,16 +335,16 @@ struct ZoomPresentationContainerTests {
         try expectToolbarGeometry(
             state.toolbarControlFrames,
             expectedControlOrder: [
-                "paneSurfaceToolbar.zoom",
                 "paneSurfaceToolbar.drawerToggle",
                 "paneSurfaceToolbar.drawerAdd",
+                "paneSurfaceToolbar.zoom",
                 "paneSurfaceToolbar.viewer",
                 "paneSurfaceToolbar.editor",
                 "paneSurfaceToolbar.finder",
                 "paneSurfaceToolbar.copyPath",
                 "paneSurfaceToolbar.inbox",
             ],
-            paneModeIdentifiers: ["paneSurfaceToolbar.zoom"]
+            paneModeIdentifiers: ["paneSurfaceToolbar.zoom", "paneSurfaceToolbar.viewer"]
         )
     }
 
@@ -345,7 +353,7 @@ struct ZoomPresentationContainerTests {
         let state = mountedPaneLeafState(
             toolbarPresentation: .terminal(
                 TerminalToolbarModel(
-                    zoomAction: makeProbeAction(label: "Pane Zoom"),
+                    modeActions: nil,
                     showArrangementsAction: makeProbeAction(label: "Show Arrangements")
                 )
             ),
@@ -406,7 +414,10 @@ struct ZoomPresentationContainerTests {
         let ordinaryState = mountedPaneLeafState(
             toolbarPresentation: .terminal(
                 TerminalToolbarModel(
-                    zoomAction: makeProbeAction(label: "NormalProbe")
+                    modeActions: TerminalModeToolbarActions(
+                        zoomAction: makeProbeAction(label: "NormalProbe"),
+                        viewerAction: makeProbeAction(label: "Viewer")
+                    )
                 )
             )
         )
@@ -731,13 +742,6 @@ struct ZoomPresentationContainerTests {
             )
         }
 
-        let paneModeTrailingIdentifier = try #require(paneModeIdentifiers.last)
-        try expectHorizontalGap(
-            between: paneModeTrailingIdentifier,
-            and: "paneSurfaceToolbar.drawerToggle",
-            equals: expectedToolbarSeparatorWidth,
-            in: controlFrames
-        )
         try expectHorizontalGap(
             between: "paneSurfaceToolbar.drawerToggle",
             and: "paneSurfaceToolbar.drawerAdd",
@@ -767,7 +771,7 @@ struct ZoomPresentationContainerTests {
             try expectHorizontalGap(
                 between: "paneSurfaceToolbar.viewer",
                 and: "paneSurfaceToolbar.editor",
-                equals: AppStyles.Shell.DrawerToolbar.trailingClusterSpacing,
+                equals: expectedToolbarSeparatorWidth,
                 in: controlFrames
             )
         }

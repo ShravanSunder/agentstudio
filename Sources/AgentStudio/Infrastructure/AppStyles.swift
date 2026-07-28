@@ -275,6 +275,7 @@ enum AppStyles {
 
         enum DrawerToolbar {
             static let trailingClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
+            static let labeledActionTrailingPadding: CGFloat = AppStyles.General.Spacing.standard
             static let dividerHeight: CGFloat = 16
             static let dividerHorizontalPadding = AppStyles.General.Spacing.standard
         }
@@ -401,7 +402,7 @@ enum AppStyles {
             static let fallbackIconFontSize: CGFloat = AppStyles.General.Typography.textSm
             static let selectedRowFillOpacity: CGFloat = AppStyles.General.Fill.selected
 
-            static let chooserButtonContentSpacing: CGFloat = AppStyles.General.Spacing.tight
+            static let chooserButtonContentSpacing: CGFloat = AppStyles.General.Spacing.standard
             static let chooserButtonHorizontalPadding: CGFloat = AppStyles.General.Spacing.standard
             static let chooserChevronFontSize: CGFloat = AppStyles.General.Typography.textXxs
         }

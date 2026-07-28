@@ -18,6 +18,10 @@ struct PaneVisibilityInfo: Identifiable, Equatable {
         self.isMinimized = isMinimized
         self.supportsZoom = supportsZoom
     }
+
+    var statusSystemImageName: String? {
+        isMinimized ? "eye.slash.fill" : nil
+    }
 }
 
 enum ArrangementPanelRole: Equatable, Sendable {

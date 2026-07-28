@@ -68,9 +68,7 @@ struct PaneLeafContainerPaneInboxTests {
                 paneInboxPresentation: presentation,
                 workspaceWindowId: nil,
                 toolbarPresentation: .terminal(
-                    TerminalToolbarModel(
-                        zoomAction: nil
-                    )
+                    TerminalToolbarModel()
                 )
             )
             .frame(width: 360, height: 240)

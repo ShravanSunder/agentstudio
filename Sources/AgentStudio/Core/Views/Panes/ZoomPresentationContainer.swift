@@ -58,6 +58,7 @@ struct ZoomPresentationContainer: View {
     @State private var splitRatio: CGFloat
     @State private var zoomHovered = false
     @State private var showArrangementsHovered = false
+    @State private var showsZoomToolbarLabel = false
     @State private var paneFrames: [UUID: CGRect] = [:]
     @State private var iconBarFrame: CGRect = .zero
     @State private var drawerDismissCoordinateView: NSView?
@@ -187,12 +188,15 @@ struct ZoomPresentationContainer: View {
     @ViewBuilder
     private var parentToolbar: some View {
         if case .zoom(let toolbarModel) = parentToolbarPresentation {
+            let zoomAction = toolbarModel.zoomAction.projectingVisibleLabel(
+                showsZoomToolbarLabel ? toolbarModel.zoomAction.state.visibleLabel : nil
+            )
             PaneSurfaceToolbarHost(
                 anchorPaneId: sourcePaneId,
                 locationTargetPaneId: sourcePaneId,
                 drawer: store.paneAtom.pane(sourcePaneId)?.drawer,
-                leadingToolbarActions: [toolbarModel.zoomAction],
-                contextToolbarActions: [toolbarModel.viewerAction],
+                leadingToolbarActions: [],
+                contextToolbarActions: [zoomAction, toolbarModel.viewerAction],
                 store: store,
                 paneInboxPresentation: paneInboxPresentation,
                 workspaceWindowId: workspaceWindowId,
@@ -200,6 +204,11 @@ struct ZoomPresentationContainer: View {
                 onPaneFocusTrigger: onPaneFocusTrigger
             )
             .fixedSize(horizontal: false, vertical: true)
+            .onAppear {
+                withAnimation(.easeInOut(duration: AppStyles.General.Animation.standard)) {
+                    showsZoomToolbarLabel = true
+                }
+            }
         }
     }
 

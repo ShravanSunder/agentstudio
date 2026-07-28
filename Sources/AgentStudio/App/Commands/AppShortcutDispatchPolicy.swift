@@ -111,7 +111,8 @@ enum AppShortcutDispatchPolicy {
         case .newTab, .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes:
             return true
         case .closeTab, .undoCloseTab, .nextTab, .prevTab, .showArrangementPanel,
-            .previousArrangement, .nextArrangement, .addDrawerPane, .toggleDrawer, .scrollToBottom,
+            .previousArrangement, .nextArrangement, .zoomPane, .showViewer,
+            .addDrawerPane, .toggleDrawer, .scrollToBottom,
             .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .toggleSidebar, .filterSidebar,
@@ -191,6 +192,7 @@ enum AppShortcutDispatchPolicy {
             return true
         case .closeTab, .undoCloseTab, .newTab, .showArrangementPanel, .addDrawerPane,
             .toggleDrawer, .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .zoomPane, .showViewer,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
             .toggleManagementLayer, .toggleSidebar, .filterSidebar, .showInboxNotifications,
@@ -211,7 +213,7 @@ enum AppShortcutDispatchPolicy {
             return false
         case .toggleSidebar, .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab,
             .showArrangementPanel, .previousArrangement, .nextArrangement,
-            .addDrawerPane, .toggleDrawer, .openPaneLocationInBookmarkedEditor,
+            .zoomPane, .showViewer, .addDrawerPane, .toggleDrawer, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .showInboxNotifications,
             .showPaneInboxNotifications, .showWorktreeSidebar, .newWindow, .closeWindow,
@@ -238,7 +240,8 @@ enum AppShortcutDispatchPolicy {
             return true
         case .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab, .showArrangementPanel,
             .previousArrangement, .nextArrangement, .addDrawerPane, .toggleDrawer, .scrollToBottom,
-            .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
+            .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt, .zoomPane, .showViewer,
+            .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .showPaneInboxNotifications,
             .newWindow, .closeWindow, .selectTab1, .selectTab2, .selectTab3, .selectTab4,

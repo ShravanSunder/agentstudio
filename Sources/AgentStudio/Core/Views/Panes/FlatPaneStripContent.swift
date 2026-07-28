@@ -77,7 +77,6 @@ struct FlatPaneStripContent: View {
                                 onToggleZoom: onToggleZoom,
                                 dropTargetCoordinateSpace: coordinateSpaceName,
                                 useDrawerFramePreference: useDrawerFramePreference,
-                                ordinal: ordinalMap.ordinal(forPaneId: paneId),
                                 workspaceWindowId: workspaceWindowId
                             )
                             .frame(width: collapsedPaneWidth)
@@ -181,7 +180,6 @@ private struct PaneSegmentSlotView: View {
                         onToggleZoom: onToggleZoom,
                         dropTargetCoordinateSpace: coordinateSpaceName,
                         useDrawerFramePreference: useDrawerFramePreference,
-                        ordinal: ordinal,
                         workspaceWindowId: workspaceWindowId
                     )
                 }
