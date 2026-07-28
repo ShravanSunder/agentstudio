@@ -249,58 +249,70 @@ struct RepoExplorerWorktreeRow: View {
         }
         .contextMenu {
             Button {
-                onOpenNew()
-            } label: {
-                menuLabel(actionSpec: LocalActionSpec.openInNewTab.actionSpec)
-            }
-
-            Button {
-                onReview()
-            } label: {
-                menuLabel(
-                    actionSpec: contextualBridgeActionSpec(
-                        command: .showBridgeReview,
-                        surface: .review
-                    )
-                )
-            }
-
-            Button {
-                onOpenFiles()
-            } label: {
-                menuLabel(
-                    actionSpec: contextualBridgeActionSpec(
-                        command: .showBridgeFiles,
-                        surface: .file
-                    )
-                )
-            }
-
-            Button {
-                onOpenReviewInNewTab()
-            } label: {
-                menuLabel(actionSpec: AppCommand.openBridgeReviewInNewTab.definition.actionSpec)
-            }
-
-            Button {
-                onOpenFilesInNewTab()
-            } label: {
-                menuLabel(actionSpec: AppCommand.openBridgeFilesInNewTab.definition.actionSpec)
-            }
-
-            Button {
-                onOpenInPane()
-            } label: {
-                menuLabel(actionSpec: LocalActionSpec.openInPaneSplit.actionSpec)
-            }
-
-            Divider()
-
-            Button {
                 onOpen()
             } label: {
                 menuLabel(actionSpec: LocalActionSpec.goToTerminal.actionSpec)
             }
+
+            Menu("Open in Current Tab") {
+                Button {
+                    onOpenInPane()
+                } label: {
+                    menuLabel(title: "Terminal Pane", actionSpec: LocalActionSpec.openInPaneSplit.actionSpec)
+                }
+
+                Button {
+                    onReview()
+                } label: {
+                    menuLabel(
+                        title: "Review",
+                        actionSpec: contextualBridgeActionSpec(
+                            command: .showBridgeReview,
+                            surface: .review
+                        )
+                    )
+                }
+
+                Button {
+                    onOpenFiles()
+                } label: {
+                    menuLabel(
+                        title: "Files",
+                        actionSpec: contextualBridgeActionSpec(
+                            command: .showBridgeFiles,
+                            surface: .file
+                        )
+                    )
+                }
+            }
+
+            Menu("Open in New Tab") {
+                Button {
+                    onOpenNew()
+                } label: {
+                    menuLabel(title: "Terminal", actionSpec: LocalActionSpec.openInNewTab.actionSpec)
+                }
+
+                Button {
+                    onOpenReviewInNewTab()
+                } label: {
+                    menuLabel(
+                        title: "Review",
+                        actionSpec: AppCommand.openBridgeReviewInNewTab.definition.actionSpec
+                    )
+                }
+
+                Button {
+                    onOpenFilesInNewTab()
+                } label: {
+                    menuLabel(
+                        title: "Files",
+                        actionSpec: AppCommand.openBridgeFilesInNewTab.definition.actionSpec
+                    )
+                }
+            }
+
+            Divider()
 
             if favoriteControlVisibility.showsContextMenuAction {
                 let favoriteActionSpec = RepoExplorerWorktreeRowContent.favoriteActionSpec(isFavorite: isFavorite)
@@ -314,7 +326,7 @@ struct RepoExplorerWorktreeRow: View {
                 }
             }
 
-            Menu(LocalActionSpec.openInMenu.actionSpec.label) {
+            Menu("Open in Editor") {
                 Button {
                     openInCursor()
                 } label: {
@@ -365,19 +377,20 @@ struct RepoExplorerWorktreeRow: View {
     }
 
     @ViewBuilder
-    private func menuLabel(actionSpec: ActionSpec) -> some View {
+    private func menuLabel(title: String? = nil, actionSpec: ActionSpec) -> some View {
+        let resolvedLabel = title ?? actionSpec.label
         switch actionSpec.icon {
         case .system(let systemSymbol):
-            Label(actionSpec.label, systemImage: systemSymbol.rawValue)
+            Label(resolvedLabel, systemImage: systemSymbol.rawValue)
         case .octicon(let octiconSymbol):
             if let image = OcticonLoader.shared.image(named: octiconSymbol.rawValue) {
                 Label {
-                    Text(actionSpec.label)
+                    Text(resolvedLabel)
                 } icon: {
                     Image(nsImage: image)
                 }
             } else {
-                Label(actionSpec.label, systemImage: "questionmark.square.dashed")
+                Label(resolvedLabel, systemImage: "questionmark.square.dashed")
             }
         }
     }
