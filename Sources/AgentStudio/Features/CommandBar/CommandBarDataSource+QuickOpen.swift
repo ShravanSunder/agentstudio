@@ -262,7 +262,7 @@ extension CommandBarDataSource {
     }
 
     private static func quickOpenPathKey(_ path: URL) -> String {
-        path.standardizedFileURL.resolvingSymlinksInPath().path
+        path.standardizedFileURL.path
     }
 
     private static func quickOpenCanonicalID(

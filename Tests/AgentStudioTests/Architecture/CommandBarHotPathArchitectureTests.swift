@@ -80,6 +80,19 @@ struct CommandBarHotPathArchitectureTests {
             #expect(!source.contains(forbiddenCall))
         }
     }
+
+    @Test("Quick Open projection does not resolve filesystem aliases on the main actor")
+    func quickOpenProjectionAvoidsFilesystemAliasResolution() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/CommandBar/CommandBarDataSource+QuickOpen.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(!source.contains("resolvingSymlinksInPath"))
+    }
 }
 
 extension String {
