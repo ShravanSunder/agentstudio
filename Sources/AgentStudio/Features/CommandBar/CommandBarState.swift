@@ -160,7 +160,7 @@ final class CommandBarState {
         }
         switch activeScope {
         case .everything: return "Search or jump to..."
-        case .quickOpen: return "Open a location..."
+        case .quickOpen: return "Open a terminal..."
         case .commands: return "Run a command..."
         case .panes: return "Search panes..."
         case .repos: return "Open repo or worktree..."

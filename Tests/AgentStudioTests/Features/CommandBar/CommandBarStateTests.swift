@@ -80,7 +80,7 @@ final class CommandBarStateTests {
         #expect(state.activeScope == .quickOpen)
         #expect(state.currentScope == .quickOpen)
         #expect(state.rootScopeLabel == "Quick Open")
-        #expect(state.placeholder == "Open a location...")
+        #expect(state.placeholder == "Open a terminal...")
     }
 
     @Test
