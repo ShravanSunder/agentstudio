@@ -418,7 +418,7 @@ FSEvents ingestion, deepest-root ownership routing, path filtering (`.git/**` + 
 
 ### `actor GitWorkingDirectoryProjector` (LUNA-349)
 
-App-wide projector actor keyed by worktree identity. Subscribes to filesystem facts and materializes local git working-directory state as facts (`snapshotChanged`, `branchChanged`, `originChanged`, `worktreeDiscovered`, `worktreeRemoved`). Part of the sequential enrichment pipeline; see [Workspace Data Architecture — Actor Responsibilities](workspace_data_architecture.md) for the full spec including error handling, coalescing policy, and event-to-action mapping.
+App-wide projector actor keyed by worktree identity. Subscribes to filesystem facts and materializes local git working-directory state as facts (`snapshotChanged`, `branchChanged`, `originChanged`, `worktreeDiscovered`, `worktreeRemoved`). Part of the sequential enrichment pipeline; see [Workspace Data Architecture — Actor Responsibilities](workspace_data_architecture.md) for the full contract including error handling, coalescing policy, and event-to-action mapping.
 
 ```swift
 actor FilesystemActor {
@@ -457,7 +457,7 @@ App-wide singleton, keyed by repo internally. Owns git forge domain: PR status, 
 
 **Plugin extensibility (deferred):** When users have their own forge (GitLab, Bitbucket, self-hosted), ForgeActor becomes the integration point. Plugin-provided forge adapters conform to a protocol; ForgeActor dispatches to the right adapter per repo remote URL.
 
-> **Authoritative spec:** [Workspace Data Architecture](workspace_data_architecture.md) defines the full enrichment pipeline and ForgeActor's place within it.
+> **Authoritative architecture:** [Workspace Data Architecture](workspace_data_architecture.md) defines the full enrichment pipeline and ForgeActor's place within it.
 
 ```swift
 /// App-wide forge API actor, keyed by repo internally.

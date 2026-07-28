@@ -639,7 +639,7 @@ For full detail:
 
 ## Project Structure
 
-See [Directory Structure](docs/architecture/directory_structure.md) for the full module boundary spec, Core vs Features decision process, and component placement rationale.
+See [Directory Structure](docs/architecture/directory_structure.md) for the full module boundary contract, Core vs Features decision process, and component placement rationale.
 
 ```
 agent-studio/

@@ -615,6 +615,6 @@ Architecture lint provides the second guardrail:
 - `agentstudio_ipc_public_surface_sanitization`
 - `agentstudio_ipc_no_direct_atom_access`
 
-Design docs and specs are the third guardrail. They should explain intent and
+Architecture docs are the third guardrail. They should explain intent and
 tradeoffs, but compile-time dependencies and lint rules are the blocking
 controls.

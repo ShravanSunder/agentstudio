@@ -109,7 +109,7 @@ erDiagram
 
 ### 2.2 Repo & Worktree
 
-Models are split across two stores. See [Workspace Data Architecture](workspace_data_architecture.md) for the full persistence tier spec and enrichment pipeline.
+Models are split across two stores. See [Workspace Data Architecture](workspace_data_architecture.md) for the full persistence tier contract and enrichment pipeline.
 
 **`Repo`** — A git repository on disk. Structure-only — no enrichment data.
 
@@ -536,7 +536,7 @@ Derived state bridge between `WorkspaceStore` and the tab bar SwiftUI view. Brid
 
 ### 3.9 Persistence Domain Segregation
 
-> **Authoritative spec:** [Workspace Data Architecture](workspace_data_architecture.md) defines the complete three-tier model including canonical models (`CanonicalRepo`, `CanonicalWorktree`), enrichment models (`RepoEnrichment`, `WorktreeEnrichment`), and the event-driven enrichment pipeline. This section summarizes the persistence split; the workspace data doc is the source of truth for model shapes and lifecycle flows.
+> **Authoritative architecture:** [Workspace Data Architecture](workspace_data_architecture.md) defines the complete three-tier model including canonical models (`CanonicalRepo`, `CanonicalWorktree`), enrichment models (`RepoEnrichment`, `WorktreeEnrichment`), and the event-driven enrichment pipeline. This section summarizes the persistence split; the workspace data doc is the source of truth for model shapes and lifecycle flows.
 
 The SQLite foundation is `SQLiteDatabaseFactory`, `WorkspaceCoreMigrations`,
 `WorkspaceLocalMigrations`, and repository-facing storage tokens such as

@@ -245,4 +245,3 @@ correct — the bug reproduced in Ghostty's own app, proving it was a zmx issue.
 | [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Deferred attach sequencing, geometry readiness, SIGWINCH relay path |
 | [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Future: SSH tunnel architecture, fork strategy, security model |
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface lifecycle, C API primitives |
-| [zmx Backend IPC Design](../superpowers/specs/2026-06-13-zmx-backend-ipc-design.md) | Future: direct IPC replacing CLI shell-outs |
