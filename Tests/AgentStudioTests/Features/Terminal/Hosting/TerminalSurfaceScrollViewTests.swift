@@ -6,11 +6,12 @@ import Testing
 @MainActor
 private final class FakeSurfaceActionPerformer: TerminalSurfaceActionPerforming {
     private(set) var actions: [TerminalSurfaceAction] = []
+    var actionResults: [Bool] = []
 
     @discardableResult
     func performBindingAction(_ action: TerminalSurfaceAction) -> Bool {
         actions.append(action)
-        return true
+        return actionResults.isEmpty ? true : actionResults.removeFirst()
     }
 }
 
@@ -30,22 +31,39 @@ private final class FakeTerminalSurfaceHostStateView: NSView, TerminalSurfaceHos
 @Suite("TerminalSurfaceScrollView")
 @MainActor
 struct TerminalSurfaceScrollViewTests {
-    private func simulateLiveScroll(_ scrollWrapper: TerminalSurfaceScrollView, documentOffsetY: CGFloat) {
+    private func startLiveScroll(_ scrollWrapper: TerminalSurfaceScrollView) {
         NotificationCenter.default.post(
-            name: NSScrollView.willStartLiveScrollNotification, object: scrollWrapper.scrollView)
+            name: NSScrollView.willStartLiveScrollNotification,
+            object: scrollWrapper.scrollView
+        )
+    }
+
+    private func continueLiveScroll(
+        _ scrollWrapper: TerminalSurfaceScrollView,
+        documentOffsetY: CGFloat
+    ) {
         scrollWrapper.scrollView.contentView.scroll(to: CGPoint(x: 0, y: documentOffsetY))
-        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scrollWrapper.scrollView)
         NotificationCenter.default.post(
-            name: NSScrollView.didEndLiveScrollNotification, object: scrollWrapper.scrollView)
+            name: NSScrollView.didLiveScrollNotification,
+            object: scrollWrapper.scrollView
+        )
+    }
+
+    private func endLiveScroll(_ scrollWrapper: TerminalSurfaceScrollView) {
+        NotificationCenter.default.post(
+            name: NSScrollView.didEndLiveScrollNotification,
+            object: scrollWrapper.scrollView
+        )
+    }
+
+    private func simulateLiveScroll(_ scrollWrapper: TerminalSurfaceScrollView, documentOffsetY: CGFloat) {
+        startLiveScroll(scrollWrapper)
+        continueLiveScroll(scrollWrapper, documentOffsetY: documentOffsetY)
+        endLiveScroll(scrollWrapper)
     }
 
     private func simulateVisibleRectChange(_ scrollWrapper: TerminalSurfaceScrollView, documentOffsetY: CGFloat) {
-        NotificationCenter.default.post(
-            name: NSScrollView.willStartLiveScrollNotification, object: scrollWrapper.scrollView)
-        scrollWrapper.scrollView.contentView.scroll(to: CGPoint(x: 0, y: documentOffsetY))
-        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scrollWrapper.scrollView)
-        NotificationCenter.default.post(
-            name: NSScrollView.didEndLiveScrollNotification, object: scrollWrapper.scrollView)
+        simulateLiveScroll(scrollWrapper, documentOffsetY: documentOffsetY)
     }
 
     private func documentOffsetY(of scrollWrapper: TerminalSurfaceScrollView) -> CGFloat {
@@ -56,6 +74,36 @@ struct TerminalSurfaceScrollViewTests {
         max(
             0, scrollWrapper.documentView.frame.height - scrollWrapper.scrollView.contentView.documentVisibleRect.height
         )
+    }
+
+    private func makeHostStateView() -> FakeTerminalSurfaceHostStateView {
+        let hostStateView = FakeTerminalSurfaceHostStateView(
+            frame: NSRect(x: 0, y: 0, width: 640, height: 480)
+        )
+        hostStateView.reportedCellSize = NSSize(width: 8, height: 20)
+        hostStateView.hostConfigSnapshot = GhosttyHostConfigSnapshot(
+            scrollbarPolicy: .system,
+            backgroundColor: .black
+        )
+        return hostStateView
+    }
+
+    private func makeLaidOutScrollView(
+        actionPerformer: any TerminalSurfaceActionPerforming,
+        hostStateView: FakeTerminalSurfaceHostStateView? = nil
+    ) -> TerminalSurfaceScrollView {
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: actionPerformer)
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        if let hostStateView {
+            scrollView.bindHostStateSource(hostStateView)
+        }
+        scrollView.layoutSubtreeIfNeeded()
+        return scrollView
+    }
+
+    private func forceLayout(_ scrollWrapper: TerminalSurfaceScrollView) {
+        scrollWrapper.needsLayout = true
+        scrollWrapper.layoutSubtreeIfNeeded()
     }
 
     @Test("scroll wrapper converts live drag into scroll_to_row")
@@ -85,6 +133,243 @@ struct TerminalSurfaceScrollViewTests {
         simulateLiveScroll(scrollView, documentOffsetY: 1200)
         simulateLiveScroll(scrollView, documentOffsetY: 1200)
 
+        #expect(performer.actions == [.scrollToRow(100)])
+    }
+
+    @Test("host maximum sends authoritative scroll-to-bottom")
+    func hostMaximumSendsAuthoritativeScrollToBottom() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = makeLaidOutScrollView(actionPerformer: performer)
+
+        scrollView.applyScrollbarState(
+            ScrollbarState(top: 80, bottom: 120, total: 200),
+            cellHeight: 20
+        )
+
+        simulateLiveScroll(scrollView, documentOffsetY: 0)
+
+        #expect(performer.actions == [.scrollToBottom])
+    }
+
+    @Test("repeated bottom intent is deduplicated across gestures")
+    func repeatedBottomIntentIsDeduplicatedAcrossGestures() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = makeLaidOutScrollView(actionPerformer: performer)
+
+        scrollView.applyScrollbarState(
+            ScrollbarState(top: 80, bottom: 120, total: 200),
+            cellHeight: 20
+        )
+
+        simulateLiveScroll(scrollView, documentOffsetY: 0)
+        simulateLiveScroll(scrollView, documentOffsetY: 0)
+
+        #expect(performer.actions == [.scrollToBottom])
+    }
+
+    @Test("programmatic pinned state deduplicates a zero-movement gesture")
+    func programmaticPinnedStateDeduplicatesZeroMovementGesture() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = makeLaidOutScrollView(actionPerformer: performer)
+
+        scrollView.applyScrollbarState(
+            ScrollbarState(top: 160, bottom: 200, total: 200),
+            cellHeight: 20
+        )
+
+        simulateLiveScroll(scrollView, documentOffsetY: 0)
+
+        #expect(performer.actions.isEmpty)
+    }
+
+    @Test("matching row acknowledgement is applied at drag end without another action")
+    func matchingRowAcknowledgementIsAppliedAtDragEnd() {
+        let performer = FakeSurfaceActionPerformer()
+        let hostStateView = makeHostStateView()
+        let scrollView = makeLaidOutScrollView(
+            actionPerformer: performer,
+            hostStateView: hostStateView
+        )
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        continueLiveScroll(scrollView, documentOffsetY: 1200)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 100, bottom: 140, total: 200))
+        scrollView.scrollView.contentView.scroll(to: CGPoint(x: 0, y: 800))
+        endLiveScroll(scrollView)
+
+        #expect(documentOffsetY(of: scrollView) == 1200)
+        #expect(performer.actions == [.scrollToRow(100)])
+    }
+
+    @Test("pinned-bottom acknowledgement is applied at drag end")
+    func pinnedBottomAcknowledgementIsAppliedAtDragEnd() {
+        let performer = FakeSurfaceActionPerformer()
+        let hostStateView = makeHostStateView()
+        let scrollView = makeLaidOutScrollView(
+            actionPerformer: performer,
+            hostStateView: hostStateView
+        )
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        continueLiveScroll(scrollView, documentOffsetY: 0)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 170, bottom: 210, total: 210))
+        scrollView.scrollView.contentView.scroll(to: CGPoint(x: 0, y: 800))
+        endLiveScroll(scrollView)
+
+        #expect(documentOffsetY(of: scrollView) == 0)
+        #expect(performer.actions == [.scrollToBottom])
+    }
+
+    @Test("a no-command gesture applies state received during the gesture")
+    func noCommandGestureAppliesStateReceivedDuringGesture() {
+        let performer = FakeSurfaceActionPerformer()
+        let hostStateView = makeHostStateView()
+        let scrollView = makeLaidOutScrollView(
+            actionPerformer: performer,
+            hostStateView: hostStateView
+        )
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 100, bottom: 140, total: 200))
+        scrollView.scrollView.contentView.scroll(to: CGPoint(x: 0, y: 800))
+        endLiveScroll(scrollView)
+
+        #expect(documentOffsetY(of: scrollView) == 1200)
+        #expect(performer.actions.isEmpty)
+
+        simulateLiveScroll(scrollView, documentOffsetY: 1200)
+
+        #expect(performer.actions.isEmpty)
+    }
+
+    @Test("unrelated pinned growth does not acknowledge an interior drag through layout")
+    func unrelatedPinnedGrowthDoesNotAcknowledgeInteriorDragThroughLayout() {
+        let performer = FakeSurfaceActionPerformer()
+        let hostStateView = makeHostStateView()
+        let scrollView = makeLaidOutScrollView(
+            actionPerformer: performer,
+            hostStateView: hostStateView
+        )
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        continueLiveScroll(scrollView, documentOffsetY: 1200)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 170, bottom: 210, total: 210))
+        endLiveScroll(scrollView)
+        forceLayout(scrollView)
+
+        #expect(documentOffsetY(of: scrollView) == 1200)
+        #expect(performer.actions == [.scrollToRow(100)])
+    }
+
+    @Test("missing acknowledgement preserves the dragged position through layout")
+    func missingAcknowledgementPreservesDraggedPositionThroughLayout() {
+        let performer = FakeSurfaceActionPerformer()
+        let hostStateView = makeHostStateView()
+        let scrollView = makeLaidOutScrollView(
+            actionPerformer: performer,
+            hostStateView: hostStateView
+        )
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+        let initialDocumentHeight = scrollView.documentView.frame.height
+        let initialScrollerHeight = scrollView.scrollView.verticalScroller?.frame.height ?? 0
+
+        startLiveScroll(scrollView)
+        continueLiveScroll(scrollView, documentOffsetY: 1200)
+        endLiveScroll(scrollView)
+        scrollView.frame.size = NSSize(width: 960, height: 720)
+        forceLayout(scrollView)
+        let resizedScrollerHeight = scrollView.scrollView.verticalScroller?.frame.height ?? 0
+
+        #expect(documentOffsetY(of: scrollView) == 1200)
+        #expect(scrollView.scrollView.frame == scrollView.bounds)
+        #expect(scrollView.documentView.frame.width == scrollView.scrollView.bounds.width)
+        #expect(scrollView.documentView.frame.height > initialDocumentHeight)
+        #expect(resizedScrollerHeight > initialScrollerHeight)
+    }
+
+    @Test("fresh callback resumes synchronization after a rejected gesture")
+    func freshCallbackResumesSynchronizationAfterRejectedGesture() {
+        let performer = FakeSurfaceActionPerformer()
+        let hostStateView = makeHostStateView()
+        let scrollView = makeLaidOutScrollView(
+            actionPerformer: performer,
+            hostStateView: hostStateView
+        )
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        continueLiveScroll(scrollView, documentOffsetY: 1200)
+        endLiveScroll(scrollView)
+        forceLayout(scrollView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 90, bottom: 130, total: 200))
+
+        #expect(documentOffsetY(of: scrollView) == 1400)
+    }
+
+    @Test("later acknowledged gesture resumes layout synchronization")
+    func laterAcknowledgedGestureResumesLayoutSynchronization() {
+        let performer = FakeSurfaceActionPerformer()
+        let hostStateView = makeHostStateView()
+        let scrollView = makeLaidOutScrollView(
+            actionPerformer: performer,
+            hostStateView: hostStateView
+        )
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        continueLiveScroll(scrollView, documentOffsetY: 1200)
+        endLiveScroll(scrollView)
+        startLiveScroll(scrollView)
+        continueLiveScroll(scrollView, documentOffsetY: 800)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 120, bottom: 160, total: 200))
+        endLiveScroll(scrollView)
+        scrollView.scrollView.contentView.scroll(to: CGPoint(x: 0, y: 600))
+        forceLayout(scrollView)
+
+        #expect(documentOffsetY(of: scrollView) == 800)
+        #expect(performer.actions == [.scrollToRow(100), .scrollToRow(120)])
+    }
+
+    @Test("failed actions do not enter semantic dedup")
+    func failedActionsDoNotEnterSemanticDedup() {
+        let performer = FakeSurfaceActionPerformer()
+        performer.actionResults = [false, true]
+        let scrollView = makeLaidOutScrollView(actionPerformer: performer)
+        scrollView.applyScrollbarState(
+            ScrollbarState(top: 80, bottom: 120, total: 200),
+            cellHeight: 20
+        )
+
+        startLiveScroll(scrollView)
+        continueLiveScroll(scrollView, documentOffsetY: 1200)
+        continueLiveScroll(scrollView, documentOffsetY: 1200)
+        endLiveScroll(scrollView)
+
+        #expect(performer.actions == [.scrollToRow(100), .scrollToRow(100)])
+    }
+
+    @Test("a rejected action leaves drag-end reconciliation in the no-command path")
+    func rejectedActionLeavesDragEndReconciliationInNoCommandPath() {
+        let performer = FakeSurfaceActionPerformer()
+        performer.actionResults = [false]
+        let hostStateView = makeHostStateView()
+        let scrollView = makeLaidOutScrollView(
+            actionPerformer: performer,
+            hostStateView: hostStateView
+        )
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        startLiveScroll(scrollView)
+        continueLiveScroll(scrollView, documentOffsetY: 1200)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 90, bottom: 130, total: 200))
+        scrollView.scrollView.contentView.scroll(to: CGPoint(x: 0, y: 800))
+        endLiveScroll(scrollView)
+
+        #expect(documentOffsetY(of: scrollView) == 1400)
         #expect(performer.actions == [.scrollToRow(100)])
     }
 
