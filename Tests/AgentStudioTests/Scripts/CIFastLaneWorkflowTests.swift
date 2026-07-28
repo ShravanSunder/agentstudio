@@ -23,6 +23,24 @@ struct CIFastLaneWorkflowTests {
         }
     }
 
+    @Test("Swift build cache rolls forward per commit within a compatible toolchain")
+    func swiftBuildCacheRollsForwardPerCommitWithinCompatibleToolchain() throws {
+        let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let cacheStep = try workflowStep(named: "Cache Swift build", in: ciWorkflow)
+
+        #expect(cacheStep.contains("path: .build-ci"))
+        #expect(
+            cacheStep.contains(
+                "key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}"
+            )
+        )
+        #expect(
+            cacheStep.contains(
+                "swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-"
+            )
+        )
+    }
+
     @Test("fast lane keeps cached parallel default")
     func fastLaneKeepsCachedParallelDefault() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
