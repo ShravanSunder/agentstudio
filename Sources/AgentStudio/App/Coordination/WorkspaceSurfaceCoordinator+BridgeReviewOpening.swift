@@ -250,7 +250,7 @@ extension WorkspaceSurfaceCoordinator {
         )
     }
 
-    private func defaultBridgeReviewBaseline(for repo: Repo) -> WorkspaceBaseline {
+    func defaultBridgeReviewBaseline(for repo: Repo) -> WorkspaceBaseline {
         guard let mainWorktree = repo.worktrees.first(where: \.isMainWorktree),
             let cachedBranch = atom(\.repoCache).worktreeEnrichment(for: mainWorktree.id)?.branch
                 .trimmingCharacters(in: .whitespacesAndNewlines),

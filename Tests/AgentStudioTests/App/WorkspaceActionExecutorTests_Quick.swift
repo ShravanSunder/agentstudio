@@ -438,6 +438,60 @@ extension WebKitSerializedTests {
             #expect(pane.metadata.cwd == worktree.path)
         }
 
+        @Test("failed webview layout insertion tears down its mounted host and runtime")
+        func failedWebviewLayoutInsertionTearsDownMountedResources() {
+            let harness = makeWorkspaceActionExecutorHarness()
+            let store = harness.store
+            let viewRegistry = harness.viewRegistry
+            let coordinator = harness.coordinator
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+            let sourcePane = store.createPane()
+            let sourceTab = Tab(paneId: sourcePane.id)
+            store.appendTab(sourceTab)
+            let paneIdsBeforeInsertion = Set(store.paneAtom.panes.keys)
+            let slotPaneIdsBeforeInsertion = viewRegistry.slotPaneIdsForTesting
+            let runtimeCountBeforeInsertion = coordinator.runtimeRegistry.count
+
+            coordinator.executeInsertPane(
+                source: .newWebview(
+                    WebviewState(url: URL(string: "https://example.com/failed-layout-insertion")!)
+                ),
+                targetTabId: UUID(),
+                targetPaneId: sourcePane.id,
+                direction: .right,
+                sizingMode: .halveTarget
+            )
+
+            #expect(Set(store.paneAtom.panes.keys) == paneIdsBeforeInsertion)
+            #expect(viewRegistry.slotPaneIdsForTesting == slotPaneIdsBeforeInsertion)
+            #expect(coordinator.runtimeRegistry.count == runtimeCountBeforeInsertion)
+        }
+
+        @Test("failed webview drawer calibration tears down its mounted host and runtime")
+        func failedWebviewDrawerCalibrationTearsDownMountedResources() {
+            let harness = makeWorkspaceActionExecutorHarness()
+            let store = harness.store
+            let viewRegistry = harness.viewRegistry
+            let coordinator = harness.coordinator
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+            let parentPane = store.createPane()
+            let paneIdsBeforeInsertion = Set(store.paneAtom.panes.keys)
+            let slotPaneIdsBeforeInsertion = viewRegistry.slotPaneIdsForTesting
+            let runtimeCountBeforeInsertion = coordinator.runtimeRegistry.count
+
+            coordinator.executeAddWebviewDrawerPane(
+                parentPaneId: parentPane.id,
+                state: WebviewState(url: URL(string: "https://example.com/failed-drawer-calibration")!)
+            )
+
+            #expect(Set(store.paneAtom.panes.keys) == paneIdsBeforeInsertion)
+            #expect(store.paneAtom.pane(parentPane.id)?.drawer?.paneIds.isEmpty == true)
+            #expect(viewRegistry.slotPaneIdsForTesting == slotPaneIdsBeforeInsertion)
+            #expect(coordinator.runtimeRegistry.count == runtimeCountBeforeInsertion)
+        }
+
         @Test("repair recreateSurface replaces a missing webview view")
         func repair_recreateSurface_recreatesWebviewView() {
             let harness = makeWorkspaceActionExecutorHarness()

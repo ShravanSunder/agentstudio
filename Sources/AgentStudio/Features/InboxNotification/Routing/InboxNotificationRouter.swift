@@ -250,7 +250,10 @@ final class InboxNotificationRouter {
         withObservationTracking {
             _ = attendedPane.attendedPaneId
             _ = paneAtom.panes
-            _ = tabLayout.activeTab
+            let activeTab = tabLayout.activeTab
+            _ = activeTab.flatMap {
+                tabLayout.arrangementAtom.presentationAtom.zoomPresentation(forTab: $0.id)
+            }
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.isStarted else { return }

@@ -2,11 +2,12 @@
 
 ## Scope
 
-This spec replaces the toolbar, Arrangements-panel, arrangement-interaction,
-and Zoom-management presentation clauses of the adjacent Pane Zoom spec. The
-existing Zoom capability, companion-lifecycle, persistence, IPC, and ownership
-contracts remain unchanged except for the arrangement transitions explicitly
-defined here.
+This spec replaces the Viewer command semantics, toolbar, Arrangements-panel,
+arrangement-interaction, and Zoom-management presentation clauses of the
+adjacent Pane Zoom spec. Its Viewer entry/toggle behavior and arrangement
+transitions also supersede the conflicting clauses in the adjacent Pane Zoom
+implementation plan. The existing Zoom eligibility, companion-lifecycle,
+persistence, IPC, and ownership contracts remain unchanged.
 
 ## Product contract
 

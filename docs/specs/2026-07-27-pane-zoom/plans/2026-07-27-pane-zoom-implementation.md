@@ -5,6 +5,13 @@
 Implement the adjacent Pane Zoom spec using the current command system. Preserve
 unrelated dirty work and do not modify the separate CommandContext follow-up.
 
+The later
+`docs/specs/2026-07-27-pane-zoom-ui-contract/plans/2026-07-27-pane-zoom-ui-contract-implementation.md`
+supersedes this plan's conflicting Viewer command, toolbar,
+Arrangements-panel, arrangement-transition, and Zoom-management tasks. This
+base plan remains the implementation source for the unchanged Zoom runtime,
+companion lifecycle, persistence, IPC, and ownership work.
+
 ## Task 1 — Command and runtime contract
 
 - Narrow `zoomPane` to durable terminal main panes across all invocation paths.

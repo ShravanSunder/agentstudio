@@ -408,28 +408,29 @@ struct ZoomPresentationContainer: View {
 
         case .retainedHidden(let companionPaneId), .retainedVisible(let companionPaneId):
             let companionPaneSlot = viewRegistry.slot(for: companionPaneId)
-            guard companionPaneSlot.host != nil else {
-                return nil
-            }
-
-            children.append(
-                ZoomPresentationChild(
-                    paneId: companionPaneId,
-                    paneSlot: companionPaneSlot,
-                    toolbarPresentation: .hidden
+            if companionPaneSlot.host != nil {
+                children.append(
+                    ZoomPresentationChild(
+                        paneId: companionPaneId,
+                        paneSlot: companionPaneSlot,
+                        toolbarPresentation: .hidden
+                    )
                 )
-            )
-            let sourceRatio = presentation.transientSplitRatio ?? 0.5
-            layout = Layout(
-                panes: [
-                    Layout.PaneEntry(paneId: presentation.sourcePaneId, ratio: sourceRatio),
-                    Layout.PaneEntry(paneId: companionPaneId, ratio: 1 - sourceRatio),
-                ],
-                dividerIds: [UUIDv7.generate()]
-            )
-            if case .retainedVisible = presentation.viewerPresentation {
-                isCompanionVisible = true
+                let sourceRatio = presentation.transientSplitRatio ?? 0.5
+                layout = Layout(
+                    panes: [
+                        Layout.PaneEntry(paneId: presentation.sourcePaneId, ratio: sourceRatio),
+                        Layout.PaneEntry(paneId: companionPaneId, ratio: 1 - sourceRatio),
+                    ],
+                    dividerIds: [UUIDv7.generate()]
+                )
+                if case .retainedVisible = presentation.viewerPresentation {
+                    isCompanionVisible = true
+                } else {
+                    isCompanionVisible = false
+                }
             } else {
+                layout = Layout(paneId: presentation.sourcePaneId)
                 isCompanionVisible = false
             }
         }

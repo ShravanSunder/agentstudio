@@ -127,8 +127,8 @@ struct ArrangementPanelMountTests {
     }
 
     @Test("arrangement rename survives transient AppKit focus churn")
-    func arrangementRenameSurvivesTransientFocusChurn() throws {
-        try AtomScope.$override.withValue(makeInstalledTestAtomRegistry()) {
+    func arrangementRenameSurvivesTransientFocusChurn() async throws {
+        try await AtomScope.$override.withValue(makeInstalledTestAtomRegistry()) {
             let arrangementId = UUID()
             let renameState = ArrangementInlineRenameState()
             renameState.beginEditing(
@@ -163,16 +163,34 @@ struct ArrangementPanelMountTests {
             defer { window.close() }
             hostingView.frame = CGRect(origin: .zero, size: hostingView.fittingSize)
             hostingView.layoutSubtreeIfNeeded()
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
 
-            let renameField = try #require(
-                findArrangementRenameField(in: hostingView)
-            )
+            var mountedRenameField: ArrangementRenameNSTextField?
+            await assertEventuallyMain("arrangement rename field should mount") {
+                mountedRenameField = findArrangementRenameField(in: hostingView)
+                return mountedRenameField != nil
+            }
+            let renameField = try #require(mountedRenameField)
             renameField.focusAndSelectAll()
-            #expect(window.firstResponder === renameField.currentEditor())
+            await assertEventuallyMain("arrangement rename field should become first responder") {
+                window.firstResponder === renameField.currentEditor()
+            }
+
+            let editingEndProbe = ArrangementPanelMountEventProbe()
+            let editingEndObserver = NotificationCenter.default.addObserver(
+                forName: NSControl.textDidEndEditingNotification,
+                object: renameField,
+                queue: .main
+            ) { _ in
+                editingEndProbe.record()
+            }
+            defer {
+                NotificationCenter.default.removeObserver(editingEndObserver)
+            }
 
             window.makeFirstResponder(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+            await assertEventuallyMain("arrangement rename field should report editing ended") {
+                editingEndProbe.hasRecordedEvent
+            }
 
             #expect(renameState.editingArrangementId == arrangementId)
         }
@@ -239,4 +257,19 @@ private func findArrangementRenameField(in root: NSView) -> ArrangementRenameNST
         }
     }
     return nil
+}
+
+private final class ArrangementPanelMountEventProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedEvent = false
+
+    var hasRecordedEvent: Bool {
+        lock.withLock { recordedEvent }
+    }
+
+    func record() {
+        lock.withLock {
+            recordedEvent = true
+        }
+    }
 }

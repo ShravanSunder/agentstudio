@@ -77,7 +77,8 @@ final class WorkspacePanePresentationAtom {
         inTab tabId: UUID
     ) -> Bool {
         guard splitRatio.isFinite,
-            (0.0...1.0).contains(splitRatio),
+            splitRatio > 0,
+            splitRatio < 1,
             var presentation = zoomPresentationsByTabId[tabId]
         else {
             return false
@@ -103,6 +104,7 @@ final class WorkspacePanePresentationAtom {
             forSourcePane: sourcePaneId,
             inTab: tabId
         )
+        presentation.transientSplitRatio = zoomSplitRatiosBySourcePaneId[sourcePaneId] ?? 0.5
         zoomPresentationsByTabId[tabId] = presentation
         return true
     }

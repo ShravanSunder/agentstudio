@@ -95,6 +95,94 @@ extension WebKitSerializedTests {
             await harness.coordinator.shutdown()
         }
 
+        @Test("Zoom companion uses the cached main-worktree branch as its review baseline")
+        func zoomCompanionUsesCachedMainWorktreeBranchBaseline() async throws {
+            let harness = makeZoomCompanionHarness()
+            defer { try? FileManager.default.removeItem(at: harness.root) }
+            let mainWorktree = Worktree(
+                id: harness.worktree.id,
+                repoId: harness.worktree.repoId,
+                name: harness.worktree.name,
+                path: harness.worktree.path,
+                isMainWorktree: true,
+                note: harness.worktree.note
+            )
+            harness.store.reconcileDiscoveredWorktrees(
+                mainWorktree.repoId,
+                worktrees: [mainWorktree]
+            )
+            let repo = try #require(
+                harness.store.repositoryTopologyAtom.repo(containing: mainWorktree.id)
+            )
+            atom(\.repoCache).setWorktreeEnrichment(
+                WorktreeEnrichment(
+                    worktreeId: mainWorktree.id,
+                    repoId: repo.id,
+                    branch: "master",
+                    isMainWorktree: true
+                )
+            )
+            defer { atom(\.repoCache).removeWorktree(mainWorktree.id) }
+            let sourcePane = makeZoomSourcePane(in: harness.store, worktree: harness.worktree)
+            let sourceTab = Tab(paneId: sourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.panePresentationAtom.enterZoom(
+                inTab: sourceTab.id,
+                sourcePaneId: sourcePane.id,
+                viewerPresentation: .retryable
+            )
+
+            let presentation = harness.coordinator.reconcileZoomCompanion(
+                sourcePaneId: sourcePane.id,
+                owningTabId: sourceTab.id
+            )
+            let companionPaneId = try #require(presentation.companionPaneId)
+            let companionState = try #require(
+                harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState
+            )
+
+            guard case .workspace(_, let baseline) = companionState.source else {
+                Issue.record("Expected Zoom companion to use a workspace source")
+                await harness.coordinator.shutdown()
+                return
+            }
+            #expect(baseline == .localDefaultBranch(branchName: "master"))
+
+            await harness.coordinator.shutdown()
+        }
+
+        @Test("Zoom companion falls back to HEAD when default-branch enrichment is unavailable")
+        func zoomCompanionFallsBackToHEADWithoutDefaultBranchEnrichment() async throws {
+            let harness = makeZoomCompanionHarness()
+            defer { try? FileManager.default.removeItem(at: harness.root) }
+            let sourcePane = makeZoomSourcePane(in: harness.store, worktree: harness.worktree)
+            let sourceTab = Tab(paneId: sourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.panePresentationAtom.enterZoom(
+                inTab: sourceTab.id,
+                sourcePaneId: sourcePane.id,
+                viewerPresentation: .retryable
+            )
+
+            let presentation = harness.coordinator.reconcileZoomCompanion(
+                sourcePaneId: sourcePane.id,
+                owningTabId: sourceTab.id
+            )
+            let companionPaneId = try #require(presentation.companionPaneId)
+            let companionState = try #require(
+                harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState
+            )
+
+            guard case .workspace(_, let baseline) = companionState.source else {
+                Issue.record("Expected Zoom companion to use a workspace source")
+                await harness.coordinator.shutdown()
+                return
+            }
+            #expect(baseline == .ref(name: "HEAD"))
+
+            await harness.coordinator.shutdown()
+        }
+
         @Test("Zoom command creates Files, cancel retains it hidden, and re-entry resumes the same host")
         func zoomCommandCreatesRetainsAndResumesCompanion() async throws {
             let owningWindowId = UUID()

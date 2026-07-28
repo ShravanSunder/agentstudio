@@ -48,6 +48,18 @@ struct SplitDropCommitDestination: Equatable {
     let drawerParentPaneId: UUID?
 }
 
+struct ArrangementPanelProgrammaticPresentation: Equatable {
+    let workspaceWindowId: UUID
+    let tabId: UUID
+    let contextPaneId: UUID?
+}
+
+enum ArrangementPanelProgrammaticPresentationFailure: Error, Equatable {
+    case noActiveWindow
+    case targetNotFound
+    case validationRejected
+}
+
 private struct PaneInboxCommandTarget {
     let parentPaneId: UUID
     let paneIds: [UUID]
@@ -3415,7 +3427,18 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         )
     }
 
-    func presentArrangementPanel(contextPaneId: UUID?) -> (tabId: UUID, contextPaneId: UUID?)? {
+    func presentArrangementPanel(
+        contextPaneId: UUID?
+    ) -> Result<ArrangementPanelProgrammaticPresentation, ArrangementPanelProgrammaticPresentationFailure> {
+        guard
+            let resolvedWorkspaceWindowId =
+                workspaceWindowId
+                ?? windowLifecycleStore.focusedWindowId
+                ?? windowLifecycleStore.keyWindowId
+        else {
+            return .failure(.noActiveWindow)
+        }
+
         let tab: Tab
         if let contextPaneId {
             guard
@@ -3424,7 +3447,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                     $0.allPaneIds.contains(contextPaneId)
                 })
             else {
-                return nil
+                return .failure(.targetNotFound)
             }
             tab = containingTab
         } else {
@@ -3432,27 +3455,28 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 let activeTabId = store.tabLayoutAtom.activeTabId,
                 let activeTab = store.tabLayoutAtom.tab(activeTabId)
             else {
-                return nil
+                return .failure(.validationRejected)
             }
             tab = activeTab
         }
 
-        guard
-            let workspaceWindowId =
-                workspaceWindowId
-                ?? windowLifecycleStore.focusedWindowId
-                ?? windowLifecycleStore.keyWindowId
-        else {
-            return nil
-        }
         if store.tabLayoutAtom.activeTabId != tab.id {
-            store.tabLayoutAtom.setActiveTab(tab.id)
+            handlePaneFocusTrigger(.command(.selectTab(tab.id)))
+            guard store.tabLayoutAtom.activeTabId == tab.id else {
+                return .failure(.validationRejected)
+            }
         }
         arrangementPanelPresentation.present(
             tabId: tab.id,
-            workspaceWindowId: workspaceWindowId
+            workspaceWindowId: resolvedWorkspaceWindowId
         )
-        return (tab.id, contextPaneId)
+        return .success(
+            ArrangementPanelProgrammaticPresentation(
+                workspaceWindowId: resolvedWorkspaceWindowId,
+                tabId: tab.id,
+                contextPaneId: contextPaneId
+            )
+        )
     }
 
     private func switchActiveArrangement(delta: Int) {

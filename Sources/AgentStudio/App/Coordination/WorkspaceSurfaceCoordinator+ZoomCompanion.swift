@@ -181,7 +181,7 @@ extension WorkspaceSurfaceCoordinator {
             panelKind: .fileViewer,
             source: .workspace(
                 rootPath: context.worktree.path.path,
-                baseline: .localDefaultBranch(branchName: "main")
+                baseline: defaultBridgeReviewBaseline(for: context.repo)
             )
         )
         let companionPane = Pane(

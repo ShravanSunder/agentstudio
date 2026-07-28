@@ -207,6 +207,7 @@ extension WorkspaceSurfaceCoordinator {
         else {
             Self.logger.error(
                 "insertPane newWebview: failed inserting pane \(pane.id) into tab \(targetTabId)")
+            teardownView(for: pane.id)
             store.mutationCoordinator.removePane(pane.id)
             viewRegistry.removeSlot(for: pane.id)
             return
@@ -247,6 +248,7 @@ extension WorkspaceSurfaceCoordinator {
             let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
         else {
             Self.logger.error("addWebviewDrawerPane: drawer calibration failed for parent \(parentPaneId)")
+            teardownView(for: pane.id)
             store.paneAtom.removeDrawerPane(pane.id, from: parentPaneId)
             viewRegistry.removeSlot(for: pane.id)
             return
