@@ -703,7 +703,7 @@ struct CommandBarPanelControllerTests {
             #expect(dispatcher.targetedDispatches.count == 2)
             #expect(dispatcher.targetedDispatches[1].command == .focusPane)
             #expect(dispatcher.targetedDispatches[1].target == firstPane.id)
-            #expect(dispatcher.targetedDispatches[1].targetType == .pane)
+            #expect(dispatcher.targetedDispatches[1].targetType == .floatingTerminal)
             #expect(!controller.state.isVisible)
         }
     }
