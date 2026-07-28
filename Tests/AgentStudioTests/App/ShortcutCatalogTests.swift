@@ -48,7 +48,7 @@ struct ShortcutCatalogTests {
     func commandSpecDerivesKeyBindingFromShortcut() {
         let managementLayerDefinition = AppCommandDispatcher.shared.definition(for: .toggleManagementLayer)
         let quickOpenDefinition = AppCommandDispatcher.shared.definition(for: .showCommandBarEverything)
-        let startContextDefinition = AppCommandDispatcher.shared.definition(for: .showCommandBarRepos)
+        let terminalQuickOpenDefinition = AppCommandDispatcher.shared.definition(for: .showCommandBarQuickOpen)
         let addDrawerPaneDefinition = AppCommandDispatcher.shared.definition(for: .addDrawerPane)
         let paneInboxDefinition = AppCommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
 
@@ -56,8 +56,8 @@ struct ShortcutCatalogTests {
         #expect(managementLayerDefinition.keyBinding?.modifiers == [.command])
         #expect(quickOpenDefinition.keyBinding?.key == "p")
         #expect(quickOpenDefinition.keyBinding?.modifiers == [.command])
-        #expect(startContextDefinition.keyBinding?.key == "t")
-        #expect(startContextDefinition.keyBinding?.modifiers == [.command])
+        #expect(terminalQuickOpenDefinition.keyBinding?.key == "t")
+        #expect(terminalQuickOpenDefinition.keyBinding?.modifiers == [.command])
         #expect(addDrawerPaneDefinition.keyBinding?.key == "d")
         #expect(addDrawerPaneDefinition.keyBinding?.modifiers == [.command, .shift])
         #expect(paneInboxDefinition.keyBinding?.key == "u")

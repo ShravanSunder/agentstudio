@@ -4,6 +4,22 @@ import Foundation
 // MARK: - AppCommand Catalog Helpers
 
 extension AppCommand {
+    /// Ordered array of tab selection commands (⌘1 through ⌘9)
+    static let selectTabCommands: [AppCommand] = [
+        .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
+        .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+    ]
+
+    static let focusPaneCommands: [AppCommand] = [
+        .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
+        .focusPane6, .focusPane7, .focusPane8, .focusPane9,
+    ]
+
+    static let focusDrawerPaneCommands: [AppCommand] = [
+        .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4, .focusDrawerPane5,
+        .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
+    ]
+
     func hiddenTabSelectionDefinition(index: Int) -> AppCommandSpec {
         AppCommandSpec(
             command: self,
@@ -75,7 +91,7 @@ extension AppCommand {
             icon: groupingMode.icon,
             helpText: "Group the repo sidebar by \(groupingMode.title.lowercased())",
             commandBarGroupName: "Sidebar",
-            commandBarGroupPriority: CommandBarGroupPriority.window,
+            commandBarGroupPriority: CommandBarGroupPriority.sidebar,
             ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
         )
     }
@@ -87,7 +103,7 @@ extension AppCommand {
             icon: .system(.bookmark),
             helpText: "Set the repo sidebar visibility mode",
             commandBarGroupName: "Sidebar",
-            commandBarGroupPriority: CommandBarGroupPriority.window,
+            commandBarGroupPriority: CommandBarGroupPriority.sidebar,
             isHiddenInCommandBar: true,
             argumentSchema: [
                 IPCCommandArgumentSchema(
@@ -107,7 +123,7 @@ extension AppCommand {
             icon: .system(.arrowUpArrowDown),
             helpText: "Set the repo sidebar sort order",
             commandBarGroupName: "Sidebar",
-            commandBarGroupPriority: CommandBarGroupPriority.window,
+            commandBarGroupPriority: CommandBarGroupPriority.sidebar,
             isHiddenInCommandBar: true,
             argumentSchema: [
                 IPCCommandArgumentSchema(
@@ -127,7 +143,7 @@ extension AppCommand {
             icon: grouping.icon,
             helpText: "Group inbox notifications by \(grouping.commandHelpTarget)",
             commandBarGroupName: "Inbox",
-            commandBarGroupPriority: CommandBarGroupPriority.window,
+            commandBarGroupPriority: CommandBarGroupPriority.inbox,
             ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
         )
     }
@@ -139,7 +155,7 @@ extension AppCommand {
             icon: .system(.envelopeBadge),
             helpText: "Set whether the inbox shows all or unread notifications",
             commandBarGroupName: "Inbox",
-            commandBarGroupPriority: CommandBarGroupPriority.window,
+            commandBarGroupPriority: CommandBarGroupPriority.inbox,
             isHiddenInCommandBar: true,
             argumentSchema: [
                 IPCCommandArgumentSchema(
@@ -159,7 +175,7 @@ extension AppCommand {
             icon: .system(.dotCircleViewfinder),
             helpText: "Set which notification content lane the inbox shows",
             commandBarGroupName: "Inbox",
-            commandBarGroupPriority: CommandBarGroupPriority.window,
+            commandBarGroupPriority: CommandBarGroupPriority.inbox,
             isHiddenInCommandBar: true,
             argumentSchema: [
                 IPCCommandArgumentSchema(

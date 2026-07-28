@@ -14,5 +14,13 @@ struct CommandBarGroupHeader: View {
             .padding(.bottom, 4)
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityHidden(true)
+            .background(
+                AccessibilityLabelBridge(
+                    identifier: "commandBarGroupHeader.\(name)",
+                    label: name,
+                    role: NSAccessibility.Role(rawValue: "AXHeading")
+                )
+            )
     }
 }

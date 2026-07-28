@@ -27,7 +27,7 @@ struct TerminalAppOwnedShortcutPolicyTests {
         )
 
         #expect(AppShortcut.newTab.spec.contexts.contains(.terminalAppOwned))
-        #expect(AppShortcut.newTab.command == .showCommandBarRepos)
+        #expect(AppShortcut.newTab.command == .showCommandBarQuickOpen)
         #expect(
             AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(
                 .showCommandBarEverything, context: context))

@@ -32,7 +32,6 @@ struct WorkspaceLocalRepository: Sendable {
         var windowState: WindowStateRecord?
         var sidebarState: SidebarStateRecord?
         var expandedGroups: Set<SidebarGroupKey>
-        var recentTargets: [RecentWorkspaceTarget]
     }
 
     struct CacheStateRecord: Equatable, Sendable {
@@ -231,26 +230,46 @@ struct WorkspaceLocalRepository: Sendable {
         }
     }
 
-    func replaceRecentTargets(_ recentTargets: [RecentWorkspaceTarget], updatedAt: Date) throws {
+    func replaceApplicationEntityRecency(_ recentEntities: [ApplicationEntityRecency]) throws {
         try databaseWriter.write { database in
-            try WorkspaceLocalRepositoryStorage.replaceRecentTargetRows(
+            try WorkspaceLocalRepositoryStorage.replaceApplicationEntityRecencyRows(
                 database,
-                workspaceId: workspaceId,
-                recentTargets: recentTargets,
-                updatedAt: updatedAt
+                recentEntities: recentEntities
             )
         }
     }
 
-    func fetchRecentTargets() throws -> [RecentWorkspaceTarget] {
+    func fetchApplicationEntityRecency() throws -> [ApplicationEntityRecency] {
         try databaseWriter.read { database in
-            try WorkspaceLocalRepositoryStorage.fetchRecentTargetRows(database, workspaceId: workspaceId)
+            try WorkspaceLocalRepositoryStorage.fetchApplicationEntityRecencyRows(database)
         }
     }
 
-    func hasRecentTargetsState() throws -> Bool {
+    func replaceWorkspaceEntityRecency(_ recentEntities: [WorkspaceEntityRecency]) throws {
+        try databaseWriter.write { database in
+            try WorkspaceLocalRepositoryStorage.replaceWorkspaceEntityRecencyRows(
+                database,
+                workspaceId: workspaceId,
+                recentEntities: recentEntities
+            )
+        }
+    }
+
+    func fetchWorkspaceEntityRecency() throws -> [WorkspaceEntityRecency] {
         try databaseWriter.read { database in
-            try WorkspaceLocalRepositoryStorage.hasRecentTargetStateRows(database, workspaceId: workspaceId)
+            try WorkspaceLocalRepositoryStorage.fetchWorkspaceEntityRecencyRows(
+                database,
+                workspaceId: workspaceId
+            )
+        }
+    }
+
+    func deleteWorkspaceEntityRecency() throws {
+        try databaseWriter.write { database in
+            try WorkspaceLocalRepositoryStorage.deleteWorkspaceEntityRecencyRows(
+                database,
+                workspaceId: workspaceId
+            )
         }
     }
 
@@ -344,7 +363,6 @@ struct WorkspaceLocalRepository: Sendable {
 
 enum WorkspaceLocalRepositoryError: Error, Equatable {
     case unsupportedSidebarSurface(String)
-    case unsupportedRecentTargetKind(String)
     case malformedWorkspaceId(String)
     case malformedTabId(String)
     case malformedArrangementId(String)

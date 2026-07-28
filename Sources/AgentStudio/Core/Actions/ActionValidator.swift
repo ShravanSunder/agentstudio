@@ -456,7 +456,7 @@ enum WorkspaceCommandValidator {
         switch action {
         case .insertPaneRequest(let request):
             switch request.source {
-            case .newTerminal, .newWebview:
+            case .newTerminal, .newTerminalAtDirectory, .newWebview:
                 targetTabId = request.targetTabId
             case .existingPane:
                 return nil

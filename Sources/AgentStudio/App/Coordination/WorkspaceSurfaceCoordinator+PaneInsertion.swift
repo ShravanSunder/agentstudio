@@ -52,11 +52,13 @@ extension WorkspaceSurfaceCoordinator {
                 }
             }
 
-        case .newTerminal:
+        case .newTerminal, .newTerminalAtDirectory:
             executeInsertTerminalPane(
+                source: source,
                 targetTabId: targetTabId,
                 targetPaneId: targetPaneId,
-                direction: direction,
+                layoutDirection: layoutDirection,
+                position: position,
                 sizingMode: sizingMode
             )
 
@@ -72,23 +74,41 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     private func executeInsertTerminalPane(
+        source: PaneSource,
         targetTabId: UUID,
         targetPaneId: UUID,
-        direction: SplitNewDirection,
+        layoutDirection: Layout.SplitDirection,
+        position: Layout.Position,
         sizingMode: DropSizingMode
     ) {
         let targetPane = store.paneAtom.pane(targetPaneId)
-        let pane: Pane
-        if let resolved = resolvedWorktreeContext(for: targetPane) {
+        let explicitDirectory: URL? = {
+            if case .newTerminalAtDirectory(let directory) = source {
+                return directory
+            }
+            return nil
+        }()
+        let resolvedContext: (repo: Repo, worktree: Worktree)?
+        if let explicitDirectory {
+            resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: explicitDirectory)
+        } else {
+            resolvedContext = resolvedWorktreeContext(for: targetPane)
+        }
+
+        if let resolved = resolvedContext {
             let launchDirectory =
-                targetPane?.metadata.cwd
+                explicitDirectory
+                ?? targetPane?.metadata.cwd
                 ?? targetPane?.metadata.launchDirectory
                 ?? resolved.worktree.path
-            pane = store.paneAtom.createPane(
+            let inheritedFacets =
+                explicitDirectory == nil
+                ? targetPane?.metadata.facets ?? .empty
+                : .empty
+            let pane = store.paneAtom.createPane(
                 launchDirectory: launchDirectory,
-                provider: .zmx,
-                zmxSessionID: .generateUUIDv7(),
-                facets: (targetPane?.metadata.facets ?? .empty).fillingNilFields(
+                provider: .zmx, zmxSessionID: .generateUUIDv7(),
+                facets: inheritedFacets.fillingNilFields(
                     from: PaneContextFacets(
                         repoId: resolved.repo.id,
                         repoName: resolved.repo.name,
@@ -98,31 +118,44 @@ extension WorkspaceSurfaceCoordinator {
                     )
                 )
             )
-        } else {
-            pane = store.paneAtom.createPane(
-                launchDirectory: targetPane?.metadata.cwd ?? targetPane?.metadata.launchDirectory,
-                provider: .zmx,
-                zmxSessionID: .generateUUIDv7(),
-                facets: targetPane?.metadata.facets ?? .empty
-            )
+            prepareTerminalPaneSlot(pane)
+            registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
+
+            guard
+                store.tabLayoutAtom.insertPane(
+                    pane.id, inTab: targetTabId, at: targetPaneId,
+                    direction: layoutDirection, position: position, sizingMode: sizingMode
+                )
+            else {
+                Self.logger.error("insertPane newTerminal: failed inserting pane \(pane.id) into tab \(targetTabId)")
+                store.mutationCoordinator.removePane(pane.id)
+                viewRegistry.removeSlot(for: pane.id)
+                return
+            }
+            traceTerminalLayoutInsertedAndViewCreateStarted(pane)
+            ensureTerminalPaneView(pane)
+            return
         }
+
+        let pane = store.paneAtom.createPane(
+            launchDirectory: explicitDirectory
+                ?? targetPane?.metadata.cwd
+                ?? targetPane?.metadata.launchDirectory,
+            provider: .zmx, zmxSessionID: .generateUUIDv7(),
+            facets: explicitDirectory.map { PaneContextFacets(cwd: $0) }
+                ?? targetPane?.metadata.facets
+                ?? .empty
+        )
         prepareTerminalPaneSlot(pane)
         registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
 
-        let layoutDirection = bridgeDirection(direction)
-        let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
         guard
             store.tabLayoutAtom.insertPane(
-                pane.id,
-                inTab: targetTabId,
-                at: targetPaneId,
-                direction: layoutDirection,
-                position: position,
-                sizingMode: sizingMode
+                pane.id, inTab: targetTabId, at: targetPaneId,
+                direction: layoutDirection, position: position, sizingMode: sizingMode
             )
         else {
-            Self.logger.error(
-                "insertPane newTerminal: failed inserting pane \(pane.id) into tab \(targetTabId)")
+            Self.logger.error("insertPane newTerminal: failed inserting pane \(pane.id) into tab \(targetTabId)")
             store.mutationCoordinator.removePane(pane.id)
             viewRegistry.removeSlot(for: pane.id)
             return

@@ -9,7 +9,8 @@ extension AppDelegate: ShellCommandHandling {
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .signInGitHub, .signInGoogle, .newWindow, .closeWindow,
-            .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
+            .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
+            .showCommandBarPanes, .showCommandBarRepos:
             true
         case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab, .undoCloseTab,
             .selectTab, .nextTab, .prevTab,
@@ -94,6 +95,9 @@ extension AppDelegate: ShellCommandHandling {
             return true
         case .showCommandBarEverything:
             showCommandBar(prefix: nil, context: "command bar")
+            return true
+        case .showCommandBarQuickOpen:
+            showCommandBar(defaultRootScope: .quickOpen, context: "command bar (quick open)")
             return true
         case .showCommandBarCommands:
             showCommandBar(prefix: ">", context: "command bar (commands)")
@@ -186,7 +190,8 @@ extension AppDelegate: ShellCommandHandling {
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow, .closeWindow,
-            .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
+            .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
+            .showCommandBarPanes, .showCommandBarRepos,
             .openWebview, .showViewer, .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:

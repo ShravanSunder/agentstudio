@@ -387,8 +387,8 @@ MainWindow
     └── NSHostingView
         └── CommandBarView (SwiftUI)
             ├── CommandBarStatusStrip
-            ├── CommandBarSearchField (contains CommandBarScopePill)
-            ├── CommandBarBackRow (when nested)
+            ├── CommandBarSearchField
+            ├── CommandBarBreadcrumbRow (when nested)
             ├── CommandBarResultsList
             └── CommandBarFooter
 ```
@@ -448,7 +448,9 @@ CommandBarView.executeItem()
 | `CommandBarPanel` | `NSPanel` subclass with `NSVisualEffectView` and `NSHostingView` |
 | `CommandBarView` | Root SwiftUI view composing search, results, shared focus context, and footer |
 
-Notable views: `CommandBarBackRow` (nested back navigation), `CommandBarScopePill` (scope indicator), `CommandBarStatusStrip` (app mode display), `CommandBarSearchField` (search input with pill), `CommandBarFooter` (contextual keyboard hints).
+Notable views: `CommandBarBreadcrumbRow` (clickable nested navigation trail),
+`CommandBarStatusStrip` (app mode display), `CommandBarSearchField` (search
+input), and `CommandBarFooter` (contextual keyboard hints).
 
 The command bar no longer owns its own hidden-command or grouping switches. `AppCommand` remains
 the authoritative command ID, `AppCommandSpec` carries the authoritative metadata for dispatchable

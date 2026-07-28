@@ -139,9 +139,16 @@ struct UIActionPresentationTests {
     }
 
     @Test
-    func worktreeTabActionsUseTerminalAndViewerLabels() {
-        #expect(LocalActionSpec.openInNewTab.actionSpec.label == "Open Terminal in New Tab")
-        #expect(LocalActionSpec.openInPaneSplit.actionSpec.label == "Open Terminal in Pane (Split)")
+    func worktreeTabActionsUseTerminalAndBridgeLabels() {
+        #expect(LocalActionSpec.openInCurrentTabMenu.actionSpec.label == "Open in Current Tab")
+        #expect(LocalActionSpec.openInNewTabMenu.actionSpec.label == "Open in New Tab")
+        #expect(LocalActionSpec.openInEditorMenu.actionSpec.label == "Open in Editor")
+        #expect(AppCommand.openWorktreeInPane.definition.actionSpec.label == "Open Worktree in Pane")
+        #expect(AppCommand.openNewTerminalInTab.definition.actionSpec.label == "Open Terminal in New Tab")
         #expect(AppCommand.showViewer.definition.actionSpec.label == "Worktree Viewer")
+        #expect(AppCommand.showBridgeReview.definition.actionSpec.label == "Review")
+        #expect(AppCommand.showBridgeFiles.definition.actionSpec.label == "Files")
+        #expect(AppCommand.openBridgeReviewInNewTab.definition.actionSpec.label == "Open Review in New Tab")
+        #expect(AppCommand.openBridgeFilesInNewTab.definition.actionSpec.label == "Open Files in New Tab")
     }
 }

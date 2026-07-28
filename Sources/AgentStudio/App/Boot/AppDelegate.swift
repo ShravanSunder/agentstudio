@@ -51,7 +51,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder!
     var startupTraceRecorder: AgentStudioStartupTraceRecorder!
     var repoCacheStore: RepoCacheStore!
+    var entityRecencyStore: EntityRecencyStore!
     var repositoryTopologyStore: RepositoryTopologyStore!
+    var workspacePaneRecencyObserver: WorkspacePaneRecencyObserver?
     var sidebarCacheStore: SidebarCacheStore!
     var uiStateStore: UIStateStore!
     var workspaceSettingsStore: WorkspaceSettingsStore!

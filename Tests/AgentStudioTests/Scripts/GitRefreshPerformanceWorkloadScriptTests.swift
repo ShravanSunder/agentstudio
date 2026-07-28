@@ -499,25 +499,37 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         }
 
         let dataEnvironment = [AppDataPaths.dataDirectoryEnvironmentKey: input.dataRoot.path]
-        let datastore = WorkspaceSQLiteDatastoreFactory(
-            coreDatabaseURL: AppDataPaths.coreSQLiteURL(
-                environment: dataEnvironment,
-                isDebugBuild: true
-            ),
-            localDatabaseURL: AppDataPaths.localSQLiteURL(
-                environment: dataEnvironment,
-                isDebugBuild: true
-            )
-        ).makeDatastore()
+        let coreDatabaseURL = AppDataPaths.coreSQLiteURL(
+            environment: dataEnvironment,
+            isDebugBuild: true
+        )
+        let localDatabaseURL = AppDataPaths.localSQLiteURL(
+            environment: dataEnvironment,
+            isDebugBuild: true
+        )
+        let datastoreFactory = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: coreDatabaseURL,
+            localDatabaseURL: localDatabaseURL
+        )
+        let writer = datastoreFactory.makeDatastore()
+        guard case .prepared = await writer.prepareDatabasesForBoot() else {
+            Issue.record("Strict SQLite writer did not prepare")
+            return
+        }
 
-        try await datastore.saveRepositoryTopologySnapshot(fixture.repositoryTopologySnapshot)
-        try await datastore.saveWorkspaceSnapshotBundle(saveBundle)
-        guard case .loaded(let loadedWorkspace) = await datastore.loadWorkspaceSnapshot() else {
+        try await writer.saveRepositoryTopologySnapshot(fixture.repositoryTopologySnapshot)
+        try await writer.saveWorkspaceSnapshotBundle(saveBundle)
+        let reader = datastoreFactory.makeDatastore()
+        guard case .prepared = await reader.prepareDatabasesForBoot() else {
+            Issue.record("Strict SQLite reader did not prepare")
+            return
+        }
+        guard case .loaded(let loadedWorkspace) = await reader.loadWorkspaceSnapshot() else {
             Issue.record("Strict SQLite workspace reload did not return the materialized fixture")
             return
         }
         guard
-            case .loaded(let loadedTopology) = await datastore.loadRepositoryTopologySnapshot()
+            case .loaded(let loadedTopology) = await reader.loadRepositoryTopologySnapshot()
         else {
             Issue.record("Strict SQLite topology reload did not return the materialized fixture")
             return

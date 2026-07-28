@@ -19,6 +19,7 @@ struct WorkspaceCoreMigration014Tests {
             localDatabaseURL: fixture.localDatabaseURL
         )
         let datastore = datastoreFactory.makeDatastore()
+        _ = await datastore.prepareDatabasesForBoot()
         let loadResult = await datastore.loadWorkspaceSnapshot()
         guard case .loaded(let loadedSnapshot) = loadResult else {
             Issue.record("Expected migration 014 fixture to load, got \(loadResult)")
@@ -34,6 +35,7 @@ struct WorkspaceCoreMigration014Tests {
 
         try await datastore.saveWorkspaceSnapshotBundle(.init(workspace: loadedSnapshot))
         let reloadedDatastore = datastoreFactory.makeDatastore()
+        _ = await reloadedDatastore.prepareDatabasesForBoot()
         let reloadResult = await reloadedDatastore.loadWorkspaceSnapshot()
         guard case .loaded(let reloadedSnapshot) = reloadResult else {
             Issue.record("Expected saved migration 014 fixture to reload, got \(reloadResult)")

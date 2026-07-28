@@ -11,17 +11,12 @@ struct CommandBarSearchField: View {
     let onEnter: (EnterModifier) -> Void
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onBackspaceOnEmpty: () -> Void
+    let onTabForward: () -> Void
+    let onShiftTabBack: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            if state.isNested, let pillLabel = state.scopePillLabel {
-                CommandBarScopePill(
-                    label: pillLabel,
-                    onDismiss: { state.popToRoot() }
-                )
-            } else {
-                scopeIconView
-            }
+            scopeIconView
 
             CommandBarTextField(
                 text: $state.rawInput,
@@ -30,8 +25,11 @@ struct CommandBarSearchField: View {
                 onArrowDown: onArrowDown,
                 onEnter: onEnter,
                 onShortcutTrigger: onShortcutTrigger,
-                onBackspaceOnEmpty: onBackspaceOnEmpty
+                onBackspaceOnEmpty: onBackspaceOnEmpty,
+                onTabForward: onTabForward,
+                onShiftTabBack: onShiftTabBack
             )
+            .accessibilityLabel("Search \(state.breadcrumbLabel)")
         }
         .padding(.horizontal, 12)
         .frame(height: 44)

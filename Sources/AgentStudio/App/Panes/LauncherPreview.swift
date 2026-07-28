@@ -358,7 +358,9 @@ private struct PreviewBody: View {
                 onArrowDown: {},
                 onEnter: { _ in },
                 onShortcutTrigger: { _ in false },
-                onBackspaceOnEmpty: {}
+                onBackspaceOnEmpty: {},
+                onTabForward: {},
+                onShiftTabBack: {}
             )
 
             Divider()

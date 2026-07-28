@@ -107,6 +107,8 @@ extension AppDelegate {
         filesystemSource: inout FilesystemGitPipeline?
     ) async {
         switch step {
+        case .prepareDatabases:
+            await bootPrepareDatabases()
         case .loadCanonicalStore:
             await bootLoadCanonicalStore()
         case .loadCacheStore:
@@ -134,12 +136,37 @@ extension AppDelegate {
         }
     }
 
+    private func bootPrepareDatabases() async {
+        let sqliteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
+        workspaceSQLiteDatastore = sqliteDatastore
+        switch await sqliteDatastore.prepareDatabasesForBoot() {
+        case .prepared:
+            break
+        case .failed(let failure):
+            let diagnosticCode: WorkspaceStartupFailureDiagnosticCode =
+                switch failure.kind {
+                case .sqliteUnavailable:
+                    .sqliteUnavailable
+                case .compositionRejected:
+                    .compositionRejected
+                case .topologyRejected:
+                    .topologyRejected
+                }
+            try? await traceRuntime.flush()
+            preconditionFailure(
+                "Workspace startup invariant violated: "
+                    + diagnosticCode.rawValue
+            )
+        }
+    }
+
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
         AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
         AtomScope.setUp(atomStore)
-        let sqliteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
-        workspaceSQLiteDatastore = sqliteDatastore
+        guard let sqliteDatastore = workspaceSQLiteDatastore else {
+            preconditionFailure("Workspace databases were not prepared before canonical hydration")
+        }
         let workspaceSQLiteSaveCoordinator = WorkspaceSQLiteSaveCoordinator(
             identityAtom: atomStore.workspaceIdentity,
             windowMemoryAtom: atomStore.workspaceWindowMemory,
@@ -167,11 +194,15 @@ extension AppDelegate {
         )
         repoCacheStore = RepoCacheStore(
             cacheAtom: atomStore.repoEnrichmentCache,
-            recentTargetAtom: atomStore.recentWorkspaceTarget,
             sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
+        )
+        entityRecencyStore = EntityRecencyStore(
+            applicationAtom: atomStore.applicationEntityRecency,
+            workspaceAtom: atomStore.workspaceEntityRecency,
+            sqliteDatastore: sqliteDatastore
         )
         sidebarCacheStore = SidebarCacheStore(
             atom: atomStore.sidebarCache,
@@ -232,6 +263,8 @@ extension AppDelegate {
     }
 
     private func bootLoadCacheStore() async {
+        await entityRecencyStore.restoreApplicationAsync()
+        await entityRecencyStore.restoreWorkspaceAsync(for: store.identityAtom.workspaceId)
         await repoCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
         await refreshTraceIdentitySnapshot()
         await sidebarCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
@@ -311,6 +344,7 @@ extension AppDelegate {
             self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
         }
         executor = WorkspaceActionExecutor(coordinator: workspaceSurfaceCoordinator, store: store)
+        startWorkspacePaneRecencyObservation()
         tabBarAdapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
@@ -477,6 +511,7 @@ extension AppDelegate {
         // transaction instead of relying on a debounce side effect.
         store.startObserving()
         repoCacheStore.startObserving()
+        entityRecencyStore.startObserving()
         repositoryTopologyStore.startObserving()
         sidebarCacheStore.startObserving()
         uiStateStore.startObserving()
@@ -500,6 +535,11 @@ extension AppDelegate {
         assert(
             repoCacheStore.isAutosaveObservationActive,
             "RepoCacheStore autosave observation must be active after \(WorkspaceBootStep.armPersistenceObservation.rawValue)"
+        )
+        assert(
+            entityRecencyStore.isApplicationObservationActive
+                && entityRecencyStore.isWorkspaceObservationActive,
+            "EntityRecencyStore observations must be active after \(WorkspaceBootStep.armPersistenceObservation.rawValue)"
         )
         assert(
             repositoryTopologyStore.isAutosaveObservationActive,

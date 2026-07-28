@@ -7,6 +7,7 @@ import Testing
 
 final class MockCommandHandler: WorkspaceCommandHandling {
     var executedCommands: [(AppCommand, UUID?, SearchItemType?)] = []
+    var quickOpenDirectoryRequests: [(directory: URL, placement: QuickOpenDirectoryPlacement)] = []
     var canExecuteResult: Bool = true
     var targetedCanExecuteResult: Bool?
     var extractedPaneRequests: [(tabId: UUID, paneId: UUID, targetTabIndex: Int?)] = []
@@ -18,6 +19,10 @@ final class MockCommandHandler: WorkspaceCommandHandling {
 
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
         executedCommands.append((command, target, targetType))
+    }
+
+    func executeQuickOpenDirectory(_ directory: URL, placement: QuickOpenDirectoryPlacement) {
+        quickOpenDirectoryRequests.append((directory, placement))
     }
 
     func canExecute(_ command: AppCommand) -> Bool {
@@ -456,19 +461,19 @@ final class AppCommandTests {
         #expect(toggleInboxSort.shortcut == nil)
         #expect(toggleInboxSort.icon == .system(.arrowUpArrowDown))
         #expect(toggleInboxSort.commandBarGroupName == "Inbox")
-        #expect(toggleInboxSort.commandBarGroupPriority == sidebarInbox.commandBarGroupPriority)
+        #expect(toggleInboxSort.commandBarGroupPriority != sidebarInbox.commandBarGroupPriority)
         #expect(!toggleInboxSort.isHiddenInCommandBar)
         #expect(clearReadInbox.label == "Clear Read Inbox Notifications")
         #expect(clearReadInbox.shortcut == nil)
         #expect(clearReadInbox.icon == .system(.deleteLeft))
         #expect(clearReadInbox.commandBarGroupName == "Inbox")
-        #expect(clearReadInbox.commandBarGroupPriority == sidebarInbox.commandBarGroupPriority)
+        #expect(clearReadInbox.commandBarGroupPriority == toggleInboxSort.commandBarGroupPriority)
         #expect(!clearReadInbox.isHiddenInCommandBar)
         #expect(clearAllInbox.label == "Clear All Inbox Notifications")
         #expect(clearAllInbox.shortcut == nil)
         #expect(clearAllInbox.icon == .system(.deleteLeft))
         #expect(clearAllInbox.commandBarGroupName == "Inbox")
-        #expect(clearAllInbox.commandBarGroupPriority == sidebarInbox.commandBarGroupPriority)
+        #expect(clearAllInbox.commandBarGroupPriority == toggleInboxSort.commandBarGroupPriority)
         #expect(!clearAllInbox.isHiddenInCommandBar)
         #expect(paneInbox.shortcut == .showPaneInboxNotifications)
         #expect(paneInbox.appliesTo == [.pane])

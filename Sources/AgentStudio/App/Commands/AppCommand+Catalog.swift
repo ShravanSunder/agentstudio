@@ -3,22 +3,6 @@ import Foundation
 // MARK: - AppCommand Helpers
 
 extension AppCommand {
-    /// Ordered array of tab selection commands (⌘1 through ⌘9)
-    static let selectTabCommands: [AppCommand] = [
-        .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
-        .selectTab6, .selectTab7, .selectTab8, .selectTab9,
-    ]
-
-    static let focusPaneCommands: [AppCommand] = [
-        .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
-        .focusPane6, .focusPane7, .focusPane8, .focusPane9,
-    ]
-
-    static let focusDrawerPaneCommands: [AppCommand] = [
-        .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4, .focusDrawerPane5,
-        .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
-    ]
-
     var definition: AppCommandSpec {
         switch self {
         case .closeTab:
@@ -736,7 +720,7 @@ extension AppCommand {
                 icon: .system(.arrowUpArrowDown),
                 helpText: "Switch the inbox between newest-first and oldest-first order",
                 commandBarGroupName: "Inbox",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                commandBarGroupPriority: CommandBarGroupPriority.inbox
             )
         case .clearReadInboxNotifications:
             return AppCommandSpec(
@@ -745,7 +729,7 @@ extension AppCommand {
                 icon: .system(.deleteLeft),
                 helpText: "Remove read notifications from the inbox history",
                 commandBarGroupName: "Inbox",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                commandBarGroupPriority: CommandBarGroupPriority.inbox
             )
         case .clearAllInboxNotifications:
             return AppCommandSpec(
@@ -754,7 +738,7 @@ extension AppCommand {
                 icon: .system(.deleteLeft),
                 helpText: "Remove every notification from the inbox history",
                 commandBarGroupName: "Inbox",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                commandBarGroupPriority: CommandBarGroupPriority.inbox
             )
         case .showPaneInboxNotifications:
             return AppCommandSpec(
@@ -858,6 +842,16 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
                 ipcExposure: .uiPresentation()
             )
+        case .showCommandBarQuickOpen:
+            return AppCommandSpec(
+                command: self,
+                shortcut: .newTab,
+                label: "Quick Open",
+                icon: .system(.terminal),
+                helpText: "Open a terminal at a repository or worktree",
+                commandBarGroupName: "Commands",
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
+            )
         case .showCommandBarCommands:
             return AppCommandSpec(
                 command: self,
@@ -883,10 +877,9 @@ extension AppCommand {
         case .showCommandBarRepos:
             return AppCommandSpec(
                 command: self,
-                shortcut: .newTab,
-                label: "New Tab or Worktree",
+                label: "Repositories",
                 icon: .system(.folder),
-                helpText: "Open the repo and worktree picker",
+                helpText: "Open the repository navigator",
                 commandBarGroupName: "Commands",
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
                 ipcExposure: .uiPresentation()
@@ -909,7 +902,7 @@ extension AppCommand {
                 helpText: "Show or hide the Worktree Viewer in Pane Zoom",
                 visibleWhen: [.supportsTerminalZoom],
                 commandBarGroupName: "Worktree Viewer",
-                commandBarGroupPriority: CommandBarGroupPriority.webview,
+                commandBarGroupPriority: CommandBarGroupPriority.worktreeViewer,
                 ipcExposure: .init(executionModes: [], targetKinds: [], requiredPrivileges: [])
             )
         case .showBridgeReview:
@@ -920,7 +913,7 @@ extension AppCommand {
                 helpText: "Open the read-only review in a tab",
                 appliesTo: [.worktree],
                 commandBarGroupName: "Bridge",
-                commandBarGroupPriority: CommandBarGroupPriority.webview
+                commandBarGroupPriority: CommandBarGroupPriority.bridge
             )
         case .showBridgeFiles:
             return AppCommandSpec(
@@ -930,7 +923,7 @@ extension AppCommand {
                 helpText: "Open the worktree file viewer in a tab",
                 appliesTo: [.worktree],
                 commandBarGroupName: "Bridge",
-                commandBarGroupPriority: CommandBarGroupPriority.webview
+                commandBarGroupPriority: CommandBarGroupPriority.bridge
             )
         case .openBridgeReviewInNewTab:
             return AppCommandSpec(
@@ -940,7 +933,7 @@ extension AppCommand {
                 helpText: "Open an independent read-only review in a new tab",
                 appliesTo: [.worktree],
                 commandBarGroupName: "Bridge",
-                commandBarGroupPriority: CommandBarGroupPriority.webview
+                commandBarGroupPriority: CommandBarGroupPriority.bridge
             )
         case .openBridgeFilesInNewTab:
             return AppCommandSpec(
@@ -950,7 +943,7 @@ extension AppCommand {
                 helpText: "Open an independent worktree file viewer in a new tab",
                 appliesTo: [.worktree],
                 commandBarGroupName: "Bridge",
-                commandBarGroupPriority: CommandBarGroupPriority.webview
+                commandBarGroupPriority: CommandBarGroupPriority.bridge
             )
         case .signInGitHub:
             return AppCommandSpec(

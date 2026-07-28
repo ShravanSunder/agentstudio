@@ -473,7 +473,7 @@ enum AppShortcut: String, CaseIterable {
         case .closeTab:
             return .closeTab
         case .newTab:
-            return .showCommandBarRepos
+            return .showCommandBarQuickOpen
         case .undoCloseTab:
             return .undoCloseTab
         case .nextTab:

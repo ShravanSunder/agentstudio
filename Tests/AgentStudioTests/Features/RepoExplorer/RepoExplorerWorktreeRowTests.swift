@@ -60,6 +60,20 @@ struct RepoExplorerWorktreeRowTests {
         #expect(source.contains("if favoriteControlVisibility.showsContextMenuAction"))
     }
 
+    @Test("context menu groups creation actions by destination")
+    func contextMenuGroupsCreationActionsByDestination() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+
+        #expect(source.contains("LocalActionSpec.openInCurrentTabMenu.actionSpec"))
+        #expect(source.contains("LocalActionSpec.openInNewTabMenu.actionSpec"))
+        #expect(source.contains("LocalActionSpec.openInEditorMenu.actionSpec"))
+        #expect(source.contains("AppCommand.openWorktreeInPane.definition.actionSpec"))
+        #expect(source.contains("AppCommand.openNewTerminalInTab.definition.actionSpec"))
+    }
+
     @Test("repo explorer remains inbox-feature agnostic")
     func repoExplorerDoesNotReferenceInboxFeatureTypes() throws {
         let source = try String(

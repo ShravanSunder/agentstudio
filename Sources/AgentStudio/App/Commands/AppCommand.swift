@@ -106,6 +106,7 @@ enum AppCommand: String, CaseIterable {
     case closeWindow
     // Search/navigation
     case showCommandBarEverything
+    case showCommandBarQuickOpen
     case showCommandBarCommands
     case showCommandBarPanes
     case showCommandBarRepos
@@ -332,7 +333,7 @@ struct AppCommandIPCExposure: Equatable, Sendable {
             return [.layoutMutate]
         case .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .copyCurrentPanePath, .signInGitHub, .signInGoogle, .filterSidebar, .showCommandBarEverything,
-            .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
+            .showCommandBarQuickOpen, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
             return [.workspaceRead]
         }
     }
@@ -363,6 +364,9 @@ protocol WorkspaceCommandHandling: AnyObject {
 
     /// Execute a direct move-pane request with explicit source and destination identities.
     func executeMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID)
+
+    /// Open a Quick Open directory through the workspace pane/tab owner.
+    func executeQuickOpenDirectory(_ directory: URL, placement: QuickOpenDirectoryPlacement)
 }
 
 /// Routes app-level commands that do not belong to the pane command handler.
@@ -515,6 +519,8 @@ extension WorkspaceCommandHandling {
     func bridgePaneCommandTarget(worktreeId _: UUID) -> BridgePaneCommandTarget? {
         nil
     }
+
+    func executeQuickOpenDirectory(_: URL, placement _: QuickOpenDirectoryPlacement) {}
 }
 
 @MainActor
@@ -613,6 +619,14 @@ final class AppCommandDispatcher {
             return
         }
         handler.execute(command, target: target, targetType: targetType)
+    }
+
+    func dispatchQuickOpenDirectory(_ directory: URL, placement: QuickOpenDirectoryPlacement) {
+        guard let handler else {
+            Self.logger.warning("Quick Open directory dispatch had no workspace handler")
+            return
+        }
+        handler.executeQuickOpenDirectory(directory, placement: placement)
     }
 
     /// Execute a drag/drop extract-pane request through the active command handler.

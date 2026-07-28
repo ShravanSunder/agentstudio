@@ -6,7 +6,7 @@ enum PaneTabEmptyStateViewFactory {
     static func make(
         model: WorkspaceEmptyStateModel,
         onWatchFolder: @escaping () -> Void,
-        onOpenRecent: @escaping (RecentWorkspaceTarget) -> Void,
+        onOpenRecent: @escaping (ApplicationRecentEntity) -> Void,
         onOpenAllRecent: @escaping () -> Void
     ) -> NSHostingView<WorkspaceEmptyStateView> {
         let view = NSHostingView(

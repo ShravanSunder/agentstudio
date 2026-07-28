@@ -8,7 +8,7 @@ import Testing
 struct WorkspaceSQLiteZoomPersistenceExclusionTests {
     @Test("file-backed SQLite restores durable composition without Zoom runtime state")
     func fileBackedSQLiteExcludesZoomPresentationsAndCompanions() async throws {
-        let fixture = try makeZoomPersistenceFixture()
+        let fixture = try await makeZoomPersistenceFixture()
         defer { try? FileManager.default.removeItem(at: fixture.databaseDirectory) }
 
         #expect(fixture.originalStore.panePresentationAtom.zoomPresentationsByTabId.count == 2)
@@ -19,6 +19,7 @@ struct WorkspaceSQLiteZoomPersistenceExclusionTests {
             coreDatabaseURL: fixture.coreDatabaseURL,
             localDatabaseURL: fixture.localDatabaseURL
         ).makeDatastore()
+        _ = await restoredDatastore.prepareDatabasesForBoot()
         let restoredStore = WorkspaceStore(
             sqliteDatastore: restoredDatastore,
             startsObserving: false
@@ -69,7 +70,7 @@ private struct DurableZoomComposition {
 }
 
 @MainActor
-private func makeZoomPersistenceFixture() throws -> ZoomPersistenceFixture {
+private func makeZoomPersistenceFixture() async throws -> ZoomPersistenceFixture {
     let databaseDirectory = FileManager.default.temporaryDirectory.appending(
         path: "agentstudio-zoom-persistence-\(UUIDv7.generate().uuidString)"
     )
@@ -83,6 +84,7 @@ private func makeZoomPersistenceFixture() throws -> ZoomPersistenceFixture {
         coreDatabaseURL: coreDatabaseURL,
         localDatabaseURL: localDatabaseURL
     ).makeDatastore()
+    _ = await originalDatastore.prepareDatabasesForBoot()
     let originalStore = WorkspaceStore(
         sqliteDatastore: originalDatastore,
         startsObserving: false

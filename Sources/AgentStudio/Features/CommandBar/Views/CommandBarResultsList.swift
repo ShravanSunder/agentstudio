@@ -9,19 +9,22 @@ struct CommandBarResultsList: View {
     let searchQuery: String
     let dimmedItemIds: Set<String>
     let onSelect: (CommandBarItem) -> Void
+    let onShowActions: @MainActor @Sendable (CommandBarItem) -> Void
 
     init(
         groups: [CommandBarItemGroup],
         selectedIndex: Int,
         searchQuery: String = "",
         dimmedItemIds: Set<String> = [],
-        onSelect: @escaping (CommandBarItem) -> Void
+        onSelect: @escaping (CommandBarItem) -> Void,
+        onShowActions: @escaping @MainActor @Sendable (CommandBarItem) -> Void = { _ in }
     ) {
         self.groups = groups
         self.selectedIndex = selectedIndex
         self.searchQuery = searchQuery
         self.dimmedItemIds = dimmedItemIds
         self.onSelect = onSelect
+        self.onShowActions = onShowActions
     }
 
     var body: some View {
@@ -41,7 +44,8 @@ struct CommandBarResultsList: View {
                                     item: item,
                                     isSelected: flatIndex == selectedIndex,
                                     searchQuery: searchQuery,
-                                    isDimmed: dimmedItemIds.contains(item.id)
+                                    isDimmed: dimmedItemIds.contains(item.id),
+                                    onShowActions: { onShowActions(item) }
                                 )
                                 .id(item.id)
                                 .onTapGesture {

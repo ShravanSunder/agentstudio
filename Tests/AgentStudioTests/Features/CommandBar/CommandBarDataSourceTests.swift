@@ -867,39 +867,41 @@ struct CommandBarDataSourceTests {
 
     @Test
     func test_reposScope_usesFlatGroupForSingleWorktreeRepos() {
-        let store = makeStore()
-        let repo = store.addRepo(at: URL(filePath: "/tmp/test-repo"))
-        store.reconcileDiscoveredWorktrees(
-            repo.id,
-            worktrees: [
-                Worktree(
-                    repoId: repo.id,
-                    name: "main",
-                    path: URL(filePath: "/tmp/test-repo"),
-                    isMainWorktree: true
-                )
-            ])
+        withTestAtomRegistry { _ in
+            let store = makeStore()
+            let repo = store.addRepo(at: URL(filePath: "/tmp/test-repo"))
+            store.reconcileDiscoveredWorktrees(
+                repo.id,
+                worktrees: [
+                    Worktree(
+                        repoId: repo.id,
+                        name: "main",
+                        path: URL(filePath: "/tmp/test-repo"),
+                        isMainWorktree: true
+                    )
+                ])
 
-        // Act
-        let items = CommandBarDataSource.items(
-            scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
+            // Act
+            let items = CommandBarDataSource.items(
+                scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
-        // Assert
-        #expect(items.count == 1)
-        #expect(items.allSatisfy { $0.id.hasPrefix("repo-") })
-        #expect(items.allSatisfy { $0.group == "Repos" })
+            // Assert
+            #expect(items.count == 1)
+            #expect(items.allSatisfy { $0.id.hasPrefix("repo-") })
+            #expect(items.allSatisfy { $0.group == "Repositories" })
 
-        let repoItem = items.first
-        #expect(repoItem?.title == repo.name)
-        #expect(repoItem?.hasChildren == true)
-        guard case .navigateRepo(let level) = repoItem?.action else {
-            Issue.record("Expected repo row to drill into repo level")
-            return
+            let repoItem = items.first
+            #expect(repoItem?.title == repo.name)
+            #expect(repoItem?.hasChildren == true)
+            guard case .navigateRepo(let level) = repoItem?.action else {
+                Issue.record("Expected repo row to drill into repo level")
+                return
+            }
+            let mainItem = level.items.first { $0.id.hasPrefix("repo-wt-") }
+            #expect(mainItem?.title == "main")
+            #expect(mainItem?.icon == .system(.starFill))
+            #expect(mainItem?.subtitle == "main worktree")
         }
-        let mainItem = level.items.first { $0.id.hasPrefix("repo-wt-") }
-        #expect(mainItem?.title == "main")
-        #expect(mainItem?.icon == .system(.starFill))
-        #expect(mainItem?.subtitle == "main worktree")
 
     }
 
@@ -931,7 +933,7 @@ struct CommandBarDataSourceTests {
         #expect(items.first?.title == repo.name)
         #expect(items.first?.hasChildren == true)
         #expect(groups.count == 1)
-        #expect(groups.first?.name == "Repos")
+        #expect(groups.first?.name == "Repositories")
         guard case .navigateRepo(let level) = items.first?.action else {
             Issue.record("Expected repo row to drill into repo level")
             return

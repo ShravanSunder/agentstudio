@@ -6,6 +6,7 @@ struct AccessibilityPressBridge: NSViewRepresentable {
     let label: String
     let value: String?
     let isEnabled: Bool
+    let help: String?
     let action: @MainActor () -> Void
 
     init(
@@ -13,12 +14,14 @@ struct AccessibilityPressBridge: NSViewRepresentable {
         label: String,
         value: String? = nil,
         isEnabled: Bool = true,
+        help: String? = nil,
         action: @MainActor @escaping () -> Void
     ) {
         self.identifier = identifier
         self.label = label
         self.value = value
         self.isEnabled = isEnabled
+        self.help = help
         self.action = action
     }
 
@@ -28,6 +31,7 @@ struct AccessibilityPressBridge: NSViewRepresentable {
         view.label = label
         view.value = value
         view.isEnabled = isEnabled
+        view.help = help
         view.action = action
         return view
     }
@@ -37,6 +41,7 @@ struct AccessibilityPressBridge: NSViewRepresentable {
         nsView.label = label
         nsView.value = value
         nsView.isEnabled = isEnabled
+        nsView.help = help
         nsView.action = action
     }
 }
@@ -46,6 +51,7 @@ final class AccessibilityPressBridgeView: NSView {
     var label = ""
     var value: String?
     var isEnabled = true
+    var help: String?
     var action: @MainActor () -> Void = {}
 
     override func isAccessibilityElement() -> Bool {
@@ -70,6 +76,10 @@ final class AccessibilityPressBridgeView: NSView {
 
     override func accessibilityValue() -> Any? {
         value
+    }
+
+    override func accessibilityHelp() -> String? {
+        help ?? super.accessibilityHelp()
     }
 
     override func accessibilityPerformPress() -> Bool {

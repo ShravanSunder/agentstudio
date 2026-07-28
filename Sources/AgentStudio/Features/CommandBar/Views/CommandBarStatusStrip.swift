@@ -7,6 +7,14 @@ struct CommandBarStatusStrip: View {
     let mode: CommandBarAppMode
     let context: WorkspacePaneFocus
 
+    init(
+        mode: CommandBarAppMode,
+        context: WorkspacePaneFocus
+    ) {
+        self.mode = mode
+        self.context = context
+    }
+
     var body: some View {
         HStack {
             if let icon = mode.statusStripIcon, let label = mode.statusStripLabel {

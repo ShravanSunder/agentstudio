@@ -51,11 +51,11 @@ struct WorkspaceSQLiteTraceRecorderTests {
 
         await recorder.recordRecovery(
             .init(
-                recoveryKind: .localQuarantine,
-                operation: .workspaceLoad,
-                phase: .quarantineSidecars,
+                recoveryKind: .saveFailed,
+                operation: .workspaceSave,
+                phase: .writeLocal,
                 lane: .local,
-                outcome: .quarantined,
+                outcome: .failed,
                 workspaceId: workspaceId,
                 database: .local,
                 databaseURL: URL(fileURLWithPath: "/tmp/\(workspaceId.uuidString).local.sqlite"),
@@ -65,13 +65,13 @@ struct WorkspaceSQLiteTraceRecorderTests {
         try await traceRuntime.flush()
 
         let contents = try traceContents(from: traceRuntime)
-        #expect(contents.contains("\"body\":\"persistence.recovery.quarantined\""))
+        #expect(contents.contains("\"body\":\"persistence.recovery.failed\""))
         #expect(contents.contains("\"agentstudio.trace.tag\":\"persistence.recovery\""))
-        #expect(contents.contains("\"agentstudio.persistence.operation\":\"workspace.load\""))
-        #expect(contents.contains("\"agentstudio.persistence.phase\":\"quarantine_sidecars\""))
+        #expect(contents.contains("\"agentstudio.persistence.operation\":\"workspace.save\""))
+        #expect(contents.contains("\"agentstudio.persistence.phase\":\"write_local\""))
         #expect(contents.contains("\"agentstudio.persistence.lane\":\"local\""))
-        #expect(contents.contains("\"agentstudio.persistence.outcome\":\"quarantined\""))
-        #expect(contents.contains("\"agentstudio.persistence.recovery.kind\":\"local_quarantine\""))
+        #expect(contents.contains("\"agentstudio.persistence.outcome\":\"failed\""))
+        #expect(contents.contains("\"agentstudio.persistence.recovery.kind\":\"save_failed\""))
         #expect(contents.contains("\"agentstudio.sqlite.database\":\"local\""))
     }
 

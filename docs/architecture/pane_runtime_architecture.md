@@ -189,7 +189,7 @@ SwiftPaneView           (direct Swift)             SwiftPaneRuntime             
 
 **Decision:** Events self-classify as `critical` (never coalesced, immediate delivery) or `lossy` (batched on frame boundary, deduped by consolidation key). This is the **event classification** axis.
 
-**Visibility tiers:** A separate axis determines **delivery scheduling** — which pane's events get processed first when multiple events arrive in the same frame. Two tiers: `p0Visible` (active/visible panes) and `p1Hidden` (background panes). The NotificationReducer resolves tier via an injected `VisibilityTierResolver` (coordinator-provided). Adding visibility tiers is additive — the event and envelope contracts are unchanged. See [Contract 12a: Visibility-Tier Scheduling](#contract-12a-visibility-tier-scheduling-luna-295) for the full specification.
+**Visibility tiers:** A separate axis determines **delivery scheduling** — which pane's events get processed first when multiple events arrive in the same frame. Two tiers: `p0Visible` (active/visible panes) and `p1Hidden` (background panes). The NotificationReducer resolves tier via an injected `VisibilityTierResolver` (coordinator-provided). Adding visibility tiers is additive — the event and envelope contracts are unchanged. See [Contract 12a: Visibility-Tier Scheduling](#contract-12a-visibility-tier-scheduling-luna-295) for the full contract.
 
 ### D7: Filesystem observation with batched artifact production
 
@@ -197,7 +197,7 @@ SwiftPaneView           (direct Swift)             SwiftPaneRuntime             
 
 **Decision:** `FilesystemActor` emits filesystem facts (`.filesChanged`) and watched-folder topology facts (`.repoDiscovered`, `.repoRemoved`) alongside worktree topology (`.worktreeRegistered`/`.worktreeUnregistered`). A separate `GitWorkingDirectoryProjector` subscribes to `.filesChanged` and emits derived git facts (`.snapshotChanged`, `.branchChanged`, `.originChanged`). Add Folder uses a direct watched-folder command to trigger the actor and receive a scan summary, but topology facts still flow through the bus fanout. `FilesystemActor` enforces debounce (500ms settle) and max latency (2s) so sustained writes still flush bounded batches.
 
-**Enrichment pipeline context:** This filesystem observation is part of a sequential enrichment pipeline: `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor → WorkspaceCacheCoordinator`. Each stage subscribes to the bus and produces enriched events. The full pipeline spec is in [Workspace Data Architecture](workspace_data_architecture.md).
+**Enrichment pipeline context:** This filesystem observation is part of a sequential enrichment pipeline: `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor → WorkspaceCacheCoordinator`. Each stage subscribes to the bus and produces enriched events. The full pipeline contract is in [Workspace Data Architecture](workspace_data_architecture.md).
 
 **Primary sidebar identity contract (implemented):**
 1. `GitWorkingDirectoryProjector` is the only origin producer. It emits:
@@ -291,7 +291,7 @@ This is deliberate:
 | **Service** | Container service | App-wide | `ContainerEvent` (future: containerStarted, healthChanged, logOutput) | `WorktreeEnvelope` | Plugin backends (Docker, Podman, cloud) |
 | **Plugin** | _(open)_ | Varies | `any PaneKindEvent` via `.plugin(kind:event:)` | Varies | Plugin-defined |
 
-All system sources produce `RuntimeEnvelope` events (3-tier: `SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`) on the same `EventBus`. Topology events use `SystemEnvelope` because no canonical entity exists at discovery time. Enrichment events use `WorktreeEnvelope` scoped to known repos/worktrees. See [Workspace Data Architecture](workspace_data_architecture.md) for the full pipeline and event namespace spec.
+All system sources produce `RuntimeEnvelope` events (3-tier: `SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`) on the same `EventBus`. Topology events use `SystemEnvelope` because no canonical entity exists at discovery time. Enrichment events use `WorktreeEnvelope` scoped to known repos/worktrees. See [Workspace Data Architecture](workspace_data_architecture.md) for the full pipeline and event namespace contract.
 
 **Service tier pattern:** A protocol defines the event vocabulary and command interface. Plugin-provided backends conform to the protocol for specific providers. The service manages authentication, polling/webhook state, and event production. This is analogous to how `GhosttyAdapter` translates C API events — the forge adapter translates GitHub API events. Each service source carries `provider: String` identity because multiple backends of the same category can be active simultaneously (GitHub for repo A, GitLab for repo B). `ServiceSource` is a discriminated union — each case will grow service-specific associated values as the service matures (e.g., forge gains `account`, container gains `socket`).
 
@@ -347,7 +347,7 @@ The filesystem watcher is the first system-level source to implement. It's a pre
 
 #### Git Forge Service Pattern (LUNA-350)
 
-> **Authoritative spec:** [Workspace Data Architecture](workspace_data_architecture.md) defines the full ForgeActor design including event-driven triggers, polling fallback, and enrichment flow.
+> **Authoritative architecture:** [Workspace Data Architecture](workspace_data_architecture.md) defines the full ForgeActor design including event-driven triggers, polling fallback, and enrichment flow.
 
 ForgeActor is NOT an independent poller. It subscribes to the EventBus for `.branchChanged` and `.originChanged` events from `GitWorkingDirectoryProjector`, triggering targeted forge API queries. A self-driven polling timer (30-60s) serves as fallback for events that don't originate from local git changes (e.g., CI checks completing remotely).
 
@@ -1305,7 +1305,7 @@ Additional routing kinds (`.editor`, `.review`, `.agent`) are reserved for futur
 
 #### Envelope Invariants (normative)
 
-> **Envelope model:** `RuntimeEnvelope` is a 3-tier discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`). Pane-scoped events use `PaneEnvelope`. The invariants below apply to this model. See [Workspace Data Architecture](workspace_data_architecture.md) for the full hierarchy spec.
+> **Envelope model:** `RuntimeEnvelope` is a 3-tier discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`). Pane-scoped events use `PaneEnvelope`. The invariants below apply to this model. See [Workspace Data Architecture](workspace_data_architecture.md) for the full hierarchy contract.
 
 1. Sequence ownership: each runtime (or system producer) is the sole writer of `seq` for its own `EventSource`.
 2. Monotonicity: `seq` is strictly increasing per `EventSource`. Gaps are allowed only due to bounded replay eviction.
@@ -1467,9 +1467,10 @@ struct ActiveVisibleAttachPolicy: Sendable {
 /// geometry, the terminal reflows once. This is a single, expected
 /// reflow — not the multi-reflow flicker that placeholder attach causes.
 ///
-/// Persisted geometry source: `PersistedSessionState.lastCols` and
-/// `PersistedSessionState.lastRows`, saved by `WorkspacePersistor`
-/// on debounced persist (every 500ms of workspace changes).
+/// Current source has no SQLite projection for persisted terminal columns or
+/// rows. This forward-defined policy therefore requires a separate accepted
+/// persistence design before it can receive restored geometry; it must not
+/// infer that geometry from unrelated SQLite state.
 ///
 /// Fallback: if no persisted geometry exists (first launch, corrupted
 /// state, or session created after last persist), fall back to
@@ -2970,7 +2971,7 @@ The historical codebase used `NotificationCenter` and `DispatchQueue.main.async`
 ### Migration Order
 
 1. **LUNA-327 (done):** `@Observable` migration, `private(set)` stores, `WorkspaceSurfaceCoordinator` consolidation. Foundation for the event bus. `DispatchQueue.main.async` → `MainActor` primitives where touched.
-2. **LUNA-342 (done):** Contract freeze + Swift 6 language mode migration. `.swiftLanguageMode(.v6)` enforced, all `isolated deinit` migrations complete, `MainActor.assumeIsolated` removed from Sources, C callback trampolines partially migrated (`wakeup_cb` done), existential Sendable constraints added. SwiftLint concurrency rules added (44 violations marking LUNA-325 scope). See [migration spec](../plans/2026-02-22-swift6-language-mode-migration.md) and [mapping doc](../plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md#luna-342-implementation-record) for details.
+2. **LUNA-342 (done):** Contract freeze + Swift 6 language mode migration. `.swiftLanguageMode(.v6)` enforced, all `isolated deinit` migrations complete, `MainActor.assumeIsolated` removed from Sources, C callback trampolines partially migrated (`wakeup_cb` done), existential Sendable constraints added. SwiftLint concurrency rules added (44 violations marking LUNA-325 scope). See [migration plan](../plans/2026-02-22-swift6-language-mode-migration.md) and [mapping doc](../plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md#luna-342-implementation-record) for details.
 3. **LUNA-325 (in progress):** `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`, and runtime command dispatch scaffolding are landed. Migrated split/tab action families are now routed through typed runtime events (no dual-path NotificationCenter posts for migrated actions). Remaining full-contract parity is tracked through the LUNA-325/LUNA-345 closure gate.
 4. **LUNA-295 (attach orchestration):** Build attach readiness policies and visibility-tier scheduling. Consumes the event stream infrastructure from LUNA-325.
 5. **LUNA-324 (restart reconcile):** Build startup anchor reconciliation, non-destructive runtime-only classification, and post-restore health monitoring (Contract 5b).

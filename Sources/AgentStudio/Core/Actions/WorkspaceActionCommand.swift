@@ -36,6 +36,8 @@ enum PaneSource: Equatable, Hashable {
     case newTerminal
     /// Creating a new browser pane with the requested state.
     case newWebview(WebviewState)
+    /// Creating a new terminal at an explicit directory
+    case newTerminalAtDirectory(URL)
 }
 
 struct PaneInsertRequest: Equatable, Hashable {

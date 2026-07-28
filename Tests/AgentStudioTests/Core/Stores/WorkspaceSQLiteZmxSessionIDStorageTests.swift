@@ -16,6 +16,7 @@ struct WorkspaceSQLiteZmxSessionIDStorageTests {
             workspaceName: "UUIDv7 zmx workspace",
             createdAt: Date(timeIntervalSince1970: 1_700_000_075)
         )
+        let sqliteDatastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         try fixture.coreRepository.upsertWorkspace(
             .init(
                 id: workspaceID,
@@ -24,7 +25,6 @@ struct WorkspaceSQLiteZmxSessionIDStorageTests {
                 updatedAt: identityAtom.createdAt
             )
         )
-        let sqliteDatastore = workspaceSQLiteDatastore(from: fixture.backend)
         let store = WorkspaceStore(
             identityAtom: identityAtom,
             sqliteDatastore: sqliteDatastore

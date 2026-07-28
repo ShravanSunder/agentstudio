@@ -10,7 +10,7 @@ final class WorkspaceStoreArrangementTests {
     private var store: WorkspaceStore!
 
     init() {
-        store = WorkspaceStore()
+        store = WorkspaceStore(startsObserving: false)
     }
 
     // MARK: - Helpers
@@ -119,7 +119,7 @@ final class WorkspaceStoreArrangementTests {
 
     func test_createArrangement_marksDirty() async {
         let (tab, _) = createTabWithPanes(2)
-        _ = await store.flushAsync()
+        store.startObserving()
         _ = store.createArrangement(
             name: "Test",
             inTab: tab.id
@@ -345,7 +345,7 @@ final class WorkspaceStoreArrangementTests {
     func test_switchArrangement_sameArrangement_noOp() async {
         let (tab, _) = createTabWithPanes(2)
         let defaultArrId = store.tab(tab.id)!.activeArrangementId
-        _ = await store.flushAsync()
+        store.startObserving()
         store.switchArrangement(to: defaultArrId, inTab: tab.id)
 
         // No change, so isDirty should NOT have been set by the switch

@@ -32,12 +32,17 @@ final class WorkspaceStoreDrawerTests {
         )
         try WorkspaceCoreMigrations.migrate(coreQueue)
         try WorkspaceLocalMigrations.migrate(localQueue)
-        let datastore = WorkspaceSQLiteDatastore(
+        let datastore = try await preparedWorkspaceSQLiteDatastore(
             coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
-            makeLocalRepository: { workspaceId in
-                WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
-            }
+            preparedApplicationLocalRepository: WorkspaceLocalRepository(
+                workspaceId: UUID(),
+                databaseWriter: localQueue
+            )
         )
+        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+            Issue.record("expected drawer test databases to prepare")
+            return
+        }
         let saveCoordinator = WorkspaceSQLiteSaveCoordinator(
             identityAtom: store.identityAtom,
             windowMemoryAtom: store.windowMemoryAtom,

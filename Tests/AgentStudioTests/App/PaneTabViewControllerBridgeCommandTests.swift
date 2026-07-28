@@ -4,6 +4,10 @@ import Testing
 
 @testable import AgentStudio
 
+private enum BridgeCommandRecencyTestError: Error {
+    case missingSetupPane
+}
+
 extension WebKitSerializedTests {
     @MainActor
     @Suite(.serialized)
@@ -155,10 +159,23 @@ extension WebKitSerializedTests {
             }
         }
 
-        @Test("invalid Bridge worktree target creates nothing and records no attendance")
-        func invalidWorktreeTargetCreatesNothingAndRecordsNoAttendance() async {
+        @Test("successful targeted Bridge commands record location and attended pane recency")
+        func successfulTargetedCommandsRecordLocationAndPaneRecency() async throws {
+            for command in [
+                AppCommand.showBridgeReview,
+                .showBridgeFiles,
+                .openBridgeReviewInNewTab,
+                .openBridgeFilesInNewTab,
+            ] {
+                try await assertSuccessfulBridgeCommandRecordsRecency(command)
+            }
+        }
+
+        @Test("invalid or unsupported Bridge target records no recency or attendance")
+        func invalidOrUnsupportedTargetRecordsNothing() async {
             await withBridgeCommandHarness { harness in
                 // Arrange
+                let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
                 let invalidWorktreeId = UUID()
                 let attendanceBefore = atom(\.bridgePaneAttendance).ordinalByPaneId
                 let paneIdsBefore = Set(harness.store.paneAtom.panes.keys)
@@ -167,6 +184,7 @@ extension WebKitSerializedTests {
                 // Act
                 harness.controller.execute(.showBridgeReview, target: invalidWorktreeId, targetType: .worktree)
                 harness.controller.execute(.openBridgeFilesInNewTab, target: invalidWorktreeId, targetType: .worktree)
+                harness.controller.execute(.showBridgeFiles, target: worktree.id, targetType: .repo)
 
                 // Assert
                 #expect(Set(harness.store.paneAtom.panes.keys) == paneIdsBefore)
@@ -174,9 +192,137 @@ extension WebKitSerializedTests {
                 #expect(harness.viewRegistry.allBridgeViews.isEmpty)
                 #expect(atom(\.bridgePaneAttendance).ordinalByPaneId == attendanceBefore)
                 #expect(atom(\.bridgePaneAttendance).ordinal(for: invalidWorktreeId) == nil)
+                #expect(atom(\.applicationEntityRecency).recentEntities.isEmpty)
+                #expect(atom(\.workspaceEntityRecency).recentEntities.isEmpty)
             }
         }
     }
+}
+
+@MainActor
+private func assertSuccessfulBridgeCommandRecordsRecency(_ command: AppCommand) async throws {
+    try await withAsyncTestAtomRegistry { atoms in
+        let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
+        let (repository, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let reusesExistingPane = command == .showBridgeReview || command == .showBridgeFiles
+        let reusedPane: Pane?
+        let reuseWindow: NSWindow?
+        if reusesExistingPane {
+            let paneIdsBeforeSetup = Set(harness.store.paneAtom.panes.keys)
+            harness.controller.execute(
+                .openBridgeReviewInNewTab,
+                target: worktree.id,
+                targetType: .worktree
+            )
+            guard
+                let setupPane = singleCreatedBridgePane(
+                    in: harness,
+                    excluding: paneIdsBeforeSetup
+                )
+            else {
+                throw BridgeCommandRecencyTestError.missingSetupPane
+            }
+            reusedPane = setupPane
+            let distractorPane = harness.store.createPane(title: "Distractor")
+            let distractorTab = Tab(paneId: distractorPane.id, name: "Distractor")
+            harness.store.appendTab(distractorTab)
+            harness.store.setActiveTab(distractorTab.id)
+            reuseWindow = try attachExistingBridgeHostToWindow(
+                paneId: setupPane.id,
+                in: harness
+            )
+            reuseWindow?.isReleasedWhenClosed = false
+        } else {
+            reusedPane = nil
+            reuseWindow = nil
+        }
+
+        atoms.applicationEntityRecency.clear()
+        atoms.workspaceEntityRecency.hydrate(
+            workspaceID: harness.store.identityAtom.workspaceId,
+            recentEntities: []
+        )
+        configureMainWindowKeyboardOwner(atoms)
+        let observer = WorkspacePaneRecencyObserver(
+            store: harness.store,
+            attendedPane: AttendedPaneDerived(
+                tabLayout: harness.store.tabLayoutAtom,
+                windowLifecycle: atoms.windowLifecycle,
+                managementLayer: atoms.managementLayer
+            ),
+            recencyAtom: atoms.workspaceEntityRecency
+        )
+        let paneIdsBeforeDispatch = Set(harness.store.paneAtom.panes.keys)
+
+        do {
+            try await dispatchBridgeCommand(
+                command,
+                worktreeId: worktree.id,
+                controller: harness.controller
+            )
+
+            let openedPane =
+                if let reusedPane {
+                    reusedPane
+                } else {
+                    try #require(
+                        singleCreatedBridgePane(in: harness, excluding: paneIdsBeforeDispatch)
+                    )
+                }
+            await eventually("Bridge command should record the newly attended pane") {
+                atoms.workspaceEntityRecency.recentEntities.contains {
+                    $0.entity == .pane(paneID: openedPane.id)
+                }
+            }
+
+            let applicationRecency = atoms.applicationEntityRecency.recentEntities
+            #expect(
+                Set(applicationRecency.map(\.entity))
+                    == Set([
+                        .repository(repositoryStableKey: repository.stableKey),
+                        .worktree(worktreeStableKey: worktree.stableKey),
+                    ])
+            )
+            #expect(applicationRecency.allSatisfy { $0.interaction == .opened })
+            #expect(
+                Set(applicationRecency.map(\.lastInteractedAt)).count == 1
+            )
+            #expect(
+                atoms.workspaceEntityRecency.recentEntities.map(\.entity)
+                    == [.pane(paneID: openedPane.id)]
+            )
+
+            observer.stop()
+            reuseWindow?.close()
+            await finishBridgeCommandHarness(harness)
+        } catch {
+            observer.stop()
+            reuseWindow?.close()
+            await finishBridgeCommandHarness(harness)
+            throw error
+        }
+    }
+}
+
+@MainActor
+private func dispatchBridgeCommand(
+    _ command: AppCommand,
+    worktreeId: UUID,
+    controller: PaneTabViewController
+) async throws {
+    try await withIsolatedCommandDispatcher(
+        configure: {
+            AppCommandDispatcher.shared.handler = controller
+            AppCommandDispatcher.shared.appCommandRouter = nil
+        },
+        body: {
+            AppCommandDispatcher.shared.dispatch(
+                command,
+                target: worktreeId,
+                targetType: .worktree
+            )
+        }
+    )
 }
 
 @MainActor

@@ -11,7 +11,7 @@ final class PaneContentWiringTests {
 
     init() {
         installTestAtomRegistryIfNeeded()
-        store = WorkspaceStore()
+        store = WorkspaceStore(startsObserving: false)
     }
 
     // MARK: - WorkspaceStore.createPane(content:)
@@ -73,7 +73,7 @@ final class PaneContentWiringTests {
     @Test
 
     func test_createPane_marksDirty() async {
-        _ = await store.flushAsync()
+        store.startObserving()
         _ = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://test.com")!, showNavigation: false)),
             metadata: PaneMetadata(title: "Web")
@@ -198,8 +198,7 @@ final class PaneContentWiringTests {
             metadata: PaneMetadata(title: "Web")
         )
         store.appendTab(Tab(paneId: pane.id))
-        let flushOutcome = await store.flushAsync()
-        try #require(flushOutcome == .persisted)
+        store.startObserving()
         #expect(!(store.isDirty))
 
         // Act
@@ -217,8 +216,7 @@ final class PaneContentWiringTests {
             metadata: PaneMetadata(title: "Web")
         )
         store.appendTab(Tab(paneId: pane.id))
-        let flushOutcome = await store.flushAsync()
-        try #require(flushOutcome == .persisted)
+        store.startObserving()
         #expect(!store.isDirty)
 
         store.syncPaneWebviewState(pane.id, state: state)

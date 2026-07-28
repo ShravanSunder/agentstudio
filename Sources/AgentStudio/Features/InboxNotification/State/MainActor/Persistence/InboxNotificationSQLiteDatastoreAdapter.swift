@@ -2,8 +2,8 @@ import Foundation
 
 struct InboxNotificationSQLiteDatastoreAdapter {
     enum LoadResult: Sendable {
-        case loaded(InboxNotificationStore.SQLiteSnapshot, recoveryEvents: [PersistenceRecoveryEvent])
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
+        case loaded(InboxNotificationStore.SQLiteSnapshot)
+        case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
     let workspaceId: UUID
@@ -11,10 +11,10 @@ struct InboxNotificationSQLiteDatastoreAdapter {
 
     func load() async -> LoadResult {
         switch await datastore.performLocalRestoreOperation(workspaceId: workspaceId, Self.loadSnapshot) {
-        case .completed(let snapshot, let recoveryEvents):
-            return .loaded(snapshot, recoveryEvents: recoveryEvents)
-        case .unavailable(let failure, let recoveryEvents):
-            return .unavailable(failure, recoveryEvents: recoveryEvents)
+        case .completed(let snapshot):
+            return .loaded(snapshot)
+        case .unavailable(let failure):
+            return .unavailable(failure)
         }
     }
 

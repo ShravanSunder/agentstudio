@@ -82,11 +82,13 @@ extension WorkspaceSurfaceCoordinator {
         guard
             let controller = viewRegistry.view(for: paneId)?
                 .mountedContent(as: BridgePaneMountView.self)?
-                .controller
+                .controller,
+            controller.requestViewerSurface(surface)
         else {
             return false
         }
-        return controller.requestViewerSurface(surface)
+        recordBridgeWorktreeOpened(for: paneId)
+        return true
     }
 
     @discardableResult
@@ -204,6 +206,17 @@ extension WorkspaceSurfaceCoordinator {
             }
         }
         return contexts.count == 1 ? contexts[0] : nil
+    }
+
+    private func recordBridgeWorktreeOpened(for paneId: UUID) {
+        guard
+            let worktreeId = store.paneAtom.pane(paneId)?.metadata.facets.worktreeId,
+            let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
+            let repo = store.repositoryTopologyAtom.repo(containing: worktreeId)
+        else {
+            return
+        }
+        recordWorktreeOpened(worktree, in: repo)
     }
 
     private func bridgeReviewMetadata(

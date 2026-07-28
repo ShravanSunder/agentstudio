@@ -8,7 +8,7 @@
 >
 > - **Internal contradiction on drawer-pane lifecycle.** Section "Transient State" (~line 121) describes an "Orphaned pane pool" with a 5-minute TTL into which drawer panes are promoted when their parent is deleted. Later, section "Concept 3: Drawer" (~line 345) says parent-pane deletion **backgrounds** drawer panes. Those are two different stories about the same lifecycle. The actual code behavior should be checked and the loser removed.
 > - **Stale ownership naming (now fixed in this doc).** Older revisions said management-layer state was stored in `ManagementLayerMonitor.shared` (~line 553). Per [`appkit_swiftui_architecture.md`](appkit_swiftui_architecture.md) the canonical owner is `ManagementLayerAtom` and `ManagementLayerMonitor` is a side-effect observer. The reference here has been updated, but other instances of the older mental model may persist in this doc.
-> - **Pre-LUNA-361 mental model.** Sections discussing notification routing, sidebar surfaces, or composition state may reflect designs that have been superseded by the [Notification Inbox spec](../superpowers/specs/2026-04-17-notification-inbox-design.md) and the [Interaction Model WIP](../superpowers/specs/2026-04-18-interaction-model-wip.md).
+> - **Pre-LUNA-361 mental model.** Sections discussing notification routing, sidebar surfaces, or composition state may reflect designs superseded by the authoritative architecture docs below.
 >
 > **Authoritative docs for the concepts this one covers:**
 >
