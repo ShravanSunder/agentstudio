@@ -500,7 +500,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             _ = self.store.repositoryTopologyAtom.repos
             _ = atom(\.welcome).isChoosingFolder
             _ = atom(\.welcome).folderScanState
-            _ = self.repoCache.recentTargets
+            _ = atom(\.applicationEntityRecency).recentEntities
         } onChange: {
             Task { @MainActor [weak self] in
                 self?.handleAppKitStateChange()
@@ -1353,50 +1353,33 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         lastEmptyStateModel = currentModel
     }
 
-    private func openRecentTarget(_ target: RecentWorkspaceTarget) {
-        let fileManager = FileManager.default
-        if let worktreeId = target.worktreeId {
-            guard store.repositoryTopologyAtom.worktree(worktreeId) != nil else {
-                Self.logger.warning(
-                    "Recent target removed because worktree is missing: \(target.id, privacy: .public)")
-                repoCache.removeRecentTarget(target.id)
-                return
-            }
-            guard store.repositoryTopologyAtom.repo(containing: worktreeId) != nil else {
-                Self.logger.warning(
-                    "Recent target removed because repo is missing for worktreeId=\(worktreeId.uuidString, privacy: .public)"
-                )
-                repoCache.removeRecentTarget(target.id)
-                return
-            }
-            guard fileManager.fileExists(atPath: target.path.path) else {
-                Self.logger.warning(
-                    "Recent target removed because path is missing: \(target.path.path, privacy: .public)")
-                repoCache.removeRecentTarget(target.id)
-                return
-            }
-            dispatchAction(
-                .openNewTerminalInTab(
-                    worktreeId: worktreeId,
-                    launchDirectory: target.path,
-                    title: target.displayTitle
-                )
+    private func openRecentTarget(_ target: ApplicationRecentEntity) {
+        guard
+            let worktree = WorkspaceLauncherProjector.resolveActivationWorktree(
+                target: target,
+                repositoryTopology: store.repositoryTopologyAtom
+            )
+        else {
+            Self.logger.warning("Recent launcher entity removed because live topology is missing")
+            let applicationRecency = atom(\.applicationEntityRecency)
+            WorkspaceLauncherProjector.pruneStaleTarget(
+                target,
+                applicationRecency: applicationRecency
             )
             return
         }
 
-        guard fileManager.fileExists(atPath: target.path.path) else {
-            Self.logger.warning(
-                "Recent target removed because path is missing: \(target.path.path, privacy: .public)")
-            repoCache.removeRecentTarget(target.id)
-            return
-        }
-
-        dispatchAction(.openFloatingTerminal(launchDirectory: target.path, title: target.displayTitle))
+        dispatchAction(
+            .openNewTerminalInTab(
+                worktreeId: worktree.id,
+                launchDirectory: worktree.path,
+                title: worktree.name
+            )
+        )
     }
 
     private func openAllRecentTargets() {
-        for target in emptyStateModel.recentTargets {
+        for target in emptyStateModel.recentEntities {
             openRecentTarget(target)
         }
     }
@@ -1980,6 +1963,31 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     func openWorktreeInPane(for worktree: Worktree, in _: Repo) {
         dispatchAction(.openWorktreeInPane(worktreeId: worktree.id))
+    }
+
+    func executeQuickOpenDirectory(
+        _ directory: URL,
+        placement: QuickOpenDirectoryPlacement
+    ) {
+        switch placement {
+        case .newTab:
+            dispatchAction(.openFloatingTerminal(launchDirectory: directory, title: nil))
+        case .currentTabPane:
+            guard let activeTabId = store.tabLayoutAtom.activeTabId,
+                let activePaneId = store.tabLayoutAtom.tab(activeTabId)?.activePaneId
+            else {
+                return
+            }
+            dispatchAction(
+                .insertPane(
+                    source: .newTerminalAtDirectory(directory),
+                    targetTabId: activeTabId,
+                    targetPaneId: activePaneId,
+                    direction: .right,
+                    sizingMode: .halveTarget
+                )
+            )
+        }
     }
 
     func closeTerminal(for worktreeId: UUID) {
@@ -2698,7 +2706,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 break
             }
             dispatchAction(.detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId))
-        case .showCommandBarEverything, .showCommandBarCommands,
+        case .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos,
             .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .deleteArrangement, .renameArrangement,
@@ -2786,6 +2794,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         guard let tab = store.tabLayoutAtom.tabContaining(paneId: paneId) else { return }
         handlePaneFocusTrigger(.command(.focusPane(tabId: tab.id, paneId: paneId)))
+    }
+
+    private func canFocusTargetedPane(_ paneId: UUID) -> Bool {
+        guard let pane = store.paneAtom.pane(paneId) else { return false }
+        if let parentPaneId = pane.parentPaneId {
+            return store.tabLayoutAtom.tabContaining(paneId: parentPaneId) != nil
+                && store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.contains(paneId) == true
+        }
+        return store.tabLayoutAtom.tabContaining(paneId: paneId) != nil
     }
 
     private func revealArrangementContainingPane(tabId: UUID, paneId: UUID) {
@@ -3123,6 +3140,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
         if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
             return paneInboxPresentation != nil && paneInboxTarget(anchorPaneId: target) != nil
+        }
+
+        if command == .focusPane, isPaneTargetType(targetType) {
+            return canFocusTargetedPane(target)
         }
 
         if canExecuteTargetedTerminalRuntimeCommand(command, target: target),

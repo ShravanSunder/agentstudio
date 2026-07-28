@@ -731,7 +731,7 @@ extension AppCommand {
                 icon: .system(.arrowUpArrowDown),
                 helpText: "Switch the inbox between newest-first and oldest-first order",
                 commandBarGroupName: "Inbox",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                commandBarGroupPriority: CommandBarGroupPriority.inbox
             )
         case .clearReadInboxNotifications:
             return AppCommandSpec(
@@ -740,7 +740,7 @@ extension AppCommand {
                 icon: .system(.deleteLeft),
                 helpText: "Remove read notifications from the inbox history",
                 commandBarGroupName: "Inbox",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                commandBarGroupPriority: CommandBarGroupPriority.inbox
             )
         case .clearAllInboxNotifications:
             return AppCommandSpec(
@@ -749,7 +749,7 @@ extension AppCommand {
                 icon: .system(.deleteLeft),
                 helpText: "Remove every notification from the inbox history",
                 commandBarGroupName: "Inbox",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                commandBarGroupPriority: CommandBarGroupPriority.inbox
             )
         case .showPaneInboxNotifications:
             return AppCommandSpec(
@@ -853,6 +853,16 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
                 ipcExposure: .uiPresentation()
             )
+        case .showCommandBarQuickOpen:
+            return AppCommandSpec(
+                command: self,
+                shortcut: .newTab,
+                label: "Quick Open",
+                icon: .system(.terminal),
+                helpText: "Open a terminal at a repository or worktree",
+                commandBarGroupName: "Commands",
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
+            )
         case .showCommandBarCommands:
             return AppCommandSpec(
                 command: self,
@@ -878,10 +888,9 @@ extension AppCommand {
         case .showCommandBarRepos:
             return AppCommandSpec(
                 command: self,
-                shortcut: .newTab,
-                label: "New Tab or Worktree",
+                label: "Repositories",
                 icon: .system(.folder),
-                helpText: "Open the repo and worktree picker",
+                helpText: "Open the repository navigator",
                 commandBarGroupName: "Commands",
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
                 ipcExposure: .uiPresentation()
@@ -903,7 +912,7 @@ extension AppCommand {
                 helpText: "Open the read-only review in a tab",
                 appliesTo: [.worktree],
                 commandBarGroupName: "Bridge",
-                commandBarGroupPriority: CommandBarGroupPriority.webview
+                commandBarGroupPriority: CommandBarGroupPriority.bridge
             )
         case .showBridgeFiles:
             return AppCommandSpec(
@@ -913,7 +922,7 @@ extension AppCommand {
                 helpText: "Open the worktree file viewer in a tab",
                 appliesTo: [.worktree],
                 commandBarGroupName: "Bridge",
-                commandBarGroupPriority: CommandBarGroupPriority.webview
+                commandBarGroupPriority: CommandBarGroupPriority.bridge
             )
         case .openBridgeReviewInNewTab:
             return AppCommandSpec(
@@ -923,7 +932,7 @@ extension AppCommand {
                 helpText: "Open an independent read-only review in a new tab",
                 appliesTo: [.worktree],
                 commandBarGroupName: "Bridge",
-                commandBarGroupPriority: CommandBarGroupPriority.webview
+                commandBarGroupPriority: CommandBarGroupPriority.bridge
             )
         case .openBridgeFilesInNewTab:
             return AppCommandSpec(
@@ -933,7 +942,7 @@ extension AppCommand {
                 helpText: "Open an independent worktree file viewer in a new tab",
                 appliesTo: [.worktree],
                 commandBarGroupName: "Bridge",
-                commandBarGroupPriority: CommandBarGroupPriority.webview
+                commandBarGroupPriority: CommandBarGroupPriority.bridge
             )
         case .signInGitHub:
             return AppCommandSpec(

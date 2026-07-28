@@ -3,8 +3,6 @@ import Foundation
 enum SQLiteLocalUXStorage {
     static let sidebarSurfaceRepos = "repos"
     static let sidebarSurfaceInbox = "inbox"
-    static let recentWorkspaceTargetKindWorktree = "worktree"
-    static let recentWorkspaceTargetKindCwdOnly = "cwdOnly"
 
     static func storageValue(for surface: SidebarSurface) -> String {
         switch surface {
@@ -15,32 +13,12 @@ enum SQLiteLocalUXStorage {
         }
     }
 
-    static func storageValue(for kind: RecentWorkspaceTarget.Kind) -> String {
-        switch kind {
-        case .worktree:
-            recentWorkspaceTargetKindWorktree
-        case .cwdOnly:
-            recentWorkspaceTargetKindCwdOnly
-        }
-    }
-
     static func sidebarSurface(from rawValue: String) -> SidebarSurface? {
         switch rawValue {
         case sidebarSurfaceRepos:
             .repos
         case sidebarSurfaceInbox:
             .inbox
-        default:
-            nil
-        }
-    }
-
-    static func recentWorkspaceTargetKind(from rawValue: String) -> RecentWorkspaceTarget.Kind? {
-        switch rawValue {
-        case recentWorkspaceTargetKindWorktree:
-            .worktree
-        case recentWorkspaceTargetKindCwdOnly:
-            .cwdOnly
         default:
             nil
         }

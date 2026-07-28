@@ -522,7 +522,7 @@ The restructure should be done on its own branch and merged into `main` and all 
 
 | File | Role |
 |------|------|
-| This document | Directory structure spec and decision principles |
+| This document | Directory structure contract and decision principles |
 | [Architecture Overview](README.md) | System overview and document index |
 | [Component Architecture](component_architecture.md) | Data model, service layer, ownership |
 | [Session Lifecycle](session_lifecycle.md) | Session creation, close, undo, restore |

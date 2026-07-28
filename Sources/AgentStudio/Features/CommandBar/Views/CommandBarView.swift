@@ -9,6 +9,7 @@ struct CommandBarView: View {
     let resultSession: CommandBarResultSession
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onExecuteItem: (CommandBarItem, EnterModifier) -> Void
+    let onShowActions: @MainActor @Sendable (CommandBarItem) -> Void
 
     var body: some View {
         let resultSnapshot = resultSession.snapshot(state: state)
@@ -27,18 +28,20 @@ struct CommandBarView: View {
                 onArrowDown: { state.moveSelectionDown(totalItems: resultSnapshot.totalItems) },
                 onEnter: { modifier in executeSelected(modifier: modifier) },
                 onShortcutTrigger: onShortcutTrigger,
-                onBackspaceOnEmpty: { handleBackspace() }
+                onBackspaceOnEmpty: { handleBackspace() },
+                onTabForward: { handleTabForward() },
+                onShiftTabBack: { state.popLevel() }
             )
 
             // Separator
             Divider()
                 .opacity(AppStyles.CommandBar.Panel.nestedDividerOpacity)
 
-            // Back row when nested
+            // Breadcrumb trail when nested
             if state.isNested {
-                CommandBarBackRow(
-                    label: state.backRowLabel,
-                    onBack: { state.popToRoot() }
+                CommandBarBreadcrumbRow(
+                    items: state.breadcrumbItems,
+                    onNavigate: { index in state.navigateToBreadcrumb(at: index) }
                 )
             }
 
@@ -46,9 +49,10 @@ struct CommandBarView: View {
             CommandBarResultsList(
                 groups: resultSnapshot.groups,
                 selectedIndex: state.selectedIndex,
-                searchQuery: state.searchQuery,
+                searchQuery: state.isNested ? state.searchQuery : state.normalizedRootQuery,
                 dimmedItemIds: resultSnapshot.dimmedItemIds,
-                onSelect: { item in onExecuteItem(item, .plain) }
+                onSelect: { item in onExecuteItem(item, .plain) },
+                onShowActions: onShowActions
             )
 
             // Separator
@@ -70,10 +74,21 @@ struct CommandBarView: View {
         onExecuteItem(item, modifier)
     }
 
+    private func handleTabForward() {
+        guard
+            let item = resultSession.snapshot(state: state).selectedItem,
+            item.hasChildren
+        else { return }
+        if item.showsActionsButton {
+            onShowActions(item)
+        } else {
+            onExecuteItem(item, .plain)
+        }
+    }
+
     private func handleBackspace() {
         if state.isNested {
-            // Pop back to root
-            state.popToRoot()
+            state.popLevel()
         } else if state.activePrefix != nil {
             // Clear prefix → return to everything scope
             state.rawInput = ""

@@ -54,16 +54,12 @@ final class WorkspaceSettingsStore {
 
         switch await sqliteDatastore.loadWorkspaceSettings(workspaceId: workspaceId) {
         case .loaded(let payload):
-            reportRecoveryEvents(payload.recoveryEvents)
             isRestoringSettings = true
-            hydrate(
-                editor: payload.editor,
-                repoExplorer: payload.repoExplorer,
-                inboxNotification: payload.inboxNotification
-            )
+            hydrateEditor(payload.editor, workspaceId: workspaceId)
+            hydrateRepoExplorer(payload.repoExplorer, workspaceId: workspaceId)
+            hydrateInboxNotification(payload.inboxNotification, workspaceId: workspaceId)
             isRestoringSettings = false
-        case .unavailable(_, let recoveryEvents):
-            reportRecoveryEvents(recoveryEvents)
+        case .unavailable:
             isRestoringSettings = true
             hydrateDefaults()
             isRestoringSettings = false
@@ -197,10 +193,70 @@ final class WorkspaceSettingsStore {
         )
     }
 
-    private func reportRecoveryEvents(_ recoveryEvents: [PersistenceRecoveryEvent]) {
-        guard let recoveryReporter else { return }
-        for recoveryEvent in recoveryEvents {
-            recoveryReporter(recoveryEvent)
+    private func hydrateEditor(
+        _ value: WorkspaceSQLiteDatastore.LocalSettingsValue<
+            WorkspaceLocalRepository.EditorPreferencesRecord
+        >,
+        workspaceId: UUID
+    ) {
+        switch value {
+        case .loaded(let editor):
+            editorPreferenceAtom.hydrate(
+                bookmarkedEditorId: editor.bookmarkedEditorId.map(EditorTargetId.init(rawValue:))
+            )
+        case .defaulted:
+            editorPreferenceAtom.hydrate(bookmarkedEditorId: nil)
+            reportResetToDefaults(workspaceId: workspaceId)
         }
+    }
+
+    private func hydrateRepoExplorer(
+        _ value: WorkspaceSQLiteDatastore.LocalSettingsValue<
+            WorkspaceLocalRepository.RepoExplorerPreferencesRecord
+        >,
+        workspaceId: UUID
+    ) {
+        let preferences: WorkspaceLocalRepository.RepoExplorerPreferencesRecord
+        switch value {
+        case .loaded(let loadedPreferences):
+            preferences = loadedPreferences
+        case .defaulted:
+            preferences = .default
+            reportResetToDefaults(workspaceId: workspaceId)
+        }
+        repoExplorerSidebarPrefsAtom.hydrate(
+            groupingMode: preferences.groupingMode,
+            sortOrder: preferences.sortOrder,
+            repoVisibilityMode: preferences.visibilityMode
+        )
+    }
+
+    private func hydrateInboxNotification(
+        _ value: WorkspaceSQLiteDatastore.LocalSettingsValue<
+            WorkspaceLocalRepository.InboxNotificationPreferencesRecord
+        >,
+        workspaceId: UUID
+    ) {
+        let preferences: WorkspaceLocalRepository.InboxNotificationPreferencesRecord
+        switch value {
+        case .loaded(let loadedPreferences):
+            preferences = loadedPreferences
+        case .defaulted:
+            preferences = .default
+            reportResetToDefaults(workspaceId: workspaceId)
+        }
+        inboxNotificationPrefsAtom.setGrouping(preferences.grouping)
+        inboxNotificationPrefsAtom.setSort(preferences.sortOrder)
+        inboxNotificationPrefsAtom.setBellEnabled(preferences.bellEnabled)
+        inboxNotificationPrefsAtom.setGlobalInboxContentMode(preferences.globalContentMode)
+        inboxNotificationPrefsAtom.setGlobalInboxRowStateFilter(preferences.globalRowStateFilter)
+        inboxNotificationPrefsAtom.setPaneInboxContentMode(preferences.paneContentMode)
+        inboxNotificationPrefsAtom.setPaneInboxRowStateFilter(preferences.paneRowStateFilter)
+    }
+
+    private func reportResetToDefaults(workspaceId: UUID) {
+        recoveryReporter?(
+            .init(store: .workspaceSettings, workspaceId: workspaceId, recovery: .resetToDefaults)
+        )
     }
 }

@@ -70,8 +70,8 @@ struct CommandBarResultSessionTests {
         #expect(snapshot.selectedItem?.id == "nested-open")
     }
 
-    @Test("# root item snapshot is reused while only the query changes")
-    func rootItemSnapshotIsReusedWhileOnlyQueryChanges() {
+    @Test("# root item snapshot rebuilds at the empty-to-meaningful boundary only")
+    func rootItemSnapshotRebuildsOnlyAtMeaningfulBoundary() {
         let store = WorkspaceStore()
         let state = CommandBarState()
         state.show(prefix: "#")
@@ -88,8 +88,140 @@ struct CommandBarResultSessionTests {
         state.rawInput = "# repo feature"
         _ = session.snapshot(state: state)
 
+        #expect(session.rootItemSnapshotBuildCount == 2)
+        #expect(session.rootItemSnapshotCacheHitCount == 1)
+    }
+
+    @Test("whitespace-only root input stays in the empty projection and passes an empty fuzzy query")
+    func whitespaceOnlyRootInputReusesEmptyProjection() {
+        let state = CommandBarState()
+        state.show(prefix: "#")
+        let session = CommandBarResultSession(
+            store: WorkspaceStore(),
+            repoCache: RepoCacheAtom(),
+            dispatcher: .shared
+        )
+
+        _ = session.snapshot(state: state)
+        state.rawInput = "# \n  "
+        let snapshot = session.snapshot(state: state)
+
         #expect(session.rootItemSnapshotBuildCount == 1)
-        #expect(session.rootItemSnapshotCacheHitCount == 2)
+        #expect(session.rootItemSnapshotCacheHitCount == 1)
+        #expect(snapshot.searchDocument.query.isEmpty)
+    }
+
+    @Test("root input trims edges for fuzzy search and preserves internal whitespace")
+    func rootInputUsesOneNormalizedFuzzyQuery() {
+        let state = CommandBarState()
+        state.show(prefix: "#")
+        state.rawInput = "#   repo   feature  "
+        let session = CommandBarResultSession(
+            store: WorkspaceStore(),
+            repoCache: RepoCacheAtom(),
+            dispatcher: .shared
+        )
+
+        let snapshot = session.snapshot(state: state)
+
+        #expect(snapshot.searchDocument.query == "repo   feature")
+    }
+
+    @Test("clearing a meaningful root query rebuilds the empty projection once")
+    func clearingMeaningfulRootQueryReversesProjectionBoundary() {
+        let state = CommandBarState()
+        state.show(prefix: ">")
+        let session = CommandBarResultSession(
+            store: WorkspaceStore(),
+            repoCache: RepoCacheAtom(),
+            dispatcher: .shared
+        )
+
+        _ = session.snapshot(state: state)
+        state.rawInput = "> close"
+        _ = session.snapshot(state: state)
+        state.rawInput = "> close pane"
+        _ = session.snapshot(state: state)
+        state.rawInput = "> "
+        _ = session.snapshot(state: state)
+
+        #expect(session.rootItemSnapshotBuildCount == 3)
+        #expect(session.rootItemSnapshotCacheHitCount == 1)
+    }
+
+    @Test("root selection preserves stable row identity across projection boundaries")
+    func rootSelectionPreservesStableRowIdentity() throws {
+        let store = WorkspaceStore()
+        let firstRepository = store.addRepo(at: URL(filePath: "/tmp/command-bar-selection-first"))
+        let selectedRepository = store.addRepo(at: URL(filePath: "/tmp/command-bar-selection-selected"))
+        let state = CommandBarState()
+        state.show(prefix: "#")
+        let session = CommandBarResultSession(
+            store: store,
+            repoCache: RepoCacheAtom(),
+            dispatcher: .shared
+        )
+
+        let emptySnapshot = session.snapshot(state: state)
+        let selectedID = "repo-\(selectedRepository.id.uuidString)"
+        state.selectedIndex = try #require(
+            emptySnapshot.displayedItems.firstIndex { $0.id == selectedID }
+        )
+        #expect(firstRepository.id != selectedRepository.id)
+        state.rawInput = "# selected"
+        let meaningfulSnapshot = session.snapshot(state: state)
+
+        #expect(meaningfulSnapshot.selectedItem?.id == selectedID)
+        #expect(meaningfulSnapshot.displayedItems[state.selectedIndex].id == selectedID)
+    }
+
+    @Test("selection clamps deterministically when the selected row disappears")
+    func rootSelectionClampsWhenSelectedRowDisappears() {
+        let state = CommandBarState()
+        state.show(prefix: ">")
+        let session = CommandBarResultSession(
+            store: WorkspaceStore(),
+            repoCache: RepoCacheAtom(),
+            dispatcher: .shared
+        )
+
+        let initialSnapshot = session.snapshot(state: state)
+        state.selectedIndex = max(0, initialSnapshot.displayedItems.count - 1)
+        state.rawInput = "> no command can match this sentinel"
+        let emptySnapshot = session.snapshot(state: state)
+
+        #expect(emptySnapshot.displayedItems.isEmpty)
+        #expect(emptySnapshot.selectedItem == nil)
+        #expect(state.selectedIndex == 0)
+    }
+
+    @Test("selection wraps symmetrically through consecutive result snapshots")
+    func selectionWrapsSymmetricallyThroughResultSnapshots() throws {
+        let state = CommandBarState()
+        state.show(prefix: ">")
+        let session = CommandBarResultSession(
+            store: WorkspaceStore(),
+            repoCache: RepoCacheAtom(),
+            dispatcher: .shared
+        )
+        let initialSnapshot = session.snapshot(state: state)
+        let finalIndex = initialSnapshot.displayedItems.count - 1
+        let firstItemID = try #require(initialSnapshot.displayedItems.first?.id)
+        let finalItemID = try #require(initialSnapshot.displayedItems.last?.id)
+
+        state.selectedIndex = finalIndex
+        _ = session.snapshot(state: state)
+        state.moveSelectionDown(totalItems: initialSnapshot.totalItems)
+        let downWrappedSnapshot = session.snapshot(state: state)
+
+        #expect(state.selectedIndex == 0)
+        #expect(downWrappedSnapshot.selectedItem?.id == firstItemID)
+
+        state.moveSelectionUp(totalItems: downWrappedSnapshot.totalItems)
+        let upWrappedSnapshot = session.snapshot(state: state)
+
+        #expect(state.selectedIndex == finalIndex)
+        #expect(upWrappedSnapshot.selectedItem?.id == finalItemID)
     }
 
     @Test("# root item snapshot rebuilds when observed topology changes")

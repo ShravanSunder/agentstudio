@@ -3,6 +3,25 @@ import AgentStudioProgrammaticControl
 import AppKit
 
 extension AppDelegate: AgentStudioIPCUIPresenting {
+    func showCommandBar(defaultRootScope: CommandBarScope, context: String) {
+        appLogger.info("showCommandBar context=\(context, privacy: .public)")
+        guard
+            let window = Self.commandBarPresentationWindow(
+                keyWindow: NSApp.keyWindow,
+                fallbackWindow: mainWindowController?.window
+            ),
+            let workspaceWindowId = windowLifecycleStore.preferredWorkspaceWindowId
+        else {
+            appLogger.warning("No window available for \(context, privacy: .public)")
+            return
+        }
+        commandBarController.show(
+            defaultRootScope: defaultRootScope,
+            parentWindow: window,
+            workspaceWindowId: workspaceWindowId
+        )
+    }
+
     func showCommandBar(prefix: String?, context: String) {
         appLogger.info("showCommandBar context=\(context, privacy: .public)")
         guard

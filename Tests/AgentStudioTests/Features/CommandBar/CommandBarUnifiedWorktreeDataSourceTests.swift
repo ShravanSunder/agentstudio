@@ -17,6 +17,104 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
     }
 
     @Test
+    func test_reposScope_showsFiveUniqueRecentRepositoriesBeforeRemainingRepositories() throws {
+        try withTestAtomRegistry { atoms in
+            let store = WorkspaceStore(
+                identityAtom: atoms.workspaceIdentity,
+                repositoryTopologyAtom: atoms.workspaceRepositoryTopology
+            )
+            for name in ["repo-a", "repo-b", "repo-c", "repo-d", "repo-e", "repo-f", "repo-g"] {
+                store.addRepo(at: URL(filePath: "/tmp/\(name)"))
+            }
+
+            let repoB = try #require(store.repos.first { $0.name == "repo-b" })
+            let repoBMainWorktree = try #require(repoB.worktrees.first)
+            let repoBFeatureWorktree = Worktree(
+                repoId: repoB.id,
+                name: "feature",
+                path: URL(filePath: "/tmp/repo-b.feature")
+            )
+            store.reconcileDiscoveredWorktrees(
+                repoB.id,
+                worktrees: [repoBMainWorktree, repoBFeatureWorktree]
+            )
+
+            let reposByName = Dictionary(uniqueKeysWithValues: store.repos.map { ($0.name, $0) })
+            let repoA = try #require(reposByName["repo-a"])
+            let repoD = try #require(reposByName["repo-d"])
+            let repoE = try #require(reposByName["repo-e"])
+            let repoF = try #require(reposByName["repo-f"])
+            let repoG = try #require(reposByName["repo-g"])
+            let staleRepo = Repo(name: "stale-repo", repoPath: URL(filePath: "/tmp/stale-repo"))
+            let staleWorktree = Worktree(
+                repoId: staleRepo.id,
+                name: "main",
+                path: staleRepo.repoPath,
+                isMainWorktree: true
+            )
+            let applicationEntityRecency = atoms.applicationEntityRecency
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: staleRepo.stableKey,
+                worktreeStableKey: staleWorktree.stableKey,
+                at: Date(timeIntervalSince1970: 800)
+            )
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: repoG.stableKey,
+                worktreeStableKey: try #require(repoG.worktrees.first).stableKey,
+                at: Date(timeIntervalSince1970: 700)
+            )
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: repoB.stableKey,
+                worktreeStableKey: repoBFeatureWorktree.stableKey,
+                at: Date(timeIntervalSince1970: 650)
+            )
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: repoB.stableKey,
+                worktreeStableKey: repoBMainWorktree.stableKey,
+                at: Date(timeIntervalSince1970: 600)
+            )
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: repoF.stableKey,
+                worktreeStableKey: try #require(repoF.worktrees.first).stableKey,
+                at: Date(timeIntervalSince1970: 500)
+            )
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: repoA.stableKey,
+                worktreeStableKey: try #require(repoA.worktrees.first).stableKey,
+                at: Date(timeIntervalSince1970: 400)
+            )
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: repoE.stableKey,
+                worktreeStableKey: try #require(repoE.worktrees.first).stableKey,
+                at: Date(timeIntervalSince1970: 300)
+            )
+            try applicationEntityRecency.recordOpened(
+                repositoryStableKey: repoD.stableKey,
+                worktreeStableKey: try #require(repoD.worktrees.first).stableKey,
+                at: Date(timeIntervalSince1970: 200)
+            )
+            let repoCache = RepoCacheAtom()
+
+            let items = CommandBarDataSource.items(
+                scope: .repos,
+                store: store,
+                repoCache: repoCache,
+                dispatcher: dispatcher
+            )
+
+            #expect(
+                items.filter { $0.group == "Recent Repositories" }.map(\.title)
+                    == ["repo-g", "repo-b", "repo-f", "repo-a", "repo-e"]
+            )
+            #expect(
+                items.filter { $0.group == "Repositories" }.map(\.title)
+                    == ["repo-c", "repo-d"]
+            )
+            #expect(Set(items.map(\.id)).count == items.count)
+        }
+    }
+
+    @Test
     func test_reposScope_rootRowsAreReposNotWorktrees() {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/root-agent-studio"))
@@ -48,7 +146,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         #expect(repoItem?.title == "root-agent-studio")
         #expect(repoItem?.subtitle == "2 worktrees")
         #expect(repoItem?.hasChildren == true)
-        #expect(repoItem?.group == "Repos")
+        #expect(repoItem?.group == "Repositories")
     }
 
     @Test
@@ -72,7 +170,11 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             return
         }
         #expect(level.title == "single-root-repo")
-        #expect(level.scopeLabel == "Repo")
+        #expect(level.scopeLabel == "Repository")
+        #expect(
+            level.breadcrumbIcon
+                == .coloredRepo(colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0])
+        )
     }
 
     @Test
@@ -100,7 +202,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
     }
 
     @Test
-    func test_repoLevelShowsOpenCommandsBeforeWorktrees() {
+    func test_repoLevelGroupsDefaultWorktreeActionsAroundWorktrees() {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/repo-level-actions"))
         let main = Worktree(
@@ -114,25 +216,60 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             name: "feature",
             path: URL(filePath: "/tmp/repo-level-actions-feature")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [main, feature])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [feature, main])
         guard let storedRepo = store.repos.first else {
             Issue.record("Expected stored repo")
             return
         }
+        guard let storedMainWorktree = storedRepo.worktrees.first(where: \.isMainWorktree) else {
+            Issue.record("Expected stored main worktree")
+            return
+        }
+        #expect(storedRepo.worktrees.first?.id != storedMainWorktree.id)
+        let pane = store.createPane(
+            launchDirectory: storedMainWorktree.path,
+            facets: PaneContextFacets(
+                repoId: storedRepo.id,
+                worktreeId: storedMainWorktree.id,
+                cwd: storedMainWorktree.path
+            )
+        )
+        store.appendTab(Tab(paneId: pane.id))
 
         let level = CommandBarDataSource.buildRepoLevel(repo: storedRepo, store: store)
 
         #expect(level.title == "repo-level-actions")
-        #expect(level.scopeLabel == "Repo")
-        #expect(level.items.map(\.title).prefix(2) == ["Copy Path", "Reveal in Finder"])
-        #expect(level.items[0].group == "Open")
-        #expect(level.items[1].group == "Open")
-        #expect(level.items.contains { $0.title == "main" && $0.group == "Worktrees" })
-        #expect(level.items.contains { $0.title == "feature" && $0.group == "Worktrees" })
+        #expect(level.scopeLabel == "Repository")
+        #expect(
+            level.breadcrumbIcon
+                == .coloredRepo(colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0])
+        )
+        let groups = CommandBarDataSource.grouped(level.items)
+        #expect(groups.map(\.name) == ["Terminal", "Path", "Worktrees", "Panes"])
+        let groupsByName = Dictionary(uniqueKeysWithValues: groups.map { ($0.name, $0.items) })
+        #expect(groupsByName["Terminal"]?.map(\.title) == ["New pane in current tab", "Open Terminal in New Tab"])
+        #expect(groupsByName["Path"]?.map(\.title) == ["Copy Path", "Reveal in Finder"])
+        #expect(groupsByName["Worktrees"]?.map(\.title) == ["main", "feature"])
+        #expect(
+            groupsByName["Panes"]?.map(\.title) == [
+                "Open Review",
+                "Open Files",
+                "Open Review in New Tab",
+                "Open Files in New Tab",
+            ])
+
+        let defaultWorktreeTargetedItems = (groupsByName["Terminal"] ?? []) + (groupsByName["Panes"] ?? [])
+        #expect(
+            defaultWorktreeTargetedItems.allSatisfy { item in
+                guard case .dispatchTargeted(_, let target, .worktree) = item.action else {
+                    return false
+                }
+                return target == storedMainWorktree.id
+            })
     }
 
     @Test
-    func test_worktreeLevelUsesSingleOpenGroupForPathAndPaneActions() {
+    func test_worktreeLevelGroupsTerminalPathPaneAndNavigationActions() {
         let presence = makeWorktreePresence(paneCount: 1)
         let worktree = Worktree(
             repoId: presence.repoId,
@@ -147,19 +284,19 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             canOpenInCurrentTab: true
         )
 
-        let openTitles = level.items.filter { $0.group == "Open" }.map(\.title)
+        let groups = CommandBarDataSource.grouped(level.items)
+        #expect(groups.map(\.name) == ["Terminal", "Path", "Panes", "Navigate to"])
+        let groupsByName = Dictionary(uniqueKeysWithValues: groups.map { ($0.name, $0.items) })
+        #expect(groupsByName["Terminal"]?.map(\.title) == ["New pane in current tab", "Open Terminal in New Tab"])
+        #expect(groupsByName["Path"]?.map(\.title) == ["Copy Path", "Reveal in Finder"])
         #expect(
-            openTitles == [
-                "Copy Path",
-                "Reveal in Finder",
-                "Open Terminal in New Tab",
+            groupsByName["Panes"]?.map(\.title) == [
                 "Open Review",
                 "Open Files",
                 "Open Review in New Tab",
                 "Open Files in New Tab",
-                "New pane in current tab",
             ])
-        #expect(level.items.contains { $0.group == "Navigate to" && $0.title == "Terminal — main" })
+        #expect(groupsByName["Navigate to"]?.map(\.title) == ["Terminal — main"])
     }
 
     @Test

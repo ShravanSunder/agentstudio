@@ -34,6 +34,23 @@ enum EnterModifier: Sendable {
     case option
 }
 
+enum CommandBarRecentActivation: Equatable, Sendable {
+    case repository(repositoryStableKey: String)
+    case worktree(worktreeStableKey: String)
+    case pane(paneID: UUID, workspaceID: UUID)
+}
+
+enum CommandBarQuickOpenTarget: Equatable, Sendable {
+    case repository(repositoryStableKey: String)
+    case worktree(worktreeStableKey: String)
+    case directory(URL)
+}
+
+enum QuickOpenDirectoryPlacement: Equatable, Sendable {
+    case currentTabPane
+    case newTab
+}
+
 // MARK: - CommandBarAction
 
 /// What happens when a command bar item is selected.
@@ -50,6 +67,10 @@ enum CommandBarAction {
     case custom(@Sendable () -> Void)
     /// Resolve worktree behavior at selection time based on presence and modifier keys.
     case worktreeAction(presence: WorktreePresence)
+    /// Open a terminal at a live repository/worktree target or enter its existing actions.
+    case quickOpen(CommandBarQuickOpenTarget)
+    /// Re-resolve a typed recent entity against live state immediately before dispatch.
+    case activateRecent(CommandBarRecentActivation)
 }
 
 enum CommandBarItemKind {
@@ -82,9 +103,12 @@ struct CommandBarItem: Identifiable {
     let groupPriority: Int
     let keywords: [String]
     let hasChildren: Bool
+    let showsActionsButton: Bool
     let action: CommandBarAction
     /// The underlying command, if any. Used for dimming navigate items whose command is unavailable.
     let command: AppCommand?
+    let accessibilityLabel: String
+    let accessibilityHint: String
 
     init(
         id: String,
@@ -99,8 +123,11 @@ struct CommandBarItem: Identifiable {
         groupPriority: Int,
         keywords: [String] = [],
         hasChildren: Bool = false,
+        showsActionsButton: Bool = false,
         action: CommandBarAction,
-        command: AppCommand? = nil
+        command: AppCommand? = nil,
+        accessibilityLabel: String? = nil,
+        accessibilityHint: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -114,19 +141,85 @@ struct CommandBarItem: Identifiable {
         self.groupPriority = groupPriority
         self.keywords = keywords
         self.hasChildren = hasChildren
+        self.showsActionsButton = showsActionsButton
         self.action = action
         self.command = command
+        self.accessibilityLabel =
+            accessibilityLabel
+            ?? [title, subtitle, secondaryLine?.text].compactMap(\.self).joined(separator: ", ")
+        self.accessibilityHint =
+            accessibilityHint
+            ?? Self.defaultAccessibilityHint(
+                title: title,
+                action: action
+            )
     }
 
     private static func shortcutKeys(for trigger: ShortcutTrigger) -> [ShortcutKey] {
         ShortcutKey.from(trigger: trigger)
     }
 
+    private static func defaultAccessibilityHint(
+        title: String,
+        action: CommandBarAction
+    ) -> String {
+        switch action {
+        case .dispatch:
+            return "Run \(title)"
+        case .dispatchTargeted(let command, _, _):
+            return command == .focusPane ? "Focus pane" : "Run \(title)"
+        case .navigate, .navigateRepo:
+            return "Show \(title) actions"
+        case .custom:
+            return title
+        case .worktreeAction:
+            return "Show worktree actions"
+        case .quickOpen:
+            return "Open terminal"
+        case .activateRecent(let activation):
+            switch activation {
+            case .repository: return "Show repository actions"
+            case .worktree: return "Show worktree actions"
+            case .pane: return "Focus pane"
+            }
+        }
+    }
+
+    func projected(
+        group: String,
+        groupPriority: Int,
+        action: CommandBarAction? = nil,
+        hasChildren: Bool? = nil,
+        showsActionsButton: Bool? = nil,
+        accessibilityLabel: String? = nil,
+        accessibilityHint: String? = nil
+    ) -> Self {
+        Self(
+            id: id,
+            title: title,
+            subtitle: subtitle,
+            secondaryLine: secondaryLine,
+            icon: icon,
+            iconColor: iconColor,
+            shortcutTrigger: shortcutTrigger,
+            shortcutKeys: shortcutKeys,
+            group: group,
+            groupPriority: groupPriority,
+            keywords: keywords,
+            hasChildren: hasChildren ?? self.hasChildren,
+            showsActionsButton: showsActionsButton ?? self.showsActionsButton,
+            action: action ?? self.action,
+            command: command,
+            accessibilityLabel: accessibilityLabel ?? self.accessibilityLabel,
+            accessibilityHint: accessibilityHint ?? self.accessibilityHint
+        )
+    }
+
     var worktreeOpenState: WorktreeOpenState? {
         switch action {
         case .worktreeAction(let presence):
             return presence.openState
-        case .dispatch, .dispatchTargeted, .navigate, .navigateRepo, .custom:
+        case .dispatch, .dispatchTargeted, .navigate, .navigateRepo, .custom, .quickOpen, .activateRecent:
             return nil
         }
     }
@@ -135,6 +228,12 @@ struct CommandBarItem: Identifiable {
         switch action {
         case .worktreeAction:
             return .worktree
+        case .quickOpen(let target):
+            switch target {
+            case .repository: return .repo
+            case .worktree: return .worktree
+            case .directory: return .other
+            }
         case .dispatch:
             return .command
         case .navigate:
@@ -143,6 +242,12 @@ struct CommandBarItem: Identifiable {
             return .repo
         case .custom:
             return .other
+        case .activateRecent(let activation):
+            switch activation {
+            case .repository: return .repo
+            case .worktree: return .worktree
+            case .pane: return .pane
+            }
         case .dispatchTargeted(let command, _, let targetType):
             if command == .selectTab && targetType == .tab {
                 return .tab
@@ -185,16 +290,21 @@ struct ShortcutKey: Identifiable, Hashable {
 
 // MARK: - CommandBarLevel
 
+struct CommandBarBreadcrumbItem: Equatable {
+    let label: String
+    let accessibilityLabel: String
+    let icon: AppEntityIcon?
+}
+
 /// A navigation level in the command bar (for nested drill-in).
 ///
-/// When `scopeLabel` is set, the pill shows the scope label (e.g. "Worktrees · Actions")
-/// and the back row shows `‹ {title}`. When `scopeLabel` is nil, the pill shows `title`
-/// and the back row shows a bare `‹`.
+/// `scopeLabel` identifies the level's entity or action kind in the breadcrumb.
 struct CommandBarLevel: Identifiable {
     let id: String
     let title: String
     let parentLabel: String?
     let scopeLabel: String?
+    let breadcrumbIcon: AppEntityIcon?
     let items: [CommandBarItem]
 
     init(
@@ -202,12 +312,14 @@ struct CommandBarLevel: Identifiable {
         title: String,
         parentLabel: String? = nil,
         scopeLabel: String? = nil,
+        breadcrumbIcon: AppEntityIcon? = nil,
         items: [CommandBarItem]
     ) {
         self.id = id
         self.title = title
         self.parentLabel = parentLabel
         self.scopeLabel = scopeLabel
+        self.breadcrumbIcon = breadcrumbIcon
         self.items = items
     }
 }
@@ -285,18 +397,42 @@ enum FooterHintBuilder {
         scope: CommandBarScope = .everything
     ) -> [FooterHint] {
         if isNested {
-            return [
-                .divider("div-dismiss"),
-                FooterHint(id: "back", key: "⌫", label: "Back", style: .plain),
-                FooterHint(id: "dismiss", key: "esc", label: "Close", style: .plain),
-            ]
+            var hints: [FooterHint] = []
+            if item?.hasChildren == true {
+                hints.append(FooterHint(id: "drill-in", key: "⇥", label: "Actions"))
+            }
+            hints.append(.divider("div-dismiss"))
+            hints.append(FooterHint(id: "back", key: "⇧⇥ / ⌫", label: "Back", style: .plain))
+            hints.append(FooterHint(id: "dismiss", key: "esc", label: "Close", style: .plain))
+            return hints
         }
 
         // Action hints — item-specific
         var actions: [FooterHint] = []
 
         if let item {
-            if item.worktreeOpenState != nil {
+            if case .quickOpen = item.action {
+                actions = [
+                    FooterHint(id: "enter", key: "↵", label: "Open"),
+                    FooterHint(
+                        id: "cmd-enter",
+                        keys: [ShortcutKey(symbol: "⌘"), ShortcutKey(symbol: "↵")],
+                        label: "New tab"
+                    ),
+                ]
+                if canOpenInCurrentTab {
+                    actions.append(
+                        FooterHint(
+                            id: "opt-enter",
+                            keys: [ShortcutKey(symbol: "⌥"), ShortcutKey(symbol: "↵")],
+                            label: "Open in tab"
+                        )
+                    )
+                }
+                if item.showsActionsButton {
+                    actions.append(FooterHint(id: "drill-in", key: "⇥", label: "Actions"))
+                }
+            } else if item.worktreeOpenState != nil {
                 actions = [
                     FooterHint(
                         id: "cmd-enter",

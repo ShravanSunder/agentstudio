@@ -48,7 +48,8 @@ func makeCommandBarItem(
 func makeWorktreePresence(
     paneCount: Int,
     worktreeId: UUID = UUID(),
-    repoId: UUID = UUID()
+    repoId: UUID = UUID(),
+    isMainWorktree: Bool = true
 ) -> WorktreePresence {
     let openPanes: [WorkspacePaneLocation]
     switch paneCount {
@@ -89,7 +90,7 @@ func makeWorktreePresence(
         repoId: repoId,
         worktreeName: "main",
         repoName: "repo",
-        isMainWorktree: true,
+        isMainWorktree: isMainWorktree,
         openPanes: openPanes
     )
 }
@@ -101,6 +102,7 @@ func makeCommandBarLevel(
     title: String = "Test Level",
     parentLabel: String? = "Parent",
     scopeLabel: String? = nil,
+    breadcrumbIcon: AppEntityIcon? = nil,
     items: [CommandBarItem] = []
 ) -> CommandBarLevel {
     CommandBarLevel(
@@ -108,6 +110,7 @@ func makeCommandBarLevel(
         title: title,
         parentLabel: parentLabel,
         scopeLabel: scopeLabel,
+        breadcrumbIcon: breadcrumbIcon,
         items: items
     )
 }

@@ -23,13 +23,32 @@ struct CommandBarPanelControllerTests {
     }
 
     private func makeController(
+        store: WorkspaceStore = WorkspaceStore(),
+        dispatcher: AppCommandDispatcher = .shared,
         commandBarSurface: CommandBarSurfaceAtom = CommandBarSurfaceAtom()
     ) -> CommandBarPanelController {
-        CommandBarPanelController(
-            store: WorkspaceStore(),
+        UserDefaults.standard.removeObject(forKey: "CommandBarRecentItemIds")
+        UserDefaults.standard.removeObject(forKey: "CommandBarRecentCommands")
+        return CommandBarPanelController(
+            store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared,
+            dispatcher: dispatcher,
             commandBarSurface: commandBarSurface
+        )
+    }
+
+    private func makeItem(
+        id: String,
+        action: CommandBarAction,
+        command: AppCommand? = nil
+    ) -> CommandBarItem {
+        CommandBarItem(
+            id: id,
+            title: id,
+            group: "Test",
+            groupPriority: 0,
+            action: action,
+            command: command
         )
     }
 
@@ -284,5 +303,639 @@ struct CommandBarPanelControllerTests {
         #expect(!controller.state.isNested)
         #expect(controller.state.rawInput.isEmpty)
         #expect(controller.state.selectedIndex == 0)
+    }
+
+    @Test("recent repository activation resolves and opens the live repository menu")
+    func recentRepositoryActivationOpensLiveRepositoryMenu() async throws {
+        try await withAsyncTestAtomRegistry { _ in
+            let store = WorkspaceStore()
+            let repository = store.addRepo(at: URL(filePath: "/tmp/command-bar-recent-main"))
+            let handler = MockCommandHandler()
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    let controller = makeController(store: store)
+                    controller.state.show(prefix: "#")
+
+                    controller.executeItem(
+                        makeItem(
+                            id: "recent-repository",
+                            action: .activateRecent(
+                                .repository(repositoryStableKey: repository.stableKey)
+                            )
+                        )
+                    )
+
+                    #expect(handler.executedCommands.isEmpty)
+                    #expect(controller.state.currentLevel?.id == "level-repo-\(repository.id.uuidString)")
+                    #expect(controller.state.currentLevel?.title == repository.name)
+                    #expect(controller.state.isVisible)
+                }
+            )
+        }
+    }
+
+    @Test("recent repository activation re-resolves a replacement with the same stable key")
+    func recentRepositoryActivationReResolvesLiveIdentity() async throws {
+        try await withAsyncTestAtomRegistry { _ in
+            let store = WorkspaceStore()
+            let repositoryPath = URL(filePath: "/tmp/command-bar-recent-reresolve")
+            let oldRepositoryID = UUID()
+            let oldWorktree = Worktree(
+                repoId: oldRepositoryID,
+                name: "old",
+                path: repositoryPath,
+                isMainWorktree: true
+            )
+            let oldRepository = Repo(
+                id: oldRepositoryID,
+                name: "old",
+                repoPath: repositoryPath,
+                worktrees: [oldWorktree]
+            )
+            let replacementRepositoryID = UUID()
+            let replacementWorktree = Worktree(
+                repoId: replacementRepositoryID,
+                name: "replacement",
+                path: repositoryPath,
+                isMainWorktree: true
+            )
+            let replacementRepository = Repo(
+                id: replacementRepositoryID,
+                name: "replacement",
+                repoPath: repositoryPath,
+                worktrees: [replacementWorktree]
+            )
+            store.repositoryTopologyAtom.replaceTopology(
+                try #require(
+                    RepositoryTopologyReplacement.prepare(
+                        repositories: [oldRepository],
+                        watchedPaths: [],
+                        unavailableRepositoryIDs: []
+                    ).preparedValue
+                )
+            )
+            let activation = CommandBarRecentActivation.repository(
+                repositoryStableKey: oldRepository.stableKey
+            )
+            store.repositoryTopologyAtom.replaceTopology(
+                try #require(
+                    RepositoryTopologyReplacement.prepare(
+                        repositories: [replacementRepository],
+                        watchedPaths: [],
+                        unavailableRepositoryIDs: []
+                    ).preparedValue
+                )
+            )
+            let handler = MockCommandHandler()
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    let controller = makeController(store: store)
+                    controller.state.show(prefix: "#")
+
+                    controller.executeItem(
+                        makeItem(id: "recent-repository", action: .activateRecent(activation))
+                    )
+
+                    #expect(handler.executedCommands.isEmpty)
+                    #expect(
+                        controller.state.currentLevel?.id
+                            == "level-repo-\(replacementRepository.id.uuidString)"
+                    )
+                    #expect(controller.state.currentLevel?.title == replacementRepository.name)
+                    #expect(controller.state.currentLevel?.id != "level-repo-\(oldRepository.id.uuidString)")
+                    #expect(controller.state.isVisible)
+                }
+            )
+        }
+    }
+
+    @Test("recent worktree activation resolves and opens the live worktree menu")
+    func recentWorktreeActivationOpensLiveWorktreeMenu() async throws {
+        try await withAsyncTestAtomRegistry { _ in
+            let store = WorkspaceStore()
+            let repository = store.addRepo(at: URL(filePath: "/tmp/command-bar-recent-worktree"))
+            let worktree = try #require(repository.worktrees.first)
+            let handler = MockCommandHandler()
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    let controller = makeController(store: store)
+                    controller.state.show(prefix: "#")
+
+                    controller.executeItem(
+                        makeItem(
+                            id: "recent-worktree",
+                            action: .activateRecent(
+                                .worktree(worktreeStableKey: worktree.stableKey)
+                            )
+                        )
+                    )
+
+                    #expect(handler.executedCommands.isEmpty)
+                    #expect(controller.state.currentLevel?.id == "level-wt-\(worktree.id.uuidString)")
+                    #expect(controller.state.currentLevel?.title == worktree.name)
+                    #expect(controller.state.isVisible)
+                }
+            )
+        }
+    }
+
+    @Test("stale recent activation dispatches nothing, prunes the hint, and keeps the panel usable")
+    func staleRecentActivationDoesNotDispatch() async throws {
+        try await withAsyncTestAtomRegistry { atoms in
+            let stableKey = String(repeating: "a", count: 16)
+            atoms.applicationEntityRecency.hydrate([
+                try ApplicationEntityRecency(
+                    entity: .repository(repositoryStableKey: stableKey),
+                    interaction: .opened,
+                    lastInteractedAt: Date(timeIntervalSince1970: 1)
+                )
+            ])
+            let handler = MockCommandHandler()
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    let controller = makeController()
+                    controller.state.show(prefix: "#")
+
+                    controller.executeItem(
+                        makeItem(
+                            id: "stale-repository",
+                            action: .activateRecent(
+                                .repository(repositoryStableKey: stableKey)
+                            )
+                        )
+                    )
+
+                    #expect(handler.executedCommands.isEmpty)
+                    #expect(atoms.applicationEntityRecency.recentEntities.isEmpty)
+                    #expect(controller.state.isVisible)
+                    #expect(controller.state.selectedIndex == 0)
+                }
+            )
+        }
+    }
+
+    @Test("recent repository activation rejects a repository that lost every worktree")
+    func recentRepositoryActivationRejectsRepositoryWithoutWorktrees() async throws {
+        try await withAsyncTestAtomRegistry { atoms in
+            let store = WorkspaceStore()
+            let repository = store.addRepo(
+                at: URL(filePath: "/tmp/command-bar-recent-repository-without-worktrees")
+            )
+            atoms.applicationEntityRecency.record(
+                try ApplicationEntityRecency(
+                    entity: .repository(repositoryStableKey: repository.stableKey),
+                    interaction: .opened,
+                    lastInteractedAt: Date(timeIntervalSince1970: 1)
+                )
+            )
+            store.repositoryTopologyAtom.replaceTopology(
+                try #require(
+                    RepositoryTopologyReplacement.prepare(
+                        repositories: [
+                            Repo(
+                                id: repository.id,
+                                name: repository.name,
+                                repoPath: repository.repoPath,
+                                worktrees: []
+                            )
+                        ],
+                        watchedPaths: [],
+                        unavailableRepositoryIDs: []
+                    ).preparedValue
+                )
+            )
+            let handler = MockCommandHandler()
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    let controller = makeController(store: store)
+                    controller.state.show(prefix: "#")
+
+                    controller.executeItem(
+                        makeItem(
+                            id: "recent-repository",
+                            action: .activateRecent(
+                                .repository(repositoryStableKey: repository.stableKey)
+                            )
+                        )
+                    )
+
+                    #expect(handler.executedCommands.isEmpty)
+                    #expect(controller.state.currentLevel == nil)
+                    #expect(controller.state.isVisible)
+                    #expect(atoms.applicationEntityRecency.recentEntities.isEmpty)
+                }
+            )
+        }
+    }
+
+    @Test("stale recent worktree activation dispatches nothing and prunes only that hint")
+    func staleRecentWorktreeActivationDoesNotDispatch() async throws {
+        try await withAsyncTestAtomRegistry { atoms in
+            let staleStableKey = String(repeating: "b", count: 16)
+            let retainedStableKey = String(repeating: "c", count: 16)
+            atoms.applicationEntityRecency.hydrate([
+                try ApplicationEntityRecency(
+                    entity: .worktree(worktreeStableKey: staleStableKey),
+                    interaction: .opened,
+                    lastInteractedAt: Date(timeIntervalSince1970: 2)
+                ),
+                try ApplicationEntityRecency(
+                    entity: .worktree(worktreeStableKey: retainedStableKey),
+                    interaction: .opened,
+                    lastInteractedAt: Date(timeIntervalSince1970: 1)
+                ),
+            ])
+            let handler = MockCommandHandler()
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    let controller = makeController()
+                    controller.state.show(prefix: "#")
+
+                    controller.executeItem(
+                        makeItem(
+                            id: "stale-worktree",
+                            action: .activateRecent(
+                                .worktree(worktreeStableKey: staleStableKey)
+                            )
+                        )
+                    )
+
+                    #expect(handler.executedCommands.isEmpty)
+                    #expect(
+                        atoms.applicationEntityRecency.recentEntities.map(\.entity)
+                            == [.worktree(worktreeStableKey: retainedStableKey)]
+                    )
+                    #expect(controller.state.isVisible)
+                    #expect(controller.state.selectedIndex == 0)
+                }
+            )
+        }
+    }
+
+    @Test("unavailable recent repository and worktree activations prune without dispatch")
+    func unavailableRecentApplicationActivationsDoNotDispatch() async throws {
+        try await withAsyncTestAtomRegistry { atoms in
+            let store = WorkspaceStore()
+            let repository = store.addRepo(at: URL(filePath: "/tmp/command-bar-unavailable-recent"))
+            let worktree = try #require(repository.worktrees.first)
+            try atoms.applicationEntityRecency.recordOpened(
+                repositoryStableKey: repository.stableKey,
+                worktreeStableKey: worktree.stableKey,
+                at: Date(timeIntervalSince1970: 3)
+            )
+            store.markRepoUnavailable(repository.id)
+            let handler = MockCommandHandler()
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    let controller = makeController(store: store)
+                    controller.state.show(prefix: "#")
+
+                    controller.executeItem(
+                        makeItem(
+                            id: "unavailable-repository",
+                            action: .activateRecent(
+                                .repository(repositoryStableKey: repository.stableKey)
+                            )
+                        )
+                    )
+                    controller.executeItem(
+                        makeItem(
+                            id: "unavailable-worktree",
+                            action: .activateRecent(
+                                .worktree(worktreeStableKey: worktree.stableKey)
+                            )
+                        )
+                    )
+
+                    #expect(handler.executedCommands.isEmpty)
+                    #expect(atoms.applicationEntityRecency.recentEntities.isEmpty)
+                    #expect(controller.state.isVisible)
+                }
+            )
+        }
+    }
+
+    @Test("eligible recent pane activation dispatches the validated focus command")
+    func recentPaneActivationDispatchesValidatedFocus() async throws {
+        try await withAsyncTestAtomRegistry { atoms in
+            let store = WorkspaceStore(identityAtom: atoms.workspaceIdentity)
+            let pane = store.createPane(title: "Target")
+            let tab = Tab(paneId: pane.id, name: "Target")
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            store.setActivePane(pane.id, inTab: tab.id)
+            let handler = MockCommandHandler()
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    let controller = makeController(store: store)
+                    controller.state.show(prefix: "$")
+
+                    controller.executeItem(
+                        makeItem(
+                            id: "recent-pane",
+                            action: .activateRecent(
+                                .pane(
+                                    paneID: pane.id,
+                                    workspaceID: store.identityAtom.workspaceId
+                                )
+                            )
+                        )
+                    )
+
+                    #expect(handler.executedCommands.first?.0 == .focusPane)
+                    #expect(handler.executedCommands.first?.1 == pane.id)
+                    #expect(handler.executedCommands.first?.2 == .pane)
+                    #expect(!controller.state.isVisible)
+                }
+            )
+        }
+    }
+
+    @Test("recent and ordinary pane rows focus through the real handler and dismiss")
+    func paneRowsFocusThroughRealHandlerAndDismiss() async throws {
+        try await withAsyncTestAtomRegistry { atoms in
+            let harness = makeHarness()
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            let firstPane = harness.store.createPane(title: "First")
+            let secondPane = harness.store.createPane(title: "Second")
+            let firstTab = Tab(paneId: firstPane.id, name: "First")
+            let secondTab = Tab(paneId: secondPane.id, name: "Second")
+            harness.store.appendTab(firstTab)
+            harness.store.appendTab(secondTab)
+            harness.store.setActiveTab(firstTab.id)
+            atoms.workspaceEntityRecency.hydrate(
+                workspaceID: harness.store.identityAtom.workspaceId,
+                recentEntities: [
+                    try WorkspaceEntityRecency(
+                        workspaceID: harness.store.identityAtom.workspaceId,
+                        entity: .pane(paneID: secondPane.id),
+                        interaction: .focused,
+                        lastInteractedAt: Date(timeIntervalSince1970: 1)
+                    )
+                ]
+            )
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    AppCommandDispatcher.shared.handler = harness.controller
+                    AppCommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    let controller = makeController(store: harness.store)
+                    controller.state.show(prefix: "$")
+                    let recentPaneItem = try #require(
+                        CommandBarDataSource.items(
+                            scope: .panes,
+                            store: harness.store,
+                            repoCache: RepoCacheAtom(),
+                            dispatcher: .shared
+                        )
+                        .first {
+                            $0.group == "Recent Panes"
+                                && $0.id == "pane-\(secondPane.id.uuidString)"
+                        }
+                    )
+
+                    controller.executeItem(recentPaneItem)
+
+                    #expect(harness.store.activeTabId == secondTab.id)
+                    #expect(!controller.state.isVisible)
+
+                    controller.state.show(prefix: "$")
+                    let ordinaryPaneItem = try #require(
+                        CommandBarDataSource.items(
+                            scope: .panes,
+                            store: harness.store,
+                            repoCache: RepoCacheAtom(),
+                            dispatcher: .shared
+                        )
+                        .first {
+                            $0.group != "Recent Panes"
+                                && $0.id == "pane-\(firstPane.id.uuidString)"
+                        }
+                    )
+
+                    controller.executeItem(ordinaryPaneItem)
+
+                    #expect(harness.store.activeTabId == firstTab.id)
+                    #expect(!controller.state.isVisible)
+                }
+            )
+        }
+    }
+
+    @Test("Commands-root direct dispatch records typed command history after acceptance")
+    func commandsRootDirectDispatchRecordsCommand() async throws {
+        try await withAsyncTestAtomRegistry { _ in
+            let handler = MockCommandHandler()
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    let controller = makeController()
+                    controller.state.show(prefix: ">")
+
+                    controller.executeItem(
+                        makeItem(
+                            id: "close-tab",
+                            action: .dispatch(.closeTab),
+                            command: .closeTab
+                        )
+                    )
+
+                    #expect(controller.state.recentCommands.first == .closeTab)
+                }
+            )
+        }
+    }
+
+    @Test("Commands-root targeted dispatch records only after a valid target begins dispatch")
+    func commandsRootTargetedDispatchRecordsOnlyAcceptedCommand() async throws {
+        try await withAsyncTestAtomRegistry { _ in
+            let handler = MockCommandHandler()
+            let target = UUID()
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    let controller = makeController()
+                    controller.state.show(prefix: ">")
+
+                    handler.targetedCanExecuteResult = false
+                    controller.executeItem(
+                        makeItem(
+                            id: "rejected-focus",
+                            action: .dispatchTargeted(.focusPane, target: target, targetType: .pane),
+                            command: .focusPane
+                        )
+                    )
+                    #expect(controller.state.recentCommands.isEmpty)
+                    #expect(controller.state.isVisible)
+
+                    handler.targetedCanExecuteResult = true
+                    controller.executeItem(
+                        makeItem(
+                            id: "accepted-focus",
+                            action: .dispatchTargeted(.focusPane, target: target, targetType: .pane),
+                            command: .focusPane
+                        )
+                    )
+                    #expect(controller.state.recentCommands == [.focusPane])
+                }
+            )
+        }
+    }
+
+    @Test("Commands-root drill-in records no command history")
+    func commandsRootDrillInDoesNotRecordCommand() async throws {
+        try await withAsyncTestAtomRegistry { _ in
+            let handler = MockCommandHandler()
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    let controller = makeController()
+                    controller.state.show(prefix: ">")
+                    let level = makeCommandBarLevel(id: "targets", title: "Targets")
+
+                    controller.executeItem(
+                        makeItem(
+                            id: "targeted-command",
+                            action: .navigate(level),
+                            command: .focusPane
+                        )
+                    )
+
+                    #expect(controller.state.recentCommands.isEmpty)
+                    #expect(controller.state.currentLevel?.id == level.id)
+                }
+            )
+        }
+    }
+
+    @Test("activation completion is rejected after dismissal or scope-session change")
+    func activationGenerationRejectsChangedRootSession() {
+        var gate = CommandBarActivationGenerationGate()
+        let workspaceID = UUID()
+        let activation = gate.begin(
+            rootSessionGeneration: 10,
+            workspaceID: workspaceID
+        )
+
+        #expect(
+            gate.accepts(
+                activation,
+                rootSessionGeneration: 10,
+                workspaceID: workspaceID
+            )
+        )
+        #expect(
+            !gate.accepts(
+                activation,
+                rootSessionGeneration: 11,
+                workspaceID: workspaceID
+            )
+        )
+    }
+
+    @Test("activation completion is rejected after workspace change")
+    func activationGenerationRejectsChangedWorkspace() {
+        var gate = CommandBarActivationGenerationGate()
+        let activation = gate.begin(
+            rootSessionGeneration: 10,
+            workspaceID: UUID()
+        )
+
+        #expect(
+            !gate.accepts(
+                activation,
+                rootSessionGeneration: 10,
+                workspaceID: UUID()
+            )
+        )
+    }
+
+    @Test("a superseding activation invalidates earlier completion")
+    func activationGenerationRejectsSupersededActivation() {
+        var gate = CommandBarActivationGenerationGate()
+        let workspaceID = UUID()
+        let first = gate.begin(
+            rootSessionGeneration: 10,
+            workspaceID: workspaceID
+        )
+        let second = gate.begin(
+            rootSessionGeneration: 10,
+            workspaceID: workspaceID
+        )
+
+        #expect(
+            !gate.accepts(
+                first,
+                rootSessionGeneration: 10,
+                workspaceID: workspaceID
+            )
+        )
+        #expect(
+            gate.accepts(
+                second,
+                rootSessionGeneration: 10,
+                workspaceID: workspaceID
+            )
+        )
+    }
+}
+
+extension RepositoryTopologyReplacementPreparation {
+    fileprivate var preparedValue: RepositoryTopologyReplacement? {
+        guard case .prepared(let replacement) = self else { return nil }
+        return replacement
     }
 }

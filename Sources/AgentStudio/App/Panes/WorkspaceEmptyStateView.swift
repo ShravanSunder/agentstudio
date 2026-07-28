@@ -59,7 +59,7 @@ enum WorkspaceEmptyStateCopy {
 struct WorkspaceEmptyStateView: View {
     let model: WorkspaceEmptyStateModel
     let onWatchFolder: () -> Void
-    let onOpenRecent: (RecentWorkspaceTarget) -> Void
+    let onOpenRecent: (ApplicationRecentEntity) -> Void
     let onOpenAllRecent: () -> Void
 
     var body: some View {

@@ -71,9 +71,9 @@ enum LocalActionSpec {
     case quickOpen
     case commandPalette
     case goToPane
-    case openInMenu
-    case openInNewTab
-    case openInPaneSplit
+    case openInCurrentTabMenu
+    case openInNewTabMenu
+    case openInEditorMenu
     case goToTerminal
     case openInCursor
     case openInVSCode
@@ -127,17 +127,18 @@ enum LocalActionSpec {
                 label: "Command Palette", helpText: "Show the command palette", icon: .system(.command))
         case .goToPane:
             return ActionSpec(label: "Go to Pane", helpText: "Show the pane picker", icon: .system(.terminal))
-        case .openInMenu:
+        case .openInCurrentTabMenu:
             return ActionSpec(
-                label: "Open in...", helpText: "Choose an editor to open this worktree", icon: .system(.ellipsisCircle))
-        case .openInNewTab:
-            return ActionSpec(
-                label: "Open Terminal in New Tab", helpText: "Open this worktree in a new terminal tab",
-                icon: .system(.plusRectangle))
-        case .openInPaneSplit:
-            return ActionSpec(
-                label: "Open Terminal in Pane (Split)", helpText: "Open this worktree in a split terminal pane",
+                label: "Open in Current Tab", helpText: "Choose what to open in the current tab",
                 icon: .system(.rectangleSplit2x1))
+        case .openInNewTabMenu:
+            return ActionSpec(
+                label: "Open in New Tab", helpText: "Choose what to open in a new tab",
+                icon: .system(.plusRectangle))
+        case .openInEditorMenu:
+            return ActionSpec(
+                label: "Open in Editor", helpText: "Choose an editor to open this worktree",
+                icon: .system(.ellipsisCircle))
         case .goToTerminal:
             return ActionSpec(
                 label: "Go to Terminal", helpText: "Focus the existing terminal for this worktree",

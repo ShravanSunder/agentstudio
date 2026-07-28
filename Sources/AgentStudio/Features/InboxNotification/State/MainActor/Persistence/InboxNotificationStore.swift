@@ -53,12 +53,10 @@ final class InboxNotificationStore {
     @discardableResult
     func loadAsync() async -> LoadOutcome {
         switch await sqliteAdapter.load() {
-        case .loaded(let snapshot, let recoveryEvents):
-            reportRecoveryEvents(recoveryEvents)
+        case .loaded(let snapshot):
             apply(snapshot)
             return .sqliteSnapshot
-        case .unavailable(_, let recoveryEvents):
-            reportRecoveryEvents(recoveryEvents)
+        case .unavailable:
             applyDefaults()
             reportLoadFailed()
             return .defaulted
@@ -133,9 +131,4 @@ final class InboxNotificationStore {
         )
     }
 
-    private func reportRecoveryEvents(_ recoveryEvents: [PersistenceRecoveryEvent]) {
-        for recoveryEvent in recoveryEvents {
-            recoveryReporter?(recoveryEvent)
-        }
-    }
 }

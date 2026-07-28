@@ -13,7 +13,15 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         defer { harness.removeTemporaryFiles() }
         let fixture = try await PersistedAuthoritativeTopologyFixture.seed(in: harness)
         let repositoryTopologyAtom = RepositoryTopologyAtom()
-        let store = harness.makeStore(repositoryTopologyAtom: repositoryTopologyAtom)
+        let reader = harness.makeFreshDatastore()
+        guard case .prepared = await reader.prepareDatabasesForBoot() else {
+            Issue.record("Expected strict SQLite reader to prepare")
+            return
+        }
+        let store = harness.makeStore(
+            repositoryTopologyAtom: repositoryTopologyAtom,
+            datastore: reader
+        )
 
         let result = await store.loadCanonicalComposition()
 
@@ -57,10 +65,15 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         let harness = try StrictSQLiteCompositionLoadHarness.make(testName: "default-workspace")
         defer { harness.removeTemporaryFiles() }
         let probeRecorder = StrictStartupProbeRecorder()
+        let firstDatastore = harness.makeDatastore(probe: { event in
+            await probeRecorder.record(event)
+        })
+        guard case .prepared = await firstDatastore.prepareDatabasesForBoot() else {
+            Issue.record("Expected pristine SQLite databases to prepare")
+            return
+        }
         let firstStore = harness.makeStore(
-            datastore: harness.makeDatastore(probe: { event in
-                await probeRecorder.record(event)
-            })
+            datastore: firstDatastore
         )
 
         let firstResult = await firstStore.loadCanonicalComposition()
@@ -77,7 +90,12 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         #expect(await probeRecorder.count(of: .saveWorkspaceSnapshot) == 1)
         #expect(await probeRecorder.count(of: .loadWorkspaceSnapshot) == 2)
 
-        let reloadedStore = harness.makeStore()
+        let reloadDatastore = harness.makeFreshDatastore()
+        guard case .prepared = await reloadDatastore.prepareDatabasesForBoot() else {
+            Issue.record("Expected reload SQLite databases to prepare")
+            return
+        }
+        let reloadedStore = harness.makeStore(datastore: reloadDatastore)
         let reloadResult = await reloadedStore.loadCanonicalComposition()
 
         guard case .loaded = reloadResult else {
@@ -119,11 +137,16 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
             workspaceName: "Initial identity",
             createdAt: Date(timeIntervalSince1970: 40)
         )
+        let datastore = harness.makeDatastore(probe: { event in
+            await probeRecorder.record(event)
+        })
+        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+            Issue.record("Expected mismatch fixture databases to prepare")
+            return
+        }
         let store = harness.makeStore(
             identityAtom: identityAtom,
-            datastore: harness.makeDatastore(probe: { event in
-                await probeRecorder.record(event)
-            })
+            datastore: datastore
         )
 
         let result = await store.loadCanonicalComposition()
@@ -147,6 +170,10 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
             id: workspaceID,
             name: "Invalid cursor source"
         )
+        guard case .prepared = await harness.datastore.prepareDatabasesForBoot() else {
+            Issue.record("Expected invalid-local writer databases to prepare")
+            return
+        }
         try await harness.datastore.saveWorkspaceSnapshotBundle(.emptyTopologyFixture(workspace: validSnapshot))
         let missingActiveTabID = UUIDv7.generate()
         let localDatabase = try SQLiteDatabaseFactory.makeFileBackedPool(
@@ -160,7 +187,12 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
             )
         }
         try localDatabase.close()
-        let store = harness.makeStore(datastore: harness.makeFreshDatastore())
+        let reader = harness.makeFreshDatastore()
+        guard case .prepared = await reader.prepareDatabasesForBoot() else {
+            Issue.record("Expected invalid-local reader databases to prepare")
+            return
+        }
+        let store = harness.makeStore(datastore: reader)
 
         let result = await store.loadCanonicalComposition()
 
@@ -190,6 +222,10 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         )
         let sentinel = Data("legacy JSON must not be read, rewritten, or archived".utf8)
         try sentinel.write(to: legacyURL)
+        guard case .prepared = await harness.datastore.prepareDatabasesForBoot() else {
+            Issue.record("Expected legacy JSON fixture databases to prepare")
+            return
+        }
         let store = harness.makeStore()
 
         let result = await store.loadCanonicalComposition()
@@ -223,6 +259,10 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
         let sentinel = Data("legacy local SQLite must not be opened, rewritten, or archived".utf8)
         try sentinel.write(to: legacyURL)
         let originalAttributes = try FileManager.default.attributesOfItem(atPath: legacyURL.path)
+        guard case .prepared = await harness.datastore.prepareDatabasesForBoot() else {
+            Issue.record("Expected legacy local fixture databases to prepare")
+            return
+        }
         let store = harness.makeStore()
 
         let result = await store.loadCanonicalComposition()
@@ -262,6 +302,10 @@ struct WorkspaceStoreStrictSQLiteLoadTests {
             identityAtom: identityAtom,
             datastore: unavailableDatastore
         )
+        guard case .failed = await unavailableDatastore.prepareDatabasesForBoot() else {
+            Issue.record("Expected unavailable SQLite preparation to fail")
+            return
+        }
 
         let result = await store.loadCanonicalComposition()
 
@@ -294,6 +338,10 @@ private struct PersistedAuthoritativeTopologyFixture {
 
     static func seed(in harness: StrictSQLiteCompositionLoadHarness) async throws -> Self {
         let fixture = try makeFixture()
+        guard case .prepared = await harness.datastore.prepareDatabasesForBoot() else {
+            Issue.record("Expected seed databases to prepare")
+            return fixture
+        }
         try await harness.datastore.saveWorkspaceSnapshotBundle(
             .emptyTopologyFixture(workspace: fixture.snapshot)
         )

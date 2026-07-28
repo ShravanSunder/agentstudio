@@ -29,13 +29,7 @@ extension WorkspaceSurfaceCoordinator {
             }
         }) {
             store.tabLayoutAtom.setActiveTab(existingTab.id)
-            postRecentTargetOpened(
-                target: .forWorktree(
-                    path: worktree.path,
-                    worktree: worktree,
-                    repo: repo
-                )
-            )
+            recordWorktreeOpened(worktree, in: repo)
             return nil
         }
 
@@ -96,13 +90,7 @@ extension WorkspaceSurfaceCoordinator {
         store.tabLayoutAtom.setActivePane(pane.id, inTab: activeTabId)
         traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
-        postRecentTargetOpened(
-            target: .forWorktree(
-                path: worktree.path,
-                worktree: worktree,
-                repo: repo
-            )
-        )
+        recordWorktreeOpened(worktree, in: repo)
 
         Self.logger.info("Opened worktree '\(worktree.name)' in split pane")
         return pane
@@ -259,15 +247,6 @@ extension WorkspaceSurfaceCoordinator {
         store.tabLayoutAtom.setActiveTab(tab.id)
         traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
-        if let launchDirectory {
-            postRecentTargetOpened(
-                target: .forCwd(
-                    launchDirectory,
-                    title: resolvedTitle,
-                    subtitle: launchDirectory.path
-                )
-            )
-        }
 
         Self.logger.info("Opened floating terminal pane \(pane.id)")
         return pane
@@ -763,35 +742,21 @@ extension WorkspaceSurfaceCoordinator {
         store.tabLayoutAtom.setActiveTab(tab.id)
         traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
-        postRecentTargetOpened(
-            target: .forWorktree(
-                path: resolvedCwd,
-                worktree: worktree,
-                repo: repo,
-                displayTitle: resolvedTitle,
-                subtitle: repo.name
-            )
-        )
+        recordWorktreeOpened(worktree, in: repo)
 
         Self.logger.info("Opened terminal for worktree: \(worktree.name)")
         return pane
     }
 
-    private func postRecentTargetOpened(target: RecentWorkspaceTarget) {
-        let seq = WorkspaceActivitySequence.next()
-        let envelope = RuntimeEnvelope.system(
-            SystemEnvelope(
-                source: .builtin(.coordinator),
-                seq: seq,
-                timestamp: .now,
-                event: .workspaceActivity(.recentTargetOpened(target))
+    func recordWorktreeOpened(_ worktree: Worktree, in repo: Repo) {
+        do {
+            try atom(\.applicationEntityRecency).recordOpened(
+                repositoryStableKey: repo.stableKey,
+                worktreeStableKey: worktree.stableKey,
+                at: Date()
             )
-        )
-
-        Task {
-            guard !Task.isCancelled else { return }
-            await PaneRuntimeEventBus.shared.post(envelope)
-            Self.logger.debug("Posted recent target event id=\(target.id, privacy: .public)")
+        } catch {
+            Self.logger.warning("Worktree recency recording rejected an invalid stable identity")
         }
     }
 

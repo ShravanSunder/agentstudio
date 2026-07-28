@@ -275,7 +275,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         )
         let store = WorkspaceStore(
             identityAtom: identityAtom,
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         )
 
         let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-sqlite-repo"))
@@ -384,7 +384,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         )
         let store = WorkspaceStore(
             identityAtom: identityAtom,
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         )
         let temporaryPane = store.createPane(
             title: "Ephemeral",
@@ -491,9 +491,9 @@ struct WorkspaceSQLiteStoreBridgeTests {
             WorkspaceSQLiteSaveBundle(workspace: workspaceSnapshot)
         )
 
-        let restoredStore = restoredWorkspaceStore(from: fixture.backend)
+        let restoredStore = try await restoredWorkspaceStore(from: fixture.backend)
 
-        await restoredStore.loadCanonicalComposition()
+        _ = await restoredStore.loadCanonicalComposition()
 
         #expect(restoredStore.identityAtom.workspaceId == workspaceId)
         #expect(restoredStore.identityAtom.workspaceName == "Restored SQLite Workspace")
@@ -510,8 +510,10 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(!restoredStore.isDirty)
     }
 
-    private func restoredWorkspaceStore(from backend: WorkspaceSQLiteStoreBackend) -> WorkspaceStore {
-        let datastore = workspaceSQLiteDatastore(from: backend)
+    private func restoredWorkspaceStore(
+        from backend: WorkspaceSQLiteStoreBackend
+    ) async throws -> WorkspaceStore {
+        let datastore = try await preparedWorkspaceSQLiteDatastore(from: backend)
         let atomRegistry = AtomRegistry()
         let saveCoordinator = WorkspaceSQLiteSaveCoordinator(
             identityAtom: atomRegistry.workspaceIdentity,
@@ -716,7 +718,8 @@ func makeWorkspaceSQLiteBridgeFixture(workspaceId: UUID) throws -> WorkspaceSQLi
         coreRepository: coreRepository,
         makeLocalRepository: { workspaceId in
             WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
-        }
+        },
+        coreDatabaseStartupProvenance: .createdDuringCurrentStartup
     )
     return .init(
         localQueue: localQueue,
