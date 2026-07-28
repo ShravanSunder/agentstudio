@@ -112,6 +112,54 @@ struct CommandBarAccessibilityTests {
         )
     }
 
+    @Test("Quick Open rows expose a separate accessible actions control")
+    func quickOpenRowExposesActionsControl() throws {
+        var selectedActionItemID: String?
+        let item = CommandBarItem(
+            id: "quick-open-repository",
+            title: "agent-studio",
+            group: "All Locations",
+            groupPriority: 0,
+            hasChildren: true,
+            showsActionsButton: true,
+            action: .quickOpen(
+                .repository(repositoryStableKey: String(repeating: "a", count: 16))
+            ),
+            accessibilityLabel: "agent-studio, main, /tmp/agent-studio"
+        )
+        let mountedView = mountedView(
+            CommandBarResultsList(
+                groups: [
+                    CommandBarItemGroup(
+                        id: "All Locations",
+                        name: "All Locations",
+                        priority: 0,
+                        items: [item]
+                    )
+                ],
+                selectedIndex: 0,
+                onSelect: { _ in },
+                onShowActions: { selectedActionItemID = $0.id }
+            )
+            .frame(width: 500, height: 160)
+        )
+        defer { mountedView.window.orderOut(nil) }
+
+        let actionsControl = try #require(
+            findCommandBarAccessibleElement(
+                in: mountedView.hostingView,
+                identifier: "commandBarResultActions.quick-open-repository"
+            )
+        )
+
+        #expect(
+            commandBarAccessibilityLabel(of: actionsControl)
+                == "Show actions for agent-studio, main, /tmp/agent-studio"
+        )
+        commandBarPerformAccessibilityPress(actionsControl)
+        #expect(selectedActionItemID == item.id)
+    }
+
     private func mountedView<Content: View>(
         _ content: Content
     ) -> (window: NSWindow, hostingView: NSHostingView<Content>) {

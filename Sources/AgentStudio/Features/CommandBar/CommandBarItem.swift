@@ -40,6 +40,17 @@ enum CommandBarRecentActivation: Equatable, Sendable {
     case pane(paneID: UUID, workspaceID: UUID)
 }
 
+enum CommandBarQuickOpenTarget: Equatable, Sendable {
+    case repository(repositoryStableKey: String)
+    case worktree(worktreeStableKey: String)
+    case directory(URL)
+}
+
+enum QuickOpenDirectoryPlacement: Equatable, Sendable {
+    case currentTabPane
+    case newTab
+}
+
 // MARK: - CommandBarAction
 
 /// What happens when a command bar item is selected.
@@ -56,6 +67,8 @@ enum CommandBarAction {
     case custom(@Sendable () -> Void)
     /// Resolve worktree behavior at selection time based on presence and modifier keys.
     case worktreeAction(presence: WorktreePresence)
+    /// Open a terminal at a live repository/worktree target or enter its existing actions.
+    case quickOpen(CommandBarQuickOpenTarget)
     /// Re-resolve a typed recent entity against live state immediately before dispatch.
     case activateRecent(CommandBarRecentActivation)
 }
@@ -90,6 +103,7 @@ struct CommandBarItem: Identifiable {
     let groupPriority: Int
     let keywords: [String]
     let hasChildren: Bool
+    let showsActionsButton: Bool
     let action: CommandBarAction
     /// The underlying command, if any. Used for dimming navigate items whose command is unavailable.
     let command: AppCommand?
@@ -109,6 +123,7 @@ struct CommandBarItem: Identifiable {
         groupPriority: Int,
         keywords: [String] = [],
         hasChildren: Bool = false,
+        showsActionsButton: Bool = false,
         action: CommandBarAction,
         command: AppCommand? = nil,
         accessibilityLabel: String? = nil,
@@ -126,6 +141,7 @@ struct CommandBarItem: Identifiable {
         self.groupPriority = groupPriority
         self.keywords = keywords
         self.hasChildren = hasChildren
+        self.showsActionsButton = showsActionsButton
         self.action = action
         self.command = command
         self.accessibilityLabel =
@@ -158,6 +174,8 @@ struct CommandBarItem: Identifiable {
             return title
         case .worktreeAction:
             return "Show worktree actions"
+        case .quickOpen:
+            return "Open terminal"
         case .activateRecent(let activation):
             switch activation {
             case .repository: return "Show repository actions"
@@ -172,6 +190,7 @@ struct CommandBarItem: Identifiable {
         groupPriority: Int,
         action: CommandBarAction? = nil,
         hasChildren: Bool? = nil,
+        showsActionsButton: Bool? = nil,
         accessibilityLabel: String? = nil,
         accessibilityHint: String? = nil
     ) -> Self {
@@ -188,6 +207,7 @@ struct CommandBarItem: Identifiable {
             groupPriority: groupPriority,
             keywords: keywords,
             hasChildren: hasChildren ?? self.hasChildren,
+            showsActionsButton: showsActionsButton ?? self.showsActionsButton,
             action: action ?? self.action,
             command: command,
             accessibilityLabel: accessibilityLabel ?? self.accessibilityLabel,
@@ -199,7 +219,7 @@ struct CommandBarItem: Identifiable {
         switch action {
         case .worktreeAction(let presence):
             return presence.openState
-        case .dispatch, .dispatchTargeted, .navigate, .navigateRepo, .custom, .activateRecent:
+        case .dispatch, .dispatchTargeted, .navigate, .navigateRepo, .custom, .quickOpen, .activateRecent:
             return nil
         }
     }
@@ -208,6 +228,12 @@ struct CommandBarItem: Identifiable {
         switch action {
         case .worktreeAction:
             return .worktree
+        case .quickOpen(let target):
+            switch target {
+            case .repository: return .repo
+            case .worktree: return .worktree
+            case .directory: return .other
+            }
         case .dispatch:
             return .command
         case .navigate:
@@ -385,7 +411,28 @@ enum FooterHintBuilder {
         var actions: [FooterHint] = []
 
         if let item {
-            if item.worktreeOpenState != nil {
+            if case .quickOpen = item.action {
+                actions = [
+                    FooterHint(id: "enter", key: "↵", label: "Open"),
+                    FooterHint(
+                        id: "cmd-enter",
+                        keys: [ShortcutKey(symbol: "⌘"), ShortcutKey(symbol: "↵")],
+                        label: "New tab"
+                    ),
+                ]
+                if canOpenInCurrentTab {
+                    actions.append(
+                        FooterHint(
+                            id: "opt-enter",
+                            keys: [ShortcutKey(symbol: "⌥"), ShortcutKey(symbol: "↵")],
+                            label: "Open in tab"
+                        )
+                    )
+                }
+                if item.showsActionsButton {
+                    actions.append(FooterHint(id: "drill-in", key: "⇥", label: "Actions"))
+                }
+            } else if item.worktreeOpenState != nil {
                 actions = [
                     FooterHint(
                         id: "cmd-enter",

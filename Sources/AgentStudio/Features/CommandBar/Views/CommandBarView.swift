@@ -9,6 +9,7 @@ struct CommandBarView: View {
     let resultSession: CommandBarResultSession
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onExecuteItem: (CommandBarItem, EnterModifier) -> Void
+    let onShowActions: @MainActor @Sendable (CommandBarItem) -> Void
 
     var body: some View {
         let resultSnapshot = resultSession.snapshot(state: state)
@@ -50,7 +51,8 @@ struct CommandBarView: View {
                 selectedIndex: state.selectedIndex,
                 searchQuery: state.isNested ? state.searchQuery : state.normalizedRootQuery,
                 dimmedItemIds: resultSnapshot.dimmedItemIds,
-                onSelect: { item in onExecuteItem(item, .plain) }
+                onSelect: { item in onExecuteItem(item, .plain) },
+                onShowActions: onShowActions
             )
 
             // Separator
@@ -77,7 +79,11 @@ struct CommandBarView: View {
             let item = resultSession.snapshot(state: state).selectedItem,
             item.hasChildren
         else { return }
-        onExecuteItem(item, .plain)
+        if item.showsActionsButton {
+            onShowActions(item)
+        } else {
+            onExecuteItem(item, .plain)
+        }
     }
 
     private func handleBackspace() {

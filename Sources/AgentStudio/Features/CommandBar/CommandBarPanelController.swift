@@ -132,16 +132,15 @@ final class CommandBarPanelController {
         workspaceWindowId = resolvedWorkspaceWindowId
 
         if state.isVisible {
-            let currentPrefix = normalizedPrefix(for: state.currentScope)
-            let normalizedRequestedPrefix: String? =
+            let isSameOpening: Bool =
                 switch mode {
                 case .prefix(let prefix):
-                    normalizedPrefix(for: prefix)
-                case .defaultScope:
-                    nil
+                    normalizedPrefix(for: state.currentScope) == normalizedPrefix(for: prefix)
+                case .defaultScope(let scope):
+                    state.activePrefix == nil && state.currentScope == scope
                 }
 
-            if currentPrefix == normalizedRequestedPrefix {
+            if isSameOpening {
                 publishCurrentSurface()
                 movePanel(to: parentWindow)
                 return
@@ -213,6 +212,9 @@ final class CommandBarPanelController {
             },
             onExecuteItem: { [weak self] item, modifier in
                 self?.executeItem(item, modifier: modifier)
+            },
+            onShowActions: { [weak self] item in
+                self?.showActions(for: item)
             }
         )
         panel.setContent(contentView)
@@ -267,6 +269,14 @@ final class CommandBarPanelController {
         ) {
         case .dismiss:
             dismiss()
+            return true
+        case .showScope(let scope):
+            guard let parentWindow else { return false }
+            show(
+                defaultRootScope: scope,
+                parentWindow: parentWindow,
+                workspaceWindowId: workspaceWindowId
+            )
             return true
         case .showPrefix(let prefix):
             guard let parentWindow else { return false }
@@ -337,8 +347,140 @@ final class CommandBarPanelController {
                 itemId: item.id,
                 canOpenInCurrentTab: canOpenWorktreeInCurrentTab
             )
+        case .quickOpen(let target):
+            executeQuickOpen(target, itemId: item.id, modifier: modifier)
         case .activateRecent(let activation):
             executeRecentActivation(activation, itemId: item.id)
+        }
+    }
+
+    func showActions(for item: CommandBarItem) {
+        guard case .quickOpen(let target) = item.action else { return }
+
+        switch target {
+        case .repository(let repositoryStableKey):
+            guard
+                let repository = store.repositoryTopologyAtom.repo(stableKey: repositoryStableKey),
+                !store.repositoryTopologyAtom.isRepoUnavailable(repository.id),
+                CommandBarDataSource.quickOpenDefaultWorktree(for: repository) != nil
+            else {
+                return
+            }
+            state.pushLevel(
+                CommandBarDataSource.buildRepoLevel(
+                    repo: repository,
+                    store: store
+                )
+            )
+        case .worktree(let worktreeStableKey):
+            guard
+                let worktree = store.repositoryTopologyAtom.worktree(stableKey: worktreeStableKey),
+                let repository = store.repositoryTopologyAtom.repo(containing: worktree.id),
+                !store.repositoryTopologyAtom.isRepoUnavailable(repository.id)
+            else {
+                return
+            }
+            let presence = CommandBarDataSource.buildWorktreePresence(
+                worktree: worktree,
+                repo: repository,
+                store: store
+            )
+            state.pushLevel(
+                CommandBarDataSource.buildWorktreeActionsLevel(
+                    worktree: worktree,
+                    presence: presence,
+                    canOpenInCurrentTab: resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab
+                )
+            )
+        case .directory:
+            return
+        }
+    }
+
+    private func executeQuickOpen(
+        _ target: CommandBarQuickOpenTarget,
+        itemId: String,
+        modifier: EnterModifier
+    ) {
+        if case .directory(let directory) = target {
+            executeQuickOpenDirectory(directory, modifier: modifier)
+            return
+        }
+        guard let worktree = resolveQuickOpenWorktree(target) else { return }
+        let canOpenInCurrentTab = resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab
+        let command: AppCommand
+        switch modifier {
+        case .plain:
+            command = canOpenInCurrentTab ? .openWorktreeInPane : .openNewTerminalInTab
+        case .command:
+            command = .openNewTerminalInTab
+        case .option:
+            guard canOpenInCurrentTab else { return }
+            command = .openWorktreeInPane
+        }
+        guard dispatcher.canDispatch(command, target: worktree.id, targetType: .worktree) else {
+            return
+        }
+        state.recordRecent(itemId: itemId)
+        dismiss()
+        dispatcher.dispatch(command, target: worktree.id, targetType: .worktree)
+    }
+
+    private func executeQuickOpenDirectory(
+        _ directory: URL,
+        modifier: EnterModifier
+    ) {
+        var isDirectory: ObjCBool = false
+        guard
+            FileManager.default.fileExists(
+                atPath: directory.path,
+                isDirectory: &isDirectory
+            ),
+            isDirectory.boolValue
+        else {
+            return
+        }
+
+        let canOpenInCurrentTab = resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab
+        let placement: QuickOpenDirectoryPlacement
+        switch modifier {
+        case .plain:
+            placement = canOpenInCurrentTab ? .currentTabPane : .newTab
+        case .command:
+            placement = .newTab
+        case .option:
+            guard canOpenInCurrentTab else { return }
+            placement = .currentTabPane
+        }
+
+        dismiss()
+        dispatcher.dispatchQuickOpenDirectory(
+            directory.standardizedFileURL,
+            placement: placement
+        )
+    }
+
+    private func resolveQuickOpenWorktree(_ target: CommandBarQuickOpenTarget) -> Worktree? {
+        switch target {
+        case .repository(let repositoryStableKey):
+            guard
+                let repository = store.repositoryTopologyAtom.repo(stableKey: repositoryStableKey),
+                !store.repositoryTopologyAtom.isRepoUnavailable(repository.id)
+            else {
+                return nil
+            }
+            return CommandBarDataSource.quickOpenDefaultWorktree(for: repository)
+        case .worktree(let worktreeStableKey):
+            guard
+                let worktree = store.repositoryTopologyAtom.worktree(stableKey: worktreeStableKey),
+                let repository = store.repositoryTopologyAtom.repo(containing: worktree.id),
+                !store.repositoryTopologyAtom.isRepoUnavailable(repository.id)
+            else {
+                return nil
+            }
+            return worktree
+        case .directory:
+            return nil
         }
     }
 
@@ -518,6 +660,8 @@ final class CommandBarPanelController {
     private func normalizedPrefix(for scope: CommandBarScope) -> String? {
         switch scope {
         case .everything:
+            return nil
+        case .quickOpen:
             return nil
         case .commands:
             return "> "

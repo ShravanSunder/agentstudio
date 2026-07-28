@@ -308,7 +308,7 @@ extension CommandBarDataSource {
         )
     }
 
-    private static func emptyWorktreePresence(worktree: Worktree, repo: Repo) -> WorktreePresence {
+    static func emptyWorktreePresence(worktree: Worktree, repo: Repo) -> WorktreePresence {
         WorktreePresence(
             worktreeId: worktree.id,
             repoId: repo.id,

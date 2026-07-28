@@ -7,6 +7,7 @@ import Testing
 
 final class MockCommandHandler: WorkspaceCommandHandling {
     var executedCommands: [(AppCommand, UUID?, SearchItemType?)] = []
+    var quickOpenDirectoryRequests: [(directory: URL, placement: QuickOpenDirectoryPlacement)] = []
     var canExecuteResult: Bool = true
     var targetedCanExecuteResult: Bool?
     var extractedPaneRequests: [(tabId: UUID, paneId: UUID, targetTabIndex: Int?)] = []
@@ -18,6 +19,10 @@ final class MockCommandHandler: WorkspaceCommandHandling {
 
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
         executedCommands.append((command, target, targetType))
+    }
+
+    func executeQuickOpenDirectory(_ directory: URL, placement: QuickOpenDirectoryPlacement) {
+        quickOpenDirectoryRequests.append((directory, placement))
     }
 
     func canExecute(_ command: AppCommand) -> Bool {

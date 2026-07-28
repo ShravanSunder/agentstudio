@@ -1965,6 +1965,31 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         dispatchAction(.openWorktreeInPane(worktreeId: worktree.id))
     }
 
+    func executeQuickOpenDirectory(
+        _ directory: URL,
+        placement: QuickOpenDirectoryPlacement
+    ) {
+        switch placement {
+        case .newTab:
+            dispatchAction(.openFloatingTerminal(launchDirectory: directory, title: nil))
+        case .currentTabPane:
+            guard let activeTabId = store.tabLayoutAtom.activeTabId,
+                let activePaneId = store.tabLayoutAtom.tab(activeTabId)?.activePaneId
+            else {
+                return
+            }
+            dispatchAction(
+                .insertPane(
+                    source: .newTerminalAtDirectory(directory),
+                    targetTabId: activeTabId,
+                    targetPaneId: activePaneId,
+                    direction: .right,
+                    sizingMode: .halveTarget
+                )
+            )
+        }
+    }
+
     func closeTerminal(for worktreeId: UUID) {
         // Find the tab containing this worktree
         guard
@@ -2681,7 +2706,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 break
             }
             dispatchAction(.detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId))
-        case .showCommandBarEverything, .showCommandBarCommands,
+        case .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos,
             .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .deleteArrangement, .renameArrangement,

@@ -16,6 +16,8 @@ enum CommandBarDataSource {
         static let recentWorktrees = "Recent Worktrees"
         static let recentPanes = "Recent Panes"
         static let recentCommands = "Recent Commands"
+        static let current = "Current"
+        static let repositoriesAndWorktrees = "Repositories & Worktrees"
         static let repositories = "Repositories"
         static let repos = "Repos"
         static let tabs = "Tabs"
@@ -38,6 +40,9 @@ enum CommandBarDataSource {
         static let recentRepositories = 0
         static let recentWorktrees = 1
         static let repositories = 2
+        static let current = 0
+        static let recent = 1
+        static let repositoriesAndWorktrees = 2
         static let repos = 1
         static let panes = 2
         static let tabs = 3
@@ -97,6 +102,8 @@ enum CommandBarDataSource {
             switch scope {
             case .everything:
                 everythingItems(store: store, repoCache: repoCache, dispatcher: dispatcher, focus: focus)
+            case .quickOpen:
+                quickOpenItems(store: store)
             case .commands:
                 commandItems(dispatcher: dispatcher, store: store, repoCache: repoCache, focus: focus)
             case .panes:

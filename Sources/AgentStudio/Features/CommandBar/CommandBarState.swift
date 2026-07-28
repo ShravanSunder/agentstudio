@@ -110,6 +110,7 @@ final class CommandBarState {
     var rootScopeLabel: String {
         switch currentScope {
         case .everything: return "Main"
+        case .quickOpen: return "Quick Open"
         case .commands: return "Commands"
         case .panes: return "Panes"
         case .repos: return "Repositories"
@@ -159,6 +160,7 @@ final class CommandBarState {
         }
         switch activeScope {
         case .everything: return "Search or jump to..."
+        case .quickOpen: return "Open a location..."
         case .commands: return "Run a command..."
         case .panes: return "Search panes..."
         case .repos: return "Open repo or worktree..."
@@ -171,6 +173,7 @@ final class CommandBarState {
         if isNested { return "magnifyingglass" }
         switch activeScope {
         case .everything: return "magnifyingglass"
+        case .quickOpen: return "terminal"
         case .commands: return "chevron.right.2"
         case .panes: return "terminal"
         case .repos: return "octicon-repo"

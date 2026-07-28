@@ -853,6 +853,16 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
                 ipcExposure: .uiPresentation()
             )
+        case .showCommandBarQuickOpen:
+            return AppCommandSpec(
+                command: self,
+                shortcut: .newTab,
+                label: "Quick Open",
+                icon: .system(.terminal),
+                helpText: "Open a terminal at a repository or worktree",
+                commandBarGroupName: "Commands",
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
+            )
         case .showCommandBarCommands:
             return AppCommandSpec(
                 command: self,
@@ -878,10 +888,9 @@ extension AppCommand {
         case .showCommandBarRepos:
             return AppCommandSpec(
                 command: self,
-                shortcut: .newTab,
-                label: "New Tab or Worktree",
+                label: "Repositories",
                 icon: .system(.folder),
-                helpText: "Open the repo and worktree picker",
+                helpText: "Open the repository navigator",
                 commandBarGroupName: "Commands",
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
                 ipcExposure: .uiPresentation()

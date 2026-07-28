@@ -195,6 +195,35 @@ struct CommandBarResultSessionTests {
         #expect(state.selectedIndex == 0)
     }
 
+    @Test("selection wraps symmetrically through consecutive result snapshots")
+    func selectionWrapsSymmetricallyThroughResultSnapshots() throws {
+        let state = CommandBarState()
+        state.show(prefix: ">")
+        let session = CommandBarResultSession(
+            store: WorkspaceStore(),
+            repoCache: RepoCacheAtom(),
+            dispatcher: .shared
+        )
+        let initialSnapshot = session.snapshot(state: state)
+        let finalIndex = initialSnapshot.displayedItems.count - 1
+        let firstItemID = try #require(initialSnapshot.displayedItems.first?.id)
+        let finalItemID = try #require(initialSnapshot.displayedItems.last?.id)
+
+        state.selectedIndex = finalIndex
+        _ = session.snapshot(state: state)
+        state.moveSelectionDown(totalItems: initialSnapshot.totalItems)
+        let downWrappedSnapshot = session.snapshot(state: state)
+
+        #expect(state.selectedIndex == 0)
+        #expect(downWrappedSnapshot.selectedItem?.id == firstItemID)
+
+        state.moveSelectionUp(totalItems: downWrappedSnapshot.totalItems)
+        let upWrappedSnapshot = session.snapshot(state: state)
+
+        #expect(state.selectedIndex == finalIndex)
+        #expect(upWrappedSnapshot.selectedItem?.id == finalItemID)
+    }
+
     @Test("# root item snapshot rebuilds when observed topology changes")
     func rootItemSnapshotRebuildsWhenObservedTopologyChangesInSameMainActorTurn() {
         let store = WorkspaceStore()

@@ -98,8 +98,8 @@ enum AppShortcutDispatchPolicy {
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow, .closeWindow,
-            .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes,
-            .showCommandBarRepos, .openWebview, .showBridgeReview, .showBridgeFiles,
+            .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
+            .showCommandBarPanes, .showCommandBarRepos, .openWebview, .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:
             return false

@@ -174,6 +174,7 @@ The command bar is split by ownership, not by implementation convenience:
 
 | Scope | Owns | Does not own |
 |-------|------|--------------|
+| Quick Open (`⌘T`) | Immediate terminal opening from current directories and repository/worktree locations. | Repository management, arbitrary commands, and existing pane navigation. |
 | `>` Commands | Dispatchable verbs: close, rename, copy current pane path, edit pane note, arrangement commands. | Repo/worktree browsing. |
 | `$` Pane | Existing pane and tab navigation. Search includes pane title, note, tab title, repo/worktree context, and cwd identity. | Opening new locations or path-management actions. |
 | `#` Repo | Locations and opening: repos, worktrees, worktree path commands, opening a new pane, and navigating to existing panes for that worktree. | Generic verbs and arbitrary pane selection. |
@@ -182,17 +183,32 @@ Empty roots add scope-specific recency without changing ownership:
 
 | Root | Empty-query composition |
 |------|-------------------------|
+| Quick Open (`⌘T`) | Current, Recent (up to 5 live repository/worktree targets), then Repositories & Worktrees |
 | Main | Recent Repositories (up to 3), then Repos, Panes, Tabs, Commands |
 | `#` | Recent Repositories (up to 5), Recent Worktrees (up to 5), then Repositories |
 | `$` | Recent Panes (up to 5), then existing pane/tab groups |
 | `>` | Recent Commands (up to 3), then existing command categories |
 
-Any meaningful root query removes the Recent groups and searches the complete
-canonical scope exactly once. Clearing back to an empty query restores the
-recency projection. Repository/worktree/pane history is a lookup hint only:
-activation re-resolves the current entity from live state. Command history
-remains Command-Bar-owned and is recorded only after accepted Commands-root
-dispatch initiation.
+Quick Open's Current group is ordered by normalized, deduplicated path:
+the focused worktree or focused pane cwd when no worktree exists, the first
+watched-folder root, then the user's home folder. Directory rows open their
+exact path immediately and do not expose an actions menu. Repository and
+worktree rows resolve live identity at activation and retain their existing
+actions menu.
+
+Any meaningful root query removes the Current and Recent groups from Quick
+Open, removes the Recent groups from the other roots, and searches each
+complete canonical scope exactly once. Clearing back to an empty query restores
+the empty-root projection. Repository/worktree/pane history is a lookup hint
+only: activation re-resolves the current entity from live state. Command
+history remains Command-Bar-owned and is recorded only after accepted
+Commands-root dispatch initiation.
+
+Quick Open Return opens a terminal pane in the current tab, falling back to a
+new tab when no tab exists. `⌘↩` always opens a new tab. `⌥↩` opens a pane in
+the current tab and is unavailable without one. `PaneTabViewController` owns
+both placements and routes them through validated `WorkspaceActionCommand`
+execution. Directory choices do not write recency.
 
 Recent Repository enters the existing repository menu. Recent Worktree enters
 the existing worktree action menu so path, terminal, Bridge, and existing-pane
@@ -314,10 +330,10 @@ the workspace window that presented the panel, so an open command bar in one
 workspace window does not suppress or reclassify shortcuts in another workspace
 window.
 
-The `⌘T` repo command-bar activation is named `AppShortcut.newTab` at the
-shortcut layer but dispatches `AppCommand.showCommandBarRepos`. It belongs in
-both `.global` and `.terminalAppOwned` contexts so a focused terminal pane can
-decode it directly rather than relying on AppKit main-menu fallback.
+The `⌘T` Quick Open activation is named `AppShortcut.newTab` at the shortcut
+layer but dispatches `AppCommand.showCommandBarQuickOpen`. It belongs in both
+`.global` and `.terminalAppOwned` contexts so a focused terminal pane can decode
+it directly rather than relying on AppKit main-menu fallback.
 
 Command bar activation is not a transient-surface allowance. It is a
 higher-precedence reservation checked before active surface policy. The

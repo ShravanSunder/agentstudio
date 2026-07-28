@@ -21,6 +21,12 @@ extension CommandBarDataSource {
                 visibleCap: 3,
                 store: store
             )
+        case .quickOpen:
+            return projectQuickOpenLocations(
+                canonicalItems: canonicalItems,
+                store: store,
+                focus: focus
+            )
         case .repos:
             return projectRecentRepositoryScope(
                 canonicalItems: canonicalItems,

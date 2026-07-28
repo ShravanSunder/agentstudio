@@ -198,6 +198,55 @@ struct FooterHintBuilderTests {
         #expect(!labels(hints).contains("cmd"))
     }
 
+    @Test("Quick Open repository row teaches immediate opening and Tab actions")
+    func quickOpenRepositoryRowShowsActivationContract() {
+        let item = CommandBarItem(
+            id: "quick-open-repository",
+            title: "agent-studio",
+            group: "Current",
+            groupPriority: 0,
+            hasChildren: true,
+            showsActionsButton: true,
+            action: .quickOpen(
+                .repository(repositoryStableKey: String(repeating: "a", count: 16))
+            )
+        )
+
+        let hints = FooterHintBuilder.hints(
+            for: item,
+            isNested: false,
+            canOpenInCurrentTab: true,
+            scope: .quickOpen
+        )
+        let keys = keysById(hints)
+
+        #expect(labels(hints) == ["Open", "New tab", "Open in tab", "Actions", "Close"])
+        #expect(keys["enter"] == ["↵"])
+        #expect(keys["cmd-enter"] == ["⌘", "↵"])
+        #expect(keys["opt-enter"] == ["⌥", "↵"])
+        #expect(keys["drill-in"] == ["⇥"])
+    }
+
+    @Test("Quick Open directory row omits actions and current-tab hint when unavailable")
+    func quickOpenDirectoryRowShowsAvailableActivationContract() {
+        let item = CommandBarItem(
+            id: "quick-open-directory",
+            title: "~",
+            group: "Current",
+            groupPriority: 0,
+            action: .quickOpen(.directory(FileManager.default.homeDirectoryForCurrentUser))
+        )
+
+        let hints = FooterHintBuilder.hints(
+            for: item,
+            isNested: false,
+            canOpenInCurrentTab: false,
+            scope: .quickOpen
+        )
+
+        #expect(labels(hints) == ["Open", "New tab", "Close"])
+    }
+
     @Test
     func test_worktreeInReposScope_omitsGlobalScopeHints() {
         let item = makeCommandBarItem(

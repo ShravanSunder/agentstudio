@@ -71,6 +71,19 @@ final class CommandBarStateTests {
     }
 
     @Test
+    func test_show_quickOpenScope_hasDedicatedIdentityWithoutPrefix() {
+        state.show(defaultScope: .quickOpen)
+
+        #expect(state.isVisible)
+        #expect(state.rawInput.isEmpty)
+        #expect(state.activePrefix == nil)
+        #expect(state.activeScope == .quickOpen)
+        #expect(state.currentScope == .quickOpen)
+        #expect(state.rootScopeLabel == "Quick Open")
+        #expect(state.placeholder == "Open a location...")
+    }
+
+    @Test
     func test_dismiss_resetsAllState() {
         // Arrange
         state.show(prefix: ">")
