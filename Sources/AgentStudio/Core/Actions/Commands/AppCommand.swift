@@ -190,7 +190,7 @@ package struct AppCommandSpec {
         requiresManagementLayer: Bool = false,
         visibleWhen: Set<FocusRequirement> = [],
         commandBarGroupName: String = "Commands",
-        commandBarGroupPriority: Int = AppCommand.CommandBarGroupPriority.miscellaneous,
+        commandBarGroupPriority: Int = 8,
         isHiddenInCommandBar: Bool = false
     ) {
         self.command = command
