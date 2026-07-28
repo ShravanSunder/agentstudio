@@ -103,6 +103,16 @@ final class WorkspaceActionExecutor {
         coordinator.detachForViewSwitch(paneId: sourcePaneId)
     }
 
+    func reattachZoomSourceForPresentationIfHidden(
+        sourcePaneId: UUID,
+        tabId: UUID
+    ) {
+        guard !arrangementView.activeVisiblePaneIds(forTab: tabId).contains(sourcePaneId) else {
+            return
+        }
+        coordinator.reattachForViewSwitch(paneId: sourcePaneId)
+    }
+
     /// Open an independent read-only Bridge review pane in a new tab.
     @discardableResult
     func openBridgeReviewInNewTab(worktreeId: UUID? = nil) -> Pane? {

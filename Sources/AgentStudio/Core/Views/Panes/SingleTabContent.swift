@@ -12,6 +12,7 @@ struct SingleTabContent: View {
     let onFocusPane: (UUID) -> Void
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
+    let onToggleZoom: (UUID?) -> Void
     let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
     let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
@@ -29,6 +30,7 @@ struct SingleTabContent: View {
         onFocusPane: @escaping (UUID) -> Void,
         paneInboxPresentation: PaneInboxPresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
+        onToggleZoom: @escaping (UUID?) -> Void = { _ in },
         notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         workspaceWindowId: UUID? = nil,
         paneSurfaceToolbarPresentation: @escaping (UUID) -> PaneSurfaceToolbarPresentation,
@@ -46,6 +48,7 @@ struct SingleTabContent: View {
         self.onFocusPane = onFocusPane
         self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
+        self.onToggleZoom = onToggleZoom
         self.notificationCountForWorktree = notificationCountForWorktree
         self.workspaceWindowId = workspaceWindowId
         self.paneSurfaceToolbarPresentation = paneSurfaceToolbarPresentation
@@ -90,6 +93,7 @@ struct SingleTabContent: View {
                     appLifecycleStore: appLifecycleStore,
                     paneInboxPresentation: paneInboxPresentation,
                     onOpenPaneGitHub: onOpenPaneGitHub,
+                    onToggleZoom: onToggleZoom,
                     notificationCountForWorktree: notificationCountForWorktree,
                     workspaceWindowId: workspaceWindowId,
                     paneSurfaceToolbarPresentation: paneSurfaceToolbarPresentation

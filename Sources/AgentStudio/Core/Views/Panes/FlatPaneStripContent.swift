@@ -31,6 +31,7 @@ struct FlatPaneStripContent: View {
     let ordinalMap: PaneOrdinalMap
     let collapsedPaneWidth: CGFloat
     let onSaveArrangement: (() -> Void)?
+    var onToggleZoom: (UUID?) -> Void = { _ in }
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
@@ -73,6 +74,7 @@ struct FlatPaneStripContent: View {
                                 actionDispatcher: actionDispatcher,
                                 onFocus: { onFocusPane(paneId) },
                                 onSaveArrangement: onSaveArrangement,
+                                onToggleZoom: onToggleZoom,
                                 dropTargetCoordinateSpace: coordinateSpaceName,
                                 useDrawerFramePreference: useDrawerFramePreference,
                                 ordinal: ordinalMap.ordinal(forPaneId: paneId),
@@ -94,6 +96,7 @@ struct FlatPaneStripContent: View {
                             layout: layout,
                             collapsedPaneWidth: collapsedPaneWidth,
                             onSaveArrangement: onSaveArrangement,
+                            onToggleZoom: onToggleZoom,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             actionDispatcher: actionDispatcher,
                             onPaneFocusTrigger: onPaneFocusTrigger,
@@ -144,6 +147,7 @@ private struct PaneSegmentSlotView: View {
     let layout: Layout
     let collapsedPaneWidth: CGFloat
     let onSaveArrangement: (() -> Void)?
+    let onToggleZoom: (UUID?) -> Void
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
@@ -174,6 +178,7 @@ private struct PaneSegmentSlotView: View {
                         actionDispatcher: actionDispatcher,
                         onFocus: { onFocusPane(segment.paneId) },
                         onSaveArrangement: onSaveArrangement,
+                        onToggleZoom: onToggleZoom,
                         dropTargetCoordinateSpace: coordinateSpaceName,
                         useDrawerFramePreference: useDrawerFramePreference,
                         ordinal: ordinal,

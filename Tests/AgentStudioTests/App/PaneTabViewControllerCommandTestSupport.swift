@@ -304,6 +304,7 @@ final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {
 
     private(set) var createSurfaceCallCount = 0
     private(set) var lastCreatedSurfaceMetadata: SurfaceMetadata?
+    private(set) var attachedSurfaceRequests: [(surfaceId: UUID, paneId: UUID)] = []
 
     init(createSurfaceResult: Result<ManagedSurface, SurfaceError>) {
         self.createSurfaceResult = createSurfaceResult
@@ -327,7 +328,8 @@ final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {
 
     @discardableResult
     func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? {
-        nil
+        attachedSurfaceRequests.append((surfaceId: surfaceId, paneId: paneId))
+        return nil
     }
 
     func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}

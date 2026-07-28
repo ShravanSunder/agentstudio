@@ -1065,6 +1065,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             onOpenPaneGitHub: { [weak self] paneId in
                 self?.openGitHubWebview(for: paneId)
             },
+            onToggleZoom: { [weak self] sourcePaneId in
+                self?.handleArrangementPanelZoomToggle(
+                    tabId: tabId,
+                    sourcePaneId: sourcePaneId
+                )
+            },
             notificationCountForWorktree: { worktreeId in
                 WorkspaceNotificationCountProjection.rollUpAlertCount(
                     worktreeId: worktreeId,
@@ -2893,6 +2899,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         switch capability.effect {
         case .enter:
+            executor.reattachZoomSourceForPresentationIfHidden(
+                sourcePaneId: capability.sourcePaneId,
+                tabId: capability.tabId
+            )
             withAnimation(.easeInOut(duration: AppStyles.General.Animation.standard)) {
                 store.panePresentationAtom.enterZoom(
                     inTab: capability.tabId,
@@ -2929,8 +2939,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             guard didRetarget else {
                 return false
             }
+            executor.reattachZoomSourceForPresentationIfHidden(
+                sourcePaneId: capability.sourcePaneId,
+                tabId: capability.tabId
+            )
         case .resume:
-            break
+            executor.reattachZoomSourceForPresentationIfHidden(
+                sourcePaneId: capability.sourcePaneId,
+                tabId: capability.tabId
+            )
         }
         _ = executor.reconcileZoomCompanion(
             sourcePaneId: capability.sourcePaneId,

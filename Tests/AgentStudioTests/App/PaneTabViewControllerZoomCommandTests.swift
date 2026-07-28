@@ -101,6 +101,54 @@ struct PaneTabViewControllerZoomCommandTests {
         #expect(harness.store.tab(tab.id)?.activePaneId == durableActivePaneId)
     }
 
+    @Test("Zoom reattaches a minimized terminal source without expanding its durable arrangement")
+    func zoomReattachesMinimizedTerminalSource() throws {
+        // Mutation caught: Zoom enters presentation state without reattaching the hidden terminal surface.
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let visiblePane = harness.store.createPane()
+        let minimizedPane = harness.store.createPane()
+        let tab = Tab(paneId: visiblePane.id)
+        harness.store.appendTab(tab)
+        #expect(
+            harness.store.insertPane(
+                minimizedPane.id,
+                inTab: tab.id,
+                at: visiblePane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+        )
+        #expect(harness.store.minimizePane(minimizedPane.id, inTab: tab.id))
+        harness.store.setActiveTab(tab.id)
+        let surfaceId = UUID()
+        let terminalView = TerminalPaneMountView(
+            restoredSurfaceId: surfaceId,
+            paneId: minimizedPane.id
+        )
+        let paneHost = PaneHostView(paneId: minimizedPane.id)
+        paneHost.mountContentView(terminalView)
+        harness.viewRegistry.register(paneHost, for: minimizedPane.id)
+
+        harness.controller.execute(
+            .zoomPane,
+            target: minimizedPane.id,
+            targetType: .pane
+        )
+
+        #expect(
+            harness.surfaceManager.attachedSurfaceRequests.contains {
+                $0.surfaceId == surfaceId && $0.paneId == minimizedPane.id
+            }
+        )
+        #expect(harness.store.tab(tab.id)?.activeMinimizedPaneIds.contains(minimizedPane.id) == true)
+        #expect(
+            harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)?.sourcePaneId
+                == minimizedPane.id
+        )
+    }
+
     @Test("Zoom Viewer does not replace a missing explicit worktree with an unrelated sole worktree")
     func zoomViewerRejectsUnrelatedSoleWorktreeFallback() throws {
         let harness = makeHarness()

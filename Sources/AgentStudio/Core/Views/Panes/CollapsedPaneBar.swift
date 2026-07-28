@@ -8,6 +8,7 @@ struct CollapsedPaneBar: View {
     let actionDispatcher: PaneActionDispatching
     let onFocus: () -> Void
     let onSaveArrangement: (() -> Void)?
+    let onToggleZoom: (UUID?) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
     let ordinal: Int?
@@ -33,6 +34,7 @@ struct CollapsedPaneBar: View {
         actionDispatcher: PaneActionDispatching,
         onFocus: @escaping () -> Void,
         onSaveArrangement: (() -> Void)? = nil,
+        onToggleZoom: @escaping (UUID?) -> Void = { _ in },
         dropTargetCoordinateSpace: String? = nil,
         useDrawerFramePreference: Bool = false,
         ordinal: Int? = nil,
@@ -44,6 +46,7 @@ struct CollapsedPaneBar: View {
         self.actionDispatcher = actionDispatcher
         self.onFocus = onFocus
         self.onSaveArrangement = onSaveArrangement
+        self.onToggleZoom = onToggleZoom
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
         self.ordinal = ordinal
@@ -156,7 +159,7 @@ struct CollapsedPaneBar: View {
         let arrangements = arrangement.arrangementItems(for: tabId)
 
         return Button {
-            arrangementPopoverToggleGate.toggle(isPresented: &isArrangementPanelPresented)
+            toggleArrangementPopover()
         } label: {
             Image(systemName: "rectangle.3.group")
                 .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
@@ -175,6 +178,14 @@ struct CollapsedPaneBar: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityHidden(true)
+        .background {
+            AccessibilityPressBridge(
+                identifier: "collapsed-pane-bar-arrangements",
+                label: LocalActionSpec.arrangements.actionSpec.label,
+                action: toggleArrangementPopover
+            )
+        }
         .onHover { isArrangementHovered = $0 }
         .help(LocalActionSpec.arrangements.actionSpec.helpText)
         .onChange(of: atom(\.arrangementPanelPresentation).pendingRequest?.id) { _, _ in
@@ -206,14 +217,18 @@ struct CollapsedPaneBar: View {
                     isArrangementPanelPresented = false
                     actionDispatcher.dispatch(action)
                 },
-                onToggleZoom: { _ in
-                    isArrangementPanelPresented = false
+                onToggleZoom: { sourcePaneId in
+                    onToggleZoom(sourcePaneId)
                 },
                 onSaveArrangement: { onSaveArrangement?() },
                 onDismiss: dismissArrangementPopover,
                 highlightPaneId: paneId
             )
         }
+    }
+
+    private func toggleArrangementPopover() {
+        arrangementPopoverToggleGate.toggle(isPresented: &isArrangementPanelPresented)
     }
 
     private func dismissArrangementPopover() {

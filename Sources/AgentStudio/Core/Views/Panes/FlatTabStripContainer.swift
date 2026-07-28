@@ -17,6 +17,7 @@ struct FlatTabStripContainer: View {
     let appLifecycleStore: AppLifecycleAtom
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
+    let onToggleZoom: (UUID?) -> Void
     let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
     let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
@@ -66,6 +67,7 @@ struct FlatTabStripContainer: View {
         appLifecycleStore: AppLifecycleAtom,
         paneInboxPresentation: PaneInboxPresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
+        onToggleZoom: @escaping (UUID?) -> Void = { _ in },
         notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         workspaceWindowId: UUID? = nil,
         paneSurfaceToolbarPresentation: @escaping (UUID) -> PaneSurfaceToolbarPresentation
@@ -85,6 +87,7 @@ struct FlatTabStripContainer: View {
         self.appLifecycleStore = appLifecycleStore
         self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
+        self.onToggleZoom = onToggleZoom
         self.notificationCountForWorktree = notificationCountForWorktree
         self.workspaceWindowId = workspaceWindowId
         self.paneSurfaceToolbarPresentation = paneSurfaceToolbarPresentation
@@ -244,6 +247,7 @@ struct FlatTabStripContainer: View {
                             actionDispatcher: actionDispatcher,
                             onFocus: { onFocusPane(paneId) },
                             onSaveArrangement: onSaveArrangement,
+                            onToggleZoom: onToggleZoom,
                             dropTargetCoordinateSpace: "tabContainer",
                             ordinal: state.mainOrdinalMap.ordinal(forPaneId: paneId),
                             workspaceWindowId: workspaceWindowId
@@ -262,6 +266,7 @@ struct FlatTabStripContainer: View {
                 ordinalMap: state.mainOrdinalMap,
                 collapsedPaneWidth: state.effectiveCollapsedWidth,
                 onSaveArrangement: onSaveArrangement,
+                onToggleZoom: onToggleZoom,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
                 onPaneFocusTrigger: onPaneFocusTrigger,
