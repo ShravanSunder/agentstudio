@@ -217,8 +217,8 @@ struct CommandBarQuickOpenActivationTests {
         }
     }
 
-    @Test("Quick Open rejects a directory that no longer exists")
-    func quickOpenRejectsStaleDirectory() async throws {
+    @Test("Quick Open dispatches directory activation without synchronous filesystem validation")
+    func quickOpenDispatchesDirectoryWithoutFilesystemValidation() async throws {
         try await withAsyncTestAtomRegistry { _ in
             let missingDirectory = FileManager.default.temporaryDirectory
                 .appending(path: "missing-quick-open-\(UUID().uuidString)")
@@ -234,13 +234,14 @@ struct CommandBarQuickOpenActivationTests {
                     controller.state.show(defaultScope: .quickOpen)
                     controller.executeItem(
                         makeItem(
-                            id: "stale-quick-open-directory",
+                            id: "unchecked-quick-open-directory",
                             action: .quickOpen(.directory(missingDirectory))
                         )
                     )
 
-                    #expect(handler.quickOpenDirectoryRequests.isEmpty)
-                    #expect(controller.state.isVisible)
+                    #expect(handler.quickOpenDirectoryRequests.count == 1)
+                    #expect(handler.quickOpenDirectoryRequests.first?.directory == missingDirectory.standardizedFileURL)
+                    #expect(!controller.state.isVisible)
                 }
             )
         }

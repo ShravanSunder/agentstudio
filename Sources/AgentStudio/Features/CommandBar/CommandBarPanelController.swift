@@ -430,17 +430,6 @@ final class CommandBarPanelController {
         _ directory: URL,
         modifier: EnterModifier
     ) {
-        var isDirectory: ObjCBool = false
-        guard
-            FileManager.default.fileExists(
-                atPath: directory.path,
-                isDirectory: &isDirectory
-            ),
-            isDirectory.boolValue
-        else {
-            return
-        }
-
         let canOpenInCurrentTab = resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab
         let placement: QuickOpenDirectoryPlacement
         switch modifier {
