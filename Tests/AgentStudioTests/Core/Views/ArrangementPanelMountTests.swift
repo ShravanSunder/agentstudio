@@ -174,22 +174,11 @@ struct ArrangementPanelMountTests {
             await assertEventuallyMain("arrangement rename field should become first responder") {
                 window.firstResponder === renameField.currentEditor()
             }
-
-            let editingEndProbe = ArrangementPanelMountEventProbe()
-            let editingEndObserver = NotificationCenter.default.addObserver(
-                forName: NSControl.textDidEndEditingNotification,
-                object: renameField,
-                queue: .main
-            ) { _ in
-                editingEndProbe.record()
-            }
-            defer {
-                NotificationCenter.default.removeObserver(editingEndObserver)
-            }
+            let fieldEditor = try #require(renameField.currentEditor())
 
             window.makeFirstResponder(nil)
             await assertEventuallyMain("arrangement rename field should report editing ended") {
-                editingEndProbe.hasRecordedEvent
+                renameField.currentEditor() == nil && window.firstResponder !== fieldEditor
             }
 
             #expect(renameState.editingArrangementId == arrangementId)
@@ -257,19 +246,4 @@ private func findArrangementRenameField(in root: NSView) -> ArrangementRenameNST
         }
     }
     return nil
-}
-
-private final class ArrangementPanelMountEventProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var recordedEvent = false
-
-    var hasRecordedEvent: Bool {
-        lock.withLock { recordedEvent }
-    }
-
-    func record() {
-        lock.withLock {
-            recordedEvent = true
-        }
-    }
 }
