@@ -863,6 +863,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         try? FileManager.default.removeItem(at: tempDir)
     }
 }
+
 // swiftlint:enable type_body_length
 
 @MainActor

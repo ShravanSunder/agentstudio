@@ -31,11 +31,16 @@ enum PaneObservationResolver {
     static func currentObservedPaneIds(
         attendedPaneId: UUID?,
         activeTab: Tab?,
+        zoomSourcePaneId: UUID? = nil,
         pane: (UUID) -> Pane?,
         drawerView: (UUID) -> DrawerView? = { _ in nil }
     ) -> Set<UUID> {
         guard let attendedPaneId else { return [] }
-        let activePaneIds = currentRenderedPaneIds(activeTab: activeTab, fallbackPaneId: attendedPaneId)
+        let activePaneIds = currentRenderedPaneIds(
+            activeTab: activeTab,
+            zoomSourcePaneId: zoomSourcePaneId,
+            fallbackPaneId: attendedPaneId
+        )
         var observedPaneIds = Set<UUID>()
         for paneId in activePaneIds {
             if let drawer = pane(paneId)?.drawer, drawer.isExpanded {
@@ -52,10 +57,14 @@ enum PaneObservationResolver {
         return observedPaneIds
     }
 
-    static func currentRenderedPaneIds(activeTab: Tab?, fallbackPaneId: UUID) -> [UUID] {
+    static func currentRenderedPaneIds(
+        activeTab: Tab?,
+        zoomSourcePaneId: UUID? = nil,
+        fallbackPaneId: UUID
+    ) -> [UUID] {
         guard let activeTab else { return [fallbackPaneId] }
-        if let zoomedPaneId = activeTab.zoomedPaneId {
-            return [zoomedPaneId]
+        if let zoomSourcePaneId {
+            return [zoomSourcePaneId]
         }
         return activeTab.activePaneIds.filter { !activeTab.activeMinimizedPaneIds.contains($0) }
     }

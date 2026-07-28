@@ -18,6 +18,25 @@ final class TransientKeyboardSurfaceAtom {
         return surfaces.last { $0.workspaceWindowId == workspaceWindowId }
     }
 
+    func isArrangementPanelPresented(
+        forTab tabId: UUID,
+        workspaceWindowId: UUID?
+    ) -> Bool {
+        guard let workspaceWindowId else { return false }
+
+        return surfaces.contains { surface in
+            guard surface.workspaceWindowId == workspaceWindowId else { return false }
+
+            switch surface.kind {
+            case .arrangementPanel(let presentedTabId),
+                .arrangementRename(let presentedTabId, _):
+                return presentedTabId == tabId
+            case .tabRename, .paneInbox, .editorChooser, .paneNote:
+                return false
+            }
+        }
+    }
+
     func present(
         _ kind: TransientKeyboardSurfaceKind,
         workspaceWindowId: UUID,

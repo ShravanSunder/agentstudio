@@ -40,7 +40,7 @@ extension AgentStudioAppIPCServer {
             "bridge.fileTree.revealPath", "bridge.fileView.getContent", "bridge.fileView.showMarkdownPreview",
             "bridge.telemetry.snapshot", "bridge.telemetry.flush":
             return try await processBridgeRequest(request)
-        case "command.list", "command.execute", "ui.commandBar.open":
+        case "command.list", "command.execute", "ui.commandBar.open", "ui.arrangements.open":
             return try await processCommandOrUIRequest(request, principal: principal)
         case "sidebar.grouping.get", "sidebar.surface.get":
             return try await processSidebarRequest(request)
@@ -186,6 +186,12 @@ extension AgentStudioAppIPCServer {
             let params = try decodeParams(IPCCommandBarOpenParams.self, from: request.params)
             let result = try await MainActor.run {
                 try service.ports.uiPresentationPort.openCommandBar(params)
+            }
+            return try encodeResult(result)
+        case "ui.arrangements.open":
+            let params = try decodeParams(IPCArrangementsOpenParams.self, from: request.params)
+            let result = try await MainActor.run {
+                try service.ports.uiPresentationPort.openArrangements(params)
             }
             return try encodeResult(result)
         default:

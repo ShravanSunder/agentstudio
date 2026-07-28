@@ -154,7 +154,7 @@ enum LocalActionSpec {
                 label: "Reveal in Finder", helpText: "Reveal this path in Finder", icon: .system(.folder))
         case .copyPath:
             return ActionSpec(
-                label: "Copy Path", helpText: "Copy this path to the clipboard", icon: .system(.docOnClipboard))
+                label: "Copy Path", helpText: "Copy this path to the clipboard", icon: .system(.documentOnDocument))
         case .revealDataLocationInFinder:
             return ActionSpec(
                 label: "Reveal in Finder", helpText: "Reveal the AgentStudio data folder in Finder",

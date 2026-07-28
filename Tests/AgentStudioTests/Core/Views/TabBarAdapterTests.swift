@@ -392,6 +392,37 @@ final class TabBarAdapterTests {
         #expect(tabItem.activeArrangementName == "Default")
     }
 
+    @Test("Zoom management title keeps source ordinal and active arrangement convention")
+    func zoomManagementTitleKeepsSourceOrdinalAndActiveArrangementConvention() async throws {
+        resetFixture()
+
+        let sourcePane = store.createPane()
+        let secondPane = store.createPane()
+        let tab = makeTab(
+            paneIds: [sourcePane.id, secondPane.id],
+            activePaneId: sourcePane.id
+        )
+        store.appendTab(tab)
+        await waitForAdapterRefresh()
+
+        store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: sourcePane.id,
+            viewerPresentation: .unavailable
+        )
+        let arrangementId = try #require(
+            store.createArrangement(name: "Layout 1", inTab: tab.id),
+            "Expected arrangement to be created"
+        )
+        #expect(store.tab(tab.id)?.activeArrangementId == arrangementId)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.activeArrangementName == "1 · Layout 1 · Zoom")
+        #expect(tabItem.activeArrangementBadgeNumber == nil)
+    }
+
     @Test
 
     func test_tabRemoved_adapterUpdates() async throws {

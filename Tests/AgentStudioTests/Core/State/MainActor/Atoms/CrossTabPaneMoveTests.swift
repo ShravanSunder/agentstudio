@@ -27,7 +27,6 @@ struct CrossTabPaneMoveTests {
             isDefault: false,
             layout: Layout(paneId: sourcePaneId),
             minimizedPaneIds: [sourcePaneId],
-            showsMinimizedPanes: false,
             activePaneId: sourcePaneId,
             drawerViews: [drawerId: DrawerView(layout: DrawerGridLayout(topRow: Layout.autoTiled(drawerPaneIds)))]
         )

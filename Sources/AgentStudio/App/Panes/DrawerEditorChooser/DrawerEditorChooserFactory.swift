@@ -29,6 +29,7 @@ enum DrawerEditorChooserFactory {
         canOpenTarget: Bool,
         refreshInstalledTargets: @escaping @MainActor () -> [ExternalEditorTarget],
         onOpenFinder: @escaping () -> Void,
+        onCopyPath: @escaping () -> Void = {},
         onOpenEditor: @escaping (EditorTargetId) -> Void
     ) -> DrawerOverlay.TrailingActions {
         let transientSurfaceKind = TransientKeyboardSurfaceKind.editorChooser(paneId: paneId)
@@ -93,7 +94,8 @@ enum DrawerEditorChooserFactory {
                     ? ExternalEditorTarget.curatedOrder
                     : editorChooser.availableTargets
             ),
-            onOpenFinder: onOpenFinder
+            onOpenFinder: onOpenFinder,
+            onCopyPath: onCopyPath
         )
     }
 }

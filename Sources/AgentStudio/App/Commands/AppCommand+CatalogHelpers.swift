@@ -4,6 +4,22 @@ import Foundation
 // MARK: - AppCommand Catalog Helpers
 
 extension AppCommand {
+    /// Ordered array of tab selection commands (⌘1 through ⌘9)
+    static let selectTabCommands: [AppCommand] = [
+        .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
+        .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+    ]
+
+    static let focusPaneCommands: [AppCommand] = [
+        .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
+        .focusPane6, .focusPane7, .focusPane8, .focusPane9,
+    ]
+
+    static let focusDrawerPaneCommands: [AppCommand] = [
+        .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4, .focusDrawerPane5,
+        .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
+    ]
+
     func hiddenTabSelectionDefinition(index: Int) -> AppCommandSpec {
         AppCommandSpec(
             command: self,

@@ -448,19 +448,19 @@ final class PaneContentWiringTests {
         #expect(registry.peekSlotForTesting(paneId) == nil)
     }
 
-    @Test("container-level surface survives render-mode switches without finalizing tombstones")
-    func viewRegistry_containerSurface_modeSwitch_doesNotFinalize() {
+    @Test("container-level surface survives rendered-set changes without finalizing tombstones")
+    func viewRegistry_containerSurface_renderedSetChange_doesNotFinalize() {
         let registry = ViewRegistry()
-        let zoomedPaneId = UUID()
+        let retainedPaneId = UUID()
         let otherPaneId = UUID()
-        let zoomedSlot = registry.ensureSlot(for: zoomedPaneId)
+        let retainedSlot = registry.ensureSlot(for: retainedPaneId)
         _ = registry.ensureSlot(for: otherPaneId)
 
-        registry.surfaceRenderedIds("tab:tab1", ids: [zoomedPaneId, otherPaneId])
+        registry.surfaceRenderedIds("tab:tab1", ids: [retainedPaneId, otherPaneId])
         registry.retireSlot(for: otherPaneId)
 
-        registry.surfaceRenderedIds("tab:tab1", ids: [zoomedPaneId])
-        #expect(registry.peekSlotForTesting(zoomedPaneId) === zoomedSlot)
+        registry.surfaceRenderedIds("tab:tab1", ids: [retainedPaneId])
+        #expect(registry.peekSlotForTesting(retainedPaneId) === retainedSlot)
         #expect(registry.isRetiredForTesting(otherPaneId) == false)
         #expect(registry.peekSlotForTesting(otherPaneId) == nil)
     }

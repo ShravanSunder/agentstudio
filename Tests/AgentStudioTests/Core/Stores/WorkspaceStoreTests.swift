@@ -1092,7 +1092,11 @@ final class WorkspaceStoreTests {
         #expect((await store.flushAsync()).succeeded)
         #expect(!store.isDirty)
 
-        store.tabLayoutAtom.toggleZoom(paneId: pane.id, inTab: tab.id)
+        store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: pane.id,
+            viewerPresentation: .unavailable
+        )
 
         for _ in 0..<10 where store.isDirty {
             await Task.yield()
@@ -1157,6 +1161,7 @@ final class WorkspaceStoreTests {
                 sizingMode: .halveTarget
             ))
         let customArrangementId = try #require(store.createArrangement(name: "Focus", inTab: tab.id))
+        store.switchArrangement(to: tab.defaultArrangement.id, inTab: tab.id)
         await prepareSharedDatastoreForBoot()
         #expect((await store.flushAsync()).succeeded)
         #expect(!store.isDirty)
@@ -1577,98 +1582,6 @@ final class WorkspaceStoreTests {
         #expect((store.tabs[0].activePaneId) == nil)
     }
 
-    // MARK: - toggleZoom
-
-    @Test
-
-    func test_toggleZoom_setsZoomedPaneId() {
-        // Arrange
-        let p1 = store.createPane()
-        let p2 = store.createPane()
-        let tab = makeTab(paneIds: [p1.id, p2.id])
-        store.appendTab(tab)
-
-        // Act — zoom in
-        store.toggleZoom(paneId: p1.id, inTab: tab.id)
-
-        // Assert
-        #expect(store.tabs[0].zoomedPaneId == p1.id)
-    }
-
-    @Test
-
-    func test_toggleZoom_togglesOff() {
-        // Arrange
-        let p1 = store.createPane()
-        let p2 = store.createPane()
-        let tab = makeTab(paneIds: [p1.id, p2.id])
-        store.appendTab(tab)
-        store.toggleZoom(paneId: p1.id, inTab: tab.id)
-
-        // Act — toggle off
-        store.toggleZoom(paneId: p1.id, inTab: tab.id)
-
-        // Assert
-        #expect((store.tabs[0].zoomedPaneId) == nil)
-    }
-
-    @Test
-
-    func test_toggleZoom_invalidPane_noOp() {
-        // Arrange
-        let p1 = store.createPane()
-        let tab = Tab(paneId: p1.id)
-        store.appendTab(tab)
-
-        // Act — zoom on a pane that isn't in the layout
-        let bogus = UUID()
-        store.toggleZoom(paneId: bogus, inTab: tab.id)
-
-        // Assert — no zoom set
-        #expect((store.tabs[0].zoomedPaneId) == nil)
-    }
-
-    // MARK: - insertPane clears zoom
-
-    @Test
-
-    func test_insertPane_clearsZoom() {
-        // Arrange
-        let p1 = store.createPane()
-        let p2 = store.createPane()
-        let tab = Tab(paneId: p1.id)
-        store.appendTab(tab)
-        store.toggleZoom(paneId: p1.id, inTab: tab.id)
-        #expect((store.tabs[0].zoomedPaneId) != nil)
-
-        // Act — insert a new pane
-        store.insertPane(
-            p2.id, inTab: tab.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
-
-        // Assert — zoom cleared
-        #expect((store.tabs[0].zoomedPaneId) == nil)
-    }
-
-    // MARK: - removePaneFromLayout clears zoom
-
-    @Test
-
-    func test_removePaneFromLayout_clearsZoomOnRemovedPane() {
-        // Arrange
-        let p1 = store.createPane()
-        let p2 = store.createPane()
-        let tab = makeTab(paneIds: [p1.id, p2.id])
-        store.appendTab(tab)
-        store.toggleZoom(paneId: p1.id, inTab: tab.id)
-        #expect(store.tabs[0].zoomedPaneId == p1.id)
-
-        // Act — remove the zoomed pane
-        store.removePaneFromLayout(p1.id, inTab: tab.id)
-
-        // Assert — zoom cleared
-        #expect((store.tabs[0].zoomedPaneId) == nil)
-    }
-
     // MARK: - resizePane
 
     @Test
@@ -1765,28 +1678,6 @@ final class WorkspaceStoreTests {
         #expect(store.tabs[0].layout == before)
     }
 
-    @Test
-
-    func test_resizePaneByDelta_whileZoomed_noOp() {
-        // Arrange
-        let p1 = store.createPane()
-        let p2 = store.createPane()
-        let tab = makeTab(paneIds: [p1.id, p2.id])
-        store.appendTab(tab)
-        store.toggleZoom(paneId: p1.id, inTab: tab.id)
-        guard let dividerId = store.tabs[0].layout.dividerIds.first else {
-            Issue.record("Expected divider")
-            return
-        }
-        let ratioBefore = store.tabs[0].layout.ratioForSplit(dividerId)
-
-        // Act — try to resize while zoomed
-        store.resizePaneByDelta(tabId: tab.id, paneId: p1.id, direction: .right, amount: 10)
-
-        // Assert — ratio unchanged
-        #expect(store.tabs[0].layout.ratioForSplit(dividerId) == ratioBefore)
-    }
-
     // MARK: - addRepo / removeRepo
 
     @Test
@@ -1870,27 +1761,6 @@ final class WorkspaceStoreTests {
 
         // Assert
         #expect((store.windowFrame) == nil)
-    }
-
-    // MARK: - extractPane clears zoom
-
-    @Test
-
-    func test_extractPane_clearsZoomOnExtractedPane() {
-        // Arrange
-        let p1 = store.createPane()
-        let p2 = store.createPane()
-        let tab = makeTab(paneIds: [p1.id, p2.id])
-        store.appendTab(tab)
-        store.toggleZoom(paneId: p1.id, inTab: tab.id)
-        #expect(store.tabs[0].zoomedPaneId == p1.id)
-
-        // Act — extract the zoomed pane
-        let newTab = store.extractPane(p1.id, fromTab: tab.id)
-
-        // Assert — old tab's zoom cleared
-        #expect((newTab) != nil)
-        #expect((store.tabs[0].zoomedPaneId) == nil)
     }
 
     // MARK: - removePaneFromLayout updates activePaneId

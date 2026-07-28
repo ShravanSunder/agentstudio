@@ -1,6 +1,20 @@
 import AppKit
 import SwiftUI
 
+enum PaneManagementChromePresentation: Equatable {
+    case ordinary
+    case zoomChild
+}
+
+enum PaneManagementTrailingControl: Equatable {
+    case movePaneToTab
+    case detachDrawerPane
+
+    static func resolve(isDrawerChild: Bool) -> Self {
+        isDrawerChild ? .detachDrawerPane : .movePaneToTab
+    }
+}
+
 @MainActor
 private func ancestorChainDescription(for view: NSView) -> String {
     var nodes: [String] = []
@@ -33,17 +47,20 @@ struct PaneLeafContainer: View {
     let paneInboxPresentation: PaneInboxPresentation?
     let ordinal: Int?
     let workspaceWindowId: UUID?
+    let toolbarPresentation: PaneSurfaceToolbarPresentation
+    let managementChromePresentation: PaneManagementChromePresentation
 
     @State private var isHovered: Bool = false
-    @State private var paneInboxPopoverOpen = false
     private var managementLayer: ManagementLayerAtom {
         atom(\.managementLayer)
     }
     @State private var isDragHandleHovered: Bool = false
     @State private var isMinimizeHovered: Bool = false
     @State private var isCloseHovered: Bool = false
+    @State private var isShowArrangementsHovered: Bool = false
     @State private var isSplitHovered: Bool = false
     @State private var isBrowserHovered: Bool = false
+    @State private var isMovePaneHovered: Bool = false
     @State private var isDetachHovered: Bool = false
 
     init(
@@ -63,7 +80,9 @@ struct PaneLeafContainer: View {
         useDrawerFramePreference: Bool = false,
         paneInboxPresentation: PaneInboxPresentation? = nil,
         ordinal: Int? = nil,
-        workspaceWindowId: UUID? = nil
+        workspaceWindowId: UUID? = nil,
+        toolbarPresentation: PaneSurfaceToolbarPresentation,
+        managementChromePresentation: PaneManagementChromePresentation = .ordinary
     ) {
         self.paneHost = paneHost
         self.tabId = tabId
@@ -82,6 +101,8 @@ struct PaneLeafContainer: View {
         self.paneInboxPresentation = paneInboxPresentation
         self.ordinal = ordinal
         self.workspaceWindowId = workspaceWindowId
+        self.toolbarPresentation = toolbarPresentation
+        self.managementChromePresentation = managementChromePresentation
     }
 
     /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
@@ -108,7 +129,8 @@ struct PaneLeafContainer: View {
     }
 
     private var suppressMainPaneManagementInteraction: Bool {
-        PaneInteractionOcclusionPolicy.suppressMainPaneManagementInteraction(
+        guard managementChromePresentation == .ordinary else { return true }
+        return PaneInteractionOcclusionPolicy.suppressMainPaneManagementInteraction(
             isDrawerChild: isDrawerChild,
             tabContainsExpandedDrawer: tabContainsExpandedDrawer
         )
@@ -140,12 +162,24 @@ struct PaneLeafContainer: View {
         paneHost.mountedContent(as: TerminalPaneMountView.self)
     }
 
-    private var movePaneDestinations: [(tabId: UUID, title: String)] {
+    private struct MovePaneDestination: Identifiable {
+        let tabId: UUID
+        let title: String
+
+        var id: UUID { tabId }
+    }
+
+    private var movePaneDestinations: [MovePaneDestination] {
         store.tabLayoutAtom.tabs.enumerated().compactMap { index, tab in
             guard tab.id != tabId else { return nil }
             guard tab.activePaneId ?? tab.activePaneIds.first != nil else { return nil }
-            let title = tabDisplayTitle(tab: tab)
-            return (tab.id, "Tab \(index + 1): \(title)")
+            return MovePaneDestination(
+                tabId: tab.id,
+                title: PaneMoveDestinationPresentation.title(
+                    tabOrdinal: index + 1,
+                    tabTitle: tabDisplayTitle(tab: tab)
+                )
+            )
         }
     }
 
@@ -159,83 +193,6 @@ struct PaneLeafContainer: View {
         )
     }
 
-    @ViewBuilder
-    private func drawerOverlay(
-        drawer: Drawer?,
-        locationTargetPaneId: UUID,
-        locationContext: PaneManagementContext
-    ) -> some View {
-        let trailingActions = DrawerEditorChooserFactory.makeTrailingActions(
-            editorChooser: atom(\.editorChooser),
-            paneId: locationTargetPaneId,
-            workspaceWindowId: workspaceWindowId,
-            canOpenTarget: locationContext.targetPath != nil,
-            refreshInstalledTargets: {
-                ExternalEditorTarget.refreshInstalledTargets()
-            },
-            onOpenFinder: { openInFinder(locationContext) },
-            onOpenEditor: { editorId in
-                openInEditor(editorId, locationContext)
-            }
-        )
-
-        let paneInboxScope = PaneInboxScopeResolver.resolve(
-            anchorPaneId: paneHost.id,
-            pane: { store.paneAtom.pane($0) }
-        )
-        let hostedActions =
-            paneInboxPresentation?.trailingActions(
-                parentPaneId: paneInboxScope.parentPaneId,
-                paneIds: paneInboxScope.paneIds,
-                baseTrailingActions: trailingActions,
-                inboxPopoverPresented: $paneInboxPopoverOpen
-            ) ?? trailingActions
-
-        baseDrawerOverlay(drawer: drawer, trailingActions: hostedActions)
-            .onAppear {
-                consumePendingPaneInboxRequest(in: paneInboxScope)
-            }
-            .onChange(of: paneInboxPresentation?.pendingRequest()?.id) { _, _ in
-                consumePendingPaneInboxRequest(in: paneInboxScope)
-            }
-            .onChange(of: paneInboxPopoverOpen) { _, isPresented in
-                paneInboxPresentation?.setPresented(
-                    paneInboxScope.parentPaneId,
-                    paneInboxScope.paneIds,
-                    isPresented
-                )
-            }
-    }
-
-    private func consumePendingPaneInboxRequest(in scope: PaneInboxScope) {
-        guard let request = paneInboxPresentation?.pendingRequest() else { return }
-        guard request.matches(parentPaneId: scope.parentPaneId, paneIds: scope.paneIds) else { return }
-
-        switch request.intent {
-        case .open:
-            paneInboxPopoverOpen = true
-            paneInboxPresentation?.setPresented(scope.parentPaneId, scope.paneIds, true)
-        case .close:
-            paneInboxPopoverOpen = false
-            paneInboxPresentation?.setPresented(scope.parentPaneId, scope.paneIds, false)
-        }
-        paneInboxPresentation?.clearRequest(request)
-    }
-
-    private func baseDrawerOverlay(
-        drawer: Drawer?,
-        trailingActions: DrawerOverlay.TrailingActions
-    ) -> some View {
-        DrawerOverlay(
-            paneId: paneHost.id,
-            drawer: drawer,
-            isIconBarVisible: true,
-            trailingActions: trailingActions,
-            action: actionDispatcher.dispatch,
-            onPaneFocusTrigger: onPaneFocusTrigger
-        )
-    }
-
     var body: some View {
         GeometryReader { _ in
             let managementContext = PaneManagementContext.project(
@@ -244,11 +201,6 @@ struct PaneLeafContainer: View {
                 notificationCountForWorktree: notificationCountForWorktree
             )
             let locationTargetPaneId = currentLocationTargetPaneId
-            let locationContext = PaneManagementContext.project(
-                paneId: locationTargetPaneId,
-                store: store,
-                notificationCountForWorktree: notificationCountForWorktree
-            )
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 0) {
                     PaneViewRepresentable(paneHost: paneHost)
@@ -263,27 +215,38 @@ struct PaneLeafContainer: View {
                         .allowsHitTesting(!managementLayer.isActive)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    if managementLayer.isActive && !isDrawerChild && managementContext.showsIdentityBlock {
+                    if managementLayer.isActive
+                        && managementChromePresentation == .ordinary
+                        && !isDrawerChild
+                        && managementContext.showsIdentityBlock
+                    {
                         ManagementPaneIdentityStrip(context: managementContext)
                     }
 
-                    if !isDrawerChild {
-                        drawerOverlay(
-                            drawer: drawer,
+                    if !isDrawerChild && toolbarPresentation.reservesToolbarLayout {
+                        PaneSurfaceToolbarHost(
+                            anchorPaneId: paneHost.id,
                             locationTargetPaneId: locationTargetPaneId,
-                            locationContext: locationContext
+                            drawer: drawer,
+                            leadingToolbarActions: toolbarPresentation.leadingActions,
+                            contextToolbarActions: toolbarPresentation.contextActions,
+                            store: store,
+                            paneInboxPresentation: paneInboxPresentation,
+                            workspaceWindowId: workspaceWindowId,
+                            actionDispatcher: actionDispatcher,
+                            onPaneFocusTrigger: onPaneFocusTrigger
                         )
                         .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
                 // Regular inactive split panes keep a readable center and dim only the edge band.
-                if isSplit && !isActive {
+                if isSplit && !isActive && managementChromePresentation == .ordinary {
                     InactivePaneEdgeDimmingOverlay()
                 }
 
                 // Management layer dimming: persistent overlay signaling content is non-interactive
-                if managementLayer.isActive {
+                if managementLayer.isActive && managementChromePresentation == .ordinary {
                     Rectangle()
                         .fill(Color.black)
                         .opacity(AppStyles.Shell.ManagementLayer.modeDimmingOpacity)
@@ -352,6 +315,7 @@ struct PaneLeafContainer: View {
                                 tabId: tabId
                             )
                         }
+                        .accessibilityIdentifier("paneManagement.dragHandle")
                     }
                 }
 
@@ -401,6 +365,17 @@ struct PaneLeafContainer: View {
                             .buttonStyle(.plain)
                             .onHover { isMinimizeHovered = $0 }
                             .help(AppCommand.minimizePane.definition.controlToolTip)
+                            .accessibilityHidden(true)
+                            .background {
+                                AccessibilityPressBridge(
+                                    identifier: "paneManagement.minimize",
+                                    label: AppCommand.minimizePane.definition.label
+                                ) {
+                                    actionDispatcher.dispatch(
+                                        .minimizePane(tabId: tabId, paneId: paneHost.id)
+                                    )
+                                }
+                            }
 
                             Button {
                                 beginCloseTransition()
@@ -428,6 +403,25 @@ struct PaneLeafContainer: View {
                             .onHover { isCloseHovered = $0 }
                             .help(AppCommand.closePane.definition.controlToolTip)
                             .disabled(isClosing)
+                            .accessibilityHidden(true)
+                            .background {
+                                AccessibilityPressBridge(
+                                    identifier: "paneManagement.close",
+                                    label: AppCommand.closePane.definition.label,
+                                    isEnabled: !isClosing
+                                ) {
+                                    beginCloseTransition()
+                                }
+                            }
+
+                            if let showArrangementsAction = toolbarPresentation.showArrangementsAction {
+                                managementCircleButton(
+                                    action: showArrangementsAction,
+                                    isHovered: isShowArrangementsHovered,
+                                    accessibilityIdentifier: "paneManagement.showArrangements"
+                                )
+                                .onHover { isShowArrangementsHovered = $0 }
+                            }
 
                             Spacer()
                         }
@@ -459,6 +453,7 @@ struct PaneLeafContainer: View {
                                     )
                                 }
                                 .onHover { isSplitHovered = $0 }
+                                .accessibilityIdentifier("paneManagement.addPane")
 
                                 paneEdgeButton(
                                     systemName: "globe",
@@ -468,14 +463,18 @@ struct PaneLeafContainer: View {
                                     onOpenPaneGitHub(paneHost.id)
                                 }
                                 .onHover { isBrowserHovered = $0 }
+                                .accessibilityIdentifier("paneManagement.openBrowser")
                             }
                         }
                         .padding(.top, AppStyles.General.Spacing.standard)
                         Spacer()
 
-                        if isDrawerChild {
-                            HStack {
-                                Spacer()
+                        HStack {
+                            Spacer()
+                            switch PaneManagementTrailingControl.resolve(
+                                isDrawerChild: isDrawerChild
+                            ) {
+                            case .detachDrawerPane:
                                 paneEdgeButton(
                                     systemName: SystemSymbol.rectanglePortraitAndArrowRight.rawValue,
                                     isHovered: isDetachHovered,
@@ -488,9 +487,11 @@ struct PaneLeafContainer: View {
                                     )
                                 }
                                 .onHover { isDetachHovered = $0 }
+                            case .movePaneToTab:
+                                movePaneDestinationMenu
                             }
-                            .padding(.bottom, AppStyles.General.Spacing.standard)
                         }
+                        .padding(.bottom, AppStyles.General.Spacing.standard)
                     }
                     .allowsHitTesting(true)
                     .transition(.opacity)
@@ -524,30 +525,16 @@ struct PaneLeafContainer: View {
             .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: isClosing)
             .allowsHitTesting(!isClosing)
             .contextMenu {
-                if managementLayer.isActive && !isDrawerChild {
+                if managementLayer.isActive
+                    && managementChromePresentation == .ordinary
+                    && !isDrawerChild
+                {
                     Button(LocalActionSpec.extractPaneToNewTab.actionSpec.label) {
                         actionDispatcher.dispatch(.extractPaneToTab(tabId: tabId, paneId: paneHost.id))
                     }
 
                     Menu(LocalActionSpec.movePaneToTabMenu.actionSpec.label) {
-                        ForEach(movePaneDestinations, id: \.tabId) { destination in
-                            Button(destination.title) {
-                                guard
-                                    let targetTab = store.tabLayoutAtom.tab(destination.tabId),
-                                    let targetPaneId = targetTab.activePaneId ?? targetTab.activePaneIds.first
-                                else { return }
-
-                                actionDispatcher.dispatch(
-                                    .insertPane(
-                                        source: .existingPane(paneId: paneHost.id, sourceTabId: tabId),
-                                        targetTabId: destination.tabId,
-                                        targetPaneId: targetPaneId,
-                                        direction: .right,
-                                        sizingMode: .halveTarget
-                                    )
-                                )
-                            }
-                        }
+                        movePaneDestinationMenuItems
                     }
                 }
             }
@@ -604,6 +591,57 @@ struct PaneLeafContainer: View {
         atom(\.paneDisplay).displayLabel(for: paneId)
     }
 
+    private func managementCircleButton(
+        action: PaneSurfaceToolbarAction,
+        isHovered: Bool,
+        accessibilityIdentifier: String
+    ) -> some View {
+        Button(action: action.perform) {
+            Group {
+                switch action.state.icon {
+                case .system(let symbol):
+                    Image(systemName: symbol.rawValue)
+                        .font(.system(size: AppStyles.Shell.ManagementLayer.actionIconSize, weight: .bold))
+                case .octicon(let symbol):
+                    OcticonImage(
+                        name: symbol.rawValue,
+                        size: AppStyles.Shell.ManagementLayer.actionIconSize
+                    )
+                }
+            }
+            .foregroundStyle(
+                .white.opacity(
+                    AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isHovered)
+                )
+            )
+            .frame(
+                width: AppStyles.Shell.ManagementLayer.actionSize,
+                height: AppStyles.Shell.ManagementLayer.actionSize
+            )
+            .background(
+                Circle()
+                    .fill(
+                        Color.black.opacity(
+                            AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: isHovered)
+                        )
+                    )
+            )
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!action.state.isEnabled)
+        .controlHelp(action.state.tooltip)
+        .accessibilityHidden(true)
+        .background {
+            AccessibilityPressBridge(
+                identifier: accessibilityIdentifier,
+                label: action.state.label,
+                isEnabled: action.state.isEnabled,
+                action: action.perform
+            )
+        }
+    }
+
     private func paneEdgeButton(
         systemName: String,
         isHovered: Bool,
@@ -611,49 +649,91 @@ struct PaneLeafContainer: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: AppStyles.Shell.PaneChrome.paneSplitIconSize, weight: .bold))
-                .foregroundStyle(
-                    .white.opacity(AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isHovered))
-                )
-                .frame(
-                    width: AppStyles.Shell.PaneChrome.paneSplitButtonSize,
-                    height: AppStyles.Shell.PaneChrome.paneSplitButtonSize + 12
-                )
-                .background(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
-                        bottomLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
-                        bottomTrailingRadius: 0,
-                        topTrailingRadius: 0
-                    )
-                    .fill(
-                        Color.black.opacity(
-                            AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: isHovered)
-                        )
-                    )
-                )
-                .contentShape(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
-                        bottomLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
-                        bottomTrailingRadius: 0,
-                        topTrailingRadius: 0
-                    )
-                )
+            paneEdgeButtonLabel(systemName: systemName, isHovered: isHovered)
         }
         .buttonStyle(.plain)
         .help(toolTipText)
     }
 
-    private func openInFinder(_ context: PaneManagementContext) {
-        guard let targetPath = context.targetPath else { return }
-        ExternalWorkspaceOpener.openInFinder(targetPath)
+    private var movePaneDestinationMenu: some View {
+        Menu {
+            movePaneDestinationMenuItems
+        } label: {
+            paneEdgeButtonLabel(
+                systemName: SystemSymbol.arrowLeftArrowRight.rawValue,
+                isHovered: isMovePaneHovered
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(movePaneDestinations.isEmpty)
+        .onHover { isMovePaneHovered = $0 }
+        .controlHelp(AppCommand.movePaneToTab.definition.controlTooltipRenderValue())
+        .accessibilityLabel(AppCommand.movePaneToTab.definition.label)
+        .accessibilityIdentifier("paneManagement.movePaneToTab")
     }
 
-    private func openInEditor(_ editorId: EditorTargetId, _ context: PaneManagementContext) {
-        guard let targetPath = context.targetPath else { return }
-        _ = ExternalWorkspaceOpener.openInEditor(id: editorId, path: targetPath)
+    @ViewBuilder
+    private var movePaneDestinationMenuItems: some View {
+        ForEach(movePaneDestinations) { destination in
+            Button(destination.title) {
+                movePane(to: destination)
+            }
+        }
+    }
+
+    private func movePane(to destination: MovePaneDestination) {
+        guard
+            let targetTab = store.tabLayoutAtom.tab(destination.tabId),
+            let targetPaneId = targetTab.activePaneId ?? targetTab.activePaneIds.first
+        else { return }
+
+        actionDispatcher.dispatch(
+            .insertPane(
+                source: .existingPane(paneId: paneHost.id, sourceTabId: tabId),
+                targetTabId: destination.tabId,
+                targetPaneId: targetPaneId,
+                direction: .right,
+                sizingMode: .halveTarget
+            )
+        )
+    }
+
+    private func paneEdgeButtonLabel(
+        systemName: String,
+        isHovered: Bool
+    ) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: AppStyles.Shell.PaneChrome.paneSplitIconSize, weight: .bold))
+            .foregroundStyle(
+                .white.opacity(AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isHovered))
+            )
+            .frame(
+                width: AppStyles.Shell.PaneChrome.paneSplitButtonSize,
+                height: AppStyles.Shell.PaneChrome.paneSplitButtonSize + 12
+            )
+            .background(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
+                    bottomLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0
+                )
+                .fill(
+                    Color.black.opacity(
+                        AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: isHovered)
+                    )
+                )
+            )
+            .contentShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
+                    bottomLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0
+                )
+            )
     }
 
     private var currentLocationTargetPaneId: UUID {

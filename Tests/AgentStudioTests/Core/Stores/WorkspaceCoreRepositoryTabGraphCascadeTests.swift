@@ -153,7 +153,6 @@ struct WorkspaceCoreRepositoryTabGraphCascadeTests {
                     isDefault: true,
                     layout: makeLayout(paneIds: paneIds, dividerIds: dividerIds),
                     minimizedPaneIds: [],
-                    showsMinimizedPanes: true,
                     drawerViews: [:]
                 )
             ]
@@ -178,7 +177,6 @@ struct WorkspaceCoreRepositoryTabGraphCascadeTests {
                     isDefault: true,
                     layout: Layout(paneId: parentPaneId),
                     minimizedPaneIds: [],
-                    showsMinimizedPanes: true,
                     drawerViews: [
                         drawerId: .init(
                             layout: DrawerGridLayout(

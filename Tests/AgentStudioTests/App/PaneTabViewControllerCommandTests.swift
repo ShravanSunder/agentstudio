@@ -235,11 +235,11 @@ struct PaneTabViewControllerCommandTests {
 
         harness.controller.execute(.cycleArrangement)
 
-        #expect(harness.store.tab(tab.id)?.activeArrangementId == customArrangementId)
+        #expect(harness.store.tab(tab.id)?.activeArrangementId == defaultArrangementId)
 
         harness.controller.execute(.cycleArrangement)
 
-        #expect(harness.store.tab(tab.id)?.activeArrangementId == defaultArrangementId)
+        #expect(harness.store.tab(tab.id)?.activeArrangementId == customArrangementId)
     }
 
     @Test("switchArrangement requests arrangement panel for active tab")
@@ -624,7 +624,6 @@ struct PaneTabViewControllerCommandTests {
         )!
         harness.store.switchArrangement(to: focusArrangementId, inTab: tab.id)
         #expect(harness.store.minimizePane(hiddenPane.id, inTab: tab.id))
-        harness.store.tabLayoutAtom.setShowsMinimizedPanes(false, inTab: tab.id)
 
         harness.controller.handleTerminalProcessTerminated(paneId: hiddenPane.id)
 
@@ -708,7 +707,6 @@ struct PaneTabViewControllerCommandTests {
         )!
         harness.store.switchArrangement(to: focusedVisibleArrangementId, inTab: tab.id)
         #expect(harness.store.minimizePane(parentPane.id, inTab: tab.id))
-        harness.store.tabLayoutAtom.setShowsMinimizedPanes(false, inTab: tab.id)
 
         harness.controller.handleTerminalProcessTerminated(paneId: drawerPane.id)
 
@@ -914,8 +912,8 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.tab(tab.id)?.activePaneId == panes[0].id)
     }
 
-    @Test("focusPane ordinal expands minimized target before focusing")
-    func executeFocusPane2_expandsMinimizedTargetBeforeFocusing() throws {
+    @Test("focusPane ordinal targets only expanded panes")
+    func executeFocusPane2_targetsSecondExpandedPaneWithoutRestoringMinimizedPane() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (tab, panes) = try makeOrdinalTab(in: harness, paneCount: 3)
@@ -924,21 +922,29 @@ struct PaneTabViewControllerCommandTests {
         harness.controller.execute(.focusPane2)
 
         let updatedTab = try #require(harness.store.tab(tab.id))
-        #expect(updatedTab.activePaneId == panes[1].id)
-        #expect(!updatedTab.activeMinimizedPaneIds.contains(panes[1].id))
+        #expect(updatedTab.activePaneId == panes[2].id)
+        #expect(updatedTab.activeMinimizedPaneIds.contains(panes[1].id))
+        #expect(harness.controller.canExecute(.focusPane3) == false)
     }
 
-    @Test("focusPane ordinal moves split zoom to requested pane")
-    func executeFocusPane2_movesSplitZoomToRequestedPane() throws {
+    @Test("focusPane ordinal retargets active Zoom to requested pane")
+    func executeFocusPane2_retargetsActiveZoomToRequestedPane() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (tab, panes) = try makeOrdinalTab(in: harness, paneCount: 3)
-        harness.store.tabLayoutAtom.toggleZoom(paneId: panes[0].id, inTab: tab.id)
+        harness.store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: panes[0].id,
+            viewerPresentation: .unavailable
+        )
 
         harness.controller.execute(.focusPane2)
 
         let updatedTab = try #require(harness.store.tab(tab.id))
-        #expect(updatedTab.zoomedPaneId == panes[1].id)
+        #expect(
+            harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)?.sourcePaneId
+                == panes[1].id
+        )
         #expect(updatedTab.activePaneId == panes[1].id)
     }
 

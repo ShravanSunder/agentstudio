@@ -99,8 +99,61 @@ enum TabArrangementRepairRules {
             }
             updated.layout = pruningInvalidPaneIds(validPaneIds: validPaneIds, from: updated.layout)
             updated.drawerViews = pruningInvalidDrawerViewPaneIds(validPaneIds: validPaneIds, from: updated.drawerViews)
+            if updated.isDefault {
+                updated.minimizedPaneIds = []
+            }
             return updated
         }
+    }
+
+    static func normalizingDefault(
+        in arrangements: [PaneArrangement],
+        allPaneIds: [UUID],
+        knownDrawerPaneIds: Set<UUID> = []
+    ) -> [PaneArrangement] {
+        guard let defaultIndex = arrangements.firstIndex(where: \.isDefault) else {
+            return arrangements
+        }
+
+        let drawerPaneIds = knownDrawerPaneIds.union(
+            arrangements.flatMap { arrangement in
+                arrangement.drawerViews.values.flatMap(\.layout.paneIds)
+            })
+        let mainPaneIds = allPaneIds.filter { !drawerPaneIds.contains($0) }
+        let mainPaneIdSet = Set(mainPaneIds)
+
+        var updated = arrangements
+        var defaultArrangement = updated[defaultIndex]
+        defaultArrangement.layout = pruningInvalidPaneIds(
+            validPaneIds: mainPaneIdSet,
+            from: defaultArrangement.layout
+        )
+        for paneId in mainPaneIds where !defaultArrangement.layout.contains(paneId) {
+            guard let anchorPaneId = defaultArrangement.layout.paneIds.last else {
+                defaultArrangement.layout = Layout(paneId: paneId)
+                continue
+            }
+            guard
+                let appendedLayout = defaultArrangement.layout.inserting(
+                    paneId: paneId,
+                    at: anchorPaneId,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )
+            else {
+                defaultArrangement.layout = Layout.autoTiled(mainPaneIds)
+                break
+            }
+            defaultArrangement.layout = appendedLayout
+        }
+        defaultArrangement.minimizedPaneIds = []
+        defaultArrangement.activePaneId = TabArrangementSelectionRules.fallbackActivePaneId(
+            currentActivePaneId: defaultArrangement.activePaneId,
+            in: defaultArrangement
+        )
+        updated[defaultIndex] = defaultArrangement
+        return updated
     }
 
     static func pruningInvalidDrawerViewPaneIds(

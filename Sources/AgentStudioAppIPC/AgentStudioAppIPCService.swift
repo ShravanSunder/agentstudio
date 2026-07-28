@@ -163,6 +163,7 @@ public protocol AppIPCPermissionApprovalPort: Sendable {
 public struct AppIPCUIPresentationError: Error, Equatable, Sendable {
     public enum Reason: String, Equatable, Sendable {
         case noActiveWindow
+        case targetNotFound
         case validationRejected
     }
 
@@ -176,6 +177,7 @@ public struct AppIPCUIPresentationError: Error, Equatable, Sendable {
 @MainActor
 public protocol AppIPCUIPresentationPort: Sendable {
     func openCommandBar(_ params: IPCCommandBarOpenParams) throws -> IPCCommandBarOpenResult
+    func openArrangements(_ params: IPCArrangementsOpenParams) throws -> IPCArrangementsOpenResult
 }
 
 @MainActor

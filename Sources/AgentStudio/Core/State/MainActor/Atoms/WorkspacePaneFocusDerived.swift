@@ -5,7 +5,8 @@ struct WorkspacePaneFocusDerived {
     func currentFocus(
         workspaceTab: WorkspaceTabLayoutDerived,
         workspacePane: WorkspacePaneAtom,
-        workspaceFocusOwner: WorkspaceFocusOwnerAtom
+        workspaceFocusOwner: WorkspaceFocusOwnerAtom,
+        workspacePanePresentation: WorkspacePanePresentationAtom = atom(\.workspacePanePresentation)
     ) -> WorkspacePaneFocus {
         var satisfiedRequirements: Set<FocusRequirement> = []
 
@@ -17,6 +18,15 @@ struct WorkspacePaneFocusDerived {
         }
 
         satisfiedRequirements.insert(.hasActiveTab)
+
+        if hasActiveTerminalZoom(
+            in: activeTabId,
+            workspacePane: workspacePane,
+            workspacePanePresentation: workspacePanePresentation
+        ) {
+            satisfiedRequirements.insert(.supportsTerminalZoom)
+            satisfiedRequirements.insert(.hasActiveTerminalZoom)
+        }
 
         if workspaceTab.tabs.count > 1 {
             satisfiedRequirements.insert(.hasMultipleTabs)
@@ -47,6 +57,9 @@ struct WorkspacePaneFocusDerived {
         }
 
         satisfiedRequirements.insert(.hasActivePane)
+        if case .terminal = pane.content {
+            satisfiedRequirements.insert(.supportsTerminalZoom)
+        }
 
         if let drawer = pane.drawer {
             satisfiedRequirements.insert(.hasDrawer)
@@ -112,5 +125,20 @@ struct WorkspacePaneFocusDerived {
             drawerFocusState: drawerFocusState,
             satisfiedRequirements: satisfiedRequirements
         )
+    }
+
+    private func hasActiveTerminalZoom(
+        in tabId: UUID,
+        workspacePane: WorkspacePaneAtom,
+        workspacePanePresentation: WorkspacePanePresentationAtom
+    ) -> Bool {
+        guard
+            let sourcePaneId = workspacePanePresentation.zoomPresentation(forTab: tabId)?.sourcePaneId,
+            let sourcePane = workspacePane.pane(sourcePaneId),
+            case .terminal = sourcePane.content
+        else {
+            return false
+        }
+        return true
     }
 }

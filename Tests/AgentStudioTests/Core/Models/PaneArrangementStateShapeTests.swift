@@ -16,7 +16,6 @@ struct PaneArrangementStateShapeTests {
             isDefault: true,
             layout: Layout(paneId: paneId),
             minimizedPaneIds: [paneId],
-            showsMinimizedPanes: true,
             activePaneId: paneId,
             drawerViews: [:]
         )
@@ -25,7 +24,7 @@ struct PaneArrangementStateShapeTests {
         let encoded = try #require(String(bytes: encodedData, encoding: .utf8))
 
         #expect(!encoded.contains("visiblePaneIds"))
-        #expect(encoded.contains("showsMinimizedPanes"))
+        #expect(!encoded.contains("showsMinimizedPanes"))
         #expect(encoded.contains("activePaneId"))
         #expect(encoded.contains("drawerViews"))
     }

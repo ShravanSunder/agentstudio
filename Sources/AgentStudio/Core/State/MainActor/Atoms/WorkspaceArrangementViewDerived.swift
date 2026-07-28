@@ -19,14 +19,8 @@ struct WorkspaceArrangementViewDerived {
         }
         return visiblePaneIds(
             layoutPaneIds: arrangement.layout.paneIds,
-            minimizedPaneIds: arrangement.minimizedPaneIds,
-            showsMinimizedPanes: effectiveShowsMinimizedPanes(for: arrangement)
+            minimizedPaneIds: arrangement.minimizedPaneIds
         )
-    }
-
-    func effectiveShowsMinimizedPanes(forTab tabId: UUID) -> Bool {
-        guard let arrangement = tabLayoutAtom.tab(tabId)?.activeArrangement else { return true }
-        return effectiveShowsMinimizedPanes(for: arrangement)
     }
 
     func drawerView(forParent parentPaneId: UUID) -> DrawerView? {
@@ -42,13 +36,12 @@ struct WorkspaceArrangementViewDerived {
 
     func drawerVisiblePaneIds(forParent parentPaneId: UUID) -> [UUID] {
         guard
-            let tab = tabLayoutAtom.tabContaining(paneId: parentPaneId),
+            tabLayoutAtom.tabContaining(paneId: parentPaneId) != nil,
             let drawerView = drawerView(forParent: parentPaneId)
         else { return [] }
         return visiblePaneIds(
             layoutPaneIds: drawerView.layout.paneIds,
-            minimizedPaneIds: drawerView.minimizedPaneIds,
-            showsMinimizedPanes: effectiveShowsMinimizedPanes(for: tab.activeArrangement)
+            minimizedPaneIds: drawerView.minimizedPaneIds
         )
     }
 
@@ -60,16 +53,11 @@ struct WorkspaceArrangementViewDerived {
         tabLayoutAtom.tab(tabId)?.activeArrangement.minimizedPaneIds ?? []
     }
 
-    private func effectiveShowsMinimizedPanes(for arrangement: PaneArrangement) -> Bool {
-        managementLayerAtom.isActive ? true : arrangement.showsMinimizedPanes
-    }
-
     private func visiblePaneIds(
         layoutPaneIds: [UUID],
-        minimizedPaneIds: Set<UUID>,
-        showsMinimizedPanes: Bool
+        minimizedPaneIds: Set<UUID>
     ) -> [UUID] {
-        guard !showsMinimizedPanes else { return layoutPaneIds }
+        guard !managementLayerAtom.isActive else { return layoutPaneIds }
         return layoutPaneIds.filter { !minimizedPaneIds.contains($0) }
     }
 }

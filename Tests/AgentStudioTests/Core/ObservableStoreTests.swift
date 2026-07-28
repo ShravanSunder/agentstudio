@@ -275,7 +275,6 @@ final class ObservableStoreTests {
         #expect(activeTabId == tab1.id)
         #expect((tab) != nil)
         #expect(tab?.activePaneId == p1.id)
-        #expect((tab?.zoomedPaneId) == nil)
         #expect(tab?.activeMinimizedPaneIds.isEmpty ?? false)
     }
 
@@ -378,7 +377,7 @@ final class ObservableStoreTests {
 
     @Test
 
-    func test_observationTracking_firesOnZoomToggle() {
+    func test_observationTracking_firesOnZoomPresentationChange() {
         // Arrange
         let p1 = store.createPane()
         let p2 = store.createPane()
@@ -387,17 +386,21 @@ final class ObservableStoreTests {
 
         let flag = ObservationFlag()
         withObservationTracking {
-            _ = store.tabs
+            _ = store.panePresentationAtom.zoomPresentation(forTab: tab.id)
         } onChange: {
             flag.fired = true
         }
 
         // Act
-        store.toggleZoom(paneId: p1.id, inTab: tab.id)
+        store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: p1.id,
+            viewerPresentation: .unavailable
+        )
 
         // Assert
         #expect(flag.fired)
-        #expect(store.tab(tab.id)?.zoomedPaneId == p1.id)
+        #expect(store.panePresentationAtom.zoomPresentation(forTab: tab.id)?.sourcePaneId == p1.id)
     }
 
     func awaitTaskBoundary() async {

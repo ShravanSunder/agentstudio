@@ -5,22 +5,71 @@ struct PaneVisibilityInfo: Identifiable, Equatable {
     let id: UUID
     let title: String
     let isMinimized: Bool
+    let supportsZoom: Bool
+
+    init(
+        id: UUID,
+        title: String,
+        isMinimized: Bool,
+        supportsZoom: Bool = false
+    ) {
+        self.id = id
+        self.title = title
+        self.isMinimized = isMinimized
+        self.supportsZoom = supportsZoom
+    }
+
+    var statusSystemImageName: String? {
+        isMinimized ? "eye.slash.fill" : nil
+    }
+}
+
+enum ArrangementPanelRole: Equatable, Sendable {
+    case defaultArrangement
+    case userLayout
 }
 
 struct ArrangementInfo: Identifiable, Equatable {
     let id: UUID
     let name: String
-    let isDefault: Bool
+    let role: ArrangementPanelRole
     let isActive: Bool
+
+    var isDefault: Bool {
+        role == .defaultArrangement
+    }
+}
+
+struct ArrangementPanelZoomSourceIdentity: Equatable, Sendable {
+    let title: String
+    let detail: String?
+    let fullPath: String?
+}
+
+struct ArrangementPanelZoomMode: Equatable, Sendable {
+    let label: String
+    let sourceIdentity: ArrangementPanelZoomSourceIdentity?
+
+    init(
+        label: String,
+        sourceIdentity: ArrangementPanelZoomSourceIdentity? = nil
+    ) {
+        self.label = label
+        self.sourceIdentity = sourceIdentity
+    }
 }
 
 struct ArrangementPanelDisplayState: Equatable {
     let visiblePanes: [PaneVisibilityInfo]
+    let zoomMode: ArrangementPanelZoomMode?
     let arrangements: [ArrangementInfo]
-    let allowsMinimizedBarToggle: Bool
 
     var hasVisiblePanes: Bool {
         !visiblePanes.isEmpty
+    }
+
+    var allowsArrangementCreation: Bool {
+        true
     }
 
     var showsSaveArrangementButton: Bool {
@@ -28,11 +77,11 @@ struct ArrangementPanelDisplayState: Equatable {
     }
 
     var showsPaneVisibilitySection: Bool {
-        hasVisiblePanes
+        hasVisiblePanes && zoomMode == nil
     }
 
-    var showsMinimizedBarToggle: Bool {
-        hasVisiblePanes && allowsMinimizedBarToggle
+    var arrangementTriggerLabel: String? {
+        zoomMode?.label ?? arrangements.first(where: \.isActive)?.name
     }
 }
 
@@ -75,8 +124,8 @@ enum ArrangementPopoverAutoOpen {
 /// Pure decision for whether a chip in the popover shows the rename pencil.
 /// Default arrangements are not renameable, so the affordance is hidden.
 enum ArrangementChipAffordance {
-    static func showsRenamePencil(isDefault: Bool) -> Bool {
-        !isDefault
+    static func showsRenamePencil(role: ArrangementPanelRole) -> Bool {
+        role == .userLayout
     }
 }
 

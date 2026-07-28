@@ -186,7 +186,6 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         )
         harness.store.switchArrangement(to: visibleArrangementId, inTab: tab.id)
         #expect(harness.store.minimizePane(hiddenPane.id, inTab: tab.id))
-        harness.store.tabLayoutAtom.setShowsMinimizedPanes(false, inTab: tab.id)
 
         #expect(harness.store.tab(tab.id)?.activePaneIds == [visiblePane.id, hiddenPane.id])
         #expect(harness.store.tab(tab.id)?.activeMinimizedPaneIds == [hiddenPane.id])

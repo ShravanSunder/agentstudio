@@ -20,7 +20,7 @@ extension AppDelegate: ShellCommandHandling {
             .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
             .splitRight, .splitLeft, .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane, .toggleSplitZoom, .minimizePane, .expandPane,
+            .focusNextPane, .focusPrevPane, .zoomPane, .minimizePane, .expandPane,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement,
@@ -41,7 +41,7 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
-            .newFloatingTerminal, .openWebview, .showBridgeReview, .showBridgeFiles,
+            .newFloatingTerminal, .openWebview, .showViewer, .showBridgeReview, .showBridgeFiles,
             .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
             .setInboxRowStateFilter, .setInboxContentMode,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .openNewTerminalInTab:
@@ -122,7 +122,7 @@ extension AppDelegate: ShellCommandHandling {
             .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
             .splitRight, .splitLeft, .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane, .toggleSplitZoom, .minimizePane, .expandPane,
+            .focusNextPane, .focusPrevPane, .zoomPane, .minimizePane, .expandPane,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement,
@@ -143,7 +143,7 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
-            .newFloatingTerminal, .openWebview, .showBridgeReview, .showBridgeFiles,
+            .newFloatingTerminal, .openWebview, .showViewer, .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .openNewTerminalInTab:
             return false
         }
@@ -161,7 +161,7 @@ extension AppDelegate: ShellCommandHandling {
             .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
             .splitRight, .splitLeft, .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane, .toggleSplitZoom, .minimizePane, .expandPane,
+            .focusNextPane, .focusPrevPane, .zoomPane, .minimizePane, .expandPane,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement,
@@ -192,7 +192,7 @@ extension AppDelegate: ShellCommandHandling {
             .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos,
-            .openWebview, .showBridgeReview, .showBridgeFiles,
+            .openWebview, .showViewer, .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:
             return false

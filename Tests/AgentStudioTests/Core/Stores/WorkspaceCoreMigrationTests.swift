@@ -65,6 +65,11 @@ struct WorkspaceCoreMigrationTests {
         #expect(!worktreeColumns.contains("color_hex"))
         #expect(!worktreeColumns.contains("workspace_id"))
         #expect(tabShellColumns.contains("color_hex"))
+        let tabArrangementColumns = try databaseQueue.read { database in
+            try Row.fetchAll(database, sql: "PRAGMA table_info(tab_arrangement)")
+                .map { row in row["name"] as String }
+        }
+        #expect(!tabArrangementColumns.contains("shows_minimized_panes"))
     }
 
     @Test("migration identifiers are stable and run once")
@@ -93,6 +98,7 @@ struct WorkspaceCoreMigrationTests {
                 "011_add_repo_sidebar_metadata",
                 "012_background_active_unowned_layout_panes",
                 "013_globalize_repository_topology",
+                "014_drop_shows_minimized_panes",
             ]
         )
     }
@@ -690,10 +696,10 @@ struct WorkspaceCoreMigrationTests {
     ) throws {
         try database.execute(
             sql: """
-                INSERT INTO tab_arrangement(id, tab_id, name, is_default, shows_minimized_panes, sort_index)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO tab_arrangement(id, tab_id, name, is_default, sort_index)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-            arguments: [arrangementId, tabId, name, isDefault ? 1 : 0, 0, sortIndex]
+            arguments: [arrangementId, tabId, name, isDefault ? 1 : 0, sortIndex]
         )
     }
 

@@ -61,6 +61,15 @@ extension WorkspaceSurfaceCoordinator {
                 position: position,
                 sizingMode: sizingMode
             )
+
+        case .newWebview(let state):
+            executeInsertWebviewPane(
+                state,
+                targetTabId: targetTabId,
+                targetPaneId: targetPaneId,
+                direction: direction,
+                sizingMode: sizingMode
+            )
         }
     }
 
@@ -153,5 +162,104 @@ extension WorkspaceSurfaceCoordinator {
         }
         traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
+    }
+
+    private func executeInsertWebviewPane(
+        _ state: WebviewState,
+        targetTabId: UUID,
+        targetPaneId: UUID,
+        direction: SplitNewDirection,
+        sizingMode: DropSizingMode
+    ) {
+        guard let targetPane = store.paneAtom.pane(targetPaneId) else {
+            Self.logger.warning("insertPane newWebview: target pane \(targetPaneId) not found")
+            return
+        }
+        let fallbackTitle = state.title.isEmpty ? (state.url.host() ?? "GitHub") : state.title
+        let context = contextualBrowserMetadata(
+            from: targetPane,
+            fallbackTitle: fallbackTitle
+        )
+        let pane = store.paneAtom.createPane(
+            content: .webview(state),
+            metadata: context.metadata
+        )
+        viewRegistry.ensureSlot(for: pane.id)
+
+        guard createViewForContent(pane: pane) != nil else {
+            Self.logger.error("insertPane newWebview: view creation failed for pane \(pane.id)")
+            store.mutationCoordinator.removePane(pane.id)
+            viewRegistry.removeSlot(for: pane.id)
+            return
+        }
+
+        let layoutDirection = bridgeDirection(direction)
+        let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
+        guard
+            store.tabLayoutAtom.insertPane(
+                pane.id,
+                inTab: targetTabId,
+                at: targetPaneId,
+                direction: layoutDirection,
+                position: position,
+                sizingMode: sizingMode
+            )
+        else {
+            Self.logger.error(
+                "insertPane newWebview: failed inserting pane \(pane.id) into tab \(targetTabId)")
+            teardownView(for: pane.id)
+            store.mutationCoordinator.removePane(pane.id)
+            viewRegistry.removeSlot(for: pane.id)
+            return
+        }
+        store.tabLayoutAtom.setActivePane(pane.id, inTab: targetTabId)
+    }
+
+    func executeAddWebviewDrawerPane(
+        parentPaneId: UUID,
+        state: WebviewState
+    ) {
+        guard let parentPane = store.paneAtom.pane(parentPaneId) else {
+            Self.logger.warning("addWebviewDrawerPane: parent pane \(parentPaneId) not found")
+            return
+        }
+
+        let fallbackTitle = state.title.isEmpty ? (state.url.host() ?? "GitHub") : state.title
+        let context = contextualBrowserMetadata(from: parentPane, fallbackTitle: fallbackTitle)
+        guard
+            let pane = store.paneAtom.addDrawerPane(
+                to: parentPaneId,
+                content: .webview(state),
+                metadata: context.metadata
+            )
+        else {
+            Self.logger.warning("addWebviewDrawerPane: failed to create drawer pane for \(parentPaneId)")
+            return
+        }
+
+        viewRegistry.ensureSlot(for: pane.id)
+        guard createViewForContent(pane: pane) != nil else {
+            Self.logger.error("addWebviewDrawerPane: view creation failed for pane \(pane.id)")
+            store.paneAtom.removeDrawerPane(pane.id, from: parentPaneId)
+            viewRegistry.removeSlot(for: pane.id)
+            return
+        }
+        guard let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+            let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
+        else {
+            Self.logger.error("addWebviewDrawerPane: drawer calibration failed for parent \(parentPaneId)")
+            teardownView(for: pane.id)
+            store.paneAtom.removeDrawerPane(pane.id, from: parentPaneId)
+            viewRegistry.removeSlot(for: pane.id)
+            return
+        }
+        store.tabArrangementAtom.addDrawerPaneView(
+            drawerId: drawerId,
+            parentPaneId: parentPaneId,
+            drawerPaneId: pane.id,
+            inTab: tabId
+        )
+
+        focusVisiblePaneHost(pane.id)
     }
 }

@@ -9,6 +9,7 @@ extension WorkspaceSurfaceCoordinator {
 
         let renderedPaneIds = PaneObservationResolver.currentRenderedPaneIds(
             activeTab: activeTab,
+            zoomSourcePaneId: store.panePresentationAtom.zoomPresentation(forTab: activeTab.id)?.sourcePaneId,
             fallbackPaneId: fallbackPaneId
         )
         for paneId in renderedPaneIds {

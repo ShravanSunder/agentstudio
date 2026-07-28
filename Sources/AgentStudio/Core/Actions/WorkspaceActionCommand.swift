@@ -34,6 +34,8 @@ enum PaneSource: Equatable, Hashable {
     case existingPane(paneId: UUID, sourceTabId: UUID)
     /// Creating a new terminal
     case newTerminal
+    /// Creating a new browser pane with the requested state.
+    case newWebview(WebviewState)
     /// Creating a new terminal at an explicit directory
     case newTerminalAtDirectory(URL)
 }
@@ -77,9 +79,6 @@ enum WorkspaceActionCommand: Equatable, Hashable {
     case resizeVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double)
     case equalizePanes(tabId: UUID)
 
-    /// Toggle zoom on a pane (display-only, transient).
-    case toggleSplitZoom(tabId: UUID, paneId: UUID)
-
     /// Move a tab by a relative delta (positive=right, negative=left).
     case moveTab(tabId: UUID, delta: Int)
     /// Move a tab to an absolute tab-bar index.
@@ -109,9 +108,6 @@ enum WorkspaceActionCommand: Equatable, Hashable {
     case switchArrangement(tabId: UUID, arrangementId: UUID)
     /// Rename an arrangement.
     case renameArrangement(tabId: UUID, arrangementId: UUID, name: String)
-    /// Set whether minimized main panes render as collapsed bars in the active arrangement.
-    case setShowsMinimizedPanes(tabId: UUID, value: Bool)
-
     // Worktree actions (routed through command pipeline for validation)
     case openWorktree(worktreeId: UUID)
     case openNewTerminalInTab(worktreeId: UUID, launchDirectory: URL?, title: String?)
@@ -152,6 +148,8 @@ enum WorkspaceActionCommand: Equatable, Hashable {
 
     /// Add a drawer pane to a parent pane.
     case addDrawerPane(parentPaneId: UUID)
+    /// Add a browser drawer pane to a parent pane.
+    case addWebviewDrawerPane(parentPaneId: UUID, state: WebviewState)
     /// Remove a drawer pane from its parent.
     case removeDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
     /// Toggle a pane's drawer expanded/collapsed.

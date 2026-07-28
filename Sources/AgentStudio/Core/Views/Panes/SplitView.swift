@@ -18,6 +18,12 @@ struct SplitView<L: View, R: View>: View {
     /// Called when the divider is double-tapped to equalize splits
     let onEqualize: () -> Void
 
+    /// Whether the divider and its resize interaction are currently visible.
+    let showsDivider: Bool
+
+    /// Whether layout continues reserving the divider gap while its paint and interaction are hidden.
+    let reservesDividerSpace: Bool
+
     /// Called once when a drag resize begins (for UI state like suppressing overlays)
     let onResizeBegin: (() -> Void)?
 
@@ -52,18 +58,22 @@ struct SplitView<L: View, R: View>: View {
                     .offset(x: rightRect.origin.x, y: rightRect.origin.y)
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel(rightPaneLabel)
-                Divider(
-                    direction: direction,
-                    gapSize: splitterGapSize,
-                    hitSize: splitterHitSize,
-                    split: $split
-                )
-                .position(splitterPoint)
-                .gesture(dragGesture(geo.size, splitterPoint: splitterPoint))
-                .onTapGesture(count: 2) {
-                    onEqualize()
+                if showsDivider {
+                    Divider(
+                        direction: direction,
+                        gapSize: splitterGapSize,
+                        hitSize: splitterHitSize,
+                        split: $split
+                    )
+                    .position(splitterPoint)
+                    .gesture(dragGesture(geo.size, splitterPoint: splitterPoint))
+                    .onTapGesture(count: 2) {
+                        onEqualize()
+                    }
+                    .transition(.identity)
                 }
             }
+            .clipped()
             .accessibilityElement(children: .contain)
             .accessibilityLabel(splitViewLabel)
         }
@@ -77,6 +87,8 @@ struct SplitView<L: View, R: View>: View {
         @ViewBuilder left: (() -> L),
         @ViewBuilder right: (() -> R),
         onEqualize: @escaping () -> Void,
+        showsDivider: Bool = true,
+        reservesDividerSpace: Bool? = nil,
         onResizeBegin: (() -> Void)? = nil,
         onResizeEnd: (() -> Void)? = nil
     ) {
@@ -86,6 +98,8 @@ struct SplitView<L: View, R: View>: View {
         self.left = left()
         self.right = right()
         self.onEqualize = onEqualize
+        self.showsDivider = showsDivider
+        self.reservesDividerSpace = reservesDividerSpace ?? showsDivider
         self.onResizeBegin = onResizeBegin
         self.onResizeEnd = onResizeEnd
     }
@@ -133,12 +147,16 @@ struct SplitView<L: View, R: View>: View {
         switch direction {
         case .horizontal:
             result.size.width *= split
-            result.size.width -= splitterGapSize / 2
+            if reservesDividerSpace {
+                result.size.width -= splitterGapSize / 2
+            }
             result.size.width -= result.size.width.truncatingRemainder(dividingBy: resizeIncrements.width)
 
         case .vertical:
             result.size.height *= split
-            result.size.height -= splitterGapSize / 2
+            if reservesDividerSpace {
+                result.size.height -= splitterGapSize / 2
+            }
             result.size.height -= result.size.height.truncatingRemainder(dividingBy: resizeIncrements.height)
         }
         return result
@@ -150,12 +168,16 @@ struct SplitView<L: View, R: View>: View {
         switch direction {
         case .horizontal:
             result.origin.x += leftRect.size.width
-            result.origin.x += splitterGapSize / 2
+            if reservesDividerSpace {
+                result.origin.x += splitterGapSize / 2
+            }
             result.size.width -= result.origin.x
 
         case .vertical:
             result.origin.y += leftRect.size.height
-            result.origin.y += splitterGapSize / 2
+            if reservesDividerSpace {
+                result.origin.y += splitterGapSize / 2
+            }
             result.size.height -= result.origin.y
         }
         return result

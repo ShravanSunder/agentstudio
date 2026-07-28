@@ -290,10 +290,10 @@ struct WorkspaceCorePaneLinkMigrationTests {
     private func insertTabArrangement(_ database: Database, tabId: String, arrangementId: String) throws {
         try database.execute(
             sql: """
-                INSERT INTO tab_arrangement(id, tab_id, name, is_default, shows_minimized_panes, sort_index)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO tab_arrangement(id, tab_id, name, is_default, sort_index)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-            arguments: [arrangementId, tabId, "Default", 1, 0, 0]
+            arguments: [arrangementId, tabId, "Default", 1, 0]
         )
     }
 

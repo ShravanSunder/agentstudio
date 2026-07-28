@@ -615,15 +615,20 @@ final class WorkspaceCommandResolverTests {
         let pane2b = UUID()
         let tab1 = MockTab(id: tab1Id, activePaneId: pane1, allPaneIds: [pane1])
         let tab2 = MockTab(id: tab2Id, activePaneId: pane2a, allPaneIds: [pane2a, pane2b])
+        let zoomSourcesByTabId = [tab2Id: pane2a]
 
         // Act
         let snapshot = WorkspaceCommandResolver.snapshot(
-            from: [tab1, tab2], activeTabId: tab1Id, isManagementLayerActive: false
+            from: [tab1, tab2],
+            activeTabId: tab1Id,
+            isManagementLayerActive: false,
+            zoomSourcePaneIdByTabId: zoomSourcesByTabId
         )
 
         // Assert
         #expect(snapshot.tabCount == 2)
         #expect(snapshot.activeTabId == tab1Id)
+        #expect(snapshot.zoomSourcePaneIdByTabId == zoomSourcesByTabId)
         #expect(snapshot.tab(tab1Id)?.visiblePaneIds == [pane1])
         #expect(snapshot.tab(tab2Id)?.visiblePaneIds == [pane2a, pane2b])
         #expect(snapshot.tab(tab2Id)?.activePaneId == pane2a)

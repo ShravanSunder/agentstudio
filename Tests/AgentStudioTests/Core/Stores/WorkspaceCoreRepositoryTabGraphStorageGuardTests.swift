@@ -41,7 +41,6 @@ struct WorkspaceCoreRepositoryTabGraphStorageGuardTests {
                             isDefault: true,
                             layout: Layout(paneId: parentPaneId),
                             minimizedPaneIds: [],
-                            showsMinimizedPanes: true,
                             drawerViews: [
                                 drawerId: .init(
                                     layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),

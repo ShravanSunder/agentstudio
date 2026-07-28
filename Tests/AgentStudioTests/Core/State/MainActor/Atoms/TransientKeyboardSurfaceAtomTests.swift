@@ -146,4 +146,27 @@ struct TransientKeyboardSurfaceAtomTests {
                     arrangementId: arrangementId
                 ))
     }
+
+    @Test("arrangement presentation lookup is scoped to tab and workspace window")
+    func arrangementPresentationLookupIsScopedToTabAndWorkspaceWindow() {
+        let atom = TransientKeyboardSurfaceAtom()
+        let workspaceWindowId = UUID()
+        let otherWorkspaceWindowId = UUID()
+        let tabId = UUID()
+        let otherTabId = UUID()
+
+        _ = atom.present(.arrangementPanel(tabId: tabId), workspaceWindowId: workspaceWindowId)
+
+        #expect(atom.isArrangementPanelPresented(forTab: tabId, workspaceWindowId: workspaceWindowId))
+        #expect(!atom.isArrangementPanelPresented(forTab: otherTabId, workspaceWindowId: workspaceWindowId))
+        #expect(!atom.isArrangementPanelPresented(forTab: tabId, workspaceWindowId: otherWorkspaceWindowId))
+
+        atom.dismissAll()
+        _ = atom.present(
+            .arrangementRename(tabId: tabId, arrangementId: UUID()),
+            workspaceWindowId: workspaceWindowId
+        )
+
+        #expect(atom.isArrangementPanelPresented(forTab: tabId, workspaceWindowId: workspaceWindowId))
+    }
 }

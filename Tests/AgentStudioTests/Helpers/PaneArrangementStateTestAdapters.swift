@@ -9,8 +9,7 @@ extension Tab {
         allPaneIds: [UUID],
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
-        activePaneId: UUID?,
-        zoomedPaneId: UUID? = nil
+        activePaneId: UUID?
     ) {
         var normalizedArrangements = arrangements
         if let activeIndex = normalizedArrangements.firstIndex(where: { $0.id == activeArrangementId }) {
@@ -21,8 +20,7 @@ extension Tab {
             name: name,
             allPaneIds: allPaneIds,
             arrangements: normalizedArrangements,
-            activeArrangementId: activeArrangementId,
-            zoomedPaneId: zoomedPaneId
+            activeArrangementId: activeArrangementId
         )
     }
 
@@ -32,8 +30,7 @@ extension Tab {
         panes: [UUID],
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
-        activePaneId: UUID?,
-        zoomedPaneId: UUID? = nil
+        activePaneId: UUID?
     ) {
         self.init(
             id: id,
@@ -41,8 +38,7 @@ extension Tab {
             allPaneIds: panes,
             arrangements: arrangements,
             activeArrangementId: activeArrangementId,
-            activePaneId: activePaneId,
-            zoomedPaneId: zoomedPaneId
+            activePaneId: activePaneId
         )
     }
 
@@ -54,8 +50,7 @@ extension TabArrangementState {
         allPaneIds: [UUID],
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
-        activePaneId: UUID?,
-        zoomedPaneId: UUID?
+        activePaneId: UUID?
     ) {
         var normalizedArrangements = arrangements
         if let activeIndex = normalizedArrangements.firstIndex(where: { $0.id == activeArrangementId }) {
@@ -65,8 +60,7 @@ extension TabArrangementState {
             tabId: tabId,
             allPaneIds: allPaneIds,
             arrangements: normalizedArrangements,
-            activeArrangementId: activeArrangementId,
-            zoomedPaneId: zoomedPaneId
+            activeArrangementId: activeArrangementId
         )
     }
 

@@ -384,8 +384,8 @@ extension WebKitSerializedTests {
             #expect(!script.contains(StableKey.fromPath(worktree.path)))
         }
 
-        @Test("openContextualWebviewInPane creates a split browser pane with inherited workspace association")
-        func openContextualWebviewInPane_addsSplitPaneWithAssociation() {
+        @Test("typed webview insertion creates a split browser pane with inherited workspace association")
+        func typedWebviewInsertionAddsSplitPaneWithAssociation() throws {
             let harness = makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let executor = harness.executor
@@ -412,20 +412,84 @@ extension WebKitSerializedTests {
             let tab = Tab(paneId: sourcePane.id)
             store.appendTab(tab)
             store.setActiveTab(tab.id)
+            let paneIdsBefore = Set(store.paneAtom.panes.keys)
+            let url = URL(string: "https://github.com/ShravanSunder/agentstudio/pulls")!
 
-            let pane = executor.openContextualWebviewInPane(
-                sourcePaneId: sourcePane.id,
-                targetTabId: tab.id,
-                url: URL(string: "https://github.com/ShravanSunder/agentstudio/pulls")!
+            let didExecute = executor.execute(
+                .insertPane(
+                    source: .newWebview(WebviewState(url: url)),
+                    targetTabId: tab.id,
+                    targetPaneId: sourcePane.id,
+                    direction: .right,
+                    sizingMode: .halveTarget
+                )
+            )
+            let createdPaneIds = Set(store.paneAtom.panes.keys).subtracting(paneIdsBefore)
+            #expect(createdPaneIds.count == 1)
+            let createdPaneId = try #require(createdPaneIds.first)
+            let pane = try #require(store.pane(createdPaneId))
+
+            #expect(didExecute)
+            #expect(store.tab(tab.id)?.paneIds.count == 2)
+            #expect(store.tab(tab.id)?.activePaneId == pane.id)
+            #expect(pane.webviewState?.url == url)
+            #expect(pane.repoId == repo.id)
+            #expect(pane.worktreeId == worktree.id)
+            #expect(pane.metadata.cwd == worktree.path)
+        }
+
+        @Test("failed webview layout insertion tears down its mounted host and runtime")
+        func failedWebviewLayoutInsertionTearsDownMountedResources() {
+            let harness = makeWorkspaceActionExecutorHarness()
+            let store = harness.store
+            let viewRegistry = harness.viewRegistry
+            let coordinator = harness.coordinator
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+            let sourcePane = store.createPane()
+            let sourceTab = Tab(paneId: sourcePane.id)
+            store.appendTab(sourceTab)
+            let paneIdsBeforeInsertion = Set(store.paneAtom.panes.keys)
+            let slotPaneIdsBeforeInsertion = viewRegistry.slotPaneIdsForTesting
+            let runtimeCountBeforeInsertion = coordinator.runtimeRegistry.count
+
+            coordinator.executeInsertPane(
+                source: .newWebview(
+                    WebviewState(url: URL(string: "https://example.com/failed-layout-insertion")!)
+                ),
+                targetTabId: UUID(),
+                targetPaneId: sourcePane.id,
+                direction: .right,
+                sizingMode: .halveTarget
             )
 
-            #expect(pane != nil)
-            #expect(store.tab(tab.id)?.paneIds.count == 2)
-            #expect(store.tab(tab.id)?.activePaneId == pane?.id)
-            #expect(pane?.webviewState?.url == URL(string: "https://github.com/ShravanSunder/agentstudio/pulls"))
-            #expect(pane?.repoId == repo.id)
-            #expect(pane?.worktreeId == worktree.id)
-            #expect(pane?.metadata.cwd == worktree.path)
+            #expect(Set(store.paneAtom.panes.keys) == paneIdsBeforeInsertion)
+            #expect(viewRegistry.slotPaneIdsForTesting == slotPaneIdsBeforeInsertion)
+            #expect(coordinator.runtimeRegistry.count == runtimeCountBeforeInsertion)
+        }
+
+        @Test("failed webview drawer calibration tears down its mounted host and runtime")
+        func failedWebviewDrawerCalibrationTearsDownMountedResources() {
+            let harness = makeWorkspaceActionExecutorHarness()
+            let store = harness.store
+            let viewRegistry = harness.viewRegistry
+            let coordinator = harness.coordinator
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+            let parentPane = store.createPane()
+            let paneIdsBeforeInsertion = Set(store.paneAtom.panes.keys)
+            let slotPaneIdsBeforeInsertion = viewRegistry.slotPaneIdsForTesting
+            let runtimeCountBeforeInsertion = coordinator.runtimeRegistry.count
+
+            coordinator.executeAddWebviewDrawerPane(
+                parentPaneId: parentPane.id,
+                state: WebviewState(url: URL(string: "https://example.com/failed-drawer-calibration")!)
+            )
+
+            #expect(Set(store.paneAtom.panes.keys) == paneIdsBeforeInsertion)
+            #expect(store.paneAtom.pane(parentPane.id)?.drawer?.paneIds.isEmpty == true)
+            #expect(viewRegistry.slotPaneIdsForTesting == slotPaneIdsBeforeInsertion)
+            #expect(coordinator.runtimeRegistry.count == runtimeCountBeforeInsertion)
         }
 
         @Test("repair recreateSurface replaces a missing webview view")

@@ -30,7 +30,6 @@ extension WorkspaceCoreRepository {
         var isDefault: Bool
         var layout: Layout
         var minimizedPaneIds: Set<UUID>
-        var showsMinimizedPanes: Bool
         var drawerViews: [UUID: DrawerViewGraphRecord]
     }
 
@@ -140,7 +139,7 @@ private func decodeTabGraphState(
     let arrangementRows = try Row.fetchAll(
         database,
         sql: """
-            SELECT id, name, is_default, shows_minimized_panes
+            SELECT id, name, is_default
             FROM tab_arrangement
             WHERE tab_id = ?
             ORDER BY sort_index ASC
@@ -160,7 +159,6 @@ private func decodeTabArrangementGraphRecord(
     let arrangementId = try decodeArrangementId(row["id"])
     let name: String = row["name"]
     let isDefault: Int = row["is_default"]
-    let showsMinimizedPanes: Int = row["shows_minimized_panes"]
     let layout = try fetchArrangementLayout(database, arrangementId: arrangementId)
     let minimizedPaneIds = try fetchArrangementMinimizedPaneIds(database, arrangementId: arrangementId)
     let drawerViews = try fetchDrawerViewGraphRecords(database, arrangementId: arrangementId)
@@ -170,7 +168,6 @@ private func decodeTabArrangementGraphRecord(
         isDefault: isDefault == 1,
         layout: layout,
         minimizedPaneIds: minimizedPaneIds,
-        showsMinimizedPanes: showsMinimizedPanes == 1,
         drawerViews: drawerViews
     )
 }

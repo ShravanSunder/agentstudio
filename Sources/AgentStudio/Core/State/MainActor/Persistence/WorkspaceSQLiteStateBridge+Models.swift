@@ -11,7 +11,6 @@ extension WorkspaceSQLiteStateBridge {
             isDefault: record.isDefault,
             layout: record.layout,
             minimizedPaneIds: record.minimizedPaneIds,
-            showsMinimizedPanes: record.showsMinimizedPanes,
             activePaneId: cursorState.activePaneIdsByArrangementId[record.id],
             drawerViews: record.drawerViews.map { drawerId, drawerView in
                 let key = WorkspaceLocalRepository.ArrangementDrawerCursorKey(

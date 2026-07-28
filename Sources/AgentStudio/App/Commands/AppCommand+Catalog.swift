@@ -3,22 +3,6 @@ import Foundation
 // MARK: - AppCommand Helpers
 
 extension AppCommand {
-    /// Ordered array of tab selection commands (⌘1 through ⌘9)
-    static let selectTabCommands: [AppCommand] = [
-        .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
-        .selectTab6, .selectTab7, .selectTab8, .selectTab9,
-    ]
-
-    static let focusPaneCommands: [AppCommand] = [
-        .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
-        .focusPane6, .focusPane7, .focusPane8, .focusPane9,
-    ]
-
-    static let focusDrawerPaneCommands: [AppCommand] = [
-        .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4, .focusDrawerPane5,
-        .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
-    ]
-
     var definition: AppCommandSpec {
         switch self {
         case .closeTab:
@@ -164,7 +148,7 @@ extension AppCommand {
             return AppCommandSpec(
                 command: self,
                 label: "Move Pane to Existing Tab",
-                icon: .system(.arrowLeftAndRightSquare),
+                icon: .system(.arrowLeftArrowRight),
                 helpText: "Move the active pane into another existing tab",
                 appliesTo: [.pane],
                 requiresManagementLayer: true,
@@ -319,16 +303,21 @@ extension AppCommand {
             return hiddenFocusPaneDefinition(index: 8)
         case .focusPane9:
             return hiddenFocusPaneDefinition(index: 9)
-        case .toggleSplitZoom:
+        case .zoomPane:
             return AppCommandSpec(
                 command: self,
-                label: "Toggle Split Zoom",
-                icon: .system(.plusMagnifyingglass),
-                helpText: "Toggle zoom for the active pane",
+                shortcut: .zoomPane,
+                label: "Pane Zoom",
+                icon: .system(.arrowDownLeftAndArrowUpRightRectangle),
+                helpText: "Zoom the active pane",
                 appliesTo: [.pane],
-                visibleWhen: [.hasActivePane, .hasMultiplePanes],
+                visibleWhen: [.supportsTerminalZoom],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: CommandBarGroupPriority.pane
+                commandBarGroupPriority: CommandBarGroupPriority.pane,
+                ipcExposure: .headless(
+                    targetKinds: [.pane],
+                    requiredPrivileges: [.layoutMutate]
+                )
             )
         case .minimizePane:
             return AppCommandSpec(
@@ -903,6 +892,18 @@ extension AppCommand {
                 helpText: "Open a new webview tab",
                 commandBarGroupName: "Webview",
                 commandBarGroupPriority: CommandBarGroupPriority.webview
+            )
+        case .showViewer:
+            return AppCommandSpec(
+                command: self,
+                shortcut: .showViewer,
+                label: "Worktree Viewer",
+                icon: .system(.textPageBadgeMagnifyingglass),
+                helpText: "Show or hide the Worktree Viewer in Pane Zoom",
+                visibleWhen: [.supportsTerminalZoom],
+                commandBarGroupName: "Worktree Viewer",
+                commandBarGroupPriority: CommandBarGroupPriority.worktreeViewer,
+                ipcExposure: .init(executionModes: [], targetKinds: [], requiredPrivileges: [])
             )
         case .showBridgeReview:
             return AppCommandSpec(

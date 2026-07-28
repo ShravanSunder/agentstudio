@@ -4,6 +4,37 @@ import Testing
 
 @Suite("IPC programmatic-control contracts")
 struct IPCContractsTests {
+    @Test("arrangements presentation contracts round trip optional pane context")
+    func arrangementsPresentationContractsRoundTripOptionalPaneContext() throws {
+        let correlationId = UUID()
+        let workspaceWindowId = UUID()
+        let tabId = UUID()
+        let paneId = UUID()
+        let params = IPCArrangementsOpenParams(
+            targetPaneHandle: "pane:\(paneId.uuidString)",
+            correlationId: correlationId
+        )
+        let result = IPCArrangementsOpenResult(
+            workspaceWindowId: workspaceWindowId,
+            tabId: tabId,
+            contextPaneId: paneId,
+            correlationId: correlationId
+        )
+
+        #expect(
+            try JSONDecoder().decode(
+                IPCArrangementsOpenParams.self,
+                from: JSONEncoder().encode(params)
+            ) == params
+        )
+        #expect(
+            try JSONDecoder().decode(
+                IPCArrangementsOpenResult.self,
+                from: JSONEncoder().encode(result)
+            ) == result
+        )
+    }
+
     @Test("command argument string validation is decoder-derived")
     func commandArgumentStringValidationIsDecoderDerived() throws {
         let constructed = IPCCommandExecuteParams(

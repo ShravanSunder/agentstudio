@@ -14,6 +14,7 @@ struct ActiveTabContent: View {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
+    let onFocusPane: (UUID) -> Void
     let paneInboxPresentation: PaneInboxPresentation? = nil
     let onOpenPaneGitHub: (UUID) -> Void
     let notificationCountForWorktree: (UUID) -> Int = { _ in 0 }
@@ -53,13 +54,12 @@ struct ActiveTabContent: View {
                 layout: tab.layout,
                 tabId: activeTabId,
                 activePaneId: tab.activePaneId,
-                zoomedPaneId: tab.zoomedPaneId,
                 minimizedPaneIds: tab.activeMinimizedPaneIds,
                 visiblePaneIds: atom(\.arrangementView).activeVisiblePaneIds(forTab: activeTabId),
-                showsMinimizedPanes: atom(\.arrangementView).effectiveShowsMinimizedPanes(forTab: activeTabId),
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
                 onPaneFocusTrigger: onPaneFocusTrigger,
+                onFocusPane: onFocusPane,
                 store: store,
                 repoCache: repoCache,
                 viewRegistry: viewRegistry,
@@ -67,7 +67,8 @@ struct ActiveTabContent: View {
                 paneInboxPresentation: paneInboxPresentation,
                 onOpenPaneGitHub: onOpenPaneGitHub,
                 notificationCountForWorktree: notificationCountForWorktree,
-                workspaceWindowId: workspaceWindowId
+                workspaceWindowId: workspaceWindowId,
+                paneSurfaceToolbarPresentation: { _ in .hidden }
             )
             .background(AppStyles.Shell.PaneChrome.background)
         }

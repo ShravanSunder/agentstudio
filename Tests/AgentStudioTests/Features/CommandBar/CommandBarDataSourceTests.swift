@@ -142,27 +142,43 @@ struct CommandBarDataSourceTests {
         #expect(groups.contains("Repo"))
         #expect(groups.contains("Window"))
         #expect(groups.contains("Webview"))
-        #expect(groups.contains("Bridge"))
+        #expect(!groups.contains("Viewer"))
     }
 
     @Test
-    func test_commandsScope_includesAllBridgeCommands() {
+    func test_commandsScope_hidesViewerOutsideZoom() {
         let store = makeStore()
 
         let items = CommandBarDataSource.items(
             scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
-        let bridgeItems = Dictionary(
+        let viewerItems = items.filter { $0.group == "Viewer" }
+
+        #expect(viewerItems.isEmpty)
+    }
+
+    @Test
+    func test_commandsScope_includesOneViewerCommandDuringTerminalZoom() throws {
+        let store = makeRichCommandStore()
+        let tabId = try #require(store.activeTabId)
+        let sourcePaneId = try #require(store.tab(tabId)?.activePaneId)
+        store.panePresentationAtom.enterZoom(
+            inTab: tabId,
+            sourcePaneId: sourcePaneId,
+            viewerPresentation: .unavailable
+        )
+
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
+        let viewerItems = Dictionary(
             uniqueKeysWithValues:
                 items
-                .filter { $0.group == "Bridge" }
+                .filter { $0.group == "Worktree Viewer" }
                 .map { ($0.id, $0) }
         )
 
-        #expect(bridgeItems["cmd-showBridgeReview"]?.title == "Review")
-        #expect(bridgeItems["cmd-showBridgeFiles"]?.title == "Files")
-        #expect(bridgeItems["cmd-openBridgeReviewInNewTab"]?.title == "Open Review in New Tab")
-        #expect(bridgeItems["cmd-openBridgeFilesInNewTab"]?.title == "Open Files in New Tab")
-        #expect(bridgeItems.values.allSatisfy { !$0.hasChildren })
+        #expect(viewerItems.count == 1)
+        #expect(viewerItems["cmd-showViewer"]?.title == "Worktree Viewer")
+        #expect(viewerItems.values.allSatisfy { !$0.hasChildren })
     }
 
     @Test

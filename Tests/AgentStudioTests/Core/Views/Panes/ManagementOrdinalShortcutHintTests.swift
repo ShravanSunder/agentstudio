@@ -21,4 +21,10 @@ struct ManagementOrdinalShortcutHintTests {
                 == .secondary(opacity: AppStyles.Shell.ManagementLayer.collapsedBarOrdinalForegroundOpacity))
         #expect(style.background == .white(opacity: AppStyles.General.Fill.muted))
     }
+
+    @Test("minimized pane badge uses the filled hidden-eye symbol")
+    func minimizedPaneBadgeUsesFilledHiddenEyeSymbol() {
+        #expect(ManagementShortcutBadgeContent.minimized.systemImageName == "eye.slash.fill")
+        #expect(ManagementShortcutBadgeContent.minimized.ordinal == nil)
+    }
 }

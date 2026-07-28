@@ -61,6 +61,7 @@ struct CustomTabBar: View {
     var onSelect: (UUID) -> Void
     var onClose: (UUID) -> Void
     var onCommand: ((AppCommand, UUID) -> Void)?
+    var onToggleZoom: ((UUID, UUID?) -> Void)?
     var onTabFramesChanged: (([UUID: CGRect]) -> Void)?
     var onAdd: (() -> Void)?
     var onPaneAction: ((WorkspaceActionCommand) -> Void)?
@@ -287,6 +288,8 @@ struct CustomTabBar: View {
             TabBarArrangementButton(
                 adapter: adapter,
                 arrangementInlineRenameState: arrangementInlineRenameState,
+                onCommand: onCommand,
+                onToggleZoom: onToggleZoom,
                 onPaneAction: onPaneAction,
                 onSaveArrangement: onSaveArrangement,
                 workspaceWindowId: workspaceWindowId
@@ -437,11 +440,11 @@ struct CustomTabBar: View {
     }
 }
 
-/// Arrangement button in the tab bar's fixed controls zone.
-/// Opens the active tab's arrangement panel popover.
 private struct TabBarArrangementButton: View {
     @Bindable var adapter: TabBarAdapter
     @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
+    let onCommand: ((AppCommand, UUID) -> Void)?
+    let onToggleZoom: ((UUID, UUID?) -> Void)?
     let onPaneAction: ((WorkspaceActionCommand) -> Void)?
     let onSaveArrangement: ((UUID) -> Void)?
     let workspaceWindowId: UUID?
@@ -456,7 +459,6 @@ private struct TabBarArrangementButton: View {
     }
 
     private var hiddenMinimizedCount: Int {
-        guard activeTab?.showsMinimizedPanes == false else { return 0 }
         guard !atom(\.managementLayer).isActive else { return 0 }
         return activeTab?.minimizedCount ?? 0
     }
@@ -532,15 +534,15 @@ private struct TabBarArrangementButton: View {
                     tabId: tab.id,
                     workspaceWindowId: workspaceWindowId,
                     panes: tab.panes,
+                    zoomMode: tab.zoomMode,
                     arrangements: tab.arrangements,
                     inlineRenameState: arrangementInlineRenameState,
                     onPaneAction: onPaneAction,
+                    onToggleZoom: { sourcePaneId in
+                        onToggleZoom?(tab.id, sourcePaneId)
+                    },
                     onSaveArrangement: { onSaveArrangement(tab.id) },
-                    onDismiss: dismissArrangementPopover,
-                    showsMinimizedPanesBinding: Binding(
-                        get: { tab.showsMinimizedPanes },
-                        set: { onPaneAction(.setShowsMinimizedPanes(tabId: tab.id, value: $0)) }
-                    )
+                    onDismiss: dismissArrangementPopover
                 )
             }
         }
@@ -923,6 +925,7 @@ struct TabBarEmptyState: View {
                     onSelect: { _ in },
                     onClose: { _ in },
                     onCommand: { _, _ in },
+                    onToggleZoom: { _, _ in },
                     onAdd: {},
                     onPaneAction: { _ in },
                     onSaveArrangement: { _ in },
