@@ -67,9 +67,11 @@ struct RepoExplorerWorktreeRowTests {
             encoding: .utf8
         )
 
-        #expect(source.contains("Menu(\"Open in Current Tab\")"))
-        #expect(source.contains("Menu(\"Open in New Tab\")"))
-        #expect(source.contains("Menu(\"Open in Editor\")"))
+        #expect(source.contains("LocalActionSpec.openInCurrentTabMenu.actionSpec"))
+        #expect(source.contains("LocalActionSpec.openInNewTabMenu.actionSpec"))
+        #expect(source.contains("LocalActionSpec.openInEditorMenu.actionSpec"))
+        #expect(source.contains("AppCommand.openWorktreeInPane.definition.actionSpec"))
+        #expect(source.contains("AppCommand.openNewTerminalInTab.definition.actionSpec"))
     }
 
     @Test("repo explorer remains inbox-feature agnostic")

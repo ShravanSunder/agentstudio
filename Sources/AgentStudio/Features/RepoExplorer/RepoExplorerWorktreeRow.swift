@@ -254,62 +254,48 @@ struct RepoExplorerWorktreeRow: View {
                 menuLabel(actionSpec: LocalActionSpec.goToTerminal.actionSpec)
             }
 
-            Menu("Open in Current Tab") {
+            Menu {
                 Button {
                     onOpenInPane()
                 } label: {
-                    menuLabel(title: "Terminal Pane", actionSpec: LocalActionSpec.openInPaneSplit.actionSpec)
+                    menuLabel(actionSpec: AppCommand.openWorktreeInPane.definition.actionSpec)
                 }
 
                 Button {
                     onReview()
                 } label: {
-                    menuLabel(
-                        title: "Review",
-                        actionSpec: contextualBridgeActionSpec(
-                            command: .showBridgeReview,
-                            surface: .review
-                        )
-                    )
+                    menuLabel(actionSpec: AppCommand.showBridgeReview.definition.actionSpec)
                 }
 
                 Button {
                     onOpenFiles()
                 } label: {
-                    menuLabel(
-                        title: "Files",
-                        actionSpec: contextualBridgeActionSpec(
-                            command: .showBridgeFiles,
-                            surface: .file
-                        )
-                    )
+                    menuLabel(actionSpec: AppCommand.showBridgeFiles.definition.actionSpec)
                 }
+            } label: {
+                menuLabel(actionSpec: LocalActionSpec.openInCurrentTabMenu.actionSpec)
             }
 
-            Menu("Open in New Tab") {
+            Menu {
                 Button {
                     onOpenNew()
                 } label: {
-                    menuLabel(title: "Terminal", actionSpec: LocalActionSpec.openInNewTab.actionSpec)
+                    menuLabel(actionSpec: AppCommand.openNewTerminalInTab.definition.actionSpec)
                 }
 
                 Button {
                     onOpenReviewInNewTab()
                 } label: {
-                    menuLabel(
-                        title: "Review",
-                        actionSpec: AppCommand.openBridgeReviewInNewTab.definition.actionSpec
-                    )
+                    menuLabel(actionSpec: AppCommand.openBridgeReviewInNewTab.definition.actionSpec)
                 }
 
                 Button {
                     onOpenFilesInNewTab()
                 } label: {
-                    menuLabel(
-                        title: "Files",
-                        actionSpec: AppCommand.openBridgeFilesInNewTab.definition.actionSpec
-                    )
+                    menuLabel(actionSpec: AppCommand.openBridgeFilesInNewTab.definition.actionSpec)
                 }
+            } label: {
+                menuLabel(actionSpec: LocalActionSpec.openInNewTabMenu.actionSpec)
             }
 
             Divider()
@@ -326,7 +312,7 @@ struct RepoExplorerWorktreeRow: View {
                 }
             }
 
-            Menu("Open in Editor") {
+            Menu {
                 Button {
                     openInCursor()
                 } label: {
@@ -338,6 +324,8 @@ struct RepoExplorerWorktreeRow: View {
                 } label: {
                     menuLabel(actionSpec: LocalActionSpec.openInVSCode.actionSpec)
                 }
+            } label: {
+                menuLabel(actionSpec: LocalActionSpec.openInEditorMenu.actionSpec)
             }
 
             Divider()
@@ -377,20 +365,19 @@ struct RepoExplorerWorktreeRow: View {
     }
 
     @ViewBuilder
-    private func menuLabel(title: String? = nil, actionSpec: ActionSpec) -> some View {
-        let resolvedLabel = title ?? actionSpec.label
+    private func menuLabel(actionSpec: ActionSpec) -> some View {
         switch actionSpec.icon {
         case .system(let systemSymbol):
-            Label(resolvedLabel, systemImage: systemSymbol.rawValue)
+            Label(actionSpec.label, systemImage: systemSymbol.rawValue)
         case .octicon(let octiconSymbol):
             if let image = OcticonLoader.shared.image(named: octiconSymbol.rawValue) {
                 Label {
-                    Text(resolvedLabel)
+                    Text(actionSpec.label)
                 } icon: {
                     Image(nsImage: image)
                 }
             } else {
-                Label(resolvedLabel, systemImage: "questionmark.square.dashed")
+                Label(actionSpec.label, systemImage: "questionmark.square.dashed")
             }
         }
     }
