@@ -83,7 +83,7 @@ struct ZoomPresentationContainerTests {
         #expect(toolbarModel.viewerAction.state.isSelected)
         #expect(toolbarModel.zoomAction.state.isEnabled)
         #expect(toolbarModel.zoomAction.state.isSelected)
-        #expect(toolbarModel.zoomAction.state.visibleLabel == nil)
+        #expect(toolbarModel.zoomAction.state.visibleLabel == "Zoomed")
         #expect(fixture.recorder.viewerSourcePaneIds.isEmpty)
         #expect(fixture.recorder.zoomSourcePaneIds.isEmpty)
 

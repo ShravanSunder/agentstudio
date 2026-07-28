@@ -223,7 +223,7 @@ struct PaneSurfaceToolbarPresentationTests {
         #expect(presentation.actionStatesForTesting.zoom?.isEnabled == true)
         #expect(presentation.actionStatesForTesting.zoom?.isSelected == true)
         #expect(presentation.actionStatesForTesting.zoom?.selectionEmphasis == .accent)
-        #expect(presentation.actionStatesForTesting.zoom?.visibleLabel == nil)
+        #expect(presentation.actionStatesForTesting.zoom?.visibleLabel == "Zoomed")
         #expect(presentation.leadingActions.isEmpty)
         #expect(presentation.contextActions.map(\.state.label) == ["Pane Zoom", "Viewer"])
     }

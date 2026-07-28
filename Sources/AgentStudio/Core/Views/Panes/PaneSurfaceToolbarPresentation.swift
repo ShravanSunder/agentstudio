@@ -376,7 +376,7 @@ package enum PaneSurfaceToolbarResolver {
                     tooltip: zoomAction.state.tooltip,
                     isEnabled: true,
                     isSelected: true,
-                    visibleLabel: nil,
+                    visibleLabel: "Zoomed",
                     selectionEmphasis: .accent
                 ),
                 showArrangementsAction: showArrangementsAction
