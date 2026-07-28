@@ -74,7 +74,7 @@ enum AppShortcutDispatchPolicy {
             .closePane, .extractPaneToTab, .movePaneToTab, .focusPane, .splitRight, .splitLeft,
             .equalizePanes, .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
             .focusNextPane, .focusPrevPane, .focusPane1, .focusPane2, .focusPane3, .focusPane4,
-            .focusPane5, .focusPane6, .focusPane7, .focusPane8, .focusPane9, .toggleSplitZoom,
+            .focusPane5, .focusPane6, .focusPane7, .focusPane8, .focusPane9, .zoomPane,
             .minimizePane, .expandPane, .switchArrangement, .previousArrangement, .nextArrangement,
             .cycleArrangement, .saveArrangement, .deleteArrangement, .renameArrangement,
             .enterDrawer, .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown,
@@ -99,7 +99,7 @@ enum AppShortcutDispatchPolicy {
             .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes,
-            .showCommandBarRepos, .openWebview, .showBridgeReview, .showBridgeFiles,
+            .showCommandBarRepos, .openWebview, .showViewer, .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:
             return false

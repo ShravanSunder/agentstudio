@@ -108,6 +108,57 @@ final class ArrangementDerivedTests {
     }
 
     @Test
+    func zoomMode_projectsRepoBranchWorktreeFolderAndFullCwd() throws {
+        try AtomScope.$override.withValue(registry) {
+            let repo = store.addRepo(
+                at: URL(filePath: "/tmp/pane-zoom/agent-studio")
+            )
+            let worktree = Worktree(
+                repoId: repo.id,
+                name: "feature-zoom",
+                path: URL(filePath: "/tmp/pane-zoom/agent-studio-feature"),
+                isMainWorktree: false
+            )
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            registry.repoCache.setWorktreeEnrichment(
+                WorktreeEnrichment(
+                    worktreeId: worktree.id,
+                    repoId: repo.id,
+                    branch: "feature/pane-zoom"
+                )
+            )
+
+            let cwd = worktree.path.appending(path: "Sources/App")
+            let pane = store.createPane(
+                launchDirectory: cwd,
+                facets: PaneContextFacets(
+                    repoId: repo.id,
+                    worktreeId: worktree.id,
+                    cwd: cwd
+                )
+            )
+            let tab = Tab(paneId: pane.id)
+            store.appendTab(tab)
+            registry.workspacePanePresentation.enterZoom(
+                inTab: tab.id,
+                sourcePaneId: pane.id,
+                viewerPresentation: .retryable
+            )
+
+            let mode = try #require(ArrangementDerived().zoomMode(for: tab.id))
+            let sourceIdentity = try #require(mode.sourceIdentity)
+
+            #expect(mode.label == "Cancel Zoom")
+            #expect(
+                sourceIdentity.title
+                    == "\(repo.name) | feature/pane-zoom | \(worktree.path.lastPathComponent)"
+            )
+            #expect(sourceIdentity.detail == cwd.path)
+            #expect(sourceIdentity.fullPath == cwd.path)
+        }
+    }
+
+    @Test
     func nextCustomArrangementName_startsAtLayoutOne() {
         AtomScope.$override.withValue(registry) {
             let pane = store.createPane()
@@ -162,7 +213,7 @@ final class ArrangementDerivedTests {
     }
 
     @Test
-    func paneVisibilityItems_restoresMinimizedStateWhenSwitchingBackToArrangement() throws {
+    func paneVisibilityItems_restoresMinimizedStateOnlyInUserLayout() throws {
         try AtomScope.$override.withValue(registry) {
             let firstPane = store.createPane()
             let tab = Tab(paneId: firstPane.id)
@@ -187,6 +238,7 @@ final class ArrangementDerivedTests {
             )
 
             _ = store.minimizePane(secondPane.id, inTab: tab.id)
+            let minimizedLayoutId = try #require(store.tab(tab.id)?.activeArrangementId)
             let focusArrangementId = try #require(
                 store.createArrangement(
                     name: "Focus",
@@ -197,8 +249,13 @@ final class ArrangementDerivedTests {
             store.switchArrangement(to: focusArrangementId, inTab: tab.id)
             store.switchArrangement(to: tab.defaultArrangement.id, inTab: tab.id)
 
-            let items = ArrangementDerived().paneVisibilityItems(for: tab.id)
-            #expect(items.first(where: { $0.id == secondPane.id })?.isMinimized == true)
+            let defaultItems = ArrangementDerived().paneVisibilityItems(for: tab.id)
+            #expect(defaultItems.first(where: { $0.id == secondPane.id })?.isMinimized == false)
+
+            store.switchArrangement(to: minimizedLayoutId, inTab: tab.id)
+
+            let minimizedLayoutItems = ArrangementDerived().paneVisibilityItems(for: tab.id)
+            #expect(minimizedLayoutItems.first(where: { $0.id == secondPane.id })?.isMinimized == true)
         }
     }
 }

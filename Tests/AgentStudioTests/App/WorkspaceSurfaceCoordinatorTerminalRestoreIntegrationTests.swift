@@ -504,7 +504,7 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func resolveInitialFramesByTabId_ignoresShowMinimizedBarsToggle_forCanonicalMinimizedGeometry() throws {
+    func resolveInitialFramesByTabId_usesCanonicalMinimizedGeometry() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -532,7 +532,6 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
             position: .after, sizingMode: .halveTarget
         )
         _ = harness.store.minimizePane(secondPane.id, inTab: tab.id)
-        harness.store.tabLayoutAtom.setShowsMinimizedPanes(false, inTab: tab.id)
 
         let framesByTabId = harness.coordinator.resolveInitialFramesByTabId(
             in: CGRect(x: 0, y: 0, width: 1000, height: 600)

@@ -21,15 +21,13 @@ enum TabArrangementMutationRules {
             isDefault: false,
             layout: arrangementLayout,
             minimizedPaneIds: arrangementMinimizedPaneIds,
-            showsMinimizedPanes: activeArrangement.showsMinimizedPanes,
             activePaneId: TabArrangementSelectionRules.fallbackActivePaneId(
                 currentActivePaneId: activeArrangement.activePaneId,
                 in: PaneArrangement(
                     name: name,
                     isDefault: false,
                     layout: arrangementLayout,
-                    minimizedPaneIds: arrangementMinimizedPaneIds,
-                    showsMinimizedPanes: activeArrangement.showsMinimizedPanes
+                    minimizedPaneIds: arrangementMinimizedPaneIds
                 )
             ),
             drawerViews: activeArrangement.drawerViews
@@ -74,7 +72,6 @@ enum TabArrangementMutationRules {
         guard state.activeArrangementId != arrangementId else { return state }
 
         var updated = state
-        updated.zoomedPaneId = nil
         updated.activeArrangementId = arrangementId
         let arrangementIndex = activeArrangementIndex(in: updated)
         updated.arrangements[arrangementIndex].activePaneId = TabArrangementSelectionRules.fallbackActivePaneId(
@@ -90,16 +87,22 @@ enum TabArrangementMutationRules {
         guard layoutPaneIds.contains(paneId) else { return nil }
 
         var updated = state
-        let arrangementIndex = activeArrangementIndex(in: updated)
+        var arrangementIndex = activeArrangementIndex(in: updated)
+        if updated.arrangements[arrangementIndex].isDefault {
+            let name = ArrangementDerived.nextCustomArrangementName(existing: updated.arrangements)
+            guard let userArrangement = createArrangement(name: name, from: updated) else {
+                return nil
+            }
+            updated.arrangements.append(userArrangement)
+            updated.activeArrangementId = userArrangement.id
+            arrangementIndex = updated.arrangements.index(before: updated.arrangements.endIndex)
+        }
         updated.arrangements[arrangementIndex].minimizedPaneIds.insert(paneId)
         if updated.arrangements[arrangementIndex].activePaneId == paneId {
             let nonMinimized = layoutPaneIds.filter {
                 !updated.arrangements[arrangementIndex].minimizedPaneIds.contains($0)
             }
             updated.arrangements[arrangementIndex].activePaneId = nonMinimized.first
-        }
-        if updated.zoomedPaneId == paneId {
-            updated.zoomedPaneId = nil
         }
         return updated
     }
@@ -126,8 +129,7 @@ enum TabArrangementMutationRules {
                 tabId: tab.id,
                 allPaneIds: tab.allPaneIds,
                 arrangements: tab.arrangements,
-                activeArrangementId: tab.activeArrangementId,
-                zoomedPaneId: tab.zoomedPaneId
+                activeArrangementId: tab.activeArrangementId
             )
             if let drawerPayload = drawerPayloadsByParentPaneId[paneId] {
                 applyDrawerPayload(drawerPayload, to: &newState)
@@ -145,10 +147,6 @@ enum TabArrangementMutationRules {
         guard state.allPaneIds.contains(paneId) else { return nil }
 
         var updated = state
-        if updated.zoomedPaneId == paneId {
-            updated.zoomedPaneId = nil
-        }
-
         let movedPaneIds = Set([paneId] + (drawerPayload?.drawerPaneIds ?? []))
         let movedDrawerIds = Set([drawerPayload?.drawerId].compactMap(\.self))
         updated.arrangements = TabArrangementRepairRules.removingPanes(
@@ -164,8 +162,7 @@ enum TabArrangementMutationRules {
             tabId: newTab.id,
             allPaneIds: newTab.allPaneIds,
             arrangements: newTab.arrangements,
-            activeArrangementId: newTab.activeArrangementId,
-            zoomedPaneId: newTab.zoomedPaneId
+            activeArrangementId: newTab.activeArrangementId
         )
         if let drawerPayload {
             applyDrawerPayload(drawerPayload, to: &extractedState)
@@ -185,7 +182,6 @@ enum TabArrangementMutationRules {
         guard targetArrangement.layout.contains(targetPaneId) else { return nil }
 
         var updated = target
-        updated.zoomedPaneId = nil
         let sourcePaneIds = defaultArrangement(in: source).layout.paneIds
         for arrangementIndex in updated.arrangements.indices {
             var currentTarget = targetPaneId

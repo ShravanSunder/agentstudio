@@ -3,9 +3,11 @@ import SwiftUI
 
 enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case arrowDown = "arrow.down"
+    case arrowDownLeftAndArrowUpRightRectangle = "arrow.down.left.and.arrow.up.right.rectangle"
     case arrowDownToLine = "arrow.down.to.line"
     case arrowClockwise = "arrow.clockwise"
     case arrowLeft = "arrow.left"
+    case arrowLeftArrowRight = "arrow.left.arrow.right"
     case arrowLeftAndRightSquare = "arrow.left.and.right.square"
     case arrowLeftCircle = "arrow.left.circle"
     case arrowRight = "arrow.right"

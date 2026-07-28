@@ -13,9 +13,9 @@ struct TabBarItem: Identifiable, Equatable {
     var arrangementCount: Int  // total arrangements (1 = default only)
     var colorHex: String?
     var panes: [PaneVisibilityInfo]
+    var zoomMode: ArrangementPanelZoomMode?
     var arrangements: [ArrangementInfo]
     var minimizedCount: Int
-    var showsMinimizedPanes: Bool
     var notificationDotColor: TabNotificationDotColor?
 }
 
@@ -125,6 +125,7 @@ final class TabBarAdapter {
             _ = self.store.tabLayoutAtom.tabs
             _ = self.store.tabLayoutAtom.activeTabId
             _ = self.store.paneAtom.panes
+            _ = self.store.panePresentationAtom.zoomPresentationsByTabId
             for pane in self.store.paneAtom.panes.values {
                 if let worktreeId = pane.worktreeId ?? pane.metadata.worktreeId {
                     _ = self.repoCache.worktreeEnrichment(for: worktreeId)
@@ -177,22 +178,33 @@ final class TabBarAdapter {
 
             let arrangementDerived = atom(\.arrangement)
             let paneInfos = arrangementDerived.paneVisibilityItems(for: tab.id)
+            let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: tab.id)
+            let zoomMode = arrangementDerived.zoomMode(for: tab.id)
             let arrangementInfos = arrangementDerived.arrangementItems(for: tab.id)
             let notificationDotColor = notificationDotColorProvider(Array(tab.allPaneIds))
+            let zoomManagementTitle = zoomPresentation.flatMap { presentation in
+                ZoomManagementTitle.text(
+                    sourceOrdinal: PaneOrdinalMap(
+                        orderedPaneIds: activeArrangement.layout.paneIds
+                    ).ordinal(forPaneId: presentation.sourcePaneId),
+                    activeArrangementName: Self.activeArrangementDisplayName(for: activeArrangement)
+                )
+            }
 
             return TabBarItem(
                 id: tab.id,
                 title: dragTitle,
                 isSplit: tab.isSplit,
                 displayTitle: displayTitle,
-                activeArrangementName: Self.activeArrangementDisplayName(for: activeArrangement),
-                activeArrangementBadgeNumber: activeArrangementBadgeNumber,
+                activeArrangementName: zoomManagementTitle
+                    ?? Self.activeArrangementDisplayName(for: activeArrangement),
+                activeArrangementBadgeNumber: zoomPresentation == nil ? activeArrangementBadgeNumber : nil,
                 arrangementCount: tab.arrangements.count,
                 colorHex: tab.colorHex,
                 panes: paneInfos,
+                zoomMode: zoomMode,
                 arrangements: arrangementInfos,
                 minimizedCount: tab.activeMinimizedPaneIds.count,
-                showsMinimizedPanes: activeArrangement.showsMinimizedPanes,
                 notificationDotColor: notificationDotColor
             )
         }

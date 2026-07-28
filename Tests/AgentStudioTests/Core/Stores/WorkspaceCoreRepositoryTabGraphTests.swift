@@ -134,7 +134,6 @@ struct WorkspaceCoreRepositoryTabGraphTests {
                                 dividerIds: [dividerId]
                             ),
                             minimizedPaneIds: [secondPaneId],
-                            showsMinimizedPanes: false,
                             drawerViews: [
                                 drawerId: .init(
                                     layout: .init(
@@ -350,7 +349,6 @@ struct WorkspaceCoreRepositoryTabGraphTests {
                                 dividerIds: [firstDividerId, secondDividerId]
                             ),
                             minimizedPaneIds: [],
-                            showsMinimizedPanes: true,
                             drawerViews: [:]
                         )
                     ]
@@ -378,7 +376,6 @@ struct WorkspaceCoreRepositoryTabGraphTests {
                                 isDefault: true,
                                 layout: Layout(paneId: thirdPaneId),
                                 minimizedPaneIds: [],
-                                showsMinimizedPanes: true,
                                 drawerViews: [:]
                             )
                         ]
@@ -485,7 +482,6 @@ struct WorkspaceCoreRepositoryTabGraphTests {
                         isDefault: true,
                         layout: Layout(paneId: scenario.parentPaneId),
                         minimizedPaneIds: [],
-                        showsMinimizedPanes: true,
                         drawerViews: [
                             scenario.drawerId: makeDrawerCascadeView(paneIds: drawerPaneIds, dividerIds: dividerIds)
                         ]
@@ -553,7 +549,6 @@ struct WorkspaceCoreRepositoryTabGraphTests {
                     isDefault: true,
                     layout: Layout(paneId: paneId),
                     minimizedPaneIds: [],
-                    showsMinimizedPanes: true,
                     drawerViews: [:]
                 )
             ]

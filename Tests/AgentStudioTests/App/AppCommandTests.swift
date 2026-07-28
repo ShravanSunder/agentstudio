@@ -223,13 +223,54 @@ final class AppCommandTests {
     }
 
     @Test
-    func test_toggleSplitZoom_hasDistinctZoomIcon() {
-        let splitZoom = AppCommandDispatcher.shared.definition(for: .toggleSplitZoom)
+    func test_zoomPane_presentsForSinglePaneTabsWithNarrowHeadlessIPC() {
+        let zoomPane = AppCommandDispatcher.shared.definition(for: .zoomPane)
         let expandPane = AppCommandDispatcher.shared.definition(for: .expandPane)
+        let ipcEntry = zoomPane.ipcCommandListEntry
+        let canonicalZoomSymbol = SystemSymbol(
+            rawValue: "arrow.down.left.and.arrow.up.right.rectangle"
+        )
 
-        #expect(splitZoom.icon == .system(.plusMagnifyingglass))
+        #expect(zoomPane.label == "Pane Zoom")
+        #expect(zoomPane.helpText == "Zoom the active pane")
+        #expect(zoomPane.appliesTo == [.pane])
+        #expect(!zoomPane.visibleWhen.contains(.hasMultiplePanes))
+        #expect(zoomPane.icon == canonicalZoomSymbol.map(CommandIcon.system))
         #expect(expandPane.icon == .system(.arrowUpLeftAndArrowDownRight))
-        #expect(splitZoom.icon != expandPane.icon)
+        #expect(zoomPane.icon != expandPane.icon)
+        #expect(ipcEntry.executionModes == [.headless])
+        #expect(ipcEntry.targetKinds == [.pane])
+        #expect(ipcEntry.requiredPrivileges == [.layoutMutate])
+    }
+
+    @Test
+    func test_zoomPane_hardCutPreservesInputFocusCommandIdentities() {
+        #expect(AppCommand.zoomPane.rawValue == "zoomPane")
+        #expect(AppCommand(rawValue: "focus") == nil)
+        #expect(AppCommand.focusPane.rawValue == "focusPane")
+        #expect(AppCommand.focusPaneLeft.rawValue == "focusPaneLeft")
+        #expect(AppCommand.focusPaneRight.rawValue == "focusPaneRight")
+        #expect(AppCommand.focusPaneUp.rawValue == "focusPaneUp")
+        #expect(AppCommand.focusPaneDown.rawValue == "focusPaneDown")
+        #expect(AppCommand.focusNextPane.rawValue == "focusNextPane")
+        #expect(AppCommand.focusPrevPane.rawValue == "focusPrevPane")
+        #expect(AppCommand.focusDrawerPaneUp.rawValue == "focusDrawerPaneUp")
+        #expect(AppCommand.focusDrawerPaneLeft.rawValue == "focusDrawerPaneLeft")
+        #expect(AppCommand.focusDrawerPaneDown.rawValue == "focusDrawerPaneDown")
+        #expect(AppCommand.focusDrawerPaneRight.rawValue == "focusDrawerPaneRight")
+    }
+
+    @Test
+    func test_commandCatalog_exposesOneContextualZoomViewerCommand() throws {
+        let viewerDefinitions = AppCommand.allCases
+            .map(\.definition)
+            .filter { $0.label == "Viewer" }
+
+        let viewer = try #require(viewerDefinitions.first)
+        #expect(viewerDefinitions.count == 1)
+        #expect(viewer.command == .showViewer)
+        #expect(viewer.appliesTo.isEmpty)
+        #expect(viewer.visibleWhen == [.hasActiveTerminalZoom])
     }
 
     // MARK: - AppCommandDispatcher

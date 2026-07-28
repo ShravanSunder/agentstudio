@@ -7,7 +7,7 @@ import Testing
 @Suite("WorkspaceArrangementViewDerived")
 struct WorkspaceArrangementViewDerivedTests {
     @Test
-    func activeVisiblePaneIds_hideMinimizedPanesUntilManagementOverride() {
+    func activeVisiblePaneIds_derivesMinimizedVisibilityFromManagementState() {
         let paneA = UUID()
         let paneB = UUID()
         let layout = Layout(paneId: paneA)
@@ -18,19 +18,24 @@ struct WorkspaceArrangementViewDerivedTests {
                 position: .after,
                 sizingMode: .halveTarget
             )!
-        let arrangement = PaneArrangement(
+        let defaultArrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
             layout: layout,
+            activePaneId: paneA
+        )
+        let userArrangement = PaneArrangement(
+            name: "Layout 1",
+            isDefault: false,
+            layout: layout,
             minimizedPaneIds: [paneB],
-            showsMinimizedPanes: false,
             activePaneId: paneA
         )
         let tab = Tab(
             name: "Tab",
             allPaneIds: [paneA, paneB],
-            arrangements: [arrangement],
-            activeArrangementId: arrangement.id
+            arrangements: [defaultArrangement, userArrangement],
+            activeArrangementId: userArrangement.id
         )
         let tabLayout = WorkspaceTabLayoutAtom()
         let paneAtom = WorkspacePaneAtom()
@@ -43,16 +48,14 @@ struct WorkspaceArrangementViewDerivedTests {
         )
 
         #expect(derived.activeVisiblePaneIds(forTab: tab.id) == [paneA])
-        #expect(derived.effectiveShowsMinimizedPanes(forTab: tab.id) == false)
 
         managementLayer.activate()
 
         #expect(derived.activeVisiblePaneIds(forTab: tab.id) == [paneA, paneB])
-        #expect(derived.effectiveShowsMinimizedPanes(forTab: tab.id) == true)
     }
 
     @Test
-    func drawerVisiblePaneIds_usesArrangementShowMinimizedPolicyUntilManagementOverride() {
+    func drawerVisiblePaneIds_derivesMinimizedVisibilityFromManagementState() {
         let parentPane = makePane(id: UUIDv7.generate())
         let drawerPaneA = makeDrawerChild(id: UUIDv7.generate(), parentPaneId: parentPane.id)
         let drawerPaneB = makeDrawerChild(id: UUIDv7.generate(), parentPaneId: parentPane.id)
@@ -71,11 +74,22 @@ struct WorkspaceArrangementViewDerivedTests {
                     sizingMode: .halveTarget
                 )!
         )
-        let arrangement = PaneArrangement(
+        let defaultArrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: parentWithDrawerPanes.id),
-            showsMinimizedPanes: false,
+            activePaneId: parentWithDrawerPanes.id,
+            drawerViews: [
+                drawer.drawerId: DrawerView(
+                    layout: drawerLayout,
+                    activeChildId: drawerPaneA.id
+                )
+            ]
+        )
+        let userArrangement = PaneArrangement(
+            name: "Layout 1",
+            isDefault: false,
+            layout: Layout(paneId: parentWithDrawerPanes.id),
             activePaneId: parentWithDrawerPanes.id,
             drawerViews: [
                 drawer.drawerId: DrawerView(
@@ -88,8 +102,8 @@ struct WorkspaceArrangementViewDerivedTests {
         let tab = Tab(
             name: "Tab",
             allPaneIds: [parentWithDrawerPanes.id],
-            arrangements: [arrangement],
-            activeArrangementId: arrangement.id
+            arrangements: [defaultArrangement, userArrangement],
+            activeArrangementId: userArrangement.id
         )
         let tabLayout = WorkspaceTabLayoutAtom()
         let paneAtom = WorkspacePaneAtom()
@@ -105,12 +119,10 @@ struct WorkspaceArrangementViewDerivedTests {
         )
 
         #expect(derived.drawerVisiblePaneIds(forParent: parentWithDrawerPanes.id) == [drawerPaneA.id])
-        #expect(derived.effectiveShowsMinimizedPanes(forTab: tab.id) == false)
 
         managementLayer.activate()
 
         #expect(derived.drawerVisiblePaneIds(forParent: parentWithDrawerPanes.id) == [drawerPaneA.id, drawerPaneB.id])
-        #expect(derived.effectiveShowsMinimizedPanes(forTab: tab.id) == true)
     }
 
     @Test

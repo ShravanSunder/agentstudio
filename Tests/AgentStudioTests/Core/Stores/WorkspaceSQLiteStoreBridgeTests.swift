@@ -593,7 +593,6 @@ private func makeWorkspaceSQLiteCursorProjectionFixture() -> WorkspaceSQLiteCurs
                         isDefault: true,
                         layout: Layout.autoTiled([minimizedPaneId, visiblePaneId]),
                         minimizedPaneIds: [minimizedPaneId],
-                        showsMinimizedPanes: true,
                         drawerViews: [
                             drawerId: .init(
                                 layout: DrawerGridLayout(

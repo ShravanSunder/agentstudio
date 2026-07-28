@@ -139,16 +139,15 @@ private func insertArrangement(
     try database.execute(
         sql: """
             INSERT INTO tab_arrangement(
-                id, tab_id, name, is_default, shows_minimized_panes, sort_index
+                id, tab_id, name, is_default, sort_index
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             """,
         arguments: [
             arrangement.id.uuidString,
             tabId.uuidString,
             arrangement.name,
             arrangement.isDefault ? 1 : 0,
-            arrangement.showsMinimizedPanes ? 1 : 0,
             sortIndex,
         ]
     )

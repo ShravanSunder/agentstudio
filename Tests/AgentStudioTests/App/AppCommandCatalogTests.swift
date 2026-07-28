@@ -116,61 +116,46 @@ final class AppCommandCatalogTests {
     @MainActor
 
     @Test
-    func test_dispatcher_showBridgeReview_registered() {
-        let def = AppCommandDispatcher.shared.definition(for: .showBridgeReview)
-        #expect(def.label == "Review")
+    func test_dispatcher_showViewer_registered() {
+        let def = AppCommandDispatcher.shared.definition(for: .showViewer)
+        #expect(def.label == "Viewer")
         #expect(def.icon == .system(.rectangleSplit2x1))
-        #expect(def.commandBarGroupName == "Bridge")
+        #expect(def.commandBarGroupName == "Viewer")
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_showBridgeFiles_registered() {
-        let def = AppCommandDispatcher.shared.definition(for: .showBridgeFiles)
-        #expect(def.label == "Files")
-        #expect(def.icon == .system(.folder))
-        #expect(def.commandBarGroupName == "Bridge")
+    func test_dispatcher_zoomPane_registered() {
+        let def = AppCommandDispatcher.shared.definition(for: .zoomPane)
+        let canonicalZoomSymbol = SystemSymbol(
+            rawValue: "arrow.down.left.and.arrow.up.right.rectangle"
+        )
+        #expect(def.label == "Pane Zoom")
+        #expect(def.icon == canonicalZoomSymbol.map(CommandIcon.system))
+        #expect(def.appliesTo == [.pane])
+        #expect(def.visibleWhen == [.supportsTerminalZoom])
+        #expect(def.ipcCommandListEntry.executionModes == [.headless])
+        #expect(def.ipcCommandListEntry.targetKinds == [.pane])
+        #expect(def.ipcCommandListEntry.requiredPrivileges == [.layoutMutate])
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_openBridgeReviewInNewTab_registered() {
-        let def = AppCommandDispatcher.shared.definition(for: .openBridgeReviewInNewTab)
-        #expect(def.label == "Open Review in New Tab")
-        #expect(def.icon == .system(.rectangleSplit2x1))
-        #expect(def.commandBarGroupName == "Bridge")
+    func test_dispatcher_zoomPaneAndViewer_haveNoKeyBindings() {
+        #expect(AppCommand.zoomPane.definition.keyBinding == nil)
+        #expect(AppCommand.showViewer.definition.keyBinding == nil)
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_openBridgeFilesInNewTab_registered() {
-        let def = AppCommandDispatcher.shared.definition(for: .openBridgeFilesInNewTab)
-        #expect(def.label == "Open Files in New Tab")
-        #expect(def.icon == .system(.folder))
-        #expect(def.commandBarGroupName == "Bridge")
-    }
+    func test_dispatcher_showViewer_isContextualZoomOnly() {
+        let definition = AppCommand.showViewer.definition
 
-    @MainActor
-
-    @Test
-    func test_dispatcher_bridgeCommands_haveNoKeyBindings() {
-        #expect(AppCommand.showBridgeReview.definition.keyBinding == nil)
-        #expect(AppCommand.showBridgeFiles.definition.keyBinding == nil)
-        #expect(AppCommand.openBridgeReviewInNewTab.definition.keyBinding == nil)
-        #expect(AppCommand.openBridgeFilesInNewTab.definition.keyBinding == nil)
-    }
-
-    @MainActor
-
-    @Test
-    func test_dispatcher_bridgeCommands_applyToWorktrees() {
-        #expect(AppCommand.showBridgeReview.definition.appliesTo.contains(.worktree))
-        #expect(AppCommand.showBridgeFiles.definition.appliesTo.contains(.worktree))
-        #expect(AppCommand.openBridgeReviewInNewTab.definition.appliesTo.contains(.worktree))
-        #expect(AppCommand.openBridgeFilesInNewTab.definition.appliesTo.contains(.worktree))
+        #expect(definition.appliesTo.isEmpty)
+        #expect(definition.visibleWhen == [.hasActiveTerminalZoom])
     }
 
     @MainActor

@@ -34,8 +34,13 @@ extension WorkspaceSurfaceCoordinator {
 
         let sourceVisibleBefore = Set(crossTabMoveVisiblePaneIds(forTab: sourceTabId))
         let destinationVisibleBefore = Set(crossTabMoveVisiblePaneIds(forTab: destTabId))
+        let capturedZoomCompanion =
+            store.panePresentationAtom.zoomCompanion(forSourcePane: paneId)
         let drawer = pane.drawer
         let movedPaneIds = Set([paneId] + (drawer?.paneIds ?? []))
+        if store.panePresentationAtom.zoomPresentation(forTab: sourceTabId)?.sourcePaneId == paneId {
+            store.panePresentationAtom.cancelZoom(inTab: sourceTabId)
+        }
         guard
             let result = store.tabLayoutAtom.movePaneAcrossTabs(
                 CrossTabPaneMoveMutation(
@@ -56,6 +61,11 @@ extension WorkspaceSurfaceCoordinator {
                 destTabId: destTabId,
                 sourceTabClosed: result.sourceTabClosed
             )
+        )
+        updateZoomCompanionOwnership(
+            forSourcePane: paneId,
+            capturedCompanion: capturedZoomCompanion,
+            owningTabId: destTabId
         )
         let destinationVisibleAfter = Set(crossTabMoveVisiblePaneIds(forTab: destTabId))
         let transitions = Self.computeCrossTabMoveViewTransitions(

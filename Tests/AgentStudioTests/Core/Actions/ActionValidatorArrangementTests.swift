@@ -102,10 +102,6 @@ final class WorkspaceCommandValidatorArrangementTests {
                 .renameArrangement(tabId: tabId, arrangementId: arrangementId, name: "Focus"),
                 .tabNotFound(tabId: tabId)
             ),
-            (
-                .setShowsMinimizedPanes(tabId: tabId, value: false),
-                .tabNotFound(tabId: tabId)
-            ),
         ]
 
         for testCase in cases {
@@ -415,43 +411,4 @@ final class WorkspaceCommandValidatorArrangementTests {
         Issue.record("Expected arrangementNotFound error")
     }
 
-    @Test
-    func test_setShowsMinimizedPanes_validTab_succeeds() {
-        let fixture = makeArrangementFixture()
-        let snapshot = makeSnapshot(tabs: [fixture.tab])
-
-        let result = WorkspaceCommandValidator.validate(
-            .setShowsMinimizedPanes(tabId: fixture.tabId, value: false),
-            state: snapshot
-        )
-
-        #expect((try? result.get()) != nil)
-    }
-
-    @Test
-    func test_setShowsMinimizedPanes_staleActiveArrangement_fails() {
-        let tabId = UUID()
-        let paneId = UUIDv7.generate()
-        let missingActiveArrangementId = UUID()
-        let tab = TabSnapshot(
-            id: tabId,
-            visiblePaneIds: [paneId],
-            ownedPaneIds: [paneId],
-            activePaneId: paneId,
-            activeArrangementId: missingActiveArrangementId,
-            arrangements: [ArrangementSnapshot(id: UUID(), isDefault: true)]
-        )
-        let snapshot = makeSnapshot(tabs: [tab])
-
-        let result = WorkspaceCommandValidator.validate(
-            .setShowsMinimizedPanes(tabId: tabId, value: false),
-            state: snapshot
-        )
-
-        if case .failure(let error) = result {
-            #expect(error == .arrangementNotFound(tabId: tabId, arrangementId: missingActiveArrangementId))
-            return
-        }
-        Issue.record("Expected arrangementNotFound error")
-    }
 }

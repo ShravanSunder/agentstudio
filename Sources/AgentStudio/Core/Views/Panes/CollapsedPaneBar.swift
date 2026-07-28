@@ -6,6 +6,7 @@ struct CollapsedPaneBar: View {
     let tabId: UUID
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onFocus: () -> Void
     let onSaveArrangement: (() -> Void)?
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
@@ -30,6 +31,7 @@ struct CollapsedPaneBar: View {
         tabId: UUID,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
+        onFocus: @escaping () -> Void,
         onSaveArrangement: (() -> Void)? = nil,
         dropTargetCoordinateSpace: String? = nil,
         useDrawerFramePreference: Bool = false,
@@ -40,6 +42,7 @@ struct CollapsedPaneBar: View {
         self.tabId = tabId
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
+        self.onFocus = onFocus
         self.onSaveArrangement = onSaveArrangement
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
@@ -149,6 +152,7 @@ struct CollapsedPaneBar: View {
     private var arrangementButton: some View {
         let arrangement = atom(\.arrangement)
         let panes = arrangement.paneVisibilityItems(for: tabId)
+        let zoomMode = arrangement.zoomMode(for: tabId)
         let arrangements = arrangement.arrangementItems(for: tabId)
 
         return Button {
@@ -195,20 +199,19 @@ struct CollapsedPaneBar: View {
                 tabId: tabId,
                 workspaceWindowId: workspaceWindowId,
                 panes: panes,
+                zoomMode: zoomMode,
                 arrangements: arrangements,
                 inlineRenameState: arrangementInlineRenameState,
                 onPaneAction: { action in
                     isArrangementPanelPresented = false
                     actionDispatcher.dispatch(action)
                 },
+                onToggleZoom: { _ in
+                    isArrangementPanelPresented = false
+                },
                 onSaveArrangement: { onSaveArrangement?() },
                 onDismiss: dismissArrangementPopover,
-                showsMinimizedPanesBinding: Binding(
-                    get: { atom(\.arrangementView).effectiveShowsMinimizedPanes(forTab: tabId) },
-                    set: { actionDispatcher.dispatch(.setShowsMinimizedPanes(tabId: tabId, value: $0)) }
-                ),
-                highlightPaneId: paneId,
-                showsMinimizedBarToggle: false
+                highlightPaneId: paneId
             )
         }
     }

@@ -116,6 +116,7 @@ struct TerminalAppOwnedShortcutPolicyTests {
         #expect(
             AppShortcutDispatchPolicy.sourcePaneTarget(for: .showPaneInboxNotifications, sourcePaneId: sourcePaneId)
                 == nil)
+        #expect(AppShortcutDispatchPolicy.sourcePaneTarget(for: .zoomPane, sourcePaneId: sourcePaneId) == nil)
         #expect(AppShortcutDispatchPolicy.sourcePaneTarget(for: .scrollToBottom, sourcePaneId: nil) == nil)
     }
 }

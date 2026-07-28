@@ -407,7 +407,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             return AuthorizedRequestContext(request: request, target: principal.boundPaneTarget ?? .app)
         case "bridge.diff.load", "bridge.fileView.open":
             return AuthorizedRequestContext(request: request, target: .app)
-        case "ui.commandBar.open":
+        case "ui.commandBar.open", "ui.arrangements.open":
             return AuthorizedRequestContext(request: request, target: .app)
         case "permission.requestStatus", "permission.grantStatus", "permission.pendingApprovals",
             "permission.resolveRequest", "events.subscribe", "events.unsubscribe", "command.list", "command.execute":
@@ -939,6 +939,8 @@ extension AgentStudioAppIPCRequestError {
         switch reason {
         case .noActiveWindow:
             self = Self(code: -32_006, message: "no active window")
+        case .targetNotFound:
+            self = Self(code: -32_004, message: "target not found")
         case .validationRejected:
             self = Self(code: -32_007, message: "validation rejected")
         }

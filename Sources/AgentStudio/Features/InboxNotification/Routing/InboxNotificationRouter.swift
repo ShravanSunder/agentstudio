@@ -738,9 +738,13 @@ final class InboxNotificationRouter {
     }
 
     private func currentObservedPaneIds() -> Set<UUID> {
-        PaneObservationResolver.currentObservedPaneIds(
+        let activeTab = tabLayout.activeTab
+        return PaneObservationResolver.currentObservedPaneIds(
             attendedPaneId: attendedPane.attendedPaneId,
-            activeTab: tabLayout.activeTab,
+            activeTab: activeTab,
+            zoomSourcePaneId: activeTab.flatMap {
+                tabLayout.arrangementAtom.presentationAtom.zoomPresentation(forTab: $0.id)?.sourcePaneId
+            },
             pane: { paneAtom.pane($0) },
             drawerView: drawerView
         )

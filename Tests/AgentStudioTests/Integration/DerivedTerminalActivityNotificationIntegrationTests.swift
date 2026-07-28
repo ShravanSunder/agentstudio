@@ -585,7 +585,7 @@ struct DerivedActivityNotificationIntegrationTests {
         await fixture.shutdown()
     }
 
-    @Test("zoom-hidden split sibling stays unobserved even when bottom pinned")
+    @Test("Zoom-hidden split sibling stays unobserved even when bottom pinned")
     func zoomHiddenSplitSiblingStaysUnobservedEvenWhenBottomPinned() async {
         let fixture = await makeFixture()
         let parentPaneId = PaneId.generateUUIDv7()
@@ -593,7 +593,16 @@ struct DerivedActivityNotificationIntegrationTests {
         let tabId = addTerminalPane(parentPaneId, to: fixture)
         addVisiblePaneToActiveTab(hiddenSiblingPaneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
-        fixture.tabLayout.toggleZoom(paneId: parentPaneId.uuid, inTab: tabId)
+        guard let tab = fixture.tabLayout.tab(tabId) else {
+            Issue.record("Expected terminal activity fixture tab")
+            await fixture.shutdown()
+            return
+        }
+        fixture.tabLayout.arrangementAtom.presentationAtom.enterZoom(
+            inTab: tabId,
+            sourcePaneId: parentPaneId.uuid,
+            viewerPresentation: .unavailable
+        )
 
         await postScrollbackBurst(
             paneId: hiddenSiblingPaneId,
@@ -602,7 +611,7 @@ struct DerivedActivityNotificationIntegrationTests {
             to: fixture
         )
 
-        await assertEventuallyMain("bottom-pinned zoom-hidden sibling should still create unread activity") {
+        await assertEventuallyMain("bottom-pinned Zoom-hidden sibling should still create unread activity") {
             fixture.inboxAtom.notifications.count == 1
                 && fixture.inboxAtom.notifications[0].isRead == false
                 && fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false

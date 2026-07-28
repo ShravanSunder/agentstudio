@@ -1,0 +1,572 @@
+import Foundation
+import Testing
+
+@testable import AgentStudio
+
+extension WebKitSerializedTests {
+    @MainActor
+    @Suite(.serialized)
+    struct WorkspaceSurfaceCoordinatorZoomCompanionTests {
+        init() {
+            installTestAtomRegistryIfNeeded()
+        }
+
+        @Test("Zoom creates one retained Files companion outside durable workspace membership")
+        func createsRetainedFilesCompanionOutsideDurableMembership() async throws {
+            let harness = makeZoomCompanionHarness()
+            defer { try? FileManager.default.removeItem(at: harness.root) }
+            let sourcePane = makeZoomSourcePane(in: harness.store, worktree: harness.worktree)
+            let sourceTab = Tab(paneId: sourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.setActiveTab(sourceTab.id)
+            harness.store.panePresentationAtom.enterZoom(
+                inTab: sourceTab.id,
+                sourcePaneId: sourcePane.id,
+                viewerPresentation: .retryable
+            )
+
+            let presentation = harness.coordinator.reconcileZoomCompanion(
+                sourcePaneId: sourcePane.id,
+                owningTabId: sourceTab.id
+            )
+            let companionPaneId = try #require(presentation.companionPaneId)
+
+            #expect(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)
+                    == ZoomCompanionMetadata(
+                        owningTabId: sourceTab.id,
+                        resolvedWorktreeId: harness.worktree.id,
+                        companionPaneId: companionPaneId,
+                        lastZoomVisibility: .visible
+                    )
+            )
+            #expect(
+                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                    .viewerPresentation == .retainedVisible(companionPaneId: companionPaneId)
+            )
+            #expect(harness.viewRegistry.allBridgeViews[companionPaneId] != nil)
+            #expect(
+                harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState.panelKind
+                    == .fileViewer
+            )
+            #expect(harness.coordinator.runtimeForPane(PaneId(existingUUID: companionPaneId)) is BridgeRuntime)
+            #expect(harness.coordinator.bridgePaneActivity(for: companionPaneId) == .loadedHidden)
+
+            #expect(harness.store.pane(companionPaneId) == nil)
+            #expect(!sourceTab.allPaneIds.contains(companionPaneId))
+            #expect(
+                !harness.store.programmaticControlSnapshot().panes.contains {
+                    $0.id == companionPaneId
+                }
+            )
+            #expect(
+                harness.coordinator.resolveBridgePaneCommand(worktreeId: harness.worktree.id)?
+                    .resolution == .create
+            )
+            #expect(
+                harness.store.tab(sourceTab.id)?.arrangements.allSatisfy {
+                    !$0.layout.contains(companionPaneId)
+                        && !$0.minimizedPaneIds.contains(companionPaneId)
+                } == true
+            )
+
+            let retainedHostIdentity = harness.viewRegistry.allBridgeViews[companionPaneId].map(
+                ObjectIdentifier.init
+            )
+            #expect(
+                harness.store.panePresentationAtom.setZoomViewerVisible(
+                    false,
+                    forSourcePane: sourcePane.id
+                )
+            )
+            harness.coordinator.refreshBridgePaneActivities()
+            #expect(harness.coordinator.bridgePaneActivity(for: companionPaneId) == .loadedHidden)
+
+            let reconciledPresentation = harness.coordinator.reconcileZoomCompanion(
+                sourcePaneId: sourcePane.id,
+                owningTabId: sourceTab.id
+            )
+            #expect(reconciledPresentation == .retainedHidden(companionPaneId: companionPaneId))
+            #expect(
+                harness.viewRegistry.allBridgeViews[companionPaneId].map(ObjectIdentifier.init)
+                    == retainedHostIdentity
+            )
+
+            await harness.coordinator.shutdown()
+        }
+
+        @Test("Zoom command creates Files, cancel retains it hidden, and re-entry resumes the same host")
+        func zoomCommandCreatesRetainsAndResumesCompanion() async throws {
+            let owningWindowId = UUID()
+            let harness = makeHarness(workspaceWindowId: owningWindowId)
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+            let sourcePane = makeZoomSourcePane(in: harness.store, worktree: worktree)
+            let sourceTab = Tab(paneId: sourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.setActiveTab(sourceTab.id)
+            harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
+            harness.coordinator.bindBridgePaneActivities(toOwningWindowId: owningWindowId)
+            harness.appLifecycleStore.setActive(true)
+            harness.windowLifecycleStore.recordWindowRegistered(owningWindowId)
+            harness.windowLifecycleStore.recordWindowPresentation(
+                WindowPresentationFacts(
+                    isVisible: true,
+                    isMiniaturized: false,
+                    isOccluded: false
+                ),
+                for: owningWindowId
+            )
+
+            harness.controller.execute(.zoomPane)
+
+            let enteredPresentation = try #require(
+                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)
+            )
+            let companionPaneId = try #require(enteredPresentation.viewerPresentation.companionPaneId)
+            let retainedHostIdentity = try #require(
+                harness.viewRegistry.allBridgeViews[companionPaneId].map(ObjectIdentifier.init)
+            )
+            #expect(
+                harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState.panelKind
+                    == .fileViewer
+            )
+            #expect(harness.coordinator.bridgePaneActivity(for: companionPaneId) == .foreground)
+
+            harness.controller.execute(.zoomPane)
+
+            #expect(harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id) == nil)
+            #expect(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
+                    .companionPaneId == companionPaneId
+            )
+            #expect(
+                harness.viewRegistry.allBridgeViews[companionPaneId].map(ObjectIdentifier.init)
+                    == retainedHostIdentity
+            )
+            #expect(harness.coordinator.bridgePaneActivity(for: companionPaneId) == .loadedHidden)
+
+            harness.controller.execute(.zoomPane)
+
+            #expect(
+                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                    .viewerPresentation == .retainedVisible(companionPaneId: companionPaneId)
+            )
+            #expect(
+                harness.viewRegistry.allBridgeViews[companionPaneId].map(ObjectIdentifier.init)
+                    == retainedHostIdentity
+            )
+            #expect(harness.coordinator.bridgePaneActivity(for: companionPaneId) == .foreground)
+
+            await harness.coordinator.shutdown()
+        }
+
+        @Test("contextless Zoom source uses the only registered worktree for its Files companion")
+        func contextlessZoomSourceUsesOnlyRegisteredWorktree() async {
+            let harness = makeHarness()
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            let (_, onlyWorktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+            let sourcePane = harness.store.createPane()
+            let sourceTab = Tab(paneId: sourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.setActiveTab(sourceTab.id)
+            harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
+
+            #expect(
+                harness.store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)
+                    == [onlyWorktree.id]
+            )
+            #expect(sourcePane.parentPaneId == nil)
+            #expect(sourcePane.worktreeId == nil)
+            #expect(sourcePane.metadata.cwd == nil)
+
+            harness.controller.execute(.zoomPane)
+
+            let companion = harness.store.panePresentationAtom.zoomCompanion(
+                forSourcePane: sourcePane.id
+            )
+            #expect(companion?.resolvedWorktreeId == onlyWorktree.id)
+            let companionPaneId = companion?.companionPaneId
+            #expect(companionPaneId != nil)
+            if let companionPaneId {
+                #expect(
+                    harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                        .viewerPresentation == .retainedVisible(companionPaneId: companionPaneId)
+                )
+                #expect(
+                    harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState.panelKind
+                        == .fileViewer
+                )
+                #expect(harness.store.pane(companionPaneId) == nil)
+            }
+
+            await harness.coordinator.shutdown()
+        }
+
+        @Test("same-worktree Zoom targets retain distinct source-owned companions")
+        func sameWorktreeSourcesRetainDistinctCompanions() async throws {
+            let owningWindowId = UUID()
+            let harness = makeHarness(workspaceWindowId: owningWindowId)
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+            let firstSourcePane = makeZoomSourcePane(in: harness.store, worktree: worktree)
+            let secondSourcePane = makeZoomSourcePane(in: harness.store, worktree: worktree)
+            let sourceTab = Tab(paneId: firstSourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.insertPane(
+                secondSourcePane.id,
+                inTab: sourceTab.id,
+                at: firstSourcePane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+            harness.store.setActiveTab(sourceTab.id)
+            harness.store.setActivePane(firstSourcePane.id, inTab: sourceTab.id)
+            enterForegroundZoomEnvironment(harness, owningWindowId: owningWindowId)
+            let durablePaneIds = Set(harness.store.paneAtom.panes.keys)
+            let runtimeCountBeforeZoom = harness.runtimeRegistry.count
+            let slotPaneIdsBeforeZoom = harness.viewRegistry.slotPaneIdsForTesting
+            let bridgeHostPaneIdsBeforeZoom = Set(harness.viewRegistry.allBridgeViews.keys)
+            #expect(harness.store.panePresentationAtom.zoomCompanionsBySourcePaneId.isEmpty)
+
+            harness.controller.execute(.zoomPane)
+
+            let firstCompanionPaneId = try #require(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: firstSourcePane.id)?
+                    .companionPaneId
+            )
+            let firstHostIdentity = try #require(
+                harness.viewRegistry.allBridgeViews[firstCompanionPaneId].map(ObjectIdentifier.init)
+            )
+            #expect(harness.store.panePresentationAtom.zoomCompanionsBySourcePaneId.count == 1)
+            #expect(harness.runtimeRegistry.count == runtimeCountBeforeZoom + 1)
+            #expect(
+                harness.viewRegistry.slotPaneIdsForTesting
+                    == slotPaneIdsBeforeZoom.union([firstCompanionPaneId])
+            )
+            #expect(
+                Set(harness.viewRegistry.allBridgeViews.keys)
+                    == bridgeHostPaneIdsBeforeZoom.union([firstCompanionPaneId])
+            )
+
+            harness.controller.execute(.zoomPane, target: secondSourcePane.id, targetType: .pane)
+
+            let secondCompanionPaneId = try #require(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: secondSourcePane.id)?
+                    .companionPaneId
+            )
+            #expect(secondCompanionPaneId != firstCompanionPaneId)
+            let companionPaneIds = Set([firstCompanionPaneId, secondCompanionPaneId])
+            #expect(harness.store.panePresentationAtom.zoomCompanionsBySourcePaneId.count == 2)
+            #expect(harness.runtimeRegistry.count == runtimeCountBeforeZoom + 2)
+            #expect(
+                harness.viewRegistry.slotPaneIdsForTesting
+                    == slotPaneIdsBeforeZoom.union(companionPaneIds)
+            )
+            #expect(
+                Set(harness.viewRegistry.allBridgeViews.keys)
+                    == bridgeHostPaneIdsBeforeZoom.union(companionPaneIds)
+            )
+            #expect(harness.coordinator.bridgePaneActivity(for: firstCompanionPaneId) == .loadedHidden)
+            #expect(harness.coordinator.bridgePaneActivity(for: secondCompanionPaneId) == .foreground)
+
+            harness.controller.execute(.zoomPane, target: firstSourcePane.id, targetType: .pane)
+
+            #expect(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: firstSourcePane.id)?
+                    .companionPaneId == firstCompanionPaneId
+            )
+            #expect(
+                harness.viewRegistry.allBridgeViews[firstCompanionPaneId].map(ObjectIdentifier.init)
+                    == firstHostIdentity
+            )
+            #expect(harness.coordinator.bridgePaneActivity(for: firstCompanionPaneId) == .foreground)
+            #expect(harness.coordinator.bridgePaneActivity(for: secondCompanionPaneId) == .loadedHidden)
+            #expect(Set(harness.store.paneAtom.panes.keys) == durablePaneIds)
+            #expect(
+                harness.store.tab(sourceTab.id)?.arrangements.allSatisfy {
+                    !$0.layout.contains(firstCompanionPaneId)
+                        && !$0.layout.contains(secondCompanionPaneId)
+                        && !$0.minimizedPaneIds.contains(firstCompanionPaneId)
+                        && !$0.minimizedPaneIds.contains(secondCompanionPaneId)
+                } == true
+            )
+
+            await harness.coordinator.shutdown()
+        }
+
+        @Test("hidden Viewer preference survives Zoom cancel and re-entry")
+        func hiddenViewerPreferenceSurvivesZoomReentry() async throws {
+            let owningWindowId = UUID()
+            let harness = makeHarness(workspaceWindowId: owningWindowId)
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+            let sourcePane = makeZoomSourcePane(in: harness.store, worktree: worktree)
+            let sourceTab = Tab(paneId: sourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.setActiveTab(sourceTab.id)
+            harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
+            enterForegroundZoomEnvironment(harness, owningWindowId: owningWindowId)
+            harness.controller.execute(.zoomPane)
+            let companionPaneId = try #require(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
+                    .companionPaneId
+            )
+
+            harness.controller.execute(.showViewer)
+            harness.controller.execute(.zoomPane)
+            harness.controller.execute(.zoomPane)
+
+            #expect(
+                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                    .viewerPresentation == .retainedHidden(companionPaneId: companionPaneId)
+            )
+            #expect(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
+                    .lastZoomVisibility == .hidden
+            )
+            #expect(harness.coordinator.bridgePaneActivity(for: companionPaneId) == .loadedHidden)
+
+            await harness.coordinator.shutdown()
+        }
+
+        @Test("Zoom companion projects visible and hidden Git-read ranks")
+        func zoomCompanionProjectsGitReadRanks() async throws {
+            let owningWindowId = UUID()
+            let eventProbe = BridgeGitReadSchedulerEventProbe()
+            let scheduler = BridgeGitReadScheduler(
+                topology: makeBridgeGitReadSchedulerTopology(),
+                eventSink: eventProbe.eventSink
+            )
+            let harness = makeHarness(
+                workspaceWindowId: owningWindowId,
+                bridgeGitReadScheduler: scheduler
+            )
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+            let sourcePane = makeZoomSourcePane(in: harness.store, worktree: worktree)
+            let sourceTab = Tab(paneId: sourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.setActiveTab(sourceTab.id)
+            harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
+            enterForegroundZoomEnvironment(harness, owningWindowId: owningWindowId)
+            harness.controller.execute(.zoomPane)
+            let companionPaneId = try #require(
+                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                    .viewerPresentation.companionPaneId
+            )
+            await harness.coordinator.drainBridgeGitReadActivityPropagation()
+            #expect(
+                harness.coordinator.bridgePaneActivity(for: companionPaneId)
+                    == .foreground
+            )
+
+            _ = try await scheduler.read(
+                request: makeBridgeGitReadRequest(
+                    worktree: worktree.stableKey,
+                    operationClass: .selectedVisibleContent,
+                    key: "zoom-visible"
+                )
+            ) {
+                "visible"
+            }
+            let visibleStart = try #require(
+                eventProbe.events.last {
+                    $0.kind == .started
+                        && $0.operationClass == .selectedVisibleContent
+                }
+            )
+            #expect(visibleStart.worktreeKey == BridgeGitReadWorktreeKey(token: worktree.stableKey))
+            #expect(visibleStart.activityRank == .foreground)
+
+            harness.controller.execute(.showViewer)
+            await harness.coordinator.drainBridgeGitReadActivityPropagation()
+            #expect(
+                harness.coordinator.bridgePaneActivity(for: companionPaneId)
+                    == .loadedHidden
+            )
+            _ = try await scheduler.read(
+                request: makeBridgeGitReadRequest(
+                    worktree: worktree.stableKey,
+                    operationClass: .selectedVisibleContent,
+                    key: "zoom-hidden"
+                )
+            ) {
+                "hidden"
+            }
+            let hiddenStart = try #require(
+                eventProbe.events.last {
+                    $0.kind == .started
+                        && $0.operationClass == .selectedVisibleContent
+                }
+            )
+            #expect(hiddenStart.activityRank == .loadedHidden)
+
+            await harness.coordinator.shutdown()
+        }
+
+        @Test("rejected Files request retires every partial Zoom companion resource")
+        func rejectedFilesRequestRetiresPartialCompanionResources() async throws {
+            var capturedCompanionPaneId: UUID?
+            var capturedStore: WorkspaceStore?
+            var capturedViewRegistry: ViewRegistry?
+            var capturedRuntimeRegistry: RuntimeRegistry?
+            let harness = makeHarness { surface, companionPaneId in
+                #expect(surface == .file)
+                capturedCompanionPaneId = companionPaneId
+                #expect(capturedStore?.pane(companionPaneId) == nil)
+                #expect(capturedViewRegistry?.allBridgeViews[companionPaneId] != nil)
+                #expect(
+                    capturedRuntimeRegistry?.runtime(
+                        for: PaneId(existingUUID: companionPaneId)
+                    ) is BridgeRuntime
+                )
+                return false
+            }
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            capturedStore = harness.store
+            capturedViewRegistry = harness.viewRegistry
+            capturedRuntimeRegistry = harness.runtimeRegistry
+            let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+            let sourcePane = makeZoomSourcePane(in: harness.store, worktree: worktree)
+            let sourceTab = Tab(paneId: sourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.setActiveTab(sourceTab.id)
+            harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
+            let runtimeCountBeforeZoom = harness.runtimeRegistry.count
+            let slotPaneIdsBeforeZoom = harness.viewRegistry.slotPaneIdsForTesting
+
+            harness.controller.execute(.zoomPane)
+
+            let companionPaneId = try #require(capturedCompanionPaneId)
+            #expect(
+                harness.coordinator.bridgePaneActivityAuthorityIdentity(for: companionPaneId)
+                    == nil
+            )
+            #expect(
+                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                    .viewerPresentation == .retryable
+            )
+            #expect(harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id) == nil)
+            #expect(harness.coordinator.pendingBridgePaneRetirementCount == 1)
+
+            await harness.coordinator.drainBridgePaneRetirements()
+
+            #expect(harness.viewRegistry.allBridgeViews[companionPaneId] == nil)
+            #expect(harness.viewRegistry.peekSlotForTesting(companionPaneId) == nil)
+            #expect(
+                harness.coordinator.runtimeForPane(PaneId(existingUUID: companionPaneId)) == nil
+            )
+            #expect(harness.runtimeRegistry.count == runtimeCountBeforeZoom)
+            #expect(harness.viewRegistry.slotPaneIdsForTesting == slotPaneIdsBeforeZoom)
+            #expect(
+                harness.coordinator.bridgePaneActivityAuthorityIdentity(for: companionPaneId)
+                    == nil
+            )
+
+            await harness.coordinator.shutdown()
+        }
+
+        @Test("unresolvable Zoom source stays unavailable without partial companion resources")
+        func unresolvableSourceLeavesNoPartialCompanionResources() async {
+            let store = WorkspaceStore()
+            let viewRegistry = ViewRegistry()
+            let coordinator = WorkspaceSurfaceCoordinator(
+                store: store,
+                viewRegistry: viewRegistry,
+                runtime: SessionRuntime(store: store),
+                windowLifecycleStore: WindowLifecycleAtom()
+            )
+            let sourcePane = store.createPane()
+            let sourceTab = Tab(paneId: sourcePane.id)
+            store.appendTab(sourceTab)
+            store.setActiveTab(sourceTab.id)
+            store.panePresentationAtom.enterZoom(
+                inTab: sourceTab.id,
+                sourcePaneId: sourcePane.id,
+                viewerPresentation: .retryable
+            )
+
+            let presentation = coordinator.reconcileZoomCompanion(
+                sourcePaneId: sourcePane.id,
+                owningTabId: sourceTab.id
+            )
+
+            #expect(presentation == .unavailable)
+            #expect(
+                store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                    .viewerPresentation == .unavailable
+            )
+            #expect(store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id) == nil)
+            #expect(viewRegistry.allBridgeViews.isEmpty)
+            #expect(viewRegistry.registeredPaneIds == [sourcePane.id] || viewRegistry.registeredPaneIds.isEmpty)
+
+            await coordinator.shutdown()
+        }
+    }
+}
+
+@MainActor
+private struct ZoomCompanionHarness {
+    let root: URL
+    let store: WorkspaceStore
+    let viewRegistry: ViewRegistry
+    let coordinator: WorkspaceSurfaceCoordinator
+    let worktree: Worktree
+}
+
+@MainActor
+private func makeZoomCompanionHarness() -> ZoomCompanionHarness {
+    let root = FileManager.default.temporaryDirectory
+        .appending(path: "agentstudio-zoom-companion-\(UUID().uuidString)")
+    let store = WorkspaceStore()
+    let (_, worktree) = makeRepoAndWorktree(store, root: root)
+    let viewRegistry = ViewRegistry()
+    let coordinator = WorkspaceSurfaceCoordinator(
+        store: store,
+        viewRegistry: viewRegistry,
+        runtime: SessionRuntime(store: store),
+        windowLifecycleStore: WindowLifecycleAtom()
+    )
+    return ZoomCompanionHarness(
+        root: root,
+        store: store,
+        viewRegistry: viewRegistry,
+        coordinator: coordinator,
+        worktree: worktree
+    )
+}
+
+@MainActor
+private func makeZoomSourcePane(
+    in store: WorkspaceStore,
+    worktree: Worktree
+) -> Pane {
+    store.createPane(
+        launchDirectory: worktree.path,
+        facets: PaneContextFacets(
+            repoId: worktree.repoId,
+            worktreeId: worktree.id,
+            cwd: worktree.path
+        )
+    )
+}
+
+@MainActor
+private func enterForegroundZoomEnvironment(
+    _ harness: PaneTabViewControllerCommandHarness,
+    owningWindowId: UUID
+) {
+    harness.coordinator.bindBridgePaneActivities(toOwningWindowId: owningWindowId)
+    harness.appLifecycleStore.setActive(true)
+    harness.windowLifecycleStore.recordWindowRegistered(owningWindowId)
+    harness.windowLifecycleStore.recordWindowPresentation(
+        WindowPresentationFacts(
+            isVisible: true,
+            isMiniaturized: false,
+            isOccluded: false
+        ),
+        for: owningWindowId
+    )
+}

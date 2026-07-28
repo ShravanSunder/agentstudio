@@ -294,7 +294,6 @@ struct TabGraphMembershipValidationTests {
         isDefault: Bool = true,
         layout: Layout,
         minimizedPaneIds: Set<UUID> = [],
-        showsMinimizedPanes: Bool = true,
         drawerViews: [UUID: WorkspaceCoreRepository.DrawerViewGraphRecord] = [:]
     ) -> WorkspaceCoreRepository.TabArrangementGraphRecord {
         .init(
@@ -303,7 +302,6 @@ struct TabGraphMembershipValidationTests {
             isDefault: isDefault,
             layout: layout,
             minimizedPaneIds: minimizedPaneIds,
-            showsMinimizedPanes: showsMinimizedPanes,
             drawerViews: drawerViews
         )
     }

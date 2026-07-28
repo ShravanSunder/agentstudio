@@ -36,7 +36,6 @@ private func makeGraphState() -> TabGraphState {
                 isDefault: true,
                 layout: Layout(paneId: firstPaneID),
                 minimizedPaneIds: [],
-                showsMinimizedPanes: false,
                 drawerViews: [:]
             ),
             PaneArrangementGraphState(
@@ -45,7 +44,6 @@ private func makeGraphState() -> TabGraphState {
                 isDefault: false,
                 layout: Layout(paneId: secondPaneID),
                 minimizedPaneIds: [],
-                showsMinimizedPanes: true,
                 drawerViews: [:]
             ),
         ]

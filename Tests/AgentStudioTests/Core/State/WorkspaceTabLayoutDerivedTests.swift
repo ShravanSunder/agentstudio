@@ -10,9 +10,14 @@ struct WorkspaceTabLayoutDerivedTests {
     func assembleTab_preservesShellAndArrangementFields() {
         let paneA = UUID()
         let paneB = UUID()
-        let arrangement = PaneArrangement(
+        let defaultArrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
+            layout: Layout.autoTiled([paneA, paneB])
+        )
+        let arrangement = PaneArrangement(
+            name: "Layout 1",
+            isDefault: false,
             layout: Layout(paneId: paneA)
                 .inserting(
                     paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
@@ -22,10 +27,9 @@ struct WorkspaceTabLayoutDerivedTests {
         let state = TabArrangementState(
             tabId: shell.id,
             allPaneIds: [paneA, paneB],
-            arrangements: [arrangement],
+            arrangements: [defaultArrangement, arrangement],
             activeArrangementId: arrangement.id,
-            activePaneId: paneA,
-            zoomedPaneId: nil
+            activePaneId: paneA
         )
 
         let tab = WorkspaceTabLayoutDerived.assembleTab(shell: shell, arrangementState: state)
@@ -47,16 +51,14 @@ struct WorkspaceTabLayoutDerivedTests {
             allPaneIds: [UUID()],
             arrangements: [PaneArrangement(name: "Default", isDefault: true, layout: Layout(paneId: UUID()))],
             activeArrangementId: UUID(),
-            activePaneId: nil,
-            zoomedPaneId: nil
+            activePaneId: nil
         )
         let secondState = TabArrangementState(
             tabId: secondShell.id,
             allPaneIds: [UUID()],
             arrangements: [PaneArrangement(name: "Default", isDefault: true, layout: Layout(paneId: UUID()))],
             activeArrangementId: UUID(),
-            activePaneId: nil,
-            zoomedPaneId: nil
+            activePaneId: nil
         )
 
         let shellAtom = WorkspaceTabShellAtom()
@@ -102,8 +104,7 @@ struct WorkspaceTabLayoutDerivedTests {
                 allPaneIds: [paneA],
                 arrangements: [firstArrangement],
                 activeArrangementId: firstArrangement.id,
-                activePaneId: paneA,
-                zoomedPaneId: nil
+                activePaneId: paneA
             )
         )
         arrangementAtom.appendState(
@@ -112,8 +113,7 @@ struct WorkspaceTabLayoutDerivedTests {
                 allPaneIds: [paneB],
                 arrangements: [secondArrangement],
                 activeArrangementId: secondArrangement.id,
-                activePaneId: paneB,
-                zoomedPaneId: nil
+                activePaneId: paneB
             )
         )
 
@@ -142,8 +142,7 @@ struct WorkspaceTabLayoutDerivedTests {
                 allPaneIds: [paneA],
                 arrangements: [arrangementA],
                 activeArrangementId: arrangementA.id,
-                activePaneId: paneA,
-                zoomedPaneId: nil
+                activePaneId: paneA
             )
         )
         arrangementAtom.appendState(
@@ -152,8 +151,7 @@ struct WorkspaceTabLayoutDerivedTests {
                 allPaneIds: [paneB],
                 arrangements: [arrangementB],
                 activeArrangementId: arrangementB.id,
-                activePaneId: paneB,
-                zoomedPaneId: nil
+                activePaneId: paneB
             )
         )
 

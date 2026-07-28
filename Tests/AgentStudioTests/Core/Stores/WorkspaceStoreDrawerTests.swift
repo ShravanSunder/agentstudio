@@ -547,6 +547,27 @@ final class WorkspaceStoreDrawerTests {
     // MARK: - minimizeDrawerPane / expandDrawerPane
 
     @Test
+    func test_minimizeDrawerPane_fromDefaultClonesLayoutBeforeMinimizing() throws {
+        let pane = createTabbedPane()
+        let drawerPane = try #require(store.addDrawerPane(to: pane.id))
+        let originalTab = try #require(store.tabLayoutAtom.tabContaining(paneId: pane.id))
+        let defaultArrangement = try #require(originalTab.arrangements.first { $0.isDefault })
+
+        #expect(store.minimizeDrawerPane(drawerPane.id, in: pane.id))
+
+        let updatedTab = try #require(store.tabLayoutAtom.tabContaining(paneId: pane.id))
+        let preservedDefault = try #require(updatedTab.arrangements.first { $0.id == defaultArrangement.id })
+        let createdUserArrangement = try #require(updatedTab.arrangements.first(where: { !$0.isDefault }))
+        let drawerId = try #require(store.pane(pane.id)?.drawer?.drawerId)
+
+        #expect(createdUserArrangement.name == "Layout 1")
+        #expect(updatedTab.activeArrangementId == createdUserArrangement.id)
+        #expect(preservedDefault.layout == defaultArrangement.layout)
+        #expect(preservedDefault.drawerViews[drawerId]?.minimizedPaneIds.isEmpty == true)
+        #expect(createdUserArrangement.drawerViews[drawerId]?.minimizedPaneIds == [drawerPane.id])
+    }
+
+    @Test
 
     func test_minimizeDrawerPane_returnsTrue_onSuccess() {
         // Arrange

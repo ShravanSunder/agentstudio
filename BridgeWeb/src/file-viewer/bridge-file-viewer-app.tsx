@@ -10,6 +10,7 @@ import {
 } from 'react';
 
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
+import { bridgeFileViewerContentHeaderTitle } from './bridge-file-viewer-content-header-title.js';
 import {
 	bridgeFileViewerDisplayModelForSnapshot,
 	bridgeFileViewerOpenStateForSelection,
@@ -154,12 +155,10 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		isActive,
 	});
 	const selectedPath = selection?.path ?? null;
-	const contentHeaderTitle =
-		displayModel.source === null
-			? (selectedPath ?? 'Source pending')
-			: selectedPath === null
-				? displayModel.source.sourceId
-				: `${displayModel.source.sourceId} / ${selectedPath}`;
+	const contentHeaderTitle = bridgeFileViewerContentHeaderTitle({
+		selectedPath,
+		sourceId: displayModel.source?.sourceId ?? '',
+	});
 	const openFileTotalHeightPixels =
 		selectedDisplayItem === null
 			? null

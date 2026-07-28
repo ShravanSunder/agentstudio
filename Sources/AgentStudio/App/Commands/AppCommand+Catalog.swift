@@ -164,7 +164,7 @@ extension AppCommand {
             return AppCommandSpec(
                 command: self,
                 label: "Move Pane to Existing Tab",
-                icon: .system(.arrowLeftAndRightSquare),
+                icon: .system(.arrowLeftArrowRight),
                 helpText: "Move the active pane into another existing tab",
                 appliesTo: [.pane],
                 requiresManagementLayer: true,
@@ -319,16 +319,20 @@ extension AppCommand {
             return hiddenFocusPaneDefinition(index: 8)
         case .focusPane9:
             return hiddenFocusPaneDefinition(index: 9)
-        case .toggleSplitZoom:
+        case .zoomPane:
             return AppCommandSpec(
                 command: self,
-                label: "Toggle Split Zoom",
-                icon: .system(.plusMagnifyingglass),
-                helpText: "Toggle zoom for the active pane",
+                label: "Pane Zoom",
+                icon: .system(.arrowDownLeftAndArrowUpRightRectangle),
+                helpText: "Zoom the active pane",
                 appliesTo: [.pane],
-                visibleWhen: [.hasActivePane, .hasMultiplePanes],
+                visibleWhen: [.supportsTerminalZoom],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: CommandBarGroupPriority.pane
+                commandBarGroupPriority: CommandBarGroupPriority.pane,
+                ipcExposure: .headless(
+                    targetKinds: [.pane],
+                    requiredPrivileges: [.layoutMutate]
+                )
             )
         case .minimizePane:
             return AppCommandSpec(
@@ -894,6 +898,17 @@ extension AppCommand {
                 helpText: "Open a new webview tab",
                 commandBarGroupName: "Webview",
                 commandBarGroupPriority: CommandBarGroupPriority.webview
+            )
+        case .showViewer:
+            return AppCommandSpec(
+                command: self,
+                label: "Viewer",
+                icon: .system(.rectangleSplit2x1),
+                helpText: "Show or hide the Zoom Viewer",
+                visibleWhen: [.hasActiveTerminalZoom],
+                commandBarGroupName: "Viewer",
+                commandBarGroupPriority: CommandBarGroupPriority.webview,
+                ipcExposure: .init(executionModes: [], targetKinds: [], requiredPrivileges: [])
             )
         case .showBridgeReview:
             return AppCommandSpec(

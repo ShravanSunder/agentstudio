@@ -97,7 +97,7 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
             upTo: "004_create_tabs_and_arrangements"
         )
         try databaseQueue.write { database in
-            try seedTabGraphStorageFixture(database, fixture: fixture)
+            try seedLegacyTabGraphStorageFixture(database, fixture: fixture)
             try insertPane(database, workspaceId: fixture.workspaceId, paneId: layoutSecondPaneId)
             try insertPane(
                 database,
@@ -211,6 +211,29 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
         _ database: Database,
         fixture: TabGraphStorageFixture
     ) throws {
+        try seedTabGraphStorageFixture(
+            database,
+            fixture: fixture,
+            insertArrangement: insertTabArrangement
+        )
+    }
+
+    private func seedLegacyTabGraphStorageFixture(
+        _ database: Database,
+        fixture: TabGraphStorageFixture
+    ) throws {
+        try seedTabGraphStorageFixture(
+            database,
+            fixture: fixture,
+            insertArrangement: insertLegacyTabArrangement
+        )
+    }
+
+    private func seedTabGraphStorageFixture(
+        _ database: Database,
+        fixture: TabGraphStorageFixture,
+        insertArrangement: (Database, TabGraphStorageFixture) throws -> Void
+    ) throws {
         try insertWorkspace(database, workspaceId: fixture.workspaceId)
         try insertPane(database, workspaceId: fixture.workspaceId, paneId: fixture.parentPaneId)
         try insertPane(
@@ -220,7 +243,7 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
             parentPaneId: fixture.parentPaneId
         )
         try insertTabShell(database, fixture: fixture)
-        try insertTabArrangement(database, fixture: fixture)
+        try insertArrangement(database, fixture)
         try insertDrawer(database, fixture: fixture)
         try insertArrangementDrawerView(database, fixture: fixture)
     }
@@ -229,7 +252,7 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
         _ database: Database,
         fixture: TabGraphStorageFixture
     ) throws {
-        try seedTabGraphStorageFixture(database, fixture: fixture)
+        try seedLegacyTabGraphStorageFixture(database, fixture: fixture)
         try insertPane(
             database,
             workspaceId: fixture.workspaceId,
@@ -363,6 +386,16 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
     }
 
     private func insertTabArrangement(_ database: Database, fixture: TabGraphStorageFixture) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO tab_arrangement(id, tab_id, name, is_default, sort_index)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+            arguments: [fixture.arrangementId, fixture.tabId, "Default", 1, 0]
+        )
+    }
+
+    private func insertLegacyTabArrangement(_ database: Database, fixture: TabGraphStorageFixture) throws {
         try database.execute(
             sql: """
                 INSERT INTO tab_arrangement(id, tab_id, name, is_default, shows_minimized_panes, sort_index)

@@ -92,4 +92,42 @@ struct TabArrangementRepairRulesTests {
         #expect(drawerView.minimizedPaneIds.isEmpty)
         #expect(drawerView.activeChildId == validDrawerPane)
     }
+
+    @Test
+    func pruningInvalidPaneIds_clearsDefaultMinimizedPanesButPreservesUserLayoutState() throws {
+        let paneA = UUID()
+        let paneB = UUID()
+        let drawerPane = UUID()
+        let drawerId = UUID()
+        var defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: paneA),
+            drawerViews: [
+                drawerId: DrawerView(
+                    layout: DrawerGridLayout(topRow: Layout(paneId: drawerPane))
+                )
+            ]
+        )
+        defaultArrangement.minimizedPaneIds = [paneA]
+        let userLayout = PaneArrangement(
+            name: "Layout 1",
+            isDefault: false,
+            layout: Layout.autoTiled([paneB, paneA]),
+            minimizedPaneIds: [paneB]
+        )
+
+        let updated = TabArrangementRepairRules.pruningInvalidPaneIds(
+            validPaneIds: [paneA, paneB, drawerPane],
+            from: [defaultArrangement, userLayout]
+        )
+        let updatedDefault = try #require(updated.first(where: { $0.isDefault }))
+        let updatedUserLayout = try #require(updated.first(where: { !$0.isDefault }))
+
+        #expect(updatedDefault.layout.paneIds == [paneA])
+        #expect(updatedDefault.minimizedPaneIds.isEmpty)
+        #expect(updatedDefault.drawerViews[drawerId]?.layout.paneIds == [drawerPane])
+        #expect(updatedUserLayout.layout.paneIds == [paneB, paneA])
+        #expect(updatedUserLayout.minimizedPaneIds == Set([paneB]))
+    }
 }

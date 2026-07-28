@@ -3,61 +3,68 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("Bridge app command hard-cut contracts")
+@Suite("Pane Zoom and Viewer app command hard-cut contracts")
 struct BridgeAppCommandContractTests {
-    @Test("the four Bridge command identities replace the two ambiguous identities")
-    func bridgeCommandIdentitiesAreHardCut() {
+    @Test("Pane Zoom and Zoom-local Viewer coexist with durable Review and Files commands")
+    func zoomAndDurableViewerCommandIdentitiesAreSeparate() {
         // Arrange
-        let expectedBridgeCommandIdentities: Set<String> = [
+        let expectedCommandIdentities: Set<String> = [
+            "zoomPane",
+            "showViewer",
             "showBridgeReview",
             "showBridgeFiles",
             "openBridgeReviewInNewTab",
             "openBridgeFilesInNewTab",
         ]
-        let removedBridgeCommandIdentities: Set<String> = [
-            "openBridgeReview",
-            "openBridgeFileView",
+        let retiredCommandIdentities: Set<String> = [
+            "toggleSplitZoom"
         ]
 
         // Act
         let commandIdentities = Set(AppCommand.allCases.map(\.rawValue))
 
         // Assert
-        #expect(expectedBridgeCommandIdentities.isSubset(of: commandIdentities))
-        #expect(commandIdentities.isDisjoint(with: removedBridgeCommandIdentities))
+        #expect(expectedCommandIdentities.isSubset(of: commandIdentities))
+        #expect(commandIdentities.isDisjoint(with: retiredCommandIdentities))
     }
 
-    @Test("default Bridge show commands retain worktree-targeted catalog labels")
-    func defaultShowCommandCatalogContracts() throws {
+    @Test("Pane Zoom has the semantic command presentation")
+    func zoomCommandCatalogContract() throws {
         // Arrange
-        let showReview = try #require(AppCommand(rawValue: "showBridgeReview"))
-        let showFiles = try #require(AppCommand(rawValue: "showBridgeFiles"))
+        let zoomPane = try #require(AppCommand(rawValue: "zoomPane"))
 
         // Act
-        let reviewDefinition = AppCommandDispatcher.shared.definition(for: showReview)
-        let filesDefinition = AppCommandDispatcher.shared.definition(for: showFiles)
+        let definition = AppCommandDispatcher.shared.definition(for: zoomPane)
+        let canonicalZoomSymbol = SystemSymbol(
+            rawValue: "arrow.down.left.and.arrow.up.right.rectangle"
+        )
 
         // Assert
-        #expect(reviewDefinition.label == "Review")
-        #expect(filesDefinition.label == "Files")
-        #expect(reviewDefinition.appliesTo == [.worktree])
-        #expect(filesDefinition.appliesTo == [.worktree])
+        #expect(definition.label == "Pane Zoom")
+        #expect(definition.icon == canonicalZoomSymbol.map(CommandIcon.system))
+        #expect(definition.appliesTo == [.pane])
+        #expect(definition.visibleWhen == [.supportsTerminalZoom])
+        #expect(definition.ipcExposure.executionModes == [.headless])
+        #expect(definition.ipcExposure.targetKinds == [.pane])
+        #expect(definition.ipcExposure.requiredPrivileges == [.layoutMutate])
     }
 
-    @Test("explicit duplicate Bridge commands say new tab and target worktrees")
-    func explicitDuplicateCommandCatalogContracts() throws {
+    @Test("Viewer is a Zoom-local pane command")
+    func viewerCommandCatalogContract() throws {
         // Arrange
-        let openReviewInNewTab = try #require(AppCommand(rawValue: "openBridgeReviewInNewTab"))
-        let openFilesInNewTab = try #require(AppCommand(rawValue: "openBridgeFilesInNewTab"))
+        let showViewer = try #require(AppCommand(rawValue: "showViewer"))
 
         // Act
-        let reviewDefinition = AppCommandDispatcher.shared.definition(for: openReviewInNewTab)
-        let filesDefinition = AppCommandDispatcher.shared.definition(for: openFilesInNewTab)
+        let definition = AppCommandDispatcher.shared.definition(for: showViewer)
 
         // Assert
-        #expect(reviewDefinition.label == "Open Review in New Tab")
-        #expect(filesDefinition.label == "Open Files in New Tab")
-        #expect(reviewDefinition.appliesTo == [.worktree])
-        #expect(filesDefinition.appliesTo == [.worktree])
+        #expect(definition.label == "Viewer")
+        #expect(definition.icon == .system(.rectangleSplit2x1))
+        #expect(definition.helpText == "Show or hide the Zoom Viewer")
+        #expect(definition.appliesTo.isEmpty)
+        #expect(definition.visibleWhen == [.hasActiveTerminalZoom])
+        #expect(definition.ipcExposure.executionModes.isEmpty)
+        #expect(definition.ipcExposure.targetKinds.isEmpty)
+        #expect(definition.ipcExposure.requiredPrivileges.isEmpty)
     }
 }

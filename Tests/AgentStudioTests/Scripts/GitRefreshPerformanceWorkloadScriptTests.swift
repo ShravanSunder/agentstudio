@@ -942,7 +942,7 @@ private let workloadFixtureJSON = """
     "executionBackend":{"local":{}},"createdAt":0,"title":"repo-pane-0","facets":{"repoId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb2","worktreeId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb3","cwd":"file:///tmp/agentstudio-perf/repo-000","tags":[]},"checkoutRef":null,"note":null},
     "residency":{"active":{}},"kind":{"layout":{"drawer":{"drawerId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb4","parentPaneId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","paneIds":[],"isExpanded":false}}}}],
     "tabs":[{"id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb7","name":"Performance","panes":["019eb9e5-2de8-7c5f-83b1-cc9782b2efb6"],
-    "arrangements":[{"id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb8","name":"Default","isDefault":true,"layout":{"panes":[{"paneId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","ratio":1.0}],"dividerIds":[]},"minimizedPaneIds":[],"showsMinimizedPanes":true,"activePaneId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","drawerViews":[]}],
+    "arrangements":[{"id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb8","name":"Default","isDefault":true,"layout":{"panes":[{"paneId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","ratio":1.0}],"dividerIds":[]},"minimizedPaneIds":[],"activePaneId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","drawerViews":[]}],
     "activeArrangementId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb8"}],"activeTabId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb7",
     "sidebarWidth":250,"windowFrame":null,"watchedPaths":[],"createdAt":0,"updatedAt":0}
     """

@@ -5,13 +5,12 @@ struct FlatTabStripContainer: View {
     let layout: Layout
     let tabId: UUID
     let activePaneId: UUID?
-    let zoomedPaneId: UUID?
     let minimizedPaneIds: Set<UUID>
     let visiblePaneIds: [UUID]?
-    let showsMinimizedPanes: Bool
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
+    let onFocusPane: (UUID) -> Void
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
@@ -20,6 +19,7 @@ struct FlatTabStripContainer: View {
     let onOpenPaneGitHub: (UUID) -> Void
     let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
+    let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
 
     @State private var paneFrames: [UUID: CGRect] = [:]
     @State private var iconBarFrame: CGRect = .zero
@@ -54,13 +54,12 @@ struct FlatTabStripContainer: View {
         layout: Layout,
         tabId: UUID,
         activePaneId: UUID?,
-        zoomedPaneId: UUID?,
         minimizedPaneIds: Set<UUID>,
         visiblePaneIds: [UUID]? = nil,
-        showsMinimizedPanes: Bool = true,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
+        onFocusPane: @escaping (UUID) -> Void,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         viewRegistry: ViewRegistry,
@@ -68,18 +67,18 @@ struct FlatTabStripContainer: View {
         paneInboxPresentation: PaneInboxPresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
         notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
-        workspaceWindowId: UUID? = nil
+        workspaceWindowId: UUID? = nil,
+        paneSurfaceToolbarPresentation: @escaping (UUID) -> PaneSurfaceToolbarPresentation
     ) {
         self.layout = layout
         self.tabId = tabId
         self.activePaneId = activePaneId
-        self.zoomedPaneId = zoomedPaneId
         self.minimizedPaneIds = minimizedPaneIds
         self.visiblePaneIds = visiblePaneIds
-        self.showsMinimizedPanes = showsMinimizedPanes
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
         self.onPaneFocusTrigger = onPaneFocusTrigger
+        self.onFocusPane = onFocusPane
         self.store = store
         self.repoCache = repoCache
         self.viewRegistry = viewRegistry
@@ -88,6 +87,7 @@ struct FlatTabStripContainer: View {
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self.notificationCountForWorktree = notificationCountForWorktree
         self.workspaceWindowId = workspaceWindowId
+        self.paneSurfaceToolbarPresentation = paneSurfaceToolbarPresentation
     }
 
     private var onSaveArrangement: (() -> Void)? {
@@ -109,7 +109,7 @@ struct FlatTabStripContainer: View {
         GeometryReader { tabGeometry in
             let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
             let isInactivePersistentTab = store.tabLayoutAtom.activeTabId != tabId
-            let rendersMinimizedBars = managementLayer.isActive || showsMinimizedPanes
+            let rendersMinimizedBars = managementLayer.isActive
             let effectiveCollapsedWidth: CGFloat = rendersMinimizedBars ? CollapsedPaneBar.barWidth : 0
             let effectiveVisiblePaneIds =
                 visiblePaneIds
@@ -135,9 +135,6 @@ struct FlatTabStripContainer: View {
             let mainOrdinalMap = PaneOrdinalMap(orderedPaneIds: layout.paneIds)
             let surfaceId = "tab:\(tabId)"
             let renderedPaneIds: Set<UUID> = {
-                if let zoomedPaneId {
-                    return [zoomedPaneId]
-                }
                 if effectiveVisiblePaneIds.isEmpty {
                     return []
                 } else if metrics.allMinimized {
@@ -226,7 +223,7 @@ struct FlatTabStripContainer: View {
         }
         .animation(
             .easeOut(duration: AppStyles.General.Animation.standard),
-            value: managementLayer.isActive || showsMinimizedPanes
+            value: managementLayer.isActive
         )
         .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: managementLayer.isActive)
         .coordinateSpace(name: "tabContainer")
@@ -234,14 +231,7 @@ struct FlatTabStripContainer: View {
 
     @ViewBuilder
     private func primaryPaneLayer(_ state: PrimaryPaneLayerState) -> some View {
-        if let zoomedPane = zoomedPaneLeafContainer() {
-            ZStack(alignment: .topLeading) {
-                zoomedPane
-                    .id(zoomedPaneId)
-                    .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
-                zoomBadge()
-            }
-        } else if state.effectiveVisiblePaneIds.isEmpty {
+        if state.effectiveVisiblePaneIds.isEmpty {
             EmptyArrangementPlaceholderView()
         } else if state.metrics.allMinimized {
             if state.rendersMinimizedBars {
@@ -252,6 +242,7 @@ struct FlatTabStripContainer: View {
                             tabId: tabId,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             actionDispatcher: actionDispatcher,
+                            onFocus: { onFocusPane(paneId) },
                             onSaveArrangement: onSaveArrangement,
                             dropTargetCoordinateSpace: "tabContainer",
                             ordinal: state.mainOrdinalMap.ordinal(forPaneId: paneId),
@@ -274,6 +265,7 @@ struct FlatTabStripContainer: View {
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
                 onPaneFocusTrigger: onPaneFocusTrigger,
+                onFocusPane: onFocusPane,
                 store: store,
                 repoCache: repoCache,
                 viewRegistry: viewRegistry,
@@ -283,33 +275,11 @@ struct FlatTabStripContainer: View {
                 paneInboxPresentation: paneInboxPresentation,
                 onOpenPaneGitHub: onOpenPaneGitHub,
                 notificationCountForWorktree: notificationCountForWorktree,
-                workspaceWindowId: workspaceWindowId
+                workspaceWindowId: workspaceWindowId,
+                paneSurfaceToolbarPresentation: paneSurfaceToolbarPresentation
             )
             .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: state.closingPaneIds)
             .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: minimizedPaneIds)
-        }
-    }
-
-    private func zoomBadge() -> some View {
-        VStack {
-            HStack {
-                Spacer()
-                Text("ZOOM")
-                    .font(
-                        .system(
-                            size: AppStyles.General.Typography.textSm,
-                            weight: .medium,
-                            design: .monospaced
-                        )
-                    )
-                    .foregroundStyle(.white.opacity(AppStyles.General.Foreground.secondary))
-                    .padding(.horizontal, AppStyles.General.Spacing.standard)
-                    .padding(.vertical, AppStyles.General.Layout.paneGap)
-                    .background(Capsule().fill(.white.opacity(AppStyles.General.Stroke.muted)))
-                    .padding(AppStyles.General.Spacing.loose)
-                    .allowsHitTesting(false)
-            }
-            Spacer()
         }
     }
 
@@ -326,6 +296,7 @@ struct FlatTabStripContainer: View {
             iconBarFrame: iconBarFrame,
             actionDispatcher: actionDispatcher,
             onPaneFocusTrigger: onPaneFocusTrigger,
+            onFocusPane: onFocusPane,
             paneInboxPresentation: paneInboxPresentation,
             onOpenPaneGitHub: onOpenPaneGitHub,
             notificationCountForWorktree: notificationCountForWorktree,
@@ -416,31 +387,6 @@ struct FlatTabStripContainer: View {
             .frame(width: drawerBounds.width, height: drawerBounds.height)
             .position(x: captureGeometry.panelFrameInTab.midX, y: captureGeometry.panelFrameInTab.midY)
         }
-    }
-
-    func zoomedPaneLeafContainer() -> PaneLeafContainer? {
-        guard let zoomedPaneId, let zoomedView = viewRegistry.view(for: zoomedPaneId) else {
-            return nil
-        }
-        let ordinal = PaneOrdinalMap(orderedPaneIds: layout.paneIds).ordinal(forPaneId: zoomedPaneId)
-
-        return PaneLeafContainer(
-            paneHost: zoomedView,
-            tabId: tabId,
-            isActive: true,
-            isSplit: false,
-            isSplitResizing: false,
-            store: store,
-            repoCache: repoCache,
-            closeTransitionCoordinator: closeTransitionCoordinator,
-            actionDispatcher: actionDispatcher,
-            onPaneFocusTrigger: onPaneFocusTrigger,
-            onOpenPaneGitHub: onOpenPaneGitHub,
-            notificationCountForWorktree: notificationCountForWorktree,
-            paneInboxPresentation: paneInboxPresentation,
-            ordinal: ordinal,
-            workspaceWindowId: workspaceWindowId
-        )
     }
 
     private func startDropTargetMouseUpMonitor() {

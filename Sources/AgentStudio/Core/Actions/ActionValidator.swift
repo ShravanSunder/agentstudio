@@ -36,6 +36,7 @@ enum ActionValidationError: Error, Equatable {
     case defaultArrangementCannotBeRemoved(tabId: UUID, arrangementId: UUID)
     case defaultArrangementCannotBeRenamed(tabId: UUID, arrangementId: UUID)
     case invalidVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID)
+    case zoomActive(tabId: UUID)
 }
 
 enum DrawerLayoutValidationFailure: Error, Equatable, Sendable, CustomStringConvertible {
@@ -67,6 +68,10 @@ enum WorkspaceCommandValidator {
         _ action: WorkspaceActionCommand,
         state: ActionStateSnapshot
     ) -> Result<ValidatedAction, ActionValidationError> {
+        if let zoomActiveError = validateZoomActiveMutation(action, state: state) {
+            return .failure(zoomActiveError)
+        }
+
         switch action {
         case .selectTab(let tabId):
             guard state.tab(tabId) != nil else {
@@ -232,12 +237,19 @@ enum WorkspaceCommandValidator {
         case .openFloatingTerminal:
             return .success(ValidatedAction(action))
 
-        case .toggleSplitZoom(let tabId, let paneId),
-            .resizePaneByDelta(let tabId, let paneId, _, _),
-            .minimizePane(let tabId, let paneId),
-            .expandPane(let tabId, let paneId):
-            if let error = validateTabContainsPane(tabId: tabId, paneId: paneId, state: state) {
+        case .resizePaneByDelta(let tabId, let paneId, _, _),
+            .minimizePane(let tabId, let paneId):
+            if let error = validateTabShowsPane(tabId: tabId, paneId: paneId, state: state) {
                 return .failure(error)
+            }
+            return .success(ValidatedAction(action))
+
+        case .expandPane(let tabId, let paneId):
+            guard let tab = state.tab(tabId) else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            guard tab.laysOutPane(paneId) else {
+                return .failure(.paneNotFound(paneId: paneId, tabId: tabId))
             }
             return .success(ValidatedAction(action))
 
@@ -338,15 +350,6 @@ enum WorkspaceCommandValidator {
             return .success(
                 ValidatedAction(.renameArrangement(tabId: tabId, arrangementId: arrangementId, name: normalizedName)))
 
-        case .setShowsMinimizedPanes(let tabId, _):
-            guard let tab = state.tab(tabId) else {
-                return .failure(.tabNotFound(tabId: tabId))
-            }
-            if let staleActiveError = validateActiveArrangementState(tabId: tabId, tab: tab) {
-                return .failure(staleActiveError)
-            }
-            return .success(ValidatedAction(action))
-
         // Orphaned pane pool — store-level
         case .backgroundPane, .purgeOrphanedPane:
             return .success(ValidatedAction(action))
@@ -394,7 +397,8 @@ enum WorkspaceCommandValidator {
             }
             return .success(ValidatedAction(action))
 
-        case .addDrawerPane(let parentPaneId):
+        case .addDrawerPane(let parentPaneId),
+            .addWebviewDrawerPane(let parentPaneId, _):
             guard state.tabShowing(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
             }
@@ -444,8 +448,37 @@ enum WorkspaceCommandValidator {
         }
     }
 
-    /// Check that a tab exists and contains the given pane.
-    private static func validateTabContainsPane(
+    private static func validateZoomActiveMutation(
+        _ action: WorkspaceActionCommand,
+        state: ActionStateSnapshot
+    ) -> ActionValidationError? {
+        let targetTabId: UUID?
+        switch action {
+        case .insertPaneRequest(let request):
+            switch request.source {
+            case .newTerminal, .newWebview:
+                targetTabId = request.targetTabId
+            case .existingPane:
+                return nil
+            }
+        case .minimizePane(let tabId, _),
+            .expandPane(let tabId, _):
+            targetTabId = tabId
+        default:
+            return nil
+        }
+
+        guard let targetTabId,
+            state.tab(targetTabId) != nil,
+            state.zoomSourcePaneIdByTabId[targetTabId] != nil
+        else {
+            return nil
+        }
+        return .zoomActive(tabId: targetTabId)
+    }
+
+    /// Check that a tab exists and currently presents the given pane.
+    private static func validateTabShowsPane(
         tabId: UUID, paneId: UUID, state: ActionStateSnapshot
     ) -> ActionValidationError? {
         guard let tab = state.tab(tabId) else {

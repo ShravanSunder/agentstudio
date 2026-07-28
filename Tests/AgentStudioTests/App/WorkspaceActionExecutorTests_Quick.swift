@@ -384,8 +384,8 @@ extension WebKitSerializedTests {
             #expect(!script.contains(StableKey.fromPath(worktree.path)))
         }
 
-        @Test("openContextualWebviewInPane creates a split browser pane with inherited workspace association")
-        func openContextualWebviewInPane_addsSplitPaneWithAssociation() {
+        @Test("typed webview insertion creates a split browser pane with inherited workspace association")
+        func typedWebviewInsertionAddsSplitPaneWithAssociation() throws {
             let harness = makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let executor = harness.executor
@@ -412,20 +412,30 @@ extension WebKitSerializedTests {
             let tab = Tab(paneId: sourcePane.id)
             store.appendTab(tab)
             store.setActiveTab(tab.id)
+            let paneIdsBefore = Set(store.paneAtom.panes.keys)
+            let url = URL(string: "https://github.com/ShravanSunder/agentstudio/pulls")!
 
-            let pane = executor.openContextualWebviewInPane(
-                sourcePaneId: sourcePane.id,
-                targetTabId: tab.id,
-                url: URL(string: "https://github.com/ShravanSunder/agentstudio/pulls")!
+            let didExecute = executor.execute(
+                .insertPane(
+                    source: .newWebview(WebviewState(url: url)),
+                    targetTabId: tab.id,
+                    targetPaneId: sourcePane.id,
+                    direction: .right,
+                    sizingMode: .halveTarget
+                )
             )
+            let createdPaneIds = Set(store.paneAtom.panes.keys).subtracting(paneIdsBefore)
+            #expect(createdPaneIds.count == 1)
+            let createdPaneId = try #require(createdPaneIds.first)
+            let pane = try #require(store.pane(createdPaneId))
 
-            #expect(pane != nil)
+            #expect(didExecute)
             #expect(store.tab(tab.id)?.paneIds.count == 2)
-            #expect(store.tab(tab.id)?.activePaneId == pane?.id)
-            #expect(pane?.webviewState?.url == URL(string: "https://github.com/ShravanSunder/agentstudio/pulls"))
-            #expect(pane?.repoId == repo.id)
-            #expect(pane?.worktreeId == worktree.id)
-            #expect(pane?.metadata.cwd == worktree.path)
+            #expect(store.tab(tab.id)?.activePaneId == pane.id)
+            #expect(pane.webviewState?.url == url)
+            #expect(pane.repoId == repo.id)
+            #expect(pane.worktreeId == worktree.id)
+            #expect(pane.metadata.cwd == worktree.path)
         }
 
         @Test("repair recreateSurface replaces a missing webview view")

@@ -66,7 +66,12 @@ struct PaneLeafContainerPaneInboxTests {
                 onPaneFocusTrigger: { _ in },
                 onOpenPaneGitHub: { _ in },
                 paneInboxPresentation: presentation,
-                workspaceWindowId: nil
+                workspaceWindowId: nil,
+                toolbarPresentation: .terminal(
+                    TerminalToolbarModel(
+                        zoomAction: nil
+                    )
+                )
             )
             .frame(width: 360, height: 240)
         )

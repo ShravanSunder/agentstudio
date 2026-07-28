@@ -29,6 +29,7 @@ enum WorkspaceCoreMigrations {
         ("011_add_repo_sidebar_metadata", addRepoSidebarMetadataStatements),
         ("012_background_active_unowned_layout_panes", backgroundActiveUnownedLayoutPanesStatements),
         ("013_globalize_repository_topology", globalizeRepositoryTopologyStatements),
+        ("014_drop_shows_minimized_panes", dropShowsMinimizedPanesStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {
@@ -47,6 +48,12 @@ enum WorkspaceCoreMigrations {
     private static let addZmxSessionIdStatements = [
         """
         ALTER TABLE pane_content_terminal ADD COLUMN zmx_session_id TEXT
+        """
+    ]
+
+    private static let dropShowsMinimizedPanesStatements = [
+        """
+        ALTER TABLE tab_arrangement DROP COLUMN shows_minimized_panes
         """
     ]
 

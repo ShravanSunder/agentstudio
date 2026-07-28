@@ -114,23 +114,6 @@ final class WorkspaceStoreOrphanPoolTests {
 
     @Test
 
-    func test_backgroundPane_clearsZoomIfZoomed() {
-        let pane1 = store.createPane()
-        let pane2 = store.createPane()
-        let tab = Tab(paneId: pane1.id)
-        store.appendTab(tab)
-        store.insertPane(
-            pane2.id, inTab: tab.id, at: pane1.id,
-            direction: .horizontal, position: .after, sizingMode: .halveTarget)
-        store.toggleZoom(paneId: pane1.id, inTab: tab.id)
-
-        store.backgroundPane(pane1.id)
-
-        #expect((store.tab(tab.id)!.zoomedPaneId) == nil)
-    }
-
-    @Test
-
     func test_backgroundPane_marksDirty() async {
         let (_, pane) = createTabWithPane()
         _ = await store.flushAsync()

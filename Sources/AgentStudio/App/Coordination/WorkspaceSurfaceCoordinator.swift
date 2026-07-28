@@ -214,6 +214,7 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     func shutdown() async {
+        retireAllZoomCompanions()
         closeAllBridgePaneActivityAuthorities()
         bridgePaneActivityObservationGeneration &+= 1
         for paneId in viewRegistry.allBridgeViews.keys {
@@ -373,7 +374,9 @@ final class WorkspaceSurfaceCoordinator {
     @discardableResult
     func unregisterRuntime(_ paneId: PaneId) -> (any PaneRuntime)? {
         stopRuntimeEventBridge(for: paneId)
-        return runtimeRegistry.unregister(paneId)
+        let unregisteredRuntime = runtimeRegistry.unregister(paneId)
+        recoverZoomCompanionAfterResourceLoss(for: paneId.uuid)
+        return unregisteredRuntime
     }
 
     func runtimeForPane(_ paneId: PaneId) -> (any PaneRuntime)? {
@@ -530,7 +533,11 @@ final class WorkspaceSurfaceCoordinator {
         case .equalizeSplits:
             execute(.equalizePanes(tabId: sourceTabId))
         case .toggleSplitZoom:
-            execute(.toggleSplitZoom(tabId: sourceTabId, paneId: sourcePaneUUID))
+            AppCommandDispatcher.shared.dispatch(
+                .zoomPane,
+                target: sourcePaneUUID,
+                targetType: .pane
+            )
         case .closeTab(let mode):
             executeCloseTabMode(mode, sourceTabId: sourceTabId)
         case .gotoTab(let target):
@@ -693,6 +700,19 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
     private func applyTopologyRemovals(from delta: WorktreeTopologyDelta) {
         for entry in delta.removedWorktrees {
             let orphanedPaneIds = store.paneAtom.orphanPanesForWorktree(entry.id, path: entry.path.path)
+            for sourcePaneId in orphanedPaneIds {
+                guard
+                    let companion = store.panePresentationAtom.zoomCompanion(
+                        forSourcePane: sourcePaneId
+                    )
+                else {
+                    continue
+                }
+                _ = reconcileZoomCompanion(
+                    sourcePaneId: sourcePaneId,
+                    owningTabId: companion.owningTabId
+                )
+            }
             if !orphanedPaneIds.isEmpty {
                 Self.logger.info(
                     "Worktree removed id=\(entry.id.uuidString, privacy: .public) path=\(entry.path.path, privacy: .public); orphaned \(orphanedPaneIds.count, privacy: .public) pane(s)"

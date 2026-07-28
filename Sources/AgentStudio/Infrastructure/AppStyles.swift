@@ -276,7 +276,7 @@ enum AppStyles {
         enum DrawerToolbar {
             static let trailingClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
             static let dividerHeight: CGFloat = 16
-            static let dividerHorizontalPadding: CGFloat = 2
+            static let dividerHorizontalPadding = AppStyles.General.Spacing.standard
         }
 
         enum ManagementLayer {

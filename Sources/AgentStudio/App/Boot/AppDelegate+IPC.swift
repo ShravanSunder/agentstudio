@@ -27,13 +27,9 @@ extension AppDelegate {
                     accessMode: accessMode,
                     methodDefinitions: ipcComposition.baseDefinitions,
                     debugTokenEscrowEnabled: Self.appIPCDebugTokenEscrowEnabled(),
-                    debugTokenEscrowPermissionScopes: [
-                        IPCPermissionScope(
-                            privilege: .sidebarStateMutate,
-                            target: .workspace(store.identityAtom.workspaceId),
-                            dataScope: .sidebarState
-                        )
-                    ]
+                    debugTokenEscrowPermissionScopes: Self.appIPCDebugTokenEscrowPermissionScopes(
+                        workspaceId: store.identityAtom.workspaceId
+                    )
                 ),
                 ports: AgentStudioAppIPCPorts(
                     queryPort: AgentStudioIPCQueryAdapter(
@@ -62,15 +58,14 @@ extension AppDelegate {
                     ),
                     commandPort: AgentStudioIPCCommandAdapter(
                         workspaceId: store.identityAtom.workspaceId,
-                        repositoryTargetAuthorizer: WorkspaceRepositoryTargetAuthorizationPort(
-                            repositoryExists: { [repositoryTopology = store.repositoryTopologyAtom] repositoryId in
-                                repositoryTopology.repo(repositoryId) != nil
-                            }
-                        ),
+                        targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store),
                         windowLifecycleReader: windowLifecycleReader,
                         shellCommandHandler: self
                     ),
-                    uiPresentationPort: AgentStudioIPCUIPresentationAdapter(presenter: self),
+                    uiPresentationPort: AgentStudioIPCUIPresentationAdapter(
+                        presenter: self,
+                        targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: store)
+                    ),
                     sidebarPort: AgentStudioIPCSidebarAdapter(
                         repoPrefs: atomStore.repoExplorerSidebarPrefs,
                         inboxPrefs: atomStore.inboxNotificationPrefs,
@@ -130,6 +125,31 @@ extension AppDelegate {
         #else
             return false
         #endif
+    }
+
+    static func appIPCDebugTokenEscrowPermissionScopes(workspaceId: UUID) -> [IPCPermissionScope] {
+        [
+            IPCPermissionScope(
+                privilege: .appCommandExecute,
+                target: .app,
+                dataScope: .unspecified
+            ),
+            IPCPermissionScope(
+                privilege: .layoutMutate,
+                target: .app,
+                dataScope: .paneContext
+            ),
+            IPCPermissionScope(
+                privilege: .uiPresent,
+                target: .app,
+                dataScope: .uiSurface
+            ),
+            IPCPermissionScope(
+                privilege: .sidebarStateMutate,
+                target: .workspace(workspaceId),
+                dataScope: .sidebarState
+            ),
+        ]
     }
 
     private static func appIPCSocketDirectory() -> URL? {

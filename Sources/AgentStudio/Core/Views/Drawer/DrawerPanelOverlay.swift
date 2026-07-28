@@ -170,6 +170,7 @@ struct DrawerPanelOverlay: View {
     let iconBarFrame: CGRect
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
+    let onFocusPane: (UUID) -> Void
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     let notificationCountForWorktree: (UUID) -> Int
@@ -251,7 +252,6 @@ struct DrawerPanelOverlay: View {
                     tabId: tabId,
                     activeChildId: info.drawerView.activeChildId,
                     minimizedPaneIds: info.drawerView.minimizedPaneIds,
-                    showsMinimizedPanes: atom(\.arrangementView).effectiveShowsMinimizedPanes(forTab: tabId),
                     closeTransitionCoordinator: closeTransitionCoordinator,
                     height: panelHeight,
                     store: store,
@@ -269,6 +269,7 @@ struct DrawerPanelOverlay: View {
                         onPaneFocusTrigger(.drawer(.toggle(parentPaneId: paneId)))
                     },
                     onPaneFocusTrigger: onPaneFocusTrigger,
+                    onFocusParentPane: { onFocusPane(paneId) },
                     appLifecycleStore: appLifecycleStore,
                     paneInboxPresentation: paneInboxPresentation,
                     onOpenPaneGitHub: onOpenPaneGitHub,

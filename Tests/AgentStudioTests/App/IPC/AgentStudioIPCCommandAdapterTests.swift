@@ -36,6 +36,13 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(copyCurrentPanePath.targetKinds == [.pane])
         #expect(copyCurrentPanePath.requiredPrivileges == [.workspaceRead])
 
+        let zoomPane = try #require(
+            commandsById[IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue)])
+        #expect(zoomPane.title == "Pane Zoom")
+        #expect(zoomPane.executionModes == [.headless])
+        #expect(zoomPane.targetKinds == [.pane])
+        #expect(zoomPane.requiredPrivileges == [.layoutMutate])
+
         let repoVisibility = try #require(
             commandsById[IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarVisibilityMode.rawValue)])
         #expect(repoVisibility.executionModes == [.headless])
@@ -541,6 +548,250 @@ struct AgentStudioIPCCommandAdapterTests {
             #expect(error.reason == .targetNotFound)
         }
     }
+
+    // Mutation caught: the target authorizer continues accepting repositories only.
+    @Test("zoom pane accepts a canonical pane with durable tab membership")
+    func zoomPaneAcceptsCanonicalPaneWithDurableTabMembership() async throws {
+        let commandHandler = RecordingWorkspaceCommandHandler()
+        let harness = CommandAdapterHarness()
+        let pane = harness.workspaceStore.createPane(title: "Zoom Source")
+        let tab = Tab(paneId: pane.id)
+        harness.workspaceStore.appendTab(tab)
+        harness.workspaceStore.setActiveTab(tab.id)
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = commandHandler
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                let result = try harness.adapter.executeCommand(
+                    IPCCommandExecuteParams(
+                        commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
+                        targetHandle: "pane:\(pane.id.uuidString)"
+                    )
+                )
+
+                #expect(result.applied)
+                #expect(result.targetHandle == "pane:\(pane.id.uuidString)")
+                #expect(
+                    commandHandler.targetedCommands == [
+                        RecordingWorkspaceCommandHandler.TargetedCommand(
+                            command: .zoomPane,
+                            target: pane.id,
+                            targetType: .pane
+                        )
+                    ])
+            }
+        )
+    }
+
+    // Mutation caught: IPC durable-membership authorization is treated as sufficient Zoom capability.
+    @Test("zoom pane propagates production capability rejection for a durable nonterminal pane")
+    func zoomPaneRejectsDurableNonterminalPaneThroughProductionCapability() async throws {
+        installTestAtomRegistryIfNeeded()
+        let controllerHarness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: controllerHarness.tempDir) }
+        let pane = controllerHarness.store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://zoom-rejected.example")!)),
+            metadata: PaneMetadata(contentType: .browser, title: "Browser")
+        )
+        let tab = Tab(paneId: pane.id)
+        controllerHarness.store.appendTab(tab)
+        controllerHarness.store.setActiveTab(tab.id)
+        let adapter = AgentStudioIPCCommandAdapter(
+            workspaceId: controllerHarness.store.identityAtom.workspaceId,
+            targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: controllerHarness.store),
+            windowLifecycleReader: FakeCommandWorkspaceWindowLifecycleReader(
+                snapshot: .singleActiveWindow(UUID())
+            ),
+            shellCommandHandler: RecordingShellCommandHandler()
+        )
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = controllerHarness.controller
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                do {
+                    _ = try adapter.executeCommand(
+                        IPCCommandExecuteParams(
+                            commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
+                            targetHandle: "pane:\(pane.id.uuidString)"
+                        )
+                    )
+                    Issue.record("zoom pane unexpectedly accepted a durable nonterminal pane")
+                } catch let error as AppIPCCommandError {
+                    #expect(error.reason == .targetNotFound)
+                }
+            }
+        )
+
+        #expect(controllerHarness.store.panePresentationAtom.zoomPresentation(forTab: tab.id) == nil)
+    }
+
+    // Mutation caught: canonical UUID syntax is treated as proof of durable membership.
+    @Test("zoom pane rejects a stale canonical pane handle")
+    func zoomPaneRejectsStaleCanonicalPaneHandle() throws {
+        let harness = CommandAdapterHarness()
+
+        do {
+            _ = try harness.adapter.executeCommand(
+                IPCCommandExecuteParams(
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
+                    targetHandle: "pane:\(UUID().uuidString)"
+                )
+            )
+            Issue.record("zoom pane unexpectedly accepted a stale canonical pane handle")
+        } catch let error as AppIPCCommandError {
+            #expect(error.reason == .targetNotFound)
+        }
+    }
+
+    // Mutation caught: any pane snapshot is accepted without requiring durable tab membership.
+    @Test("zoom pane rejects a pane without durable tab membership")
+    func zoomPaneRejectsPaneWithoutDurableTabMembership() throws {
+        let harness = CommandAdapterHarness()
+        let nonDurablePane = harness.workspaceStore.createPane(title: "Retained Companion")
+
+        do {
+            _ = try harness.adapter.executeCommand(
+                IPCCommandExecuteParams(
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
+                    targetHandle: "pane:\(nonDurablePane.id.uuidString)"
+                )
+            )
+            Issue.record("zoom pane unexpectedly accepted a pane without durable tab membership")
+        } catch let error as AppIPCCommandError {
+            #expect(error.reason == .targetNotFound)
+        }
+    }
+
+    // Mutation caught: drawer children are mistaken for canonical durable main-pane targets.
+    @Test("zoom pane rejects an explicit drawer-pane IPC target")
+    func zoomPaneRejectsExplicitDrawerPaneTarget() throws {
+        let harness = CommandAdapterHarness()
+        let parentPane = harness.workspaceStore.createPane(title: "Parent")
+        let tab = Tab(paneId: parentPane.id)
+        harness.workspaceStore.appendTab(tab)
+        let drawerPane = try #require(harness.workspaceStore.addDrawerPane(to: parentPane.id))
+
+        do {
+            _ = try harness.adapter.executeCommand(
+                IPCCommandExecuteParams(
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
+                    targetHandle: "pane:\(drawerPane.id.uuidString)"
+                )
+            )
+            Issue.record("zoom pane unexpectedly accepted an explicit drawer-pane target")
+        } catch let error as AppIPCCommandError {
+            #expect(error.reason == .targetNotFound)
+        }
+
+        #expect(harness.workspaceStore.panePresentationAtom.zoomPresentation(forTab: tab.id) == nil)
+    }
+
+    // Mutation caught: target UUID membership is checked without enforcing the command's handle kind.
+    @Test("zoom pane rejects a durable tab handle")
+    func zoomPaneRejectsDurableTabHandle() throws {
+        let harness = CommandAdapterHarness()
+        let pane = harness.workspaceStore.createPane(title: "Zoom Source")
+        let tab = Tab(paneId: pane.id)
+        harness.workspaceStore.appendTab(tab)
+
+        do {
+            _ = try harness.adapter.executeCommand(
+                IPCCommandExecuteParams(
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
+                    targetHandle: "tab:\(tab.id.uuidString)"
+                )
+            )
+            Issue.record("zoom pane unexpectedly accepted a durable tab handle")
+        } catch let error as AppIPCCommandError {
+            #expect(error.reason == .targetNotFound)
+        }
+    }
+
+    // Mutation caught: command.execute resolves friendly ordinals instead of requiring canonical handles.
+    @Test("zoom pane rejects a friendly pane ordinal")
+    func zoomPaneRejectsFriendlyPaneOrdinal() throws {
+        let harness = CommandAdapterHarness()
+        let pane = harness.workspaceStore.createPane(title: "Zoom Source")
+        harness.workspaceStore.appendTab(Tab(paneId: pane.id))
+
+        do {
+            _ = try harness.adapter.executeCommand(
+                IPCCommandExecuteParams(
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
+                    targetHandle: "pane:1"
+                )
+            )
+            Issue.record("zoom pane unexpectedly accepted a friendly pane ordinal")
+        } catch let error as AppIPCCommandError {
+            #expect(error.reason == .targetNotFound)
+        }
+    }
+
+    // Mutation caught: a target-required headless command falls through to untargeted shell dispatch.
+    @Test("targeted headless commands require an explicit target")
+    func targetedHeadlessCommandsRequireExplicitTarget() throws {
+        let shellCommandHandler = RecordingShellCommandHandler()
+        let harness = CommandAdapterHarness(shellCommandHandler: shellCommandHandler)
+
+        do {
+            _ = try harness.adapter.executeCommand(
+                IPCCommandExecuteParams(
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
+                    targetHandle: nil
+                )
+            )
+            Issue.record("zoomPane unexpectedly executed without an explicit target")
+        } catch let error as AppIPCCommandError {
+            #expect(error.reason == .requiresTarget)
+        }
+
+        #expect(shellCommandHandler.handledRequests.isEmpty)
+    }
+
+    // Mutation caught: durable target validation bypasses the active registered-window requirement.
+    @Test("zoom pane rejects a durable pane when no workspace window is active")
+    func zoomPaneRejectsDurablePaneWhenNoWorkspaceWindowIsActive() throws {
+        let harness = CommandAdapterHarness(windowSnapshot: .empty)
+        let pane = harness.workspaceStore.createPane(title: "Zoom Source")
+        harness.workspaceStore.appendTab(Tab(paneId: pane.id))
+
+        do {
+            _ = try harness.adapter.executeCommand(
+                IPCCommandExecuteParams(
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.zoomPane.rawValue),
+                    targetHandle: "pane:\(pane.id.uuidString)"
+                )
+            )
+            Issue.record("zoom pane unexpectedly executed without an active workspace window")
+        } catch let error as AppIPCCommandError {
+            #expect(error.reason == .noActiveWindow)
+        }
+    }
+
+    // Mutation caught: production composition injects repository topology instead of the durable workspace snapshot.
+    @Test("durable target authorization reads repo tab and pane membership from the workspace snapshot")
+    func durableTargetAuthorizationReadsWorkspaceSnapshotMembership() {
+        let workspaceStore = WorkspaceStore()
+        let repository = workspaceStore.mutationCoordinator.addRepo(
+            at: URL(fileURLWithPath: "/tmp/agentstudio-ipc-durable-target-repo")
+        )
+        let durablePane = workspaceStore.createPane(title: "Durable")
+        let nonDurablePane = workspaceStore.createPane(title: "Retained Companion")
+        let tab = Tab(paneId: durablePane.id)
+        workspaceStore.appendTab(tab)
+        let authorizer = WorkspaceDurableTargetAuthorizationPort(workspaceStore: workspaceStore)
+
+        #expect(authorizer.containsRepository(id: repository.id))
+        #expect(authorizer.containsTab(id: tab.id))
+        #expect(authorizer.containsPane(id: durablePane.id))
+        #expect(!authorizer.containsPane(id: nonDurablePane.id))
+    }
 }
 
 @MainActor
@@ -555,11 +806,7 @@ private struct CommandAdapterHarness {
         workspaceStore = WorkspaceStore()
         adapter = AgentStudioIPCCommandAdapter(
             workspaceId: workspaceStore.identityAtom.workspaceId,
-            repositoryTargetAuthorizer: WorkspaceRepositoryTargetAuthorizationPort(
-                repositoryExists: { [repositoryTopology = workspaceStore.repositoryTopologyAtom] repositoryId in
-                    repositoryTopology.repo(repositoryId) != nil
-                }
-            ),
+            targetAuthorizer: WorkspaceDurableTargetAuthorizationPort(workspaceStore: workspaceStore),
             windowLifecycleReader: FakeCommandWorkspaceWindowLifecycleReader(snapshot: windowSnapshot),
             shellCommandHandler: shellCommandHandler
         )
@@ -624,7 +871,13 @@ private final class RecordingWorkspaceCommandHandler: WorkspaceCommandHandling {
     }
 
     func canExecute(_ command: AppCommand, target _: UUID, targetType: SearchItemType) -> Bool {
-        targetType == .repo && (command == .addRepoFavorite || command == .removeRepoFavorite)
+        switch (command, targetType) {
+        case (.addRepoFavorite, .repo), (.removeRepoFavorite, .repo),
+            (.zoomPane, .pane):
+            true
+        default:
+            false
+        }
     }
 
     func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabIndex _: Int?) {}

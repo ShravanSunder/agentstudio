@@ -81,7 +81,8 @@ extension AppDelegate {
         return atom(\.workspacePaneFocus).currentFocus(
             workspaceTab: workspaceTab,
             workspacePane: store.paneAtom,
-            workspaceFocusOwner: atom(\.workspaceFocusOwner)
+            workspaceFocusOwner: atom(\.workspaceFocusOwner),
+            workspacePanePresentation: store.panePresentationAtom
         ).activePaneId
     }
 
