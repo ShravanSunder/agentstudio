@@ -4030,6 +4030,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return zoomPresentation.viewerPresentation != .unavailable
         }
 
+        if command == .movePaneToTab, targetType == .pane {
+            return canMovePaneToAnotherTab(sourcePaneId: target)
+        }
+
         if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
             return paneInboxPresentation != nil && paneInboxTarget(anchorPaneId: target) != nil
         }
@@ -4078,6 +4082,20 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return !arrangementTarget.arrangement.isDefault
         default:
             return false
+        }
+    }
+
+    private func canMovePaneToAnotherTab(sourcePaneId: UUID) -> Bool {
+        guard
+            let sourceTabId = store.tabLayoutAtom.tabs.first(where: {
+                $0.activePaneIds.contains(sourcePaneId)
+            })?.id
+        else {
+            return false
+        }
+
+        return store.tabLayoutAtom.tabs.contains { tab in
+            tab.id != sourceTabId && (tab.activePaneId != nil || !tab.activePaneIds.isEmpty)
         }
     }
 

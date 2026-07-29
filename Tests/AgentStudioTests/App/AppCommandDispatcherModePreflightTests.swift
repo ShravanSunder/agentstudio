@@ -135,11 +135,19 @@ struct AppCommandDispatcherModePreflightTests {
 
                     #expect(
                         shellOwner.interactions == [
-                            .contextualCapability(command: .movePaneToTab)
+                            .targetedCapability(
+                                command: .movePaneToTab,
+                                target: sourcePaneId,
+                                targetType: .pane
+                            )
                         ])
                     #expect(
                         workspaceOwner.interactions == [
-                            .contextualCapability(command: .movePaneToTab),
+                            .targetedCapability(
+                                command: .movePaneToTab,
+                                target: sourcePaneId,
+                                targetType: .pane
+                            ),
                             .specializedMovePaneExecution(
                                 sourcePaneId: sourcePaneId,
                                 sourceTabId: sourceTabId,

@@ -827,6 +827,38 @@ final class AppCommandTests {
     @MainActor
 
     @Test
+    func test_dispatcher_dispatchMovePaneToTab_rechecksExactSourcePaneCapability() async throws {
+        try await withAsyncTestCoreAtoms { _ in
+            let dispatcher = AppCommandDispatcher.shared
+            let handler = MockCommandHandler()
+            handler.canExecuteResult = true
+            handler.targetedCanExecuteResult = false
+            atom(\.managementLayer).deactivate()
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    dispatcher.handler = handler
+                    dispatcher.appCommandRouter = nil
+                },
+                body: {
+                    atom(\.managementLayer).toggle()
+                    defer { atom(\.managementLayer).deactivate() }
+
+                    dispatcher.dispatchMovePaneToTab(
+                        sourcePaneId: UUID(),
+                        sourceTabId: UUID(),
+                        targetTabId: UUID()
+                    )
+
+                    #expect(handler.movePaneRequests.isEmpty)
+                }
+            )
+        }
+    }
+
+    @MainActor
+
+    @Test
     func test_dispatcher_cannotDispatch_whenHandlerReturnsFalse() async throws {
         // Arrange
         let dispatcher = AppCommandDispatcher.shared

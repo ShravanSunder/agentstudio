@@ -92,7 +92,7 @@ final class AppCommandDispatcher: AppCommandDispatching {
         guard let definition = definitions[.movePaneToTab],
             definition.targeting.supports(targetType: .pane),
             definition.targeting.supports(targetType: .tab),
-            canExecutionOwnersExecute(.movePaneToTab, definition: definition)
+            canDispatch(.movePaneToTab, target: sourcePaneId, targetType: .pane)
         else {
             return
         }

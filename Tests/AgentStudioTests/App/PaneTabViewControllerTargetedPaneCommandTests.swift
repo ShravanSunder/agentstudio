@@ -246,4 +246,110 @@ struct PaneTabViewControllerTargetedPaneCommandTests {
         #expect(harness.launchRecorder.copiedPaths.isEmpty)
         #expect(harness.atomRegistry.editorChooser.openForPaneId == nil)
     }
+
+    @Test("targeted Move Pane capability requires an owned source and nonempty alternate tab")
+    func movePaneToTabCapability_requiresOwnedSourceAndNonemptyAlternateTab() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let sourcePane = harness.store.createPane()
+        let sourceTab = Tab(paneId: sourcePane.id)
+        harness.store.appendTab(sourceTab)
+        harness.store.setActiveTab(sourceTab.id)
+
+        #expect(
+            !harness.controller.canExecute(
+                .movePaneToTab,
+                target: sourcePane.id,
+                targetType: .pane
+            )
+        )
+
+        let destinationPane = harness.store.createPane()
+        let destinationTab = Tab(paneId: destinationPane.id)
+        harness.store.appendTab(destinationTab)
+
+        #expect(
+            harness.controller.canExecute(
+                .movePaneToTab,
+                target: sourcePane.id,
+                targetType: .pane
+            )
+        )
+        #expect(
+            !harness.controller.canExecute(
+                .movePaneToTab,
+                target: UUID(),
+                targetType: .pane
+            )
+        )
+    }
+
+    @Test("Move Pane routes the source pane to the selected nonempty destination")
+    func movePaneToTab_selectedDestination_receivesSourcePane() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let sourcePane = harness.store.createPane()
+        let sourceTab = Tab(paneId: sourcePane.id)
+        let otherDestinationPane = harness.store.createPane()
+        let otherDestinationTab = Tab(paneId: otherDestinationPane.id)
+        let selectedDestinationPane = harness.store.createPane()
+        let selectedDestinationTab = Tab(paneId: selectedDestinationPane.id)
+        harness.store.appendTab(sourceTab)
+        harness.store.appendTab(otherDestinationTab)
+        harness.store.appendTab(selectedDestinationTab)
+        harness.store.setActiveTab(sourceTab.id)
+
+        harness.controller.executeMovePaneToTab(
+            sourcePaneId: sourcePane.id,
+            sourceTabId: sourceTab.id,
+            targetTabId: selectedDestinationTab.id
+        )
+
+        #expect(harness.store.tab(selectedDestinationTab.id)?.activePaneIds.contains(sourcePane.id) == true)
+        #expect(harness.store.tab(otherDestinationTab.id)?.activePaneIds.contains(sourcePane.id) == false)
+    }
+
+    @Test("Move Pane presentation enables with a destination and rechecks before activation")
+    func movePaneToTabPresentation_destinationRemovedBeforeActivation_doesNotMove() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let sourcePane = harness.store.createPane()
+        let sourceTab = Tab(paneId: sourcePane.id)
+        let destinationPane = harness.store.createPane()
+        let destinationTab = Tab(paneId: destinationPane.id)
+        harness.store.appendTab(sourceTab)
+        harness.store.appendTab(destinationTab)
+        harness.store.setActiveTab(sourceTab.id)
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = harness.controller
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                atom(\.managementLayer).activate()
+                defer { atom(\.managementLayer).deactivate() }
+                let presentation = try #require(
+                    PaneLeafCommandPresentation.resolve(
+                        command: .movePaneToTab,
+                        surface: .inlineControl,
+                        targetPaneId: sourcePane.id,
+                        dispatcher: AppCommandDispatcher.shared
+                    )
+                )
+                #expect(presentation.isEnabled)
+
+                harness.store.removeTab(destinationTab.id)
+                presentation.movePane(
+                    sourceTabId: sourceTab.id,
+                    targetTabId: destinationTab.id
+                )
+
+                #expect(harness.store.tab(sourceTab.id)?.activePaneIds.contains(sourcePane.id) == true)
+            }
+        )
+    }
 }
