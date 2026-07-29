@@ -134,7 +134,7 @@ final class AppCommandCatalogTests {
     func test_dispatcher_zoomPane_registered() {
         let def = AppCommandDispatcher.shared.definition(for: .zoomPane)
         let canonicalZoomSymbol = SystemSymbol(
-            rawValue: "arrow.down.left.and.arrow.up.right.rectangle"
+            rawValue: "square.arrowtriangle.4.outward"
         )
         #expect(def.label == "Pane Zoom")
         #expect(def.icon == canonicalZoomSymbol.map(CommandIcon.system))

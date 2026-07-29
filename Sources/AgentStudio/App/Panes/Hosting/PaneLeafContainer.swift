@@ -69,6 +69,8 @@ struct PaneLeafContainer: View {
     @State private var isBrowserHovered: Bool = false
     @State private var isMovePaneHovered: Bool = false
     @State private var isDetachHovered: Bool = false
+    @State private var movePaneMenuAnchorView: NSView?
+    @State private var movePaneMenuPresenter = PaneMoveDestinationMenuPresenter()
 
     init(
         paneHost: PaneHostView,
@@ -491,10 +493,13 @@ struct PaneLeafContainer: View {
                                 isDrawerChild: isDrawerChild
                             ) {
                             case .detachDrawerPane:
-                                paneEdgeButton(
+                                ManagementTrailingEdgeTabButton(
                                     systemName: SystemSymbol.rectanglePortraitAndArrowRight.rawValue,
                                     isHovered: isDetachHovered,
-                                    toolTipText: AppCommand.detachDrawerPane.definition.helpText
+                                    isEnabled: true,
+                                    tooltip: AppCommand.detachDrawerPane.definition.controlTooltipRenderValue(),
+                                    accessibilityIdentifier: "paneManagement.detachDrawerPane",
+                                    onAnchorViewChanged: nil
                                 ) {
                                     AppCommandDispatcher.shared.dispatch(
                                         .detachDrawerPane,
@@ -504,7 +509,9 @@ struct PaneLeafContainer: View {
                                 }
                                 .onHover { isDetachHovered = $0 }
                             case .movePaneToTab:
-                                movePaneDestinationMenu
+                                if !managementContext.showsIdentityBlock {
+                                    movePaneTrailingEdgeTabButton
+                                }
                             }
                         }
                         .padding(.bottom, AppStyles.General.Spacing.standard)
@@ -513,6 +520,28 @@ struct PaneLeafContainer: View {
                     .transition(.opacity)
                 }
 
+            }
+            .overlayPreferenceValue(ManagementPaneIdentityCardBoundsPreferenceKey.self) { identityCardBounds in
+                GeometryReader { overlayGeometry in
+                    if managementLayer.isActive,
+                        managementChromePresentation == .ordinary,
+                        !isDrawerChild,
+                        !isSplitResizing,
+                        !suppressMainPaneManagementInteraction,
+                        managementContext.showsIdentityBlock,
+                        let identityCardBounds
+                    {
+                        let cardFrame = overlayGeometry[identityCardBounds]
+                        movePaneTrailingEdgeTabButton
+                            .position(
+                                x: overlayGeometry.size.width
+                                    - (AppStyles.Shell.PaneChrome.paneSplitButtonSize / 2),
+                                y: cardFrame.minY
+                                    - AppStyles.General.Spacing.standard
+                                    - (AppStyles.Shell.PaneChrome.paneEdgeButtonHeight / 2)
+                            )
+                    }
+                }
             }
             .contentShape(Rectangle())
             .onHover { isHovered = suppressMainPaneManagementInteraction ? false : $0 }
@@ -672,25 +701,6 @@ struct PaneLeafContainer: View {
         .help(toolTipText)
     }
 
-    private var movePaneDestinationMenu: some View {
-        Menu {
-            movePaneDestinationMenuItems
-        } label: {
-            paneEdgeButtonLabel(
-                systemName: SystemSymbol.arrowLeftArrowRight.rawValue,
-                isHovered: isMovePaneHovered
-            )
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .disabled(movePaneDestinations.isEmpty)
-        .onHover { isMovePaneHovered = $0 }
-        .controlHelp(AppCommand.movePaneToTab.definition.controlTooltipRenderValue())
-        .accessibilityLabel(AppCommand.movePaneToTab.definition.label)
-        .accessibilityIdentifier("paneManagement.movePaneToTab")
-    }
-
     @ViewBuilder
     private var movePaneDestinationMenuItems: some View {
         ForEach(movePaneDestinations) { destination in
@@ -698,6 +708,38 @@ struct PaneLeafContainer: View {
                 movePane(to: destination)
             }
         }
+    }
+
+    private func presentMovePaneDestinationMenu() {
+        guard let movePaneMenuAnchorView else { return }
+        movePaneMenuPresenter.present(
+            destinations: movePaneDestinations.map { destination in
+                PaneMoveDestinationMenuPresenter.Destination(
+                    title: destination.title,
+                    perform: {
+                        movePane(to: destination)
+                    }
+                )
+            },
+            from: movePaneMenuAnchorView
+        )
+    }
+
+    private var movePaneTrailingEdgeTabButton: some View {
+        ManagementTrailingEdgeTabButton(
+            systemName: SystemSymbol.arrowLeftArrowRight.rawValue,
+            isHovered: isMovePaneHovered,
+            isEnabled: !movePaneDestinations.isEmpty,
+            tooltip: AppCommand.movePaneToTab.definition.controlTooltipRenderValue(),
+            accessibilityIdentifier: "paneManagement.movePaneToTab",
+            onAnchorViewChanged: { view in
+                if movePaneMenuAnchorView !== view {
+                    movePaneMenuAnchorView = view
+                }
+            },
+            action: presentMovePaneDestinationMenu
+        )
+        .onHover { isMovePaneHovered = $0 }
     }
 
     private func movePane(to destination: MovePaneDestination) {
@@ -728,7 +770,7 @@ struct PaneLeafContainer: View {
             )
             .frame(
                 width: AppStyles.Shell.PaneChrome.paneSplitButtonSize,
-                height: AppStyles.Shell.PaneChrome.paneSplitButtonSize + 12
+                height: AppStyles.Shell.PaneChrome.paneEdgeButtonHeight
             )
             .background(
                 UnevenRoundedRectangle(
