@@ -63,6 +63,7 @@ struct ZoomPresentationContainer: View {
 
     @State private var splitRatio: CGFloat
     @State private var showsZoomToolbarLabel = false
+    @State private var isZoomExitPending = false
     @State private var zoomHovered = false
     @State private var showArrangementsHovered = false
     @State private var paneFrames: [UUID: CGRect] = [:]
@@ -198,8 +199,14 @@ struct ZoomPresentationContainer: View {
     @ViewBuilder
     private var parentToolbar: some View {
         if case .zoom(let toolbarModel) = parentToolbarPresentation {
-            let zoomAction = toolbarModel.zoomAction.projectingVisibleLabel(
+            let projectedZoomAction = toolbarModel.zoomAction.projectingVisibleLabel(
                 showsZoomToolbarLabel ? toolbarModel.zoomAction.state.visibleLabel : nil
+            )
+            let zoomAction = PaneSurfaceToolbarAction(
+                state: projectedZoomAction.state,
+                perform: {
+                    beginZoomToolbarExit(performCancel: toolbarModel.zoomAction.perform)
+                }
             )
             PaneSurfaceToolbarHost(
                 anchorPaneId: sourcePaneId,
@@ -221,6 +228,23 @@ struct ZoomPresentationContainer: View {
                     showsZoomToolbarLabel = true
                 }
             }
+        }
+    }
+
+    private func beginZoomToolbarExit(
+        performCancel: @escaping @MainActor @Sendable () -> Void
+    ) {
+        guard !isZoomExitPending else { return }
+        isZoomExitPending = true
+
+        withAnimation(
+            .easeOut(duration: AppStyles.General.Animation.fast),
+            completionCriteria: .logicallyComplete
+        ) {
+            showsZoomToolbarLabel = false
+        } completion: {
+            performCancel()
+            isZoomExitPending = false
         }
     }
 

@@ -530,6 +530,7 @@ struct DrawerIconBar: View {
                         .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                         .lineLimit(1)
                         .padding(.trailing, AppStyles.Shell.DrawerToolbar.labeledActionTrailingPadding)
+                        .transition(.identity)
                 }
             }
             .frame(height: DrawerLayout.iconButtonSize)
