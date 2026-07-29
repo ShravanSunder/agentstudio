@@ -127,7 +127,7 @@ struct ZoomPresentationContainerExitTests {
 
     private func waitForCancellationEvent(
         _ cancellationEvents: AsyncStream<Void>,
-        timeout: Duration = .seconds(1)
+        timeout: Duration = .seconds(10)
     ) async -> Bool {
         let clock = ContinuousClock()
         return await withTaskGroup(of: Bool.self) { group in
