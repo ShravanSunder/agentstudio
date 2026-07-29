@@ -1,36 +1,36 @@
 import CoreGraphics
 import Foundation
 
-struct FlatTabStripMetrics {
-    struct PaneSegment: Hashable {
-        let paneId: UUID
-        let frame: CGRect
-        let isMinimized: Bool
+package struct FlatTabStripMetrics {
+    package struct PaneSegment: Hashable {
+        package let paneId: UUID
+        package let frame: CGRect
+        package let isMinimized: Bool
     }
 
-    struct DividerSegment: Hashable {
-        enum ResizeIntent: Hashable {
+    package struct DividerSegment: Hashable {
+        package enum ResizeIntent: Hashable {
             case structural(splitId: UUID)
             case visiblePanePair(leftPaneId: UUID, rightPaneId: UUID)
             case noResize
         }
 
-        let dividerId: UUID
+        package let dividerId: UUID
         let leftPaneId: UUID
         let rightPaneId: UUID
-        let frame: CGRect
+        package let frame: CGRect
         let visualLeftPaneWidth: CGFloat
         let visualRightPaneWidth: CGFloat
-        let resizeIntent: ResizeIntent
-        let resizeLeftPaneWidth: CGFloat
-        let resizeRightPaneWidth: CGFloat
+        package let resizeIntent: ResizeIntent
+        package let resizeLeftPaneWidth: CGFloat
+        package let resizeRightPaneWidth: CGFloat
     }
 
-    let paneSegments: [PaneSegment]
-    let dividerSegments: [DividerSegment]
-    let allMinimized: Bool
+    package let paneSegments: [PaneSegment]
+    package let dividerSegments: [DividerSegment]
+    package let allMinimized: Bool
 
-    static func compute(
+    package static func compute(
         layout: Layout,
         in bounds: CGRect,
         dividerThickness: CGFloat,

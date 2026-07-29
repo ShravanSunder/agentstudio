@@ -2,12 +2,13 @@ import AppKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct MainSplitViewControllerSidebarStateTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("viewDidLoad with sidebarCollapsed true collapses the sidebar")
@@ -36,15 +37,15 @@ struct MainSplitViewControllerSidebarStateTests {
         await withMainSplitViewControllerHarness(
             withRepos: true,
             body: { harness in
-                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == false)
+                #expect(harness.atoms.core.workspaceSidebarState.sidebarCollapsed == false)
 
                 harness.controller.toggleSidebarFromCommand()
                 await Task.yield()
-                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == true)
+                #expect(harness.atoms.core.workspaceSidebarState.sidebarCollapsed == true)
 
                 harness.controller.toggleSidebarFromCommand()
                 await Task.yield()
-                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == false)
+                #expect(harness.atoms.core.workspaceSidebarState.sidebarCollapsed == false)
             }
         )
     }
@@ -57,13 +58,13 @@ struct MainSplitViewControllerSidebarStateTests {
                 harness.controller.toggleSidebarFromCommand()
                 await Task.yield()
                 #expect(harness.controller.isSidebarCollapsed == true)
-                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == true)
+                #expect(harness.atoms.core.workspaceSidebarState.sidebarCollapsed == true)
 
-                harness.atoms.workspaceSidebarState.setSidebarCollapsed(false)
-                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == false)
+                harness.atoms.core.workspaceSidebarState.setSidebarCollapsed(false)
+                #expect(harness.atoms.core.workspaceSidebarState.sidebarCollapsed == false)
 
                 harness.controller.splitViewDidResizeSubviews(Notification(name: .init("test")))
-                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == true)
+                #expect(harness.atoms.core.workspaceSidebarState.sidebarCollapsed == true)
             }
         )
     }
@@ -163,14 +164,14 @@ struct MainSplitViewControllerSidebarStateTests {
             },
             body: { harness in
                 #expect(harness.controller.isSidebarCollapsed == true)
-                #expect(harness.atoms.workspaceSidebarState.sidebarSurface == .inbox)
+                #expect(harness.atoms.core.workspaceSidebarState.sidebarSurface == .inbox)
 
                 harness.controller.showWorktreeSidebar()
 
                 await eventually("showWorktreeSidebar should expand collapsed inbox state") {
                     harness.controller.isSidebarCollapsed == false
-                        && harness.atoms.workspaceSidebarState.sidebarCollapsed == false
-                        && harness.atoms.workspaceSidebarState.sidebarSurface == .repos
+                        && harness.atoms.core.workspaceSidebarState.sidebarCollapsed == false
+                        && harness.atoms.core.workspaceSidebarState.sidebarSurface == .repos
                 }
             }
         )
@@ -182,12 +183,12 @@ struct MainSplitViewControllerSidebarStateTests {
             withRepos: true,
             body: { harness in
                 #expect(harness.controller.isViewLoaded == false)
-                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == false)
+                #expect(harness.atoms.core.workspaceSidebarState.sidebarCollapsed == false)
 
                 harness.controller.collapseSidebar()
 
-                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == true)
-                #expect(harness.atoms.workspaceSidebarState.sidebarHasFocus == false)
+                #expect(harness.atoms.core.workspaceSidebarState.sidebarCollapsed == true)
+                #expect(harness.atoms.core.workspaceSidebarState.sidebarHasFocus == false)
             }
         )
     }
@@ -198,11 +199,11 @@ struct MainSplitViewControllerSidebarStateTests {
             withRepos: true,
             body: { harness in
                 #expect(harness.controller.isSidebarCollapsed == false)
-                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == false)
+                #expect(harness.atoms.core.workspaceSidebarState.sidebarCollapsed == false)
 
                 harness.controller.collapseSidebar()
 
-                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == true)
+                #expect(harness.atoms.core.workspaceSidebarState.sidebarCollapsed == true)
             }
         )
     }

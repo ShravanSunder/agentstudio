@@ -2,12 +2,15 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("Notification Inbox integration", .serialized)
 struct InboxNotificationIntegrationTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("pane bus emission reaches atom and list model with source context")

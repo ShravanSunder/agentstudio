@@ -1,8 +1,10 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import AppKit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @Suite(.serialized)
 @MainActor
@@ -80,45 +82,41 @@ final class GhosttySurfaceShortcutTests {
     }
 
     @Test
-    func terminalAppOwnedShortcutHandler_swallowsRejectedShortcutWithoutDispatch() async throws {
-        try await withIsolatedCommandDispatcher(
-            configure: {},
-            body: {
-                withTestAtomRegistry { atoms in
-                    let windowId = UUID()
-                    let tabId = UUID()
-                    var dispatchedCommands: [AppCommand] = []
-                    atoms.windowLifecycle.recordWindowRegistered(windowId)
-                    atoms.windowLifecycle.recordWindowBecameKey(windowId)
-                    _ = atoms.transientKeyboardSurface.present(
-                        .arrangementPanel(tabId: tabId),
-                        workspaceWindowId: windowId
-                    )
+    func terminalAppOwnedShortcutHandler_swallowsRejectedShortcutWithoutDispatch() {
+        withTestCoreAtoms { atoms in
+            let windowId = UUID()
+            let tabId = UUID()
+            var dispatchedCommands: [AppCommand] = []
+            atoms.windowLifecycle.recordWindowRegistered(windowId)
+            atoms.windowLifecycle.recordWindowBecameKey(windowId)
+            _ = atoms.transientKeyboardSurface.present(
+                .arrangementPanel(tabId: tabId),
+                workspaceWindowId: windowId
+            )
 
-                    let context = KeyboardRoutingContext.current(
-                        windowLifecycle: atoms.windowLifecycle,
-                        managementLayer: atoms.managementLayer,
-                        uiState: atoms.workspaceSidebarState,
-                        commandBarSurface: atoms.commandBarSurface,
-                        transientKeyboardSurface: atoms.transientKeyboardSurface
-                    )
+            let context = KeyboardRoutingContext.current(
+                windowLifecycle: atoms.windowLifecycle,
+                managementLayer: atoms.managementLayer,
+                uiState: atoms.workspaceSidebarState,
+                commandBarSurface: atoms.commandBarSurface,
+                transientKeyboardSurface: atoms.transientKeyboardSurface
+            )
 
-                    let result = Ghostty.SurfaceView.handleTerminalAppOwnedShortcut(
-                        trigger: .init(key: .character(.k), modifiers: [.command, .shift]),
-                        context: context,
-                        canDispatch: { command, _ in command == .scrollToBottom },
-                        dispatch: { command, _ in dispatchedCommands.append(command) }
-                    )
+            let result = Ghostty.SurfaceView.handleTerminalAppOwnedShortcut(
+                trigger: .init(key: .character(.k), modifiers: [.command, .shift]),
+                context: context,
+                canDispatch: { command, _ in command == .scrollToBottom },
+                dispatch: { command, _ in dispatchedCommands.append(command) }
+            )
 
-                    #expect(result == .swallowed)
-                    #expect(dispatchedCommands.isEmpty)
-                }
-            })
+            #expect(result == .swallowed)
+            #expect(dispatchedCommands.isEmpty)
+        }
     }
 
     @Test
     func terminalAppOwnedShortcutHandler_targetsSourcePaneForTerminalRuntimeCommands() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let windowId = UUID()
             let sourcePaneId = UUID()
             var dispatches: [(command: AppCommand, paneId: UUID?)] = []
@@ -154,7 +152,7 @@ final class GhosttySurfaceShortcutTests {
 
     @Test
     func terminalAppOwnedShortcutHandler_doesNotTargetCommandBarShortcutsToSourcePane() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let windowId = UUID()
             let sourcePaneId = UUID()
             var dispatches: [(command: AppCommand, paneId: UUID?)] = []

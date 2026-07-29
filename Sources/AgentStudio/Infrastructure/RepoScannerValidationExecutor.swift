@@ -1,46 +1,64 @@
 import Foundation
 
-protocol RepoDiscoveryReadClient: Sendable {
+package protocol RepoDiscoveryReadClient: Sendable {
     func validateDiscoveryCandidate(at candidateURL: URL) async -> GitRepositoryDiscoveryOutcome
 }
 
-struct RepoDiscoveryValidationRequestID: Hashable, Sendable {
-    let rawValue: UUID
+package struct RepoDiscoveryValidationRequestID: Hashable, Sendable {
+    package let rawValue: UUID
 
-    static func make() -> Self { Self(rawValue: UUIDv7.generate()) }
-    var isUUIDv7: Bool { UUIDv7.isV7(rawValue) }
+    package init(rawValue: UUID) {
+        self.rawValue = rawValue
+    }
+
+    package static func make() -> Self { Self(rawValue: UUIDv7.generate()) }
+    package var isUUIDv7: Bool { UUIDv7.isV7(rawValue) }
 }
 
-struct RepoDiscoveryValidationRequest: Equatable, Sendable {
-    let requestID: RepoDiscoveryValidationRequestID
-    let scannerSessionID: RepoScannerSessionID
-    let scanRunGeneration: UInt64
-    let authorizedRoot: RegisteredRootDescriptor
-    let candidateURL: URL
+package struct RepoDiscoveryValidationRequest: Equatable, Sendable {
+    package let requestID: RepoDiscoveryValidationRequestID
+    package let scannerSessionID: RepoScannerSessionID
+    package let scanRunGeneration: UInt64
+    package let authorizedRoot: RegisteredRootDescriptor
+    package let candidateURL: URL
+
+    package init(
+        requestID: RepoDiscoveryValidationRequestID,
+        scannerSessionID: RepoScannerSessionID,
+        scanRunGeneration: UInt64,
+        authorizedRoot: RegisteredRootDescriptor,
+        candidateURL: URL
+    ) {
+        self.requestID = requestID
+        self.scannerSessionID = scannerSessionID
+        self.scanRunGeneration = scanRunGeneration
+        self.authorizedRoot = authorizedRoot
+        self.candidateURL = candidateURL
+    }
 }
 
-enum RepoDiscoveryValidationBudgetError: Error, Equatable, Sendable {
+package enum RepoDiscoveryValidationBudgetError: Error, Equatable, Sendable {
     case nonPositiveLogicalDeadline(Duration)
     case nonPositiveMaximumPhysicalJobs(Int)
     case logicalCapacitySmallerThanPhysicalCapacity(logical: Int, physical: Int)
     case unsupportedMaximumQueuedRequestsPerRoot(Int)
 }
 
-struct RepoDiscoveryValidationBudget: Equatable, Sendable {
-    let logicalDeadline: Duration
-    let maximumPhysicalJobs: Int
+package struct RepoDiscoveryValidationBudget: Equatable, Sendable {
+    package let logicalDeadline: Duration
+    package let maximumPhysicalJobs: Int
     /// Maximum running, queued, or completed-but-undelivered logical requests.
-    let maximumQueuedRequests: Int
-    let maximumQueuedRequestsPerRoot: Int
+    package let maximumQueuedRequests: Int
+    package let maximumQueuedRequestsPerRoot: Int
 
-    static let productionDefault = Self(
+    package static let productionDefault = Self(
         validatedLogicalDeadline: AppPolicies.GitRefresh.defaultDiscoveryReadTimeout,
         maximumPhysicalJobs: 2,
         maximumQueuedRequests: 256,
         maximumQueuedRequestsPerRoot: 1
     )
 
-    init(
+    package init(
         logicalDeadline: Duration,
         maximumPhysicalJobs: Int,
         maximumQueuedRequests: Int,
@@ -86,12 +104,12 @@ struct RepoDiscoveryValidationBudget: Equatable, Sendable {
     }
 }
 
-enum RepoDiscoveryValidationAdmissionAcceptance: Equatable, Sendable {
+package enum RepoDiscoveryValidationAdmissionAcceptance: Equatable, Sendable {
     case started
     case queued
 }
 
-enum RepoDiscoveryValidationAdmissionRejection: Equatable, Sendable {
+package enum RepoDiscoveryValidationAdmissionRejection: Equatable, Sendable {
     case duplicateRequest(RepoDiscoveryValidationRequestID)
     case scannerSessionAlreadyOutstanding(RepoScannerSessionID)
     case sourceAlreadyOutstanding(FilesystemSourceID)
@@ -100,102 +118,102 @@ enum RepoDiscoveryValidationAdmissionRejection: Equatable, Sendable {
     case shutdown
 }
 
-enum RepoDiscoveryValidationAdmissionResult: Equatable, Sendable {
+package enum RepoDiscoveryValidationAdmissionResult: Equatable, Sendable {
     case accepted(RepoDiscoveryValidationAdmissionAcceptance)
     case rejected(RepoDiscoveryValidationAdmissionRejection)
 }
 
-struct FinishedRepoDiscoveryValidation: Equatable, Sendable {
-    let request: RepoDiscoveryValidationRequest
-    let outcome: GitRepositoryDiscoveryOutcome
-    let validationServiceDuration: Duration
+package struct FinishedRepoDiscoveryValidation: Equatable, Sendable {
+    package let request: RepoDiscoveryValidationRequest
+    package let outcome: GitRepositoryDiscoveryOutcome
+    package let validationServiceDuration: Duration
 }
 
-struct TimedOutRepoDiscoveryValidation: Equatable, Sendable {
-    let request: RepoDiscoveryValidationRequest
-    let validationServiceDuration: Duration
+package struct TimedOutRepoDiscoveryValidation: Equatable, Sendable {
+    package let request: RepoDiscoveryValidationRequest
+    package let validationServiceDuration: Duration
 }
 
-enum RepoDiscoveryValidationCancellationCause: Equatable, Sendable {
+package enum RepoDiscoveryValidationCancellationCause: Equatable, Sendable {
     case explicitRequest
     case shutdown
 }
 
-struct CancelledRepoDiscoveryValidation: Equatable, Sendable {
-    let request: RepoDiscoveryValidationRequest
-    let cause: RepoDiscoveryValidationCancellationCause
-    let validationServiceDuration: Duration
+package struct CancelledRepoDiscoveryValidation: Equatable, Sendable {
+    package let request: RepoDiscoveryValidationRequest
+    package let cause: RepoDiscoveryValidationCancellationCause
+    package let validationServiceDuration: Duration
 }
 
-enum RepoDiscoveryValidationCompletion: Equatable, Sendable {
+package enum RepoDiscoveryValidationCompletion: Equatable, Sendable {
     case finished(FinishedRepoDiscoveryValidation)
     case timedOut(TimedOutRepoDiscoveryValidation)
     case cancelled(CancelledRepoDiscoveryValidation)
 }
 
-enum RepoDiscoveryValidationCancellationDisposition: Equatable, Sendable {
+package enum RepoDiscoveryValidationCancellationDisposition: Equatable, Sendable {
     case queued
     case running
 }
 
-enum RepoDiscoveryValidationCancellationResult: Equatable, Sendable {
+package enum RepoDiscoveryValidationCancellationResult: Equatable, Sendable {
     case cancelled(RepoDiscoveryValidationCancellationDisposition)
     case alreadyCompleted
     case unknownRequest
 }
 
-enum RepoDiscoveryValidationShutdownResult: Equatable, Sendable {
+package enum RepoDiscoveryValidationShutdownResult: Equatable, Sendable {
     case started(cancelledLogicalRequestCount: Int, physicalDrainCount: Int)
     case alreadyStarted
 }
 
-enum RepoDiscoveryValidationShutdownState: Equatable, Sendable {
+package enum RepoDiscoveryValidationShutdownState: Equatable, Sendable {
     case drainingPhysicalJobs(count: Int)
     case complete
 }
 
-enum RepoDiscoveryValidationCompletionWaitRejection: Equatable, Sendable {
+package enum RepoDiscoveryValidationCompletionWaitRejection: Equatable, Sendable {
     case anotherWaiterRegistered
 }
 
-enum RepoDiscoveryValidationCompletionWaitResult: Equatable, Sendable {
+package enum RepoDiscoveryValidationCompletionWaitResult: Equatable, Sendable {
     case completed(RepoDiscoveryValidationCompletion)
     case cancelled
     case shutdown(RepoDiscoveryValidationShutdownState)
     case rejected(RepoDiscoveryValidationCompletionWaitRejection)
 }
 
-struct RepoDiscoveryValidationExecutorSnapshot: Equatable, Sendable {
-    let physicalJobCount: Int
-    let drainingPhysicalJobCount: Int
-    let queuedRequestCount: Int
-    let logicalRequestCount: Int
-    let semanticCompletionCount: UInt64
-    let lateNativeReturnCount: UInt64
-    let staleNativeReturnCount: UInt64
+package struct RepoDiscoveryValidationExecutorSnapshot: Equatable, Sendable {
+    package let physicalJobCount: Int
+    package let drainingPhysicalJobCount: Int
+    package let queuedRequestCount: Int
+    package let logicalRequestCount: Int
+    package let semanticCompletionCount: UInt64
+    package let lateNativeReturnCount: UInt64
+    package let staleNativeReturnCount: UInt64
 }
 
-protocol RepoDiscoveryDeadlineScheduler: Sendable {
+package protocol RepoDiscoveryDeadlineScheduler: Sendable {
     func scheduleDeadline(
         after duration: Duration,
         _ handler: @escaping @Sendable () -> Void
     ) -> RepoDiscoveryScheduledDeadline
 }
 
-struct RepoDiscoveryScheduledDeadline: Sendable {
+package struct RepoDiscoveryScheduledDeadline: Sendable {
     private let cancelHandler: @Sendable () -> Void
 
-    init(cancel: @escaping @Sendable () -> Void) { cancelHandler = cancel }
+    package init(cancel: @escaping @Sendable () -> Void) { cancelHandler = cancel }
     func cancel() { cancelHandler() }
 }
 
-struct DispatchRepoDiscoveryDeadlineScheduler: RepoDiscoveryDeadlineScheduler {
+package struct DispatchRepoDiscoveryDeadlineScheduler: RepoDiscoveryDeadlineScheduler {
     private static let queue = DispatchQueue(
         label: "com.agentstudio.repo-discovery-deadline",
         qos: .utility
     )
 
-    func scheduleDeadline(
+    package func scheduleDeadline(
         after duration: Duration,
         _ handler: @escaping @Sendable () -> Void
     ) -> RepoDiscoveryScheduledDeadline {
@@ -209,16 +227,16 @@ struct DispatchRepoDiscoveryDeadlineScheduler: RepoDiscoveryDeadlineScheduler {
 }
 
 private final class SendableRepoDiscoveryDeadlineWorkItem: @unchecked Sendable {
-    let dispatchWorkItem: DispatchWorkItem
+    package let dispatchWorkItem: DispatchWorkItem
 
-    init(handler: @escaping @Sendable () -> Void) {
+    package init(handler: @escaping @Sendable () -> Void) {
         dispatchWorkItem = DispatchWorkItem(block: handler)
     }
 
     func cancel() { dispatchWorkItem.cancel() }
 }
 
-actor RepoScannerValidationExecutor {
+package actor RepoScannerValidationExecutor {
     private struct PhysicalJobID: Hashable, Sendable {
         let rawValue: UUID
         static func make() -> Self { Self(rawValue: UUIDv7.generate()) }
@@ -283,7 +301,7 @@ actor RepoScannerValidationExecutor {
     private var lateNativeReturnCount: UInt64 = 0
     private var staleNativeReturnCount: UInt64 = 0
 
-    init(
+    package init(
         validationClient: any RepoDiscoveryReadClient,
         deadlineScheduler: any RepoDiscoveryDeadlineScheduler = DispatchRepoDiscoveryDeadlineScheduler(),
         budget: RepoDiscoveryValidationBudget = .productionDefault,
@@ -295,7 +313,7 @@ actor RepoScannerValidationExecutor {
         self.now = now
     }
 
-    func submit(_ request: RepoDiscoveryValidationRequest) -> RepoDiscoveryValidationAdmissionResult {
+    package func submit(_ request: RepoDiscoveryValidationRequest) -> RepoDiscoveryValidationAdmissionResult {
         guard acceptingAdmissions else { return .rejected(.shutdown) }
         if logicalRequests[request.requestID] != nil || recentRequestIDs.contains(request.requestID) {
             return .rejected(.duplicateRequest(request.requestID))
@@ -329,13 +347,13 @@ actor RepoScannerValidationExecutor {
         return .accepted(.queued)
     }
 
-    func cancel(
+    package func cancel(
         requestID: RepoDiscoveryValidationRequestID
     ) -> RepoDiscoveryValidationCancellationResult {
         cancelLogicalRequest(requestID: requestID, cause: .explicitRequest)
     }
 
-    func beginShutdown() -> RepoDiscoveryValidationShutdownResult {
+    package func beginShutdown() -> RepoDiscoveryValidationShutdownResult {
         guard acceptingAdmissions else { return .alreadyStarted }
         acceptingAdmissions = false
         let cancellableIDs = logicalRequests.compactMap { requestID, logical -> RepoDiscoveryValidationRequestID? in
@@ -356,7 +374,7 @@ actor RepoScannerValidationExecutor {
         )
     }
 
-    func nextCompletion() async -> RepoDiscoveryValidationCompletionWaitResult {
+    package func nextCompletion() async -> RepoDiscoveryValidationCompletionWaitResult {
         let waiterIdentity = RepoDiscoveryValidationRequestID.make()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
@@ -367,7 +385,7 @@ actor RepoScannerValidationExecutor {
         }
     }
 
-    func waitUntilPhysicalJobCount(_ maximumCount: Int) async {
+    package func waitUntilPhysicalJobCount(_ maximumCount: Int) async {
         guard physicalJobs.count > maximumCount else { return }
         await withCheckedContinuation { continuation in
             physicalDrainWaiters.append((maximumCount, continuation))
@@ -630,8 +648,8 @@ extension RepoDiscoveryValidationCompletion {
     }
 }
 
-enum RepoDiscoveryValidationClock {
-    static func productionNow() -> @Sendable () -> Duration {
+package enum RepoDiscoveryValidationClock {
+    package static func productionNow() -> @Sendable () -> Duration {
         let clock = ContinuousClock()
         let origin = clock.now
         return { origin.duration(to: clock.now) }

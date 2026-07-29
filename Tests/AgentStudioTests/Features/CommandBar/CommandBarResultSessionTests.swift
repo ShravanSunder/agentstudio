@@ -1,14 +1,16 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Observation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite(.serialized)
 struct CommandBarResultSessionTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("result session owns item filtering, grouping, and selection")
@@ -22,7 +24,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: store,
             repoCache: repoCache,
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         let snapshot = session.snapshot(state: state)
@@ -61,7 +63,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         let snapshot = session.snapshot(state: state)
@@ -79,7 +81,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         _ = session.snapshot(state: state)
@@ -99,7 +101,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         _ = session.snapshot(state: state)
@@ -119,7 +121,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         let snapshot = session.snapshot(state: state)
@@ -134,7 +136,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         _ = session.snapshot(state: state)
@@ -159,7 +161,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         let emptySnapshot = session.snapshot(state: state)
@@ -182,7 +184,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         let initialSnapshot = session.snapshot(state: state)
@@ -202,7 +204,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
         let initialSnapshot = session.snapshot(state: state)
         let finalIndex = initialSnapshot.displayedItems.count - 1
@@ -233,7 +235,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         _ = session.snapshot(state: state)
@@ -255,7 +257,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         withObservationTracking {
@@ -279,7 +281,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         _ = session.snapshot(state: state)
@@ -299,7 +301,7 @@ struct CommandBarResultSessionTests {
         let session = CommandBarResultSession(
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         _ = session.snapshot(state: state)

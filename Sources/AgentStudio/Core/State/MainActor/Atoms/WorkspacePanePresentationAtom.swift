@@ -1,13 +1,13 @@
 import Foundation
 import Observation
 
-enum ZoomViewerPresentation: Equatable, Sendable {
+package enum ZoomViewerPresentation: Equatable, Sendable {
     case unavailable
     case retryable
     case retainedHidden(companionPaneId: UUID)
     case retainedVisible(companionPaneId: UUID)
 
-    var companionPaneId: UUID? {
+    package var companionPaneId: UUID? {
         switch self {
         case .unavailable, .retryable:
             nil
@@ -17,40 +17,62 @@ enum ZoomViewerPresentation: Equatable, Sendable {
     }
 }
 
-struct ZoomPresentation: Equatable, Sendable {
-    var sourcePaneId: UUID
-    var viewerPresentation: ZoomViewerPresentation
-    var transientSplitRatio: Double?
+package struct ZoomPresentation: Equatable, Sendable {
+    package var sourcePaneId: UUID
+    package var viewerPresentation: ZoomViewerPresentation
+    package var transientSplitRatio: Double?
+
+    package init(
+        sourcePaneId: UUID,
+        viewerPresentation: ZoomViewerPresentation,
+        transientSplitRatio: Double?
+    ) {
+        self.sourcePaneId = sourcePaneId
+        self.viewerPresentation = viewerPresentation
+        self.transientSplitRatio = transientSplitRatio
+    }
 }
 
-enum ZoomViewerVisibility: Equatable, Sendable {
+package enum ZoomViewerVisibility: Equatable, Sendable {
     case hidden
     case visible
 }
 
-struct ZoomCompanionMetadata: Equatable, Sendable {
-    var owningTabId: UUID
-    let resolvedWorktreeId: UUID
-    let companionPaneId: UUID
-    var lastZoomVisibility: ZoomViewerVisibility
+package struct ZoomCompanionMetadata: Equatable, Sendable {
+    package var owningTabId: UUID
+    package let resolvedWorktreeId: UUID
+    package let companionPaneId: UUID
+    package var lastZoomVisibility: ZoomViewerVisibility
+
+    package init(
+        owningTabId: UUID,
+        resolvedWorktreeId: UUID,
+        companionPaneId: UUID,
+        lastZoomVisibility: ZoomViewerVisibility
+    ) {
+        self.owningTabId = owningTabId
+        self.resolvedWorktreeId = resolvedWorktreeId
+        self.companionPaneId = companionPaneId
+        self.lastZoomVisibility = lastZoomVisibility
+    }
 }
 
 @MainActor
 @Observable
-final class WorkspacePanePresentationAtom {
-    private(set) var zoomPresentationsByTabId: [UUID: ZoomPresentation] = [:]
-    private(set) var zoomCompanionsBySourcePaneId: [UUID: ZoomCompanionMetadata] = [:]
+package final class WorkspacePanePresentationAtom {
+    package private(set) var zoomPresentationsByTabId: [UUID: ZoomPresentation] = [:]
+    package private(set) var zoomCompanionsBySourcePaneId: [UUID: ZoomCompanionMetadata] = [:]
     private var zoomSplitRatiosBySourcePaneId: [UUID: Double] = [:]
 
-    func zoomPresentation(forTab tabId: UUID) -> ZoomPresentation? {
+    package func zoomPresentation(forTab tabId: UUID) -> ZoomPresentation? {
         zoomPresentationsByTabId[tabId]
     }
 
-    func zoomCompanion(forSourcePane sourcePaneId: UUID) -> ZoomCompanionMetadata? {
+    package func zoomCompanion(forSourcePane sourcePaneId: UUID) -> ZoomCompanionMetadata? {
         zoomCompanionsBySourcePaneId[sourcePaneId]
     }
 
-    func enterZoom(
+    package func enterZoom(
         inTab tabId: UUID,
         sourcePaneId: UUID,
         viewerPresentation: ZoomViewerPresentation,
@@ -67,12 +89,12 @@ final class WorkspacePanePresentationAtom {
         )
     }
 
-    func cancelZoom(inTab tabId: UUID) {
+    package func cancelZoom(inTab tabId: UUID) {
         zoomPresentationsByTabId.removeValue(forKey: tabId)
     }
 
     @discardableResult
-    func setZoomSplitRatio(
+    package func setZoomSplitRatio(
         _ splitRatio: Double,
         inTab tabId: UUID
     ) -> Bool {
@@ -90,7 +112,7 @@ final class WorkspacePanePresentationAtom {
     }
 
     @discardableResult
-    func retargetZoom(
+    package func retargetZoom(
         inTab tabId: UUID,
         to sourcePaneId: UUID,
         viewerPresentation: ZoomViewerPresentation
@@ -109,7 +131,7 @@ final class WorkspacePanePresentationAtom {
         return true
     }
 
-    func cacheZoomCompanion(
+    package func cacheZoomCompanion(
         _ metadata: ZoomCompanionMetadata,
         forSourcePane sourcePaneId: UUID
     ) {
@@ -124,7 +146,7 @@ final class WorkspacePanePresentationAtom {
     }
 
     @discardableResult
-    func setZoomViewerVisible(
+    package func setZoomViewerVisible(
         _ isVisible: Bool,
         forSourcePane sourcePaneId: UUID
     ) -> Bool {
@@ -148,7 +170,7 @@ final class WorkspacePanePresentationAtom {
         return true
     }
 
-    func removeZoomSourcePane(_ sourcePaneId: UUID) {
+    package func removeZoomSourcePane(_ sourcePaneId: UUID) {
         zoomCompanionsBySourcePaneId.removeValue(forKey: sourcePaneId)
         zoomSplitRatiosBySourcePaneId.removeValue(forKey: sourcePaneId)
         zoomPresentationsByTabId = zoomPresentationsByTabId.filter {
@@ -156,7 +178,7 @@ final class WorkspacePanePresentationAtom {
         }
     }
 
-    func reassociateZoomCompanion(
+    package func reassociateZoomCompanion(
         _ companion: ZoomCompanionMetadata,
         forSourcePane sourcePaneId: UUID,
         to tabId: UUID
@@ -166,7 +188,7 @@ final class WorkspacePanePresentationAtom {
         zoomCompanionsBySourcePaneId[sourcePaneId] = companion
     }
 
-    func markZoomCompanionLost(
+    package func markZoomCompanionLost(
         forSourcePane sourcePaneId: UUID,
         viewerWorktreeStillResolves: Bool
     ) {
@@ -178,14 +200,14 @@ final class WorkspacePanePresentationAtom {
         }
     }
 
-    func removeZoomTab(_ tabId: UUID) {
+    package func removeZoomTab(_ tabId: UUID) {
         zoomPresentationsByTabId.removeValue(forKey: tabId)
         zoomCompanionsBySourcePaneId = zoomCompanionsBySourcePaneId.filter {
             $0.value.owningTabId != tabId
         }
     }
 
-    func clearAllZoomRuntimeState() {
+    package func clearAllZoomRuntimeState() {
         zoomPresentationsByTabId.removeAll()
         zoomCompanionsBySourcePaneId.removeAll()
         zoomSplitRatiosBySourcePaneId.removeAll()

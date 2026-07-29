@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 @preconcurrency import Dispatch
 import Foundation
 
@@ -6,13 +7,13 @@ enum BridgeGitReadOperationClass: String, CaseIterable, Sendable {
     case selectedVisibleContent
 }
 
-enum BridgeGitReadActivityRank: Int, Comparable, Sendable {
+package enum BridgeGitReadActivityRank: Int, Comparable, Sendable {
     case unranked
     case dormant
     case loadedHidden
     case foreground
 
-    static func < (lhs: Self, rhs: Self) -> Bool {
+    package static func < (lhs: Self, rhs: Self) -> Bool {
         lhs.rawValue < rhs.rawValue
     }
 
@@ -30,16 +31,28 @@ enum BridgeGitReadActivityRank: Int, Comparable, Sendable {
     }
 }
 
-struct BridgeGitReadWorktreeKey: Hashable, Sendable {
-    let token: String
+package struct BridgeGitReadWorktreeKey: Hashable, Sendable {
+    package let token: String
+
+    package init(token: String) {
+        self.token = token
+    }
 }
 
-struct BridgeGitReadScopeKey: Hashable, Sendable {
+package struct BridgeGitReadScopeKey: Hashable, Sendable {
     let token: String
+
+    package init(token: String) {
+        self.token = token
+    }
 }
 
-struct BridgeGitReadPaneKey: Hashable, Sendable {
-    let token: String
+package struct BridgeGitReadPaneKey: Hashable, Sendable {
+    package let token: String
+
+    package init(token: String) {
+        self.token = token
+    }
 }
 
 struct BridgeGitReadCoalescingKey: Hashable, Sendable {
@@ -56,7 +69,7 @@ struct BridgeGitReadSlotID: Hashable, Sendable {
     let token: String
 }
 
-struct BridgeGitReadSchedulerTopology: Sendable {
+package struct BridgeGitReadSchedulerTopology: Sendable {
     let slotsByOperationClass: [BridgeGitReadOperationClass: [BridgeGitReadSlotID]]
     let maximumQueuedOperationCountByClass: [BridgeGitReadOperationClass: Int]
     let maximumLogicalWaiterCountPerOperation: Int
@@ -82,7 +95,7 @@ struct BridgeGitReadSchedulerTopology: Sendable {
 extension BridgeGitReadSchedulerTopology {
     /// Symbolic recovery topology. S10b owns numeric calibration and may replace
     /// these named peer opportunities only from measured blocked-read workloads.
-    static let recoveryBaseline = Self(
+    package static let recoveryBaseline = Self(
         slotsByOperationClass: [
             .reviewMetadata: [
                 BridgeGitReadSlotID(token: "review-metadata-interactive"),
@@ -101,12 +114,12 @@ extension BridgeGitReadSchedulerTopology {
     )
 }
 
-struct BridgeGitReadContext: Sendable {
-    let scheduler: BridgeGitReadScheduler
-    let worktreeKey: BridgeGitReadWorktreeKey
+package struct BridgeGitReadContext: Sendable {
+    package let scheduler: BridgeGitReadScheduler
+    package let worktreeKey: BridgeGitReadWorktreeKey
     let scopeKey: BridgeGitReadScopeKey
 
-    init(
+    package init(
         scheduler: BridgeGitReadScheduler,
         worktreeKey: BridgeGitReadWorktreeKey,
         scopeKey: BridgeGitReadScopeKey
@@ -116,7 +129,7 @@ struct BridgeGitReadContext: Sendable {
         self.scopeKey = scopeKey
     }
 
-    init(
+    package init(
         scheduler: BridgeGitReadScheduler,
         worktreeKey: BridgeGitReadWorktreeKey
     ) {
@@ -148,14 +161,14 @@ enum BridgeGitReadFailure {
     static let capacityMessage = "Bridge Git data-plane read capacity reached"
 }
 
-protocol BridgeGitReadDeadlineScheduling: Sendable {
+package protocol BridgeGitReadDeadlineScheduling: Sendable {
     func schedule(
         after duration: Duration,
         _ handler: @escaping @Sendable () -> Void
     ) -> BridgeGitReadScheduledDeadline
 }
 
-struct BridgeGitReadScheduledDeadline: Sendable {
+package struct BridgeGitReadScheduledDeadline: Sendable {
     private let box: BridgeGitReadScheduledDeadlineBox
 
     init(cancel: @escaping @Sendable () -> Void) {
@@ -236,7 +249,7 @@ enum BridgeGitReadSchedulerEventKind: String, Sendable {
     case slotReleased
 }
 
-struct BridgeGitReadSchedulerEvent: Sendable {
+package struct BridgeGitReadSchedulerEvent: Sendable {
     let kind: BridgeGitReadSchedulerEventKind
     let operationId: UInt64
     let slotId: BridgeGitReadSlotID?
@@ -247,7 +260,7 @@ struct BridgeGitReadSchedulerEvent: Sendable {
     let snapshot: BridgeGitReadSchedulerSnapshot
 }
 
-typealias BridgeGitReadSchedulerEventSink = @Sendable (BridgeGitReadSchedulerEvent) -> Void
+package typealias BridgeGitReadSchedulerEventSink = @Sendable (BridgeGitReadSchedulerEvent) -> Void
 
 struct BridgeGitReadSchedulerSnapshot: Sendable {
     let lifecycle: BridgeGitReadSchedulerLifecycle

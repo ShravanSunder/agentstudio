@@ -1,8 +1,15 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 
 enum GhosttyStartupEnvironment {
-    private static let appliedResourcesDir: String? = {
-        guard let resourcesDir = SessionConfiguration.resolveGhosttyResourcesDir() else {
+    @discardableResult
+    static func apply(resourceRootURL: URL) -> String? {
+        guard
+            let resourcesDir = SessionConfiguration.resolveGhosttyResourcesDir(
+                resourceRootURL: resourceRootURL
+            )
+        else {
             RestoreTrace.log("GHOSTTY_RESOURCES_DIR unresolved")
             return nil
         }
@@ -21,10 +28,5 @@ enum GhosttyStartupEnvironment {
         RestoreTrace.log("GHOSTTY_RESOURCES_DIR=\(resourcesDir)")
         RestoreTrace.log("TERMINFO=\(terminfoDir)")
         return resourcesDir
-    }()
-
-    @discardableResult
-    static func apply() -> String? {
-        appliedResourcesDir
     }
 }

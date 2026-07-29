@@ -1,6 +1,6 @@
 import Foundation
 
-struct BridgeWorktreeFreshnessEpoch: Hashable, Sendable {
+package struct BridgeWorktreeFreshnessEpoch: Hashable, Sendable {
     let rawValue: UInt64
 }
 
@@ -157,7 +157,7 @@ enum BridgeWorktreeProductConstructionEventKind: String, Sendable {
     case entryRemoved
 }
 
-struct BridgeWorktreeProductConstructionEvent: Sendable {
+package struct BridgeWorktreeProductConstructionEvent: Sendable {
     let kind: BridgeWorktreeProductConstructionEventKind
     let productKind: BridgeWorktreeProductKind
     let epoch: BridgeWorktreeFreshnessEpoch
@@ -167,7 +167,7 @@ struct BridgeWorktreeProductConstructionEvent: Sendable {
     let snapshot: BridgeWorktreeProductConstructionSnapshot
 }
 
-typealias BridgeWorktreeProductConstructionEventSink =
+package typealias BridgeWorktreeProductConstructionEventSink =
     @Sendable (
         BridgeWorktreeProductConstructionEvent
     ) -> Void

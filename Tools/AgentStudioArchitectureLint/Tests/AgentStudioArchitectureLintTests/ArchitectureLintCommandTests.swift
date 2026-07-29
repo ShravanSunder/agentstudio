@@ -21,6 +21,9 @@ struct ArchitectureLintCommandTests {
 
         #expect(result.exitCode == 1)
         #expect(result.output.contains("error: [agentstudio_import_direction]"))
+        #expect(result.output.contains("error: [agentstudio_retired_worktrunk_cli]"))
+        #expect(result.output.contains("error: [agentstudio_product_atom_boundary]"))
+        #expect(result.output.contains("error: [agentstudio_canonical_atom_mutation]"))
         #expect(result.output.contains("warning: [agentstudio_state_actor_path]"))
         #expect(result.output.contains("error: [agentstudio_no_forbidden_architecture_marker]"))
         #expect(result.output.contains("error: [agentstudio_no_generic_clock_sleep]"))
@@ -40,6 +43,21 @@ struct ArchitectureLintCommandTests {
         #expect(result.exitCode == 1)
         #expect(result.output.contains("error: [agentstudio_shared_components_are_stateless]"))
         #expect(result.output.contains("Core-owned presentation types"))
+    }
+
+    @Test("relative single-file paths receive the same architecture classification")
+    func relativeSingleFilePathsReceiveArchitectureClassification() throws {
+        let badFixtureRoot = fixturePath("Bad")
+        let relativeFixture =
+            "Sources/AgentStudio/SharedComponents/BadRealizedModuleImport.swift"
+
+        let result = runCommand(
+            arguments: [relativeFixture],
+            workspaceRootPath: badFixtureRoot
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.output.contains("error: [agentstudio_import_direction]"))
     }
 
     @Test("print rules exposes stable id and severity inventory")

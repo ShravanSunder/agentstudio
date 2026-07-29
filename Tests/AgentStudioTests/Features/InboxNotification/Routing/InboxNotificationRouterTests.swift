@@ -1,7 +1,10 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 private struct TraceRecordFixture: Decodable {
     let body: String
@@ -64,6 +67,8 @@ struct InboxNotificationRouterTests {
             tabLayout: tabLayout,
             attendedPane: attendedPane,
             focusTracker: tracker,
+            terminalIsPinnedToBottom: { _ in false },
+            terminalPinnedStateSnapshot: { [:] },
             traceRuntime: traceRuntime,
             drawerView: { parentPaneId in
                 guard let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId else { return nil }
@@ -138,10 +143,9 @@ struct InboxNotificationRouterTests {
         )
         let tab = Tab(
             name: "Tab",
-            panes: [pane.id],
+            allPaneIds: [pane.id],
             arrangements: [arrangement],
-            activeArrangementId: arrangement.id,
-            activePaneId: pane.id
+            activeArrangementId: arrangement.id
         )
         fixture.tabLayout.appendTab(tab)
         return tab.id

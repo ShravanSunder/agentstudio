@@ -1,18 +1,21 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
 // MARK: - CommandBarResultsList
 
 /// Grouped scrollable list with results. Shows group headers per section.
-struct CommandBarResultsList: View {
+package struct CommandBarResultsList: View {
     let groups: [CommandBarItemGroup]
+    let octiconLoader: OcticonLoader
     let selectedIndex: Int
     let searchQuery: String
     let dimmedItemIds: Set<String>
     let onSelect: (CommandBarItem) -> Void
     let onShowActions: @MainActor @Sendable (CommandBarItem) -> Void
 
-    init(
+    package init(
         groups: [CommandBarItemGroup],
+        octiconLoader: OcticonLoader,
         selectedIndex: Int,
         searchQuery: String = "",
         dimmedItemIds: Set<String> = [],
@@ -20,6 +23,7 @@ struct CommandBarResultsList: View {
         onShowActions: @escaping @MainActor @Sendable (CommandBarItem) -> Void = { _ in }
     ) {
         self.groups = groups
+        self.octiconLoader = octiconLoader
         self.selectedIndex = selectedIndex
         self.searchQuery = searchQuery
         self.dimmedItemIds = dimmedItemIds
@@ -27,7 +31,7 @@ struct CommandBarResultsList: View {
         self.onShowActions = onShowActions
     }
 
-    var body: some View {
+    package var body: some View {
         if groups.isEmpty || groups.allSatisfy({ $0.items.isEmpty }) {
             emptyState
         } else {
@@ -42,6 +46,7 @@ struct CommandBarResultsList: View {
                             case .item(let item, let flatIndex):
                                 CommandBarResultRow(
                                     item: item,
+                                    octiconLoader: octiconLoader,
                                     isSelected: flatIndex == selectedIndex,
                                     searchQuery: searchQuery,
                                     isDimmed: dimmedItemIds.contains(item.id),

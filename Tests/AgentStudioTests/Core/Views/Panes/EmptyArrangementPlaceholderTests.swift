@@ -1,6 +1,6 @@
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite("Empty arrangement placeholder")

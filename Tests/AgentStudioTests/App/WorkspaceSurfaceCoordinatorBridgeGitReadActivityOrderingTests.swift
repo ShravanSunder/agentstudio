@@ -2,13 +2,16 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 extension WebKitSerializedTests {
     @MainActor
     @Suite(.serialized)
     struct WorkspaceBridgeGitReadActivityOrderingTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("Bridge Git read activity follows canonical pane update and removal order")
@@ -144,6 +147,7 @@ private struct ActivityOrderingTestSetup {
         let controller = BridgePaneController(
             paneId: pane.id,
             state: state,
+            appRootURL: testBridgeAppRootURL(),
             metadata: pane.metadata,
             initialPaneActivity: .dormant
         )
@@ -210,7 +214,8 @@ private func makeActivityOrderingTestSetup() throws -> ActivityOrderingTestSetup
         paneEventBus: makeTestPaneRuntimeEventBus(),
         bridgeGitReadScheduler: scheduler,
         windowLifecycleStore: windowLifecycleStore,
-        appLifecycleStore: appLifecycleStore
+        appLifecycleStore: appLifecycleStore,
+        bridgePaneAttendance: BridgePaneAttendanceAtom()
     )
     activateActivityOrderingWindow(
         coordinator: coordinator,

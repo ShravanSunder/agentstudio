@@ -1,21 +1,18 @@
 import Foundation
 
-struct BridgeAppAsset: Sendable {
-    let data: Data
-    let mimeType: String
+package struct BridgeAppAsset: Sendable {
+    package let data: Data
+    package let mimeType: String
 }
 
-actor BridgeAppAssetStore {
+package actor BridgeAppAssetStore {
     private let appRootURL: URL
 
-    init(
-        appRootURL: URL = (Bundle.appResources.resourceURL ?? Bundle.appResources.bundleURL)
-            .appendingPathComponent("BridgeWeb/app")
-    ) {
+    package init(appRootURL: URL) {
         self.appRootURL = appRootURL.resolvingSymlinksInPath().standardizedFileURL
     }
 
-    func load(relativePath: String) throws -> BridgeAppAsset {
+    package func load(relativePath: String) throws -> BridgeAppAsset {
         // Resolve symlinks before the prefix check. This ordering is the
         // confinement guard for packaged app assets and must stay before I/O.
         let assetURL = appRootURL.appendingPathComponent(relativePath).resolvingSymlinksInPath().standardizedFileURL

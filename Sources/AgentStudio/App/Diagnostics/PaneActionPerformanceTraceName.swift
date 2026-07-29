@@ -1,3 +1,5 @@
+import AgentStudioCore
+
 extension WorkspaceActionCommand {
     var performanceTraceName: String {
         switch self {

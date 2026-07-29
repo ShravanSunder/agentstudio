@@ -2,12 +2,16 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCommandBar
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("Command spec contracts")
 struct CommandSpecContractTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("every shortcut maps to a command definition that declares that shortcut")
@@ -58,7 +62,7 @@ struct CommandSpecContractTests {
             scope: .commands,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared,
+            dispatcher: AppCommandDispatcher.shared,
             focus: focus
         )
         let itemsByCommand = Dictionary(

@@ -3,12 +3,17 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("surface cwd changed updates pane worktree identity")
@@ -110,6 +115,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom(),
             performanceTraceRecorder: performanceTraceRecorder
         )
         let coordinatorCwd = repo.repoPath.appending(path: "CoordinatorLookup")

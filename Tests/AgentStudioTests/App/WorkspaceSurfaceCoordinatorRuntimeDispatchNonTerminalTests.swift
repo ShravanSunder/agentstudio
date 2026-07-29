@@ -3,6 +3,10 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
@@ -20,7 +24,8 @@ struct WorkspaceRuntimeDispatchNonTerminalTests {
             runtime: SessionRuntime(store: store),
             surfaceManager: NonTerminalSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
 
         let webviewPane = store.createPane(

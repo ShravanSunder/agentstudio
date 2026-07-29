@@ -2,6 +2,9 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 private struct WorkspaceActionExecutorHarness {
     let store: WorkspaceStore
@@ -23,7 +26,8 @@ private func makeWorkspaceActionExecutorHarness() -> WorkspaceActionExecutorHarn
         store: store,
         viewRegistry: viewRegistry,
         runtime: runtime,
-        windowLifecycleStore: WindowLifecycleAtom()
+        windowLifecycleStore: WindowLifecycleAtom(),
+        bridgePaneAttendance: BridgePaneAttendanceAtom()
     )
     let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     return WorkspaceActionExecutorHarness(
@@ -77,7 +81,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct WorkspaceActionExecutorWebKitTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("openWebview creates a generic GitHub tab without workspace association")
@@ -576,7 +580,7 @@ extension WebKitSerializedTests {
 @Suite
 struct WorkspaceActionExecutorTestsQuick {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("openBridgeReviewInNewTab without a worktree context does not create a blank Bridge tab")

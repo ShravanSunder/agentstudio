@@ -1,17 +1,23 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite("Command Bar recency projection", .serialized)
 struct CommandBarRecencyProjectionTests {
+    init() {
+        installTestCoreAtomsIfNeeded()
+    }
+
     @Test("empty roots project typed recency while meaningful roots retain each canonical row once")
     func emptyAndMeaningfulRootsHaveExactProjectionBoundaries() throws {
-        try withTestAtomRegistry { atoms in
+        try withTestCoreAtoms { coreAtoms in
             let store = WorkspaceStore(
-                identityAtom: atoms.workspaceIdentity,
-                repositoryTopologyAtom: atoms.workspaceRepositoryTopology
+                identityAtom: coreAtoms.workspaceIdentity,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology
             )
             let recentRepo = store.addRepo(at: URL(filePath: "/tmp/recency-projection-recent"))
             let remainingRepo = store.addRepo(at: URL(filePath: "/tmp/recency-projection-remaining"))
@@ -26,12 +32,12 @@ struct CommandBarRecencyProjectionTests {
             store.setActiveTab(currentTab.id)
             store.setActivePane(currentPane.id, inTab: currentTab.id)
 
-            try atoms.applicationEntityRecency.recordOpened(
+            try coreAtoms.applicationEntityRecency.recordOpened(
                 repositoryStableKey: recentRepo.stableKey,
                 worktreeStableKey: recentWorktree.stableKey,
                 at: Date(timeIntervalSince1970: 200)
             )
-            atoms.workspaceEntityRecency.hydrate(
+            coreAtoms.workspaceEntityRecency.hydrate(
                 workspaceID: store.identityAtom.workspaceId,
                 recentEntities: [
                     try WorkspaceEntityRecency(
@@ -112,10 +118,10 @@ struct CommandBarRecencyProjectionTests {
 
     @Test("empty recent groups are omitted from every root")
     func emptyRecentGroupsAreOmitted() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { coreAtoms in
             let store = WorkspaceStore(
-                identityAtom: atoms.workspaceIdentity,
-                repositoryTopologyAtom: atoms.workspaceRepositoryTopology
+                identityAtom: coreAtoms.workspaceIdentity,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology
             )
             _ = store.addRepo(at: URL(filePath: "/tmp/recency-no-history"))
 
@@ -133,10 +139,10 @@ struct CommandBarRecencyProjectionTests {
 
     @Test("empty command root displays exactly three recent commands")
     func recentCommandsHaveVisibleCapOfThree() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { coreAtoms in
             let store = WorkspaceStore(
-                identityAtom: atoms.workspaceIdentity,
-                repositoryTopologyAtom: atoms.workspaceRepositoryTopology
+                identityAtom: coreAtoms.workspaceIdentity,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology
             )
             let commandHistory =
                 items(
@@ -164,10 +170,10 @@ struct CommandBarRecencyProjectionTests {
 
     @Test("recent pane eligibility excludes the attended pane before applying the cap")
     func recentPaneEligibilityPrecedesVisibleCap() throws {
-        try withTestAtomRegistry { atoms in
+        try withTestCoreAtoms { coreAtoms in
             let store = WorkspaceStore(
-                identityAtom: atoms.workspaceIdentity,
-                repositoryTopologyAtom: atoms.workspaceRepositoryTopology
+                identityAtom: coreAtoms.workspaceIdentity,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology
             )
             var panes: [Pane] = []
             for index in 0..<7 {
@@ -184,7 +190,7 @@ struct CommandBarRecencyProjectionTests {
             store.setActiveTab(attendedTab.id)
             store.setActivePane(panes[0].id, inTab: attendedTab.id)
             let workspaceID = store.identityAtom.workspaceId
-            atoms.workspaceEntityRecency.hydrate(
+            coreAtoms.workspaceEntityRecency.hydrate(
                 workspaceID: workspaceID,
                 recentEntities: try panes.enumerated().map { index, pane in
                     try WorkspaceEntityRecency(
@@ -218,10 +224,10 @@ struct CommandBarRecencyProjectionTests {
 
     @Test("recent repository rows enter menus and repositories without a live worktree omit")
     func recentRepositoryProjectionProducesMenuRows() throws {
-        try withTestAtomRegistry { atoms in
+        try withTestCoreAtoms { coreAtoms in
             let store = WorkspaceStore(
-                identityAtom: atoms.workspaceIdentity,
-                repositoryTopologyAtom: atoms.workspaceRepositoryTopology
+                identityAtom: coreAtoms.workspaceIdentity,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology
             )
             let launchableRepo = store.addRepo(at: URL(filePath: "/tmp/recency-direct-repo"))
             let launchableWorktree = try #require(
@@ -230,7 +236,7 @@ struct CommandBarRecencyProjectionTests {
             let staleRepo = store.addRepo(at: URL(filePath: "/tmp/recency-no-worktree"))
             store.reconcileDiscoveredWorktrees(staleRepo.id, worktrees: [])
 
-            atoms.applicationEntityRecency.hydrate([
+            coreAtoms.applicationEntityRecency.hydrate([
                 try ApplicationEntityRecency(
                     entity: .repository(repositoryStableKey: staleRepo.stableKey),
                     interaction: .opened,
@@ -242,7 +248,7 @@ struct CommandBarRecencyProjectionTests {
                     lastInteractedAt: Date(timeIntervalSince1970: 200)
                 ),
             ])
-            atoms.applicationEntityRecency.record(
+            coreAtoms.applicationEntityRecency.record(
                 try ApplicationEntityRecency(
                     entity: .worktree(worktreeStableKey: launchableWorktree.stableKey),
                     interaction: .opened,
@@ -280,14 +286,14 @@ struct CommandBarRecencyProjectionTests {
 
     @Test("unavailable repositories and their worktrees do not project as recents")
     func unavailableTopologyDoesNotProjectAsRecent() throws {
-        try withTestAtomRegistry { atoms in
+        try withTestCoreAtoms { coreAtoms in
             let store = WorkspaceStore(
-                identityAtom: atoms.workspaceIdentity,
-                repositoryTopologyAtom: atoms.workspaceRepositoryTopology
+                identityAtom: coreAtoms.workspaceIdentity,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology
             )
             let repository = store.addRepo(at: URL(filePath: "/tmp/recency-unavailable-repository"))
             let worktree = try #require(repository.worktrees.first)
-            try atoms.applicationEntityRecency.recordOpened(
+            try coreAtoms.applicationEntityRecency.recordOpened(
                 repositoryStableKey: repository.stableKey,
                 worktreeStableKey: worktree.stableKey,
                 at: Date(timeIntervalSince1970: 400)
@@ -325,7 +331,7 @@ struct CommandBarRecencyProjectionTests {
             recentCommands: recentCommands,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared
+            dispatcher: FakeAppCommandDispatcher()
         )
     }
 

@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import os.log
@@ -5,7 +6,7 @@ import os.log
 private let sidebarCacheStoreLogger = Logger(subsystem: "com.agentstudio", category: "SidebarCacheStore")
 
 @MainActor
-final class SidebarCacheStore {
+package final class SidebarCacheStore {
     private let atom: SidebarCacheState
     private let sqliteDatastore: WorkspaceSQLiteDatastore
     private let persistDebounceDuration: Duration
@@ -15,11 +16,11 @@ final class SidebarCacheStore {
     private var isObservingCacheState = false
     private var isRestoringState = false
     private var activeWorkspaceId: UUID?
-    var isAutosaveObservationActive: Bool {
+    package var isAutosaveObservationActive: Bool {
         isObservingCacheState
     }
 
-    init(
+    package init(
         atom: SidebarCacheState,
         sqliteDatastore: WorkspaceSQLiteDatastore,
         persistDebounceDuration: Duration = .milliseconds(500),
@@ -37,11 +38,11 @@ final class SidebarCacheStore {
     ///
     /// The owner arms observation after restore-time mutations are complete; see
     /// `RepoCacheStore.startObserving` for the boot-order rationale.
-    func startObserving() {
+    package func startObserving() {
         observeCacheState()
     }
 
-    func restoreAsync(for workspaceId: UUID) async {
+    package func restoreAsync(for workspaceId: UUID) async {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
@@ -64,7 +65,7 @@ final class SidebarCacheStore {
         }
     }
 
-    func flushAsync(for workspaceId: UUID) async throws {
+    package func flushAsync(for workspaceId: UUID) async throws {
         activeWorkspaceId = workspaceId
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil

@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// Discriminant union encoding a pane's container context.
@@ -12,16 +13,31 @@ enum PaneKind: Codable, Hashable, Sendable {
 /// The primary entity in the window system. Replaces TerminalSession as the universal identity.
 /// `id` (paneId) is the single identity used across all layers: WorkspaceStore, Layout,
 /// ViewRegistry, SurfaceManager, SessionRuntime, and zmx.
-struct Pane: Codable, Identifiable, Hashable, Sendable {
-    let id: UUID
+package struct Pane: Codable, Identifiable, Hashable, Sendable {
+    package let id: UUID
     /// The content displayed in this pane.
-    var content: PaneContent
+    package var content: PaneContent
     /// Metadata for context tracking and dynamic grouping.
-    var metadata: PaneMetadata
+    package var metadata: PaneMetadata
     /// Lifecycle residency state (active, pendingUndo, backgrounded).
-    var residency: SessionResidency
+    package var residency: SessionResidency
     /// Discriminant — encodes whether this is a layout pane or drawer child.
     var kind: PaneKind
+
+    package init(
+        id: UUID = UUIDv7.generate(),
+        content: PaneContent,
+        metadata: PaneMetadata,
+        residency: SessionResidency = .active
+    ) {
+        self.init(
+            id: id,
+            content: content,
+            metadata: metadata,
+            residency: residency,
+            kind: nil
+        )
+    }
 
     init(
         id: UUID = UUIDv7.generate(),
@@ -46,7 +62,7 @@ struct Pane: Codable, Identifiable, Hashable, Sendable {
     // MARK: - Codable
 
     /// Decode the current `kind: PaneKind` schema while preserving durable identities.
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let decodedId = try container.decode(UUID.self, forKey: .id)
         self.id = decodedId
@@ -73,7 +89,7 @@ struct Pane: Codable, Identifiable, Hashable, Sendable {
     }
 
     /// Encodes using the canonical schema.
-    func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(content, forKey: .content)
@@ -89,7 +105,7 @@ struct Pane: Codable, Identifiable, Hashable, Sendable {
     // MARK: - Convenience Accessors
 
     /// The terminal state, if this pane holds terminal content.
-    var terminalState: TerminalState? {
+    package var terminalState: TerminalState? {
         if case .terminal(let state) = content { return state }
         return nil
     }
@@ -101,24 +117,24 @@ struct Pane: Codable, Identifiable, Hashable, Sendable {
     }
 
     /// Title from metadata.
-    var title: String {
+    package var title: String {
         get { metadata.title }
         set { metadata.updateTitle(newValue) }
     }
 
     /// Provider from terminal state, if terminal content.
-    var provider: SessionProvider? { terminalState?.provider }
+    package var provider: SessionProvider? { terminalState?.provider }
 
     /// Lifetime from terminal state, if terminal content.
     var lifetime: SessionLifetime? { terminalState?.lifetime }
 
-    var worktreeId: UUID? { metadata.facets.worktreeId }
-    var repoId: UUID? { metadata.facets.repoId }
+    package var worktreeId: UUID? { metadata.facets.worktreeId }
+    package var repoId: UUID? { metadata.facets.repoId }
 
     // MARK: - PaneKind Convenience
 
     /// The drawer, if this is a layout pane.
-    var drawer: Drawer? {
+    package var drawer: Drawer? {
         if case .layout(let drawer) = kind { return drawer }
         return nil
     }
@@ -131,13 +147,13 @@ struct Pane: Codable, Identifiable, Hashable, Sendable {
     }
 
     /// Whether this pane is a drawer child.
-    var isDrawerChild: Bool {
+    package var isDrawerChild: Bool {
         if case .drawerChild = kind { return true }
         return false
     }
 
     /// The parent pane ID, if this is a drawer child.
-    var parentPaneId: UUID? {
+    package var parentPaneId: UUID? {
         if case .drawerChild(let parentId) = kind { return parentId }
         return nil
     }

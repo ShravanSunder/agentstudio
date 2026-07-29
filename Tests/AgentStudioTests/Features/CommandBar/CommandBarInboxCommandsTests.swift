@@ -1,12 +1,14 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite("CommandBar inbox commands")
 struct CommandBarInboxCommandsTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("inbox scope is empty when commands are unavailable")
@@ -15,7 +17,7 @@ struct CommandBarInboxCommandsTests {
             scope: .inbox,
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared,
+            dispatcher: FakeAppCommandDispatcher(),
             notificationInboxCommands: nil
         )
 
@@ -52,7 +54,7 @@ struct CommandBarInboxCommandsTests {
             scope: .inbox,
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared,
+            dispatcher: FakeAppCommandDispatcher(),
             notificationInboxCommands: commands
         )
 

@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
 
 func makeTestPaneRuntimeEventBus() -> EventBus<RuntimeEnvelope> {
     EventBus(
@@ -22,7 +24,8 @@ func makeTestWorkspaceSurfaceCoordinator(
     surfaceManager: WorkspaceSurfaceManaging,
     runtimeRegistry: RuntimeRegistry,
     paneEventBus: EventBus<RuntimeEnvelope> = makeTestPaneRuntimeEventBus(),
-    windowLifecycleStore: WindowLifecycleAtom = WindowLifecycleAtom()
+    windowLifecycleStore: WindowLifecycleAtom = WindowLifecycleAtom(),
+    bridgePaneAttendance: BridgePaneAttendanceAtom = BridgePaneAttendanceAtom()
 ) -> WorkspaceSurfaceCoordinator {
     WorkspaceSurfaceCoordinator(
         store: store,
@@ -31,7 +34,8 @@ func makeTestWorkspaceSurfaceCoordinator(
         surfaceManager: surfaceManager,
         runtimeRegistry: runtimeRegistry,
         paneEventBus: paneEventBus,
-        windowLifecycleStore: windowLifecycleStore
+        windowLifecycleStore: windowLifecycleStore,
+        bridgePaneAttendance: bridgePaneAttendance
     )
 }
 

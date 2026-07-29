@@ -1,4 +1,5 @@
 import AgentStudioAppIPC
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -27,7 +28,7 @@ extension AppDelegate {
                     accessMode: accessMode,
                     methodDefinitions: ipcComposition.baseDefinitions,
                     debugTokenEscrowEnabled: Self.appIPCDebugTokenEscrowEnabled(),
-                    debugTokenEscrowPermissionScopes: Self.appIPCDebugTokenEscrowPermissionScopes(
+                    debugTokenEscrowPermissionScopes: Self.debugAutomationIPCPermissionScopes(
                         workspaceId: store.identityAtom.workspaceId
                     )
                 ),
@@ -69,7 +70,7 @@ extension AppDelegate {
                     sidebarPort: AgentStudioIPCSidebarAdapter(
                         repoPrefs: atomStore.repoExplorerSidebarPrefs,
                         inboxPrefs: atomStore.inboxNotificationPrefs,
-                        sidebarState: atomStore.workspaceSidebarState
+                        sidebarState: atomStore.core.workspaceSidebarState
                     ),
                     permissionApprovalPort: AgentStudioIPCHumanApprovalPort()
                 ),
@@ -127,8 +128,13 @@ extension AppDelegate {
         #endif
     }
 
-    static func appIPCDebugTokenEscrowPermissionScopes(workspaceId: UUID) -> [IPCPermissionScope] {
+    static func debugAutomationIPCPermissionScopes(workspaceId: UUID) -> [IPCPermissionScope] {
         [
+            IPCPermissionScope(
+                privilege: .workspaceRead,
+                target: .app,
+                dataScope: .unspecified
+            ),
             IPCPermissionScope(
                 privilege: .appCommandExecute,
                 target: .app,

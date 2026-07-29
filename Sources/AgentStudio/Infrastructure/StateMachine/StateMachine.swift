@@ -7,7 +7,7 @@ private let machineLogger = Logger(subsystem: "com.agentstudio", category: "Stat
 
 /// Protocol for state types that can be used with the generic state machine.
 /// Each conforming type defines its own Event and Effect types.
-protocol MachineState: Equatable, Sendable {
+package protocol MachineState: Equatable, Sendable {
     associatedtype Event: Sendable
     associatedtype Effect: Sendable
 
@@ -18,11 +18,11 @@ protocol MachineState: Equatable, Sendable {
 // MARK: - Transition
 
 /// Result of a state transition: the new state and any side effects to execute.
-struct Transition<State: Equatable, Effect> {
-    let state: State
-    let effects: [Effect]
+package struct Transition<State: Equatable, Effect> {
+    package let state: State
+    package let effects: [Effect]
 
-    init(_ state: State, effects: [Effect] = []) {
+    package init(_ state: State, effects: [Effect] = []) {
         self.state = state
         self.effects = effects
     }

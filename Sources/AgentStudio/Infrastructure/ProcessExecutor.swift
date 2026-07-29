@@ -9,7 +9,7 @@ private let processLogger = Logger(subsystem: "com.agentstudio", category: "Proc
 
 /// Testable wrapper for CLI execution. In production, runs Process.
 /// In tests, returns canned responses.
-protocol ProcessExecutor: Sendable {
+package protocol ProcessExecutor: Sendable {
     func execute(
         command: String,
         args: [String],
@@ -19,12 +19,18 @@ protocol ProcessExecutor: Sendable {
 }
 
 /// Result of a CLI command execution.
-struct ProcessResult: Sendable {
-    let exitCode: Int
-    let stdout: String
-    let stderr: String
+package struct ProcessResult: Sendable {
+    package let exitCode: Int
+    package let stdout: String
+    package let stderr: String
 
-    var succeeded: Bool { exitCode == 0 }
+    package var succeeded: Bool { exitCode == 0 }
+
+    package init(exitCode: Int, stdout: String, stderr: String) {
+        self.exitCode = exitCode
+        self.stdout = stdout
+        self.stderr = stderr
+    }
 }
 
 // MARK: - ProcessError
@@ -47,11 +53,11 @@ enum ProcessError: Error, LocalizedError {
 /// The implementation keeps process lifecycle out of `AsyncStream` and task-group races.
 /// Dispatch sources/handlers drive pipe reads, process exit, timeout, and cancellation;
 /// one checked continuation is resumed exactly once.
-struct DefaultProcessExecutor: ProcessExecutor {
+package struct DefaultProcessExecutor: ProcessExecutor {
     /// Default timeout for process execution.
-    let timeout: TimeInterval
+    package let timeout: TimeInterval
 
-    init(timeout: TimeInterval = 15) {
+    package init(timeout: TimeInterval = 15) {
         self.timeout = timeout
     }
 
@@ -74,7 +80,7 @@ struct DefaultProcessExecutor: ProcessExecutor {
         return env
     }
 
-    func execute(
+    package func execute(
         command: String,
         args: [String],
         cwd: URL?,

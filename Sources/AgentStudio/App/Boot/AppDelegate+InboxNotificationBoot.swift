@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInboxNotification
+import AgentStudioTerminal
 import Foundation
 import Observation
 
@@ -28,18 +31,28 @@ extension AppDelegate {
 
     func bootStartInboxNotificationRouter(bus: EventBus<RuntimeEnvelope>) {
         inboxPaneFocusTracker = PaneFocusTracker(
-            attendedPane: atomStore.attendedPane,
+            attendedPane: atomStore.core.attendedPane,
             traceRuntime: traceRuntime
         )
+        let terminalActivity = atomStore.terminalActivity
         inboxNotificationRouter = InboxNotificationRouter(
             bus: bus,
             inboxAtom: atomStore.inboxNotification,
             prefsAtom: atomStore.inboxNotificationPrefs,
             paneAtom: store.paneAtom,
             tabLayout: store.tabLayoutAtom,
-            attendedPane: atomStore.attendedPane,
+            attendedPane: atomStore.core.attendedPane,
             focusTracker: inboxPaneFocusTracker,
-            terminalActivity: atomStore.terminalActivity,
+            terminalIsPinnedToBottom: { paneId in
+                terminalActivity.snapshot(for: paneId)?.isPinnedToBottom == true
+            },
+            terminalPinnedStateSnapshot: {
+                Dictionary(
+                    uniqueKeysWithValues: terminalActivity.snapshotsByPaneId.map { paneId, snapshot in
+                        (paneId, snapshot.isPinnedToBottom)
+                    }
+                )
+            },
             traceRuntime: traceRuntime,
             onPaneActivityObserved: { [weak self] paneId in
                 self?.terminalActivityRouter.markUnseenActivityObserved(paneId: paneId)
@@ -54,7 +67,7 @@ extension AppDelegate {
         terminalActivityRouter = TerminalActivityRouter(
             bus: bus,
             activityAtom: atomStore.terminalActivity,
-            attendedPane: atomStore.attendedPane,
+            attendedPane: atomStore.core.attendedPane,
             traceRuntime: traceRuntime,
             startupTraceRecorder: startupTraceRecorder,
             isPaneCurrentlyAttended: { [weak self] paneId in
@@ -116,7 +129,7 @@ extension AppDelegate {
     private func isPaneCurrentlyAttendedForNotifications(_ paneId: UUID) -> Bool {
         PaneObservationResolver.isPaneCurrentlyAttended(
             paneId: paneId,
-            attendedPaneId: atomStore.attendedPane.attendedPaneId,
+            attendedPaneId: atomStore.core.attendedPane.attendedPaneId,
             pane: { store.paneAtom.pane($0) }
         )
     }

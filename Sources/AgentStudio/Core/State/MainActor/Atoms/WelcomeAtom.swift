@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-enum WorkspaceFolderScanState: Equatable {
+package enum WorkspaceFolderScanState: Equatable {
     case idle
     case scanning(rootPath: URL)
     case empty(rootPath: URL)
@@ -9,23 +9,25 @@ enum WorkspaceFolderScanState: Equatable {
 
 @MainActor
 @Observable
-final class WelcomeAtom {
-    private(set) var isChoosingFolder = false
-    private(set) var folderScanState: WorkspaceFolderScanState = .idle
+package final class WelcomeAtom {
+    package private(set) var isChoosingFolder = false
+    package private(set) var folderScanState: WorkspaceFolderScanState = .idle
 
-    func beginChoosingFolder() {
+    package init() {}
+
+    package func beginChoosingFolder() {
         isChoosingFolder = true
     }
 
-    func endChoosingFolder() {
+    package func endChoosingFolder() {
         isChoosingFolder = false
     }
 
-    func beginFolderScan(_ path: URL) {
+    package func beginFolderScan(_ path: URL) {
         folderScanState = .scanning(rootPath: path.standardizedFileURL)
     }
 
-    func completeFolderScan(rootPath: URL, discoveredRepoCount: Int) {
+    package func completeFolderScan(rootPath: URL, discoveredRepoCount: Int) {
         let normalizedRootPath = rootPath.standardizedFileURL
         if discoveredRepoCount == 0 {
             folderScanState = .empty(rootPath: normalizedRootPath)
@@ -34,7 +36,7 @@ final class WelcomeAtom {
         folderScanState = .idle
     }
 
-    func clearFolderScanState() {
+    package func clearFolderScanState() {
         folderScanState = .idle
     }
 }

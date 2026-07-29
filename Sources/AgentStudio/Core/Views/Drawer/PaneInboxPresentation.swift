@@ -1,22 +1,30 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-enum PaneInboxRequestIntent: Equatable {
+package enum PaneInboxRequestIntent: Equatable {
     case open
     case close
 }
 
-struct PaneInboxRequest: Equatable, Identifiable {
-    let id: UUID
-    let parentPaneId: UUID
-    let paneIds: [UUID]
-    let intent: PaneInboxRequestIntent
+package struct PaneInboxRequest: Equatable, Identifiable {
+    package let id: UUID
+    package let parentPaneId: UUID
+    package let paneIds: [UUID]
+    package let intent: PaneInboxRequestIntent
 
-    func matches(parentPaneId: UUID, paneIds: [UUID]) -> Bool {
+    package init(id: UUID, parentPaneId: UUID, paneIds: [UUID], intent: PaneInboxRequestIntent) {
+        self.id = id
+        self.parentPaneId = parentPaneId
+        self.paneIds = paneIds
+        self.intent = intent
+    }
+
+    package func matches(parentPaneId: UUID, paneIds: [UUID]) -> Bool {
         self.parentPaneId == parentPaneId && Set(self.paneIds) == Set(paneIds)
     }
 }
 
-struct PaneInboxUnreadBadge: Equatable {
+package struct PaneInboxUnreadBadge: Equatable {
     let text: String
 
     init?(
@@ -31,21 +39,51 @@ struct PaneInboxUnreadBadge: Equatable {
 /// Core receives primitive counts, callbacks, and type-erased popover content;
 /// the inbox feature keeps ownership of notification state.
 @MainActor
-struct PaneInboxPresentation {
+package struct PaneInboxPresentation {
     let unreadCount: @MainActor ([UUID]) -> Int
-    let clear: @MainActor (UUID, [UUID]) -> Void
+    package let clear: @MainActor (UUID, [UUID]) -> Void
     let open: @MainActor (UUID, [UUID]) -> Void
     let openRollUpAlerts: @MainActor (UUID, [UUID]) -> Void
-    let toggle: @MainActor (UUID, [UUID]) -> Void
-    let setPresented: @MainActor (UUID, [UUID], Bool) -> Void
-    let pendingRequest: @MainActor () -> PaneInboxRequest?
-    let clearRequest: @MainActor (PaneInboxRequest) -> Void
+    package let toggle: @MainActor (UUID, [UUID]) -> Void
+    package let setPresented: @MainActor (UUID, [UUID], Bool) -> Void
+    package let pendingRequest: @MainActor () -> PaneInboxRequest?
+    package let clearRequest: @MainActor (PaneInboxRequest) -> Void
     let popoverContent:
         @MainActor (UUID, [UUID], @escaping @MainActor @Sendable () -> Void, @escaping @MainActor @Sendable () -> Void)
             -> AnyView
-    let pruneFilterModes: @MainActor (Set<UUID>) -> Void
+    package let pruneFilterModes: @MainActor (Set<UUID>) -> Void
 
-    func trailingActions(
+    package init(
+        unreadCount: @escaping @MainActor ([UUID]) -> Int,
+        clear: @escaping @MainActor (UUID, [UUID]) -> Void,
+        open: @escaping @MainActor (UUID, [UUID]) -> Void,
+        openRollUpAlerts: @escaping @MainActor (UUID, [UUID]) -> Void,
+        toggle: @escaping @MainActor (UUID, [UUID]) -> Void,
+        setPresented: @escaping @MainActor (UUID, [UUID], Bool) -> Void,
+        pendingRequest: @escaping @MainActor () -> PaneInboxRequest?,
+        clearRequest: @escaping @MainActor (PaneInboxRequest) -> Void,
+        popoverContent:
+            @escaping @MainActor (
+                UUID,
+                [UUID],
+                @escaping @MainActor @Sendable () -> Void,
+                @escaping @MainActor @Sendable () -> Void
+            ) -> AnyView,
+        pruneFilterModes: @escaping @MainActor (Set<UUID>) -> Void
+    ) {
+        self.unreadCount = unreadCount
+        self.clear = clear
+        self.open = open
+        self.openRollUpAlerts = openRollUpAlerts
+        self.toggle = toggle
+        self.setPresented = setPresented
+        self.pendingRequest = pendingRequest
+        self.clearRequest = clearRequest
+        self.popoverContent = popoverContent
+        self.pruneFilterModes = pruneFilterModes
+    }
+
+    package func trailingActions(
         parentPaneId: UUID,
         paneIds: [UUID],
         baseTrailingActions: DrawerOverlay.TrailingActions,

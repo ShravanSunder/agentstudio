@@ -1,8 +1,9 @@
+import AgentStudioCore
 import Foundation
 import GhosttyKit
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @MainActor
 @Suite(.serialized)

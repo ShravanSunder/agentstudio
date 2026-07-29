@@ -2,12 +2,12 @@ import Foundation
 
 /// Direction for inserting a new pane into a pane strip.
 /// Standalone type decoupled from any concrete view implementation.
-enum SplitNewDirection: Equatable, Codable, Hashable {
+package enum SplitNewDirection: Equatable, Codable, Hashable {
     case left, right, up, down
 }
 
 /// Direction for keyboard-driven pane resize.
-enum SplitResizeDirection: Equatable, Hashable, CustomStringConvertible {
+package enum SplitResizeDirection: Equatable, Hashable, CustomStringConvertible {
     case up, down, left, right
 
     /// The Layout.SplitDirection axis this resize acts on.
@@ -18,7 +18,7 @@ enum SplitResizeDirection: Equatable, Hashable, CustomStringConvertible {
         }
     }
 
-    var description: String {
+    package var description: String {
         switch self {
         case .up: return "up"
         case .down: return "down"
@@ -29,7 +29,7 @@ enum SplitResizeDirection: Equatable, Hashable, CustomStringConvertible {
 }
 
 /// Identifies where a pane being inserted comes from.
-enum PaneSource: Equatable, Hashable {
+package enum PaneSource: Equatable, Hashable {
     /// Moving an existing pane from its current location
     case existingPane(paneId: UUID, sourceTabId: UUID)
     /// Creating a new terminal
@@ -40,21 +40,37 @@ enum PaneSource: Equatable, Hashable {
     case newTerminalAtDirectory(URL)
 }
 
-struct PaneInsertRequest: Equatable, Hashable {
-    let source: PaneSource
-    let targetTabId: UUID
-    let targetPaneId: UUID
-    let direction: SplitNewDirection
-    let sizingMode: DropSizingMode
+package struct PaneInsertRequest: Equatable, Hashable {
+    package let source: PaneSource
+    package let targetTabId: UUID
+    package let targetPaneId: UUID
+    package let direction: SplitNewDirection
+    package let sizingMode: DropSizingMode
 }
 
-struct CrossTabPaneMoveRequest: Equatable, Hashable {
-    let paneId: UUID
-    let sourceTabId: UUID
-    let destTabId: UUID
+package struct CrossTabPaneMoveRequest: Equatable, Hashable {
+    package let paneId: UUID
+    package let sourceTabId: UUID
+    package let destTabId: UUID
     let targetPaneId: UUID
     let direction: Layout.SplitDirection
     let position: Layout.Position
+
+    package init(
+        paneId: UUID,
+        sourceTabId: UUID,
+        destTabId: UUID,
+        targetPaneId: UUID,
+        direction: Layout.SplitDirection,
+        position: Layout.Position
+    ) {
+        self.paneId = paneId
+        self.sourceTabId = sourceTabId
+        self.destTabId = destTabId
+        self.targetPaneId = targetPaneId
+        self.direction = direction
+        self.position = position
+    }
 }
 
 /// Fully resolved action with all target IDs explicit.
@@ -62,7 +78,7 @@ struct CrossTabPaneMoveRequest: Equatable, Hashable {
 ///
 /// "Resolved" means no "active tab" or "current pane" references —
 /// all targets are concrete UUIDs computed during the resolution step.
-enum WorkspaceActionCommand: Equatable, Hashable {
+package enum WorkspaceActionCommand: Equatable, Hashable {
     // Tab lifecycle
     case selectTab(tabId: UUID)
     case closeTab(tabId: UUID)
@@ -191,7 +207,7 @@ enum WorkspaceActionCommand: Equatable, Hashable {
 }
 
 extension WorkspaceActionCommand {
-    static func insertPane(
+    package static func insertPane(
         source: PaneSource,
         targetTabId: UUID,
         targetPaneId: UUID,
@@ -212,7 +228,7 @@ extension WorkspaceActionCommand {
 
 /// System-generated repair actions from the Reconciler.
 /// Flow through WorkspaceSurfaceCoordinator.execute like user actions — one-way data flow never bypassed.
-enum RepairAction: Equatable, Hashable {
+package enum RepairAction: Equatable, Hashable {
     /// zmx died — create new zmx session, send reattach command to existing surface.
     case reattachZmx(paneId: UUID)
     /// Surface died — full view + surface recreation. zmx reattaches.

@@ -1,23 +1,24 @@
+import AgentStudioInfrastructure
 import Foundation
 
 @MainActor
-struct PaneSurfaceToolbarAction {
-    enum SelectionEmphasis: Equatable, Sendable {
+package struct PaneSurfaceToolbarAction {
+    package enum SelectionEmphasis: Equatable, Sendable {
         case standard
         case accent
     }
 
-    struct State: Equatable, Sendable {
-        let label: String
-        let accessibilityIdentifier: String
-        let icon: CommandIcon
-        let tooltip: ControlTooltipRenderValue
-        let isEnabled: Bool
-        let isSelected: Bool
-        let visibleLabel: String?
-        let selectionEmphasis: SelectionEmphasis
+    package struct State: Equatable, Sendable {
+        package let label: String
+        package let accessibilityIdentifier: String
+        package let icon: CommandIcon
+        package let tooltip: ControlTooltipRenderValue
+        package let isEnabled: Bool
+        package let isSelected: Bool
+        package let visibleLabel: String?
+        package let selectionEmphasis: SelectionEmphasis
 
-        init(
+        package init(
             label: String,
             accessibilityIdentifier: String,
             icon: CommandIcon,
@@ -38,10 +39,18 @@ struct PaneSurfaceToolbarAction {
         }
     }
 
-    let state: State
-    let perform: @MainActor @Sendable () -> Void
+    package let state: State
+    package let perform: @MainActor @Sendable () -> Void
 
-    func resolving(isEnabled: Bool, isSelected: Bool) -> Self {
+    package init(
+        state: State,
+        perform: @escaping @MainActor @Sendable () -> Void
+    ) {
+        self.state = state
+        self.perform = perform
+    }
+
+    package func resolving(isEnabled: Bool, isSelected: Bool) -> Self {
         Self(
             state: State(
                 label: state.label,
@@ -57,7 +66,7 @@ struct PaneSurfaceToolbarAction {
         )
     }
 
-    func projectingPresentation(
+    package func projectingPresentation(
         label: String,
         icon: CommandIcon,
         tooltip: ControlTooltipRenderValue,
@@ -81,7 +90,7 @@ struct PaneSurfaceToolbarAction {
         )
     }
 
-    func projectingVisibleLabel(_ visibleLabel: String?) -> Self {
+    package func projectingVisibleLabel(_ visibleLabel: String?) -> Self {
         Self(
             state: State(
                 label: state.label,
@@ -99,17 +108,25 @@ struct PaneSurfaceToolbarAction {
 }
 
 @MainActor
-struct TerminalModeToolbarActions {
-    let zoomAction: PaneSurfaceToolbarAction
-    let viewerAction: PaneSurfaceToolbarAction
+package struct TerminalModeToolbarActions {
+    package let zoomAction: PaneSurfaceToolbarAction
+    package let viewerAction: PaneSurfaceToolbarAction
+
+    package init(
+        zoomAction: PaneSurfaceToolbarAction,
+        viewerAction: PaneSurfaceToolbarAction
+    ) {
+        self.zoomAction = zoomAction
+        self.viewerAction = viewerAction
+    }
 }
 
 @MainActor
-struct TerminalToolbarModel {
-    let modeActions: TerminalModeToolbarActions?
-    let showArrangementsAction: PaneSurfaceToolbarAction?
+package struct TerminalToolbarModel {
+    package let modeActions: TerminalModeToolbarActions?
+    package let showArrangementsAction: PaneSurfaceToolbarAction?
 
-    init(
+    package init(
         modeActions: TerminalModeToolbarActions? = nil,
         showArrangementsAction: PaneSurfaceToolbarAction? = nil
     ) {
@@ -119,48 +136,48 @@ struct TerminalToolbarModel {
 }
 
 @MainActor
-struct WebviewToolbarModel {
-    let showArrangementsAction: PaneSurfaceToolbarAction?
+package struct WebviewToolbarModel {
+    package let showArrangementsAction: PaneSurfaceToolbarAction?
 
-    init(showArrangementsAction: PaneSurfaceToolbarAction? = nil) {
+    package init(showArrangementsAction: PaneSurfaceToolbarAction? = nil) {
         self.showArrangementsAction = showArrangementsAction
     }
 }
 
 @MainActor
-struct CodeViewerToolbarModel {
-    let showArrangementsAction: PaneSurfaceToolbarAction?
+package struct CodeViewerToolbarModel {
+    package let showArrangementsAction: PaneSurfaceToolbarAction?
 
-    init(showArrangementsAction: PaneSurfaceToolbarAction? = nil) {
+    package init(showArrangementsAction: PaneSurfaceToolbarAction? = nil) {
         self.showArrangementsAction = showArrangementsAction
     }
 }
 
 @MainActor
-struct UnsupportedToolbarModel {
-    let showArrangementsAction: PaneSurfaceToolbarAction?
+package struct UnsupportedToolbarModel {
+    package let showArrangementsAction: PaneSurfaceToolbarAction?
 
-    init(showArrangementsAction: PaneSurfaceToolbarAction? = nil) {
+    package init(showArrangementsAction: PaneSurfaceToolbarAction? = nil) {
         self.showArrangementsAction = showArrangementsAction
     }
 }
 
 @MainActor
-struct ViewerToolbarModel {
-    let showArrangementsAction: PaneSurfaceToolbarAction?
+package struct ViewerToolbarModel {
+    package let showArrangementsAction: PaneSurfaceToolbarAction?
 
-    init(showArrangementsAction: PaneSurfaceToolbarAction? = nil) {
+    package init(showArrangementsAction: PaneSurfaceToolbarAction? = nil) {
         self.showArrangementsAction = showArrangementsAction
     }
 }
 
 @MainActor
-struct ZoomToolbarModel {
-    let viewerAction: PaneSurfaceToolbarAction
-    let zoomAction: PaneSurfaceToolbarAction
-    let showArrangementsAction: PaneSurfaceToolbarAction?
+package struct ZoomToolbarModel {
+    package let viewerAction: PaneSurfaceToolbarAction
+    package let zoomAction: PaneSurfaceToolbarAction
+    package let showArrangementsAction: PaneSurfaceToolbarAction?
 
-    init(
+    package init(
         viewerAction: PaneSurfaceToolbarAction,
         zoomAction: PaneSurfaceToolbarAction,
         showArrangementsAction: PaneSurfaceToolbarAction? = nil
@@ -172,7 +189,7 @@ struct ZoomToolbarModel {
 }
 
 @MainActor
-enum PaneSurfaceToolbarPresentation {
+package enum PaneSurfaceToolbarPresentation {
     case terminal(TerminalToolbarModel)
     case webview(WebviewToolbarModel)
     case codeViewer(CodeViewerToolbarModel)
@@ -181,14 +198,14 @@ enum PaneSurfaceToolbarPresentation {
     case zoom(ZoomToolbarModel)
     case hidden
 
-    var reservesToolbarLayout: Bool {
+    package var reservesToolbarLayout: Bool {
         if case .hidden = self {
             return false
         }
         return true
     }
 
-    var leadingActions: [PaneSurfaceToolbarAction] {
+    package var leadingActions: [PaneSurfaceToolbarAction] {
         switch self {
         case .terminal:
             []
@@ -207,7 +224,7 @@ enum PaneSurfaceToolbarPresentation {
         }
     }
 
-    var contextActions: [PaneSurfaceToolbarAction] {
+    package var contextActions: [PaneSurfaceToolbarAction] {
         switch self {
         case .terminal(let model):
             guard let modeActions = model.modeActions else { return [] }
@@ -219,11 +236,11 @@ enum PaneSurfaceToolbarPresentation {
         }
     }
 
-    var actions: [PaneSurfaceToolbarAction] {
+    package var actions: [PaneSurfaceToolbarAction] {
         leadingActions + contextActions
     }
 
-    var zoomAction: PaneSurfaceToolbarAction? {
+    package var zoomAction: PaneSurfaceToolbarAction? {
         switch self {
         case .terminal(let model):
             model.modeActions?.zoomAction
@@ -234,7 +251,7 @@ enum PaneSurfaceToolbarPresentation {
         }
     }
 
-    var showArrangementsAction: PaneSurfaceToolbarAction? {
+    package var showArrangementsAction: PaneSurfaceToolbarAction? {
         switch self {
         case .terminal(let model):
             model.showArrangementsAction
@@ -254,15 +271,15 @@ enum PaneSurfaceToolbarPresentation {
     }
 }
 
-enum PaneSurfaceToolbarPlacement: Equatable, Sendable {
+package enum PaneSurfaceToolbarPlacement: Equatable, Sendable {
     case normalMainPane
     case drawerChild
     case zoomChild
 }
 
 @MainActor
-enum PaneSurfaceToolbarResolver {
-    static func resolve(
+package enum PaneSurfaceToolbarResolver {
+    package static func resolve(
         content: PaneContent,
         placement: PaneSurfaceToolbarPlacement,
         terminalModeActions: TerminalModeToolbarActions? = nil,
@@ -327,7 +344,7 @@ enum PaneSurfaceToolbarResolver {
         }
     }
 
-    static func resolveZoom(
+    package static func resolveZoom(
         viewerPresentation: ZoomViewerPresentation,
         viewerAction: PaneSurfaceToolbarAction,
         zoomAction: PaneSurfaceToolbarAction,

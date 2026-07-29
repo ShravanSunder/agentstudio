@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 /// Characterizes live pane facets at the persistence boundary. Cleared facets
 /// remain nullable, while non-nil repo and worktree identities must resolve

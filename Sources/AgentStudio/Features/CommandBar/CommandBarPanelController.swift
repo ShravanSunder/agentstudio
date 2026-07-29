@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 import os.log
@@ -46,17 +48,19 @@ struct CommandBarActivationGenerationGate {
 /// Owns the CommandBarState and wires it to the panel.
 /// All methods must be called on the main thread (enforced by AppKit caller context).
 @MainActor
-final class CommandBarPanelController {
+package final class CommandBarPanelController {
 
     // MARK: - State
 
-    let state = CommandBarState()
+    package let state = CommandBarState()
 
     // MARK: - Dependencies
 
     private let store: WorkspaceStore
+    private let octiconLoader: OcticonLoader
     private let repoCache: RepoCacheAtom
-    private let dispatcher: AppCommandDispatcher
+    private let dispatcher: any AppCommandDispatching
+    private let quickOpenDirectoryHandler: @MainActor @Sendable (URL, QuickOpenDirectoryPlacement) -> Void
     private let notificationInboxCommands: InboxNotificationCommands?
     private let commandBarSurface: CommandBarSurfaceAtom
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -72,23 +76,28 @@ final class CommandBarPanelController {
     private weak var parentWindow: NSWindow?
     private var workspaceWindowId: UUID?
 
-    var isKeyWindow: Bool {
+    package var isKeyWindow: Bool {
         panel?.isKeyWindow == true
     }
 
     // MARK: - Initialization
 
-    init(
+    package init(
         store: WorkspaceStore,
+        octiconLoader: OcticonLoader,
         repoCache: RepoCacheAtom,
-        dispatcher: AppCommandDispatcher,
+        dispatcher: any AppCommandDispatching,
+        quickOpenDirectoryHandler:
+            @escaping @MainActor @Sendable (URL, QuickOpenDirectoryPlacement) -> Void,
         notificationInboxCommands: InboxNotificationCommands? = nil,
         commandBarSurface: CommandBarSurfaceAtom,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         self.store = store
+        self.octiconLoader = octiconLoader
         self.repoCache = repoCache
         self.dispatcher = dispatcher
+        self.quickOpenDirectoryHandler = quickOpenDirectoryHandler
         self.notificationInboxCommands = notificationInboxCommands
         self.commandBarSurface = commandBarSurface
         self.performanceTraceRecorder = performanceTraceRecorder
@@ -106,15 +115,15 @@ final class CommandBarPanelController {
 
     /// Show the command bar. If already visible with a different prefix, switch in-place.
     /// If already visible with the same prefix (or no prefix), preserve current state.
-    func show(parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
+    package func show(parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
         show(mode: .defaultScope(.everything), parentWindow: parentWindow, workspaceWindowId: workspaceWindowId)
     }
 
-    func show(prefix: String, parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
+    package func show(prefix: String, parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
         show(mode: .prefix(prefix), parentWindow: parentWindow, workspaceWindowId: workspaceWindowId)
     }
 
-    func show(defaultRootScope: CommandBarScope, parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
+    package func show(defaultRootScope: CommandBarScope, parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
         show(mode: .defaultScope(defaultRootScope), parentWindow: parentWindow, workspaceWindowId: workspaceWindowId)
     }
 
@@ -169,7 +178,7 @@ final class CommandBarPanelController {
     }
 
     /// Dismiss the command bar and clean up.
-    func dismiss() {
+    package func dismiss() {
         guard state.isVisible else { return }
 
         activationGenerationGate.invalidate()
@@ -206,6 +215,7 @@ final class CommandBarPanelController {
         // Set SwiftUI content
         let contentView = CommandBarView(
             state: state,
+            octiconLoader: octiconLoader,
             resultSession: resultSession,
             onShortcutTrigger: { [weak self] trigger in
                 self?.handleShortcutTrigger(trigger) ?? false
@@ -369,7 +379,8 @@ final class CommandBarPanelController {
             state.pushLevel(
                 CommandBarDataSource.buildRepoLevel(
                     repo: repository,
-                    store: store
+                    store: store,
+                    dispatcher: dispatcher
                 )
             )
         case .worktree(let worktreeStableKey):
@@ -389,7 +400,8 @@ final class CommandBarPanelController {
                 CommandBarDataSource.buildWorktreeActionsLevel(
                     worktree: worktree,
                     presence: presence,
-                    canOpenInCurrentTab: resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab
+                    canOpenInCurrentTab: resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab,
+                    dispatcher: dispatcher
                 )
             )
         case .directory:
@@ -443,9 +455,9 @@ final class CommandBarPanelController {
         }
 
         dismiss()
-        dispatcher.dispatchQuickOpenDirectory(
+        quickOpenDirectoryHandler(
             directory.standardizedFileURL,
-            placement: placement
+            placement
         )
     }
 
@@ -499,7 +511,8 @@ final class CommandBarPanelController {
             state.pushLevel(
                 CommandBarDataSource.buildRepoLevel(
                     repo: repository,
-                    store: store
+                    store: store,
+                    dispatcher: dispatcher
                 )
             )
         case .worktree(let worktreeStableKey):
@@ -507,9 +520,8 @@ final class CommandBarPanelController {
                 worktreeStableKey: worktreeStableKey
             )
             guard
-                let worktree = WorkspaceLauncherProjector.resolveActivationWorktree(
-                    target: recentEntity,
-                    repositoryTopology: store.repositoryTopologyAtom
+                let worktree = store.repositoryTopologyAtom.activationWorktree(
+                    for: recentEntity
                 )
             else {
                 guard isCurrentActivation(activationGeneration) else { return }
@@ -530,13 +542,14 @@ final class CommandBarPanelController {
                 CommandBarDataSource.buildWorktreeActionsLevel(
                     worktree: worktree,
                     presence: presence,
-                    canOpenInCurrentTab: store.tabLayoutAtom.activeTabId != nil
+                    canOpenInCurrentTab: store.tabLayoutAtom.activeTabId != nil,
+                    dispatcher: dispatcher
                 )
             )
         case .pane(let paneID, let workspaceID):
             guard
                 workspaceID == store.identityAtom.workspaceId,
-                WorkspacePaneRecencyObserver.isEligibleForRecording(
+                WorkspacePaneRecencyEligibility.isEligibleForRecording(
                     pane: store.paneAtom.pane(paneID),
                     workspaceMatches: true,
                     tabs: store.tabLayoutAtom.tabs,
@@ -605,7 +618,8 @@ final class CommandBarPanelController {
                 CommandBarDataSource.buildWorktreeActionsLevel(
                     worktree: worktree,
                     presence: presence,
-                    canOpenInCurrentTab: canOpenInCurrentTab
+                    canOpenInCurrentTab: canOpenInCurrentTab,
+                    dispatcher: dispatcher
                 )
             )
         }

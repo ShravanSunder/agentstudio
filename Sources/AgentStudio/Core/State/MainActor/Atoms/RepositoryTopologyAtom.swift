@@ -3,11 +3,11 @@ import Observation
 
 @MainActor
 @Observable
-final class RepositoryTopologyAtom {
-    private(set) var repos: [Repo] = []
-    private(set) var watchedPaths: [WatchedPath] = []
+package final class RepositoryTopologyAtom {
+    package private(set) var repos: [Repo] = []
+    package private(set) var watchedPaths: [WatchedPath] = []
     private(set) var unavailableRepoIds: Set<UUID> = []
-    private(set) var worktreePathIndexGeneration: UInt64 = 0
+    package private(set) var worktreePathIndexGeneration: UInt64 = 0
 
     @ObservationIgnored private var worktreePathIndex: [WorktreePathIndexEntry] = []
     @ObservationIgnored private var deferredWorktreePathIndexRebuildDepth = 0
@@ -17,6 +17,8 @@ final class RepositoryTopologyAtom {
     @ObservationIgnored private var watchedPathsByID: [UUID: WatchedPath] = [:]
     @ObservationIgnored private var repositoryIDsByStableKey: [String: UUID] = [:]
     @ObservationIgnored private var worktreeIDsByStableKey: [String: UUID] = [:]
+
+    package init() {}
 
     private struct WorktreePathIndexEntry {
         let repoId: UUID
@@ -45,7 +47,7 @@ final class RepositoryTopologyAtom {
         watchedPaths.map(\.id)
     }
 
-    var worktreePathIndexCount: Int {
+    package var worktreePathIndexCount: Int {
         worktreePathIndex.count
     }
 
@@ -84,26 +86,49 @@ final class RepositoryTopologyAtom {
         }
     }
 
-    func repo(_ id: UUID) -> Repo? {
+    package func repo(_ id: UUID) -> Repo? {
         _ = repos
         return repositoriesByID[id]
     }
 
-    func worktree(_ id: UUID) -> Worktree? {
+    package func worktree(_ id: UUID) -> Worktree? {
         _ = repos
         return worktreesByID[id]
     }
 
-    func repo(stableKey: String) -> Repo? {
+    package func repo(stableKey: String) -> Repo? {
         _ = repos
         guard let repositoryID = repositoryIDsByStableKey[stableKey] else { return nil }
         return repo(repositoryID)
     }
 
-    func worktree(stableKey: String) -> Worktree? {
+    package func worktree(stableKey: String) -> Worktree? {
         _ = repos
         guard let worktreeID = worktreeIDsByStableKey[stableKey] else { return nil }
         return worktree(worktreeID)
+    }
+
+    package func activationWorktree(for recentEntity: ApplicationRecentEntity) -> Worktree? {
+        switch recentEntity {
+        case .repository(let repositoryStableKey):
+            guard
+                let repository = repo(stableKey: repositoryStableKey),
+                !isRepoUnavailable(repository.id)
+            else {
+                return nil
+            }
+            return repository.worktrees.first(where: \.isMainWorktree)
+                ?? repository.worktrees.first
+        case .worktree(let worktreeStableKey):
+            guard
+                let worktree = worktree(stableKey: worktreeStableKey),
+                let repository = repo(containing: worktree.id),
+                !isRepoUnavailable(repository.id)
+            else {
+                return nil
+            }
+            return worktree
+        }
     }
 
     func watchedPath(_ id: UUID) -> WatchedPath? {
@@ -111,13 +136,13 @@ final class RepositoryTopologyAtom {
         return watchedPathsByID[id]
     }
 
-    func repo(containing worktreeId: UUID) -> Repo? {
+    package func repo(containing worktreeId: UUID) -> Repo? {
         _ = repos
         guard let worktree = worktreesByID[worktreeId] else { return nil }
         return repositoriesByID[worktree.repoId]
     }
 
-    func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
+    package func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
         guard let cwd else { return nil }
         _ = repos
         _ = worktreePathIndexGeneration
@@ -171,7 +196,7 @@ final class RepositoryTopologyAtom {
         repositoriesByID[worktree.repoId] = repos[repositoryIndex]
     }
 
-    func isRepoUnavailable(_ repoId: UUID) -> Bool {
+    package func isRepoUnavailable(_ repoId: UUID) -> Bool {
         unavailableRepoIds.contains(repoId)
     }
 

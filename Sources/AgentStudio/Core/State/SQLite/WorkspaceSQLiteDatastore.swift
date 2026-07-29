@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import Foundation
 import GRDB
 
-actor WorkspaceSQLiteDatastore {
+package actor WorkspaceSQLiteDatastore {
     private static let applicationLocalRepositoryScopeId = UUID(
         uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     )
@@ -51,7 +52,7 @@ actor WorkspaceSQLiteDatastore {
         self.preparedCoreSnapshotConsumed = false
     }
 
-    init(
+    package init(
         preparedCoreRepository: WorkspaceCoreRepository,
         preparationReceipt: DatabasePreparationReceipt,
         preparedApplicationLocalRepository: WorkspaceLocalRepository?,
@@ -85,7 +86,7 @@ actor WorkspaceSQLiteDatastore {
         self.preparedCoreSnapshotConsumed = false
     }
 
-    func prepareDatabasesForBoot() async -> DatabasePreparationResult {
+    package func prepareDatabasesForBoot() async -> DatabasePreparationResult {
         switch databasePreparationState {
         case .prepared(let receipt):
             return .prepared(receipt)
@@ -561,7 +562,7 @@ actor WorkspaceSQLiteDatastore {
         }
     }
 
-    func loadWorkspaceSettings(workspaceId: UUID) async -> LocalSettingsLoadResult {
+    package func loadWorkspaceSettings(workspaceId: UUID) async -> LocalSettingsLoadResult {
         do {
             let repository = try preparedLocalRepository(workspaceId: workspaceId)
             return .loaded(
@@ -578,7 +579,7 @@ actor WorkspaceSQLiteDatastore {
         }
     }
 
-    func saveWorkspaceSettings(
+    package func saveWorkspaceSettings(
         editor: WorkspaceLocalRepository.EditorPreferencesRecord,
         repoExplorer: WorkspaceLocalRepository.RepoExplorerPreferencesRecord,
         inboxNotification: WorkspaceLocalRepository.InboxNotificationPreferencesRecord,
@@ -631,7 +632,7 @@ actor WorkspaceSQLiteDatastore {
         try repository.replaceWorkspaceEntityRecency(recentEntities)
     }
 
-    func performLocalRestoreOperation<Output: Sendable>(
+    package func performLocalRestoreOperation<Output: Sendable>(
         workspaceId: UUID,
         _ operation: @Sendable (WorkspaceLocalRepository) throws -> Output
     ) async -> LocalRepositoryOperationResult<Output> {
@@ -643,7 +644,7 @@ actor WorkspaceSQLiteDatastore {
         }
     }
 
-    func performLocalSaveOperation<Output: Sendable>(
+    package func performLocalSaveOperation<Output: Sendable>(
         workspaceId: UUID,
         _ operation: @Sendable (WorkspaceLocalRepository) throws -> Output
     ) async throws -> Output {

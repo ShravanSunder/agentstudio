@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import os
 
@@ -164,8 +166,7 @@ final class WorkspaceCacheCoordinator {
                     repoId: repoId,
                     branch: to
                 )
-            enrichment.branch = to
-            enrichment.updatedAt = Date()
+            enrichment.updateBranch(to)
             pendingByWorktreeId[worktreeId] = PendingWorktreeEnrichment(
                 enrichment: enrichment,
                 shouldRefreshTraceIdentity: true
@@ -497,8 +498,7 @@ final class WorkspaceCacheCoordinator {
                         repoId: repoId,
                         branch: to
                     )
-                enrichment.branch = to
-                enrichment.updatedAt = Date()
+                enrichment.updateBranch(to)
                 repoCache.setWorktreeEnrichment(enrichment)
                 refreshTraceIdentity()
             case .originChanged(let repoId, _, let to):

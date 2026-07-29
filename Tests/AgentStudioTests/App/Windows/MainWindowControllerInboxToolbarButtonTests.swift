@@ -4,12 +4,16 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("Top chrome sidebar controls", .serialized)
 struct MainWindowControllerInboxToolbarButtonTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("main window delegates top chrome instead of installing native toolbar controls")
@@ -52,11 +56,12 @@ struct MainWindowControllerInboxToolbarButtonTests {
         #expect(source.contains("isSelected: isSidebarOpen && sidebarState.sidebarSurface == .inbox"))
     }
 
-    @Test("top chrome inbox badge reads global roll-up count")
-    func topChromeInboxBadgeReadsGlobalRollUpCount() throws {
+    @Test("top chrome inbox badge reads the injected global roll-up count")
+    func topChromeInboxBadgeReadsInjectedGlobalRollUpCount() throws {
         let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
 
-        #expect(source.contains("badgeCount: atom(\\.inboxNotification).globalRollUpAlertCount"))
+        #expect(source.contains("let inboxAtom: InboxNotificationAtom"))
+        #expect(source.contains("badgeCount: inboxAtom.globalRollUpAlertCount"))
         #expect(source.contains("badgeText: badgeCount > 0 ? InboxToolbarUnreadBadgeText.text(for: badgeCount) : nil"))
     }
 
@@ -87,14 +92,14 @@ struct MainWindowControllerInboxToolbarButtonTests {
         await withMainWindowControllerHarness { harness in
             let frame = NSRect(x: 40, y: 60, width: 900, height: 650)
             harness.window.setFrame(frame, display: false)
-            harness.atoms.workspaceWindowMemory.setWindowFrame(nil)
+            harness.atoms.core.workspaceWindowMemory.setWindowFrame(nil)
             UserDefaults.standard.removeObject(forKey: legacyWindowFrameKey)
 
             harness.controller.windowDidMove(
                 Notification(name: NSWindow.didMoveNotification, object: harness.window)
             )
 
-            #expect(harness.atoms.workspaceWindowMemory.windowFrame == frame)
+            #expect(harness.atoms.core.workspaceWindowMemory.windowFrame == frame)
             #expect(UserDefaults.standard.object(forKey: legacyWindowFrameKey) == nil)
         }
     }
@@ -134,45 +139,54 @@ private func withMainWindowControllerHarness<T>(
 ) async rethrows -> T {
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "main-window-controller-tests-\(UUID().uuidString)")
-    let atoms = makeInstalledTestAtomRegistry()
+    let atoms = makeTestAtomRegistry()
     let store = WorkspaceStore(
-        identityAtom: atoms.workspaceIdentity,
-        windowMemoryAtom: atoms.workspaceWindowMemory,
-        repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
-        paneAtom: atoms.workspacePane,
-        tabLayoutAtom: atoms.workspaceTabLayout,
-        mutationCoordinator: atoms.workspaceMutationCoordinator)
+        identityAtom: atoms.core.workspaceIdentity,
+        windowMemoryAtom: atoms.core.workspaceWindowMemory,
+        repositoryTopologyAtom: atoms.core.workspaceRepositoryTopology,
+        paneAtom: atoms.core.workspacePane,
+        tabLayoutAtom: atoms.core.workspaceTabLayout,
+        mutationCoordinator: atoms.core.workspaceMutationCoordinator)
     let viewRegistry = ViewRegistry()
-    let runtime = SessionRuntime(atom: atoms.sessionRuntime, store: store)
+    let runtime = SessionRuntime(atom: atoms.core.sessionRuntime, store: store)
     let coordinator = WorkspaceSurfaceCoordinator(
         store: store,
         viewRegistry: viewRegistry,
         runtime: runtime,
         surfaceManager: InboxToolbarTestSurfaceManager(),
         runtimeRegistry: RuntimeRegistry(),
-        windowLifecycleStore: atoms.windowLifecycle
+        windowLifecycleStore: atoms.core.windowLifecycle,
+        bridgePaneAttendance: atoms.bridgePaneAttendance
     )
     let workspaceActionExecutor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     let appLifecycleStore = AppLifecycleAtom()
     let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
         appLifecycleStore: appLifecycleStore,
-        windowLifecycleStore: atoms.windowLifecycle
+        windowLifecycleStore: atoms.core.windowLifecycle
     )
-    let tabBarAdapter = TabBarAdapter(store: store, repoCache: atoms.repoCache)
+    let tabBarAdapter = TabBarAdapter(store: store, repoCache: atoms.core.repoCache)
 
     var controller: MainWindowController?
-    let result = try await AtomScope.$override.withValue(atoms) {
+    let result = try await withAsyncTestCoreAtoms(using: atoms.core) { _ in
         let windowController = MainWindowController(
             store: store,
+            octiconLoader: makeTestOcticonLoader(),
             workspaceActionExecutor: workspaceActionExecutor,
             runtimeCommandDispatcher: coordinator,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
+            bridgePaneAttendance: atoms.bridgePaneAttendance,
+            editorChooser: atoms.editorChooser,
             inboxAtom: inboxAtom,
             inboxPrefsAtom: inboxPrefsAtom,
             inboxSidebarState: InboxSidebarState(),
+            paneInboxPresentationState: atoms.paneInboxPresentationState,
+            repoExplorerSidebarPrefs: atoms.repoExplorerSidebarPrefs,
+            bridgeAttendanceSnapshot: {
+                atoms.bridgePaneAttendance.ordinalSnapshot()
+            },
             paneInboxPresenter: paneInboxPresenter
         )
         controller = windowController

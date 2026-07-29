@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -58,7 +60,7 @@ private struct BridgePageControlRenderModeSnapshot: Decodable {
 
 @MainActor
 extension BridgePaneController {
-    func ipcReviewPackageSnapshot() throws -> IPCBridgeReviewPackageResult {
+    package func ipcReviewPackageSnapshot() throws -> IPCBridgeReviewPackageResult {
         let package = paneState.diff.packageMetadata
         let items = try package.map(ipcReviewItemSummaries) ?? []
         let result = IPCBridgeReviewPackageResult(
@@ -76,7 +78,7 @@ extension BridgePaneController {
         return result
     }
 
-    func refreshReviewForIPC(correlationId: UUID?) async throws -> IPCBridgeReviewRefreshResult {
+    package func refreshReviewForIPC(correlationId: UUID?) async throws -> IPCBridgeReviewRefreshResult {
         guard let worktreeId = runtime.metadata.worktreeId else {
             throw BridgeIPCProjectionError(reason: .packageUnavailable)
         }
@@ -109,7 +111,7 @@ extension BridgePaneController {
         }
     }
 
-    func renderStateForIPC() async throws -> IPCBridgeRenderStateResult {
+    package func renderStateForIPC() async throws -> IPCBridgeRenderStateResult {
         let productSession = await productSessionDiagnosticForIPC()
         let refreshAdmission = refreshAdmissionCoordinator.diagnosticSnapshot
         do {
@@ -185,7 +187,7 @@ extension BridgePaneController {
         }
     }
 
-    func selectReviewItemForIPC(
+    package func selectReviewItemForIPC(
         itemId: String,
         correlationId: UUID?
     ) async throws -> IPCBridgeReviewSelectFileResult {
@@ -218,7 +220,7 @@ extension BridgePaneController {
         )
     }
 
-    func applyPageControlForIPC(
+    package func applyPageControlForIPC(
         _ command: IPCBridgePageControlCommand,
         correlationId: UUID?
     ) async throws -> IPCBridgePageControlResult {
@@ -270,7 +272,7 @@ extension BridgePaneController {
         )
     }
 
-    func loadContentForIPC(
+    package func loadContentForIPC(
         contentHandleId: String,
         reviewGeneration: Int
     ) async throws -> IPCBridgeContentGetResult {
@@ -322,7 +324,7 @@ extension BridgePaneController {
         return ipcResult
     }
 
-    func flushTelemetryForIPC() async throws -> IPCBridgeTelemetryFlushResult {
+    package func flushTelemetryForIPC() async throws -> IPCBridgeTelemetryFlushResult {
         guard let telemetrySessionOwner else {
             return IPCBridgeTelemetryFlushResult(
                 paneId: paneId,
@@ -369,7 +371,7 @@ extension BridgePaneController {
         )
     }
 
-    func telemetrySnapshotForIPC() async throws -> IPCBridgeTelemetrySnapshotResult {
+    package func telemetrySnapshotForIPC() async throws -> IPCBridgeTelemetrySnapshotResult {
         guard let telemetrySessionOwner else {
             return IPCBridgeTelemetrySnapshotResult(
                 paneId: paneId,

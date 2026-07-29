@@ -3,6 +3,11 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 final class HarnessSurfaceManager: WorkspaceSurfaceManaging {
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
@@ -272,7 +277,8 @@ struct GitTopologyPipelineHarness {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: bus,
             filesystemSource: filesystemSource,
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,

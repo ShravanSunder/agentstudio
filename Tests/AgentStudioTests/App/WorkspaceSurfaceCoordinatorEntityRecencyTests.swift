@@ -2,24 +2,27 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("WorkspaceSurfaceCoordinator EntityRecency", .serialized)
 struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("successful worktree open records repository and worktree with one timestamp")
     func successfulWorktreeOpen_recordsCoherentApplicationRecency() throws {
-        try withTestAtomRegistry { atoms in
+        try withTestCoreAtoms { coreAtoms in
             let store = WorkspaceStore(
-                identityAtom: atoms.workspaceIdentity,
-                windowMemoryAtom: atoms.workspaceWindowMemory,
-                repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
-                paneAtom: atoms.workspacePane,
-                tabLayoutAtom: atoms.workspaceTabLayout,
-                mutationCoordinator: atoms.workspaceMutationCoordinator
+                identityAtom: coreAtoms.workspaceIdentity,
+                windowMemoryAtom: coreAtoms.workspaceWindowMemory,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology,
+                paneAtom: coreAtoms.workspacePane,
+                tabLayoutAtom: coreAtoms.workspaceTabLayout,
+                mutationCoordinator: coreAtoms.workspaceMutationCoordinator
             )
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/entity-recency-repo"))
             let worktree = try #require(store.repo(repo.id)?.worktrees.first)
@@ -27,19 +30,20 @@ struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
                 store: store,
                 viewRegistry: ViewRegistry(),
                 runtime: SessionRuntime(store: store),
-                windowLifecycleStore: atoms.windowLifecycle
+                windowLifecycleStore: coreAtoms.windowLifecycle,
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
 
             let openedPane = coordinator.openTerminal(for: worktree, in: repo)
 
             #expect(openedPane != nil)
             let repositoryRecency = try #require(
-                atoms.applicationEntityRecency.recentEntities.first {
+                coreAtoms.applicationEntityRecency.recentEntities.first {
                     $0.entity == .repository(repositoryStableKey: repo.stableKey)
                 }
             )
             let worktreeRecency = try #require(
-                atoms.applicationEntityRecency.recentEntities.first {
+                coreAtoms.applicationEntityRecency.recentEntities.first {
                     $0.entity == .worktree(worktreeStableKey: worktree.stableKey)
                 }
             )
@@ -51,27 +55,28 @@ struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
 
     @Test("rejected unknown worktree action records no application recency")
     func rejectedUnknownWorktreeAction_recordsNothing() {
-        withTestAtomRegistry { atoms in
-            let store = makeStore(atoms: atoms)
+        withTestCoreAtoms { coreAtoms in
+            let store = makeStore(coreAtoms: coreAtoms)
             let coordinator = WorkspaceSurfaceCoordinator(
                 store: store,
                 viewRegistry: ViewRegistry(),
                 runtime: SessionRuntime(store: store),
-                windowLifecycleStore: atoms.windowLifecycle
+                windowLifecycleStore: coreAtoms.windowLifecycle,
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
 
             let accepted = executor.execute(.openWorktree(worktreeId: UUID()))
 
             #expect(!accepted)
-            #expect(atoms.applicationEntityRecency.recentEntities.isEmpty)
+            #expect(coreAtoms.applicationEntityRecency.recentEntities.isEmpty)
         }
     }
 
     @Test("failed split insertion records no application recency")
     func failedSplitInsertion_recordsNothing() throws {
-        try withTestAtomRegistry { atoms in
-            let store = makeStore(atoms: atoms)
+        try withTestCoreAtoms { coreAtoms in
+            let store = makeStore(coreAtoms: coreAtoms)
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/entity-recency-split-failure"))
             let worktree = try #require(store.repo(repo.id)?.worktrees.first)
             let targetPane = store.createPane(title: "Target")
@@ -90,7 +95,8 @@ struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
                 store: store,
                 viewRegistry: ViewRegistry(),
                 runtime: SessionRuntime(store: store),
-                windowLifecycleStore: atoms.windowLifecycle
+                windowLifecycleStore: coreAtoms.windowLifecycle,
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
 
@@ -98,18 +104,18 @@ struct WorkspaceSurfaceCoordinatorEntityRecencyTests {
 
             #expect(accepted)
             #expect(store.panes.count == 1)
-            #expect(atoms.applicationEntityRecency.recentEntities.isEmpty)
+            #expect(coreAtoms.applicationEntityRecency.recentEntities.isEmpty)
         }
     }
 
-    private func makeStore(atoms: AtomRegistry) -> WorkspaceStore {
+    private func makeStore(coreAtoms: CoreAtoms) -> WorkspaceStore {
         WorkspaceStore(
-            identityAtom: atoms.workspaceIdentity,
-            windowMemoryAtom: atoms.workspaceWindowMemory,
-            repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
-            paneAtom: atoms.workspacePane,
-            tabLayoutAtom: atoms.workspaceTabLayout,
-            mutationCoordinator: atoms.workspaceMutationCoordinator
+            identityAtom: coreAtoms.workspaceIdentity,
+            windowMemoryAtom: coreAtoms.workspaceWindowMemory,
+            repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology,
+            paneAtom: coreAtoms.workspacePane,
+            tabLayoutAtom: coreAtoms.workspaceTabLayout,
+            mutationCoordinator: coreAtoms.workspaceMutationCoordinator
         )
     }
 }

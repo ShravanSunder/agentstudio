@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("WelcomeLauncherArchitectureTests")
 struct WelcomeLauncherArchitectureTests {
     @Test("file menu keeps real new tab command")

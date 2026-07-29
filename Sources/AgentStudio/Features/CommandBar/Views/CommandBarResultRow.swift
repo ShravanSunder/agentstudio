@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import SwiftUI
 
 // MARK: - CommandBarResultRow
@@ -6,6 +9,7 @@ import SwiftUI
 /// Supports fuzzy match highlighting and dimming for unavailable commands.
 struct CommandBarResultRow: View {
     let item: CommandBarItem
+    let octiconLoader: OcticonLoader
     let isSelected: Bool
     let searchQuery: String
     let isDimmed: Bool
@@ -13,12 +17,14 @@ struct CommandBarResultRow: View {
 
     init(
         item: CommandBarItem,
+        octiconLoader: OcticonLoader,
         isSelected: Bool,
         searchQuery: String = "",
         isDimmed: Bool = false,
         onShowActions: @escaping @MainActor @Sendable () -> Void = {}
     ) {
         self.item = item
+        self.octiconLoader = octiconLoader
         self.isSelected = isSelected
         self.searchQuery = searchQuery
         self.isDimmed = isDimmed
@@ -201,7 +207,7 @@ struct CommandBarResultRow: View {
                     )
                 )
                 .foregroundStyle(Color.primary.opacity(titleOpacity))
-        } else if let matchResult = CommandBarSearch.fuzzyMatch(pattern: searchQuery, in: title) {
+        } else if let matchResult = FuzzySearch.fuzzyMatch(pattern: searchQuery, in: title) {
             buildHighlightedText(title, ranges: matchResult.matchedRanges)
         } else {
             Text(title)
@@ -280,12 +286,16 @@ struct CommandBarResultRow: View {
                     height: AppStyles.CommandBar.Rows.iconSize
                 )
         case .octicon(let octiconSymbol):
-            OcticonImage(name: octiconSymbol.rawValue, size: AppStyles.CommandBar.Rows.iconSize)
-                .foregroundStyle(iconColor)
-                .frame(
-                    width: AppStyles.CommandBar.Rows.iconSize,
-                    height: AppStyles.CommandBar.Rows.iconSize
-                )
+            OcticonImage(
+                name: octiconSymbol.rawValue,
+                size: AppStyles.CommandBar.Rows.iconSize,
+                loader: octiconLoader
+            )
+            .foregroundStyle(iconColor)
+            .frame(
+                width: AppStyles.CommandBar.Rows.iconSize,
+                height: AppStyles.CommandBar.Rows.iconSize
+            )
         }
     }
 
@@ -301,12 +311,16 @@ struct CommandBarResultRow: View {
                     height: AppStyles.CommandBar.Rows.secondaryLineIconSize
                 )
         case .octicon(let octiconSymbol):
-            OcticonImage(name: octiconSymbol.rawValue, size: AppStyles.CommandBar.Rows.secondaryLineIconSize)
-                .foregroundStyle(Color.primary.opacity(secondaryLineOpacity))
-                .frame(
-                    width: AppStyles.CommandBar.Rows.iconSize,
-                    height: AppStyles.CommandBar.Rows.secondaryLineIconSize
-                )
+            OcticonImage(
+                name: octiconSymbol.rawValue,
+                size: AppStyles.CommandBar.Rows.secondaryLineIconSize,
+                loader: octiconLoader
+            )
+            .foregroundStyle(Color.primary.opacity(secondaryLineOpacity))
+            .frame(
+                width: AppStyles.CommandBar.Rows.iconSize,
+                height: AppStyles.CommandBar.Rows.secondaryLineIconSize
+            )
         }
     }
 }

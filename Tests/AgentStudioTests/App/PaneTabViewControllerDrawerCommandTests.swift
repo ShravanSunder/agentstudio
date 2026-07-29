@@ -3,12 +3,14 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct PaneTabViewControllerDrawerCommandTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("toggleDrawer opening an empty drawer sets empty drawer focus")

@@ -2,12 +2,14 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("Pane note and current pane path commands", .serialized)
 struct PaneTabViewControllerPaneNoteTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("editPaneNote presents note editor for active main pane")

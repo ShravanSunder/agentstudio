@@ -1,13 +1,21 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 
-struct InboxNotificationSQLiteDatastoreAdapter {
+package struct InboxNotificationSQLiteDatastoreAdapter {
     enum LoadResult: Sendable {
         case loaded(InboxNotificationStore.SQLiteSnapshot)
         case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
-    let workspaceId: UUID
-    let datastore: WorkspaceSQLiteDatastore
+    package let workspaceId: UUID
+    package let datastore: WorkspaceSQLiteDatastore
+
+    package init(workspaceId: UUID, datastore: WorkspaceSQLiteDatastore) {
+        self.workspaceId = workspaceId
+        self.datastore = datastore
+    }
 
     func load() async -> LoadResult {
         switch await datastore.performLocalRestoreOperation(workspaceId: workspaceId, Self.loadSnapshot) {

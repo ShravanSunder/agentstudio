@@ -1,11 +1,16 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Observation
 
 @MainActor
 @Observable
-final class InboxSidebarMemoryAtom {
-    private(set) var collapsedGroups: Set<InboxNotificationGroupKey> = []
+package final class InboxSidebarMemoryAtom {
+    package private(set) var collapsedGroups: Set<InboxNotificationGroupKey> = []
 
-    func setGroupCollapsed(_ groupKey: InboxNotificationGroupKey, isCollapsed: Bool) {
+    package init() {}
+
+    package func setGroupCollapsed(_ groupKey: InboxNotificationGroupKey, isCollapsed: Bool) {
         if isCollapsed {
             collapsedGroups.insert(groupKey)
         } else {
@@ -13,35 +18,37 @@ final class InboxSidebarMemoryAtom {
         }
     }
 
-    func toggleGroupCollapse(_ groupKey: InboxNotificationGroupKey) {
+    package func toggleGroupCollapse(_ groupKey: InboxNotificationGroupKey) {
         setGroupCollapsed(
             groupKey,
             isCollapsed: !collapsedGroups.contains(groupKey)
         )
     }
 
-    func isGroupCollapsed(_ groupKey: InboxNotificationGroupKey) -> Bool {
+    package func isGroupCollapsed(_ groupKey: InboxNotificationGroupKey) -> Bool {
         collapsedGroups.contains(groupKey)
     }
 
-    func hydrate(collapsedGroups: Set<InboxNotificationGroupKey>) {
+    package func hydrate(collapsedGroups: Set<InboxNotificationGroupKey>) {
         self.collapsedGroups = collapsedGroups
     }
 
-    func clearCollapsedGroups() {
+    package func clearCollapsedGroups() {
         collapsedGroups.removeAll(keepingCapacity: false)
     }
 }
 
 @MainActor
 @Observable
-final class InboxSidebarRuntimeAtom {
-    private(set) var pendingFilter: InboxFilter?
-    private(set) var pendingDisplayOverride: InboxNotificationDisplayOverride?
-    private(set) var shouldClearFilterOnNextRetarget = false
-    private(set) var dismissalGeneration = 0
+package final class InboxSidebarRuntimeAtom {
+    package private(set) var pendingFilter: InboxFilter?
+    package private(set) var pendingDisplayOverride: InboxNotificationDisplayOverride?
+    package private(set) var shouldClearFilterOnNextRetarget = false
+    package private(set) var dismissalGeneration = 0
     private var retargetRequestGeneration = 0
     private var handledRetargetRequestGeneration = 0
+
+    package init() {}
 
     func setPendingFilter(_ filter: InboxFilter) {
         pendingFilter = filter
@@ -110,11 +117,11 @@ final class InboxSidebarRuntimeAtom {
 }
 
 @MainActor
-final class InboxSidebarState {
+package final class InboxSidebarState {
     private let memoryAtom: InboxSidebarMemoryAtom
     private let runtimeAtom: InboxSidebarRuntimeAtom
 
-    init(
+    package init(
         memoryAtom: InboxSidebarMemoryAtom = .init(),
         runtimeAtom: InboxSidebarRuntimeAtom = .init()
     ) {
@@ -122,93 +129,93 @@ final class InboxSidebarState {
         self.runtimeAtom = runtimeAtom
     }
 
-    var pendingFilter: InboxFilter? {
+    package var pendingFilter: InboxFilter? {
         runtimeAtom.pendingFilter
     }
 
-    var pendingDisplayOverride: InboxNotificationDisplayOverride? {
+    package var pendingDisplayOverride: InboxNotificationDisplayOverride? {
         runtimeAtom.pendingDisplayOverride
     }
 
-    var collapsedGroups: Set<InboxNotificationGroupKey> {
+    package var collapsedGroups: Set<InboxNotificationGroupKey> {
         memoryAtom.collapsedGroups
     }
 
-    func setPendingFilter(_ filter: InboxFilter) {
+    package func setPendingFilter(_ filter: InboxFilter) {
         runtimeAtom.setPendingFilter(filter)
     }
 
-    func setPendingDisplayOverride(_ override: InboxNotificationDisplayOverride) {
+    package func setPendingDisplayOverride(_ override: InboxNotificationDisplayOverride) {
         runtimeAtom.setPendingDisplayOverride(override)
     }
 
-    func requestFilterClearOnNextRetarget() {
+    package func requestFilterClearOnNextRetarget() {
         runtimeAtom.requestFilterClearOnNextRetarget()
     }
 
-    func peekPendingFilter() -> InboxFilter? {
+    package func peekPendingFilter() -> InboxFilter? {
         runtimeAtom.peekPendingFilter()
     }
 
-    func peekPendingDisplayOverride() -> InboxNotificationDisplayOverride? {
+    package func peekPendingDisplayOverride() -> InboxNotificationDisplayOverride? {
         runtimeAtom.peekPendingDisplayOverride()
     }
 
-    func consumePendingFilter() -> InboxFilter? {
+    package func consumePendingFilter() -> InboxFilter? {
         runtimeAtom.consumePendingFilter()
     }
 
-    func consumeFilterClearOnNextRetarget() -> Bool {
+    package func consumeFilterClearOnNextRetarget() -> Bool {
         runtimeAtom.consumeFilterClearOnNextRetarget()
     }
 
-    func consumePendingDisplayOverride() -> InboxNotificationDisplayOverride? {
+    package func consumePendingDisplayOverride() -> InboxNotificationDisplayOverride? {
         runtimeAtom.consumePendingDisplayOverride()
     }
 
-    func clearPendingFilter() {
+    package func clearPendingFilter() {
         runtimeAtom.clearPendingFilter()
     }
 
-    func clearPendingDisplayOverride() {
+    package func clearPendingDisplayOverride() {
         runtimeAtom.clearPendingDisplayOverride()
     }
 
-    var dismissalGeneration: Int {
+    package var dismissalGeneration: Int {
         runtimeAtom.dismissalGeneration
     }
 
-    func hasUnhandledRetargetRequest() -> Bool {
+    package func hasUnhandledRetargetRequest() -> Bool {
         runtimeAtom.hasUnhandledRetargetRequest()
     }
 
-    func markRetargetRequestHandled() {
+    package func markRetargetRequestHandled() {
         runtimeAtom.markRetargetRequestHandled()
     }
 
-    func markDismissed() {
+    package func markDismissed() {
         runtimeAtom.markDismissed()
     }
 
-    func setGroupCollapsed(_ groupKey: InboxNotificationGroupKey, isCollapsed: Bool) {
+    package func setGroupCollapsed(_ groupKey: InboxNotificationGroupKey, isCollapsed: Bool) {
         memoryAtom.setGroupCollapsed(groupKey, isCollapsed: isCollapsed)
     }
 
-    func toggleGroupCollapse(_ groupKey: InboxNotificationGroupKey) {
+    package func toggleGroupCollapse(_ groupKey: InboxNotificationGroupKey) {
         memoryAtom.toggleGroupCollapse(groupKey)
     }
 
-    func isGroupCollapsed(_ groupKey: InboxNotificationGroupKey) -> Bool {
+    package func isGroupCollapsed(_ groupKey: InboxNotificationGroupKey) -> Bool {
         memoryAtom.isGroupCollapsed(groupKey)
     }
 
-    func hydrate(collapsedGroups: Set<InboxNotificationGroupKey>) {
+    package func hydrate(collapsedGroups: Set<InboxNotificationGroupKey>) {
         memoryAtom.hydrate(collapsedGroups: collapsedGroups)
         runtimeAtom.clearPendingFilter()
         runtimeAtom.clearPendingDisplayOverride()
     }
 
-    func clearCollapsedGroups() {
+    package func clearCollapsedGroups() {
         memoryAtom.clearCollapsedGroups()
     }
 }

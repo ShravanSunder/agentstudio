@@ -1,4 +1,10 @@
 import AgentStudioAppIPC
+import AgentStudioBridge
+import AgentStudioCommandBar
+import AgentStudioCore
+import AgentStudioInboxNotification
+import AgentStudioInfrastructure
+import AgentStudioTerminal
 import AppKit
 import SwiftUI
 import os.log
@@ -20,6 +26,7 @@ enum WorkspacePreparedContentMountBootState {
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var mainWindowController: MainWindowController?
+    let octiconLoader: OcticonLoader
     // MARK: - Shared Services (created once at launch)
     // Module-internal to support focused same-type AppDelegate extensions.
     var atomStore: AtomRegistry!
@@ -38,8 +45,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return cohort
     }
     var store: WorkspaceStore!
-    var repoCache: RepoCacheAtom! { atomStore.repoCache }
-    var uiState: WorkspaceSidebarState! { atomStore.workspaceSidebarState }
+    var repoCache: RepoCacheAtom! { atomStore.core.repoCache }
+    var uiState: WorkspaceSidebarState! { atomStore.core.workspaceSidebarState }
     var inboxNotificationStore: InboxNotificationStore!
     var inboxNotificationRouter: InboxNotificationRouter!
     var inboxPaneFocusTracker: PaneFocusTracker!
@@ -120,6 +127,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         traceRuntime: AgentStudioTraceRuntime,
         startupTraceRecorder: AgentStudioStartupTraceRecorder
     ) {
+        self.octiconLoader = OcticonLoader(resourceRootURL: Bundle.appResourceRootURL)
         self.traceRuntime = traceRuntime
         self.performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(
             traceRuntime: traceRuntime,
@@ -137,7 +145,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             "app.did_finish_launching.started",
             phase: "did_finish_launching"
         )
-        GhosttyStartupEnvironment.apply()
+        GhosttyStartupEnvironment.apply(resourceRootURL: Bundle.appResourceRootURL)
 
         // Some parent shells export NO_COLOR=1, which disables ANSI color in CLIs
         // (Codex, Gemini, etc.). Clear it for app-hosted terminal sessions.
@@ -213,46 +221,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         persistenceObservationBootTask?.cancel()
         launchRestoreObservationTask?.cancel()
         launchRestoreObservationState.cancelDiagnostics()
-    }
-
-    // MARK: - Dependency Check
-
-    func presentWorktrunkInstallationOfferIfNeeded() {
-        guard !WorktrunkService.shared.isInstalled else { return }
-
-        let alert = NSAlert()
-        alert.messageText = "Worktrunk Not Installed"
-        alert.informativeText =
-            "AgentStudio uses Worktrunk for git worktree management. Would you like to install it via Homebrew?"
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Install with Homebrew")
-        alert.addButton(withTitle: "Copy Command")
-        alert.addButton(withTitle: "Later")
-
-        let response = alert.runModal()
-
-        switch response {
-        case .alertFirstButtonReturn:
-            // Open Terminal and run install
-            let script = """
-                tell application "Terminal"
-                    activate
-                    do script "\(WorktrunkService.shared.installCommand)"
-                end tell
-                """
-            if let appleScript = NSAppleScript(source: script) {
-                var error: NSDictionary?
-                appleScript.executeAndReturnError(&error)
-            }
-
-        case .alertSecondButtonReturn:
-            // Copy command to clipboard
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(WorktrunkService.shared.installCommand, forType: .string)
-
-        default:
-            break
-        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -511,7 +479,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: - Repo/Folder Intake
 
     func handleWatchFolderRequested(startingAt initialURL: URL? = nil) async {
-        let welcome = atomStore.welcome
+        let welcome = atomStore.core.welcome
         welcome.beginChoosingFolder()
         defer { welcome.endChoosingFolder() }
 

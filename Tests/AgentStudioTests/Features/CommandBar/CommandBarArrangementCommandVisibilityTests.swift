@@ -1,16 +1,18 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite(.serialized)
 struct CommandBarArrangementCommandVisibilityTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
-    private let dispatcher = AppCommandDispatcher.shared
+    private let dispatcher = FakeAppCommandDispatcher()
 
     @Test
     func commandsScope_hidesCycleArrangementWhenOnlyDefaultArrangementExists() {

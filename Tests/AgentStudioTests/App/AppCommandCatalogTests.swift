@@ -1,12 +1,14 @@
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 final class AppCommandCatalogTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     // MARK: - Sidebar Commands

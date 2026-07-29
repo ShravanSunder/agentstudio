@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge product session producer registry")
 struct BridgeProductSessionProducerTests {

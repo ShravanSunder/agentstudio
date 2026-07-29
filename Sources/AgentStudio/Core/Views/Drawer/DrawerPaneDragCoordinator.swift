@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import CoreGraphics
 import Foundation
 
-struct DrawerPaneDragGeometry {
+package struct DrawerPaneDragGeometry {
     let paneFrames: [UUID: CGRect]
     let layout: DrawerGridLayout
     let containerBounds: CGRect
@@ -11,6 +12,20 @@ struct DrawerPaneDragGeometry {
     /// land them at a position equivalent to where they already are
     /// (the universal source-filter rule, R1+R2).
     let excludedPaneIds: Set<UUID>
+
+    package init(
+        paneFrames: [UUID: CGRect],
+        layout: DrawerGridLayout,
+        containerBounds: CGRect,
+        minimizedPaneIds: Set<UUID>,
+        excludedPaneIds: Set<UUID>
+    ) {
+        self.paneFrames = paneFrames
+        self.layout = layout
+        self.containerBounds = containerBounds
+        self.minimizedPaneIds = minimizedPaneIds
+        self.excludedPaneIds = excludedPaneIds
+    }
 
     var splittablePaneIds: Set<UUID> {
         Set(layout.paneIds)
@@ -40,7 +55,7 @@ struct DrawerPaneDragGeometry {
 ///   ▸ R15/R16 — cross-row drops: foreign targets in the OTHER row
 ///     remain valid even when S is alone in its own row; the apply
 ///     path handles row collapse.
-struct DrawerPaneDragCoordinator {
+package struct DrawerPaneDragCoordinator {
     static let creationBandHeight: CGFloat = AppPolicies.DragAndDrop.drawerNewRowBandMinHeight
 
     static func resolveTarget(
@@ -125,7 +140,7 @@ struct DrawerPaneDragCoordinator {
         targetVisuals(geometry: geometry).mapValues(\.region)
     }
 
-    static func targetVisuals(
+    package static func targetVisuals(
         geometry: DrawerPaneDragGeometry
     ) -> [DrawerRearrangeTarget: DrawerDropTargetVisual] {
         let resolverVisuals = DropTargetResolver.targetVisuals(

@@ -1,16 +1,22 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
+@testable import AgentStudioCore
 
 @MainActor
 @Suite("Command-T Quick Open projection", .serialized)
 struct CommandBarQuickOpenProjectionTests {
+    init() {
+        installTestCoreAtomsIfNeeded()
+    }
+
     @Test("empty Quick Open projects Current rows, Recent, and remaining topology without duplicate paths")
     func emptyRootProjectsCurrentRecentAndRepositoryWorktreeRows() throws {
-        try withTestAtomRegistry { atoms in
-            let fixture = try makeFixture(atoms: atoms)
-            atoms.applicationEntityRecency.hydrate([
+        try withTestCoreAtoms { coreAtoms in
+            let fixture = try makeFixture(coreAtoms: coreAtoms)
+            coreAtoms.applicationEntityRecency.hydrate([
                 try ApplicationEntityRecency(
                     entity: .worktree(worktreeStableKey: fixture.currentLinkedWorktree.stableKey),
                     interaction: .opened,
@@ -60,8 +66,8 @@ struct CommandBarQuickOpenProjectionTests {
 
     @Test("Current uses focused pane cwd when the pane has no worktree")
     func currentUsesFocusedPaneCWDWithoutWorktree() throws {
-        try withTestAtomRegistry { atoms in
-            let fixture = try makeFixture(atoms: atoms)
+        try withTestCoreAtoms { coreAtoms in
+            let fixture = try makeFixture(coreAtoms: coreAtoms)
             let cwd = URL(filePath: "/tmp/quick-open-focused-cwd")
             let pane = fixture.store.paneAtom.createPane(
                 launchDirectory: cwd,
@@ -86,11 +92,11 @@ struct CommandBarQuickOpenProjectionTests {
 
     @Test("Current deduplicates identical cwd, watched-root, and home paths")
     func currentDeduplicatesPaths() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { coreAtoms in
             let home = FileManager.default.homeDirectoryForCurrentUser
             let store = WorkspaceStore(
-                identityAtom: atoms.workspaceIdentity,
-                repositoryTopologyAtom: atoms.workspaceRepositoryTopology
+                identityAtom: coreAtoms.workspaceIdentity,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology
             )
             let preparation = RepositoryTopologyReplacement.prepare(
                 repositories: [],
@@ -125,9 +131,9 @@ struct CommandBarQuickOpenProjectionTests {
 
     @Test("meaningful Quick Open search uses one flat repository and worktree set")
     func meaningfulRootUsesRepositoryAndWorktreeRowsOnly() throws {
-        try withTestAtomRegistry { atoms in
-            let fixture = try makeFixture(atoms: atoms)
-            try atoms.applicationEntityRecency.recordOpened(
+        try withTestCoreAtoms { coreAtoms in
+            let fixture = try makeFixture(coreAtoms: coreAtoms)
+            try coreAtoms.applicationEntityRecency.recordOpened(
                 repositoryStableKey: fixture.recentRepository.stableKey,
                 worktreeStableKey: fixture.currentLinkedWorktree.stableKey,
                 at: Date(timeIntervalSince1970: 100)
@@ -161,15 +167,15 @@ struct CommandBarQuickOpenProjectionTests {
             rootQueryState: queryState,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: .shared,
+            dispatcher: FakeAppCommandDispatcher(),
             focus: focus
         )
     }
 
-    private func makeFixture(atoms: AtomRegistry) throws -> Fixture {
+    private func makeFixture(coreAtoms: CoreAtoms) throws -> Fixture {
         let store = WorkspaceStore(
-            identityAtom: atoms.workspaceIdentity,
-            repositoryTopologyAtom: atoms.workspaceRepositoryTopology
+            identityAtom: coreAtoms.workspaceIdentity,
+            repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology
         )
 
         let remainingRepositoryID = UUID()

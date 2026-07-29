@@ -1,13 +1,25 @@
 import Foundation
 import WebKit
 
-struct BridgeProductStreamWebKitFeasibilitySchemeHandler: URLSchemeHandler, Sendable {
-    let expectedCapability: String
-    let workerSource: String
-    let oracle: BridgeProductStreamWebKitFeasibilityOracle
-    let configuration: BridgeProductStreamWebKitFeasibilityConfiguration
+package struct BridgeProductStreamWebKitFeasibilitySchemeHandler: URLSchemeHandler, Sendable {
+    package let expectedCapability: String
+    package let workerSource: String
+    package let oracle: BridgeProductStreamWebKitFeasibilityOracle
+    package let configuration: BridgeProductStreamWebKitFeasibilityConfiguration
 
-    func reply(for request: URLRequest) -> some AsyncSequence<URLSchemeTaskResult, any Error> {
+    package init(
+        expectedCapability: String,
+        workerSource: String,
+        oracle: BridgeProductStreamWebKitFeasibilityOracle,
+        configuration: BridgeProductStreamWebKitFeasibilityConfiguration
+    ) {
+        self.expectedCapability = expectedCapability
+        self.workerSource = workerSource
+        self.oracle = oracle
+        self.configuration = configuration
+    }
+
+    package func reply(for request: URLRequest) -> some AsyncSequence<URLSchemeTaskResult, any Error> {
         AsyncThrowingStream<URLSchemeTaskResult, any Error> { continuation in
             let task = Task {
                 await route(request, continuation: continuation)

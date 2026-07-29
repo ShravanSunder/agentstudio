@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import Foundation
 import WebKit
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeProductSchemeAdapterHarness {
     let adapter: BridgeProductSchemeAdapter

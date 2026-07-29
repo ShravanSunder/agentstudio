@@ -4,10 +4,12 @@ import os.log
 private let runtimeRegistryLogger = Logger(subsystem: "com.agentstudio", category: "RuntimeRegistry")
 
 @MainActor
-final class RuntimeRegistry {
-    static let shared = RuntimeRegistry()
+package final class RuntimeRegistry {
+    package static let shared = RuntimeRegistry()
 
-    enum RegistrationResult: Equatable {
+    package init() {}
+
+    package enum RegistrationResult: Equatable {
         case inserted
         case duplicateRejected
     }
@@ -16,7 +18,7 @@ final class RuntimeRegistry {
     private var kindIndex: [PaneContentType: Set<PaneId>] = [:]
 
     @discardableResult
-    func register(_ runtime: any PaneRuntime) -> RegistrationResult {
+    package func register(_ runtime: any PaneRuntime) -> RegistrationResult {
         if runtimes[runtime.paneId] != nil {
             runtimeRegistryLogger.error(
                 "Duplicate registration rejected for pane \(runtime.paneId, privacy: .public); existing runtime preserved"
@@ -30,7 +32,7 @@ final class RuntimeRegistry {
     }
 
     @discardableResult
-    func unregister(_ paneId: PaneId) -> (any PaneRuntime)? {
+    package func unregister(_ paneId: PaneId) -> (any PaneRuntime)? {
         guard let runtime = runtimes.removeValue(forKey: paneId) else {
             return nil
         }
@@ -38,7 +40,7 @@ final class RuntimeRegistry {
         return runtime
     }
 
-    func runtime(for paneId: PaneId) -> (any PaneRuntime)? {
+    package func runtime(for paneId: PaneId) -> (any PaneRuntime)? {
         runtimes[paneId]
     }
 

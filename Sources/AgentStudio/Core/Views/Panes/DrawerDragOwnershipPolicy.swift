@@ -2,8 +2,8 @@ import CoreGraphics
 import Foundation
 
 @MainActor
-enum DrawerDragOwnershipPolicy {
-    static func expandedDrawerParentPaneId(
+package enum DrawerDragOwnershipPolicy {
+    package static func expandedDrawerParentPaneId(
         tabId: UUID,
         tabLayoutAtom: WorkspaceTabLayoutAtom,
         paneAtom: WorkspacePaneAtom
@@ -17,14 +17,14 @@ enum DrawerDragOwnershipPolicy {
         return nil
     }
 
-    static func mainSplitDragEnabled(
+    package static func mainSplitDragEnabled(
         managementLayerActive: Bool,
         expandedDrawerParentPaneId: UUID?
     ) -> Bool {
         managementLayerActive && expandedDrawerParentPaneId == nil
     }
 
-    static func drawerCaptureEnabled(
+    package static func drawerCaptureEnabled(
         managementLayerActive: Bool,
         expandedDrawerParentPaneId: UUID?,
         drawerPanelFrameInTab: CGRect
@@ -32,7 +32,7 @@ enum DrawerDragOwnershipPolicy {
         managementLayerActive && expandedDrawerParentPaneId != nil && !drawerPanelFrameInTab.isEmpty
     }
 
-    static func retainedDrawerDropTarget(
+    package static func retainedDrawerDropTarget(
         _ target: DrawerRearrangeTarget?,
         expandedDrawerParentPaneId: UUID?
     ) -> DrawerRearrangeTarget? {

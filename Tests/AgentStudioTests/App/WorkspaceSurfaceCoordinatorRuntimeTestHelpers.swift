@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
 
 final class FakePaneRuntime: PaneRuntime {
     let paneId: PaneId

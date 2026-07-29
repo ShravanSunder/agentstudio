@@ -1,6 +1,12 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import AppKit
 import Foundation
 import SwiftUI
+
+package typealias BridgeAttendanceSnapshot =
+    @MainActor () -> [UUID: UInt64]
 
 private enum RepoSidebarToolbarTooltipTarget: Hashable {
     case sort
@@ -9,10 +15,17 @@ private enum RepoSidebarToolbarTooltipTarget: Hashable {
 
 /// Sidebar content grouped by repository identity (worktree family / remote).
 @MainActor
-struct RepoExplorerView: View {
+package struct RepoExplorerView: View {
     typealias SidebarProjection = RepoExplorerSidebarProjection
 
     let store: WorkspaceStore
+    let octiconLoader: OcticonLoader
+    let repoExplorerPrefs: RepoExplorerSidebarPrefsAtom
+    let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
+    let commandDispatcher: any AppCommandDispatching
+    let onSetVisibilityMode: (RepoExplorerVisibilityMode) -> Void
+    let onSetSortOrder: (RepoExplorerSortOrder) -> Void
+    let onRefreshWorktrees: () -> Void
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     let onShowNotificationsForWorktree: (Worktree) -> Void
@@ -25,8 +38,15 @@ struct RepoExplorerView: View {
     static let headerLayoutPolicy = SidebarHeaderLayout<EmptyView, EmptyView, EmptyView, EmptyView>.policy
     static let tooltipCoordinateSpaceName = "repoSidebarHeaderTooltips"
 
-    init(
+    package init(
         store: WorkspaceStore,
+        octiconLoader: OcticonLoader,
+        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom,
+        bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
+        commandDispatcher: any AppCommandDispatching,
+        onSetVisibilityMode: @escaping (RepoExplorerVisibilityMode) -> Void,
+        onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void,
+        onRefreshWorktrees: @escaping () -> Void,
         onRefocusActivePane: @escaping () -> Void,
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
         onShowNotificationsForWorktree: @escaping (Worktree) -> Void,
@@ -37,6 +57,13 @@ struct RepoExplorerView: View {
         onInitialProjectionApplied: @escaping @MainActor (Int) -> Void = { _ in }
     ) {
         self.store = store
+        self.octiconLoader = octiconLoader
+        self.repoExplorerPrefs = repoExplorerPrefs
+        self.bridgeAttendanceSnapshot = bridgeAttendanceSnapshot
+        self.commandDispatcher = commandDispatcher
+        self.onSetVisibilityMode = onSetVisibilityMode
+        self.onSetSortOrder = onSetSortOrder
+        self.onRefreshWorktrees = onRefreshWorktrees
         self.onRefocusActivePane = onRefocusActivePane
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
         self.onShowNotificationsForWorktree = onShowNotificationsForWorktree
@@ -58,10 +85,6 @@ struct RepoExplorerView: View {
 
     private var sidebarCache: SidebarCacheState {
         atom(\.sidebarCache)
-    }
-
-    private var repoExplorerPrefs: RepoExplorerSidebarPrefsAtom {
-        atom(\.repoExplorerSidebarPrefs)
     }
 
     @State private var filterText: String = ""
@@ -132,7 +155,7 @@ struct RepoExplorerView: View {
         return repoCache.worktreeFactsSnapshot().filter { sidebarWorktreeIds.contains($0.key) }
     }
 
-    var body: some View {
+    package var body: some View {
         VStack(spacing: 0) {
             RepoExplorerFocusBridge(
                 uiState: uiState
@@ -265,13 +288,11 @@ struct RepoExplorerView: View {
         return HStack(spacing: AppStyles.General.Spacing.standard) {
             Spacer(minLength: 0)
 
-            RepoExplorerVisibilityButton(isFavoritesOnly: isFavoritesOnly) {
-                AppCommandDispatcher.shared.dispatch(
-                    AppCommandExecutionRequest(
-                        command: .setRepoSidebarVisibilityMode,
-                        arguments: .repoSidebarVisibilityMode(isFavoritesOnly ? .all : .favoritesOnly)
-                    )
-                )
+            RepoExplorerVisibilityButton(
+                octiconLoader: octiconLoader,
+                isFavoritesOnly: isFavoritesOnly
+            ) {
+                onSetVisibilityMode(isFavoritesOnly ? .all : .favoritesOnly)
             }
 
             SidebarToolbarSortButton(
@@ -283,19 +304,17 @@ struct RepoExplorerView: View {
                     textOverride: "Sort \(repoExplorerPrefs.sortOrder.title.lowercased())"
                 ),
                 icon: {
-                    sortAction.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                    sortAction.icon.swiftUIImage(
+                        loader: octiconLoader,
+                        size: AppStyles.General.Icon.compact
+                    )
                 },
                 tooltipTarget: RepoSidebarToolbarTooltipTarget.sort,
                 tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
                 frameAccessibilityIdentifier: "repoSidebarSortButtonFrame",
                 onHover: { updateTooltipTarget(.sort, isHovered: $0) },
                 onToggle: {
-                    AppCommandDispatcher.shared.dispatch(
-                        AppCommandExecutionRequest(
-                            command: .setRepoSidebarSortOrder,
-                            arguments: .repoSidebarSortOrder(repoExplorerPrefs.sortOrder.toggled)
-                        )
-                    )
+                    onSetSortOrder(repoExplorerPrefs.sortOrder.toggled)
                 }
             )
 
@@ -323,11 +342,14 @@ struct RepoExplorerView: View {
                     items: RepoExplorerGroupingMode.allCases,
                     selectedItem: repoExplorerPrefs.groupingMode,
                     icon: { groupingMode in
-                        groupingMode.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                        groupingMode.icon.swiftUIImage(
+                            loader: octiconLoader,
+                            size: AppStyles.General.Icon.compact
+                        )
                     },
                     label: \.title,
                     onSelect: { candidate in
-                        AppCommandDispatcher.shared.dispatch(groupingCommand(for: candidate))
+                        commandDispatcher.dispatch(groupingCommand(for: candidate))
                         groupingMenuOpen = false
                     },
                     onDismiss: { groupingMenuOpen = false }
@@ -383,6 +405,7 @@ struct RepoExplorerView: View {
                 case .resolvedGroupHeader(let group):
                     SidebarRepoGroupHeader(
                         isCollapsed: !isGroupExpanded(group.id),
+                        octiconLoader: octiconLoader,
                         icon: iconForGroup(group),
                         repoTitle: group.repoTitle,
                         organizationName: group.organizationName,
@@ -406,7 +429,7 @@ struct RepoExplorerView: View {
                         }
 
                         Button(LocalActionSpec.refreshWorktrees.actionSpec.label) {
-                            AppCommandDispatcher.shared.appCommandRouter?.refreshWorktrees()
+                            onRefreshWorktrees()
                         }
                     }
 
@@ -418,6 +441,7 @@ struct RepoExplorerView: View {
                         rowId: rowId
                     ) {
                         RepoExplorerWorktreeRow(
+                            octiconLoader: octiconLoader,
                             worktree: resolvedWorktreeContext.worktree,
                             checkoutTitle: checkoutTitle(
                                 for: resolvedWorktreeContext.worktree,
@@ -451,49 +475,49 @@ struct RepoExplorerView: View {
                                 onShowNotificationsForWorktree(resolvedWorktreeContext.worktree)
                             },
                             onOpen: {
-                                AppCommandDispatcher.shared.dispatch(
+                                commandDispatcher.dispatch(
                                     .openWorktree,
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
                                 )
                             },
                             onOpenNew: {
-                                AppCommandDispatcher.shared.dispatch(
+                                commandDispatcher.dispatch(
                                     .openNewTerminalInTab,
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
                                 )
                             },
                             onReview: {
-                                AppCommandDispatcher.shared.dispatch(
+                                commandDispatcher.dispatch(
                                     .showBridgeReview,
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
                                 )
                             },
                             onOpenFiles: {
-                                AppCommandDispatcher.shared.dispatch(
+                                commandDispatcher.dispatch(
                                     .showBridgeFiles,
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
                                 )
                             },
                             onOpenReviewInNewTab: {
-                                AppCommandDispatcher.shared.dispatch(
+                                commandDispatcher.dispatch(
                                     .openBridgeReviewInNewTab,
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
                                 )
                             },
                             onOpenFilesInNewTab: {
-                                AppCommandDispatcher.shared.dispatch(
+                                commandDispatcher.dispatch(
                                     .openBridgeFilesInNewTab,
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
                                 )
                             },
                             onOpenInPane: {
-                                AppCommandDispatcher.shared.dispatch(
+                                commandDispatcher.dispatch(
                                     .openWorktreeInPane,
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
@@ -583,7 +607,7 @@ struct RepoExplorerView: View {
 
     private func toggleFavorite(repoId: UUID) {
         guard let repo = store.repositoryTopologyAtom.repo(repoId) else { return }
-        AppCommandDispatcher.shared.dispatch(
+        commandDispatcher.dispatch(
             repo.isFavorite ? .removeRepoFavorite : .addRepoFavorite,
             target: repoId,
             targetType: .repo
@@ -843,6 +867,9 @@ struct RepoExplorerView: View {
         }
     }
 
+}
+
+extension RepoExplorerView {
     private func sidebarProjectionTraceAttributes(
         for request: RepoExplorerProjectionRequest,
         phase: String,
@@ -864,7 +891,6 @@ struct RepoExplorerView: View {
         attributes.merge(extra) { _, newValue in newValue }
         return attributes
     }
-
 }
 
 private struct RepoExplorerTopologyFaultRow: View {

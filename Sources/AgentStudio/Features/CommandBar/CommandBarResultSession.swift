@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 
@@ -18,7 +20,7 @@ final class CommandBarResultSession {
 
     @ObservationIgnored private let store: WorkspaceStore
     @ObservationIgnored private let repoCache: RepoCacheAtom
-    @ObservationIgnored private let dispatcher: AppCommandDispatcher
+    @ObservationIgnored private let dispatcher: any AppCommandDispatching
     @ObservationIgnored private let notificationInboxCommands: InboxNotificationCommands?
     @ObservationIgnored private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     @ObservationIgnored private var cachedRootItemSnapshot: CachedRootItemSnapshot?
@@ -35,7 +37,7 @@ final class CommandBarResultSession {
     init(
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        dispatcher: AppCommandDispatcher,
+        dispatcher: any AppCommandDispatching,
         notificationInboxCommands: InboxNotificationCommands? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {

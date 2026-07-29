@@ -1,13 +1,13 @@
 import Foundation
 
 @MainActor
-final class PopoverToggleGate {
+package final class PopoverToggleGate {
     private let delay: AsyncDelay
     private let suppressionWindow: Duration
     private var resetTask: Task<Void, Never>?
     private var suppressNextToggle = false
 
-    init(
+    package init(
         clock: (any Clock<Duration> & Sendable)? = nil,
         suppressionWindow: Duration = .milliseconds(150)
     ) {
@@ -19,7 +19,7 @@ final class PopoverToggleGate {
         resetTask?.cancel()
     }
 
-    func toggle(isPresented: inout Bool) {
+    package func toggle(isPresented: inout Bool) {
         if suppressNextToggle {
             suppressNextToggle = false
             return
@@ -28,7 +28,7 @@ final class PopoverToggleGate {
         isPresented.toggle()
     }
 
-    func recordSystemDismissal() {
+    package func recordSystemDismissal() {
         suppressNextToggle = true
         resetTask?.cancel()
 

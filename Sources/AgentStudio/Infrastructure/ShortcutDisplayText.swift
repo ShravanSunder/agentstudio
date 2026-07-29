@@ -1,5 +1,9 @@
 import Foundation
 
-struct ShortcutDisplayText: Equatable, Sendable {
-    let value: String
+package struct ShortcutDisplayText: Equatable, Sendable {
+    package let value: String
+
+    package init(value: String) {
+        self.value = value
+    }
 }

@@ -1,7 +1,9 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-struct SidebarSourceGroupHeader<TrailingContent: View>: View {
+package struct SidebarSourceGroupHeader<TrailingContent: View>: View {
     let isCollapsed: Bool
+    let octiconLoader: OcticonLoader
     let icon: AppEntityIcon
     let title: String
     let secondaryTitle: String?
@@ -9,7 +11,27 @@ struct SidebarSourceGroupHeader<TrailingContent: View>: View {
     let onToggle: () -> Void
     @ViewBuilder let trailingContent: () -> TrailingContent
 
-    static var chromePolicy: SidebarHeaderChromePolicy {
+    package init(
+        isCollapsed: Bool,
+        octiconLoader: OcticonLoader,
+        icon: AppEntityIcon,
+        title: String,
+        secondaryTitle: String?,
+        accessibilityIdentifier: String? = nil,
+        onToggle: @escaping () -> Void,
+        @ViewBuilder trailingContent: @escaping () -> TrailingContent
+    ) {
+        self.isCollapsed = isCollapsed
+        self.octiconLoader = octiconLoader
+        self.icon = icon
+        self.title = title
+        self.secondaryTitle = secondaryTitle
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.onToggle = onToggle
+        self.trailingContent = trailingContent
+    }
+
+    package static var chromePolicy: SidebarHeaderChromePolicy {
         .sourceGroupHeader
     }
 
@@ -17,7 +39,7 @@ struct SidebarSourceGroupHeader<TrailingContent: View>: View {
         AppStyles.Shell.Sidebar.listRowLeadingInset
     }
 
-    var body: some View {
+    package var body: some View {
         Button(action: onToggle) {
             SidebarSectionHeaderRow(isCollapsed: isCollapsed) {
                 HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
@@ -78,13 +100,14 @@ struct SidebarSourceGroupHeader<TrailingContent: View>: View {
 
     @ViewBuilder
     private var headerIcon: some View {
-        icon.swiftUIImage(size: AppStyles.Shell.Sidebar.groupIconSize)
+        icon.swiftUIImage(loader: octiconLoader, size: AppStyles.Shell.Sidebar.groupIconSize)
     }
 }
 
 extension SidebarSourceGroupHeader where TrailingContent == EmptyView {
-    init(
+    package init(
         isCollapsed: Bool,
+        octiconLoader: OcticonLoader,
         icon: AppEntityIcon,
         title: String,
         secondaryTitle: String?,
@@ -92,6 +115,7 @@ extension SidebarSourceGroupHeader where TrailingContent == EmptyView {
         onToggle: @escaping () -> Void
     ) {
         self.isCollapsed = isCollapsed
+        self.octiconLoader = octiconLoader
         self.icon = icon
         self.title = title
         self.secondaryTitle = secondaryTitle

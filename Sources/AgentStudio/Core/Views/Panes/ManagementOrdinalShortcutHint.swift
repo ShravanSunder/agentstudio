@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-enum ManagementOrdinalShortcutHintVariant: Equatable {
+package enum ManagementOrdinalShortcutHintVariant: Equatable {
     case paneOverlay
     case collapsedBar
 }
@@ -57,11 +58,11 @@ struct ManagementOrdinalShortcutHintStyle: Equatable {
     }
 }
 
-struct ManagementOrdinalShortcutHint: View {
+package struct ManagementOrdinalShortcutHint: View {
     let ordinal: Int
     let variant: ManagementOrdinalShortcutHintVariant
 
-    init(
+    package init(
         ordinal: Int,
         variant: ManagementOrdinalShortcutHintVariant = .paneOverlay
     ) {
@@ -69,7 +70,7 @@ struct ManagementOrdinalShortcutHint: View {
         self.variant = variant
     }
 
-    var body: some View {
+    package var body: some View {
         ManagementShortcutBadge(
             content: .ordinal(ordinal),
             variant: variant

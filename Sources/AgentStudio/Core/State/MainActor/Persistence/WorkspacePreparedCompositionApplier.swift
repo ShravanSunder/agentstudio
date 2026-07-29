@@ -1,21 +1,32 @@
+import AgentStudioInfrastructure
 import Foundation
 
-struct WorkspaceContentMountGeneration: Hashable, Sendable {
+package struct WorkspaceContentMountGeneration: Hashable, Sendable {
     let id: UUID
 
-    init(id: UUID = UUIDv7.generate()) {
+    package init(id: UUID = UUIDv7.generate()) {
         self.id = id
     }
 }
 
-struct WorkspacePreparedContentMountCohort: Equatable, Sendable {
-    let generation: WorkspaceContentMountGeneration
-    let terminalActivationInput: TerminalActivationInput
-    let nonterminalContentMountInput: NonterminalContentMountInput
+package struct WorkspacePreparedContentMountCohort: Equatable, Sendable {
+    package let generation: WorkspaceContentMountGeneration
+    package let terminalActivationInput: TerminalActivationInput
+    package let nonterminalContentMountInput: NonterminalContentMountInput
+
+    package init(
+        generation: WorkspaceContentMountGeneration,
+        terminalActivationInput: TerminalActivationInput,
+        nonterminalContentMountInput: NonterminalContentMountInput
+    ) {
+        self.generation = generation
+        self.terminalActivationInput = terminalActivationInput
+        self.nonterminalContentMountInput = nonterminalContentMountInput
+    }
 }
 
-struct WorkspacePreparedCompositionAcceptance: Equatable, Sendable {
-    let contentMountCohort: WorkspacePreparedContentMountCohort
+package struct WorkspacePreparedCompositionAcceptance: Equatable, Sendable {
+    package let contentMountCohort: WorkspacePreparedContentMountCohort
 
     var terminalActivationInput: TerminalActivationInput {
         contentMountCohort.terminalActivationInput
@@ -26,7 +37,7 @@ struct WorkspacePreparedCompositionAcceptance: Equatable, Sendable {
     }
 }
 
-enum WorkspacePreparedCompositionApplyFailure: Equatable, Sendable {
+package enum WorkspacePreparedCompositionApplyFailure: Equatable, Sendable {
     case alreadyInstalled
 }
 

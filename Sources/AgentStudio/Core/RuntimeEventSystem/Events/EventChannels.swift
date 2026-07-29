@@ -1,9 +1,10 @@
+import AgentStudioInfrastructure
 import Foundation
 
-enum PaneRuntimeEventBus {
-    static let performanceReporter = RuntimeDeliveryPerformanceReporter()
+package enum PaneRuntimeEventBus {
+    package static let performanceReporter = RuntimeDeliveryPerformanceReporter()
 
-    static let shared = EventBus<RuntimeEnvelope>(
+    package static let shared = EventBus<RuntimeEnvelope>(
         name: "paneRuntime",
         replayConfiguration: .init(
             capacityPerSource: 256,

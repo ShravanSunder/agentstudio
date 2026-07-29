@@ -3,12 +3,15 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioEditorChooser
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct PaneCloseTransitionCoordinatorTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("close transition marks pane closing until the injected clock advances")
@@ -133,12 +136,14 @@ struct PaneCloseTransitionCoordinatorTests {
 
         let leaf = PaneLeafContainer(
             paneHost: drawerHost,
+            octiconLoader: makeTestOcticonLoader(),
             tabId: tab.id,
             isActive: true,
             isSplit: false,
             isSplitResizing: false,
             store: harness.store,
             repoCache: RepoCacheAtom(),
+            editorChooser: EditorChooserState(),
             closeTransitionCoordinator: closeCoordinator,
             actionDispatcher: actionDispatcher,
             onPaneFocusTrigger: { _ in },

@@ -25,16 +25,16 @@ extension TerminalPaneMountView {
         }
     }
 
-    @objc func startSearch(_ sender: Any?) {
+    @objc package func startSearch(_ sender: Any?) {
         ensureSearchOverlay()
         _ = currentActionPerformer?.performBindingAction(.startSearch)
     }
 
-    @objc func findNext(_ sender: Any?) {
+    @objc package func findNext(_ sender: Any?) {
         _ = currentActionPerformer?.performBindingAction(.navigateSearch(.next))
     }
 
-    @objc func findPrevious(_ sender: Any?) {
+    @objc package func findPrevious(_ sender: Any?) {
         _ = currentActionPerformer?.performBindingAction(.navigateSearch(.previous))
     }
 

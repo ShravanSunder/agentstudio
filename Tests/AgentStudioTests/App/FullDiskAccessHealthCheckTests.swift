@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioInfrastructure
 
 @MainActor
 @Suite("FullDiskAccessHealthCheck")

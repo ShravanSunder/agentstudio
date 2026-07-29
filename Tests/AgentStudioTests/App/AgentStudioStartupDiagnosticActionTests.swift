@@ -2,6 +2,7 @@ import CoreGraphics
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 struct AgentStudioStartupDiagnosticActionTests {
 

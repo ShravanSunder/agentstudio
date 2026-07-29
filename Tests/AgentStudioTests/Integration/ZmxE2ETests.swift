@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
 
 /// End-to-end tests that exercise the full zmx daemon lifecycle against a real zmx binary.
 ///

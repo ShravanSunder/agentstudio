@@ -1,8 +1,11 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import GRDB
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
 
 @MainActor
 @Suite("InboxNotificationStore")
@@ -16,7 +19,37 @@ struct InboxNotificationStoreTests {
         }
         return InboxNotificationSQLiteDatastoreAdapter(
             workspaceId: workspaceId,
-            datastore: try await preparedWorkspaceSQLiteDatastore(from: localBackend)
+            datastore: try await makeWorkspaceSQLiteDatastore(from: localBackend)
+        )
+    }
+
+    private func makeWorkspaceSQLiteDatastore(
+        from localBackend: WorkspaceLocalSQLiteStoreBackend
+    ) async throws -> WorkspaceSQLiteDatastore {
+        let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
+        try coreRepository.migrate()
+        let backend = WorkspaceSQLiteStoreBackend(
+            coreRepository: coreRepository,
+            localBackend: localBackend,
+            coreDatabaseStartupProvenance: .createdDuringCurrentStartup
+        )
+        let preparedCore = try WorkspaceSQLiteDatastore.strictlyPrepareCore(using: backend)
+        let preparedApplicationLocalRepository: WorkspaceLocalRepository?
+        let preparedLocal: WorkspaceSQLiteDatastore.PreparedLocalDatabase
+        do {
+            preparedApplicationLocalRepository = try localBackend.restoreRepository(
+                for: inboxApplicationLocalRepositoryScopeId
+            )
+            preparedLocal = .available(recovery: nil)
+        } catch {
+            preparedApplicationLocalRepository = nil
+            preparedLocal = .unavailable(.init(error))
+        }
+        return WorkspaceSQLiteDatastore(
+            preparedCoreRepository: coreRepository,
+            preparationReceipt: .init(core: preparedCore, local: preparedLocal),
+            preparedApplicationLocalRepository: preparedApplicationLocalRepository
         )
     }
 
@@ -193,3 +226,7 @@ struct InboxNotificationStoreTests {
         )
     }
 }
+
+private let inboxApplicationLocalRepositoryScopeId = UUID(
+    uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+)

@@ -87,7 +87,7 @@ struct TransientKeyboardSurfaceRegistrationModifier: ViewModifier {
 }
 
 extension View {
-    func transientKeyboardSurface(
+    package func transientKeyboardSurface(
         _ kind: TransientKeyboardSurfaceKind,
         workspaceWindowId: UUID? = nil,
         policy: TransientKeyboardSurfacePolicy? = nil,

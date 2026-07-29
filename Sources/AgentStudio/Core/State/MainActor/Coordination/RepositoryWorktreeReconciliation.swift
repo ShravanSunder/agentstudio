@@ -1,39 +1,57 @@
 import Foundation
 
-struct RemovedWorktreeEntry: Sendable, Equatable {
-    let id: UUID
-    let path: URL
+package struct RemovedWorktreeEntry: Sendable, Equatable {
+    package let id: UUID
+    package let path: URL
 }
 
-struct WorktreeTopologyDelta: Sendable, Equatable {
+package struct WorktreeTopologyDelta: Sendable, Equatable {
     let repoId: UUID
     let addedWorktreeIds: [UUID]
-    let removedWorktrees: [RemovedWorktreeEntry]
+    package let removedWorktrees: [RemovedWorktreeEntry]
     let preservedWorktreeIds: [UUID]
-    let didChange: Bool
+    package let didChange: Bool
     let traceId: UUID?
 }
 
-struct RepositoryScannedMainWorktree: Equatable, Sendable {
-    let name: String
-    let path: URL
+package struct RepositoryScannedMainWorktree: Equatable, Sendable {
+    package let name: String
+    package let path: URL
+
+    package init(name: String, path: URL) {
+        self.name = name
+        self.path = path
+    }
 }
 
-struct RepositoryScannedLinkedWorktree: Equatable, Sendable {
-    let name: String
-    let path: URL
+package struct RepositoryScannedLinkedWorktree: Equatable, Sendable {
+    package let name: String
+    package let path: URL
+
+    package init(name: String, path: URL) {
+        self.name = name
+        self.path = path
+    }
 }
 
-struct RepositoryScannedWorktrees: Equatable, Sendable {
-    let main: RepositoryScannedMainWorktree
-    let linked: [RepositoryScannedLinkedWorktree]
+package struct RepositoryScannedWorktrees: Equatable, Sendable {
+    package let main: RepositoryScannedMainWorktree
+    package let linked: [RepositoryScannedLinkedWorktree]
+
+    package init(
+        main: RepositoryScannedMainWorktree,
+        linked: [RepositoryScannedLinkedWorktree]
+    ) {
+        self.main = main
+        self.linked = linked
+    }
 }
 
-struct RepositoryWorktreeReconciliationAcceptance: Equatable, Sendable {
-    let delta: WorktreeTopologyDelta
+package struct RepositoryWorktreeReconciliationAcceptance: Equatable, Sendable {
+    package let delta: WorktreeTopologyDelta
 }
 
-enum RepositoryWorktreeReconciliationRejection: Equatable, Sendable {
+package enum RepositoryWorktreeReconciliationRejection: Equatable, Sendable {
     case repoNotFound(UUID)
     case worktreeRepoMismatch(
         worktreeId: UUID,
@@ -44,22 +62,22 @@ enum RepositoryWorktreeReconciliationRejection: Equatable, Sendable {
     case duplicateWorktreeStableKey(String)
 }
 
-enum RepositoryWorktreeReconciliationResult: Equatable, Sendable {
+package enum RepositoryWorktreeReconciliationResult: Equatable, Sendable {
     case accepted(RepositoryWorktreeReconciliationAcceptance)
     case rejected(RepositoryWorktreeReconciliationRejection)
 }
 
-struct RepositoryReassociationAcceptance: Equatable, Sendable {
+package struct RepositoryReassociationAcceptance: Equatable, Sendable {
     let worktreeIds: Set<UUID>
-    let delta: WorktreeTopologyDelta
+    package let delta: WorktreeTopologyDelta
 }
 
-enum RepositoryReassociationRejection: Equatable, Sendable {
+package enum RepositoryReassociationRejection: Equatable, Sendable {
     case duplicateRepositoryStableKey(String)
     case worktreeReconciliation(RepositoryWorktreeReconciliationRejection)
 }
 
-enum RepositoryReassociationResult: Equatable, Sendable {
+package enum RepositoryReassociationResult: Equatable, Sendable {
     case accepted(RepositoryReassociationAcceptance)
     case rejected(RepositoryReassociationRejection)
 }

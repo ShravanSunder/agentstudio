@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeReviewPipelineTests {
     @Test("pipeline builds package off main actor and returns handles without loading content")

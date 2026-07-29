@@ -1,6 +1,6 @@
 import Foundation
 
-enum RepositoryTopologyIdentityRejection: Error, Equatable, Sendable {
+package enum RepositoryTopologyIdentityRejection: Error, Equatable, Sendable {
     case duplicateRepositoryID(UUID)
     case duplicateRepositoryStableKey(String)
     case duplicateWorktreeID(UUID)

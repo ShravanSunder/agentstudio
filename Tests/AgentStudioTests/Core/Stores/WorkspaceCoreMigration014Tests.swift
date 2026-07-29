@@ -1,8 +1,9 @@
+import AgentStudioInfrastructure
 import Foundation
 import GRDB
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @Suite("WorkspaceCoreMigration014Tests")
 struct WorkspaceCoreMigration014Tests {

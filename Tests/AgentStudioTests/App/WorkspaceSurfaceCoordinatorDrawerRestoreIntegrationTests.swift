@@ -3,12 +3,16 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct WorkspaceDrawerRestoreIntegrationTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private let fixtureSessionConfiguration = SessionConfiguration(
@@ -58,7 +62,8 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: .shared,
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
@@ -330,7 +335,8 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
@@ -377,7 +383,8 @@ struct WorkspaceDrawerRestoreIntegrationTests {
             runtime: restoredRuntime,
             surfaceManager: restoredSurfaceManager,
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: restoredWindowLifecycleStore
+            windowLifecycleStore: restoredWindowLifecycleStore,
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         restoredCoordinator.sessionConfig = fixtureSessionConfiguration
         restoredCoordinator.terminalRestoreRuntime = TerminalRestoreRuntime(

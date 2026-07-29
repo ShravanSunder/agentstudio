@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 
@@ -35,7 +37,7 @@ enum TerminalOutputBurstState: Equatable, Sendable {
     }
 }
 
-struct TerminalActivitySnapshot: Equatable, Sendable {
+package struct TerminalActivitySnapshot: Equatable, Sendable {
     let paneId: UUID
     var progress: TerminalProgressActivity
     var cwd: URL?
@@ -44,7 +46,7 @@ struct TerminalActivitySnapshot: Equatable, Sendable {
     var outputBurst: TerminalOutputBurstState
     var scrollbarState: ScrollbarState?
 
-    var isPinnedToBottom: Bool {
+    package var isPinnedToBottom: Bool {
         scrollbarState?.isPinnedToBottom == true
     }
 
@@ -63,13 +65,13 @@ struct TerminalActivitySnapshot: Equatable, Sendable {
 /// promote directly into the notification inbox.
 @Observable
 @MainActor
-final class TerminalActivityAtom {
-    private(set) var snapshotsByPaneId: [UUID: TerminalActivitySnapshot] = [:]
+package final class TerminalActivityAtom {
+    package private(set) var snapshotsByPaneId: [UUID: TerminalActivitySnapshot] = [:]
 
     let outputBurstThreshold: Int
     private let recentURLLimit: Int
 
-    init(
+    package init(
         outputBurstThreshold: Int = AppPolicies.InboxNotification.terminalActivityOutputBurstThresholdRows,
         recentURLLimit: Int = 10
     ) {
@@ -77,7 +79,7 @@ final class TerminalActivityAtom {
         self.recentURLLimit = max(0, recentURLLimit)
     }
 
-    func snapshot(for paneId: UUID) -> TerminalActivitySnapshot? {
+    package func snapshot(for paneId: UUID) -> TerminalActivitySnapshot? {
         snapshotsByPaneId[paneId]
     }
 

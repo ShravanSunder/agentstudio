@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 
@@ -5,6 +7,7 @@ import SwiftUI
 enum PaneTabEmptyStateViewFactory {
     static func make(
         model: WorkspaceEmptyStateModel,
+        octiconLoader: OcticonLoader,
         onWatchFolder: @escaping () -> Void,
         onOpenRecent: @escaping (ApplicationRecentEntity) -> Void,
         onOpenAllRecent: @escaping () -> Void
@@ -12,6 +15,7 @@ enum PaneTabEmptyStateViewFactory {
         let view = NSHostingView(
             rootView: WorkspaceEmptyStateView(
                 model: model,
+                octiconLoader: octiconLoader,
                 onWatchFolder: onWatchFolder,
                 onOpenRecent: onOpenRecent,
                 onOpenAllRecent: onOpenAllRecent

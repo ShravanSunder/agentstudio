@@ -3,12 +3,16 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct PaneTabViewControllerLaunchRestoreTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private let fixtureSessionConfiguration = SessionConfiguration(
@@ -35,6 +39,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
     }
 
     private func makeHarness() -> Harness {
+        let atomRegistry = AtomRegistry(core: CoreAtomScope.store)
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-tab-launch-tests-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -53,7 +58,8 @@ struct PaneTabViewControllerLaunchRestoreTests {
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: .shared,
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            bridgePaneAttendance: atomRegistry.bridgePaneAttendance
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
@@ -62,6 +68,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
         let controller = PaneTabViewController(
             store: store,
+            octiconLoader: makeTestOcticonLoader(),
             repoCache: RepoCacheAtom(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
@@ -69,6 +76,9 @@ struct PaneTabViewControllerLaunchRestoreTests {
             runtimeCommandDispatcher: coordinator,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
+            bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
+            editorChooser: atomRegistry.editorChooser,
+            inboxAtom: atomRegistry.inboxNotification,
             registersAsCommandHandler: false
         )
         let window = NSWindow(

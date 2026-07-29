@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 @Suite("InboxNotificationListModel content mode")
 struct InboxNotificationListModelContentModeTests {

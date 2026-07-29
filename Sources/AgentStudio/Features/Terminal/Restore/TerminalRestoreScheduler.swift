@@ -1,8 +1,10 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 
-struct TerminalRestoreScheduler {
+package struct TerminalRestoreScheduler {
     @MainActor
-    static func order(
+    package static func order(
         _ paneIds: [PaneId],
         resolver: some TerminalRestoreVisibilityResolving
     ) -> [PaneId] {
@@ -31,24 +33,24 @@ struct TerminalRestoreScheduler {
 }
 
 @MainActor
-protocol TerminalRestoreVisibilityResolving: VisibilityTierResolver {
+package protocol TerminalRestoreVisibilityResolving: VisibilityTierResolver {
     func isActive(_ paneId: PaneId) -> Bool
 }
 
 @MainActor
-final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolving {
+package final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolving {
     private weak var store: WorkspaceStore?
 
-    init(store: WorkspaceStore) {
+    package init(store: WorkspaceStore) {
         self.store = store
     }
 
-    func tier(for paneId: PaneId) -> VisibilityTier {
+    package func tier(for paneId: PaneId) -> VisibilityTier {
         guard hasActiveResidency(paneId) else { return .p1Hidden }
         return isVisible(paneId) ? .p0Visible : .p1Hidden
     }
 
-    func isActive(_ paneId: PaneId) -> Bool {
+    package func isActive(_ paneId: PaneId) -> Bool {
         guard hasActiveResidency(paneId) else { return false }
         guard let store, let activeTab = store.tabLayoutAtom.activeTab else { return false }
         if activeTab.activePaneId == paneId.uuid {

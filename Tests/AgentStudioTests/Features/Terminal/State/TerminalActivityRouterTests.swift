@@ -1,7 +1,10 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @MainActor
 @Suite("TerminalActivityRouter", .serialized)
@@ -175,18 +178,14 @@ struct TerminalActivityRouterTests {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let traceDirectory = temporaryTraceDirectoryURL()
-        let traceRuntime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
-                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
-                "AGENTSTUDIO_TRACE_NAME": "terminal-activity",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
-            ]),
+        let traceFixture = makeTraceRuntime(
+            traceDirectory: traceDirectory,
+            traceName: "terminal-activity",
+            traceTags: "terminal.activity",
             processIdentifier: 246,
-            sessionID: "terminal-session",
-            timeUnixNano: { 404 }
+            flushMode: "immediate"
         )
+        let traceRuntime = traceFixture.runtime
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
         let paneId = PaneId.generateUUIDv7()
         let correlationId = UUID()
@@ -210,14 +209,14 @@ struct TerminalActivityRouterTests {
         }
         await router.stop()
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let outputFileURL = traceFixture.outputFileURL
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"body\":\"terminal.activity.observed\""))
         #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.openURLRequested\""))
         #expect(contents.contains("\"agentstudio.envelope.seq\":7"))
         #expect(contents.contains("\"agentstudio.pane.id\":\"\(paneId.uuidString)\""))
         #expect(contents.contains("\"agentstudio.envelope.correlation_id\":\"\(correlationId.uuidString)\""))
-        #expect(contents.contains("\"agentstudio.session.id\":\"terminal-session\""))
+        #expect(contents.contains("\"agentstudio.session.id\":"))
     }
 
     @Test("records eventbus delivery summaries for exact terminal facts")
@@ -225,18 +224,14 @@ struct TerminalActivityRouterTests {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let traceDirectory = temporaryTraceDirectoryURL()
-        let traceRuntime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
-                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
-                "AGENTSTUDIO_TRACE_NAME": "terminal-activity-eventbus",
-                "AGENTSTUDIO_TRACE_TAGS": "eventbus",
-            ]),
+        let traceFixture = makeTraceRuntime(
+            traceDirectory: traceDirectory,
+            traceName: "terminal-activity-eventbus",
+            traceTags: "eventbus",
             processIdentifier: 251,
-            sessionID: "terminal-session",
-            timeUnixNano: { 909 }
+            flushMode: "immediate"
         )
+        let traceRuntime = traceFixture.runtime
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
         let paneId = PaneId.generateUUIDv7()
 
@@ -258,7 +253,7 @@ struct TerminalActivityRouterTests {
         }
         await router.stop()
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let outputFileURL = traceFixture.outputFileURL
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         let records = try traceRecords(in: outputFileURL)
         let deliveryRecords = records.filter { $0.body == "eventbus.deliver" }
@@ -281,17 +276,13 @@ struct TerminalActivityRouterTests {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let traceDirectory = temporaryTraceDirectoryURL()
-        let traceRuntime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
-                "AGENTSTUDIO_TRACE_NAME": "terminal-activity-drain",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
-            ]),
-            processIdentifier: 247,
-            sessionID: "terminal-session",
-            timeUnixNano: { 505 }
+        let traceFixture = makeTraceRuntime(
+            traceDirectory: traceDirectory,
+            traceName: "terminal-activity-drain",
+            traceTags: "terminal.activity",
+            processIdentifier: 247
         )
+        let traceRuntime = traceFixture.runtime
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
         let paneId = PaneId.generateUUIDv7()
 
@@ -311,7 +302,7 @@ struct TerminalActivityRouterTests {
             atom.snapshot(for: paneId.uuid)?.recentURLRequests.count == 1
         }
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let outputFileURL = traceFixture.outputFileURL
         #expect(FileManager.default.fileExists(atPath: outputFileURL.path) == false)
 
         await router.stop()
@@ -326,17 +317,13 @@ struct TerminalActivityRouterTests {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let traceDirectory = temporaryTraceDirectoryURL()
-        let traceRuntime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
-                "AGENTSTUDIO_TRACE_NAME": "terminal-activity-order",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
-            ]),
-            processIdentifier: 248,
-            sessionID: "terminal-session",
-            timeUnixNano: { 606 }
+        let traceFixture = makeTraceRuntime(
+            traceDirectory: traceDirectory,
+            traceName: "terminal-activity-order",
+            traceTags: "terminal.activity",
+            processIdentifier: 248
         )
+        let traceRuntime = traceFixture.runtime
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
         let paneId = PaneId.generateUUIDv7()
 
@@ -360,7 +347,7 @@ struct TerminalActivityRouterTests {
 
         await router.stop()
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let outputFileURL = traceFixture.outputFileURL
         let sequences = try traceEnvelopeSequences(in: outputFileURL)
         #expect(sequences == [1, 2, 3, 4, 5])
     }
@@ -673,6 +660,31 @@ struct TerminalActivityRouterTests {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 
+    private func makeTraceRuntime(
+        traceDirectory: URL,
+        traceName: String,
+        traceTags: String,
+        processIdentifier: Int32,
+        flushMode: String? = nil
+    ) -> (runtime: AgentStudioTraceRuntime, outputFileURL: URL) {
+        var environment = [
+            "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+            "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+            "AGENTSTUDIO_TRACE_NAME": traceName,
+            "AGENTSTUDIO_TRACE_TAGS": traceTags,
+        ]
+        environment["AGENTSTUDIO_TRACE_FLUSH"] = flushMode
+        return (
+            runtime: AgentStudioTraceRuntime.fromEnvironment(
+                environment,
+                processIdentifier: processIdentifier
+            ),
+            outputFileURL: traceDirectory.appendingPathComponent(
+                "agentstudio-\(traceName)-\(processIdentifier).jsonl"
+            )
+        )
+    }
+
     private func ingestActivity(
         paneId: PaneId,
         totals: [Int],
@@ -705,30 +717,25 @@ struct TerminalActivityRouterTests {
     }
 
     private func makeAttendedPaneDerived(activePaneId: UUID) -> AttendedPaneDerived {
-        let tabLayout = WorkspaceTabLayoutAtom()
+        let atoms = makeInstalledTestCoreAtoms()
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: Layout(paneId: activePaneId)
+            layout: Layout(paneId: activePaneId),
+            activePaneId: activePaneId
         )
         let tab = Tab(
             name: "Tab",
-            panes: [activePaneId],
+            allPaneIds: [activePaneId],
             arrangements: [arrangement],
-            activeArrangementId: arrangement.id,
-            activePaneId: activePaneId
+            activeArrangementId: arrangement.id
         )
-        let windowLifecycle = WindowLifecycleAtom()
         let windowId = UUID()
-        windowLifecycle.recordWindowRegistered(windowId)
-        windowLifecycle.recordWindowBecameKey(windowId)
-        tabLayout.appendTab(tab)
-        tabLayout.setActiveTab(tab.id)
-        return AttendedPaneDerived(
-            tabLayout: tabLayout,
-            windowLifecycle: windowLifecycle,
-            managementLayer: ManagementLayerAtom()
-        )
+        atoms.windowLifecycle.recordWindowRegistered(windowId)
+        atoms.windowLifecycle.recordWindowBecameKey(windowId)
+        atoms.workspaceTabLayout.appendTab(tab)
+        atoms.workspaceTabLayout.setActiveTab(tab.id)
+        return atoms.attendedPane
     }
 
     private func traceEnvelopeSequences(in fileURL: URL) throws -> [Int] {
@@ -748,23 +755,4 @@ struct TerminalActivityRouterTests {
         }
     }
 
-    private actor TerminalActivityTraceRecordingSink: AgentStudioTraceSink {
-        private var recordedRecords: [AgentStudioTraceRecord] = []
-
-        func record(_ record: AgentStudioTraceRecord) {
-            recordedRecords.append(record)
-        }
-
-        func flush() {}
-
-        func shutdown() {}
-
-        func diagnostics() -> AgentStudioTraceWriterDiagnostics {
-            .empty
-        }
-
-        func records() -> [AgentStudioTraceRecord] {
-            recordedRecords
-        }
-    }
 }

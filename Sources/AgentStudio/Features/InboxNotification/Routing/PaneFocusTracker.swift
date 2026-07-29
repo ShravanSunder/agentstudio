@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 import Observation
 import os.log
@@ -9,7 +12,7 @@ private let paneFocusTrackerLogger = Logger(
 
 /// Observes the attended-pane derived read and publishes non-nil focus gains.
 @MainActor
-final class PaneFocusTracker {
+package final class PaneFocusTracker {
     let focusGainedStream: AsyncStream<UUID>
 
     private let continuation: AsyncStream<UUID>.Continuation
@@ -18,7 +21,7 @@ final class PaneFocusTracker {
     private var lastAttendedPaneId: UUID?
     private var isStopped = false
 
-    init(attendedPane: AttendedPaneDerived, traceRuntime: AgentStudioTraceRuntime? = nil) {
+    package init(attendedPane: AttendedPaneDerived, traceRuntime: AgentStudioTraceRuntime? = nil) {
         self.attendedPane = attendedPane
         self.traceQueue = traceRuntime.map(AgentStudioTraceEventQueue.init(traceRuntime:))
         self.lastAttendedPaneId = attendedPane.attendedPaneId
@@ -28,7 +31,7 @@ final class PaneFocusTracker {
         observeAttendedPane()
     }
 
-    func stop() async {
+    package func stop() async {
         if !isStopped {
             isStopped = true
             continuation.finish()

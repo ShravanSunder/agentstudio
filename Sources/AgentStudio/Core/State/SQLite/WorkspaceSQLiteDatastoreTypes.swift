@@ -12,8 +12,8 @@ enum WorkspaceSQLiteDatastoreError: Error, Equatable, Sendable {
     case useDatastoreApplicationLocalRepositoryBundle
 }
 
-struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {
-    let description: String
+package struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {
+    package let description: String
 
     init(_ error: any Error) {
         self.description = String(describing: error)
@@ -40,28 +40,28 @@ extension WorkspaceSQLiteDatastore {
         case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
-    struct DatabasePreparationReceipt: Equatable, Sendable {
+    package struct DatabasePreparationReceipt: Equatable, Sendable {
         var core: PreparedCoreDatabase
         var local: PreparedLocalDatabase
     }
 
-    enum CoreDatabasePreparationFailureKind: Equatable, Sendable {
+    package enum CoreDatabasePreparationFailureKind: Equatable, Sendable {
         case sqliteUnavailable
         case compositionRejected
         case topologyRejected
     }
 
-    struct CoreDatabasePreparationFailure: Error, Equatable, Sendable {
-        var kind: CoreDatabasePreparationFailureKind
+    package struct CoreDatabasePreparationFailure: Error, Equatable, Sendable {
+        package var kind: CoreDatabasePreparationFailureKind
         var failure: WorkspaceSQLiteDatastoreFailure
     }
 
-    enum DatabasePreparationResult: Equatable, Sendable {
+    package enum DatabasePreparationResult: Equatable, Sendable {
         case prepared(DatabasePreparationReceipt)
         case failed(CoreDatabasePreparationFailure)
     }
 
-    enum ProbeEvent: Equatable, Sendable {
+    package enum ProbeEvent: Equatable, Sendable {
         case saveWorkspaceSnapshot
         case saveWorkspaceSnapshotSucceeded
         case saveWorkspaceSnapshotFailed
@@ -111,23 +111,32 @@ extension WorkspaceSQLiteDatastore {
         case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
-    enum LocalSettingsValue<Value: Equatable & Sendable>: Equatable, Sendable {
+    package enum LocalSettingsValue<Value: Equatable & Sendable>: Equatable, Sendable {
         case loaded(Value)
         case defaulted(WorkspaceSQLiteDatastoreFailure)
     }
 
-    enum LocalSettingsLoadResult: Equatable, Sendable {
+    package enum LocalSettingsLoadResult: Equatable, Sendable {
         case loaded(LocalSettingsLoadPayload)
         case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
-    struct LocalSettingsLoadPayload: Equatable, Sendable {
-        var editor: LocalSettingsValue<WorkspaceLocalRepository.EditorPreferencesRecord>
-        var repoExplorer: LocalSettingsValue<WorkspaceLocalRepository.RepoExplorerPreferencesRecord>
-        var inboxNotification: LocalSettingsValue<WorkspaceLocalRepository.InboxNotificationPreferencesRecord>
+    package struct LocalSettingsLoadPayload: Equatable, Sendable {
+        package private(set) var editor:
+            LocalSettingsValue<
+                WorkspaceLocalRepository.EditorPreferencesRecord
+            >
+        package private(set) var repoExplorer:
+            LocalSettingsValue<
+                WorkspaceLocalRepository.RepoExplorerPreferencesRecord
+            >
+        package private(set) var inboxNotification:
+            LocalSettingsValue<
+                WorkspaceLocalRepository.InboxNotificationPreferencesRecord
+            >
     }
 
-    enum LocalRepositoryOperationResult<Output: Sendable>: Sendable {
+    package enum LocalRepositoryOperationResult<Output: Sendable>: Sendable {
         case completed(Output)
         case unavailable(WorkspaceSQLiteDatastoreFailure)
     }

@@ -1,17 +1,18 @@
+import AgentStudioInfrastructure
 import Foundation
 import os
 
 private let paneEventBusLogger = Logger(subsystem: "com.agentstudio", category: "PaneEventBus")
 
-enum BusSubscriberPolicy: Hashable, Sendable {
-    static let standardLossyBufferLimit = 256
+package enum BusSubscriberPolicy: Hashable, Sendable {
+    package static let standardLossyBufferLimit = 256
     static let criticalPressureWarningLimit = standardLossyBufferLimit * 4
 
     case criticalUnbounded
     case lossyNewest(Int)
 }
 
-enum EventBusReplayStatus: Equatable, Sendable {
+package enum EventBusReplayStatus: Equatable, Sendable {
     case notConfigured
     case complete
     case possiblyTruncated(sourceLabels: [String])
@@ -54,10 +55,10 @@ struct EventBusDiagnosticsSnapshot: Equatable, Sendable {
     let totalDroppedEvents: UInt64
 }
 
-struct EventBusSubscription<Envelope: Sendable>: AsyncSequence, Sendable {
-    typealias Element = Envelope
+package struct EventBusSubscription<Envelope: Sendable>: AsyncSequence, Sendable {
+    package typealias Element = Envelope
 
-    struct Iterator: AsyncIteratorProtocol {
+    package struct Iterator: AsyncIteratorProtocol {
         private var iterator: AsyncStream<Envelope>.Iterator
         private let recordConsumed: @Sendable () async -> Void
 
@@ -66,7 +67,7 @@ struct EventBusSubscription<Envelope: Sendable>: AsyncSequence, Sendable {
             self.recordConsumed = recordConsumed
         }
 
-        mutating func next() async -> Envelope? {
+        package mutating func next() async -> Envelope? {
             guard let envelope = await iterator.next() else { return nil }
             await recordConsumed()
             return envelope
@@ -94,7 +95,7 @@ struct EventBusSubscription<Envelope: Sendable>: AsyncSequence, Sendable {
         self.recordConsumed = recordConsumed
     }
 
-    func makeAsyncIterator() -> Iterator {
+    package func makeAsyncIterator() -> Iterator {
         Iterator(iterator: stream.makeAsyncIterator(), recordConsumed: recordConsumed)
     }
 }
@@ -103,18 +104,18 @@ struct EventBusSubscription<Envelope: Sendable>: AsyncSequence, Sendable {
 ///
 /// Producers `await post(_:)` and consumers iterate `for await` over independent
 /// subscriptions returned by `subscribe(policy:subscriberName:)`.
-actor EventBus<Envelope: Sendable> {
-    struct PostResult: Sendable {
-        let subscriberCount: Int
-        let droppedCount: Int
-        let terminatedCount: Int
+package actor EventBus<Envelope: Sendable> {
+    package struct PostResult: Sendable {
+        package let subscriberCount: Int
+        package let droppedCount: Int
+        package let terminatedCount: Int
     }
 
-    struct ReplayConfiguration: Sendable {
-        let capacityPerSource: Int
-        let sourceKey: @Sendable (Envelope) -> String
+    package struct ReplayConfiguration: Sendable {
+        package let capacityPerSource: Int
+        package let sourceKey: @Sendable (Envelope) -> String
 
-        init(capacityPerSource: Int, sourceKey: @escaping @Sendable (Envelope) -> String) {
+        package init(capacityPerSource: Int, sourceKey: @escaping @Sendable (Envelope) -> String) {
             self.capacityPerSource = capacityPerSource
             self.sourceKey = sourceKey
         }
@@ -158,7 +159,7 @@ actor EventBus<Envelope: Sendable> {
     private var truncatedReplaySourceKeys: Set<String> = []
     private var nextReplayOrder: UInt64 = 0
 
-    init(
+    package init(
         name: String = "eventBus",
         replayConfiguration: ReplayConfiguration? = nil,
         performanceReporter: RuntimeDeliveryPerformanceReporter? = nil
@@ -178,7 +179,7 @@ actor EventBus<Envelope: Sendable> {
         subscribers.removeAll(keepingCapacity: false)
     }
 
-    func subscribe(
+    package func subscribe(
         policy: BusSubscriberPolicy,
         subscriberName: String
     ) -> EventBusSubscription<Envelope> {
@@ -224,7 +225,7 @@ actor EventBus<Envelope: Sendable> {
     }
 
     @discardableResult
-    func post(_ envelope: Envelope) -> PostResult {
+    package func post(_ envelope: Envelope) -> PostResult {
         appendReplay(envelope)
 
         var droppedCount = 0
@@ -302,7 +303,7 @@ actor EventBus<Envelope: Sendable> {
         )
     }
 
-    var subscriberCount: Int {
+    package var subscriberCount: Int {
         subscribers.count
     }
 
@@ -328,7 +329,7 @@ actor EventBus<Envelope: Sendable> {
         retainedRecoveryDiagnostics.removeAll(keepingCapacity: false)
     }
 
-    func evictReplay(sourceKey: String) {
+    package func evictReplay(sourceKey: String) {
         replayBySource.removeValue(forKey: sourceKey)
         truncatedReplaySourceKeys.remove(sourceKey)
     }

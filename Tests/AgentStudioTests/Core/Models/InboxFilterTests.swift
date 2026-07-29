@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @Suite("InboxFilter")
 struct InboxFilterTests {

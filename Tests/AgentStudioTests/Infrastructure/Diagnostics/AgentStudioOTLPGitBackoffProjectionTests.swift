@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 /// Git status-backoff telemetry projection, split from the main OTLP
 /// projection suite to keep that struct under the type-body cap.

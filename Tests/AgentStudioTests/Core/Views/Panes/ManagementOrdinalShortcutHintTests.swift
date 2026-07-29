@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 struct ManagementOrdinalShortcutHintTests {
     @Test("pane overlay ordinal keeps management-control chrome")

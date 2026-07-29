@@ -1,9 +1,15 @@
 import Foundation
 
-struct BridgeWorktreeIdentityKey: Hashable, Sendable {
-    let repoIdentity: String
-    let worktreeIdentity: String
-    let stableRootIdentity: String
+package struct BridgeWorktreeIdentityKey: Hashable, Sendable {
+    package let repoIdentity: String
+    package let worktreeIdentity: String
+    package let stableRootIdentity: String
+
+    package init(repoIdentity: String, worktreeIdentity: String, stableRootIdentity: String) {
+        self.repoIdentity = repoIdentity
+        self.worktreeIdentity = worktreeIdentity
+        self.stableRootIdentity = stableRootIdentity
+    }
 }
 
 struct BridgeWorktreeProductOwnerKey: Hashable, Sendable {

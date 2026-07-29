@@ -88,6 +88,24 @@ mise run run-debug-observability -- --detach
 mise run verify-debug-observability
 ```
 
+Ordinary manual debug development and UI proof use the standard detached launch
+above with no IPC automation selector. Agent-driven write-capable debug
+automation must opt in explicitly:
+
+```bash
+AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
+mise run run-debug-observability -- --detach
+```
+
+The worktree-isolated debug app then issues one owner-only, one-time
+authenticated automation token. That principal can use the DEBUG semantic
+control allowlist plus the App command execution, read-back, and
+workspace-bounded sidebar scopes used by proof harnesses. The selector is not
+required to launch, develop, or test the app manually. Stable, beta, and release
+apps must never enable it. Do not add `AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1` merely
+to obtain write access; use unsafe no-auth only when an established diagnostic
+explicitly requires it.
+
 To exercise a startup diagnostic during debug proof, pass
 `AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=<action>` to the launcher. The launcher
 records the selected action into the state file as
@@ -95,7 +113,6 @@ records the selected action into the state file as
 handoff, not the app input environment variable. Example:
 
 ```bash
-AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1 \
 AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
 AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=ipc-terminal-smoke \
 mise run run-debug-observability -- --detach
@@ -285,9 +302,17 @@ Instead:
 
 ## Architecture at a Glance
 
-AppKit-main architecture hosting SwiftUI views. Shared app state is actor-bound and accessed through `AtomRegistry` + `AtomScope`, with `atom(\.foo)` as the primary read path. Canonical mutable state lives in `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms`, and persistence wrappers live under `Core/State/MainActor/Persistence`. Two coordinators handle cross-slice sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to the main-actor state system, and a separate app lifecycle monitor owns AppKit ingress.
+AppKit-main architecture hosting SwiftUI views. Shared Core state is actor-bound in `CoreAtoms` and accessed through the one ambient `CoreAtomScope`, with `atom(\.foo)` as the typed `KeyPath<CoreAtoms, Value>` read path. Feature-owned mutable state is never ambient: App injects each Feature's concrete atom or facade explicitly, and supplies sibling facts through consumer-owned read-only projections. Canonical mutable state lives in `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms` or the owning Feature's matching path, and persistence wrappers live under the corresponding `State/MainActor/Persistence` path. Two coordinators handle cross-slice sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to the main-actor state system, and a separate app lifecycle monitor owns AppKit ingress.
 
-`AtomRegistry` is the single root-level composition file at `Sources/AgentStudio/AtomRegistry.swift`. It may compose Core and Feature atoms. `Infrastructure/AtomLib` owns only generic atom primitives and access helpers (`atom(\...)`, `AtomScope`, `AtomReader`, `Derived`, `DerivedSelector`, `AtomValue`, `AtomEntityMap`, `DerivedValue`) and must not own product atoms or feature-specific registry fields. Hot UI reads for keyed entity state should use keyed atom-family-style slots such as `AtomEntityMap.value(for:)`; dictionary-shaped snapshots are for persistence, cold bulk bridges, and measured exceptions.
+The compiled product graph is `AgentStudio` App executable/resource owner →
+eight independent Feature modules plus one coarse `AgentStudioCore` and
+`AgentStudioSharedComponents` → `AgentStudioInfrastructure`. Features never
+import sibling Features; App owns cross-Feature composition. SharedComponents
+is stateless and depends only on Infrastructure. Cross-target declarations use
+the narrowest necessary `package` visibility; do not broadly promote product
+APIs to `public`. Further Core decomposition is deferred.
+
+`AtomRegistry` is the internal App-only composition root at `Sources/AgentStudio/AtomRegistry.swift`. It stores one `CoreAtoms` plus explicit concrete Feature roots and is never an ambient lookup surface. `Infrastructure/AtomLib` owns only generic primitives (`AtomValue`, `AtomEntityMap`, `AtomMutationContext`, `AtomRevision`, `DerivedValue`, and their telemetry); product access (`atom(\...)` and `CoreAtomScope`) belongs to Core. Infrastructure must not name `AtomRegistry`, `CoreAtoms`, `CoreAtomScope`, product atoms, or feature-specific registry fields. Hot UI reads for keyed entity state should use keyed atom-family-style slots such as `AtomEntityMap.value(for:)`; dictionary-shaped snapshots are for persistence, cold bulk bridges, and measured exceptions.
 
 Architecture boundaries are enforced by stock SwiftLint plus the repo-local
 SwiftPM/SwiftSyntax tool in `Tools/AgentStudioArchitectureLint`. `mise run lint`
@@ -310,7 +335,7 @@ Use these broad ownership rules first, then consult [Directory Structure](docs/a
 - `Features/`
   User-facing capability slices such as Terminal, Bridge, Webview, CodeViewer, CommandBar, RepoExplorer, InboxNotification, and feature-owned EditorChooser state. Features own capability-specific behavior that is broader than a reusable component.
 - `Infrastructure/`
-  Domain-agnostic utilities and external integrations. Organize these in subfolders by concern, such as `AtomLib/`, `Extensions/`, `Icons/`, `StateMachine/`, and integration-specific folders like `ExternalApps/`. `Infrastructure/AtomLib` holds generic atom access helpers and primitives only; the concrete `AtomRegistry` lives at the source root because it composes Core and Feature atoms.
+  Domain-agnostic utilities and external integrations. Organize these in subfolders by concern, such as `AtomLib/`, `Extensions/`, `Icons/`, `StateMachine/`, and integration-specific folders like `ExternalApps/`. `Infrastructure/AtomLib` holds generic observation primitives only. Core owns `CoreAtoms`, `CoreAtomScope`, and `atom(\...)`; the internal App-only `AtomRegistry` composes that Core graph with explicit Feature roots.
 
 ### Shared UI, Styles, And Policies
 
@@ -333,6 +358,8 @@ Bridge worktree and review git data prepared on the Swift/native side must use
 the repo's `agentstudio-git` library. TypeScript may shell out to `git` only in
 clearly scoped Vite dev-server utilities or test fixture utilities; do not use
 TS git helpers as production Bridge protocol or source-adapter plumbing.
+Worktrunk integration is retired: do not add a Worktrunk service, startup
+phase, or production `wt`/Git CLI data plane.
 
 Use `AppStyles` for presentation constants only: spacing, radii, icon sizes, opacity, typography, colors, and paint dimensions. Use `AppPolicies` for behavioral constants: limits, thresholds, retention caps, validation rules, routing rules, and accept/reject decisions. If changing the value can change state transitions or command/event behavior, it belongs in `AppPolicies` even when the UI reads it.
 
@@ -356,7 +383,9 @@ icons when a sidebar/local action already defines the presentation.
 
 | Component | Owns | Location |
 |-----------|------|----------|
-| `AtomRegistry` | concrete root composition file for Core and Feature atoms plus derived helpers | `Sources/AgentStudio/AtomRegistry.swift` |
+| `AtomRegistry` | internal App-only root holding one `CoreAtoms` plus explicit concrete Feature roots; never ambient | `Sources/AgentStudio/AtomRegistry.swift` |
+| `CoreAtoms` | concrete Core-only state graph, facades, coordinators, and derived readers | `Core/State/MainActor/Atoms/CoreAtoms.swift` |
+| `CoreAtomScope` | sole ambient product scope, installed from `AtomRegistry.core` and typed only to `CoreAtoms` | `Core/State/MainActor/Atoms/CoreAtomScope.swift` |
 | `SQLiteDatabaseFactory` | generic GRDB database construction, pragmas, WAL, and capability-test connection setup; no product schema knowledge | `Infrastructure/SQLite/SQLiteDatabaseFactory.swift` |
 | `SQLiteSidecarQuarantine` | generic SQLite database/WAL/SHM quarantine helper; no product schema knowledge | `Infrastructure/SQLite/SQLiteSidecarQuarantine.swift` |
 | `WorkspaceCoreMigrations` | `core.sqlite` migration identifiers and core workspace schema DDL; repository-facing only, not a live atom read model | `Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift` |
@@ -414,7 +443,7 @@ icons when a sidebar/local action already defines the presentation.
 | `EntityRecencyStore` | independent application-recency and workspace-recency hydration, observation, and flush lifecycles | `Core/State/MainActor/Persistence/EntityRecencyStore.swift` |
 | `RepoCacheStore` | persistence wrapper for `RepoEnrichmentCacheAtom` only | `Core/State/MainActor/Persistence/RepoCacheStore.swift` |
 | `UIStateStore` | persistence wrapper for window-keyed sidebar shell memory only | `Core/State/MainActor/Persistence/UIStateStore.swift` |
-| `WorkspaceSettingsStore` | persistence wrapper for editor bookmark, repo explorer sidebar preferences, and inbox notification preferences until feature-specific settings stores split; checkout colors are intentionally ignored/cleared | `Core/State/MainActor/Persistence/WorkspaceSettingsStore.swift` |
+| `WorkspaceSettingsStore` | App-owned cross-Feature persistence coordinator for editor bookmark, repo explorer sidebar preferences, and inbox notification preferences until feature-specific settings stores split; checkout colors are intentionally ignored/cleared | `App/Coordination/WorkspaceSettingsStore.swift` |
 | `InboxNotificationStore` | persistence wrapper for inbox notification history and collapsed inbox groups through the feature SQLite repository; unavailable local state defaults without blocking core startup | `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift` |
 | `AppLifecycleAtom` | application active/terminating state | `Core/State/MainActor/Atoms/AppLifecycleAtom.swift` |
 | `WindowLifecycleAtom` | key/focused window identity, registration, transient terminal geometry, launch-settle facts | `Core/State/MainActor/Atoms/WindowLifecycleAtom.swift` |
@@ -540,7 +569,7 @@ Business rules belong in pure domain types; coordinators sequence them; persiste
 
 **Composition state vs feature state.** Composition state (app-wide UI shell — which surface is showing, whether the sidebar is collapsed, and whether the sidebar owns focus) is split by lifecycle in Core. Persisted shell memory lives on `WorkspaceSidebarMemoryAtom`, runtime-only focus lives on `SidebarFocusRuntimeAtom`, and UI call sites read the composed `WorkspaceSidebarState`. Feature state (domain data specific to one feature) lives in feature atoms inside the feature slice. Never add a feature-specific property to a Core atom; never add a feature type to `Core/Models/` just because an atom references it — that forces feature types into Core.
 
-Shared reads use `atom(\.foo)` or `AtomReader`; `@Atom(\.foo)` is optional convenience sugar. See [component_architecture.md](docs/architecture/component_architecture.md) and [directory_structure.md — Feature Slice Self-Containment](docs/architecture/directory_structure.md) for canonical examples.
+Shared Core reads use `atom(\.foo)`, whose root is `CoreAtoms`. Feature views receive their own mutable atom or facade explicitly; sibling Feature facts arrive through consumer-owned read-only projections supplied by App. There is no `AtomReader`, `@Atom`, Feature scope, or Feature registry compatibility path. See [component_architecture.md](docs/architecture/component_architecture.md) and [directory_structure.md — Feature Slice Self-Containment](docs/architecture/directory_structure.md) for canonical examples.
 
 ### 2. Stores — persistence wrappers
 
@@ -668,6 +697,9 @@ agent-studio/
 │   │   ├── Bridge/                   # React/WebView pane system (transport, runtime, state)
 │   │   ├── Webview/                  # Browser pane (navigation, history)
 │   │   ├── CommandBar/               # ⌘P command palette
+│   │   ├── CodeViewer/                # Native code-viewer pane
+│   │   ├── EditorChooser/             # Editor discovery and feature-owned chooser state
+│   │   ├── InboxNotification/         # Notification inbox state, persistence, and UI
 │   │   ├── RepoExplorer/             # Repo explorer (renamed from Features/Sidebar/ in
 │   │   │                             #   LUNA-361; the "sidebar" itself is composition in
 │   │   │                             #   App/, not a feature)
@@ -685,7 +717,7 @@ agent-studio/
 └── vendor/zmx/                       # zmx gitlink; normally unhydrated in linked worktrees
 ```
 
-**Import rule:** `App/ → Core/, Features/, Infrastructure/, SharedComponents/` | `Features/ → Core/, Infrastructure/, SharedComponents/` | `Core/ → Infrastructure/` | `SharedComponents/ → Infrastructure/` | Never `Core/ → Features/`, `Features/X → Features/Y`, `SharedComponents/ → Core|Features|App`
+**Import rule:** `App/ → Core/, Features/, Infrastructure/, SharedComponents/` | `Features/ → Core/, Infrastructure/, SharedComponents/` | `Core/ → Infrastructure/, SharedComponents/` | `SharedComponents/ → Infrastructure/` | Never `Core/ → Features/`, `Features/X → Features/Y`, `SharedComponents/ → Core|Features|App`
 
 **Key config files:** `Package.swift` (SPM manifest), `.mise.toml` (build tasks), `.swift-format`, `.swiftlint.yml`
 
@@ -731,7 +763,7 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `EntityRecencyStore` | `Core/State/MainActor/Persistence/` | Independent application and workspace recency hydration/flush lifecycles |
 | `RepoCacheStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for repository enrichment cache only |
 | `UIStateStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for window-keyed sidebar shell memory only |
-| `WorkspaceSettingsStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for editor bookmark, repo explorer sidebar preferences, and inbox notification preferences until feature-specific settings stores split; checkout colors are intentionally ignored/cleared |
+| `WorkspaceSettingsStore` | `App/Coordination/` | App-owned cross-Feature persistence coordinator for editor bookmark, repo explorer sidebar preferences, and inbox notification preferences until feature-specific settings stores split; checkout colors are intentionally ignored/cleared |
 | `SessionRuntime` | `Core/RuntimeEventSystem/Runtime/` | Session backends, health checks, zmx attach orchestration using stored pane anchors |
 | `SurfaceManager` | `Features/Terminal/` | Ghostty surface lifecycle, health, undo |
 | `WorkspaceCommandResolver` | `Core/Actions/` | Resolves AppCommand into WorkspaceActionCommand, builds ActionStateSnapshot |
@@ -759,6 +791,14 @@ See [EventBus Design — Swift 6.2 concurrency rules](docs/architecture/pane_run
 ## Running Swift Commands — Detail
 
 **Always use `mise run` for build and test.** Mise tasks handle the WebKit serialized test split, benchmark mode, and build path isolation.
+
+Paired SwiftPM test targets own their module tests.
+`AgentStudioTestSupport` depends only on Core; Infrastructure and
+SharedComponents tests do not consume it. The executable `AgentStudioTests`
+target owns App, cross-Feature, resource, WebKit, zmx, and packaged integration.
+Keep the existing fast/large/WebKit/E2E/zmx lane selectors intact:
+`swift test --filter` selects execution after the package test products are
+built; it does not change target ownership or imply isolated compilation.
 
 **For filtered test runs:** prefer mise (it allocates a slot for you):
 ```bash

@@ -1,18 +1,19 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @Suite(.serialized)
 @MainActor
 struct PaneManagementContextTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test
     func targetPath_prefersLiveCwd_thenFallsBackToWorktreeRoot() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -65,7 +66,7 @@ struct PaneManagementContextTests {
 
     @Test
     func targetPath_fallsBackToWorktreeRoot_whenCwdMissing() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -93,7 +94,7 @@ struct PaneManagementContextTests {
 
     @Test
     func targetPath_isNil_whenNeitherCwdNorWorktreeExists() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -114,7 +115,7 @@ struct PaneManagementContextTests {
 
     @Test
     func standaloneCwdUsesAbsolutePathWhenNoWorktreeContextExists() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -140,7 +141,7 @@ struct PaneManagementContextTests {
 
     @Test
     func genericBrowserPane_hidesIdentityBlock_whenNoWorkspaceAssociationExists() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -162,7 +163,7 @@ struct PaneManagementContextTests {
 
     @Test
     func contextualBrowserPane_showsIdentityBlock_whenWorkspaceAssociationExists() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,

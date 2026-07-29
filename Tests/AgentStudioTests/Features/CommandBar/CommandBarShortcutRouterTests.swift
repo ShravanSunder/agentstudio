@@ -1,6 +1,7 @@
+import AgentStudioCore
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite
@@ -38,7 +39,8 @@ struct CommandBarShortcutRouterTests {
     func rowShortcutBeatsSelectedItemFallback() throws {
         let actionsLevel = CommandBarDataSource.buildWorktreeActionsLevel(
             presence: makeWorktreePresence(paneCount: 1),
-            canOpenInCurrentTab: true
+            canOpenInCurrentTab: true,
+            dispatcher: FakeAppCommandDispatcher()
         )
         let selectedItem = try #require(actionsLevel.items.last)
 

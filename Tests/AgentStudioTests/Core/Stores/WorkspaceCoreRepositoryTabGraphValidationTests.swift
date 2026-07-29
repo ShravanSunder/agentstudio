@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @Suite("WorkspaceCoreRepositoryTabGraphValidationTests")
 struct WorkspaceCoreRepositoryTabGraphValidationTests {

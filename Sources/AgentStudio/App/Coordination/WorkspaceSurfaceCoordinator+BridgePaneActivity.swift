@@ -1,3 +1,5 @@
+import AgentStudioBridge
+import AgentStudioCore
 import Foundation
 import Observation
 

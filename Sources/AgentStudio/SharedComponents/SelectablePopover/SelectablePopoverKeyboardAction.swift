@@ -1,6 +1,6 @@
 import Foundation
 
-enum SelectablePopoverKeyboardAction<ItemID: Equatable>: Equatable {
+package enum SelectablePopoverKeyboardAction<ItemID: Equatable>: Equatable {
     case dismiss
     case select(ItemID)
     case auxiliary(ItemID)

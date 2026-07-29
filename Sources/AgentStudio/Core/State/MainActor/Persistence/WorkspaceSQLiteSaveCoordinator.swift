@@ -109,14 +109,14 @@ enum WorkspaceSQLiteSavePreparation {
 }
 
 @MainActor
-final class WorkspaceSQLiteSaveCoordinator {
+package final class WorkspaceSQLiteSaveCoordinator {
     private let identityAtom: WorkspaceIdentityAtom
     private let windowMemoryAtom: WorkspaceWindowMemoryAtom
     private let workspacePaneAtom: WorkspacePaneAtom
     private let workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
     private let sqliteDatastore: WorkspaceSQLiteDatastore
 
-    init(
+    package init(
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
         workspacePaneAtom: WorkspacePaneAtom,

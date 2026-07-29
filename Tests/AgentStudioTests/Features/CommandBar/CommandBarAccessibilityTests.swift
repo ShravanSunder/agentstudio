@@ -1,14 +1,17 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import AppKit
 import SwiftUI
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite(.serialized)
 struct CommandBarAccessibilityTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("group header and selected row expose header, identity, action, and selection semantics")
@@ -35,6 +38,7 @@ struct CommandBarAccessibilityTests {
                         items: [item]
                     )
                 ],
+                octiconLoader: makeCommandBarTestOcticonLoader(),
                 selectedIndex: 0,
                 onSelect: { _ in }
             )
@@ -88,6 +92,7 @@ struct CommandBarAccessibilityTests {
                         )
                     ),
                 ],
+                octiconLoader: makeCommandBarTestOcticonLoader(),
                 onNavigate: { selectedBreadcrumbIndex = $0 }
             )
             .frame(width: 500, height: 28)
@@ -137,6 +142,7 @@ struct CommandBarAccessibilityTests {
                         items: [item]
                     )
                 ],
+                octiconLoader: makeCommandBarTestOcticonLoader(),
                 selectedIndex: 0,
                 onSelect: { _ in },
                 onShowActions: { selectedActionItemID = $0.id }

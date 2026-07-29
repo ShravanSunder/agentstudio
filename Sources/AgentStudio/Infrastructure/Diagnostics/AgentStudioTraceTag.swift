@@ -5,7 +5,7 @@ struct AgentStudioTraceTagSelection: Equatable, Sendable {
     let unknownSelectors: [String]
 }
 
-enum AgentStudioTraceTag: String, CaseIterable, Codable, Sendable {
+package enum AgentStudioTraceTag: String, CaseIterable, Codable, Sendable {
     case actions
     case appFocus = "app.focus"
     case appStartup = "app.startup"

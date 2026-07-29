@@ -3,12 +3,15 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct PaneTabViewControllerTabRetentionTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
     private struct Harness {
         let store: WorkspaceStore
@@ -20,6 +23,7 @@ struct PaneTabViewControllerTabRetentionTests {
     }
 
     private func makeHarness() -> Harness {
+        let atomRegistry = AtomRegistry(core: CoreAtomScope.store)
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-tab-retention-\(UUID().uuidString)")
         let store = WorkspaceStore()
@@ -41,6 +45,7 @@ struct PaneTabViewControllerTabRetentionTests {
         )
         let controller = PaneTabViewController(
             store: store,
+            octiconLoader: makeTestOcticonLoader(),
             repoCache: RepoCacheAtom(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
@@ -48,6 +53,9 @@ struct PaneTabViewControllerTabRetentionTests {
             runtimeCommandDispatcher: coordinator,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
+            bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
+            editorChooser: atomRegistry.editorChooser,
+            inboxAtom: atomRegistry.inboxNotification,
             registersAsCommandHandler: false
         )
         PaneViewRepresentable.onDismantleForTesting = { [weak controller] in

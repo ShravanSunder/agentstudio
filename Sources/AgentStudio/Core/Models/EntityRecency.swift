@@ -1,15 +1,15 @@
 import Foundation
 
-enum EntityRecencyInteraction: String, Hashable, Sendable {
+package enum EntityRecencyInteraction: String, Hashable, Sendable {
     case opened
     case focused
 }
 
-enum ApplicationRecentEntity: Hashable, Sendable {
+package enum ApplicationRecentEntity: Hashable, Sendable {
     case repository(repositoryStableKey: String)
     case worktree(worktreeStableKey: String)
 
-    var storageKind: String {
+    package var storageKind: String {
         switch self {
         case .repository:
             "repository"
@@ -18,7 +18,7 @@ enum ApplicationRecentEntity: Hashable, Sendable {
         }
     }
 
-    var storageKey: String {
+    package var storageKey: String {
         switch self {
         case .repository(let repositoryStableKey):
             repositoryStableKey
@@ -27,7 +27,7 @@ enum ApplicationRecentEntity: Hashable, Sendable {
         }
     }
 
-    init(storageKind: String, storageKey: String) throws {
+    package init(storageKind: String, storageKey: String) throws {
         try EntityRecencyValidation.validateStableKey(storageKey)
         switch storageKind {
         case "repository":
@@ -40,21 +40,21 @@ enum ApplicationRecentEntity: Hashable, Sendable {
     }
 }
 
-enum WorkspaceRecentEntity: Hashable, Sendable {
+package enum WorkspaceRecentEntity: Hashable, Sendable {
     case pane(paneID: UUID)
 
-    var storageKind: String {
+    package var storageKind: String {
         "pane"
     }
 
-    var storageKey: String {
+    package var storageKey: String {
         switch self {
         case .pane(let paneID):
             paneID.uuidString
         }
     }
 
-    init(storageKind: String, storageKey: String) throws {
+    package init(storageKind: String, storageKey: String) throws {
         guard storageKind == "pane" else {
             throw EntityRecencyValidationError.unsupportedEntityKind
         }
@@ -68,7 +68,7 @@ enum WorkspaceRecentEntity: Hashable, Sendable {
     }
 }
 
-enum EntityRecencyValidationError: Error, Equatable {
+package enum EntityRecencyValidationError: Error, Equatable {
     case invalidStableKey
     case invalidEntityKey
     case invalidTimestamp
@@ -76,12 +76,12 @@ enum EntityRecencyValidationError: Error, Equatable {
     case unsupportedInteraction
 }
 
-struct ApplicationEntityRecency: Hashable, Sendable {
-    let entity: ApplicationRecentEntity
-    let interaction: EntityRecencyInteraction
-    let lastInteractedAt: Date
+package struct ApplicationEntityRecency: Hashable, Sendable {
+    package let entity: ApplicationRecentEntity
+    package let interaction: EntityRecencyInteraction
+    package let lastInteractedAt: Date
 
-    init(
+    package init(
         entity: ApplicationRecentEntity,
         interaction: EntityRecencyInteraction,
         lastInteractedAt: Date
@@ -97,13 +97,13 @@ struct ApplicationEntityRecency: Hashable, Sendable {
     }
 }
 
-struct WorkspaceEntityRecency: Hashable, Sendable {
-    let workspaceID: UUID
-    let entity: WorkspaceRecentEntity
-    let interaction: EntityRecencyInteraction
-    let lastInteractedAt: Date
+package struct WorkspaceEntityRecency: Hashable, Sendable {
+    package let workspaceID: UUID
+    package let entity: WorkspaceRecentEntity
+    package let interaction: EntityRecencyInteraction
+    package let lastInteractedAt: Date
 
-    init(
+    package init(
         workspaceID: UUID,
         entity: WorkspaceRecentEntity,
         interaction: EntityRecencyInteraction,

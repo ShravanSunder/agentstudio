@@ -4,7 +4,7 @@ import os
 
 @MainActor
 @Observable
-final class TransientKeyboardSurfaceAtom {
+package final class TransientKeyboardSurfaceAtom {
     private let logger = Logger(subsystem: "com.agentstudio", category: "TransientKeyboardSurfaceAtom")
 
     private(set) var surfaces: [TransientKeyboardSurface] = []
@@ -18,7 +18,7 @@ final class TransientKeyboardSurfaceAtom {
         return surfaces.last { $0.workspaceWindowId == workspaceWindowId }
     }
 
-    func isArrangementPanelPresented(
+    package func isArrangementPanelPresented(
         forTab tabId: UUID,
         workspaceWindowId: UUID?
     ) -> Bool {
@@ -37,7 +37,7 @@ final class TransientKeyboardSurfaceAtom {
         }
     }
 
-    func present(
+    package func present(
         _ kind: TransientKeyboardSurfaceKind,
         workspaceWindowId: UUID,
         policy: TransientKeyboardSurfacePolicy? = nil
@@ -51,7 +51,7 @@ final class TransientKeyboardSurfaceAtom {
         return surface.token
     }
 
-    func dismiss(_ token: TransientKeyboardSurfaceToken) {
+    package func dismiss(_ token: TransientKeyboardSurfaceToken) {
         surfaces.removeAll { $0.token == token }
     }
 

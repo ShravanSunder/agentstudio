@@ -1,21 +1,23 @@
+import AgentStudioTestSupport
 import AppKit
 import SwiftUI
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite("ArrangementPanel mounted behavior", .serialized)
 struct ArrangementPanelMountTests {
     @Test("normal terminal rows expose a targeted canonical Zoom action")
     func normalTerminalRowsExposeTargetedZoomAction() throws {
-        try AtomScope.$override.withValue(makeInstalledTestAtomRegistry()) {
+        try withTestCoreAtoms { _ in
             let paneId = UUID()
             var zoomTargets: [UUID?] = []
             let hostingView = NSHostingView(
                 rootView: ArrangementPanel(
                     tabId: UUID(),
                     workspaceWindowId: nil,
+                    octiconLoader: makeCoreTestOcticonLoader(),
                     panes: [
                         PaneVisibilityInfo(
                             id: paneId,
@@ -58,7 +60,7 @@ struct ArrangementPanelMountTests {
 
     @Test("unsupported pane rows omit Zoom")
     func unsupportedRowsOmitZoom() {
-        AtomScope.$override.withValue(makeInstalledTestAtomRegistry()) {
+        withTestCoreAtoms { _ in
             let paneId = UUID()
             let hostingView = makeArrangementPanelHostingView(
                 panes: [
@@ -84,7 +86,7 @@ struct ArrangementPanelMountTests {
 
     @Test("active Pane Zoom exposes a status block with explicit Cancel Zoom")
     func activePaneZoomExposesStatusBlockWithExplicitCancelZoom() throws {
-        try AtomScope.$override.withValue(makeInstalledTestAtomRegistry()) {
+        try withTestCoreAtoms { _ in
             var zoomTargets: [UUID?] = []
             let hostingView = makeArrangementPanelHostingView(
                 panes: [
@@ -128,7 +130,7 @@ struct ArrangementPanelMountTests {
 
     @Test("arrangement rename survives transient AppKit focus churn")
     func arrangementRenameSurvivesTransientFocusChurn() async throws {
-        try await AtomScope.$override.withValue(makeInstalledTestAtomRegistry()) {
+        try await withAsyncTestCoreAtoms { _ in
             let arrangementId = UUID()
             let renameState = ArrangementInlineRenameState()
             renameState.beginEditing(
@@ -140,6 +142,7 @@ struct ArrangementPanelMountTests {
                 rootView: ArrangementPanel(
                     tabId: UUID(),
                     workspaceWindowId: nil,
+                    octiconLoader: makeCoreTestOcticonLoader(),
                     panes: [],
                     zoomMode: nil,
                     arrangements: [
@@ -196,6 +199,7 @@ private func makeArrangementPanelHostingView(
         rootView: ArrangementPanel(
             tabId: UUID(),
             workspaceWindowId: nil,
+            octiconLoader: makeCoreTestOcticonLoader(),
             panes: panes,
             zoomMode: zoomMode,
             arrangements: [

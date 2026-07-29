@@ -3,12 +3,17 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("closing four Bridge tabs keeps topology lookup telemetry bounded")
@@ -33,6 +38,7 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
             paneEventBus: EventBus<RuntimeEnvelope>(),
             filesystemSource: TopologyTraceRecordingFilesystemSource(),
             windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom(),
             performanceTraceRecorder: recorder
         )
         defer { Task { await coordinator.shutdown() } }

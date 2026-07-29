@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 
-enum AppEntityIcon: Equatable {
+package enum AppEntityIcon: Equatable {
     enum Symbol: Equatable {
         case system(SystemSymbol)
         case octicon(OcticonSymbol)
@@ -57,14 +58,14 @@ enum AppEntityIcon: Equatable {
     }
 
     @ViewBuilder
-    func swiftUIImage(size: CGFloat) -> some View {
+    package func swiftUIImage(loader: OcticonLoader, size: CGFloat) -> some View {
         switch self {
         case .pane, .paneGroup, .tab, .tabGroup, .workspace, .otherSources:
             Image(systemName: symbolName)
                 .font(.system(size: size, weight: .medium))
                 .foregroundStyle(foregroundStyle)
         case .repo, .coloredRepo, .checkout:
-            OcticonImage(name: symbolName, size: size)
+            OcticonImage(name: symbolName, size: size, loader: loader)
                 .foregroundStyle(foregroundStyle)
                 .rotationEffect(.degrees(rotationDegrees))
         }

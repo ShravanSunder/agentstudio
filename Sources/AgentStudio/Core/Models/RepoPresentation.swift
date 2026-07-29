@@ -1,28 +1,41 @@
+import AgentStudioInfrastructure
 import AppKit
 import Foundation
 
-struct RepoPresentationGroup: Identifiable, Equatable, Sendable {
-    let id: String
-    let repoTitle: String
-    let organizationName: String?
-    let repos: [RepoPresentationItem]
+package struct RepoPresentationGroup: Identifiable, Equatable, Sendable {
+    package let id: String
+    package let repoTitle: String
+    package let organizationName: String?
+    package let repos: [RepoPresentationItem]
 
-    var checkoutCount: Int {
+    package init(
+        id: String,
+        repoTitle: String,
+        organizationName: String?,
+        repos: [RepoPresentationItem]
+    ) {
+        self.id = id
+        self.repoTitle = repoTitle
+        self.organizationName = organizationName
+        self.repos = repos
+    }
+
+    package var checkoutCount: Int {
         repos.reduce(0) { $0 + $1.worktrees.count }
     }
 }
 
-struct RepoPresentationItem: Identifiable, Hashable, Sendable {
-    let id: UUID
-    let name: String
-    let repoPath: URL
-    let stableKey: String
-    let isFavorite: Bool
-    let note: String?
-    let tags: [String]
-    var worktrees: [Worktree]
+package struct RepoPresentationItem: Identifiable, Hashable, Sendable {
+    package let id: UUID
+    package let name: String
+    package let repoPath: URL
+    package let stableKey: String
+    package let isFavorite: Bool
+    package let note: String?
+    package let tags: [String]
+    package var worktrees: [Worktree]
 
-    init(
+    package init(
         id: UUID,
         name: String,
         repoPath: URL,
@@ -42,7 +55,7 @@ struct RepoPresentationItem: Identifiable, Hashable, Sendable {
         self.worktrees = worktrees
     }
 
-    init(repo: Repo) {
+    package init(repo: Repo) {
         self.init(
             id: repo.id,
             name: repo.name,
@@ -56,14 +69,26 @@ struct RepoPresentationItem: Identifiable, Hashable, Sendable {
     }
 }
 
-struct RepoIdentityMetadata: Sendable {
-    let groupKey: String
-    let repoName: String
-    let organizationName: String?
-    let lastPathComponent: String
+package struct RepoIdentityMetadata: Sendable {
+    package let groupKey: String
+    package let repoName: String
+    package let organizationName: String?
+    package let lastPathComponent: String
+
+    package init(
+        groupKey: String,
+        repoName: String,
+        organizationName: String?,
+        lastPathComponent: String
+    ) {
+        self.groupKey = groupKey
+        self.repoName = repoName
+        self.organizationName = organizationName
+        self.lastPathComponent = lastPathComponent
+    }
 }
 
-enum RepoPresentationGrouping {
+package enum RepoPresentationGrouping {
     private struct OwnerCandidate {
         let repoId: UUID
         let repoWorktreeCount: Int
@@ -72,9 +97,9 @@ enum RepoPresentationGrouping {
         let stableTieBreaker: String
     }
 
-    static let automaticPaletteHexes: [String] = AppStyles.Shell.Sidebar.accentPaletteHexes
+    package static let automaticPaletteHexes: [String] = AppStyles.Shell.Sidebar.accentPaletteHexes
 
-    static func colorHexForCheckoutIndex(_ index: Int, seed: String) -> String {
+    package static func colorHexForCheckoutIndex(_ index: Int, seed: String) -> String {
         if index < automaticPaletteHexes.count {
             return automaticPaletteHexes[index]
         }
@@ -82,7 +107,7 @@ enum RepoPresentationGrouping {
         return generatedColorHex(seed: seed)
     }
 
-    static func buildGroups(
+    package static func buildGroups(
         repos: [RepoPresentationItem],
         metadataByRepoId: [UUID: RepoIdentityMetadata]
     ) -> [RepoPresentationGroup] {
@@ -192,8 +217,8 @@ enum RepoPresentationGrouping {
     }
 }
 
-enum RepoPresentationColoring {
-    static func buildRepoMetadata(
+package enum RepoPresentationColoring {
+    package static func buildRepoMetadata(
         repos: [RepoPresentationItem],
         repoEnrichmentByRepoId: [UUID: RepoEnrichment]
     ) -> [UUID: RepoIdentityMetadata] {
@@ -235,7 +260,7 @@ enum RepoPresentationColoring {
         return metadataByRepoId
     }
 
-    static func checkoutColorHex(
+    package static func checkoutColorHex(
         for repo: RepoPresentationItem,
         in group: RepoPresentationGroup
     ) -> String {
@@ -257,7 +282,7 @@ enum RepoPresentationColoring {
         )
     }
 
-    static func sourceGroupColorHex(
+    package static func sourceGroupColorHex(
         for group: RepoPresentationGroup
     ) -> String? {
         guard let primaryRepo = primaryRepoForSourceGroup(group) else { return nil }
@@ -267,7 +292,7 @@ enum RepoPresentationColoring {
         )
     }
 
-    static func primaryRepoForSourceGroup(_ group: RepoPresentationGroup) -> RepoPresentationItem? {
+    package static func primaryRepoForSourceGroup(_ group: RepoPresentationGroup) -> RepoPresentationItem? {
         group.repos.max { lhs, rhs in
             let lhsScore = sourceGroupPrimaryScore(lhs)
             let rhsScore = sourceGroupPrimaryScore(rhs)

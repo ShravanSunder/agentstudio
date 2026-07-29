@@ -2,13 +2,17 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 extension WebKitSerializedTests {
     @MainActor
     @Suite(.serialized)
     struct PreparedNonterminalContentMountTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("prepared Bridge mount uses the exact accepted pane and settles one generation claim")
@@ -47,7 +51,8 @@ extension WebKitSerializedTests {
                 store: store,
                 viewRegistry: viewRegistry,
                 runtime: SessionRuntime(store: store),
-                windowLifecycleStore: WindowLifecycleAtom()
+                windowLifecycleStore: WindowLifecycleAtom(),
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             viewRegistry.installPreparedContentMountCohort(
                 WorkspacePreparedContentMountCohort(

@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("CoordinationPlaneArchitectureTests")
 struct CoordinationPlaneArchitectureTests {
     private struct LifecycleCompositionSources {
@@ -51,21 +53,21 @@ struct CoordinationPlaneArchitectureTests {
                 encoding: .utf8
             ),
             activeTabContentSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Panes/ActiveTabContent.swift"),
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/Hosting/ActiveTabContent.swift"),
                 encoding: .utf8
             ),
             singleTabContentSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Panes/SingleTabContent.swift"),
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/Hosting/SingleTabContent.swift"),
                 encoding: .utf8
             ),
             flatTabStripContainerSource: String(
                 contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Views/Panes/FlatTabStripContainer.swift"),
+                    path: "Sources/AgentStudio/App/Panes/Hosting/FlatTabStripContainer.swift"),
                 encoding: .utf8
             ),
             flatPaneStripContentSource: String(
                 contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Views/Panes/FlatPaneStripContent.swift"),
+                    path: "Sources/AgentStudio/App/Panes/Hosting/FlatPaneStripContent.swift"),
                 encoding: .utf8
             ),
             mainWindowControllerSource: String(
@@ -74,16 +76,16 @@ struct CoordinationPlaneArchitectureTests {
             ),
             paneLeafContainerSource: String(
                 contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Views/Panes/PaneLeafContainer.swift"),
+                    path: "Sources/AgentStudio/App/Panes/Hosting/PaneLeafContainer.swift"),
                 encoding: .utf8
             ),
             drawerPanelOverlaySource: String(
                 contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanelOverlay.swift"),
+                    path: "Sources/AgentStudio/App/Panes/Hosting/DrawerPanelOverlay.swift"),
                 encoding: .utf8
             ),
             drawerPanelSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift"),
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/Hosting/DrawerPanel.swift"),
                 encoding: .utf8
             ),
             viewRegistrySource: String(
@@ -241,7 +243,7 @@ struct CoordinationPlaneArchitectureTests {
     func appEventSurface_excludesStaleWorkspaceCommands() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let appEventPath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/Events/AppEvent.swift"
+            path: "Sources/AgentStudio/Core/RuntimeEventSystem/Events/AppEvent.swift"
         )
         let source = try String(contentsOf: appEventPath, encoding: .utf8)
 
@@ -272,17 +274,17 @@ struct CoordinationPlaneArchitectureTests {
         #expect(source.contains("case worktreeBellRang"))
     }
 
-    @Test("App event bus types live under App and pane runtime channels stay app-event free")
-    func appEventOwnership_staysInAppSlice() throws {
+    @Test("App event bus types live under Core runtime events and pane runtime channels stay app-event free")
+    func appEventOwnership_staysInCoreRuntimeEvents() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let eventChannelsPath = projectRoot.appending(
             path: "Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventChannels.swift"
         )
         let appEventPath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/Events/AppEvent.swift"
+            path: "Sources/AgentStudio/Core/RuntimeEventSystem/Events/AppEvent.swift"
         )
         let appEventBusPath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/Events/AppEventBus.swift"
+            path: "Sources/AgentStudio/Core/RuntimeEventSystem/Events/AppEventBus.swift"
         )
 
         let eventChannelsSource = try String(contentsOf: eventChannelsPath, encoding: .utf8)
@@ -337,13 +339,25 @@ struct CoordinationPlaneArchitectureTests {
         let sidebarPath = projectRoot.appending(
             path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"
         )
+        let sidebarSurfaceHostPath = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift"
+        )
 
         let appDelegateRoutingSource = try String(contentsOf: appDelegateRoutingPath, encoding: .utf8)
         let sidebarSource = try String(contentsOf: sidebarPath, encoding: .utf8)
+        let sidebarSurfaceHostSource = try String(contentsOf: sidebarSurfaceHostPath, encoding: .utf8)
 
         #expect(appDelegateRoutingSource.contains("func refreshWorktrees()"))
         #expect(appDelegateRoutingSource.contains("refreshWatchedFolders"))
-        #expect(sidebarSource.contains("refreshWorktrees()"))
+        #expect(sidebarSource.contains("let onRefreshWorktrees: () -> Void"))
+        #expect(sidebarSource.contains("onRefreshWorktrees()"))
+        #expect(!sidebarSource.contains("func refreshWorktrees()"))
+        #expect(sidebarSurfaceHostSource.contains("onRefreshWorktrees: {"))
+        #expect(
+            sidebarSurfaceHostSource.contains(
+                "AppCommandDispatcher.shared.appCommandRouter?.refreshWorktrees()"
+            )
+        )
         #expect(!sidebarSource.contains("refreshWorktreesRequested"))
     }
 
@@ -375,7 +389,7 @@ struct CoordinationPlaneArchitectureTests {
             encoding: .utf8
         )
         let paneLeafSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Panes/PaneLeafContainer.swift"),
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/Hosting/PaneLeafContainer.swift"),
             encoding: .utf8
         )
         let draggableTabBarSource = try String(

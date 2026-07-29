@@ -1,174 +1,174 @@
+import AgentStudioTestSupport
 import AppKit
 import SwiftUI
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite("Collapsed pane bar Arrangements", .serialized)
 struct CollapsedPaneBarArrangementPanelTests {
     @Test("minimized-bar Arrangements remains open after a panel action")
     func minimizedBarArrangementsRemainsOpenAfterPanelAction() async throws {
-        installTestAtomRegistryIfNeeded()
-        let atoms = AtomScope.store
-        let store = WorkspaceStore(
-            identityAtom: atoms.workspaceIdentity,
-            windowMemoryAtom: atoms.workspaceWindowMemory,
-            repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
-            paneAtom: atoms.workspacePane,
-            tabLayoutAtom: atoms.workspaceTabLayout,
-            mutationCoordinator: atoms.workspaceMutationCoordinator
-        )
-        let pane = store.createPane()
-        let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-        store.setActiveTab(tab.id)
-        var dispatchedActions: [WorkspaceActionCommand] = []
-        let actionDispatcher = PaneTabActionDispatcher(
-            dispatch: { dispatchedActions.append($0) },
-            shouldHandleSplitDragPayload: { _ in false },
-            shouldAcceptDrop: { _, _, _, _ in false },
-            handleDrop: { _, _, _, _ in }
-        )
-        let hostingView = NSHostingView(
-            rootView: CollapsedPaneBar(
-                paneId: pane.id,
-                tabId: tab.id,
-                closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
-                actionDispatcher: actionDispatcher,
-                onFocus: {}
+        installTestCoreAtomsIfNeeded()
+        try await withAsyncTestCoreAtoms(using: CoreAtomScope.store) { atoms in
+            let store = WorkspaceStore(
+                identityAtom: atoms.workspaceIdentity,
+                windowMemoryAtom: atoms.workspaceWindowMemory,
+                repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
+                paneAtom: atoms.workspacePane,
+                tabLayoutAtom: atoms.workspaceTabLayout,
+                mutationCoordinator: atoms.workspaceMutationCoordinator
             )
-        )
-        hostingView.frame = CGRect(x: 0, y: 0, width: CollapsedPaneBar.barWidth, height: 500)
-        let window = NSWindow(contentViewController: NSViewController())
-        window.contentView = hostingView
-        window.setContentSize(hostingView.frame.size)
-        window.makeKeyAndOrderFront(nil)
-        defer { window.close() }
-        hostingView.layoutSubtreeIfNeeded()
-        window.contentView?.layoutSubtreeIfNeeded()
-
-        let arrangementsButton = try #require(
-            findAccessibilityElement(
-                in: hostingView,
-                identifier: "collapsed-pane-bar-arrangements"
+            let pane = store.createPane()
+            let tab = Tab(paneId: pane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            var dispatchedActions: [WorkspaceActionCommand] = []
+            let actionDispatcher = PaneTabActionDispatcher(
+                dispatch: { dispatchedActions.append($0) },
+                shouldHandleSplitDragPayload: { _ in false },
+                shouldAcceptDrop: { _, _, _, _ in false },
+                handleDrop: { _, _, _, _ in }
             )
-        )
-        #expect(performAccessibilityPress(arrangementsButton))
-
-        let visibilityIdentifier = "arrangement-panel-pane-\(pane.id.uuidString)-visibility"
-        await eventually("pane visibility action should mount") {
-            findAccessibilityElement(
-                in: NSApp.windows.compactMap(\.contentView),
-                identifier: visibilityIdentifier
-            ) != nil
-        }
-        let visibilityButton = try #require(
-            findAccessibilityElement(
-                in: NSApp.windows.compactMap(\.contentView),
-                identifier: visibilityIdentifier
+            let hostingView = NSHostingView(
+                rootView: CollapsedPaneBar(
+                    paneId: pane.id,
+                    octiconLoader: makeCoreTestOcticonLoader(),
+                    tabId: tab.id,
+                    closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
+                    actionDispatcher: actionDispatcher,
+                    onFocus: {}
+                )
             )
-        )
+            hostingView.frame = CGRect(x: 0, y: 0, width: CollapsedPaneBar.barWidth, height: 500)
+            let window = NSWindow(contentViewController: NSViewController())
+            window.contentView = hostingView
+            window.setContentSize(hostingView.frame.size)
+            window.makeKeyAndOrderFront(nil)
+            defer { window.close() }
+            hostingView.layoutSubtreeIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
 
-        #expect(performAccessibilityPress(visibilityButton))
-        #expect(
-            dispatchedActions.contains {
-                guard
-                    case .minimizePane(
-                        tabId: tab.id,
-                        paneId: pane.id
-                    ) = $0
-                else {
-                    return false
-                }
-                return true
+            let arrangementsButton = try #require(
+                findAccessibilityElement(
+                    in: hostingView,
+                    identifier: "collapsed-pane-bar-arrangements"
+                )
+            )
+            #expect(performAccessibilityPress(arrangementsButton))
+
+            let visibilityIdentifier = "arrangement-panel-pane-\(pane.id.uuidString)-visibility"
+            await assertEventuallyMain("pane visibility action should mount") {
+                findAccessibilityElement(
+                    in: NSApp.windows.compactMap(\.contentView),
+                    identifier: visibilityIdentifier
+                ) != nil
             }
-        )
-        for _ in 0..<10 {
-            await Task.yield()
+            let visibilityButton = try #require(
+                findAccessibilityElement(
+                    in: NSApp.windows.compactMap(\.contentView),
+                    identifier: visibilityIdentifier
+                )
+            )
+
+            #expect(performAccessibilityPress(visibilityButton))
+            #expect(
+                dispatchedActions.contains {
+                    guard
+                        case .minimizePane(
+                            tabId: tab.id,
+                            paneId: pane.id
+                        ) = $0
+                    else {
+                        return false
+                    }
+                    return true
+                }
+            )
+            await assertEventuallyMain("pane visibility action should remain mounted") {
+                findAccessibilityElement(
+                    in: NSApp.windows.compactMap(\.contentView),
+                    identifier: visibilityIdentifier
+                ) != nil
+            }
         }
-        #expect(
-            findAccessibilityElement(
-                in: NSApp.windows.compactMap(\.contentView),
-                identifier: visibilityIdentifier
-            ) != nil
-        )
     }
 
     @Test("minimized-bar Arrangements forwards Pane Zoom and remains open")
     func minimizedBarArrangementsForwardsPaneZoom() async throws {
-        installTestAtomRegistryIfNeeded()
-        let atoms = AtomScope.store
-        let store = WorkspaceStore(
-            identityAtom: atoms.workspaceIdentity,
-            windowMemoryAtom: atoms.workspaceWindowMemory,
-            repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
-            paneAtom: atoms.workspacePane,
-            tabLayoutAtom: atoms.workspaceTabLayout,
-            mutationCoordinator: atoms.workspaceMutationCoordinator
-        )
-        let pane = store.createPane()
-        let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-        store.setActiveTab(tab.id)
-        var zoomTargets: [UUID?] = []
-        let actionDispatcher = PaneTabActionDispatcher(
-            dispatch: { _ in },
-            shouldHandleSplitDragPayload: { _ in false },
-            shouldAcceptDrop: { _, _, _, _ in false },
-            handleDrop: { _, _, _, _ in }
-        )
-        let hostingView = NSHostingView(
-            rootView: CollapsedPaneBar(
-                paneId: pane.id,
-                tabId: tab.id,
-                closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
-                actionDispatcher: actionDispatcher,
-                onFocus: {},
-                onToggleZoom: { zoomTargets.append($0) }
+        installTestCoreAtomsIfNeeded()
+        try await withAsyncTestCoreAtoms(using: CoreAtomScope.store) { atoms in
+            let store = WorkspaceStore(
+                identityAtom: atoms.workspaceIdentity,
+                windowMemoryAtom: atoms.workspaceWindowMemory,
+                repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
+                paneAtom: atoms.workspacePane,
+                tabLayoutAtom: atoms.workspaceTabLayout,
+                mutationCoordinator: atoms.workspaceMutationCoordinator
             )
-        )
-        hostingView.frame = CGRect(x: 0, y: 0, width: CollapsedPaneBar.barWidth, height: 500)
-        let window = NSWindow(contentViewController: NSViewController())
-        window.contentView = hostingView
-        window.setContentSize(hostingView.frame.size)
-        window.makeKeyAndOrderFront(nil)
-        defer { window.close() }
-        hostingView.layoutSubtreeIfNeeded()
-        window.contentView?.layoutSubtreeIfNeeded()
-
-        let arrangementsButton = try #require(
-            findAccessibilityElement(
-                in: hostingView,
-                identifier: "collapsed-pane-bar-arrangements"
+            let pane = store.createPane()
+            let tab = Tab(paneId: pane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            var zoomTargets: [UUID?] = []
+            let actionDispatcher = PaneTabActionDispatcher(
+                dispatch: { _ in },
+                shouldHandleSplitDragPayload: { _ in false },
+                shouldAcceptDrop: { _, _, _, _ in false },
+                handleDrop: { _, _, _, _ in }
             )
-        )
-        #expect(performAccessibilityPress(arrangementsButton))
+            let hostingView = NSHostingView(
+                rootView: CollapsedPaneBar(
+                    paneId: pane.id,
+                    octiconLoader: makeCoreTestOcticonLoader(),
+                    tabId: tab.id,
+                    closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
+                    actionDispatcher: actionDispatcher,
+                    onFocus: {},
+                    onToggleZoom: { zoomTargets.append($0) }
+                )
+            )
+            hostingView.frame = CGRect(x: 0, y: 0, width: CollapsedPaneBar.barWidth, height: 500)
+            let window = NSWindow(contentViewController: NSViewController())
+            window.contentView = hostingView
+            window.setContentSize(hostingView.frame.size)
+            window.makeKeyAndOrderFront(nil)
+            defer { window.close() }
+            hostingView.layoutSubtreeIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
 
-        await eventually("minimized-bar Arrangements popover should mount") {
-            findAccessibilityElement(
-                in: NSApp.windows.compactMap(\.contentView),
-                identifier: "arrangement-panel-pane-\(pane.id.uuidString)-zoom"
-            ) != nil
+            let arrangementsButton = try #require(
+                findAccessibilityElement(
+                    in: hostingView,
+                    identifier: "collapsed-pane-bar-arrangements"
+                )
+            )
+            #expect(performAccessibilityPress(arrangementsButton))
+
+            let zoomIdentifier = "arrangement-panel-pane-\(pane.id.uuidString)-zoom"
+            await assertEventuallyMain("minimized-bar Arrangements popover should mount") {
+                findAccessibilityElement(
+                    in: NSApp.windows.compactMap(\.contentView),
+                    identifier: zoomIdentifier
+                ) != nil
+            }
+            let zoomButton = try #require(
+                findAccessibilityElement(
+                    in: NSApp.windows.compactMap(\.contentView),
+                    identifier: zoomIdentifier
+                )
+            )
+
+            #expect(performAccessibilityPress(zoomButton))
+            #expect(zoomTargets == [pane.id])
+            await assertEventuallyMain("minimized-bar Arrangements popover should remain mounted") {
+                findAccessibilityElement(
+                    in: NSApp.windows.compactMap(\.contentView),
+                    identifier: zoomIdentifier
+                ) != nil
+            }
         }
-        let zoomButton = try #require(
-            findAccessibilityElement(
-                in: NSApp.windows.compactMap(\.contentView),
-                identifier: "arrangement-panel-pane-\(pane.id.uuidString)-zoom"
-            )
-        )
-
-        #expect(performAccessibilityPress(zoomButton))
-        #expect(zoomTargets == [pane.id])
-        for _ in 0..<10 {
-            await Task.yield()
-        }
-        #expect(
-            findAccessibilityElement(
-                in: NSApp.windows.compactMap(\.contentView),
-                identifier: "arrangement-panel-pane-\(pane.id.uuidString)-zoom"
-            ) != nil
-        )
     }
 }
 

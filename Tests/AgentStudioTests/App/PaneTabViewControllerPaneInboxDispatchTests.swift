@@ -3,12 +3,14 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("PaneTabViewController PaneInbox dispatch", .serialized)
 struct PaneTabViewControllerPaneInboxDispatchTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("dispatcher PaneInbox command reaches the active parent pane scope")
@@ -41,7 +43,7 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
 
     @Test("Cmd-Shift-U app-owned key event reaches PaneInbox command dispatch")
     func cmdShiftUKeyEventOpensPaneInboxForActiveParentScope() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)

@@ -1,7 +1,9 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @MainActor
 private final class FakeTerminalLocalActionDrainHost: TerminalLocalActionDrainHost {

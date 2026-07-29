@@ -1,7 +1,7 @@
 import Foundation
 
-struct RemoteIdentityNormalizer {
-    static func normalize(_ remoteURL: String) -> RepoIdentity? {
+package struct RemoteIdentityNormalizer {
+    package static func normalize(_ remoteURL: String) -> RepoIdentity? {
         guard let remoteSlug = extractSlug(remoteURL) else { return nil }
         let slugParts = remoteSlug.split(separator: "/", maxSplits: 1).map(String.init)
 
@@ -50,7 +50,7 @@ struct RemoteIdentityNormalizer {
         return trimmedSlug.isEmpty ? nil : trimmedSlug
     }
 
-    static func localIdentity(repoName: String) -> RepoIdentity {
+    package static func localIdentity(repoName: String) -> RepoIdentity {
         RepoIdentity(
             groupKey: "local:\(repoName)",
             remoteSlug: nil,

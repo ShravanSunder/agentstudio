@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("SurfaceManagerHotPathArchitectureTests")
 struct SurfaceManagerHotPathArchitectureTests {
     @Test("updateHealth guards unchanged health before observable writes")

@@ -2,13 +2,16 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 extension WebKitSerializedTests {
     @MainActor
     @Suite(.serialized)
     struct WorkspaceBridgePaneRefreshIntegrationTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("canonical workspace activity and raw worktree events reach the installed Bridge refresh gate")
@@ -201,6 +204,7 @@ private func makeWorkspaceRefreshTestSetup(
     let controller = BridgePaneController(
         paneId: bridgePane.id,
         state: paneState,
+        appRootURL: testBridgeAppRootURL(),
         metadata: bridgePane.metadata,
         initialPaneActivity: .dormant
     )

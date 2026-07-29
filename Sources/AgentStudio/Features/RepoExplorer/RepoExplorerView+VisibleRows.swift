@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import AppKit
 import Foundation
 import SwiftUI
@@ -208,7 +211,7 @@ enum RepoExplorerVisibleRows {
 }
 
 extension RepoExplorerView {
-    static let focusTargetIdentifier = NSUserInterfaceItemIdentifier("repoExplorerFocusTarget")
+    package static let focusTargetIdentifier = NSUserInterfaceItemIdentifier("repoExplorerFocusTarget")
     static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
     static let surfaceBackground = SidebarSurfaceBackground.shellChrome
 

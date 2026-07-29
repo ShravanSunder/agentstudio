@@ -1,8 +1,9 @@
+import AgentStudioCore
 import CryptoKit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge File content stream pacing")
 struct BridgeFileContentStreamPacingTests {

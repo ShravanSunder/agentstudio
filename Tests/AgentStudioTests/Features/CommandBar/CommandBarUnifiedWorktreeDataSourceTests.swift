@@ -1,16 +1,19 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite(.serialized)
 struct CommandBarUnifiedWorktreeDataSourceTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
-    private let dispatcher = AppCommandDispatcher.shared
+    private let dispatcher = FakeAppCommandDispatcher()
 
     private func makeStore() -> WorkspaceStore {
         WorkspaceStore()
@@ -18,10 +21,10 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
 
     @Test
     func test_reposScope_showsFiveUniqueRecentRepositoriesBeforeRemainingRepositories() throws {
-        try withTestAtomRegistry { atoms in
+        try withTestCoreAtoms { coreAtoms in
             let store = WorkspaceStore(
-                identityAtom: atoms.workspaceIdentity,
-                repositoryTopologyAtom: atoms.workspaceRepositoryTopology
+                identityAtom: coreAtoms.workspaceIdentity,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology
             )
             for name in ["repo-a", "repo-b", "repo-c", "repo-d", "repo-e", "repo-f", "repo-g"] {
                 store.addRepo(at: URL(filePath: "/tmp/\(name)"))
@@ -52,7 +55,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
                 path: staleRepo.repoPath,
                 isMainWorktree: true
             )
-            let applicationEntityRecency = atoms.applicationEntityRecency
+            let applicationEntityRecency = coreAtoms.applicationEntityRecency
             try applicationEntityRecency.recordOpened(
                 repositoryStableKey: staleRepo.stableKey,
                 worktreeStableKey: staleWorktree.stableKey,
@@ -236,7 +239,11 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         )
         store.appendTab(Tab(paneId: pane.id))
 
-        let level = CommandBarDataSource.buildRepoLevel(repo: storedRepo, store: store)
+        let level = CommandBarDataSource.buildRepoLevel(
+            repo: storedRepo,
+            store: store,
+            dispatcher: FakeAppCommandDispatcher()
+        )
 
         #expect(level.title == "repo-level-actions")
         #expect(level.scopeLabel == "Repository")
@@ -281,7 +288,8 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         let level = CommandBarDataSource.buildWorktreeActionsLevel(
             worktree: worktree,
             presence: presence,
-            canOpenInCurrentTab: true
+            canOpenInCurrentTab: true,
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         let groups = CommandBarDataSource.grouped(level.items)

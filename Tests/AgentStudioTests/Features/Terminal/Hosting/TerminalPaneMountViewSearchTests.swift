@@ -1,7 +1,8 @@
+import AgentStudioCore
 import AppKit
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @MainActor
 private final class PaneSearchActionPerformer: TerminalSurfaceActionPerforming {

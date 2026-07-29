@@ -1,7 +1,7 @@
 import Testing
 import WebKit
 
-@testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 @MainActor
 @Suite

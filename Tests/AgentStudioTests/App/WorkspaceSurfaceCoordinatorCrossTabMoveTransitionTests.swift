@@ -4,12 +4,16 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("WorkspaceSurfaceCoordinator cross-tab move view transitions")
 struct WorkspaceCrossTabMoveTransitionTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("cross-tab move detaches moved and source-left panes but reattaches only destination visibility transitions")
@@ -71,7 +75,7 @@ struct WorkspaceCrossTabMoveTransitionTests {
 
     @Test("executeMovePaneAcrossTabs reattaches only moved pane, not already-visible destination panes")
     func executeMovePaneAcrossTabsReattachesOnlyMovedDestinationDelta() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             atoms.managementLayer.deactivate()
 
             let tempDir = FileManager.default.temporaryDirectory
@@ -87,7 +91,8 @@ struct WorkspaceCrossTabMoveTransitionTests {
                 runtime: SessionRuntime(store: store),
                 surfaceManager: surfaceManager,
                 runtimeRegistry: RuntimeRegistry(),
-                windowLifecycleStore: WindowLifecycleAtom()
+                windowLifecycleStore: WindowLifecycleAtom(),
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
 
             let movedPane = store.createPane(title: "A")
@@ -159,7 +164,7 @@ struct WorkspaceCrossTabMoveTransitionTests {
 
     @Test("executeMovePaneAcrossTabs reattaches moved drawer children visible in destination")
     func executeMovePaneAcrossTabsReattachesVisibleMovedDrawerChildren() throws {
-        try withTestAtomRegistry { atoms in
+        try withTestCoreAtoms { atoms in
             atoms.managementLayer.deactivate()
 
             let tempDir = FileManager.default.temporaryDirectory
@@ -175,7 +180,8 @@ struct WorkspaceCrossTabMoveTransitionTests {
                 runtime: SessionRuntime(store: store),
                 surfaceManager: surfaceManager,
                 runtimeRegistry: RuntimeRegistry(),
-                windowLifecycleStore: WindowLifecycleAtom()
+                windowLifecycleStore: WindowLifecycleAtom(),
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
 
             let movedPane = store.createPane(title: "A")

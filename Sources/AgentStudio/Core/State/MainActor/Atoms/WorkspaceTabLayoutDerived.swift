@@ -2,12 +2,12 @@ import Foundation
 import os.log
 
 @MainActor
-struct WorkspaceTabLayoutDerived {
+package struct WorkspaceTabLayoutDerived {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "WorkspaceTabLayoutDerived")
     let shellAtom: WorkspaceTabShellAtom
     let arrangementAtom: WorkspaceTabArrangementAtom
 
-    init(shellAtom: WorkspaceTabShellAtom, arrangementAtom: WorkspaceTabArrangementAtom) {
+    package init(shellAtom: WorkspaceTabShellAtom, arrangementAtom: WorkspaceTabArrangementAtom) {
         self.shellAtom = shellAtom
         self.arrangementAtom = arrangementAtom
     }
@@ -23,7 +23,7 @@ struct WorkspaceTabLayoutDerived {
         )
     }
 
-    var tabs: [Tab] {
+    package var tabs: [Tab] {
         shellAtom.tabShells.compactMap { shell in
             guard let arrangementState = arrangementAtom.arrangementState(shell.id) else {
                 Self.logger.warning("tabs: missing arrangement state for shell \(shell.id)")
@@ -38,14 +38,14 @@ struct WorkspaceTabLayoutDerived {
         return tab(activeTabId)
     }
 
-    func tab(_ id: UUID) -> Tab? {
+    package func tab(_ id: UUID) -> Tab? {
         guard let shell = shellAtom.tabShell(id), let arrangementState = arrangementAtom.arrangementState(id) else {
             return nil
         }
         return Self.assembleTab(shell: shell, arrangementState: arrangementState)
     }
 
-    func tabContaining(paneId: UUID) -> Tab? {
+    package func tabContaining(paneId: UUID) -> Tab? {
         guard let arrangementState = arrangementAtom.tabContaining(paneId: paneId),
             let shell = shellAtom.tabShell(arrangementState.tabId)
         else {

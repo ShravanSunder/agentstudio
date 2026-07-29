@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInboxNotification
+import AgentStudioRepoExplorer
 import Foundation
 
 enum WorkspaceEmptyStateKind: Equatable {
@@ -51,9 +54,11 @@ struct WorkspaceEmptyStateModel: Equatable {
 
 @MainActor
 enum WorkspaceLauncherProjector {
-    static func project(store: WorkspaceStore) -> WorkspaceEmptyStateModel {
+    static func project(
+        store: WorkspaceStore,
+        inboxAtom: InboxNotificationAtom
+    ) -> WorkspaceEmptyStateModel {
         let repoCache = atom(\.repoCache)
-        let inboxAtom = atom(\.inboxNotification)
         let welcome = atom(\.welcome)
         let repositoryTopology = store.repositoryTopologyAtom
         let workspaceTab = WorkspaceTabLayoutDerived(
@@ -212,25 +217,7 @@ enum WorkspaceLauncherProjector {
         target: ApplicationRecentEntity,
         repositoryTopology: RepositoryTopologyAtom
     ) -> Worktree? {
-        switch target {
-        case .repository(let repositoryStableKey):
-            guard
-                let repo = repositoryTopology.repo(stableKey: repositoryStableKey),
-                !repositoryTopology.isRepoUnavailable(repo.id)
-            else {
-                return nil
-            }
-            return canonicalDefaultWorktree(in: repo)
-        case .worktree(let worktreeStableKey):
-            guard
-                let worktree = repositoryTopology.worktree(stableKey: worktreeStableKey),
-                let repo = repositoryTopology.repo(containing: worktree.id),
-                !repositoryTopology.isRepoUnavailable(repo.id)
-            else {
-                return nil
-            }
-            return worktree
-        }
+        repositoryTopology.activationWorktree(for: target)
     }
 
     static func pruneStaleTarget(

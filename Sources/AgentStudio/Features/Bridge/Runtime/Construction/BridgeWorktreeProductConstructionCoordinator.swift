@@ -1,6 +1,6 @@
 import Foundation
 
-actor BridgeWorktreeProductConstructionCoordinator {
+package actor BridgeWorktreeProductConstructionCoordinator {
     private let eventSink: BridgeWorktreeProductConstructionEventSink?
     private var currentEpochByWorktree: [BridgeWorktreeIdentityKey: BridgeWorktreeFreshnessEpoch] = [:]
     private var currentEntryNonceByIdentity: [BridgeConstructionBuildIdentity: UInt64] = [:]
@@ -11,7 +11,7 @@ actor BridgeWorktreeProductConstructionCoordinator {
     private var nextLeaseNonce: UInt64 = 1
     var shutdownWaiters: [CheckedContinuation<Void, Never>] = []
 
-    init(eventSink: BridgeWorktreeProductConstructionEventSink? = nil) {
+    package init(eventSink: BridgeWorktreeProductConstructionEventSink? = nil) {
         self.eventSink = eventSink
     }
 
@@ -99,7 +99,7 @@ actor BridgeWorktreeProductConstructionCoordinator {
     }
 
     @discardableResult
-    func invalidate(worktree: BridgeWorktreeIdentityKey) -> BridgeWorktreeFreshnessEpoch {
+    package func invalidate(worktree: BridgeWorktreeIdentityKey) -> BridgeWorktreeFreshnessEpoch {
         guard !isClosed else {
             return currentEpochByWorktree[worktree] ?? BridgeWorktreeFreshnessEpoch(rawValue: 1)
         }

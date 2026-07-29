@@ -2,28 +2,30 @@ import Observation
 
 @MainActor
 @Observable
-final class RepoExplorerSidebarPrefsAtom {
-    private(set) var groupingMode: RepoExplorerGroupingMode = .repo
-    private(set) var sortOrder: RepoExplorerSortOrder = .default
-    private(set) var repoVisibilityMode: RepoExplorerVisibilityMode = .all
+package final class RepoExplorerSidebarPrefsAtom {
+    package private(set) var groupingMode: RepoExplorerGroupingMode = .repo
+    package private(set) var sortOrder: RepoExplorerSortOrder = .default
+    package private(set) var repoVisibilityMode: RepoExplorerVisibilityMode = .all
 
-    func setGroupingMode(_ groupingMode: RepoExplorerGroupingMode) {
+    package init() {}
+
+    package func setGroupingMode(_ groupingMode: RepoExplorerGroupingMode) {
         self.groupingMode = groupingMode
     }
 
-    func toggleSortOrder() {
+    package func toggleSortOrder() {
         sortOrder = sortOrder.toggled
     }
 
-    func setSortOrder(_ sortOrder: RepoExplorerSortOrder) {
+    package func setSortOrder(_ sortOrder: RepoExplorerSortOrder) {
         self.sortOrder = sortOrder
     }
 
-    func setRepoVisibilityMode(_ mode: RepoExplorerVisibilityMode) {
+    package func setRepoVisibilityMode(_ mode: RepoExplorerVisibilityMode) {
         repoVisibilityMode = mode
     }
 
-    func hydrate(
+    package func hydrate(
         groupingMode: RepoExplorerGroupingMode,
         sortOrder: RepoExplorerSortOrder,
         repoVisibilityMode: RepoExplorerVisibilityMode
@@ -33,7 +35,7 @@ final class RepoExplorerSidebarPrefsAtom {
         self.repoVisibilityMode = repoVisibilityMode
     }
 
-    func reset() {
+    package func reset() {
         groupingMode = .repo
         sortOrder = .default
         repoVisibilityMode = .all

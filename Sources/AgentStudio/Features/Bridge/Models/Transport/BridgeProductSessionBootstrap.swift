@@ -110,7 +110,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
     }
 }
 
-struct BridgeProductSessionBootstrap: Codable, Equatable, Sendable {
+package struct BridgeProductSessionBootstrap: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case kind
         case paneSessionId
@@ -122,7 +122,7 @@ struct BridgeProductSessionBootstrap: Codable, Equatable, Sendable {
     let paneSessionId: String
     let policy: BridgeProductBootstrapPolicy
     let wireVersion: Int
-    let workerInstanceId: String
+    package let workerInstanceId: String
 
     init(
         paneSessionId: String,
@@ -135,7 +135,7 @@ struct BridgeProductSessionBootstrap: Codable, Equatable, Sendable {
         self.workerInstanceId = workerInstanceId
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
             allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
@@ -157,7 +157,7 @@ struct BridgeProductSessionBootstrap: Codable, Equatable, Sendable {
         try BridgeProductContractDecoding.validateIdentifier(workerInstanceId, codingPath: decoder.codingPath)
     }
 
-    func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode("productSession.bootstrap", forKey: .kind)
         try container.encode(paneSessionId, forKey: .paneSessionId)
@@ -167,8 +167,8 @@ struct BridgeProductSessionBootstrap: Codable, Equatable, Sendable {
     }
 }
 
-enum BridgeProductCapabilityHeaderEncoding {
-    static func encode(_ capabilityBytes: [UInt8]) throws -> String {
+package enum BridgeProductCapabilityHeaderEncoding {
+    package static func encode(_ capabilityBytes: [UInt8]) throws -> String {
         guard capabilityBytes.count == BridgeProductWireContract.capabilityByteLength else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Bridge product capability must contain exactly 32 bytes",

@@ -1,19 +1,21 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite(.serialized)
 struct CommandBarPaneSecondaryLineTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test
     func panesScopePaneNoteProvidesSecondaryLineOnlyWhenPresent() {
         let store = WorkspaceStore()
-        let dispatcher = AppCommandDispatcher.shared
+        let dispatcher = FakeAppCommandDispatcher()
         let notedPane = store.createPane()
         store.paneAtom.updatePaneNote(notedPane.id, note: "hiii")
         let plainPane = store.createPane()

@@ -2,23 +2,23 @@ import Foundation
 
 /// A tab in the workspace. Contains panes organized into arrangements.
 /// Order is implicit — determined by array position in the workspace's tabs array.
-struct Tab: Codable, Identifiable, Hashable, Sendable {
+package struct Tab: Codable, Identifiable, Hashable, Sendable {
     // Memberwise equality so PaneTabViewController detects layout/focus/arrangement changes.
     // Hash by id only (Hashable contract: equal objects must have equal hashes,
     // but equal hashes need not imply equal objects).
-    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    package func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
-    let id: UUID
+    package let id: UUID
     /// Display name for this tab.
-    var name: String
+    package var name: String
     /// All pane IDs owned by this tab.
-    var allPaneIds: [UUID]
+    package private(set) var allPaneIds: [UUID]
     /// Layout arrangements for this tab. Always has at least one default arrangement.
-    var arrangements: [PaneArrangement]
+    package var arrangements: [PaneArrangement]
     /// The currently active arrangement ID.
-    var activeArrangementId: UUID
+    package private(set) var activeArrangementId: UUID
     /// Optional durable tab display color as canonical `#RRGGBB`.
-    var colorHex: String?
+    package internal(set) var colorHex: String?
     enum CodingKeys: String, CodingKey {
         case id
         case name
@@ -29,7 +29,7 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
     }
 
     /// Create a tab with a single pane.
-    init(id: UUID = UUID(), paneId: UUID, name: String = "Tab") {
+    package init(id: UUID = UUID(), paneId: UUID, name: String = "Tab") {
         self.id = id
         self.name = name
         self.allPaneIds = [paneId]
@@ -47,7 +47,7 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
 
     /// Create a tab with an existing layout and arrangements.
     /// Precondition: `arrangements` must contain exactly one with `isDefault == true`.
-    init(
+    package init(
         id: UUID = UUID(),
         name: String = "Tab",
         allPaneIds: [UUID],
@@ -95,32 +95,32 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
     }
 
     /// The currently active arrangement.
-    var activeArrangement: PaneArrangement {
+    package var activeArrangement: PaneArrangement {
         arrangements.first { $0.id == activeArrangementId } ?? defaultArrangement
     }
 
     /// Pane IDs in the active arrangement's layout (left-to-right traversal).
-    var activePaneIds: [UUID] { activeArrangement.layout.paneIds }
+    package var activePaneIds: [UUID] { activeArrangement.layout.paneIds }
 
     /// Pane IDs minimized in the active arrangement.
-    var activeMinimizedPaneIds: Set<UUID> { activeArrangement.minimizedPaneIds }
+    package var activeMinimizedPaneIds: Set<UUID> { activeArrangement.minimizedPaneIds }
 
     /// The focused pane within the active arrangement. Nil only when no pane can receive focus.
-    var activePaneId: UUID? { activeArrangement.activePaneId }
+    package var activePaneId: UUID? { activeArrangement.activePaneId }
 
     /// Whether the active arrangement has a split layout (more than one pane).
-    var isSplit: Bool { activeArrangement.layout.isSplit }
+    package var isSplit: Bool { activeArrangement.layout.isSplit }
 
     /// The layout of the active arrangement (convenience accessor).
-    var layout: Layout { activeArrangement.layout }
+    package var layout: Layout { activeArrangement.layout }
 
     // Transitional compatibility aliases while the naming cut propagates.
-    var panes: [UUID] {
+    package var panes: [UUID] {
         get { allPaneIds }
         set { allPaneIds = newValue }
     }
 
-    var paneIds: [UUID] {
+    package var paneIds: [UUID] {
         activePaneIds
     }
 
@@ -139,7 +139,7 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
         arrangements.firstIndex { $0.id == activeArrangementId } ?? defaultArrangementIndex
     }
 
-    static func normalizedName(_ rawName: String) -> String {
+    package static func normalizedName(_ rawName: String) -> String {
         rawName
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

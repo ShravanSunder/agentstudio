@@ -1,16 +1,26 @@
 import Foundation
 
-struct AgentStudioTraceWorktreeIdentity: Equatable, Sendable {
+package struct AgentStudioTraceWorktreeIdentity: Equatable, Sendable {
     let repoHash: String
     let worktreeHash: String
     let branch: String?
+
+    package init(
+        repoHash: String,
+        worktreeHash: String,
+        branch: String?
+    ) {
+        self.repoHash = repoHash
+        self.worktreeHash = worktreeHash
+        self.branch = branch
+    }
 }
 
-struct AgentStudioTraceIdentitySnapshot: Equatable, Sendable {
+package struct AgentStudioTraceIdentitySnapshot: Equatable, Sendable {
     let worktreeIdentitiesByWorktreeId: [UUID: AgentStudioTraceWorktreeIdentity]
     let paneWorktreeIdsByPaneId: [UUID: UUID]
 
-    init(
+    package init(
         worktreeIdentitiesByWorktreeId: [UUID: AgentStudioTraceWorktreeIdentity] = [:],
         paneWorktreeIdsByPaneId: [UUID: UUID] = [:]
     ) {
@@ -19,45 +29,9 @@ struct AgentStudioTraceIdentitySnapshot: Equatable, Sendable {
     }
 
     static let empty = Self()
-
-    @MainActor
-    static func from(
-        repos: [Repo],
-        panes: [Pane],
-        worktreeEnrichments: [UUID: WorktreeEnrichment]
-    ) -> Self {
-        var worktreeIdentitiesByWorktreeId: [UUID: AgentStudioTraceWorktreeIdentity] = [:]
-        for repo in repos {
-            for worktree in repo.worktrees {
-                worktreeIdentitiesByWorktreeId[worktree.id] = AgentStudioTraceWorktreeIdentity(
-                    repoHash: repo.stableKey,
-                    worktreeHash: worktree.stableKey,
-                    branch: Self.nonEmptyBranch(worktreeEnrichments[worktree.id]?.branch)
-                )
-            }
-        }
-
-        let paneWorktreeIdsByPaneId = Dictionary(
-            uniqueKeysWithValues: panes.compactMap { pane -> (UUID, UUID)? in
-                guard let worktreeId = pane.worktreeId else { return nil }
-                return (pane.id, worktreeId)
-            }
-        )
-
-        return Self(
-            worktreeIdentitiesByWorktreeId: worktreeIdentitiesByWorktreeId,
-            paneWorktreeIdsByPaneId: paneWorktreeIdsByPaneId
-        )
-    }
-
-    private static func nonEmptyBranch(_ branch: String?) -> String? {
-        let trimmedBranch = branch?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let trimmedBranch, !trimmedBranch.isEmpty else { return nil }
-        return trimmedBranch
-    }
 }
 
-enum AgentStudioTraceIdentityUpdateOutcome: Equatable, Sendable {
+package enum AgentStudioTraceIdentityUpdateOutcome: Equatable, Sendable {
     case applied
     case equalSuppressed
 }

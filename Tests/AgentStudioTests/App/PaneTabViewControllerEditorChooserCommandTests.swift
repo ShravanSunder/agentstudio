@@ -3,6 +3,13 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioEditorChooser
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
@@ -10,11 +17,12 @@ struct PaneTabViewControllerEditorChooserCommandTests {
     private struct Harness {
         let store: WorkspaceStore
         let controller: PaneTabViewController
+        let editorChooser: EditorChooserState
         let tempDir: URL
     }
 
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private func makeHarness(installedEditorTargets: [ExternalEditorTarget]) -> Harness {
@@ -35,16 +43,25 @@ struct PaneTabViewControllerEditorChooserCommandTests {
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
         )
+        let bridgePaneAttendance = BridgePaneAttendanceAtom()
+        let editorPreference = EditorPreferenceAtom()
+        let editorChooserRuntime = EditorChooserRuntimeAtom()
+        let editorChooser = EditorChooserState(
+            preferenceAtom: editorPreference,
+            runtimeAtom: editorChooserRuntime
+        )
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: runtimeRegistry,
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            bridgePaneAttendance: bridgePaneAttendance
         )
         let controller = PaneTabViewController(
             store: store,
+            octiconLoader: makeTestOcticonLoader(),
             repoCache: RepoCacheAtom(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
@@ -52,13 +69,21 @@ struct PaneTabViewControllerEditorChooserCommandTests {
             runtimeCommandDispatcher: coordinator,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
+            bridgePaneAttendance: bridgePaneAttendance,
+            editorChooser: editorChooser,
+            inboxAtom: InboxNotificationAtom(),
             installedEditorTargetsProvider: { installedEditorTargets },
             openEditorHandler: { _, _, _ in true },
             openFinderHandler: { _ in true },
             registersAsCommandHandler: false
         )
 
-        return Harness(store: store, controller: controller, tempDir: tempDir)
+        return Harness(
+            store: store,
+            controller: controller,
+            editorChooser: editorChooser,
+            tempDir: tempDir
+        )
     }
 
     private func makeRepoAndWorktree(_ store: WorkspaceStore, root: URL) -> (Repo, Worktree) {
@@ -91,8 +116,8 @@ struct PaneTabViewControllerEditorChooserCommandTests {
 
         harness.controller.execute(.openPaneLocationInEditorMenu)
 
-        #expect(atom(\.editorChooser).openForPaneId == pane.id)
-        #expect(atom(\.editorChooser).availableTargets.map(\.id) == ["cursor", "vscode"])
+        #expect(harness.editorChooser.openForPaneId == pane.id)
+        #expect(harness.editorChooser.availableTargets.map(\.id) == ["cursor", "vscode"])
     }
 
     @Test("openPaneLocationInEditorMenu toggles closed when already open for the selected pane")
@@ -110,11 +135,11 @@ struct PaneTabViewControllerEditorChooserCommandTests {
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
-        atom(\.editorChooser).setOpenEditorPane(pane.id)
+        harness.editorChooser.setOpenEditorPane(pane.id)
 
         harness.controller.execute(.openPaneLocationInEditorMenu)
 
-        #expect(atom(\.editorChooser).openForPaneId == nil)
+        #expect(harness.editorChooser.openForPaneId == nil)
     }
 }
 

@@ -1,16 +1,30 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite(.serialized)
 struct CommandBarDataSourceTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
-    let dispatcher = AppCommandDispatcher.shared
+    let dispatcher = FakeAppCommandDispatcher()
+
+    @Test("command data source accepts a Feature-facing dispatcher capability")
+    func commandDataSourceAcceptsFeatureFacingDispatcherCapability() {
+        let items = CommandBarDataSource.items(
+            scope: .commands,
+            store: makeStore(),
+            repoCache: makeRepoCache(),
+            dispatcher: dispatcher
+        )
+
+        #expect(!items.isEmpty)
+    }
 
     func makeStore() -> WorkspaceStore {
         WorkspaceStore()
@@ -485,14 +499,13 @@ struct CommandBarDataSourceTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: Layout()
+            layout: .autoTiled([])
         )
         let tab = Tab(
             name: "Empty",
-            panes: [],
+            allPaneIds: [],
             arrangements: [arrangement],
-            activeArrangementId: arrangement.id,
-            activePaneId: nil
+            activeArrangementId: arrangement.id
         )
         store.appendTab(tab)
 
@@ -594,10 +607,14 @@ struct CommandBarDataSourceTests {
     }
 
     @Test
-    func test_everythingScope_unsupportedPaneUsesCwdFolderWithoutTerminalPrefix() {
+    func test_everythingScope_unsupportedPaneUsesCwdFolderWithoutTerminalPrefix() throws {
         let store = makeStore()
+        let unsupportedContent = try JSONDecoder().decode(
+            PaneContent.self,
+            from: Data(#"{"type":"future-pane","version":3}"#.utf8)
+        )
         let pane = store.createPane(
-            content: .unsupported(UnsupportedContent(type: "future-pane", version: 3, rawState: nil)),
+            content: unsupportedContent,
             metadata: PaneMetadata(
                 launchDirectory: URL(fileURLWithPath: "/tmp/unsupported-pane"),
                 title: "Unsupported",
@@ -867,7 +884,7 @@ struct CommandBarDataSourceTests {
 
     @Test
     func test_reposScope_usesFlatGroupForSingleWorktreeRepos() {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let store = makeStore()
             let repo = store.addRepo(at: URL(filePath: "/tmp/test-repo"))
             store.reconcileDiscoveredWorktrees(

@@ -1,7 +1,9 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite("CommandBarAppMode")
@@ -71,7 +73,7 @@ struct WorkspacePaneFocusTests {
 
     @Test
     func detachDrawerPaneVisibility_requiresFocusedDrawerPane() {
-        let definition = AppCommandDispatcher.shared.definition(for: .detachDrawerPane)
+        let definition = AppCommand.detachDrawerPane.definition
         let emptyDrawerFocus = WorkspacePaneFocus(
             paneContentType: .terminal,
             drawerFocusState: .emptyDrawer(parentPaneId: UUID()),
@@ -89,11 +91,11 @@ struct WorkspacePaneFocusTests {
 
     @Test
     func drawerFocusCommandsExposeDisplayShortcutsWhenDrawerPaneIsFocused() {
-        let enterDrawer = AppCommandDispatcher.shared.definition(for: .enterDrawer)
-        let focusUp = AppCommandDispatcher.shared.definition(for: .focusDrawerPaneUp)
-        let focusLeft = AppCommandDispatcher.shared.definition(for: .focusDrawerPaneLeft)
-        let focusDown = AppCommandDispatcher.shared.definition(for: .focusDrawerPaneDown)
-        let focusRight = AppCommandDispatcher.shared.definition(for: .focusDrawerPaneRight)
+        let enterDrawer = AppCommand.enterDrawer.definition
+        let focusUp = AppCommand.focusDrawerPaneUp.definition
+        let focusLeft = AppCommand.focusDrawerPaneLeft.definition
+        let focusDown = AppCommand.focusDrawerPaneDown.definition
+        let focusRight = AppCommand.focusDrawerPaneRight.definition
         let drawerPaneFocus = WorkspacePaneFocus(
             paneContentType: .terminal,
             drawerFocusState: .drawerPane(parentPaneId: UUID(), paneId: UUID()),
@@ -189,7 +191,7 @@ struct WorkspacePaneFocusTests {
 @Suite("WorkspacePaneFocusDerivedProjection")
 struct WorkspacePaneFocusDerivedProjectionTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private func workspaceTab(for store: WorkspaceStore) -> WorkspaceTabLayoutDerived {

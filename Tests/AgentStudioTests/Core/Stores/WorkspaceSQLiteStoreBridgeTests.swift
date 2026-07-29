@@ -1,9 +1,11 @@
+import AgentStudioTestSupport
 import CoreGraphics
 import Foundation
 import GRDB
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @MainActor
 @Suite("WorkspaceSQLiteStoreBridgeTests", .serialized)
@@ -514,21 +516,21 @@ struct WorkspaceSQLiteStoreBridgeTests {
         from backend: WorkspaceSQLiteStoreBackend
     ) async throws -> WorkspaceStore {
         let datastore = try await preparedWorkspaceSQLiteDatastore(from: backend)
-        let atomRegistry = AtomRegistry()
+        let coreAtoms = CoreAtoms()
         let saveCoordinator = WorkspaceSQLiteSaveCoordinator(
-            identityAtom: atomRegistry.workspaceIdentity,
-            windowMemoryAtom: atomRegistry.workspaceWindowMemory,
-            workspacePaneAtom: atomRegistry.workspacePane,
-            workspaceTabLayoutAtom: atomRegistry.workspaceTabLayout,
+            identityAtom: coreAtoms.workspaceIdentity,
+            windowMemoryAtom: coreAtoms.workspaceWindowMemory,
+            workspacePaneAtom: coreAtoms.workspacePane,
+            workspaceTabLayoutAtom: coreAtoms.workspaceTabLayout,
             sqliteDatastore: datastore
         )
         return WorkspaceStore(
-            identityAtom: atomRegistry.workspaceIdentity,
-            windowMemoryAtom: atomRegistry.workspaceWindowMemory,
-            repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,
-            paneAtom: atomRegistry.workspacePane,
-            tabLayoutAtom: atomRegistry.workspaceTabLayout,
-            mutationCoordinator: atomRegistry.workspaceMutationCoordinator,
+            identityAtom: coreAtoms.workspaceIdentity,
+            windowMemoryAtom: coreAtoms.workspaceWindowMemory,
+            repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology,
+            paneAtom: coreAtoms.workspacePane,
+            tabLayoutAtom: coreAtoms.workspaceTabLayout,
+            mutationCoordinator: coreAtoms.workspaceMutationCoordinator,
             sqliteDatastore: datastore,
             sqliteSaveCoordinator: saveCoordinator
         )

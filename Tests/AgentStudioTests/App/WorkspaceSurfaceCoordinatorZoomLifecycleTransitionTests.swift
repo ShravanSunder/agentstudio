@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
     @Test("Tab A to B to A preserves Zoom and suspends then resumes its companion")

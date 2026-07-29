@@ -1,6 +1,6 @@
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @Suite("RemoteIdentityNormalizer")
 struct RemoteIdentityNormalizerTests {

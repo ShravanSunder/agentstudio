@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import Foundation
 
-actor WatchedFolderScanScheduler {
+package actor WatchedFolderScanScheduler {
     typealias SessionFactory =
         @Sendable (WatchedFolderScanRequest, UInt64) async -> WatchedFolderScannerSessionPort
 

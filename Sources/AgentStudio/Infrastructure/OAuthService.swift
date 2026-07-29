@@ -5,7 +5,7 @@ import os.log
 private let oauthLogger = Logger(subsystem: "com.agentstudio", category: "OAuthService")
 
 /// Supported OAuth providers.
-enum OAuthProvider: String, CaseIterable {
+package enum OAuthProvider: String, CaseIterable {
     case github
     case google
 }
@@ -19,7 +19,11 @@ enum OAuthProvider: String, CaseIterable {
 ///
 /// Client IDs are placeholders until OAuth apps are registered on GitHub/Google.
 @MainActor
-final class OAuthService: NSObject {
+package final class OAuthService: NSObject {
+
+    package override init() {
+        super.init()
+    }
 
     /// Callback URL scheme registered in Info.plist for the current release channel.
     nonisolated static var callbackScheme: String {
@@ -132,7 +136,7 @@ final class OAuthService: NSObject {
     ///   - window: The parent window for the authentication session.
     /// - Returns: The authorization code string.
     /// - Throws: `OAuthError` on failure or cancellation.
-    func authenticate(provider: OAuthProvider, window: NSWindow) async throws -> String {
+    package func authenticate(provider: OAuthProvider, window: NSWindow) async throws -> String {
         guard let config = Self.providerConfigs[provider] else {
             throw OAuthError.unsupportedProvider
         }
@@ -224,14 +228,14 @@ final class OAuthService: NSObject {
 // MARK: - ASWebAuthenticationPresentationContextProviding
 
 extension OAuthService: ASWebAuthenticationPresentationContextProviding {
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+    package func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         presentationWindow ?? NSApp.keyWindow ?? NSApp.windows.first ?? NSWindow()
     }
 }
 
 // MARK: - OAuthError
 
-enum OAuthError: Error, LocalizedError {
+package enum OAuthError: Error, LocalizedError {
     case unsupportedProvider
     case notConfigured(OAuthProvider)
     case invalidURL
@@ -247,7 +251,7 @@ enum OAuthError: Error, LocalizedError {
         return false
     }
 
-    var errorDescription: String? {
+    package var errorDescription: String? {
         switch self {
         case .unsupportedProvider: return "Unsupported OAuth provider"
         case .notConfigured(let provider):

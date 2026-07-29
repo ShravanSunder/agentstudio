@@ -1,10 +1,12 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 
 /// Off-main owner for one immutable terminal activation cohort.
 ///
 /// A fixed worker fleet performs bounded MainActor admissions. The scheduler
 /// never derives terminal identity or reads mutable composition/topology state.
-actor TerminalActivationScheduler {
+package actor TerminalActivationScheduler {
     private enum Lifecycle {
         case idle
         case activating
@@ -39,7 +41,7 @@ actor TerminalActivationScheduler {
     private var maximumSimultaneousAdmissions = 0
     private var workerCount = 0
 
-    init(
+    package init(
         cohort: TerminalActivationCohort,
         admissionPort: any TerminalActivationAdmissionPort
     ) {
@@ -65,7 +67,7 @@ actor TerminalActivationScheduler {
         )
     }
 
-    func activate() async -> TerminalActivationSettlement {
+    package func activate() async -> TerminalActivationSettlement {
         switch lifecycle {
         case .settled(let settlement):
             return settlement
@@ -139,7 +141,7 @@ actor TerminalActivationScheduler {
         }
     }
 
-    func promote(
+    package func promote(
         paneID: PaneId,
         to priority: TerminalActivationVisibilityPriority
     ) -> TerminalActivationPromotionResult {

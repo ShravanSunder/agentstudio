@@ -1,16 +1,19 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 
 @MainActor
 @Observable
-final class ApplicationEntityRecencyAtom {
-    private(set) var recentEntities: [ApplicationEntityRecency] = []
+package final class ApplicationEntityRecencyAtom {
+    package private(set) var recentEntities: [ApplicationEntityRecency] = []
 
-    func record(_ recency: ApplicationEntityRecency) {
+    package init() {}
+
+    package func record(_ recency: ApplicationEntityRecency) {
         recentEntities = Self.normalized(recentEntities + [recency])
     }
 
-    func recordOpened(
+    package func recordOpened(
         repositoryStableKey: String,
         worktreeStableKey: String,
         at timestamp: Date
@@ -28,15 +31,15 @@ final class ApplicationEntityRecencyAtom {
         recentEntities = Self.normalized(recentEntities + [repositoryRecency, worktreeRecency])
     }
 
-    func hydrate(_ recentEntities: [ApplicationEntityRecency]) {
+    package func hydrate(_ recentEntities: [ApplicationEntityRecency]) {
         self.recentEntities = Self.normalized(recentEntities)
     }
 
-    func remove(_ entity: ApplicationRecentEntity) {
+    package func remove(_ entity: ApplicationRecentEntity) {
         recentEntities.removeAll { $0.entity == entity }
     }
 
-    func clear() {
+    package func clear() {
         recentEntities = []
     }
 
@@ -83,27 +86,29 @@ final class ApplicationEntityRecencyAtom {
 
 @MainActor
 @Observable
-final class WorkspaceEntityRecencyAtom {
-    private(set) var workspaceID: UUID?
-    private(set) var recentEntities: [WorkspaceEntityRecency] = []
+package final class WorkspaceEntityRecencyAtom {
+    package private(set) var workspaceID: UUID?
+    package private(set) var recentEntities: [WorkspaceEntityRecency] = []
 
-    func record(_ recency: WorkspaceEntityRecency) {
+    package init() {}
+
+    package func record(_ recency: WorkspaceEntityRecency) {
         guard workspaceID == recency.workspaceID else { return }
         recentEntities = Self.normalized(recentEntities + [recency])
     }
 
-    func hydrate(workspaceID: UUID, recentEntities: [WorkspaceEntityRecency]) {
+    package func hydrate(workspaceID: UUID, recentEntities: [WorkspaceEntityRecency]) {
         self.workspaceID = workspaceID
         self.recentEntities = Self.normalized(
             recentEntities.filter { $0.workspaceID == workspaceID }
         )
     }
 
-    func remove(_ entity: WorkspaceRecentEntity) {
+    package func remove(_ entity: WorkspaceRecentEntity) {
         recentEntities.removeAll { $0.entity == entity }
     }
 
-    func clear() {
+    package func clear() {
         workspaceID = nil
         recentEntities = []
     }

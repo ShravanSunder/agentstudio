@@ -1,9 +1,9 @@
 import Foundation
 
-struct DrawerGridLayout: Codable, Hashable, Sendable {
-    var topRow: Layout
-    var bottomRow: Layout?
-    var rowSplitRatio: Double
+package struct DrawerGridLayout: Codable, Hashable, Sendable {
+    package internal(set) var topRow: Layout
+    package internal(set) var bottomRow: Layout?
+    package internal(set) var rowSplitRatio: Double
 
     private enum CodingKeys: String, CodingKey {
         case topRow
@@ -11,7 +11,7 @@ struct DrawerGridLayout: Codable, Hashable, Sendable {
         case rowSplitRatio
     }
 
-    init(
+    package init(
         topRow: Layout = Layout(),
         bottomRow: Layout? = nil,
         rowSplitRatio: Double = 0.5
@@ -21,7 +21,7 @@ struct DrawerGridLayout: Codable, Hashable, Sendable {
         self.rowSplitRatio = rowSplitRatio
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             topRow: try container.decode(Layout.self, forKey: .topRow),
@@ -30,7 +30,7 @@ struct DrawerGridLayout: Codable, Hashable, Sendable {
         )
     }
 
-    var paneIds: [UUID] {
+    package var paneIds: [UUID] {
         topRow.paneIds + (bottomRow?.paneIds ?? [])
     }
 
@@ -38,15 +38,15 @@ struct DrawerGridLayout: Codable, Hashable, Sendable {
         topRow.dividerIds + (bottomRow?.dividerIds ?? [])
     }
 
-    var isEmpty: Bool {
+    package var isEmpty: Bool {
         topRow.isEmpty && bottomRow == nil
     }
 
-    func contains(_ paneId: UUID) -> Bool {
+    package func contains(_ paneId: UUID) -> Bool {
         topRow.contains(paneId) || bottomRow?.contains(paneId) == true
     }
 
-    func neighbor(of paneId: UUID, direction: FocusDirection) -> UUID? {
+    package func neighbor(of paneId: UUID, direction: FocusDirection) -> UUID? {
         switch direction {
         case .left, .right:
             if topRow.contains(paneId) {

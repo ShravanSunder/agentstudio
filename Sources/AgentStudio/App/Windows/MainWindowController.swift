@@ -1,3 +1,10 @@
+import AgentStudioBridge
+import AgentStudioCore
+import AgentStudioEditorChooser
+import AgentStudioInboxNotification
+import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
+import AgentStudioSharedComponents
 import AppKit
 import Observation
 import SwiftUI
@@ -34,15 +41,21 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     convenience init(
         workspaceWindowId: UUID = UUID(),
         store: WorkspaceStore,
+        octiconLoader: OcticonLoader,
         workspaceActionExecutor: WorkspaceActionExecutor,
         runtimeCommandDispatcher: any PaneRuntimeCommandDispatching,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
+        bridgePaneAttendance: BridgePaneAttendanceAtom,
+        editorChooser: EditorChooserState,
         inboxAtom: InboxNotificationAtom,
         inboxPrefsAtom: InboxNotificationPrefsAtom,
         inboxSidebarState: InboxSidebarState,
+        paneInboxPresentationState: PaneInboxPresentationAtom,
+        repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom,
+        bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
         paneInboxPresenter: PaneInboxNotificationPresenter,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void = {},
@@ -91,6 +104,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         // Create and set content view controller
         let splitVC = MainSplitViewController(
             store: store,
+            octiconLoader: octiconLoader,
             workspaceWindowId: windowId,
             workspaceActionExecutor: workspaceActionExecutor,
             runtimeCommandDispatcher: runtimeCommandDispatcher,
@@ -101,6 +115,11 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             inboxAtom: inboxAtom,
             inboxPrefsAtom: inboxPrefsAtom,
             inboxSidebarState: inboxSidebarState,
+            paneInboxPresentationState: paneInboxPresentationState,
+            repoExplorerSidebarPrefs: repoExplorerSidebarPrefs,
+            bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
+            bridgePaneAttendance: bridgePaneAttendance,
+            editorChooser: editorChooser,
             paneInboxPresenter: paneInboxPresenter,
             performanceTraceRecorder: performanceTraceRecorder,
             onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,

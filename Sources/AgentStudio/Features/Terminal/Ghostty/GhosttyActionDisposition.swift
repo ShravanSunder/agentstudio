@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 
 enum TerminalLocalPresentationAction: Sendable, Equatable {

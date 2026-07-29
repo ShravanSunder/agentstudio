@@ -1,7 +1,7 @@
 import AppKit
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @Suite("GhosttySurfaceView content scale")
 struct GhosttySurfaceViewContentScaleTests {

@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import Foundation
 import os
 
-protocol ForgeStatusProvider: Sendable {
+package protocol ForgeStatusProvider: Sendable {
     func pullRequestCounts(origin: String, branches: Set<String>) async throws -> [String: Int]
 }
 
@@ -11,18 +12,18 @@ enum ForgeStatusProviderError: Error, Sendable {
     case invalidResponse(String)
 }
 
-struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
+package struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
     private struct PullRequestHead: Decodable {
         let headRefName: String
     }
 
     private let processExecutor: any ProcessExecutor
 
-    init(processExecutor: any ProcessExecutor = DefaultProcessExecutor(timeout: 8)) {
+    package init(processExecutor: any ProcessExecutor = DefaultProcessExecutor(timeout: 8)) {
         self.processExecutor = processExecutor
     }
 
-    func pullRequestCounts(origin: String, branches: Set<String>) async throws -> [String: Int] {
+    package func pullRequestCounts(origin: String, branches: Set<String>) async throws -> [String: Int] {
         let trackedBranches = Set(branches.filter { !$0.isEmpty })
         guard !trackedBranches.isEmpty else { return [:] }
 
@@ -62,7 +63,7 @@ struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
     }
 }
 
-actor ForgeActor {
+package actor ForgeActor {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "ForgeActor")
 
     private let runtimeBus: EventBus<RuntimeEnvelope>
@@ -79,7 +80,7 @@ actor ForgeActor {
     private var repoOriginByRepoId: [UUID: String] = [:]
     private var branchesByRepoId: [UUID: Set<String>] = [:]
 
-    init(
+    package init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         statusProvider: any ForgeStatusProvider,
         providerName: String = "github",
@@ -102,7 +103,7 @@ actor ForgeActor {
         pollingTask?.cancel()
     }
 
-    func start() async {
+    package func start() async {
         if subscriptionTask == nil {
             let stream = await runtimeBus.subscribe(
                 policy: .lossyNewest(subscriptionBufferLimit),
@@ -141,7 +142,7 @@ actor ForgeActor {
         }
     }
 
-    func register(repo repoId: UUID, remote: String) async {
+    package func register(repo repoId: UUID, remote: String) async {
         let trimmedRemote = remote.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedRemote.isEmpty else {
             await unregister(repo: repoId)
@@ -155,16 +156,16 @@ actor ForgeActor {
         await refresh(repo: repoId)
     }
 
-    func unregister(repo repoId: UUID) async {
+    package func unregister(repo repoId: UUID) async {
         repoOriginByRepoId.removeValue(forKey: repoId)
         branchesByRepoId.removeValue(forKey: repoId)
     }
 
-    func refresh(repo repoId: UUID, correlationId: UUID? = nil) async {
+    package func refresh(repo repoId: UUID, correlationId: UUID? = nil) async {
         await refreshRepo(repoId: repoId, correlationId: correlationId)
     }
 
-    func shutdown() async {
+    package func shutdown() async {
         let activeSubscription = subscriptionTask
         let activePolling = pollingTask
 

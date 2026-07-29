@@ -2,12 +2,14 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("PaneTabViewController terminal geometry")
 struct PaneTabViewControllerTerminalGeometryTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("visible terminal geometry includes expanded non-minimized drawer children")

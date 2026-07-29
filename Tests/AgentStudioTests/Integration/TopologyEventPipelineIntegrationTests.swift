@@ -2,6 +2,9 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
@@ -9,7 +12,7 @@ struct TopologyEventPipelineIntegrationTests {
     private func withTopologyHarness(
         _ body: @escaping @MainActor (GitTopologyPipelineHarness) async throws -> Void
     ) async rethrows {
-        try await withAsyncTestAtomRegistry { _ in
+        try await withAsyncTestCoreAtoms { _ in
             let harness = await GitTopologyPipelineHarness.make()
             do {
                 try await body(harness)

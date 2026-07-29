@@ -1,5 +1,7 @@
 import AgentStudioAppIPC
+import AgentStudioCore
 import AgentStudioProgrammaticControl
+import AgentStudioTerminal
 import Foundation
 
 @MainActor

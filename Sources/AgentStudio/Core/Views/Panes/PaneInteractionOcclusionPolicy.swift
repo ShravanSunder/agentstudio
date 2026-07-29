@@ -1,7 +1,7 @@
 import Foundation
 
-enum PaneInteractionOcclusionPolicy {
-    static func suppressMainPaneManagementInteraction(
+package enum PaneInteractionOcclusionPolicy {
+    package static func suppressMainPaneManagementInteraction(
         isDrawerChild: Bool,
         tabContainsExpandedDrawer: Bool
     ) -> Bool {

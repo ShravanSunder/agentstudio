@@ -1,14 +1,16 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-struct SidebarRepoGroupHeader<TrailingContent: View>: View {
+package struct SidebarRepoGroupHeader<TrailingContent: View>: View {
     let isCollapsed: Bool
+    let octiconLoader: OcticonLoader
     let icon: AppEntityIcon
     let repoTitle: String
     let organizationName: String?
     let onToggle: () -> Void
     @ViewBuilder let trailingContent: () -> TrailingContent
 
-    static var chromePolicy: SidebarHeaderChromePolicy {
+    package static var chromePolicy: SidebarHeaderChromePolicy {
         SidebarSourceGroupHeader<TrailingContent>.chromePolicy
     }
 
@@ -16,8 +18,9 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
         SidebarSourceGroupHeader<TrailingContent>.leadingInset
     }
 
-    init(
+    package init(
         isCollapsed: Bool,
+        octiconLoader: OcticonLoader,
         icon: AppEntityIcon = .repo,
         repoTitle: String,
         organizationName: String?,
@@ -25,6 +28,7 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
         @ViewBuilder trailingContent: @escaping () -> TrailingContent
     ) {
         self.isCollapsed = isCollapsed
+        self.octiconLoader = octiconLoader
         self.icon = icon
         self.repoTitle = repoTitle
         self.organizationName = organizationName
@@ -32,9 +36,10 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
         self.trailingContent = trailingContent
     }
 
-    var body: some View {
+    package var body: some View {
         SidebarSourceGroupHeader(
             isCollapsed: isCollapsed,
+            octiconLoader: octiconLoader,
             icon: icon,
             title: repoTitle,
             secondaryTitle: organizationName,
@@ -47,14 +52,16 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
 }
 
 extension SidebarRepoGroupHeader where TrailingContent == EmptyView {
-    init(
+    package init(
         isCollapsed: Bool,
+        octiconLoader: OcticonLoader,
         icon: AppEntityIcon = .repo,
         repoTitle: String,
         organizationName: String?,
         onToggle: @escaping () -> Void
     ) {
         self.isCollapsed = isCollapsed
+        self.octiconLoader = octiconLoader
         self.icon = icon
         self.repoTitle = repoTitle
         self.organizationName = organizationName

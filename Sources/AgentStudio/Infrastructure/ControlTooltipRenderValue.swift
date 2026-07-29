@@ -1,6 +1,11 @@
 import Foundation
 
-struct ControlTooltipRenderValue: Equatable, Sendable {
-    let text: String
-    let shortcutDisplayText: ShortcutDisplayText?
+package struct ControlTooltipRenderValue: Equatable, Sendable {
+    package let text: String
+    package let shortcutDisplayText: ShortcutDisplayText?
+
+    package init(text: String, shortcutDisplayText: ShortcutDisplayText?) {
+        self.text = text
+        self.shortcutDisplayText = shortcutDisplayText
+    }
 }

@@ -3,12 +3,17 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("filesystem source writes preserve serial operation order")
@@ -522,7 +527,8 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
             paneEventBus: bus,
             filesystemSource: source,
             filesystemProjectionIndex: index,
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
     }
 }

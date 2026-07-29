@@ -1,3 +1,8 @@
+import AgentStudioBridge
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTerminal
+import AgentStudioWebview
 import AppKit
 import Observation
 import os.log

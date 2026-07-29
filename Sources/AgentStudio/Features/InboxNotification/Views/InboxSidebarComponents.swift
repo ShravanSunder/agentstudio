@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import SwiftUI
 
 struct InboxSidebarActions {
@@ -17,6 +20,7 @@ struct InboxSidebarActions {
 }
 
 struct InboxSidebarRootContainer: View {
+    let octiconLoader: OcticonLoader
     let uiState: WorkspaceSidebarState
     @Binding var searchText: String
     let activeFilter: InboxFilter?
@@ -76,6 +80,7 @@ struct InboxSidebarRootContainer: View {
             .opacity(0.001)
 
             InboxSidebarHeader(
+                octiconLoader: octiconLoader,
                 searchText: $searchText,
                 activeFilter: activeFilter,
                 activeFilterLabel: activeFilterLabel,
@@ -89,6 +94,7 @@ struct InboxSidebarRootContainer: View {
             )
 
             InboxSidebarContent(
+                octiconLoader: octiconLoader,
                 sections: sections,
                 focusedField: focusedField,
                 flashingRowIds: flashingRowIds,
@@ -109,6 +115,7 @@ enum InboxSidebarToolbarTooltipTarget: Hashable, CaseIterable {
 }
 
 struct InboxSidebarHeader: View {
+    let octiconLoader: OcticonLoader
     @Binding var searchText: String
     let activeFilter: InboxFilter?
     let activeFilterLabel: String?
@@ -202,7 +209,10 @@ struct InboxSidebarHeader: View {
                         contentMode: contentMode
                     ),
                     icon: {
-                        rowStateAction.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                        rowStateAction.icon.swiftUIImage(
+                            loader: octiconLoader,
+                            size: AppStyles.General.Icon.compact
+                        )
                     },
                     isActive: isUnreadOnly,
                     tooltipTarget: InboxSidebarToolbarTooltipTarget.rowState,
@@ -220,7 +230,10 @@ struct InboxSidebarHeader: View {
                         contentMode: contentMode
                     ),
                     icon: {
-                        contentModeAction.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                        contentModeAction.icon.swiftUIImage(
+                            loader: octiconLoader,
+                            size: AppStyles.General.Icon.compact
+                        )
                     },
                     isActive: isAttentionOnly,
                     tooltipTarget: InboxSidebarToolbarTooltipTarget.contentMode,
@@ -242,7 +255,10 @@ struct InboxSidebarHeader: View {
                         contentMode: contentMode
                     ),
                     icon: {
-                        toggleSortSpec.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                        toggleSortSpec.icon.swiftUIImage(
+                            loader: octiconLoader,
+                            size: AppStyles.General.Icon.compact
+                        )
                     },
                     tooltipTarget: InboxSidebarToolbarTooltipTarget.sort,
                     tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
@@ -276,7 +292,10 @@ struct InboxSidebarHeader: View {
                         items: InboxNotificationGrouping.allCases,
                         selectedItem: grouping,
                         icon: { grouping in
-                            grouping.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                            grouping.icon.swiftUIImage(
+                                loader: octiconLoader,
+                                size: AppStyles.General.Icon.compact
+                            )
                         },
                         label: \.commandLabel,
                         onSelect: { candidate in
@@ -338,7 +357,10 @@ struct InboxSidebarHeader: View {
         SidebarToolbarMenuButton(
             label: deleteInboxAction.label,
             icon: {
-                deleteInboxAction.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                deleteInboxAction.icon.swiftUIImage(
+                    loader: octiconLoader,
+                    size: AppStyles.General.Icon.compact
+                )
             },
             menuContent: {
                 Button("Delete Read", action: actions.onClearReadHistory)
@@ -470,6 +492,7 @@ struct InboxSidebarHeader: View {
 }
 
 struct InboxSidebarContent: View {
+    let octiconLoader: OcticonLoader
     let sections: [InboxNotificationListSection]
     let focusedField: FocusState<InboxFocus?>.Binding
     let flashingRowIds: Set<UUID>
@@ -487,6 +510,7 @@ struct InboxSidebarContent: View {
                     ForEach(sections) { section in
                         if let header = section.header {
                             InboxNotificationGroupHeader(
+                                octiconLoader: octiconLoader,
                                 header: header,
                                 unreadCount: section.unreadCount,
                                 isCollapsed: section.isCollapsed,

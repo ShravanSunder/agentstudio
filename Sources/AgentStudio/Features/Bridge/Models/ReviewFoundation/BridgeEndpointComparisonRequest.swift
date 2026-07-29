@@ -1,6 +1,6 @@
 import Foundation
 
-struct BridgeEndpointComparisonRequest: Codable, Equatable, Sendable {
+package struct BridgeEndpointComparisonRequest: Codable, Equatable, Sendable {
     let query: BridgeReviewQuery
     let baseEndpoint: BridgeSourceEndpoint
     let headEndpoint: BridgeSourceEndpoint

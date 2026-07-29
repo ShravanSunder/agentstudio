@@ -1,28 +1,29 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite(.serialized)
 final class ArrangementDerivedTests {
 
-    private var registry: AtomRegistry!
+    private var coreAtoms: CoreAtoms!
     private var store: WorkspaceStore!
 
     init() {
-        registry = makeInstalledTestAtomRegistry()
+        coreAtoms = makeInstalledTestCoreAtoms()
         store = WorkspaceStore(
-            identityAtom: registry.workspaceIdentity,
-            windowMemoryAtom: registry.workspaceWindowMemory,
-            repositoryTopologyAtom: registry.workspaceRepositoryTopology,
-            paneAtom: registry.workspacePane,
-            tabLayoutAtom: registry.workspaceTabLayout)
+            identityAtom: coreAtoms.workspaceIdentity,
+            windowMemoryAtom: coreAtoms.workspaceWindowMemory,
+            repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology,
+            paneAtom: coreAtoms.workspacePane,
+            tabLayoutAtom: coreAtoms.workspaceTabLayout)
     }
 
     @Test
     func paneVisibilityItems_returnsAllPanesWithMinimizedState() {
-        AtomScope.$override.withValue(registry) {
+        withTestCoreAtoms(using: coreAtoms) { _ in
             let firstPane = store.createPane()
             let tab = Tab(paneId: firstPane.id)
             store.appendTab(tab)
@@ -51,7 +52,7 @@ final class ArrangementDerivedTests {
 
     @Test
     func arrangementItems_returnsArrangementsWithActiveState() {
-        AtomScope.$override.withValue(registry) {
+        withTestCoreAtoms(using: coreAtoms) { _ in
             let pane = store.createPane()
             let tab = Tab(paneId: pane.id)
             store.appendTab(tab)
@@ -69,7 +70,7 @@ final class ArrangementDerivedTests {
 
     @Test
     func paneVisibilityItems_invalidTab_returnsEmpty() {
-        AtomScope.$override.withValue(registry) {
+        withTestCoreAtoms(using: coreAtoms) { _ in
             let derived = ArrangementDerived()
 
             #expect(derived.paneVisibilityItems(for: UUID()).isEmpty)
@@ -78,7 +79,7 @@ final class ArrangementDerivedTests {
 
     @Test
     func arrangementItems_marksOnlyActiveArrangement() throws {
-        try AtomScope.$override.withValue(registry) {
+        try withTestCoreAtoms(using: coreAtoms) { _ in
             let firstPane = store.createPane()
             let secondPane = store.createPane()
             let tab = Tab(paneId: firstPane.id)
@@ -109,7 +110,7 @@ final class ArrangementDerivedTests {
 
     @Test
     func zoomMode_projectsRepoBranchWorktreeFolderAndFullCwd() throws {
-        try AtomScope.$override.withValue(registry) {
+        try withTestCoreAtoms(using: coreAtoms) { _ in
             let repo = store.addRepo(
                 at: URL(filePath: "/tmp/pane-zoom/agent-studio")
             )
@@ -120,7 +121,7 @@ final class ArrangementDerivedTests {
                 isMainWorktree: false
             )
             store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-            registry.repoCache.setWorktreeEnrichment(
+            coreAtoms.repoEnrichmentCache.setWorktreeEnrichment(
                 WorktreeEnrichment(
                     worktreeId: worktree.id,
                     repoId: repo.id,
@@ -139,7 +140,7 @@ final class ArrangementDerivedTests {
             )
             let tab = Tab(paneId: pane.id)
             store.appendTab(tab)
-            registry.workspacePanePresentation.enterZoom(
+            coreAtoms.workspacePanePresentation.enterZoom(
                 inTab: tab.id,
                 sourcePaneId: pane.id,
                 viewerPresentation: .retryable
@@ -160,7 +161,7 @@ final class ArrangementDerivedTests {
 
     @Test
     func nextCustomArrangementName_startsAtLayoutOne() {
-        AtomScope.$override.withValue(registry) {
+        withTestCoreAtoms(using: coreAtoms) { _ in
             let pane = store.createPane()
             let tab = Tab(paneId: pane.id)
             store.appendTab(tab)
@@ -172,7 +173,7 @@ final class ArrangementDerivedTests {
 
     @Test
     func nextCustomArrangementName_skipsUsedIndexes() throws {
-        try AtomScope.$override.withValue(registry) {
+        try withTestCoreAtoms(using: coreAtoms) { _ in
             let firstPane = store.createPane()
             let tab = Tab(paneId: firstPane.id)
             store.appendTab(tab)
@@ -214,7 +215,7 @@ final class ArrangementDerivedTests {
 
     @Test
     func paneVisibilityItems_restoresMinimizedStateOnlyInUserLayout() throws {
-        try AtomScope.$override.withValue(registry) {
+        try withTestCoreAtoms(using: coreAtoms) { _ in
             let firstPane = store.createPane()
             let tab = Tab(paneId: firstPane.id)
             store.appendTab(tab)

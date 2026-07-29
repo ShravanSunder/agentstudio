@@ -1,3 +1,7 @@
+import AgentStudioBridge
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTerminal
 import AppKit
 import Foundation
 import GhosttyKit

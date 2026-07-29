@@ -1,16 +1,17 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-struct SidebarRowShell<Content: View>: View {
+package struct SidebarRowShell<Content: View>: View {
     let isSelected: Bool
     let isFlashing: Bool
     let isHovering: Bool
     let content: Content
 
-    static var chromePolicy: SidebarRowChromePolicy {
+    package static var chromePolicy: SidebarRowChromePolicy {
         .sidebarRowShell
     }
 
-    init(
+    package init(
         isSelected: Bool = false,
         isFlashing: Bool = false,
         isHovering: Bool = false,
@@ -22,7 +23,7 @@ struct SidebarRowShell<Content: View>: View {
         self.content = content()
     }
 
-    var body: some View {
+    package var body: some View {
         content
             .padding(.vertical, Self.contentVerticalInset)
             .padding(.horizontal, Self.contentHorizontalInset)

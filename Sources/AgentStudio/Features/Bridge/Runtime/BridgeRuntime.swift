@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 import Observation
 import os.log
@@ -13,13 +14,13 @@ protocol BridgeRuntimeCommandHandling: AnyObject {
 
 @MainActor
 @Observable
-final class BridgeRuntime: BusPostingPaneRuntime {
+package final class BridgeRuntime: BusPostingPaneRuntime {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "BridgeRuntime")
 
-    let paneId: PaneId
-    private(set) var metadata: PaneMetadata
-    private(set) var lifecycle: PaneRuntimeLifecycle
-    let capabilities: Set<PaneCapability>
+    package let paneId: PaneId
+    package private(set) var metadata: PaneMetadata
+    package private(set) var lifecycle: PaneRuntimeLifecycle
+    package let capabilities: Set<PaneCapability>
     let paneState = PaneDomainState()
     weak var commandHandler: (any BridgeRuntimeCommandHandling)?
 
@@ -57,7 +58,7 @@ final class BridgeRuntime: BusPostingPaneRuntime {
         return true
     }
 
-    func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
+    package func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
         guard lifecycle == .ready else {
             return .failure(.runtimeNotReady(lifecycle: lifecycle))
         }
@@ -99,11 +100,11 @@ final class BridgeRuntime: BusPostingPaneRuntime {
         }
     }
 
-    func subscribe() -> AsyncStream<RuntimeEnvelope> {
+    package func subscribe() -> AsyncStream<RuntimeEnvelope> {
         eventChannel.subscribe(isTerminated: lifecycle == .terminated)
     }
 
-    func snapshot() -> PaneRuntimeSnapshot {
+    package func snapshot() -> PaneRuntimeSnapshot {
         eventChannel.snapshot(
             paneId: paneId,
             metadata: metadata,
@@ -112,11 +113,11 @@ final class BridgeRuntime: BusPostingPaneRuntime {
         )
     }
 
-    func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
+    package func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
         eventChannel.eventsSince(seq: seq)
     }
 
-    func shutdown(timeout _: Duration) async -> [UUID] {
+    package func shutdown(timeout _: Duration) async -> [UUID] {
         if lifecycle == .terminated {
             return []
         }
@@ -126,7 +127,7 @@ final class BridgeRuntime: BusPostingPaneRuntime {
         return []
     }
 
-    func ingestBridgeEvent(
+    package func ingestBridgeEvent(
         _ event: PaneRuntimeEvent,
         commandId: UUID? = nil,
         correlationId: UUID? = nil

@@ -2,12 +2,15 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorDrawerUndoTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private struct Harness {
@@ -32,7 +35,8 @@ struct WorkspaceSurfaceCoordinatorDrawerUndoTests {
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         return Harness(
             store: store,

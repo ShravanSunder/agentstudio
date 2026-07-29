@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("CommandBarHotPathArchitectureTests")
 struct CommandBarHotPathArchitectureTests {
     @Test("worktree scopes batch presence before building rows")
@@ -15,15 +17,15 @@ struct CommandBarHotPathArchitectureTests {
 
         let repoScopeItems = try #require(
             source.slice(
-                from: "static func repoScopeItems(store: WorkspaceStore, repoCache: RepoCacheAtom)",
-                to: "static func everythingWorktreeItems")
+                from: "static func repoScopeItems(", to: "static func everythingWorktreeItems(")
         )
         let everythingWorktreeItems = try #require(
             source.slice(
-                from: "static func everythingWorktreeItems(store: WorkspaceStore)",
-                to: "static func unifiedWorktreeItem")
+                from: "static func everythingWorktreeItems(",
+                to: "static func unifiedWorktreeItem(")
         )
 
+        #expect(repoScopeItems.contains("dispatcher: any AppCommandDispatching"))
         #expect(repoScopeItems.contains("buildWorktreePresenceByWorktreeId(store: store)"))
         #expect(everythingWorktreeItems.contains("buildWorktreePresenceByWorktreeId(store: store)"))
         #expect(!everythingWorktreeItems.contains("buildWorktreePresence(worktree:"))

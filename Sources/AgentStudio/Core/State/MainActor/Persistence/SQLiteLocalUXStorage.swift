@@ -1,10 +1,61 @@
 import Foundation
 
-enum SQLiteLocalUXStorage {
-    static let sidebarSurfaceRepos = "repos"
-    static let sidebarSurfaceInbox = "inbox"
+package enum SQLiteLocalUXStorage {
+    package static let sidebarSurfaceRepos = "repos"
+    package static let sidebarSurfaceInbox = "inbox"
+    package static let repoExplorerGroupingRepo = "repo"
+    package static let repoExplorerGroupingPane = "pane"
+    package static let repoExplorerGroupingTab = "tab"
+    package static let repoExplorerSortAscending = "ascending"
+    package static let repoExplorerSortDescending = "descending"
+    package static let repoExplorerVisibilityAll = "all"
+    package static let repoExplorerVisibilityFavoritesOnly = "favoritesOnly"
+    package static let inboxNotificationGroupingByTab = "byTab"
+    package static let inboxNotificationGroupingByRepo = "byRepo"
+    package static let inboxNotificationGroupingByPane = "byPane"
+    package static let inboxNotificationGroupingNone = "none"
+    package static let inboxNotificationSortNewestFirst = "newestFirst"
+    package static let inboxNotificationSortOldestFirst = "oldestFirst"
+    package static let inboxNotificationContentRollUpAlerts = "rollUpAlerts"
+    package static let inboxNotificationContentActivity = "activity"
+    package static let inboxNotificationContentAll = "all"
+    package static let inboxNotificationRowStateUnreadOnly = "unreadOnly"
+    package static let inboxNotificationRowStateAll = "all"
 
-    static func storageValue(for surface: SidebarSurface) -> String {
+    private static let repoExplorerGroupingValues: Set<String> = [
+        repoExplorerGroupingRepo,
+        repoExplorerGroupingPane,
+        repoExplorerGroupingTab,
+    ]
+    private static let repoExplorerSortValues: Set<String> = [
+        repoExplorerSortAscending,
+        repoExplorerSortDescending,
+    ]
+    private static let repoExplorerVisibilityValues: Set<String> = [
+        repoExplorerVisibilityAll,
+        repoExplorerVisibilityFavoritesOnly,
+    ]
+    private static let inboxNotificationGroupingValues: Set<String> = [
+        inboxNotificationGroupingByTab,
+        inboxNotificationGroupingByRepo,
+        inboxNotificationGroupingByPane,
+        inboxNotificationGroupingNone,
+    ]
+    private static let inboxNotificationSortValues: Set<String> = [
+        inboxNotificationSortNewestFirst,
+        inboxNotificationSortOldestFirst,
+    ]
+    private static let inboxNotificationContentValues: Set<String> = [
+        inboxNotificationContentRollUpAlerts,
+        inboxNotificationContentActivity,
+        inboxNotificationContentAll,
+    ]
+    private static let inboxNotificationRowStateValues: Set<String> = [
+        inboxNotificationRowStateUnreadOnly,
+        inboxNotificationRowStateAll,
+    ]
+
+    package static func storageValue(for surface: SidebarSurface) -> String {
         switch surface {
         case .repos:
             sidebarSurfaceRepos
@@ -13,7 +64,7 @@ enum SQLiteLocalUXStorage {
         }
     }
 
-    static func sidebarSurface(from rawValue: String) -> SidebarSurface? {
+    package static func sidebarSurface(from rawValue: String) -> SidebarSurface? {
         switch rawValue {
         case sidebarSurfaceRepos:
             .repos
@@ -24,56 +75,31 @@ enum SQLiteLocalUXStorage {
         }
     }
 
-    static func storageValue(for value: RepoExplorerGroupingMode) -> String {
-        switch value {
-        case .repo: "repo"
-        case .pane: "pane"
-        case .tab: "tab"
-        }
+    package static func isValidRepoExplorerGrouping(_ rawValue: String) -> Bool {
+        repoExplorerGroupingValues.contains(rawValue)
     }
 
-    static func storageValue(for value: RepoExplorerSortOrder) -> String {
-        switch value {
-        case .ascending: "ascending"
-        case .descending: "descending"
-        }
+    package static func isValidRepoExplorerSort(_ rawValue: String) -> Bool {
+        repoExplorerSortValues.contains(rawValue)
     }
 
-    static func storageValue(for value: RepoExplorerVisibilityMode) -> String {
-        switch value {
-        case .all: "all"
-        case .favoritesOnly: "favoritesOnly"
-        }
+    package static func isValidRepoExplorerVisibility(_ rawValue: String) -> Bool {
+        repoExplorerVisibilityValues.contains(rawValue)
     }
 
-    static func storageValue(for value: InboxNotificationGrouping) -> String {
-        switch value {
-        case .byTab: "byTab"
-        case .byRepo: "byRepo"
-        case .byPane: "byPane"
-        case .none: "none"
-        }
+    package static func isValidInboxNotificationGrouping(_ rawValue: String) -> Bool {
+        inboxNotificationGroupingValues.contains(rawValue)
     }
 
-    static func storageValue(for value: InboxNotificationSort) -> String {
-        switch value {
-        case .newestFirst: "newestFirst"
-        case .oldestFirst: "oldestFirst"
-        }
+    package static func isValidInboxNotificationSort(_ rawValue: String) -> Bool {
+        inboxNotificationSortValues.contains(rawValue)
     }
 
-    static func storageValue(for value: InboxNotificationContentMode) -> String {
-        switch value {
-        case .rollUpAlerts: "rollUpAlerts"
-        case .activity: "activity"
-        case .all: "all"
-        }
+    package static func isValidInboxNotificationContent(_ rawValue: String) -> Bool {
+        inboxNotificationContentValues.contains(rawValue)
     }
 
-    static func storageValue(for value: InboxNotificationRowStateFilter) -> String {
-        switch value {
-        case .unreadOnly: "unreadOnly"
-        case .all: "all"
-        }
+    package static func isValidInboxNotificationRowState(_ rawValue: String) -> Bool {
+        inboxNotificationRowStateValues.contains(rawValue)
     }
 }

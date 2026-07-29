@@ -4,6 +4,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("AgentStudio IPC layout adapter")
@@ -190,7 +192,7 @@ struct AgentStudioIPCLayoutAdapterTests {
 
     @Test("concrete pane focus control routes through PaneTabViewController owner chain")
     func concretePaneFocusControlRoutesThroughPaneTabViewControllerOwnerChain() throws {
-        try withTestAtomRegistry { _ in
+        try withTestCoreAtoms { _ in
             let harness = makeHarness()
             let firstPane = harness.store.createPane(title: "First")
             let secondPane = harness.store.createPane(title: "Second")
@@ -212,7 +214,7 @@ struct AgentStudioIPCLayoutAdapterTests {
 
     @Test("concrete layout actions register hosts before exposing created panes")
     func concreteLayoutActionsRegisterHostsBeforeExposingCreatedPanes() throws {
-        try withTestAtomRegistry { _ in
+        try withTestCoreAtoms { _ in
             let harness = makeHarness()
             let parentPane = harness.store.createPane(title: "Parent")
             let tab = makeTab(paneIds: [parentPane.id], activePaneId: parentPane.id)

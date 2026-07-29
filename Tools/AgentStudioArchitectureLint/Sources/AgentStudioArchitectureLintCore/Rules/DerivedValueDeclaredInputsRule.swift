@@ -65,7 +65,7 @@ private final class DerivedValueHiddenInputHelperCollector: SyntaxVisitor {
 private final class DerivedValueClosureVisitor: SyntaxVisitor {
     private(set) var violations: [ArchitectureViolation] = []
     private let hiddenInputHelperNames: Set<String>
-    private let deniedNames = Set(["atom", "AtomScope", "AtomReader", "withTestAtomRegistry"])
+    private let deniedNames = Set(["atom", "CoreAtoms", "CoreAtomScope"])
 
     init(hiddenInputHelperNames: Set<String>, viewMode: SyntaxTreeViewMode = .sourceAccurate) {
         self.hiddenInputHelperNames = hiddenInputHelperNames

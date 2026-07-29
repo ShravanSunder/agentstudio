@@ -1,7 +1,9 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioRepoExplorer
 
 @MainActor
 private final class VisibleWorktreeCallbackRecorder {
@@ -16,7 +18,7 @@ private final class VisibleWorktreeCallbackRecorder {
 @Suite("RepoExplorerView")
 struct RepoExplorerViewTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("visible row range maps only resolved worktree entries")

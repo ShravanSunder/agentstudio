@@ -1,3 +1,4 @@
+import AgentStudioCore
 import AppKit
 import SwiftUI
 

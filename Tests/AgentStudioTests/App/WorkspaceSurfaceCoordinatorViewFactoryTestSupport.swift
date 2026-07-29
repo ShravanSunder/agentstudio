@@ -1,6 +1,10 @@
 import Foundation
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 struct WorkspaceSurfaceCoordinatorViewFactoryHarness {
@@ -27,7 +31,8 @@ func makeWorkspaceSurfaceCoordinatorViewFactoryHarness(
         surfaceManager: SurfaceManager.shared,
         runtimeRegistry: .shared,
         paneEventBus: paneEventBus,
-        windowLifecycleStore: WindowLifecycleAtom()
+        windowLifecycleStore: WindowLifecycleAtom(),
+        bridgePaneAttendance: BridgePaneAttendanceAtom()
     )
     return WorkspaceSurfaceCoordinatorViewFactoryHarness(
         store: store,

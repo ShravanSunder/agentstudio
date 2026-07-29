@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 enum BridgeTelemetrySurface: String, Codable, Equatable, Sendable {

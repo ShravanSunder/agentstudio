@@ -23,7 +23,7 @@ enum BridgeTelemetrySessionInstallationError: Error, Equatable {
     case secureRandomGenerationFailed(OSStatus)
 }
 
-struct BridgeTelemetrySessionInstallation: Sendable {
+package struct BridgeTelemetrySessionInstallation: Sendable {
     let bootstrap: BridgeTelemetryWorkerBootstrap
     let session: BridgeTelemetrySession
 

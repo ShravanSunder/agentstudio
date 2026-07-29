@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import GhosttyKit
 
@@ -46,15 +48,15 @@ enum SurfaceState: Equatable {
 // MARK: - Surface Metadata
 
 /// Metadata associated with a managed surface
-struct SurfaceMetadata: Codable, Equatable {
+package struct SurfaceMetadata: Codable, Equatable {
     var contextFacets: PaneContextFacets
     var command: String?
     var title: String
-    var paneId: UUID?
+    package private(set) var paneId: UUID?
     var createdAt: Date
     var lastActiveAt: Date
 
-    init(
+    package init(
         launchDirectory: URL? = nil,
         command: String? = nil,
         title: String = "Terminal",
@@ -76,7 +78,7 @@ struct SurfaceMetadata: Codable, Equatable {
         self.lastActiveAt = Date()
     }
 
-    var cwd: URL? {
+    package var cwd: URL? {
         get { contextFacets.cwd }
         set { contextFacets.cwd = newValue }
     }
@@ -95,10 +97,10 @@ struct SurfaceMetadata: Codable, Equatable {
 // MARK: - Managed Surface
 
 /// A surface managed by SurfaceManager with lifecycle tracking
-struct ManagedSurface {
-    let id: UUID
-    let surface: Ghostty.SurfaceView
-    var metadata: SurfaceMetadata
+package struct ManagedSurface {
+    package let id: UUID
+    package let surface: Ghostty.SurfaceView
+    package internal(set) var metadata: SurfaceMetadata
     var state: SurfaceState
     var health: SurfaceHealth
 
@@ -163,7 +165,7 @@ struct SurfaceCheckpoint: Codable {
 // MARK: - Surface Error
 
 /// Errors that can occur during surface operations
-enum SurfaceError: Error, LocalizedError {
+package enum SurfaceError: Error, LocalizedError {
     case surfaceNotFound
     case surfaceNotInitialized
     case surfaceDied
@@ -171,7 +173,7 @@ enum SurfaceError: Error, LocalizedError {
     case operationFailed(String)
     case ghosttyNotInitialized
 
-    var diagnosticKind: String {
+    package var diagnosticKind: String {
         switch self {
         case .surfaceNotFound:
             return "surface_not_found"
@@ -188,12 +190,12 @@ enum SurfaceError: Error, LocalizedError {
         }
     }
 
-    var creationRetryCount: Int? {
+    package var creationRetryCount: Int? {
         guard case .creationFailed(let retries) = self else { return nil }
         return retries
     }
 
-    var errorDescription: String? {
+    package var errorDescription: String? {
         switch self {
         case .surfaceNotFound:
             return "Surface not found"
@@ -214,7 +216,7 @@ enum SurfaceError: Error, LocalizedError {
 // MARK: - Detach Reason
 
 /// Reason for detaching a surface from its container
-enum SurfaceDetachReason {
+package enum SurfaceDetachReason {
     case hide  // User hid the terminal (keep alive)
     case close  // User closed the tab (undo-able)
     case move  // Moving to different container

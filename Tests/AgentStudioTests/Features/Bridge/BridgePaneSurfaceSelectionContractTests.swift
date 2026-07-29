@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgePaneSurfaceSelectionContractTests {
     @Test("pane surface-selection metadata carries exact native and stream identity")

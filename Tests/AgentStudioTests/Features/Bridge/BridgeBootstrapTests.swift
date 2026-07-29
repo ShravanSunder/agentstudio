@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 /// Contract tests for the document-start bootstrap that remains after the product-transport hard cut.
 @Suite(.serialized)

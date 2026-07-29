@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import WebKit
@@ -23,14 +25,14 @@ private let bridgeControllerLogger = Logger(subsystem: "com.agentstudio", catego
 /// See bridge runtime architecture docs for handshake and lifecycle behavior.
 @Observable
 @MainActor
-final class BridgePaneController {
+package final class BridgePaneController {
 
     // MARK: - Public State
 
-    let paneId: UUID
-    let page: WebPage
-    let runtime: BridgeRuntime
-    var paneState: PaneDomainState { runtime.paneState }
+    package let paneId: UUID
+    package let page: WebPage
+    package let runtime: BridgeRuntime
+    package var paneState: PaneDomainState { runtime.paneState }
 
     /// Whether the bridge handshake has completed.
     /// No bootstrap-gated commands are allowed before this becomes `true`.
@@ -46,7 +48,7 @@ final class BridgePaneController {
     let productAdmissionGate: BridgeProductAdmissionGate
     let refreshAdmissionCoordinator: BridgePaneRefreshAdmissionCoordinator
     let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
-    let productSessionOwner: BridgePaneProductSessionOwner
+    package let productSessionOwner: BridgePaneProductSessionOwner
     let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
     let productSchemeProvider: BridgePaneProductSchemeProvider?
     let reviewPipeline: BridgeReviewPipeline
@@ -93,9 +95,10 @@ final class BridgePaneController {
     ///   - paneId: Unique identifier for this pane instance.
     ///   - state: Serializable bridge pane state (panel kind + source).
     ///   - metadata: Optional runtime metadata override used by runtime registration paths.
-    init(
+    package init(
         paneId: UUID,
         state: BridgePaneState,
+        appRootURL: URL,
         metadata: PaneMetadata? = nil,
         reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil,
         gitReadContext: BridgeGitReadContext? = nil,
@@ -207,6 +210,7 @@ final class BridgePaneController {
             in: &config,
             input: BridgeSchemeHandlerRegistrationInput(
                 paneId: paneId,
+                appRootURL: appRootURL,
                 telemetrySessionOwner: telemetryDependencies.sessionDependencies?.owner,
                 productSessionRouter: resolvedProductSessionDependencies.owner.schemeRouter
             )
@@ -328,13 +332,13 @@ final class BridgePaneController {
     ///
     /// `page.isLoading == false` does not guarantee React has mounted.
     @discardableResult
-    func loadApp() -> some AsyncSequence<WebPage.NavigationEvent, any Error> {
+    package func loadApp() -> some AsyncSequence<WebPage.NavigationEvent, any Error> {
         page.load(URL(string: "agentstudio://app/index.html"))
     }
 
     /// Called when the pane is being removed or the controller is being deallocated.
     @discardableResult
-    func teardown() -> Task<Bool, Never> {
+    package func teardown() -> Task<Bool, Never> {
         if let lifecycleRetirementTask {
             return lifecycleRetirementTask
         }

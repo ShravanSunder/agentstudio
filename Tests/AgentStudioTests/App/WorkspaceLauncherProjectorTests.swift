@@ -2,24 +2,27 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioTestSupport
 
 @Suite(.serialized)
 @MainActor
 struct WorkspaceLauncherProjectorTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private func makeStore(atoms: AtomRegistry) -> WorkspaceStore {
-        atoms.repoCache.clear()
-        atoms.applicationEntityRecency.clear()
+        atoms.core.repoCache.clear()
+        atoms.core.applicationEntityRecency.clear()
         let store = WorkspaceStore(
-            identityAtom: atoms.workspaceIdentity,
-            windowMemoryAtom: atoms.workspaceWindowMemory,
-            repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
-            paneAtom: atoms.workspacePane,
-            tabLayoutAtom: atoms.workspaceTabLayout,
-            mutationCoordinator: atoms.workspaceMutationCoordinator)
+            identityAtom: atoms.core.workspaceIdentity,
+            windowMemoryAtom: atoms.core.workspaceWindowMemory,
+            repositoryTopologyAtom: atoms.core.workspaceRepositoryTopology,
+            paneAtom: atoms.core.workspacePane,
+            tabLayoutAtom: atoms.core.workspaceTabLayout,
+            mutationCoordinator: atoms.core.workspaceMutationCoordinator)
         return store
     }
 
@@ -28,7 +31,7 @@ struct WorkspaceLauncherProjectorTests {
         worktree: Worktree,
         at timestamp: Date = Date(timeIntervalSince1970: 100)
     ) throws {
-        atoms.applicationEntityRecency.record(
+        atoms.core.applicationEntityRecency.record(
             try ApplicationEntityRecency(
                 entity: .worktree(worktreeStableKey: worktree.stableKey),
                 interaction: .opened,
@@ -39,16 +42,16 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_noRepos_returnsFolderIntakeState() {
-        withTestAtomRegistry { atoms in
+        withWorkspaceLauncherAtomRegistry { atoms in
             let store = WorkspaceStore(
-                identityAtom: atoms.workspaceIdentity,
-                windowMemoryAtom: atoms.workspaceWindowMemory,
-                repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
-                paneAtom: atoms.workspacePane,
-                tabLayoutAtom: atoms.workspaceTabLayout,
-                mutationCoordinator: atoms.workspaceMutationCoordinator
+                identityAtom: atoms.core.workspaceIdentity,
+                windowMemoryAtom: atoms.core.workspaceWindowMemory,
+                repositoryTopologyAtom: atoms.core.workspaceRepositoryTopology,
+                paneAtom: atoms.core.workspacePane,
+                tabLayoutAtom: atoms.core.workspaceTabLayout,
+                mutationCoordinator: atoms.core.workspaceMutationCoordinator
             )
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .noFolders)
             #expect(result.recentCards.isEmpty)
@@ -58,11 +61,11 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_scanningWithoutRepos_returnsScanningState() {
-        withTestAtomRegistry { atoms in
+        withWorkspaceLauncherAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
-            atoms.welcome.beginFolderScan(URL(fileURLWithPath: "/tmp/scanning-root"))
+            atoms.core.welcome.beginFolderScan(URL(fileURLWithPath: "/tmp/scanning-root"))
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .scanning(URL(fileURLWithPath: "/tmp/scanning-root")))
             #expect(result.recentCards.isEmpty)
@@ -71,14 +74,14 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_emptyFolderScanWithoutRepos_returnsEmptyScanState() {
-        withTestAtomRegistry { atoms in
+        withWorkspaceLauncherAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
-            atoms.welcome.completeFolderScan(
+            atoms.core.welcome.completeFolderScan(
                 rootPath: URL(fileURLWithPath: "/tmp/empty-root"),
                 discoveredRepoCount: 0
             )
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .scanEmpty(URL(fileURLWithPath: "/tmp/empty-root")))
             #expect(result.recentCards.isEmpty)
@@ -88,15 +91,15 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_emptyFolderScanWithRepos_returnsLauncherState() {
-        withTestAtomRegistry { atoms in
+        withWorkspaceLauncherAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
             _ = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
-            atoms.welcome.completeFolderScan(
+            atoms.core.welcome.completeFolderScan(
                 rootPath: URL(fileURLWithPath: "/tmp/empty-root"),
                 discoveredRepoCount: 0
             )
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .launcher)
         }
@@ -104,11 +107,11 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_choosingFolderWithoutRepos_returnsChoosingFolderState() {
-        withTestAtomRegistry { atoms in
+        withWorkspaceLauncherAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
-            atoms.welcome.beginChoosingFolder()
+            atoms.core.welcome.beginChoosingFolder()
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .choosingFolder)
             #expect(result.recentCards.isEmpty)
@@ -117,12 +120,12 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_scanningOutranksChoosingFolderWhenReposAreEmpty() {
-        withTestAtomRegistry { atoms in
+        withWorkspaceLauncherAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
-            atoms.welcome.beginChoosingFolder()
-            atoms.welcome.beginFolderScan(URL(fileURLWithPath: "/tmp/scanning-root"))
+            atoms.core.welcome.beginChoosingFolder()
+            atoms.core.welcome.beginFolderScan(URL(fileURLWithPath: "/tmp/scanning-root"))
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .scanning(URL(fileURLWithPath: "/tmp/scanning-root")))
         }
@@ -130,12 +133,12 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_launcherWinsWhenReposExistEvenIfChoosingFolderIsTrue() {
-        withTestAtomRegistry { atoms in
+        withWorkspaceLauncherAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
             _ = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
-            atoms.welcome.beginChoosingFolder()
+            atoms.core.welcome.beginChoosingFolder()
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .launcher)
         }
@@ -143,14 +146,14 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_reposButNoTabs_returnsLauncherStateWithEnrichedCards() throws {
-        try withTestAtomRegistry { atoms in
+        try withWorkspaceLauncherAtomRegistry { atoms in
             let store = WorkspaceStore(
-                identityAtom: atoms.workspaceIdentity,
-                windowMemoryAtom: atoms.workspaceWindowMemory,
-                repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
-                paneAtom: atoms.workspacePane,
-                tabLayoutAtom: atoms.workspaceTabLayout,
-                mutationCoordinator: atoms.workspaceMutationCoordinator
+                identityAtom: atoms.core.workspaceIdentity,
+                windowMemoryAtom: atoms.core.workspaceWindowMemory,
+                repositoryTopologyAtom: atoms.core.workspaceRepositoryTopology,
+                paneAtom: atoms.core.workspacePane,
+                tabLayoutAtom: atoms.core.workspaceTabLayout,
+                mutationCoordinator: atoms.core.workspaceMutationCoordinator
             )
             let repo = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
@@ -158,14 +161,14 @@ struct WorkspaceLauncherProjectorTests {
                 return
             }
 
-            atoms.repoCache.setWorktreeEnrichment(
+            atoms.core.repoCache.setWorktreeEnrichment(
                 WorktreeEnrichment(
                     worktreeId: worktree.id,
                     repoId: repo.id,
                     branch: "main"
                 )
             )
-            atoms.repoCache.setPullRequestCount(3, for: worktree.id)
+            atoms.core.repoCache.setPullRequestCount(3, for: worktree.id)
             let approvalPaneId = UUID()
             atoms.inboxNotification.append(
                 InboxNotification(
@@ -218,7 +221,7 @@ struct WorkspaceLauncherProjectorTests {
             )
             try recordWorktreeRecency(atoms: atoms, worktree: worktree)
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .launcher)
             #expect(result.recentCards.count == 1)
@@ -234,14 +237,14 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_reposAndTabsPresent_returnsEmptyLauncherModel() throws {
-        try withTestAtomRegistry { atoms in
+        try withWorkspaceLauncherAtomRegistry { atoms in
             let store = WorkspaceStore(
-                identityAtom: atoms.workspaceIdentity,
-                windowMemoryAtom: atoms.workspaceWindowMemory,
-                repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
-                paneAtom: atoms.workspacePane,
-                tabLayoutAtom: atoms.workspaceTabLayout,
-                mutationCoordinator: atoms.workspaceMutationCoordinator
+                identityAtom: atoms.core.workspaceIdentity,
+                windowMemoryAtom: atoms.core.workspaceWindowMemory,
+                repositoryTopologyAtom: atoms.core.workspaceRepositoryTopology,
+                paneAtom: atoms.core.workspacePane,
+                tabLayoutAtom: atoms.core.workspaceTabLayout,
+                mutationCoordinator: atoms.core.workspaceMutationCoordinator
             )
             let repo = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
@@ -258,7 +261,7 @@ struct WorkspaceLauncherProjectorTests {
             store.tabLayoutAtom.appendTab(Tab(paneId: pane.id))
             try recordWorktreeRecency(atoms: atoms, worktree: worktree)
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.kind == .launcher)
             #expect(result.recentCards.isEmpty)
@@ -268,7 +271,7 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_launcherCapsAtFifteenAndShowsOpenAllForTwoOrMoreTargets() throws {
-        try withTestAtomRegistry { atoms in
+        try withWorkspaceLauncherAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
             let repo = store.mutationCoordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             let worktrees = (0..<20).map { index in
@@ -289,7 +292,7 @@ struct WorkspaceLauncherProjectorTests {
                 )
             }
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.recentCards.count == 15)
             #expect(result.showsOpenAll == true)
@@ -298,7 +301,7 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_applicationWorktreeRecency_usesLiveTopologyPresentation() throws {
-        try withTestAtomRegistry { atoms in
+        try withWorkspaceLauncherAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/live-recency-repo"))
             let originalWorktree = try #require(store.repo(repo.id)?.worktrees.first)
@@ -307,7 +310,7 @@ struct WorkspaceLauncherProjectorTests {
                 interaction: .opened,
                 lastInteractedAt: Date(timeIntervalSince1970: 500)
             )
-            atoms.applicationEntityRecency.record(recency)
+            atoms.core.applicationEntityRecency.record(recency)
             let liveWorktree = Worktree(
                 id: originalWorktree.id,
                 repoId: repo.id,
@@ -317,7 +320,7 @@ struct WorkspaceLauncherProjectorTests {
             )
             store.reconcileDiscoveredWorktrees(repo.id, worktrees: [liveWorktree])
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store, inboxAtom: atoms.inboxNotification)
 
             #expect(result.recentCards.count == 1)
             #expect(
@@ -330,7 +333,7 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_applicationRepositoryRecency_resolvesLiveCanonicalDefaultWorktree() throws {
-        try withTestAtomRegistry { atoms in
+        try withWorkspaceLauncherAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/live-repository-recency"))
             let secondary = Worktree(
@@ -345,7 +348,7 @@ struct WorkspaceLauncherProjectorTests {
                 isMainWorktree: true
             )
             store.reconcileDiscoveredWorktrees(repo.id, worktrees: [secondary, main])
-            atoms.applicationEntityRecency.record(
+            atoms.core.applicationEntityRecency.record(
                 try ApplicationEntityRecency(
                     entity: .repository(repositoryStableKey: repo.stableKey),
                     interaction: .opened,
@@ -353,7 +356,10 @@ struct WorkspaceLauncherProjectorTests {
                 )
             )
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(
+                store: store,
+                inboxAtom: atoms.inboxNotification
+            )
             let activationWorktree = WorkspaceLauncherProjector.resolveActivationWorktree(
                 target: .repository(repositoryStableKey: repo.stableKey),
                 repositoryTopology: store.repositoryTopologyAtom
@@ -368,7 +374,7 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func staleApplicationRecency_resolvesNoActivationAndPrunesWithoutRecording() throws {
-        try withTestAtomRegistry { atoms in
+        try withWorkspaceLauncherAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
             _ = store.addRepo(at: URL(fileURLWithPath: "/tmp/current-repository"))
             let staleTarget = ApplicationRecentEntity.worktree(
@@ -376,7 +382,7 @@ struct WorkspaceLauncherProjectorTests {
                     URL(fileURLWithPath: "/tmp/missing-worktree")
                 )
             )
-            atoms.applicationEntityRecency.record(
+            atoms.core.applicationEntityRecency.record(
                 try ApplicationEntityRecency(
                     entity: staleTarget,
                     interaction: .opened,
@@ -388,32 +394,35 @@ struct WorkspaceLauncherProjectorTests {
                 target: staleTarget,
                 repositoryTopology: store.repositoryTopologyAtom
             )
-            let recencyCountBeforePrune = atoms.applicationEntityRecency.recentEntities.count
+            let recencyCountBeforePrune = atoms.core.applicationEntityRecency.recentEntities.count
             WorkspaceLauncherProjector.pruneStaleTarget(
                 staleTarget,
-                applicationRecency: atoms.applicationEntityRecency
+                applicationRecency: atoms.core.applicationEntityRecency
             )
 
             #expect(activationWorktree == nil)
             #expect(recencyCountBeforePrune == 1)
-            #expect(atoms.applicationEntityRecency.recentEntities.isEmpty)
+            #expect(atoms.core.applicationEntityRecency.recentEntities.isEmpty)
         }
     }
 
     @Test
     func unavailableRepositoryRecency_projectsNoCardsAndResolvesNoActivation() throws {
-        try withTestAtomRegistry { atoms in
+        try withWorkspaceLauncherAtomRegistry { atoms in
             let store = makeStore(atoms: atoms)
             let repository = store.addRepo(at: URL(filePath: "/tmp/unavailable-recent-repository"))
             let worktree = try #require(repository.worktrees.first)
-            try atoms.applicationEntityRecency.recordOpened(
+            try atoms.core.applicationEntityRecency.recordOpened(
                 repositoryStableKey: repository.stableKey,
                 worktreeStableKey: worktree.stableKey,
                 at: Date(timeIntervalSince1970: 800)
             )
             store.markRepoUnavailable(repository.id)
 
-            let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(
+                store: store,
+                inboxAtom: atoms.inboxNotification
+            )
             let repositoryActivation = WorkspaceLauncherProjector.resolveActivationWorktree(
                 target: .repository(repositoryStableKey: repository.stableKey),
                 repositoryTopology: store.repositoryTopologyAtom
@@ -427,5 +436,15 @@ struct WorkspaceLauncherProjectorTests {
             #expect(repositoryActivation == nil)
             #expect(worktreeActivation == nil)
         }
+    }
+}
+
+@MainActor
+private func withWorkspaceLauncherAtomRegistry<T>(
+    _ body: (AtomRegistry) throws -> T
+) rethrows -> T {
+    let atomRegistry = makeTestAtomRegistry()
+    return try withTestCoreAtoms(using: atomRegistry.core) { _ in
+        try body(atomRegistry)
     }
 }

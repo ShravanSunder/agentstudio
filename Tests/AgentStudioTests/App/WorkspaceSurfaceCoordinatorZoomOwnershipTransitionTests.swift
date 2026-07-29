@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 extension WebKitSerializedTests.WorkspaceSurfaceCoordinatorZoomLifecycleTests {
     @Test("moving an active Zoom source cancels Zoom and transfers retained companion ownership")

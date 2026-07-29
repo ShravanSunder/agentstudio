@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import Foundation
 import os.log
@@ -18,19 +20,23 @@ typealias CommandBarPathActionFailureHandler = @MainActor @Sendable (CommandBarP
 
 @MainActor
 extension CommandBarDataSource {
-    static func repoScopeItems(store: WorkspaceStore, repoCache: RepoCacheAtom) -> [CommandBarItem] {
-        _ = repoCache
-        return allRepoItems(
+    static func repoScopeItems(
+        store: WorkspaceStore,
+        dispatcher: any AppCommandDispatching
+    ) -> [CommandBarItem] {
+        allRepoItems(
             store: store,
             group: Group.repositories,
-            groupPriority: Priority.repositories
+            groupPriority: Priority.repositories,
+            dispatcher: dispatcher
         )
     }
 
     static func allRepoItems(
         store: WorkspaceStore,
         group: String,
-        groupPriority: Int
+        groupPriority: Int,
+        dispatcher: any AppCommandDispatching
     ) -> [CommandBarItem] {
         let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
         return store.repositoryTopologyAtom.repos
@@ -41,7 +47,8 @@ extension CommandBarDataSource {
                     store: store,
                     presenceByWorktreeId: presenceByWorktreeId,
                     group: group,
-                    groupPriority: groupPriority
+                    groupPriority: groupPriority,
+                    dispatcher: dispatcher
                 )
             }
     }
@@ -85,14 +92,19 @@ extension CommandBarDataSource {
         )
     }
 
-    static func repoRootItem(repo: Repo, store: WorkspaceStore) -> CommandBarItem {
+    static func repoRootItem(
+        repo: Repo,
+        store: WorkspaceStore,
+        dispatcher: any AppCommandDispatching
+    ) -> CommandBarItem {
         let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
         return repoRootItem(
             repo: repo,
             store: store,
             presenceByWorktreeId: presenceByWorktreeId,
             group: Group.repos,
-            groupPriority: Priority.repos
+            groupPriority: Priority.repos,
+            dispatcher: dispatcher
         )
     }
 
@@ -101,9 +113,15 @@ extension CommandBarDataSource {
         store: WorkspaceStore,
         presenceByWorktreeId: [UUID: WorktreePresence],
         group: String,
-        groupPriority: Int
+        groupPriority: Int,
+        dispatcher: any AppCommandDispatching
     ) -> CommandBarItem {
-        let level = buildRepoLevel(repo: repo, store: store, presenceByWorktreeId: presenceByWorktreeId)
+        let level = buildRepoLevel(
+            repo: repo,
+            store: store,
+            presenceByWorktreeId: presenceByWorktreeId,
+            dispatcher: dispatcher
+        )
         return CommandBarItem(
             id: "repo-\(repo.id.uuidString)",
             title: repo.name,
@@ -212,18 +230,24 @@ extension CommandBarDataSource {
         )
     }
 
-    static func buildRepoLevel(repo: Repo, store: WorkspaceStore) -> CommandBarLevel {
+    static func buildRepoLevel(
+        repo: Repo,
+        store: WorkspaceStore,
+        dispatcher: any AppCommandDispatching
+    ) -> CommandBarLevel {
         buildRepoLevel(
             repo: repo,
             store: store,
-            presenceByWorktreeId: buildWorktreePresenceByWorktreeId(store: store)
+            presenceByWorktreeId: buildWorktreePresenceByWorktreeId(store: store),
+            dispatcher: dispatcher
         )
     }
 
     static func buildRepoLevel(
         repo: Repo,
         store: WorkspaceStore,
-        presenceByWorktreeId: [UUID: WorktreePresence]
+        presenceByWorktreeId: [UUID: WorktreePresence],
+        dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
         let defaultWorktree = repo.worktrees.first(where: \.isMainWorktree) ?? repo.worktrees.first
         var items: [CommandBarItem] = []
@@ -265,7 +289,8 @@ extension CommandBarDataSource {
                     let level = buildWorktreeActionsLevel(
                         worktree: worktree,
                         presence: presence,
-                        canOpenInCurrentTab: store.tabLayoutAtom.activeTabId != nil
+                        canOpenInCurrentTab: store.tabLayoutAtom.activeTabId != nil,
+                        dispatcher: dispatcher
                     )
                     return CommandBarItem(
                         id: "repo-wt-\(worktree.id.uuidString)",
@@ -284,7 +309,7 @@ extension CommandBarDataSource {
 
         if let defaultWorktree {
             let bridgeResolution =
-                AppCommandDispatcher.shared
+                dispatcher
                 .bridgePaneCommandTarget(worktreeId: defaultWorktree.id)?
                 .resolution ?? .create
             items.append(
@@ -331,12 +356,12 @@ extension CommandBarDataSource {
     static func buildWorktreeActionsLevel(
         worktree: Worktree,
         presence: WorktreePresence,
-        canOpenInCurrentTab: Bool
+        canOpenInCurrentTab: Bool,
+        dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
         let worktreeId = presence.worktreeId
         let bridgeResolution =
-            AppCommandDispatcher.shared
-            .bridgePaneCommandTarget(worktreeId: worktreeId)?
+            dispatcher.bridgePaneCommandTarget(worktreeId: worktreeId)?
             .resolution ?? .create
         var items = terminalWorktreeActionItems(
             worktreeId: worktreeId,
@@ -428,7 +453,8 @@ extension CommandBarDataSource {
 
     static func buildWorktreeActionsLevel(
         presence: WorktreePresence,
-        canOpenInCurrentTab: Bool
+        canOpenInCurrentTab: Bool,
+        dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
         let worktree = Worktree(
             id: presence.worktreeId,
@@ -440,7 +466,8 @@ extension CommandBarDataSource {
         return buildWorktreeActionsLevel(
             worktree: worktree,
             presence: presence,
-            canOpenInCurrentTab: canOpenInCurrentTab
+            canOpenInCurrentTab: canOpenInCurrentTab,
+            dispatcher: dispatcher
         )
     }
 
@@ -452,7 +479,7 @@ extension CommandBarDataSource {
         [
             CommandBarItem(
                 id: "wt-review-\(worktreeId.uuidString)",
-                title: resolution.contextualLabel(for: .review),
+                title: resolution.contextualLabel(for: .showBridgeReview),
                 icon: AppCommand.showBridgeReview.definition.icon,
                 group: "Panes",
                 groupPriority: groupPriority,
@@ -462,7 +489,7 @@ extension CommandBarDataSource {
             ),
             CommandBarItem(
                 id: "wt-files-\(worktreeId.uuidString)",
-                title: resolution.contextualLabel(for: .file),
+                title: resolution.contextualLabel(for: .showBridgeFiles),
                 icon: AppCommand.showBridgeFiles.definition.icon,
                 group: "Panes",
                 groupPriority: groupPriority,

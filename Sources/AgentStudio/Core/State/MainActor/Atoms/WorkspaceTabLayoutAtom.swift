@@ -1,15 +1,15 @@
 import Foundation
 
 @MainActor
-final class WorkspaceTabLayoutAtom {
-    let shellAtom: WorkspaceTabShellAtom
-    let arrangementAtom: WorkspaceTabArrangementAtom
+package final class WorkspaceTabLayoutAtom {
+    package let shellAtom: WorkspaceTabShellAtom
+    package let arrangementAtom: WorkspaceTabArrangementAtom
 
     private var derived: WorkspaceTabLayoutDerived {
         WorkspaceTabLayoutDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
     }
 
-    init(
+    package init(
         shellAtom: WorkspaceTabShellAtom = WorkspaceTabShellAtom(),
         arrangementAtom: WorkspaceTabArrangementAtom = WorkspaceTabArrangementAtom()
     ) {
@@ -37,15 +37,15 @@ final class WorkspaceTabLayoutAtom {
         removeTabsWithoutArrangementState()
     }
 
-    var tabs: [Tab] {
+    package var tabs: [Tab] {
         derived.tabs
     }
 
-    var activeTabId: UUID? {
+    package var activeTabId: UUID? {
         shellAtom.activeTabId
     }
 
-    var activeTab: Tab? {
+    package var activeTab: Tab? {
         derived.activeTab
     }
 
@@ -53,34 +53,34 @@ final class WorkspaceTabLayoutAtom {
         derived.activePaneIds
     }
 
-    var allPaneIds: Set<UUID> {
+    package var allPaneIds: Set<UUID> {
         derived.allPaneIds
     }
 
-    func tab(_ id: UUID) -> Tab? {
+    package func tab(_ id: UUID) -> Tab? {
         derived.tab(id)
     }
 
-    func tabContaining(paneId: UUID) -> Tab? {
+    package func tabContaining(paneId: UUID) -> Tab? {
         derived.tabContaining(paneId: paneId)
     }
 
-    func appendTab(_ tab: Tab) {
+    package func appendTab(_ tab: Tab) {
         shellAtom.appendTabShell(TabShell(id: tab.id, name: tab.name, colorHex: tab.colorHex))
         arrangementAtom.appendState(Self.arrangementState(from: tab))
     }
 
-    func removeTab(_ tabId: UUID) {
+    package func removeTab(_ tabId: UUID) {
         shellAtom.removeTabShell(tabId)
         arrangementAtom.removeState(tabId)
     }
 
-    func insertTab(_ tab: Tab, at index: Int) {
+    package func insertTab(_ tab: Tab, at index: Int) {
         shellAtom.insertTabShell(TabShell(id: tab.id, name: tab.name, colorHex: tab.colorHex), at: index)
         arrangementAtom.insertState(Self.arrangementState(from: tab), at: index)
     }
 
-    func restoreTab(_ tab: Tab, at index: Int) {
+    package func restoreTab(_ tab: Tab, at index: Int) {
         if shellAtom.tabShell(tab.id) == nil {
             shellAtom.insertTabShell(TabShell(id: tab.id, name: tab.name, colorHex: tab.colorHex), at: index)
         } else {
@@ -91,26 +91,26 @@ final class WorkspaceTabLayoutAtom {
         arrangementAtom.insertState(Self.arrangementState(from: tab), at: index)
     }
 
-    func moveTab(fromId: UUID, toIndex: Int) {
+    package func moveTab(fromId: UUID, toIndex: Int) {
         shellAtom.moveTab(fromId: fromId, toIndex: toIndex)
     }
 
-    func reorderTab(_ tabId: UUID, to newIndex: Int) {
+    package func reorderTab(_ tabId: UUID, to newIndex: Int) {
         guard shellAtom.tabShell(tabId) != nil else { return }
         guard newIndex >= 0 && newIndex < shellAtom.tabShells.count else { return }
         shellAtom.moveTab(fromId: tabId, toIndex: newIndex)
     }
 
-    func moveTabByDelta(tabId: UUID, delta: Int) {
+    package func moveTabByDelta(tabId: UUID, delta: Int) {
         shellAtom.moveTabByDelta(tabId: tabId, delta: delta)
     }
 
-    func setActiveTab(_ tabId: UUID?) {
+    package func setActiveTab(_ tabId: UUID?) {
         shellAtom.setActiveTab(tabId)
     }
 
     @discardableResult
-    func insertPane(
+    package func insertPane(
         _ paneId: UUID,
         inTab tabId: UUID,
         at targetPaneId: UUID,
@@ -128,7 +128,7 @@ final class WorkspaceTabLayoutAtom {
         )
     }
 
-    func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID, removingDrawerId drawerId: UUID? = nil) {
+    package func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID, removingDrawerId drawerId: UUID? = nil) {
         arrangementAtom.removePaneFromLayout(paneId, inTab: tabId, removingDrawerId: drawerId)
         removeEmptyTabs()
     }
@@ -138,11 +138,11 @@ final class WorkspaceTabLayoutAtom {
         removeEmptyTabs()
     }
 
-    func resizePane(tabId: UUID, splitId: UUID, ratio: Double) {
+    package func resizePane(tabId: UUID, splitId: UUID, ratio: Double) {
         arrangementAtom.resizePane(tabId: tabId, splitId: splitId, ratio: ratio)
     }
 
-    func resizeVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double) {
+    package func resizeVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double) {
         arrangementAtom.resizeVisiblePanePair(
             tabId: tabId,
             leftPaneId: leftPaneId,
@@ -151,32 +151,32 @@ final class WorkspaceTabLayoutAtom {
         )
     }
 
-    func equalizePanes(tabId: UUID) {
+    package func equalizePanes(tabId: UUID) {
         arrangementAtom.equalizePanes(tabId: tabId)
     }
 
-    func setActivePane(_ paneId: UUID?, inTab tabId: UUID) {
+    package func setActivePane(_ paneId: UUID?, inTab tabId: UUID) {
         arrangementAtom.setActivePane(paneId, inTab: tabId)
     }
 
     @discardableResult
-    func createArrangement(name: String, inTab tabId: UUID) -> UUID? {
+    package func createArrangement(name: String, inTab tabId: UUID) -> UUID? {
         arrangementAtom.createArrangement(name: name, inTab: tabId)
     }
 
-    func removeArrangement(_ arrangementId: UUID, inTab tabId: UUID) {
+    package func removeArrangement(_ arrangementId: UUID, inTab tabId: UUID) {
         arrangementAtom.removeArrangement(arrangementId, inTab: tabId)
     }
 
-    func switchArrangement(to arrangementId: UUID, inTab tabId: UUID) {
+    package func switchArrangement(to arrangementId: UUID, inTab tabId: UUID) {
         arrangementAtom.switchArrangement(to: arrangementId, inTab: tabId)
     }
 
-    func renameArrangement(_ arrangementId: UUID, name: String, inTab tabId: UUID) {
+    package func renameArrangement(_ arrangementId: UUID, name: String, inTab tabId: UUID) {
         arrangementAtom.renameArrangement(arrangementId, name: name, inTab: tabId)
     }
 
-    func renameTab(_ tabId: UUID, name: String) {
+    package func renameTab(_ tabId: UUID, name: String) {
         shellAtom.renameTab(tabId, name: name)
     }
 
@@ -185,19 +185,19 @@ final class WorkspaceTabLayoutAtom {
     }
 
     @discardableResult
-    func minimizePane(_ paneId: UUID, inTab tabId: UUID) -> Bool {
+    package func minimizePane(_ paneId: UUID, inTab tabId: UUID) -> Bool {
         arrangementAtom.minimizePane(paneId, inTab: tabId)
     }
 
-    func expandPane(_ paneId: UUID, inTab tabId: UUID) {
+    package func expandPane(_ paneId: UUID, inTab tabId: UUID) {
         arrangementAtom.expandPane(paneId, inTab: tabId)
     }
 
-    func resizePaneByDelta(tabId: UUID, paneId: UUID, direction: SplitResizeDirection, amount: UInt16) {
+    package func resizePaneByDelta(tabId: UUID, paneId: UUID, direction: SplitResizeDirection, amount: UInt16) {
         arrangementAtom.resizePaneByDelta(tabId: tabId, paneId: paneId, direction: direction, amount: amount)
     }
 
-    func breakUpTab(
+    package func breakUpTab(
         _ tabId: UUID,
         drawerPayloadsByParentPaneId: [UUID: PaneDrawerMovePayload] = [:]
     ) -> [Tab] {
@@ -216,7 +216,7 @@ final class WorkspaceTabLayoutAtom {
         return newStates.compactMap { derived.tab($0.tabId) }
     }
 
-    func extractPane(
+    package func extractPane(
         _ paneId: UUID,
         fromTab tabId: UUID,
         drawerPayload: PaneDrawerMovePayload? = nil
@@ -235,7 +235,7 @@ final class WorkspaceTabLayoutAtom {
     }
 
     @discardableResult
-    func movePaneAcrossTabs(_ mutation: CrossTabPaneMoveMutation) -> CrossTabPaneMoveResult? {
+    package func movePaneAcrossTabs(_ mutation: CrossTabPaneMoveMutation) -> CrossTabPaneMoveResult? {
         guard let result = arrangementAtom.movePaneAcrossTabs(mutation) else { return nil }
 
         if result.sourceTabClosed {
@@ -246,7 +246,7 @@ final class WorkspaceTabLayoutAtom {
         return result
     }
 
-    func mergeTab(
+    package func mergeTab(
         sourceId: UUID,
         intoTarget targetId: UUID,
         at targetPaneId: UUID,

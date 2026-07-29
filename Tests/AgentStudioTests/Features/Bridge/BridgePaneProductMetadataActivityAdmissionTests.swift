@@ -1,7 +1,8 @@
+import AgentStudioCore
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge pane product metadata activity admission")
 struct BridgePaneProductMetadataActivityAdmissionTests {

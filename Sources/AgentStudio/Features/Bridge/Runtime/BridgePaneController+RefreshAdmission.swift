@@ -1,6 +1,7 @@
+import AgentStudioCore
 import Foundation
 
-enum BridgePaneWorktreeProductInvalidation: Sendable {
+package enum BridgePaneWorktreeProductInvalidation: Sendable {
     case filesChanged(FileChangeset)
     case statusChanged(GitWorkingTreeStatus)
 }
@@ -8,7 +9,7 @@ enum BridgePaneWorktreeProductInvalidation: Sendable {
 @MainActor
 extension BridgePaneController {
     @discardableResult
-    func applyBridgePaneActivity(_ activity: BridgePaneActivity) -> Task<Void, Never>? {
+    package func applyBridgePaneActivity(_ activity: BridgePaneActivity) -> Task<Void, Never>? {
         let previousActivity = refreshAdmissionCoordinator.diagnosticSnapshot.activity
         refreshAdmissionCoordinator.applyActivity(activity)
         let productActivityTransition =
@@ -70,7 +71,7 @@ extension BridgePaneController {
         return transition
     }
 
-    func handleWorktreeProductInvalidation(
+    package func handleWorktreeProductInvalidation(
         _ invalidation: BridgePaneWorktreeProductInvalidation
     ) async {
         switch invalidation {

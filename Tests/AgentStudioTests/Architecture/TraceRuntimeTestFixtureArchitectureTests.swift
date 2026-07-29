@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("Trace runtime test fixture architecture")
 struct TraceRuntimeTestFixtureArchitectureTests {
     @Test("trace runtime test fixtures choose an explicit backend")

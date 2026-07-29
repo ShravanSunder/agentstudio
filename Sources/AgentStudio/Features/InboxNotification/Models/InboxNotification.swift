@@ -4,14 +4,14 @@ import Foundation
 ///
 /// Source context is denormalized at emit time so history stays readable even
 /// after the source pane or worktree disappears.
-struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
-    enum Source: Sendable, Codable, Equatable {
+package struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
+    package enum Source: Sendable, Codable, Equatable {
         case pane(PaneSource)
         case global
     }
 
-    struct PaneSource: Sendable, Codable, Equatable {
-        enum PaneRole: String, Sendable, Codable, Equatable {
+    package struct PaneSource: Sendable, Codable, Equatable {
+        package enum PaneRole: String, Sendable, Codable, Equatable {
             case main
             case drawerChild
         }
@@ -50,7 +50,7 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
             case runtimeDisplayLabel
         }
 
-        init(
+        package init(
             paneId: UUID,
             tabId: UUID? = nil,
             tabDisplayLabel: String? = nil,
@@ -92,7 +92,7 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
             self.runtimeDisplayLabel = runtimeDisplayLabel
         }
 
-        init(from decoder: Decoder) throws {
+        package init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             self.paneId = try container.decode(UUID.self, forKey: .paneId)
             self.tabId = try container.decodeIfPresent(UUID.self, forKey: .tabId)
@@ -112,7 +112,7 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         }
     }
 
-    struct NamedSource: Sendable, Codable, Equatable {
+    package struct NamedSource: Sendable, Codable, Equatable {
         let id: UUID?
         let name: String?
 
@@ -131,7 +131,7 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         }
     }
 
-    struct ActivityContext: Sendable, Codable, Equatable {
+    package struct ActivityContext: Sendable, Codable, Equatable {
         let burstWindowId: UUID
         let activitySessionId: UUID?
         let eventCount: Int
@@ -139,7 +139,7 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         let thresholdRows: Int
         let latestRows: Int
 
-        init(
+        package init(
             burstWindowId: UUID,
             activitySessionId: UUID? = nil,
             eventCount: Int,
@@ -167,19 +167,19 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         }
     }
 
-    let id: UUID
-    let timestamp: Date
-    let kind: InboxNotificationKind
-    let title: String
-    let body: String?
-    let source: Source
-    var activityContext: ActivityContext?
-    let claimKey: InboxNotificationClaimKey?
+    package let id: UUID
+    package let timestamp: Date
+    package let kind: InboxNotificationKind
+    package let title: String
+    package let body: String?
+    package let source: Source
+    package internal(set) var activityContext: ActivityContext?
+    package let claimKey: InboxNotificationClaimKey?
 
-    var isRead: Bool
-    var isDismissedFromPaneInbox: Bool
+    package internal(set) var isRead: Bool
+    package internal(set) var isDismissedFromPaneInbox: Bool
 
-    init(
+    package init(
         id: UUID,
         timestamp: Date,
         kind: InboxNotificationKind,
@@ -203,43 +203,43 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         self.isDismissedFromPaneInbox = isDismissedFromPaneInbox
     }
 
-    var paneId: UUID? {
+    package var paneId: UUID? {
         guard case .pane(let paneSource) = source else { return nil }
         return paneSource.paneId
     }
 
-    var tabId: UUID? {
+    package var tabId: UUID? {
         guard case .pane(let paneSource) = source else { return nil }
         return paneSource.tabId
     }
 
-    var repoId: UUID? {
+    package var repoId: UUID? {
         guard case .pane(let paneSource) = source else { return nil }
         return paneSource.repo?.id
     }
 
-    var repoName: String? {
+    package var repoName: String? {
         guard case .pane(let paneSource) = source else { return nil }
         return paneSource.repo?.name
     }
 
-    var worktreeId: UUID? {
+    package var worktreeId: UUID? {
         guard case .pane(let paneSource) = source else { return nil }
         return paneSource.worktree?.id
     }
 
-    var worktreeName: String? {
+    package var worktreeName: String? {
         guard case .pane(let paneSource) = source else { return nil }
         return paneSource.worktree?.name
     }
 
-    var branchName: String? {
+    package var branchName: String? {
         guard case .pane(let paneSource) = source else { return nil }
         return paneSource.branchName
     }
 }
 
-enum InboxNotificationKind: String, Sendable, Codable, Equatable {
+package enum InboxNotificationKind: String, Sendable, Codable, Equatable {
     case agentDesktopNotification
     case bellRang
     case commandFinished

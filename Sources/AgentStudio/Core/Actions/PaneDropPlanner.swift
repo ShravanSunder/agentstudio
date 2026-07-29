@@ -1,11 +1,12 @@
+import AgentStudioInfrastructure
 import Foundation
 
-enum PaneDropPreviewDecision: Equatable {
+package enum PaneDropPreviewDecision: Equatable {
     case eligible(DropCommitPlan)
     case ineligible(PaneDropIneligibilityReason)
 }
 
-enum PaneDropIneligibilityReason: Equatable {
+package enum PaneDropIneligibilityReason: Equatable {
     case managementLayerInactive
     case unsupportedPayload
     case drawerPanePayload
@@ -16,13 +17,13 @@ enum PaneDropIneligibilityReason: Equatable {
     case validationFailed(ActionValidationError)
 }
 
-enum DropCommitPlan: Equatable {
+package enum DropCommitPlan: Equatable {
     case moveTab(tabId: UUID, toIndex: Int)
     case extractPaneToTabThenMove(paneId: UUID, sourceTabId: UUID, toIndex: Int)
     case paneAction(WorkspaceActionCommand)
 }
 
-struct PaneSplitDropDestination: Equatable {
+package struct PaneSplitDropDestination: Equatable {
     let targetPaneId: UUID
     let targetTabId: UUID
     let direction: SplitNewDirection
@@ -30,13 +31,13 @@ struct PaneSplitDropDestination: Equatable {
     let targetDrawerParentPaneId: UUID?
 }
 
-enum PaneDropDestination: Equatable {
+package enum PaneDropDestination: Equatable {
     case splitTarget(PaneSplitDropDestination)
     case tabBarInsertion(targetTabIndex: Int)
 }
 
 extension PaneDropDestination {
-    static func split(
+    package static func split(
         targetPaneId: UUID,
         targetTabId: UUID,
         direction: SplitNewDirection,
@@ -55,8 +56,8 @@ extension PaneDropDestination {
     }
 }
 
-enum PaneDropPlanner {
-    static func previewDecision(
+package enum PaneDropPlanner {
+    package static func previewDecision(
         payload: SplitDropPayload,
         destination: PaneDropDestination,
         state: ActionStateSnapshot

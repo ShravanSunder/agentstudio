@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import SwiftUI
@@ -8,13 +9,13 @@ import SwiftUI
 /// action long enough for the pane to show fast feedback before removal.
 @MainActor
 @Observable
-final class PaneCloseTransitionCoordinator {
+package final class PaneCloseTransitionCoordinator {
     private let delay: AsyncDelay
     private var pendingCloseTasks: [UUID: Task<Void, Never>] = [:]
 
-    private(set) var closingPaneIds: Set<UUID> = []
+    package private(set) var closingPaneIds: Set<UUID> = []
 
-    init(clock: (any Clock<Duration> & Sendable)? = nil) {
+    package init(clock: (any Clock<Duration> & Sendable)? = nil) {
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
     }
 
@@ -25,7 +26,7 @@ final class PaneCloseTransitionCoordinator {
         pendingCloseTasks.removeAll()
     }
 
-    func beginClosingPane(
+    package func beginClosingPane(
         _ paneId: UUID,
         delay: Duration = .milliseconds(120),
         performClose: @escaping @MainActor () -> Void
@@ -58,7 +59,7 @@ final class PaneCloseTransitionCoordinator {
     /// Cancel any pending close transition for the given pane id.
     /// Used by undo to prevent a scheduled performClose from firing after
     /// the pane has already been restored.
-    func cancelCloseTransition(_ paneId: UUID) {
+    package func cancelCloseTransition(_ paneId: UUID) {
         guard let task = pendingCloseTasks.removeValue(forKey: paneId) else { return }
         task.cancel()
         closingPaneIds.remove(paneId)

@@ -3,7 +3,7 @@ import Foundation
 @MainActor
 extension BridgePaneController {
     @discardableResult
-    func requestViewerSurface(_ surface: BridgeProductSurface) -> Bool {
+    package func requestViewerSurface(_ surface: BridgeProductSurface) -> Bool {
         guard let productSchemeProvider,
             let productAdmission = productAdmissionGate.acquire()
         else {

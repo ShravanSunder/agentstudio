@@ -1,12 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
-
-struct WatchedFolderRefreshSummary: Sendable, Equatable {
-    let repoPathsByWatchedFolder: [URL: [URL]]
-
-    func repoPaths(in watchedFolder: URL) -> [URL] {
-        repoPathsByWatchedFolder[watchedFolder.standardizedFileURL, default: []]
-    }
-}
 
 protocol WatchedFolderCommandHandling: AnyObject, Sendable {
     func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary

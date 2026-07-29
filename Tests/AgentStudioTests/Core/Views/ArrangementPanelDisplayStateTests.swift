@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 struct ArrangementPanelDisplayStateTests {
     @Test("minimized pane status uses the filled hidden-eye symbol")

@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import os.log
 
@@ -5,17 +6,17 @@ private let configLogger = Logger(subsystem: "com.agentstudio", category: "Sessi
 
 /// Configuration for the session restore feature.
 /// Reads from environment variables with sensible defaults.
-struct SessionConfiguration: Sendable {
+package struct SessionConfiguration: Sendable {
     static let zmxPathEnvironmentKey = "AGENTSTUDIO_ZMX_PATH"
 
     /// Whether session restore is enabled. Defaults to true.
     let isEnabled: Bool
 
     /// Path to the zmx binary. Nil if zmx is not found.
-    let zmxPath: String?
+    package let zmxPath: String?
 
     /// Directory for zmx socket/state isolation under the shared app data root.
-    let zmxDir: String
+    package let zmxDir: String
 
     /// How often to run health checks on active sessions (seconds).
     let healthCheckInterval: TimeInterval
@@ -26,7 +27,7 @@ struct SessionConfiguration: Sendable {
     // MARK: - Factory
 
     /// Detect configuration from the current environment.
-    static func detect(
+    package static func detect(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         isDebugBuild: Bool = AppDataPaths.isDebugBuild
     ) -> Self {
@@ -58,7 +59,7 @@ struct SessionConfiguration: Sendable {
     }
 
     /// Whether session restore can actually work (enabled + zmx found).
-    var isOperational: Bool {
+    package var isOperational: Bool {
         isEnabled && zmxPath != nil
     }
 
@@ -85,83 +86,31 @@ struct SessionConfiguration: Sendable {
     /// the `terminfo/` directory. We append `/ghostty` to the directory that holds
     /// `terminfo/` to satisfy this convention.
     ///
-    /// Search order: SPM resource bundle → app bundle → development source tree.
-    static func resolveGhosttyResourcesDir() -> String? {
+    package static func resolveGhosttyResourcesDir(resourceRootURL: URL) -> String? {
         let sentinel = "/terminfo/78/xterm-ghostty"
-
-        // SPM module bundle (works in both app and test contexts)
-        let moduleBundle = Bundle.appResources.bundlePath
-        if FileManager.default.fileExists(atPath: moduleBundle + sentinel) {
-            return moduleBundle + "/ghostty"
+        let resourceRootPath = resourceRootURL.path
+        guard FileManager.default.fileExists(atPath: resourceRootPath + sentinel) else {
+            return nil
         }
-
-        // SPM resource bundle (AgentStudio_AgentStudio.bundle, adjacent to executable)
-        let spmBundle = Bundle.main.bundleURL
-            .appendingPathComponent("AgentStudio_AgentStudio.bundle").path
-        if FileManager.default.fileExists(atPath: spmBundle + sentinel) {
-            return spmBundle + "/ghostty"
-        }
-
-        // App bundle: Contents/Resources/terminfo/78/xterm-ghostty
-        if let bundled = Bundle.main.resourcePath {
-            if FileManager.default.fileExists(atPath: bundled + sentinel) {
-                return bundled + "/ghostty"
-            }
-        }
-
-        // Development (SPM): walk up from executable to find source tree
-        if let devResources = findDevResourcesDir() {
-            if FileManager.default.fileExists(atPath: devResources + sentinel) {
-                return devResources + "/ghostty"
-            }
-        }
-
-        return nil
+        return resourceRootURL.appending(path: "ghostty").path
     }
 
     /// Resolve the terminfo directory containing our custom xterm-256color.
     ///
-    /// Search order: module bundle → SPM resource bundle → app bundle → development source tree.
-    static func resolveTerminfoDir() -> String? {
+    static func resolveTerminfoDir(resourceRootURL: URL) -> String? {
         let sentinel = "/78/xterm-256color"
-
-        // SPM module bundle (works in both app and test contexts)
-        let moduleTerminfo = Bundle.appResources.bundlePath + "/terminfo"
-        if FileManager.default.fileExists(atPath: moduleTerminfo + sentinel) {
-            return moduleTerminfo
+        let terminfoURL = resourceRootURL.appending(path: "terminfo")
+        guard FileManager.default.fileExists(atPath: terminfoURL.path + sentinel) else {
+            return nil
         }
-
-        // SPM resource bundle (adjacent to executable)
-        let spmBundle = Bundle.main.bundleURL
-            .appendingPathComponent("AgentStudio_AgentStudio.bundle/terminfo").path
-        if FileManager.default.fileExists(atPath: spmBundle + sentinel) {
-            return spmBundle
-        }
-
-        // App bundle
-        if let bundled = Bundle.main.resourcePath {
-            let candidate = bundled + "/terminfo"
-            if FileManager.default.fileExists(atPath: candidate + sentinel) {
-                return candidate
-            }
-        }
-
-        // Development source tree
-        if let devResources = findDevResourcesDir() {
-            let candidate = devResources + "/terminfo"
-            if FileManager.default.fileExists(atPath: candidate + sentinel) {
-                return candidate
-            }
-        }
-
-        return nil
+        return terminfoURL.path
     }
 
     // MARK: - Shell Discovery
 
     /// Resolve the user's default login shell.
     /// Checks passwd entry first, then SHELL environment variable, then falls back to /bin/zsh.
-    static func defaultShell() -> String {
+    package static func defaultShell() -> String {
         if let pw = getpwuid(getuid()), let shell = pw.pointee.pw_shell {
             return String(cString: shell)
         }
@@ -250,21 +199,6 @@ struct SessionConfiguration: Sendable {
         } catch {
             // which not available or failed
             configLogger.warning("which zmx failed during detection: \(error.localizedDescription)")
-        }
-        return nil
-    }
-
-    /// Walk up from the executable directory looking for the dev source tree.
-    /// For SPM builds, Bundle.main.bundlePath is e.g. `.build/release/` —
-    /// we need to find the project root containing `Sources/AgentStudio/Resources/`.
-    private static func findDevResourcesDir() -> String? {
-        var dir = URL(fileURLWithPath: Bundle.main.bundlePath)
-        for _ in 0..<5 {
-            dir = dir.deletingLastPathComponent()
-            let candidate = dir.appendingPathComponent("Sources/AgentStudio/Resources")
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return candidate.path
-            }
         }
         return nil
     }

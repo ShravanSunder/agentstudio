@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import os.log
@@ -9,13 +11,13 @@ protocol WebviewRuntimeCommandHandling: AnyObject {
 
 @MainActor
 @Observable
-final class WebviewRuntime: BusPostingPaneRuntime {
+package final class WebviewRuntime: BusPostingPaneRuntime {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "WebviewRuntime")
 
-    let paneId: PaneId
-    private(set) var metadata: PaneMetadata
-    private(set) var lifecycle: PaneRuntimeLifecycle
-    let capabilities: Set<PaneCapability>
+    package let paneId: PaneId
+    package private(set) var metadata: PaneMetadata
+    package private(set) var lifecycle: PaneRuntimeLifecycle
+    package let capabilities: Set<PaneCapability>
     weak var commandHandler: (any WebviewRuntimeCommandHandling)?
 
     private let eventChannel: PaneRuntimeEventChannel
@@ -52,7 +54,7 @@ final class WebviewRuntime: BusPostingPaneRuntime {
         return true
     }
 
-    func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
+    package func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
         guard lifecycle == .ready else {
             return .failure(.runtimeNotReady(lifecycle: lifecycle))
         }
@@ -93,11 +95,11 @@ final class WebviewRuntime: BusPostingPaneRuntime {
         }
     }
 
-    func subscribe() -> AsyncStream<RuntimeEnvelope> {
+    package func subscribe() -> AsyncStream<RuntimeEnvelope> {
         eventChannel.subscribe(isTerminated: lifecycle == .terminated)
     }
 
-    func snapshot() -> PaneRuntimeSnapshot {
+    package func snapshot() -> PaneRuntimeSnapshot {
         eventChannel.snapshot(
             paneId: paneId,
             metadata: metadata,
@@ -106,11 +108,11 @@ final class WebviewRuntime: BusPostingPaneRuntime {
         )
     }
 
-    func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
+    package func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
         eventChannel.eventsSince(seq: seq)
     }
 
-    func shutdown(timeout _: Duration) async -> [UUID] {
+    package func shutdown(timeout _: Duration) async -> [UUID] {
         if lifecycle == .terminated {
             return []
         }

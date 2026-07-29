@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AppKit
 
 extension NSButton {

@@ -1,6 +1,8 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 @Suite("InboxSidebarToolbarPresentation")
 struct InboxSidebarToolbarPresentationTests {
@@ -84,8 +86,8 @@ struct InboxSidebarToolbarPresentationTests {
         #expect(InboxSidebarContent.showsUnreadCount(for: .byPane) == false)
         #expect(InboxSidebarContent.showsUnreadCount(for: .byRepo))
         #expect(InboxSidebarContent.showsUnreadCount(for: .byTab))
-        #expect(InboxNotificationGrouping.byRepo.icon == RepoExplorerGroupingMode.repo.icon)
-        #expect(InboxNotificationGrouping.byPane.icon == RepoExplorerGroupingMode.pane.icon)
-        #expect(InboxNotificationGrouping.byTab.icon == RepoExplorerGroupingMode.tab.icon)
+        #expect(InboxNotificationGrouping.byRepo.icon == .system(.folder))
+        #expect(InboxNotificationGrouping.byPane.icon == .system(.rectangleSplit2x1))
+        #expect(InboxNotificationGrouping.byTab.icon == .system(.rectangleStack))
     }
 }

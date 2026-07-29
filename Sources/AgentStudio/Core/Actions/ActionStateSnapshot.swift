@@ -2,14 +2,19 @@ import Foundation
 
 /// Snapshot of a single arrangement's command-validation identity.
 /// Carries only what the validator needs: existence and default ownership.
-struct ArrangementSnapshot: Equatable {
-    let id: UUID
-    let isDefault: Bool
+package struct ArrangementSnapshot: Equatable {
+    package let id: UUID
+    package let isDefault: Bool
+
+    package init(id: UUID, isDefault: Bool) {
+        self.id = id
+        self.isDefault = isDefault
+    }
 }
 
 /// Snapshot of a single tab's structural state.
 /// Contains ONLY IDs and counts — no NSView references.
-struct TabSnapshot: Equatable {
+package struct TabSnapshot: Equatable {
     let id: UUID
     let visiblePaneIds: [UUID]
     let layoutPaneIds: [UUID]
@@ -20,7 +25,7 @@ struct TabSnapshot: Equatable {
     let arrangements: [ArrangementSnapshot]
     let isLayoutSplit: Bool
 
-    init(
+    package init(
         id: UUID,
         visiblePaneIds: [UUID],
         layoutPaneIds: [UUID]? = nil,
@@ -66,7 +71,7 @@ struct TabSnapshot: Equatable {
 /// Lightweight, pure-value snapshot of tab/pane state for validation.
 /// Contains ONLY structural information (IDs, counts) — no NSView references.
 /// Tests construct these directly with UUIDs.
-struct ActionStateSnapshot: Equatable {
+package struct ActionStateSnapshot: Equatable {
     let tabs: [TabSnapshot]
     let activeTabId: UUID?
     let isManagementLayerActive: Bool
@@ -84,7 +89,7 @@ struct ActionStateSnapshot: Equatable {
     /// Reverse lookup: visible paneId → tabId for O(1) resolution.
     private let visiblePaneToTab: [UUID: UUID]
 
-    init(
+    package init(
         tabs: [TabSnapshot],
         activeTabId: UUID?,
         isManagementLayerActive: Bool,
@@ -161,7 +166,7 @@ struct ActionStateSnapshot: Equatable {
         Set(tabs.flatMap(\.ownedPaneIds))
     }
 
-    static func == (lhs: Self, rhs: Self) -> Bool {
+    package static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.tabs == rhs.tabs
             && lhs.activeTabId == rhs.activeTabId
             && lhs.isManagementLayerActive == rhs.isManagementLayerActive

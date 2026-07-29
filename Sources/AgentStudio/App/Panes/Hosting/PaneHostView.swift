@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTerminal
 import AppKit
 
 /// Container NSView that blocks all AppKit event routing to pane content
@@ -16,11 +19,6 @@ final class ManagementLayerContainerView: NSView {
             "ManagementLayerContainerView.viewDidMoveToWindow window=\(window != nil) id=\(ObjectIdentifier(self)) superview=\(superview != nil)"
         )
     }
-}
-
-@MainActor
-protocol PaneMountedContent: NSView {
-    func setContentInteractionEnabled(_ enabled: Bool)
 }
 
 @MainActor

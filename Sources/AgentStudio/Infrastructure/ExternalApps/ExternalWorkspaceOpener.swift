@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import os
 
-enum ExternalWorkspaceOpener {
+package enum ExternalWorkspaceOpener {
     enum OpenRequest: Equatable {
         case application(bundleIdentifier: String, targetPath: URL)
         case command(executableURL: URL, arguments: [String])
@@ -12,7 +12,7 @@ enum ExternalWorkspaceOpener {
 
     @discardableResult
     @MainActor
-    static func openInEditor(
+    package static func openInEditor(
         id: EditorTargetId,
         path: URL,
         installedTargets: [ExternalEditorTarget]? = nil
@@ -50,7 +50,7 @@ enum ExternalWorkspaceOpener {
 
     @discardableResult
     @MainActor
-    static func openInFinder(_ path: URL) -> Bool {
+    package static func openInFinder(_ path: URL) -> Bool {
         let success = NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path.path)
         if !success {
             logger.warning("Reveal in Finder failed for path=\(path.path, privacy: .public)")
@@ -60,13 +60,13 @@ enum ExternalWorkspaceOpener {
 
     @discardableResult
     @MainActor
-    static func openInCursor(_ path: URL) -> Bool {
+    package static func openInCursor(_ path: URL) -> Bool {
         openInEditor(id: ExternalEditorTarget.cursor.id, path: path)
     }
 
     @discardableResult
     @MainActor
-    static func openInVSCode(_ path: URL) -> Bool {
+    package static func openInVSCode(_ path: URL) -> Bool {
         openInEditor(id: ExternalEditorTarget.vscode.id, path: path)
     }
 

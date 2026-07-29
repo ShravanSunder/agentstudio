@@ -34,6 +34,9 @@ extension ArchitectureRule {
 enum ArchitectureRuleRegistry {
     static let rules: [any ArchitectureRule] = [
         ImportDirectionRule(),
+        RetiredWorktrunkCLIRule(),
+        ProductAtomBoundaryRule(),
+        CanonicalAtomMutationRule(),
         SharedComponentsStatelessRule(),
         AtomLibGenericRule(),
         DerivedValueDeclaredInputsRule(),
@@ -49,6 +52,7 @@ enum ArchitectureRuleRegistry {
         ForbiddenArchitectureMarkerRule(),
         GenericClockSleepRule(),
         TestTaskSleepRule(),
+        TestCoreAtomFallbackOwnershipRule(),
         TooltipSourceRule(),
         EventBusSubscriberPolicyRule(),
         TerminalLocalDispositionPublicationRule(),

@@ -1,7 +1,9 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 @MainActor
 @Suite("InboxNotificationRouter payload contract", .serialized)
@@ -36,7 +38,9 @@ struct InboxNotificationRouterPayloadTests {
             paneAtom: paneAtom,
             tabLayout: tabLayout,
             attendedPane: attendedPane,
-            focusTracker: tracker
+            focusTracker: tracker,
+            terminalIsPinnedToBottom: { _ in false },
+            terminalPinnedStateSnapshot: { [:] }
         )
         await router.start()
         return Fixture(
@@ -190,10 +194,9 @@ struct InboxNotificationRouterPayloadTests {
         )
         let tab = Tab(
             name: "Tab",
-            panes: [pane.id],
+            allPaneIds: [pane.id],
             arrangements: [arrangement],
-            activeArrangementId: arrangement.id,
-            activePaneId: pane.id
+            activeArrangementId: arrangement.id
         )
         fixture.tabLayout.appendTab(tab)
         return tab.id

@@ -1,6 +1,7 @@
+import AgentStudioTestSupport
 import Foundation
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 final class BridgeGitReadManualDeadlineScheduler: BridgeGitReadDeadlineScheduling, @unchecked Sendable {
     private struct ScheduledDeadline {

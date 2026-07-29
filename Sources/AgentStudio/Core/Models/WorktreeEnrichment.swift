@@ -2,13 +2,13 @@ import Foundation
 
 /// Derived worktree metadata computed from git status/projectors.
 /// Rebuildable cache data; not canonical workspace identity.
-struct WorktreeEnrichment: Codable, Hashable, Sendable {
+package struct WorktreeEnrichment: Codable, Hashable, Sendable {
     let worktreeId: UUID
-    let repoId: UUID
-    var branch: String
+    package let repoId: UUID
+    package private(set) var branch: String
     var isMainWorktree: Bool
     var snapshot: GitWorkingTreeSnapshot?
-    var updatedAt: Date
+    package private(set) var updatedAt: Date
 
     enum CodingKeys: String, CodingKey {
         case worktreeId
@@ -18,7 +18,7 @@ struct WorktreeEnrichment: Codable, Hashable, Sendable {
         case updatedAt
     }
 
-    init(
+    package init(
         worktreeId: UUID,
         repoId: UUID,
         branch: String,
@@ -34,7 +34,7 @@ struct WorktreeEnrichment: Codable, Hashable, Sendable {
         self.updatedAt = updatedAt
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.worktreeId = try container.decode(UUID.self, forKey: .worktreeId)
         self.repoId = try container.decode(UUID.self, forKey: .repoId)
@@ -44,7 +44,7 @@ struct WorktreeEnrichment: Codable, Hashable, Sendable {
         self.snapshot = nil
     }
 
-    func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(worktreeId, forKey: .worktreeId)
         try container.encode(repoId, forKey: .repoId)
@@ -53,7 +53,12 @@ struct WorktreeEnrichment: Codable, Hashable, Sendable {
         try container.encode(updatedAt, forKey: .updatedAt)
     }
 
-    static func == (lhs: Self, rhs: Self) -> Bool {
+    package mutating func updateBranch(_ branch: String, updatedAt: Date = Date()) {
+        self.branch = branch
+        self.updatedAt = updatedAt
+    }
+
+    package static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.worktreeId == rhs.worktreeId
             && lhs.repoId == rhs.repoId
             && lhs.branch == rhs.branch
@@ -69,7 +74,7 @@ struct WorktreeEnrichment: Codable, Hashable, Sendable {
             && snapshot == other.snapshot
     }
 
-    func hash(into hasher: inout Hasher) {
+    package func hash(into hasher: inout Hasher) {
         hasher.combine(worktreeId)
         hasher.combine(repoId)
         hasher.combine(branch)

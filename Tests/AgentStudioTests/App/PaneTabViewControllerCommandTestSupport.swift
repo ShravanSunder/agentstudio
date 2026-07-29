@@ -5,6 +5,12 @@ import SwiftUI
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 typealias Harness = PaneTabViewControllerCommandHarness
 
@@ -19,6 +25,7 @@ final class PaneTabViewControllerCommandLaunchRecorder {
 
 @MainActor
 struct PaneTabViewControllerCommandHarness {
+    let atomRegistry: AtomRegistry
     let store: WorkspaceStore
     let coordinator: WorkspaceSurfaceCoordinator
     let executor: WorkspaceActionExecutor
@@ -74,6 +81,7 @@ func makePaneTabViewControllerCommandHarness(
     // management mode into a fresh command harness.
     atom(\.managementLayer).deactivate()
 
+    let atomRegistry = AtomRegistry(core: CoreAtomScope.store)
     let tempDir = makePaneTabCommandHarnessTempDir()
     let store = WorkspaceStore()
     let viewRegistry = ViewRegistry()
@@ -103,11 +111,13 @@ func makePaneTabViewControllerCommandHarness(
         closeTransitionCoordinator: closeTransitionCoordinator,
         bridgeGitReadScheduler: bridgeGitReadScheduler,
         windowLifecycleStore: windowLifecycleStore,
-        appLifecycleStore: appLifecycleStore
+        appLifecycleStore: appLifecycleStore,
+        bridgePaneAttendance: atomRegistry.bridgePaneAttendance
     )
     let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     let controller = PaneTabViewController(
         store: store,
+        octiconLoader: makeTestOcticonLoader(),
         repoCache: RepoCacheAtom(),
         applicationLifecycleMonitor: applicationLifecycleMonitor,
         appLifecycleStore: appLifecycleStore,
@@ -117,6 +127,9 @@ func makePaneTabViewControllerCommandHarness(
         runtimeCommandDispatcher: coordinator,
         tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
         viewRegistry: viewRegistry,
+        bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
+        editorChooser: atomRegistry.editorChooser,
+        inboxAtom: atomRegistry.inboxNotification,
         paneInboxPresentation: paneInboxPresentation,
         installedEditorTargetsProvider: { [.cursor, .vscode] },
         openEditorHandler: { editorId, path, _ in
@@ -144,6 +157,7 @@ func makePaneTabViewControllerCommandHarness(
         registersAsCommandHandler: false
     )
     return PaneTabViewControllerCommandHarness(
+        atomRegistry: atomRegistry,
         store: store,
         coordinator: coordinator,
         executor: executor,
@@ -200,26 +214,29 @@ private func makePaneTabCommandHarnessTempDir() -> URL {
 }
 
 @MainActor
-func configureMainWindowKeyboardOwner(_ atoms: AtomRegistry) {
-    configureMainWindowKeyboardOwner(windowLifecycleStore: atoms.windowLifecycle, atoms: atoms)
+func configureMainWindowKeyboardOwner(_ coreAtoms: CoreAtoms) {
+    configureMainWindowKeyboardOwner(
+        windowLifecycleStore: coreAtoms.windowLifecycle,
+        coreAtoms: coreAtoms
+    )
 }
 
 @MainActor
 func configureMainWindowKeyboardOwner(
     windowLifecycleStore: WindowLifecycleAtom,
-    atoms: AtomRegistry = AtomScope.store
+    coreAtoms: CoreAtoms = CoreAtomScope.store
 ) {
     let windowId = UUID()
     windowLifecycleStore.recordWindowRegistered(windowId)
     windowLifecycleStore.recordWindowBecameKey(windowId)
-    atoms.workspaceSidebarState.setSidebarCollapsed(false)
-    atoms.workspaceSidebarState.setSidebarHasFocus(false)
-    atoms.managementLayer.deactivate()
+    coreAtoms.workspaceSidebarState.setSidebarCollapsed(false)
+    coreAtoms.workspaceSidebarState.setSidebarHasFocus(false)
+    coreAtoms.managementLayer.deactivate()
 }
 
 @MainActor
 func configureMainWindowKeyboardOwner() {
-    configureMainWindowKeyboardOwner(AtomScope.store)
+    configureMainWindowKeyboardOwner(CoreAtomScope.store)
 }
 
 @MainActor

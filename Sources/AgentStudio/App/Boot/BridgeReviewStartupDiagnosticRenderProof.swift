@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+
 extension BridgeReviewObservabilitySmokeRenderProof {
     // swiftlint:disable:next function_body_length
     init(

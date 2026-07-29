@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 
 protocol WorkspaceFilesystemProjectionIndexing: Sendable {
@@ -399,7 +400,7 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
         let paneIds = paneIdsByWorktreeId[changeset.worktreeId] ?? []
         guard !paneIds.isEmpty else { return [] }
 
-        return paneIds.compactMap { paneId in
+        return paneIds.compactMap { paneId -> PaneFilesystemProjectionIntent? in
             guard let pane = panesById[paneId] else { return nil }
             let subtreePrefix = relativePath(
                 from: worktree.canonicalRootPath,
@@ -432,7 +433,7 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
         let paneIds = paneIdsByWorktreeId[snapshot.worktreeId] ?? []
         guard !paneIds.isEmpty else { return [] }
 
-        return paneIds.compactMap { paneId in
+        return paneIds.compactMap { paneId -> PaneFilesystemProjectionIntent? in
             guard let pane = panesById[paneId] else { return nil }
             return .gitWorkingTreeInCwd(
                 PaneFilesystemGitProjection(

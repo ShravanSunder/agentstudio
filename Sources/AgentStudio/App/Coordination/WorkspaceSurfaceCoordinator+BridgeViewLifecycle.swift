@@ -1,3 +1,5 @@
+import AgentStudioBridge
+import AgentStudioCore
 import Foundation
 
 @MainActor
@@ -10,6 +12,7 @@ extension WorkspaceSurfaceCoordinator {
         let controller = BridgePaneController(
             paneId: pane.id,
             state: state,
+            appRootURL: Bundle.bridgeAppRootURL,
             metadata: bridgePaneControllerMetadata(for: pane, state: state),
             reviewSourceProvider: bridgeReviewSourceProvider(for: pane, state: state),
             gitReadContext: bridgeGitReadContext(for: pane, state: state),

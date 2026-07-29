@@ -1,14 +1,23 @@
+import AgentStudioBridge
+import AgentStudioCore
+import AgentStudioEditorChooser
+import AgentStudioInboxNotification
+import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
 import AppKit
 import SwiftUI
 
 struct SidebarRootViewDependencies {
     let store: WorkspaceStore
+    let octiconLoader: OcticonLoader
     let uiState: WorkspaceSidebarState
     let sidebarCache: SidebarCacheState
     let inboxSidebarState: InboxSidebarState
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let repoCache: RepoCacheAtom
+    let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
+    let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
@@ -35,12 +44,15 @@ class MainSplitViewController: NSSplitViewController {
         AnyView(
             SidebarSurfaceHost(
                 store: dependencies.store,
+                octiconLoader: dependencies.octiconLoader,
                 uiState: dependencies.uiState,
                 sidebarCache: dependencies.sidebarCache,
                 inboxSidebarState: dependencies.inboxSidebarState,
                 inboxAtom: dependencies.inboxAtom,
                 prefsAtom: dependencies.prefsAtom,
                 repoCache: dependencies.repoCache,
+                repoExplorerSidebarPrefs: dependencies.repoExplorerSidebarPrefs,
+                bridgeAttendanceSnapshot: dependencies.bridgeAttendanceSnapshot,
                 performanceTraceRecorder: dependencies.performanceTraceRecorder,
                 onRefocusActivePane: dependencies.onRefocusActivePane,
                 onSidebarVisibleWorktreesChanged: dependencies.onSidebarVisibleWorktreesChanged,
@@ -62,6 +74,7 @@ class MainSplitViewController: NSSplitViewController {
     // MARK: - Dependencies (injected)
 
     private let store: WorkspaceStore
+    private let octiconLoader: OcticonLoader
     private let workspaceWindowId: UUID?
     private var repoCache: RepoCacheAtom { atom(\.repoCache) }
     private var uiState: WorkspaceSidebarState { atom(\.workspaceSidebarState) }
@@ -75,6 +88,11 @@ class MainSplitViewController: NSSplitViewController {
     private let inboxAtom: InboxNotificationAtom
     private let inboxPrefsAtom: InboxNotificationPrefsAtom
     private let inboxSidebarState: InboxSidebarState
+    private let paneInboxPresentationState: PaneInboxPresentationAtom
+    private let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
+    private let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
+    private let bridgePaneAttendance: BridgePaneAttendanceAtom
+    private let editorChooser: EditorChooserState
     private let paneInboxPresenter: PaneInboxNotificationPresenter
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
@@ -98,6 +116,7 @@ class MainSplitViewController: NSSplitViewController {
 
     init(
         store: WorkspaceStore,
+        octiconLoader: OcticonLoader,
         workspaceWindowId: UUID? = nil,
         workspaceActionExecutor: WorkspaceActionExecutor,
         runtimeCommandDispatcher: any PaneRuntimeCommandDispatching,
@@ -109,6 +128,11 @@ class MainSplitViewController: NSSplitViewController {
         inboxAtom: InboxNotificationAtom,
         inboxPrefsAtom: InboxNotificationPrefsAtom,
         inboxSidebarState: InboxSidebarState,
+        paneInboxPresentationState: PaneInboxPresentationAtom,
+        repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom,
+        bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
+        bridgePaneAttendance: BridgePaneAttendanceAtom,
+        editorChooser: EditorChooserState,
         paneInboxPresenter: PaneInboxNotificationPresenter,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void = {},
@@ -118,6 +142,7 @@ class MainSplitViewController: NSSplitViewController {
         paneTabRegistersAsCommandHandler: Bool = true
     ) {
         self.store = store
+        self.octiconLoader = octiconLoader
         self.workspaceWindowId = workspaceWindowId
         self.workspaceActionExecutor = workspaceActionExecutor
         self.runtimeCommandDispatcher = runtimeCommandDispatcher
@@ -129,6 +154,11 @@ class MainSplitViewController: NSSplitViewController {
         self.inboxAtom = inboxAtom
         self.inboxPrefsAtom = inboxPrefsAtom
         self.inboxSidebarState = inboxSidebarState
+        self.paneInboxPresentationState = paneInboxPresentationState
+        self.repoExplorerSidebarPrefs = repoExplorerSidebarPrefs
+        self.bridgeAttendanceSnapshot = bridgeAttendanceSnapshot
+        self.bridgePaneAttendance = bridgePaneAttendance
+        self.editorChooser = editorChooser
         self.paneInboxPresenter = paneInboxPresenter
         self.performanceTraceRecorder = performanceTraceRecorder
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
@@ -176,6 +206,7 @@ class MainSplitViewController: NSSplitViewController {
 
         let paneTabVC = PaneTabViewController(
             store: store,
+            octiconLoader: octiconLoader,
             repoCache: repoCache,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
@@ -185,6 +216,9 @@ class MainSplitViewController: NSSplitViewController {
             runtimeCommandDispatcher: runtimeCommandDispatcher,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
+            bridgePaneAttendance: bridgePaneAttendance,
+            editorChooser: editorChooser,
+            inboxAtom: inboxAtom,
             paneInboxPresentation: makePaneInboxPresentation(),
             closeTransitionCoordinator: closeTransitionCoordinator,
             performanceTraceRecorder: performanceTraceRecorder,
@@ -202,12 +236,15 @@ class MainSplitViewController: NSSplitViewController {
         let sidebarView = sidebarRootViewBuilder(
             SidebarRootViewDependencies(
                 store: store,
+                octiconLoader: octiconLoader,
                 uiState: uiState,
                 sidebarCache: atom(\.sidebarCache),
                 inboxSidebarState: inboxSidebarState,
                 inboxAtom: inboxAtom,
                 prefsAtom: inboxPrefsAtom,
                 repoCache: repoCache,
+                repoExplorerSidebarPrefs: repoExplorerSidebarPrefs,
+                bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
                 performanceTraceRecorder: performanceTraceRecorder,
                 onRefocusActivePane: { [weak paneTabVC] in
                     paneTabVC?.refocusActivePane()
@@ -354,8 +391,8 @@ class MainSplitViewController: NSSplitViewController {
     func makePaneInboxPresentation() -> PaneInboxPresentation {
         let inbox = inboxAtom
         let presenter = paneInboxPresenter
-        let paneInboxState = atom(\.paneInboxPresentationState)
-        let prefsAtom = atom(\.inboxNotificationPrefs)
+        let paneInboxState = paneInboxPresentationState
+        let prefsAtom = inboxPrefsAtom
         return PaneInboxPresentation(
             unreadCount: { paneIds in
                 inbox.visiblePaneInboxRollUpAlertCount(forPaneIds: paneIds)
@@ -390,10 +427,14 @@ class MainSplitViewController: NSSplitViewController {
                 presenter.clearRequest(request)
             },
             popoverContent: { [weak self] parentPaneId, paneIds, onClear, onClose in
-                AnyView(
+                guard let self else {
+                    return AnyView(EmptyView())
+                }
+                return AnyView(
                     PaneInboxNotificationPopover(
                         parentPaneId: parentPaneId,
-                        workspaceWindowId: self?.workspaceWindowId,
+                        octiconLoader: self.octiconLoader,
+                        workspaceWindowId: self.workspaceWindowId,
                         paneIds: paneIds,
                         inboxAtom: inbox,
                         prefsAtom: prefsAtom,

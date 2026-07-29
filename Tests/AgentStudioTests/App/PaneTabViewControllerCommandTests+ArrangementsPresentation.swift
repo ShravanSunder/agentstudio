@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
 
 extension PaneTabViewControllerCommandTests {
     @Test("programmatic Arrangements presentation activates the durable pane target tab")

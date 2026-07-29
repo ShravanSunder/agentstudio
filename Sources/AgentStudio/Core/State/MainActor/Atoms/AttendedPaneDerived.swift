@@ -6,12 +6,12 @@ import Foundation
 /// layer is inactive. Observation and transition delivery belong to the consuming
 /// coordinator, not this derived state.
 @MainActor
-struct AttendedPaneDerived {
+package struct AttendedPaneDerived {
     private let tabLayout: WorkspaceTabLayoutAtom
     private let windowLifecycle: WindowLifecycleAtom
     private let managementLayer: ManagementLayerAtom
 
-    init(
+    package init(
         tabLayout: WorkspaceTabLayoutAtom,
         windowLifecycle: WindowLifecycleAtom,
         managementLayer: ManagementLayerAtom
@@ -21,7 +21,7 @@ struct AttendedPaneDerived {
         self.managementLayer = managementLayer
     }
 
-    var attendedPaneId: UUID? {
+    package var attendedPaneId: UUID? {
         guard windowLifecycle.isWorkspaceWindowKey else { return nil }
         guard !managementLayer.isActive else { return nil }
         return tabLayout.activeTab?.activePaneId

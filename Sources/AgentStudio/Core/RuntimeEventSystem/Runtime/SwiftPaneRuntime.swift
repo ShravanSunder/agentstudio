@@ -4,20 +4,20 @@ import os.log
 
 @MainActor
 @Observable
-final class SwiftPaneRuntime: BusPostingPaneRuntime {
+package final class SwiftPaneRuntime: BusPostingPaneRuntime {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "SwiftPaneRuntime")
 
-    let paneId: PaneId
-    private(set) var metadata: PaneMetadata
-    private(set) var lifecycle: PaneRuntimeLifecycle
-    let capabilities: Set<PaneCapability>
+    package let paneId: PaneId
+    package private(set) var metadata: PaneMetadata
+    package private(set) var lifecycle: PaneRuntimeLifecycle
+    package let capabilities: Set<PaneCapability>
 
-    private(set) var displayedText: String
+    package private(set) var displayedText: String
     private(set) var openedFilePath: String?
 
     private let eventChannel: PaneRuntimeEventChannel
 
-    init(
+    package init(
         paneId: PaneId,
         metadata: PaneMetadata,
         clock: ContinuousClock = ContinuousClock(),
@@ -38,7 +38,7 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
     }
 
     @discardableResult
-    func transitionToReady() -> Bool {
+    package func transitionToReady() -> Bool {
         guard lifecycle == .created else {
             Self.logger.warning(
                 "Rejected transitionToReady for pane \(self.paneId.uuid.uuidString, privacy: .public): lifecycle=\(String(describing: self.lifecycle), privacy: .public)"
@@ -49,7 +49,7 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
         return true
     }
 
-    func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
+    package func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
         guard lifecycle == .ready else {
             return .failure(.runtimeNotReady(lifecycle: lifecycle))
         }
@@ -80,11 +80,11 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
         }
     }
 
-    func subscribe() -> AsyncStream<RuntimeEnvelope> {
+    package func subscribe() -> AsyncStream<RuntimeEnvelope> {
         eventChannel.subscribe(isTerminated: lifecycle == .terminated)
     }
 
-    func snapshot() -> PaneRuntimeSnapshot {
+    package func snapshot() -> PaneRuntimeSnapshot {
         eventChannel.snapshot(
             paneId: paneId,
             metadata: metadata,
@@ -93,11 +93,11 @@ final class SwiftPaneRuntime: BusPostingPaneRuntime {
         )
     }
 
-    func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
+    package func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
         eventChannel.eventsSince(seq: seq)
     }
 
-    func shutdown(timeout _: Duration) async -> [UUID] {
+    package func shutdown(timeout _: Duration) async -> [UUID] {
         if lifecycle == .terminated {
             return []
         }

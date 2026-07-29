@@ -2,6 +2,9 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 extension WebKitSerializedTests {
     @MainActor
@@ -564,7 +567,8 @@ extension WebKitSerializedTests {
                 store: store,
                 viewRegistry: viewRegistry,
                 runtime: SessionRuntime(store: store),
-                windowLifecycleStore: WindowLifecycleAtom()
+                windowLifecycleStore: WindowLifecycleAtom(),
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             let sourcePane = store.createPane()
             let sourceTab = Tab(paneId: sourcePane.id)
@@ -615,7 +619,8 @@ private func makeZoomCompanionHarness() -> ZoomCompanionHarness {
         store: store,
         viewRegistry: viewRegistry,
         runtime: SessionRuntime(store: store),
-        windowLifecycleStore: WindowLifecycleAtom()
+        windowLifecycleStore: WindowLifecycleAtom(),
+        bridgePaneAttendance: BridgePaneAttendanceAtom()
     )
     return ZoomCompanionHarness(
         root: root,

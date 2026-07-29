@@ -1,6 +1,9 @@
 import Foundation
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioTestSupport
 
 @MainActor
 enum InboxNotificationIntegrationHarness {
@@ -46,7 +49,9 @@ enum InboxNotificationIntegrationHarness {
             paneAtom: paneAtom,
             tabLayout: tabLayout,
             attendedPane: attendedPane,
-            focusTracker: tracker
+            focusTracker: tracker,
+            terminalIsPinnedToBottom: { _ in false },
+            terminalPinnedStateSnapshot: { [:] }
         )
         await router.start()
 

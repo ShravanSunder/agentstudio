@@ -1,3 +1,9 @@
+import AgentStudioBridge
+import AgentStudioCommandBar
+import AgentStudioCore
+import AgentStudioInboxNotification
+import AgentStudioInfrastructure
+import AgentStudioTerminal
 import AppKit
 import Foundation
 import Observation
@@ -131,8 +137,6 @@ extension AppDelegate {
             bootArmPersistenceObservation()
         case .readyForReactiveSidebar:
             break
-        case .checkWorktrunkDependency:
-            presentWorktrunkInstallationOfferIfNeeded()
         }
     }
 
@@ -163,29 +167,29 @@ extension AppDelegate {
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
         AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
-        AtomScope.setUp(atomStore)
+        CoreAtomScope.setUp(atomStore.core)
         guard let sqliteDatastore = workspaceSQLiteDatastore else {
             preconditionFailure("Workspace databases were not prepared before canonical hydration")
         }
         let workspaceSQLiteSaveCoordinator = WorkspaceSQLiteSaveCoordinator(
-            identityAtom: atomStore.workspaceIdentity,
-            windowMemoryAtom: atomStore.workspaceWindowMemory,
-            workspacePaneAtom: atomStore.workspacePane,
-            workspaceTabLayoutAtom: atomStore.workspaceTabLayout,
+            identityAtom: atomStore.core.workspaceIdentity,
+            windowMemoryAtom: atomStore.core.workspaceWindowMemory,
+            workspacePaneAtom: atomStore.core.workspacePane,
+            workspaceTabLayoutAtom: atomStore.core.workspaceTabLayout,
             sqliteDatastore: sqliteDatastore
         )
         let topologyStore = RepositoryTopologyStore(
-            atom: atomStore.workspaceRepositoryTopology,
+            atom: atomStore.core.workspaceRepositoryTopology,
             sqliteDatastore: sqliteDatastore
         )
         repositoryTopologyStore = topologyStore
         store = WorkspaceStore(
-            identityAtom: atomStore.workspaceIdentity,
-            windowMemoryAtom: atomStore.workspaceWindowMemory,
-            repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
-            paneAtom: atomStore.workspacePane,
-            tabLayoutAtom: atomStore.workspaceTabLayout,
-            mutationCoordinator: atomStore.workspaceMutationCoordinator,
+            identityAtom: atomStore.core.workspaceIdentity,
+            windowMemoryAtom: atomStore.core.workspaceWindowMemory,
+            repositoryTopologyAtom: atomStore.core.workspaceRepositoryTopology,
+            paneAtom: atomStore.core.workspacePane,
+            tabLayoutAtom: atomStore.core.workspaceTabLayout,
+            mutationCoordinator: atomStore.core.workspaceMutationCoordinator,
             sqliteDatastore: sqliteDatastore,
             sqliteSaveCoordinator: workspaceSQLiteSaveCoordinator,
             recoveryReporter: { [weak self] event in
@@ -193,41 +197,32 @@ extension AppDelegate {
             }
         )
         repoCacheStore = RepoCacheStore(
-            cacheAtom: atomStore.repoEnrichmentCache,
+            cacheAtom: atomStore.core.repoEnrichmentCache,
             sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
         )
         entityRecencyStore = EntityRecencyStore(
-            applicationAtom: atomStore.applicationEntityRecency,
-            workspaceAtom: atomStore.workspaceEntityRecency,
+            applicationAtom: atomStore.core.applicationEntityRecency,
+            workspaceAtom: atomStore.core.workspaceEntityRecency,
             sqliteDatastore: sqliteDatastore
         )
         sidebarCacheStore = SidebarCacheStore(
-            atom: atomStore.sidebarCache,
+            atom: atomStore.core.sidebarCache,
             sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
         )
         uiStateStore = UIStateStore(
-            atom: atomStore.workspaceSidebarState,
-            editorChooserState: atomStore.editorChooser,
+            atom: atomStore.core.workspaceSidebarState,
             sqliteDatastore: sqliteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
         )
-        workspaceSettingsStore = WorkspaceSettingsStore(
-            editorPreferenceAtom: atomStore.editorPreference,
-            repoExplorerSidebarPrefsAtom: atomStore.repoExplorerSidebarPrefs,
-            inboxNotificationPrefsAtom: atomStore.inboxNotificationPrefs,
-            sqliteDatastore: sqliteDatastore,
-            recoveryReporter: { [weak self] event in
-                self?.recordPersistenceRecovery(event)
-            }
-        )
+        workspaceSettingsStore = makeWorkspaceSettingsStore(sqliteDatastore: sqliteDatastore)
         paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
         switch await store.loadCanonicalComposition() {
@@ -247,7 +242,7 @@ extension AppDelegate {
         }
         managementLayerMonitor = ManagementLayerMonitor()
         appLifecycleStore = AppLifecycleAtom()
-        windowLifecycleStore = atomStore.windowLifecycle
+        windowLifecycleStore = atomStore.core.windowLifecycle
         applicationLifecycleMonitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
@@ -260,6 +255,20 @@ extension AppDelegate {
 
     private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastore {
         WorkspaceSQLiteDatastoreFactory(traceRuntime: traceRuntime).makeDatastore()
+    }
+
+    func makeWorkspaceSettingsStore(
+        sqliteDatastore: WorkspaceSQLiteDatastore
+    ) -> WorkspaceSettingsStore {
+        WorkspaceSettingsStore(
+            editorPreferenceAtom: atomStore.editorPreference,
+            repoExplorerSidebarPrefsAtom: atomStore.repoExplorerSidebarPrefs,
+            inboxNotificationPrefsAtom: atomStore.inboxNotificationPrefs,
+            sqliteDatastore: sqliteDatastore,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
+        )
     }
 
     private func bootLoadCacheStore() async {
@@ -280,7 +289,7 @@ extension AppDelegate {
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
     ) async {
-        runtime = SessionRuntime(atom: atomStore.sessionRuntime, store: store)
+        runtime = SessionRuntime(atom: atomStore.core.sessionRuntime, store: store)
         viewRegistry = ViewRegistry()
         closeTransitionCoordinator = PaneCloseTransitionCoordinator()
         bridgeGitReadScheduler = BridgeGitReadScheduler(
@@ -304,6 +313,7 @@ extension AppDelegate {
         filesystemSource = pipeline
         watchedFolderCommands = pipeline
         SurfaceManager.shared.setPerformanceTraceRecorder(performanceTraceRecorder)
+        SurfaceManager.shared.setAppCommandDispatcher(AppCommandDispatcher.shared)
         workspaceSurfaceCoordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
@@ -318,6 +328,7 @@ extension AppDelegate {
             filesystemSource: pipeline,
             windowLifecycleStore: windowLifecycleStore,
             appLifecycleStore: appLifecycleStore,
+            bridgePaneAttendance: atomStore.bridgePaneAttendance,
             traceRuntime: traceRuntime,
             performanceTraceRecorder: performanceTraceRecorder,
             traceIdentityRefreshHandler: { [weak self] in
@@ -329,7 +340,7 @@ extension AppDelegate {
             bus: paneRuntimeBus,
             workspaceStore: store,
             repoCache: repoCache,
-            welcomeAtom: atomStore.welcome,
+            welcomeAtom: atomStore.core.welcome,
             topologyEffectHandler: workspaceSurfaceCoordinator,
             scopeSyncHandler: { [weak pipeline] change in
                 guard let pipeline else { return }
@@ -344,6 +355,7 @@ extension AppDelegate {
             self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
         }
         executor = WorkspaceActionExecutor(coordinator: workspaceSurfaceCoordinator, store: store)
+        let inboxNotification = atomStore.inboxNotification
         startWorkspacePaneRecencyObservation()
         tabBarAdapter = TabBarAdapter(
             store: store,
@@ -351,19 +363,26 @@ extension AppDelegate {
             performanceTraceRecorder: performanceTraceRecorder,
             notificationDotColorProvider: { paneIds in
                 Self.tabNotificationDotColor(
-                    for: atom(\.inboxNotification).attentionLane(forPaneIds: paneIds)
+                    for: inboxNotification.attentionLane(forPaneIds: paneIds)
                 )
             },
             observeNotificationDotInputs: {
-                _ = atom(\.inboxNotification).notifications
+                _ = inboxNotification.notifications
             }
         )
         commandBarController = CommandBarPanelController(
             store: store,
+            octiconLoader: octiconLoader,
             repoCache: repoCache,
-            dispatcher: .shared,
+            dispatcher: AppCommandDispatcher.shared,
+            quickOpenDirectoryHandler: { directory, placement in
+                AppCommandDispatcher.shared.dispatchQuickOpenDirectory(
+                    directory,
+                    placement: placement
+                )
+            },
             notificationInboxCommands: makeInboxNotificationCommands(),
-            commandBarSurface: atomStore.commandBarSurface,
+            commandBarSurface: atomStore.core.commandBarSurface,
             performanceTraceRecorder: performanceTraceRecorder
         )
         bootStartInboxNotificationRouter(bus: paneRuntimeBus)

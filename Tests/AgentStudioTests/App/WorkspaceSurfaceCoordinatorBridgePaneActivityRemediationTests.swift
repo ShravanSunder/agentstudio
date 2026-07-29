@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 extension WebKitSerializedTests {
     @MainActor
@@ -22,7 +24,7 @@ extension WebKitSerializedTests {
         }
 
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("last-pane closePane can undo before Bridge retirement yields")

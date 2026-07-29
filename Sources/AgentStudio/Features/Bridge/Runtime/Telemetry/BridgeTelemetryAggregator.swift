@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+
 struct BridgeTelemetryAggregator: Sendable {
     func dropSample(
         reason: BridgeTelemetryDropReason,

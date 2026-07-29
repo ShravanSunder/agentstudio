@@ -1,0 +1,100 @@
+import AgentStudioCore
+import Foundation
+
+// MARK: - Worktree Factory
+
+package func makeWorktree(
+    id: UUID = UUID(),
+    repoId: UUID = UUID(),
+    name: String = "feature-branch",
+    path: String = "/tmp/test-repo/feature-branch",
+    isMainWorktree: Bool = false,
+    note: String? = nil
+) -> Worktree {
+    Worktree(
+        id: id,
+        repoId: repoId,
+        name: name,
+        path: URL(fileURLWithPath: path),
+        isMainWorktree: isMainWorktree,
+        note: note
+    )
+}
+
+// MARK: - Repo Factory
+
+package func makeRepo(
+    id: UUID = UUID(),
+    name: String = "test-repo",
+    repoPath: String = "/tmp/test-repo",
+    worktrees: [Worktree] = [],
+    tags: [String] = [],
+    createdAt: Date = Date(timeIntervalSince1970: 1_000_000)
+) -> Repo {
+    Repo(
+        id: id,
+        name: name,
+        repoPath: URL(fileURLWithPath: repoPath),
+        worktrees: worktrees,
+        createdAt: createdAt,
+        tags: tags
+    )
+}
+
+// MARK: - Pane Factory
+
+package func makePane(
+    id: UUID = UUID(),
+    launchDirectory: URL? = nil,
+    title: String = "Terminal",
+    provider: SessionProvider = .zmx,
+    lifetime: SessionLifetime = .persistent,
+    residency: SessionResidency = .active,
+    facets: PaneContextFacets = .empty
+) -> Pane {
+    Pane(
+        id: id,
+        content: .terminal(
+            TerminalState(
+                provider: provider,
+                lifetime: lifetime,
+                zmxSessionID: .generateUUIDv7()
+            )
+        ),
+        metadata: PaneMetadata(launchDirectory: launchDirectory, title: title, facets: facets),
+        residency: residency
+    )
+}
+
+// MARK: - Tab Factory (multi-pane)
+
+package func makeTab(paneIds: [UUID], activePaneId: UUID? = nil, name: String = "Tab") -> Tab {
+    guard let first = paneIds.first else {
+        fatalError("Need at least one pane ID")
+    }
+    if paneIds.count == 1 {
+        return Tab(paneId: first, name: name)
+    }
+    // Build layout by inserting subsequent panes
+    var layout = Layout(paneId: first)
+    for i in 1..<paneIds.count {
+        layout = layout.inserting(
+            paneId: paneIds[i],
+            at: paneIds[i - 1],
+            direction: .horizontal,
+            position: .after, sizingMode: .halveTarget
+        )!
+    }
+    let arrangement = PaneArrangement(
+        name: "Default",
+        isDefault: true,
+        layout: layout
+    )
+    return Tab(
+        name: name,
+        panes: paneIds,
+        arrangements: [arrangement],
+        activeArrangementId: arrangement.id,
+        activePaneId: activePaneId ?? first
+    )
+}

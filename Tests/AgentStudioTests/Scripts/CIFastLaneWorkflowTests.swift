@@ -23,6 +23,24 @@ struct CIFastLaneWorkflowTests {
         }
     }
 
+    @Test("Swift build cache rolls forward per commit within a compatible toolchain")
+    func swiftBuildCacheRollsForwardPerCommitWithinCompatibleToolchain() throws {
+        let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let cacheStep = try workflowStep(named: "Cache Swift build", in: ciWorkflow)
+
+        #expect(cacheStep.contains("path: .build-ci"))
+        #expect(
+            cacheStep.contains(
+                "key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}"
+            )
+        )
+        #expect(
+            cacheStep.contains(
+                "swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-"
+            )
+        )
+    }
+
     @Test("fast lane keeps cached parallel default")
     func fastLaneKeepsCachedParallelDefault() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
@@ -62,7 +80,7 @@ struct CIFastLaneWorkflowTests {
         #expect(fastLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))
         #expect(fastLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(!fastLaneStep.contains("XCB_EXTRA_ARGS"))
-        #expect(fastLaneStep.contains("run: mise run test-fast"))
+        #expect(fastLaneStep.contains("run: mise run --raw test-fast"))
         #expect(webKitLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
         #expect(webKitLaneStep.contains("run: mise run test-webkit"))
         #expect(!largeLaneStep.contains("SWIFT_TEST_WORKERS"))

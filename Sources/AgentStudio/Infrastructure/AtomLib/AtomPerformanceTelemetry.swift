@@ -1,15 +1,15 @@
 import Foundation
 
 @MainActor
-final class AtomPerformanceTelemetry {
-    static let shared = AtomPerformanceTelemetry()
+package final class AtomPerformanceTelemetry {
+    package static let shared = AtomPerformanceTelemetry()
 
     private var traceRuntime: AgentStudioTraceRuntime?
     private var eventQueue: AgentStudioTraceEventQueue?
 
     private init() {}
 
-    func configure(traceRuntime: AgentStudioTraceRuntime?) {
+    package func configure(traceRuntime: AgentStudioTraceRuntime?) {
         self.traceRuntime = traceRuntime
         if let traceRuntime, traceRuntime.isEnabled(.atoms) {
             self.eventQueue = AgentStudioTraceEventQueue(traceRuntime: traceRuntime)

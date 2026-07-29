@@ -1,6 +1,7 @@
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite("Pane Zoom and Viewer app command hard-cut contracts")

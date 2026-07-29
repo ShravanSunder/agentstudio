@@ -1,0 +1,317 @@
+import Foundation
+import Testing
+
+@testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+
+@Suite(.serialized)
+final class SessionConfigurationTests {
+
+    // MARK: - isEnabled Parsing
+
+    @Test
+
+    func test_isEnabled_defaultsToTrue() {
+        // Arrange — no AGENTSTUDIO_SESSION_RESTORE in env
+        let env: [String: String] = [:]
+
+        // Act
+        let config = SessionConfiguration.detect(environment: env)
+
+        // Assert
+        #expect(config.isEnabled)
+    }
+
+    @Test
+
+    func test_isEnabled_parsesTrue() {
+        // Arrange
+        let env = ["AGENTSTUDIO_SESSION_RESTORE": "true"]
+
+        // Act
+        let config = SessionConfiguration.detect(environment: env)
+
+        // Assert
+        #expect(config.isEnabled)
+    }
+
+    @Test
+
+    func test_isEnabled_parses1() {
+        // Arrange
+        let env = ["AGENTSTUDIO_SESSION_RESTORE": "1"]
+
+        // Act
+        let config = SessionConfiguration.detect(environment: env)
+
+        // Assert
+        #expect(config.isEnabled)
+    }
+
+    @Test
+
+    func test_isEnabled_parsesFalse() {
+        // Arrange
+        let env = ["AGENTSTUDIO_SESSION_RESTORE": "false"]
+
+        // Act
+        let config = SessionConfiguration.detect(environment: env)
+
+        // Assert
+        #expect(!(config.isEnabled))
+    }
+
+    // MARK: - isOperational
+
+    @Test
+
+    func test_isOperational_requiresEnabledAndZmx() {
+        // enabled + zmx → operational
+        let withZmx = SessionConfiguration(
+            isEnabled: true,
+            zmxPath: "/usr/local/bin/zmx",
+            zmxDir: "/tmp/zmx",
+            healthCheckInterval: 30,
+            maxCheckpointAge: 604_800
+        )
+        #expect(withZmx.isOperational)
+
+        // enabled + no zmx → not operational
+        let noZmx = SessionConfiguration(
+            isEnabled: true,
+            zmxPath: nil,
+            zmxDir: "/tmp/zmx",
+            healthCheckInterval: 30,
+            maxCheckpointAge: 604_800
+        )
+        #expect(!(noZmx.isOperational))
+
+        // disabled + zmx → not operational
+        let disabled = SessionConfiguration(
+            isEnabled: false,
+            zmxPath: "/usr/local/bin/zmx",
+            zmxDir: "/tmp/zmx",
+            healthCheckInterval: 30,
+            maxCheckpointAge: 604_800
+        )
+        #expect(!(disabled.isOperational))
+
+        // disabled + no zmx → not operational
+        let both = SessionConfiguration(
+            isEnabled: false,
+            zmxPath: nil,
+            zmxDir: "/tmp/zmx",
+            healthCheckInterval: 30,
+            maxCheckpointAge: 604_800
+        )
+        #expect(!(both.isOperational))
+    }
+
+    // MARK: - Health Check Interval
+
+    @Test
+
+    func test_healthCheckInterval_parsesFromEnv() {
+        // Arrange
+        let env = ["AGENTSTUDIO_HEALTH_INTERVAL": "60"]
+
+        // Act
+        let config = SessionConfiguration.detect(environment: env)
+
+        // Assert
+        #expect(config.healthCheckInterval == 60.0)
+    }
+
+    @Test
+
+    func test_healthCheckInterval_defaultsTo30() {
+        // Arrange — no AGENTSTUDIO_HEALTH_INTERVAL in env
+        let env: [String: String] = [:]
+
+        // Act
+        let config = SessionConfiguration.detect(environment: env)
+
+        // Assert
+        #expect(config.healthCheckInterval == 30.0)
+    }
+
+    // MARK: - zmxDir
+
+    @Test
+
+    func test_zmxPath_usesEnvironmentOverride() async {
+        // Arrange
+        let operationalExecutablePath = "/usr/bin/true"
+
+        // Act
+        // Detached by design: the test must exercise the off-main executable probe.
+        // swiftlint:disable:next no_task_detached
+        let config = await Task.detached {
+            SessionConfiguration.detect(environment: [
+                SessionConfiguration.zmxPathEnvironmentKey: operationalExecutablePath,
+                AppDataPaths.traceProofTokenEnvironmentKey: "test-proof-token",
+            ])
+        }.value
+
+        // Assert
+        #expect(config.zmxPath == operationalExecutablePath)
+    }
+
+    @Test
+    func test_zmxPath_ignoresAuthorizedNonOperationalOverride() async {
+        // Arrange
+        let nonOperationalExecutablePath = "/usr/bin/false"
+
+        // Act
+        // Detached by design: the test must exercise the off-main executable probe.
+        // swiftlint:disable:next no_task_detached
+        let config = await Task.detached {
+            SessionConfiguration.detect(environment: [
+                SessionConfiguration.zmxPathEnvironmentKey: nonOperationalExecutablePath,
+                AppDataPaths.traceProofTokenEnvironmentKey: "test-proof-token",
+            ])
+        }.value
+
+        // Assert
+        #expect(config.zmxPath != nonOperationalExecutablePath)
+    }
+
+    @Test
+    func test_zmxPath_ignoresAuthorizedNonExecutableOverride() throws {
+        // Arrange
+        let nonExecutableURL = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-session-config-non-executable-\(UUID().uuidString)")
+        try Data().write(to: nonExecutableURL)
+        defer { try? FileManager.default.removeItem(at: nonExecutableURL) }
+
+        // Act
+        let config = SessionConfiguration.detect(environment: [
+            SessionConfiguration.zmxPathEnvironmentKey: nonExecutableURL.path,
+            AppDataPaths.traceProofTokenEnvironmentKey: "test-proof-token",
+        ])
+
+        // Assert
+        #expect(config.zmxPath != nonExecutableURL.path)
+    }
+
+    @Test
+    func test_zmxPath_ignoresEnvironmentOverrideWithoutDebugProofToken() {
+        // Arrange
+        let operationalExecutablePath = "/usr/bin/true"
+
+        // Act
+        let config = SessionConfiguration.detect(environment: [
+            SessionConfiguration.zmxPathEnvironmentKey: operationalExecutablePath
+        ])
+
+        // Assert
+        #expect(config.zmxPath != operationalExecutablePath)
+    }
+
+    @Test
+    func test_zmxPath_ignoresEnvironmentOverrideForReleaseBuilds() {
+        // Arrange
+        let operationalExecutablePath = "/usr/bin/true"
+
+        // Act
+        let config = SessionConfiguration.detect(
+            environment: [
+                SessionConfiguration.zmxPathEnvironmentKey: operationalExecutablePath,
+                AppDataPaths.traceProofTokenEnvironmentKey: "test-proof-token",
+            ],
+            isDebugBuild: false
+        )
+
+        // Assert
+        #expect(config.zmxPath != operationalExecutablePath)
+    }
+
+    @Test
+
+    func test_zmxDir_pointsToShortSocketSafeAgentStudioSubdir() {
+        // Act
+        let config = SessionConfiguration.detect()
+
+        // Assert — debug builds default to the debug app-state root.
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+        #expect(config.zmxDir.hasPrefix(homeDir + "/.agentstudio-db/z"))
+    }
+
+    // MARK: - Terminfo Discovery (Ghostty's own terminfo, independent of zmx)
+
+    @Test
+    func test_resolveGhosttyResourcesDir_usesExplicitResourceRoot() throws {
+        // Arrange
+        let fixtureRoot = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-ghostty-resources-\(UUID().uuidString)")
+        let sentinel =
+            fixtureRoot
+            .appending(path: "terminfo")
+            .appending(path: "78")
+            .appending(path: "xterm-ghostty")
+        try FileManager.default.createDirectory(
+            at: sentinel.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: sentinel)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        // Act
+        let resourcesDir = SessionConfiguration.resolveGhosttyResourcesDir(
+            resourceRootURL: fixtureRoot
+        )
+
+        // Assert
+        #expect(resourcesDir == fixtureRoot.appending(path: "ghostty").path)
+    }
+
+    @Test
+    func test_resolveTerminfoDir_usesExplicitResourceRoot() throws {
+        // Arrange
+        let fixtureRoot = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-terminfo-resources-\(UUID().uuidString)")
+        let sentinel =
+            fixtureRoot
+            .appending(path: "terminfo")
+            .appending(path: "78")
+            .appending(path: "xterm-256color")
+        try FileManager.default.createDirectory(
+            at: sentinel.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: sentinel)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        // Act
+        let terminfoDir = SessionConfiguration.resolveTerminfoDir(
+            resourceRootURL: fixtureRoot
+        )
+
+        // Assert
+        #expect(terminfoDir == fixtureRoot.appending(path: "terminfo").path)
+    }
+
+    @Test
+
+    func test_customTerminfo_xterm256color_existsInBundle() {
+        // Our custom xterm-256color terminfo must be bundled alongside
+        // xterm-ghostty for terminal capability resolution.
+
+        // Act — find the terminfo directory in the SPM resource bundle
+        guard let bundleURL = Bundle.module.url(forResource: "terminfo", withExtension: nil),
+            let contents = try? FileManager.default.contentsOfDirectory(
+                at: bundleURL.appendingPathComponent("78"),
+                includingPropertiesForKeys: nil
+            )
+        else {
+            Issue.record("terminfo/78/ directory not found in bundle")
+            return
+        }
+
+        // Assert — both xterm-ghostty and xterm-256color must be present
+        let filenames = contents.map { $0.lastPathComponent }
+        #expect(filenames.contains("xterm-ghostty"))
+        #expect(filenames.contains("xterm-256color"))
+    }
+}

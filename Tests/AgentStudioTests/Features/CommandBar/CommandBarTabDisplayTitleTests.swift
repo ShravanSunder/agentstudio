@@ -1,13 +1,15 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite(.serialized)
 struct CommandBarTabDisplayTitleTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test
@@ -49,7 +51,7 @@ struct CommandBarTabDisplayTitleTests {
             scope: .everything,
             store: store,
             repoCache: repoCache,
-            dispatcher: AppCommandDispatcher.shared
+            dispatcher: FakeAppCommandDispatcher()
         )
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 

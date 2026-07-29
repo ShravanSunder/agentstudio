@@ -1,3 +1,6 @@
+import AgentStudioBridge
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 
 @MainActor
@@ -45,7 +48,7 @@ extension WorkspaceSurfaceCoordinator {
                 await paneEventBus.evictReplay(sourceKey: EventSource.pane(runtimePaneId).description)
             }
             if shouldUnregisterRuntime {
-                atom(\.bridgePaneAttendance).remove(paneId: paneId)
+                bridgePaneAttendance.remove(paneId: paneId)
             }
             bridgePaneRetirementTasksByPaneId.removeValue(forKey: paneId)
             bridgePaneRetirementsRequiringRuntimeUnregister.remove(paneId)

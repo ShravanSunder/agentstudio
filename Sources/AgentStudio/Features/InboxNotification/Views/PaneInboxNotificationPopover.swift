@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import SwiftUI
 import os.log
 
@@ -7,8 +10,9 @@ private let paneInboxNotificationPopoverLogger = Logger(
 )
 
 @MainActor
-struct PaneInboxNotificationPopover: View {
+package struct PaneInboxNotificationPopover: View {
     let parentPaneId: UUID
+    let octiconLoader: OcticonLoader
     let workspaceWindowId: UUID?
     let paneIds: [UUID]
     let inboxAtom: InboxNotificationAtom
@@ -28,8 +32,9 @@ struct PaneInboxNotificationPopover: View {
     @State private var selectedNotificationId: UUID?
     @State private var displayOverride: InboxNotificationDisplayOverride?
 
-    init(
+    package init(
         parentPaneId: UUID,
+        octiconLoader: OcticonLoader,
         workspaceWindowId: UUID?,
         paneIds: [UUID],
         inboxAtom: InboxNotificationAtom,
@@ -41,6 +46,7 @@ struct PaneInboxNotificationPopover: View {
         onClose: @escaping @MainActor @Sendable () -> Void
     ) {
         self.parentPaneId = parentPaneId
+        self.octiconLoader = octiconLoader
         self.workspaceWindowId = workspaceWindowId
         self.paneIds = paneIds
         self.inboxAtom = inboxAtom
@@ -53,7 +59,7 @@ struct PaneInboxNotificationPopover: View {
         _displayOverride = State(initialValue: presentationAtom.consumeTemporaryOverride())
     }
 
-    var body: some View {
+    package var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
@@ -169,7 +175,7 @@ struct PaneInboxNotificationPopover: View {
             .controlHelp(markPaneReadTooltip)
 
             Button(action: clearPaneInbox) {
-                clearPaneInboxSpec.icon.swiftUIImage()
+                clearPaneInboxSpec.icon.swiftUIImage(loader: octiconLoader)
             }
             .buttonStyle(.borderless)
             .accessibilityElement(children: .ignore)

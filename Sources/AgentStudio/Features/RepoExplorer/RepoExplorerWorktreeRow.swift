@@ -1,7 +1,10 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import AppKit
 import SwiftUI
 
-enum RepoExplorerCheckoutIconKind {
+package enum RepoExplorerCheckoutIconKind {
     case mainCheckout
     case gitWorktree
 }
@@ -17,6 +20,7 @@ struct RepoExplorerFavoriteControlVisibility: Equatable {
 }
 
 struct RepoExplorerWorktreeRowContent: View {
+    let octiconLoader: OcticonLoader
     let checkoutTitle: String
     let branchName: String
     var placementText = ""
@@ -100,13 +104,16 @@ struct RepoExplorerWorktreeRowContent: View {
                 if showsFavoriteControl {
                     let favoriteActionSpec = Self.favoriteActionSpec(isFavorite: isFavorite)
                     Button(action: onToggleFavorite) {
-                        favoriteActionSpec.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
-                            .foregroundStyle(isFavorite ? iconColor : .secondary)
-                            .frame(
-                                width: AppStyles.General.Button.compact,
-                                height: AppStyles.General.Button.compact
-                            )
-                            .contentShape(Rectangle())
+                        favoriteActionSpec.icon.swiftUIImage(
+                            loader: octiconLoader,
+                            size: AppStyles.General.Icon.compact
+                        )
+                        .foregroundStyle(isFavorite ? iconColor : .secondary)
+                        .frame(
+                            width: AppStyles.General.Button.compact,
+                            height: AppStyles.General.Button.compact
+                        )
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Self.favoriteAccessibilityLabel(isFavorite: isFavorite))
@@ -116,9 +123,13 @@ struct RepoExplorerWorktreeRowContent: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: AppStyles.General.Spacing.tight) {
-                OcticonImage(name: "octicon-git-branch", size: AppStyles.Shell.Sidebar.branchIconSize)
-                    .foregroundStyle(.secondary)
-                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
+                OcticonImage(
+                    name: "octicon-git-branch",
+                    size: AppStyles.Shell.Sidebar.branchIconSize,
+                    loader: octiconLoader
+                )
+                .foregroundStyle(.secondary)
+                .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
 
                 Text(branchName)
                     .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
@@ -150,6 +161,7 @@ struct RepoExplorerWorktreeRowContent: View {
 
             HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
                 SidebarDiffChip(
+                    octiconLoader: octiconLoader,
                     linesAdded: lineDiffCounts.added,
                     linesDeleted: lineDiffCounts.deleted,
                     showsDirtyIndicator: branchStatus.isDirty,
@@ -157,6 +169,7 @@ struct RepoExplorerWorktreeRowContent: View {
                 )
 
                 SidebarStatusSyncChip(
+                    octiconLoader: octiconLoader,
                     aheadText: syncCounts.ahead,
                     behindText: syncCounts.behind,
                     hasSyncSignal: hasSyncSignal
@@ -164,6 +177,7 @@ struct RepoExplorerWorktreeRowContent: View {
 
                 SidebarChip(
                     iconAsset: "octicon-git-pull-request",
+                    octiconLoader: octiconLoader,
                     text: "\(branchStatus.prCount ?? 0)",
                     style: (branchStatus.prCount ?? 0) > 0 ? .accent(iconColor) : .neutral
                 )
@@ -172,6 +186,7 @@ struct RepoExplorerWorktreeRowContent: View {
                     Button(action: onUnreadPillTap) {
                         SidebarChip(
                             iconAsset: "octicon-bell",
+                            octiconLoader: octiconLoader,
                             text: "\(unreadCount)",
                             style: .accent(iconColor)
                         )
@@ -189,17 +204,18 @@ struct RepoExplorerWorktreeRowContent: View {
         let checkoutTypeSize = AppStyles.General.Typography.textBase
         switch checkoutIconKind {
         case .mainCheckout:
-            OcticonImage(name: "octicon-star-fill", size: checkoutTypeSize)
+            OcticonImage(name: "octicon-star-fill", size: checkoutTypeSize, loader: octiconLoader)
                 .foregroundStyle(iconColor)
         case .gitWorktree:
-            OcticonImage(name: "octicon-git-worktree", size: checkoutTypeSize)
+            OcticonImage(name: "octicon-git-worktree", size: checkoutTypeSize, loader: octiconLoader)
                 .foregroundStyle(iconColor)
                 .rotationEffect(.degrees(180))
         }
     }
 }
 
-struct RepoExplorerWorktreeRow: View {
+package struct RepoExplorerWorktreeRow: View {
+    let octiconLoader: OcticonLoader
     let worktree: Worktree
     let checkoutTitle: String
     let branchName: String
@@ -223,13 +239,58 @@ struct RepoExplorerWorktreeRow: View {
 
     @State private var isHovering = false
 
-    var body: some View {
+    package init(
+        octiconLoader: OcticonLoader,
+        worktree: Worktree,
+        checkoutTitle: String,
+        branchName: String,
+        placementText: String = "",
+        checkoutIconKind: RepoExplorerCheckoutIconKind,
+        iconColor: Color,
+        branchStatus: GitBranchStatus,
+        unreadCount: Int,
+        bridgeCommandResolution: BridgePaneCommandResolution = .create,
+        isFavorite: Bool = false,
+        onToggleFavorite: @escaping () -> Void = {},
+        onUnreadPillTap: @escaping () -> Void = {},
+        onOpen: @escaping () -> Void,
+        onOpenNew: @escaping () -> Void,
+        onReview: @escaping () -> Void,
+        onOpenFiles: @escaping () -> Void,
+        onOpenReviewInNewTab: @escaping () -> Void = {},
+        onOpenFilesInNewTab: @escaping () -> Void = {},
+        onOpenInPane: @escaping () -> Void
+    ) {
+        self.octiconLoader = octiconLoader
+        self.worktree = worktree
+        self.checkoutTitle = checkoutTitle
+        self.branchName = branchName
+        self.placementText = placementText
+        self.checkoutIconKind = checkoutIconKind
+        self.iconColor = iconColor
+        self.branchStatus = branchStatus
+        self.unreadCount = unreadCount
+        self.bridgeCommandResolution = bridgeCommandResolution
+        self.isFavorite = isFavorite
+        self.onToggleFavorite = onToggleFavorite
+        self.onUnreadPillTap = onUnreadPillTap
+        self.onOpen = onOpen
+        self.onOpenNew = onOpenNew
+        self.onReview = onReview
+        self.onOpenFiles = onOpenFiles
+        self.onOpenReviewInNewTab = onOpenReviewInNewTab
+        self.onOpenFilesInNewTab = onOpenFilesInNewTab
+        self.onOpenInPane = onOpenInPane
+    }
+
+    package var body: some View {
         let favoriteControlVisibility = RepoExplorerFavoriteControlVisibility(
             isMainWorktree: worktree.isMainWorktree
         )
 
         SidebarRowShell(isHovering: isHovering) {
             RepoExplorerWorktreeRowContent(
+                octiconLoader: octiconLoader,
                 checkoutTitle: checkoutTitle,
                 branchName: branchName,
                 placementText: placementText,
@@ -306,7 +367,7 @@ struct RepoExplorerWorktreeRow: View {
                     onToggleFavorite()
                 } label: {
                     HStack {
-                        favoriteActionSpec.icon.swiftUIImage()
+                        favoriteActionSpec.icon.swiftUIImage(loader: octiconLoader)
                         Text(favoriteActionSpec.label)
                     }
                 }
@@ -352,25 +413,13 @@ struct RepoExplorerWorktreeRow: View {
         ExternalWorkspaceOpener.openInVSCode(worktree.path)
     }
 
-    private func contextualBridgeActionSpec(
-        command: AppCommand,
-        surface: BridgeProductSurface
-    ) -> ActionSpec {
-        let definition = command.definition
-        return ActionSpec(
-            label: bridgeCommandResolution.contextualLabel(for: surface),
-            helpText: definition.helpText,
-            icon: definition.icon
-        )
-    }
-
     @ViewBuilder
     private func menuLabel(actionSpec: ActionSpec) -> some View {
         switch actionSpec.icon {
         case .system(let systemSymbol):
             Label(actionSpec.label, systemImage: systemSymbol.rawValue)
         case .octicon(let octiconSymbol):
-            if let image = OcticonLoader.shared.image(named: octiconSymbol.rawValue) {
+            if let image = octiconLoader.image(named: octiconSymbol.rawValue) {
                 Label {
                     Text(actionSpec.label)
                 } icon: {

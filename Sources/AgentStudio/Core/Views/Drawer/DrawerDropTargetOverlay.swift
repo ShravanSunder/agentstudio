@@ -3,13 +3,21 @@ import SwiftUI
 /// Drawer-specific alias for the shared `DropTargetVisual`. Drawer
 /// callers use this name to make the type's role at the call site
 /// obvious; new code can use `DropTargetVisual` directly.
-typealias DrawerDropTargetVisual = DropTargetVisual
+package typealias DrawerDropTargetVisual = DropTargetVisual
 
-struct DrawerDropTargetOverlay: View {
+package struct DrawerDropTargetOverlay: View {
     let target: DrawerRearrangeTarget?
     let targetVisuals: [DrawerRearrangeTarget: DropTargetVisual]
 
-    var body: some View {
+    package init(
+        target: DrawerRearrangeTarget?,
+        targetVisuals: [DrawerRearrangeTarget: DropTargetVisual]
+    ) {
+        self.target = target
+        self.targetVisuals = targetVisuals
+    }
+
+    package var body: some View {
         ZStack(alignment: .topLeading) {
             if let target, let visual = targetVisuals[target] {
                 RoundedRectangle(cornerRadius: 4)

@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+
 struct BridgeFileViewObservabilitySmokeRenderSnapshot: Decodable, Equatable {
     let hasFileShell: Bool
     let hasTree: Bool

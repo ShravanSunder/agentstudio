@@ -2,6 +2,9 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
@@ -15,7 +18,7 @@ final class WorkspaceActionExecutorTests {
     private var tempDir: URL!
 
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "executor-tests-\(UUID().uuidString)")
         store = WorkspaceStore()
@@ -23,7 +26,8 @@ final class WorkspaceActionExecutorTests {
         runtime = SessionRuntime(store: store)
         coordinator = WorkspaceSurfaceCoordinator(
             store: store, viewRegistry: viewRegistry, runtime: runtime,
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     }

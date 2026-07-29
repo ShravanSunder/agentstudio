@@ -1,3 +1,5 @@
+import AgentStudioBridge
+import AgentStudioInfrastructure
 import Foundation
 
 @MainActor
@@ -14,7 +16,9 @@ extension AppDelegate {
 
             let result: BridgeProductStreamFeasibilityDiagnosticResult
             do {
-                let workerAsset = try await BridgeAppAssetStore().load(
+                let workerAsset = try await BridgeAppAssetStore(
+                    appRootURL: Bundle.bridgeAppRootURL
+                ).load(
                     relativePath: "assets/bridge-product-stream-webkit-feasibility-worker.js"
                 )
                 guard let workerSource = String(data: workerAsset.data, encoding: .utf8) else {

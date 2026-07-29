@@ -1,6 +1,6 @@
 import Foundation
 
-struct AgentStudioOTLPProjectedLogRecord: Equatable, Sendable {
+package struct AgentStudioOTLPProjectedLogRecord: Equatable, Sendable {
     let timeUnixNano: UInt64
     let severityText: AgentStudioTraceSeverity
     let body: String
@@ -9,11 +9,11 @@ struct AgentStudioOTLPProjectedLogRecord: Equatable, Sendable {
     let parentSpanID: String?
     let resource: [String: String]
     let scope: AgentStudioTraceRecord.Scope
-    let attributes: [String: AgentStudioTraceValue]
+    package let attributes: [String: AgentStudioTraceValue]
 }
 
-enum AgentStudioOTLPTraceProjection {
-    static func project(_ record: AgentStudioTraceRecord) -> AgentStudioOTLPProjectedLogRecord {
+package enum AgentStudioOTLPTraceProjection {
+    package static func project(_ record: AgentStudioTraceRecord) -> AgentStudioOTLPProjectedLogRecord {
         let safeResource = safeResource(record.resource)
         let resource = projectedResource(safeResource)
         var attributes = projectedAttributes(record.attributes, resource: safeResource)
@@ -875,7 +875,7 @@ extension AgentStudioOTLPTraceProjection {
     }
 
     private static func isAllowedControlledStringValue(key: String, value: String) -> Bool {
-        if let allowedValues = BridgeTelemetryEventValidator.allowedStringValuesByAttributeKey[key] {
+        if let allowedValues = BridgeTelemetryWireSchema.allowedStringValues(for: key) {
             return allowedValues.contains(value)
         }
         switch key {

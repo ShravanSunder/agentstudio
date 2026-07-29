@@ -1,8 +1,9 @@
+import AgentStudioTestSupport
 import CryptoKit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge File prefix shared corpus")
 struct BridgeFilePrefixCorpusTests {

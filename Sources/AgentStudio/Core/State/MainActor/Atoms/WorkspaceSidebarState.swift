@@ -2,7 +2,7 @@ import Observation
 
 @MainActor
 @Observable
-final class WorkspaceSidebarMemoryAtom {
+package final class WorkspaceSidebarMemoryAtom {
     private(set) var filterText: String = ""
     private(set) var isFilterVisible: Bool = false
     private(set) var sidebarCollapsed: Bool = false
@@ -46,11 +46,11 @@ final class WorkspaceSidebarMemoryAtom {
 
 @MainActor
 @Observable
-final class SidebarFocusRuntimeAtom {
+package final class SidebarFocusRuntimeAtom {
     /// Runtime-only composition fact published by sidebar surfaces and read by keyboard owner derivation.
     private(set) var sidebarHasFocus: Bool = false
 
-    func setSidebarHasFocus(_ hasFocus: Bool) {
+    package func setSidebarHasFocus(_ hasFocus: Bool) {
         sidebarHasFocus = hasFocus
     }
 
@@ -60,11 +60,11 @@ final class SidebarFocusRuntimeAtom {
 }
 
 @MainActor
-final class WorkspaceSidebarState {
+package final class WorkspaceSidebarState {
     private let memoryAtom: WorkspaceSidebarMemoryAtom
     private let focusAtom: SidebarFocusRuntimeAtom
 
-    init(
+    package init(
         memoryAtom: WorkspaceSidebarMemoryAtom = .init(),
         focusAtom: SidebarFocusRuntimeAtom = .init()
     ) {
@@ -72,43 +72,43 @@ final class WorkspaceSidebarState {
         self.focusAtom = focusAtom
     }
 
-    var filterText: String {
+    package var filterText: String {
         memoryAtom.filterText
     }
 
-    var isFilterVisible: Bool {
+    package var isFilterVisible: Bool {
         memoryAtom.isFilterVisible
     }
 
-    var sidebarCollapsed: Bool {
+    package var sidebarCollapsed: Bool {
         memoryAtom.sidebarCollapsed
     }
 
-    var sidebarSurface: SidebarSurface {
+    package var sidebarSurface: SidebarSurface {
         memoryAtom.sidebarSurface
     }
 
-    var sidebarHasFocus: Bool {
+    package var sidebarHasFocus: Bool {
         focusAtom.sidebarHasFocus
     }
 
-    func setFilterText(_ text: String) {
+    package func setFilterText(_ text: String) {
         memoryAtom.setFilterText(text)
     }
 
-    func setFilterVisible(_ isVisible: Bool) {
+    package func setFilterVisible(_ isVisible: Bool) {
         memoryAtom.setFilterVisible(isVisible)
     }
 
-    func setSidebarCollapsed(_ isCollapsed: Bool) {
+    package func setSidebarCollapsed(_ isCollapsed: Bool) {
         memoryAtom.setSidebarCollapsed(isCollapsed)
     }
 
-    func setSidebarSurface(_ surface: SidebarSurface) {
+    package func setSidebarSurface(_ surface: SidebarSurface) {
         memoryAtom.setSidebarSurface(surface)
     }
 
-    func setSidebarHasFocus(_ hasFocus: Bool) {
+    package func setSidebarHasFocus(_ hasFocus: Bool) {
         focusAtom.setSidebarHasFocus(hasFocus)
     }
 

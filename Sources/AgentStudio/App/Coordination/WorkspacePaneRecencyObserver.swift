@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 import Observation
 
@@ -94,7 +95,7 @@ final class WorkspacePaneRecencyObserver {
     }
 
     private func isEligible(paneID: UUID, workspaceID: UUID) -> Bool {
-        Self.isEligibleForRecording(
+        WorkspacePaneRecencyEligibility.isEligibleForRecording(
             pane: store.paneAtom.pane(paneID),
             workspaceMatches: recencyAtom.workspaceID == workspaceID,
             tabs: store.tabLayoutAtom.tabs,
@@ -102,27 +103,6 @@ final class WorkspacePaneRecencyObserver {
         )
     }
 
-    static func isEligibleForRecording(
-        pane: Pane?,
-        workspaceMatches: Bool,
-        tabs: [Tab],
-        targetableTabID: UUID?
-    ) -> Bool {
-        guard workspaceMatches else { return false }
-        guard
-            let pane,
-            pane.residency == .active,
-            pane.parentPaneId == nil
-        else {
-            return false
-        }
-
-        let canonicalTabs = tabs.filter { $0.activePaneIds.contains(pane.id) }
-        guard canonicalTabs.count == 1, let canonicalTab = canonicalTabs.first else {
-            return false
-        }
-        return targetableTabID == canonicalTab.id
-    }
 }
 
 extension AppDelegate {
@@ -130,8 +110,8 @@ extension AppDelegate {
         workspacePaneRecencyObserver?.stop()
         workspacePaneRecencyObserver = WorkspacePaneRecencyObserver(
             store: store,
-            attendedPane: atomStore.attendedPane,
-            recencyAtom: atomStore.workspaceEntityRecency
+            attendedPane: atomStore.core.attendedPane,
+            recencyAtom: atomStore.core.workspaceEntityRecency
         )
     }
 

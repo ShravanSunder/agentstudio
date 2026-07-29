@@ -36,9 +36,9 @@ struct AgentStudioProcessMemorySnapshot: Equatable, Sendable {
     }
 }
 
-final class AgentStudioProcessMemorySampler: @unchecked Sendable {
+package final class AgentStudioProcessMemorySampler: @unchecked Sendable {
     typealias SnapshotProvider = @Sendable () -> AgentStudioProcessMemorySnapshot
-    typealias WaitForNextSample = @Sendable () async -> Bool
+    package typealias WaitForNextSample = @Sendable () async -> Bool
     typealias SnapshotRecorder = @Sendable (AgentStudioProcessMemorySnapshot) -> Void
 
     private enum Lifecycle: Equatable {
@@ -117,7 +117,7 @@ final class AgentStudioProcessMemorySampler: @unchecked Sendable {
         }
     }
 
-    static func waitOneSecond() async -> Bool {
+    package static func waitOneSecond() async -> Bool {
         do {
             try await Task.sleep(nanoseconds: 1_000_000_000)
             return !Task.isCancelled

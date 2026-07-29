@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioWebview
 
 /// Tests for WebviewNavigationDecider URL scheme policy.
 ///

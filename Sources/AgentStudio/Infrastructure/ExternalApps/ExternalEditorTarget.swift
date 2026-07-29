@@ -1,8 +1,8 @@
 import AppKit
 import Foundation
 
-struct ExternalEditorTarget: Equatable, Identifiable {
-    enum Resolution: Equatable {
+package struct ExternalEditorTarget: Equatable, Identifiable {
+    package enum Resolution: Equatable {
         case resolved(ExternalEditorTarget)
         case bookmarkedEditorNotInstalled
         case noDefaultAvailable
@@ -13,13 +13,13 @@ struct ExternalEditorTarget: Equatable, Identifiable {
         let arguments: [String]
     }
 
-    let id: EditorTargetId
-    let title: String
-    let bundleIdentifier: String
+    package let id: EditorTargetId
+    package let title: String
+    package let bundleIdentifier: String
     let cliFallbacks: [CommandRequest]
-    let appIcon: NSImage?
+    package let appIcon: NSImage?
 
-    static func == (lhs: Self, rhs: Self) -> Bool {
+    package static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.id == rhs.id
             && lhs.title == rhs.title
             && lhs.bundleIdentifier == rhs.bundleIdentifier
@@ -84,7 +84,7 @@ struct ExternalEditorTarget: Equatable, Identifiable {
         appIcon: nil
     )
 
-    static let curatedOrder: [Self] = [
+    package static let curatedOrder: [Self] = [
         .cursor,
         .vscode,
         .windsurf,
@@ -94,7 +94,7 @@ struct ExternalEditorTarget: Equatable, Identifiable {
     ]
 
     @MainActor
-    static func refreshInstalledTargets(
+    package static func refreshInstalledTargets(
         resolveApplicationURL: (String) -> URL? = { bundleIdentifier in
             NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
         }
@@ -114,7 +114,7 @@ struct ExternalEditorTarget: Equatable, Identifiable {
         }
     }
 
-    static func resolveBookmarkedOrDefault(
+    package static func resolveBookmarkedOrDefault(
         bookmarkedEditorId: EditorTargetId?,
         installedTargets: [Self]
     ) -> Resolution {

@@ -2,7 +2,7 @@ import Foundation
 import Metrics
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 @Suite
 struct AgentStudioOTLPPerformanceMetricsTests {

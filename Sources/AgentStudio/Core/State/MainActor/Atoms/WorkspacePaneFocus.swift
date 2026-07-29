@@ -1,7 +1,7 @@
 import Foundation
 
 /// Workspace state requirements that determine whether a command should be visible.
-enum FocusRequirement: Hashable, CaseIterable, Sendable {
+package enum FocusRequirement: Hashable, CaseIterable, Sendable {
     case hasActiveTab
     case hasActivePane
     case hasMultiplePanes
@@ -20,8 +20,8 @@ enum FocusRequirement: Hashable, CaseIterable, Sendable {
 }
 
 /// App-wide workspace pane focus snapshot shared by command visibility and other UI readers.
-struct WorkspacePaneFocus: Equatable, Sendable {
-    enum ContentType: Equatable, Sendable {
+package struct WorkspacePaneFocus: Equatable, Sendable {
+    package enum ContentType: Equatable, Sendable {
         case terminal
         case webview
         case bridge
@@ -45,7 +45,7 @@ struct WorkspacePaneFocus: Equatable, Sendable {
         }
     }
 
-    enum DrawerFocusState: Equatable, Sendable {
+    package enum DrawerFocusState: Equatable, Sendable {
         case inactive
         case emptyDrawer(parentPaneId: UUID)
         case drawerPane(parentPaneId: UUID, paneId: UUID)
@@ -58,15 +58,15 @@ struct WorkspacePaneFocus: Equatable, Sendable {
         .paneIsCodeViewer,
     ]
 
-    let activeTabId: UUID?
-    let activePaneId: UUID?
-    let activeRepoId: UUID?
-    let activeWorktreeId: UUID?
-    let paneContentType: ContentType
-    let drawerFocusState: DrawerFocusState
-    let satisfiedRequirements: Set<FocusRequirement>
+    package let activeTabId: UUID?
+    package let activePaneId: UUID?
+    package let activeRepoId: UUID?
+    package let activeWorktreeId: UUID?
+    package let paneContentType: ContentType
+    package let drawerFocusState: DrawerFocusState
+    package let satisfiedRequirements: Set<FocusRequirement>
 
-    init(
+    package init(
         activeTabId: UUID? = nil,
         activePaneId: UUID? = nil,
         activeRepoId: UUID? = nil,
@@ -89,9 +89,9 @@ struct WorkspacePaneFocus: Equatable, Sendable {
         self.satisfiedRequirements = normalizedRequirements
     }
 
-    static let empty = Self(paneContentType: .noActivePane, satisfiedRequirements: [])
+    package static let empty = Self(paneContentType: .noActivePane, satisfiedRequirements: [])
 
-    var label: String? {
+    package var label: String? {
         switch paneContentType {
         case .terminal:
             return "Terminal"
@@ -108,7 +108,7 @@ struct WorkspacePaneFocus: Equatable, Sendable {
         }
     }
 
-    var icon: String? {
+    package var icon: String? {
         switch paneContentType {
         case .terminal:
             return "terminal"
@@ -127,7 +127,7 @@ struct WorkspacePaneFocus: Equatable, Sendable {
 }
 
 extension AppCommandSpec {
-    func isVisible(in focus: WorkspacePaneFocus) -> Bool {
+    package func isVisible(in focus: WorkspacePaneFocus) -> Bool {
         visibleWhen.isSubset(of: focus.satisfiedRequirements)
     }
 }

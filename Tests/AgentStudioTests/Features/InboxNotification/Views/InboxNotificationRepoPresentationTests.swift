@@ -1,7 +1,8 @@
+import AgentStudioCore
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 @MainActor
 @Suite("InboxNotification repo presentation", .serialized)

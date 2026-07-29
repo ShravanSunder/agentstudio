@@ -1,7 +1,8 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite(.serialized)
@@ -108,7 +109,7 @@ struct WorkspaceTabBoundaryTests {
             presentationAtom: presentationAtom
         )
 
-        let registry = AtomRegistry(
+        let coreAtoms = CoreAtoms(
             workspaceTabCursor: shellCursorAtom,
             workspaceTabShell: injectedShellAtom,
             workspaceTabGraph: graphAtom,
@@ -117,12 +118,12 @@ struct WorkspaceTabBoundaryTests {
             workspaceTabArrangement: injectedArrangementAtom
         )
 
-        #expect(registry.workspaceTabShell === injectedShellAtom)
-        #expect(registry.workspaceTabCursor === shellCursorAtom)
-        #expect(registry.workspaceTabArrangement === injectedArrangementAtom)
-        #expect(registry.workspaceTabGraph === graphAtom)
-        #expect(registry.workspaceArrangementCursor === arrangementCursorAtom)
-        #expect(registry.workspacePanePresentation === presentationAtom)
+        #expect(coreAtoms.workspaceTabShell === injectedShellAtom)
+        #expect(coreAtoms.workspaceTabCursor === shellCursorAtom)
+        #expect(coreAtoms.workspaceTabArrangement === injectedArrangementAtom)
+        #expect(coreAtoms.workspaceTabGraph === graphAtom)
+        #expect(coreAtoms.workspaceArrangementCursor === arrangementCursorAtom)
+        #expect(coreAtoms.workspacePanePresentation === presentationAtom)
     }
 
     @Test

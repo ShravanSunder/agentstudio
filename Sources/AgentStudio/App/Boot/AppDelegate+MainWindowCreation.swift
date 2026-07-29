@@ -1,14 +1,27 @@
+import AgentStudioBridge
+import AgentStudioCore
+import AgentStudioEditorChooser
+import AgentStudioInboxNotification
+import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
 import AppKit
 
 struct AppDelegateMainWindowCreationDependencies {
     let store: WorkspaceStore
+    let octiconLoader: OcticonLoader
     let executor: WorkspaceActionExecutor
     let workspaceSurfaceCoordinator: WorkspaceSurfaceCoordinator
     let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     let appLifecycleStore: AppLifecycleAtom
     let tabBarAdapter: TabBarAdapter
     let viewRegistry: ViewRegistry
-    let atomStore: AtomRegistry
+    let bridgePaneAttendance: BridgePaneAttendanceAtom
+    let editorChooser: EditorChooserState
+    let inboxNotification: InboxNotificationAtom
+    let inboxNotificationPrefs: InboxNotificationPrefsAtom
+    let inboxSidebarState: InboxSidebarState
+    let paneInboxPresentationState: PaneInboxPresentationAtom
+    let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
     let paneInboxNotificationPresenter: PaneInboxNotificationPresenter
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
@@ -68,13 +81,20 @@ extension AppDelegate {
 
         return AppDelegateMainWindowCreationDependencies(
             store: store,
+            octiconLoader: octiconLoader,
             executor: executor,
             workspaceSurfaceCoordinator: workspaceSurfaceCoordinator,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
-            atomStore: atomStore,
+            bridgePaneAttendance: atomStore.bridgePaneAttendance,
+            editorChooser: atomStore.editorChooser,
+            inboxNotification: atomStore.inboxNotification,
+            inboxNotificationPrefs: atomStore.inboxNotificationPrefs,
+            inboxSidebarState: atomStore.inboxSidebarState,
+            paneInboxPresentationState: atomStore.paneInboxPresentationState,
+            repoExplorerSidebarPrefs: atomStore.repoExplorerSidebarPrefs,
             paneInboxNotificationPresenter: paneInboxNotificationPresenter,
             performanceTraceRecorder: performanceTraceRecorder,
             closeTransitionCoordinator: closeTransitionCoordinator
@@ -87,15 +107,23 @@ extension AppDelegate {
         let mainWindowController = MainWindowController(
             workspaceWindowId: workspaceWindowId,
             store: dependencies.store,
+            octiconLoader: dependencies.octiconLoader,
             workspaceActionExecutor: dependencies.executor,
             runtimeCommandDispatcher: dependencies.workspaceSurfaceCoordinator,
             applicationLifecycleMonitor: dependencies.applicationLifecycleMonitor,
             appLifecycleStore: dependencies.appLifecycleStore,
             tabBarAdapter: dependencies.tabBarAdapter,
             viewRegistry: dependencies.viewRegistry,
-            inboxAtom: dependencies.atomStore.inboxNotification,
-            inboxPrefsAtom: dependencies.atomStore.inboxNotificationPrefs,
-            inboxSidebarState: dependencies.atomStore.inboxSidebarState,
+            bridgePaneAttendance: dependencies.bridgePaneAttendance,
+            editorChooser: dependencies.editorChooser,
+            inboxAtom: dependencies.inboxNotification,
+            inboxPrefsAtom: dependencies.inboxNotificationPrefs,
+            inboxSidebarState: dependencies.inboxSidebarState,
+            paneInboxPresentationState: dependencies.paneInboxPresentationState,
+            repoExplorerSidebarPrefs: dependencies.repoExplorerSidebarPrefs,
+            bridgeAttendanceSnapshot: {
+                dependencies.bridgePaneAttendance.ordinalSnapshot()
+            },
             paneInboxPresenter: dependencies.paneInboxNotificationPresenter,
             performanceTraceRecorder: dependencies.performanceTraceRecorder,
             onSidebarVisibleWorktreesChanged: { [weak workspaceSurfaceCoordinator] in

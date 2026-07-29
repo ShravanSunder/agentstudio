@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import SwiftUI
 
 // MARK: - TrapezoidConnector
@@ -39,6 +41,7 @@ enum DrawerIconBarLeadingControls {
 /// Toggle uses `sidebar.bottom` (macOS convention for bottom panel toggle).
 /// Follows the same callback-driven pattern as `ArrangementBar`.
 struct DrawerIconBar: View {
+    let octiconLoader: OcticonLoader
     let leadingControls: DrawerIconBarLeadingControls
     let trailingActions: DrawerOverlay.TrailingActions?
     let paneSurfaceActions: [PaneSurfaceToolbarAction]
@@ -54,6 +57,7 @@ struct DrawerIconBar: View {
     @State private var tooltipFrames: [DrawerTooltipTarget: CGRect] = [:]
 
     init(
+        octiconLoader: OcticonLoader,
         isExpanded: Bool,
         onAdd: @escaping @MainActor @Sendable () -> Void,
         onToggleExpand: @escaping @MainActor @Sendable () -> Void,
@@ -61,6 +65,7 @@ struct DrawerIconBar: View {
         paneSurfaceActions: [PaneSurfaceToolbarAction] = [],
         paneContextActions: [PaneSurfaceToolbarAction] = []
     ) {
+        self.octiconLoader = octiconLoader
         leadingControls = .drawer(
             isExpanded: isExpanded,
             onAdd: onAdd,
@@ -72,11 +77,13 @@ struct DrawerIconBar: View {
     }
 
     init(
+        octiconLoader: OcticonLoader,
         leadingControls: DrawerIconBarLeadingControls,
         trailingActions: DrawerOverlay.TrailingActions?,
         paneSurfaceActions: [PaneSurfaceToolbarAction] = [],
         paneContextActions: [PaneSurfaceToolbarAction] = []
     ) {
+        self.octiconLoader = octiconLoader
         self.leadingControls = leadingControls
         self.trailingActions = trailingActions
         self.paneSurfaceActions = paneSurfaceActions
@@ -491,7 +498,11 @@ struct DrawerIconBar: View {
                     Image(systemName: systemName)
                         .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                 case .octicon(let octiconName):
-                    OcticonImage(name: octiconName, size: AppStyles.General.Icon.compact)
+                    OcticonImage(
+                        name: octiconName,
+                        size: AppStyles.General.Icon.compact,
+                        loader: octiconLoader
+                    )
                 }
             }
             .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
@@ -606,7 +617,11 @@ struct DrawerIconBar: View {
             Image(systemName: symbol.rawValue)
                 .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
         case .octicon(let symbol):
-            OcticonImage(name: symbol.rawValue, size: AppStyles.General.Icon.compact)
+            OcticonImage(
+                name: symbol.rawValue,
+                size: AppStyles.General.Icon.compact,
+                loader: octiconLoader
+            )
         }
     }
 }
@@ -692,6 +707,9 @@ struct EmptyDrawerBar: View {
             VStack {
                 Spacer()
                 DrawerIconBar(
+                    octiconLoader: OcticonLoader(
+                        resourceRootURL: URL(fileURLWithPath: "/dev/null")
+                    ),
                     isExpanded: true,
                     onAdd: {},
                     onToggleExpand: {},

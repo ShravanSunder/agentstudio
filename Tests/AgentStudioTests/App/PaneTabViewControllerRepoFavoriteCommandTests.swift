@@ -2,12 +2,14 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct PaneTabViewControllerRepoFavoriteCommandTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("targeted repo favorite commands mutate canonical topology through workspace actions")

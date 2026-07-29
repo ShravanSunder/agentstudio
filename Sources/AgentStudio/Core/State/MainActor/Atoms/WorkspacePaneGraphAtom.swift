@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import os.log
@@ -119,8 +120,8 @@ struct PaneGraphMetadata: Hashable, Sendable {
 /// content, residency, durable metadata, drawer identity, and drawer
 /// membership. It intentionally excludes drawer expansion and display/cache
 /// facets, which are composed by cursor and derived read models.
-struct PaneGraphState: Identifiable, Hashable, Sendable {
-    let id: UUID
+package struct PaneGraphState: Identifiable, Hashable, Sendable {
+    package let id: UUID
     var content: PaneContent
     var metadata: PaneGraphMetadata
     var residency: SessionResidency
@@ -185,7 +186,7 @@ struct PaneGraphState: Identifiable, Hashable, Sendable {
     }
 }
 
-enum WorkspacePaneGraphReplacementRejection: Error, Equatable, Sendable {
+package enum WorkspacePaneGraphReplacementRejection: Error, Equatable, Sendable {
     case paneKeyIdentityMismatch(key: UUID, paneID: UUID)
     case duplicateDrawerIdentity(UUID)
     case drawerParentMismatch(drawerID: UUID, expectedParentPaneID: UUID, actualParentPaneID: UUID)
@@ -278,9 +279,11 @@ struct WorkspacePaneGraphReplacement: Equatable, Sendable {
 
 @MainActor
 @Observable
-final class WorkspacePaneGraphAtom {
+package final class WorkspacePaneGraphAtom {
     private(set) var paneStates: [UUID: PaneGraphState] = [:]
     private var parentPaneIDByDrawerID: [UUID: UUID] = [:]
+
+    package init() {}
 
     var paneIds: Set<UUID> {
         Set(paneStates.keys)
@@ -290,7 +293,7 @@ final class WorkspacePaneGraphAtom {
         Set(paneStates.values.compactMap(\.drawer?.drawerId))
     }
 
-    func paneState(_ id: UUID) -> PaneGraphState? {
+    package func paneState(_ id: UUID) -> PaneGraphState? {
         paneStates[id]
     }
 
@@ -470,8 +473,10 @@ final class WorkspacePaneGraphAtom {
         }
 
         let drawerPane = Pane(
+            id: UUIDv7.generate(),
             content: content,
             metadata: metadata,
+            residency: .active,
             kind: .drawerChild(parentPaneId: parentPaneId)
         )
         let drawerState = PaneGraphState(pane: drawerPane)

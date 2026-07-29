@@ -1,10 +1,11 @@
+import AgentStudioInfrastructure
 import Foundation
 
-struct WorkspaceSQLiteDatastoreFactory {
+package struct WorkspaceSQLiteDatastoreFactory {
     var configuration: WorkspaceSQLiteDatastoreConfiguration
     var traceRuntime: AgentStudioTraceRuntime?
 
-    init(
+    package init(
         coreDatabaseURL: URL = AppDataPaths.coreSQLiteURL(),
         localDatabaseURL: URL = AppDataPaths.localSQLiteURL(),
         traceRuntime: AgentStudioTraceRuntime? = nil
@@ -16,7 +17,7 @@ struct WorkspaceSQLiteDatastoreFactory {
         self.traceRuntime = traceRuntime
     }
 
-    func makeDatastore() -> WorkspaceSQLiteDatastore {
+    package func makeDatastore() -> WorkspaceSQLiteDatastore {
         WorkspaceSQLiteDatastore(configuration: configuration, traceRuntime: traceRuntime)
     }
 }

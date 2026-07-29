@@ -1,9 +1,11 @@
+import AgentStudioTestSupport
 import Foundation
 // swiftlint:disable file_length type_body_length
 import GRDB
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @MainActor
 @Suite(.serialized)

@@ -1,55 +1,60 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 
-struct EditorChooserSnapshot: Equatable {
-    var openForPaneId: UUID?
-    var bookmarkedEditorId: EditorTargetId?
+package struct EditorChooserSnapshot: Equatable {
+    package var openForPaneId: UUID?
+    package var bookmarkedEditorId: EditorTargetId?
 }
 
 @MainActor
 @Observable
-final class EditorPreferenceAtom {
-    private(set) var bookmarkedEditorId: EditorTargetId?
+package final class EditorPreferenceAtom {
+    package private(set) var bookmarkedEditorId: EditorTargetId?
 
-    func setBookmarkedEditor(_ editorId: EditorTargetId?) {
+    package init() {}
+
+    package func setBookmarkedEditor(_ editorId: EditorTargetId?) {
         bookmarkedEditorId = editorId
     }
 
-    func hydrate(bookmarkedEditorId: EditorTargetId?) {
+    package func hydrate(bookmarkedEditorId: EditorTargetId?) {
         self.bookmarkedEditorId = bookmarkedEditorId
     }
 
-    func clear() {
+    package func clear() {
         bookmarkedEditorId = nil
     }
 }
 
 @MainActor
 @Observable
-final class EditorChooserRuntimeAtom {
-    private(set) var openForPaneId: UUID?
-    private(set) var availableTargets: [ExternalEditorTarget] = []
+package final class EditorChooserRuntimeAtom {
+    package private(set) var openForPaneId: UUID?
+    package private(set) var availableTargets: [ExternalEditorTarget] = []
 
-    func setOpenEditorPane(_ paneId: UUID?) {
+    package init() {}
+
+    package func setOpenEditorPane(_ paneId: UUID?) {
         openForPaneId = paneId
     }
 
-    func setAvailableTargets(_ targets: [ExternalEditorTarget]) {
+    package func setAvailableTargets(_ targets: [ExternalEditorTarget]) {
         availableTargets = targets
     }
 
-    func clear() {
+    package func clear() {
         openForPaneId = nil
         availableTargets = []
     }
 }
 
 @MainActor
-final class EditorChooserState {
+package final class EditorChooserState {
     private let preferenceAtom: EditorPreferenceAtom
     private let runtimeAtom: EditorChooserRuntimeAtom
 
-    init(
+    package init(
         preferenceAtom: EditorPreferenceAtom = .init(),
         runtimeAtom: EditorChooserRuntimeAtom = .init()
     ) {
@@ -57,43 +62,43 @@ final class EditorChooserState {
         self.runtimeAtom = runtimeAtom
     }
 
-    var state: EditorChooserSnapshot {
+    package var state: EditorChooserSnapshot {
         .init(
             openForPaneId: runtimeAtom.openForPaneId,
             bookmarkedEditorId: preferenceAtom.bookmarkedEditorId
         )
     }
 
-    var bookmarkedEditorId: EditorTargetId? {
+    package var bookmarkedEditorId: EditorTargetId? {
         preferenceAtom.bookmarkedEditorId
     }
 
-    var openForPaneId: UUID? {
+    package var openForPaneId: UUID? {
         runtimeAtom.openForPaneId
     }
 
-    var availableTargets: [ExternalEditorTarget] {
+    package var availableTargets: [ExternalEditorTarget] {
         runtimeAtom.availableTargets
     }
 
-    func setBookmarkedEditor(_ editorId: EditorTargetId?) {
+    package func setBookmarkedEditor(_ editorId: EditorTargetId?) {
         preferenceAtom.setBookmarkedEditor(editorId)
     }
 
-    func setOpenEditorPane(_ paneId: UUID?) {
+    package func setOpenEditorPane(_ paneId: UUID?) {
         runtimeAtom.setOpenEditorPane(paneId)
     }
 
-    func setAvailableTargets(_ targets: [ExternalEditorTarget]) {
+    package func setAvailableTargets(_ targets: [ExternalEditorTarget]) {
         runtimeAtom.setAvailableTargets(targets)
     }
 
-    func hydrate(bookmarkedEditorId: EditorTargetId?) {
+    package func hydrate(bookmarkedEditorId: EditorTargetId?) {
         preferenceAtom.hydrate(bookmarkedEditorId: bookmarkedEditorId)
         runtimeAtom.clear()
     }
 
-    func clear() {
+    package func clear() {
         preferenceAtom.clear()
         runtimeAtom.clear()
     }

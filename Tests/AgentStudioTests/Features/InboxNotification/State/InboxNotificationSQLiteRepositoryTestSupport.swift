@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 struct RawNotificationRow {
     let workspaceId: UUID

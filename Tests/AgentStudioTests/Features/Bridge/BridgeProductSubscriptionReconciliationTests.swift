@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge product subscription resync reconciliation")
 struct BridgeProductSubscriptionReconciliationTests {

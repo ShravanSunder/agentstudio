@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @Suite(.serialized)
 struct GitRefreshPerformanceWorkloadScriptTests {
@@ -108,6 +110,16 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(!source.contains("agent.proof.marker:%s"))
         #expect(!source.contains("_msg:%s"))
         #expect(source.contains("victoria_event_count()"))
+        #expect(
+            source.contains(
+                #"if [ "$(victoria_event_count "$event_name")" -gt 0 ]; then"#
+            )
+        )
+        #expect(
+            !source.contains(
+                #"if [ "$(victoria_metric_event_count "$event_name")" -gt 0 ]; then"#
+            )
+        )
         #expect(source.contains("victoria_metric_event_query()"))
         #expect(source.contains("victoria_metric_event_count()"))
         #expect(source.contains("agentstudio_performance_events_total"))
@@ -123,7 +135,22 @@ struct GitRefreshPerformanceWorkloadScriptTests {
                 "echo \"$event_name victoria_metrics_count=$victoria_metrics_count victoria_logs_count=$victoria_logs_count jsonl_count=$jsonl_count\""
             ))
         #expect(source.contains("allow_jsonl_proof=$ALLOW_JSONL_PROOF"))
+        #expect(
+            source.contains(
+                "query_character_max=\"$(victoria_log_command_bar_filter_query_character_max)\""
+            )
+        )
         #expect(source.contains("performance.commandbar.filter.query_character.max="))
+        let summaryMetadataKeys =
+            "source_head trace_tags activation_mode launch_method executable_identity worktree_identity "
+            + "workload_fingerprint required_performance_metric_minimum_count "
+            + "required_commandbar_query_character_minimum"
+        for metadataKey in summaryMetadataKeys.split(separator: " ") {
+            #expect(source.contains("echo \"\(metadataKey)="))
+        }
+        #expect(source.contains("workload_fingerprint()"))
+        #expect(source.contains("AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE"))
+        #expect(source.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD"))
     }
 
     private static func expectJSONLProofGuard(_ source: String) {
@@ -190,8 +217,10 @@ struct GitRefreshPerformanceWorkloadScriptTests {
                 "AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE":
                     #"{"status":"success","data":{"result":[{"value":[0,"7"]}]}}"#,
                 "AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE":
-                    #"{"agentstudio.performance.elapsed_ms":"3"}"# + "\n"
-                    + #"{"agentstudio.performance.elapsed_ms":"7"}"# + "\n",
+                    #"{"agentstudio.performance.elapsed_ms":"3","agentstudio.performance.commandbar.query_character.count":"3"}"#
+                    + "\n"
+                    + #"{"agentstudio.performance.elapsed_ms":"7","agentstudio.performance.commandbar.query_character.count":"7"}"#
+                    + "\n",
             ]
         )
 
@@ -759,9 +788,30 @@ extension GitRefreshPerformanceWorkloadScriptTests {
         #expect(source.contains("uuid_v7()"))
         #expect(!source.contains("uuid_any()"))
 
-        #expect(source.contains("COMMON_QUIESCENCE_TIMEOUT_SECONDS=30"))
+        #expect(source.contains("COMMON_QUIESCENCE_TIMEOUT_SECONDS=75"))
+        #expect(source.contains("METRICS_EXPORT_TIMEOUT_SECONDS=75"))
+        #expect(source.contains("\"launchDirectory\": \"%s\""))
+        #expect(
+            source.contains(
+                "\"facets\": {\"repoId\": \"%s\", \"worktreeId\": \"%s\", \"cwd\": null, \"tags\": []}"
+            )
+        )
+        #expect(!source.contains("\"source\": {\"worktree\":"))
         #expect(source.contains("wait_for_common_quiescence()"))
+        #expect(source.contains("wait_for_required_performance_metrics_export()"))
+        #expect(source.contains("required_performance_metric_event_names()"))
+        for eventName in comparablePerformanceEventNames {
+            #expect(source.contains(eventName))
+        }
+        #expect(source.contains("missing_metric_events="))
+        #expect(source.contains("\"\u{24}{missing_events[*]-}\""))
+        #expect(
+            !source.contains(
+                "missing_events+=(\"performance.commandbar.filter.query_character.max\")"
+            )
+        )
         #expect(source.contains("WRITERS_FINISHED_AT"))
+        #expect(source.contains("WRITERS_FINISHED_AT=\"$(date -u +%s)\""))
         #expect(source.contains("timestamp(%s{%s}) >= %s"))
         #expect(source.contains("latency_offset=$latency_offset"))
         #expect(source.contains("1ms 2>/dev/null || true"))
@@ -786,6 +836,7 @@ extension GitRefreshPerformanceWorkloadScriptTests {
                 "launch_debug_observability_app\n",
                 "WRITERS_FINISHED_AT=",
                 "wait_for_common_quiescence ",
+                "wait_for_required_performance_metrics_export",
                 "capture_final_process_resources",
                 "summarize_traces\n",
             ]
@@ -942,19 +993,3 @@ private struct PerformanceWorkloadSQLiteFixture: Decodable {
         )
     }
 }
-
-private let workloadFixtureJSON = """
-    {"schemaVersion":1,"id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb1","name":"Git Refresh Performance Fixture",
-    "repos":[{"id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb2","name":"repo-000","repoPath":"file:///tmp/agentstudio-perf/repo-000","createdAt":0}],
-    "worktrees":[{"id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb3","repoId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb2","name":"main","path":"file:///tmp/agentstudio-perf/repo-000","isMainWorktree":true}],
-    "unavailableRepoIds":[],"panes":[{
-    "id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","content":{"version":3,"type":"terminal","state":{"provider":"zmx","lifetime":"persistent","zmxSessionID":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb5"}},
-    "metadata":{"paneId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","contentType":{"terminal":{}},
-    "source":{"worktree":{"worktreeId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb3","repoId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb2","launchDirectory":"file:///tmp/agentstudio-perf/repo-000"}},
-    "executionBackend":{"local":{}},"createdAt":0,"title":"repo-pane-0","facets":{"repoId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb2","worktreeId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb3","cwd":"file:///tmp/agentstudio-perf/repo-000","tags":[]},"checkoutRef":null,"note":null},
-    "residency":{"active":{}},"kind":{"layout":{"drawer":{"drawerId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb4","parentPaneId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","paneIds":[],"isExpanded":false}}}}],
-    "tabs":[{"id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb7","name":"Performance","panes":["019eb9e5-2de8-7c5f-83b1-cc9782b2efb6"],
-    "arrangements":[{"id":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb8","name":"Default","isDefault":true,"layout":{"panes":[{"paneId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","ratio":1.0}],"dividerIds":[]},"minimizedPaneIds":[],"activePaneId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb6","drawerViews":[]}],
-    "activeArrangementId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb8"}],"activeTabId":"019eb9e5-2de8-7c5f-83b1-cc9782b2efb7",
-    "sidebarWidth":250,"windowFrame":null,"watchedPaths":[],"createdAt":0,"updatedAt":0}
-    """

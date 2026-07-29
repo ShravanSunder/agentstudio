@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import os.log
@@ -90,7 +91,7 @@ enum RepoCacheSavePreparer {
 }
 
 @MainActor
-final class RepoCacheStore {
+package final class RepoCacheStore {
     private let cacheAtom: RepoEnrichmentCacheAtom
     private let sqliteDatastore: WorkspaceSQLiteDatastore
     private let persistDebounceDuration: Duration
@@ -101,11 +102,11 @@ final class RepoCacheStore {
     private var isRestoringState = false
     private var activeWorkspaceId: UUID?
     private var lastPersistedProjection: RepoCachePersistedProjection?
-    var isAutosaveObservationActive: Bool {
+    package var isAutosaveObservationActive: Bool {
         isObservingCacheState
     }
 
-    init(
+    package init(
         cacheAtom: RepoEnrichmentCacheAtom,
         sqliteDatastore: WorkspaceSQLiteDatastore,
         persistDebounceDuration: Duration = .milliseconds(500),
@@ -141,11 +142,11 @@ final class RepoCacheStore {
     /// replays boot topology, and prunes stale entries as an explicit boot
     /// transaction. Production arms this from `WorkspaceBootStep.armPersistenceObservation`;
     /// tests or future isolated owners must opt in once their initial mutations are done.
-    func startObserving() {
+    package func startObserving() {
         observeCacheState()
     }
 
-    func restoreAsync(for workspaceId: UUID) async {
+    package func restoreAsync(for workspaceId: UUID) async {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
@@ -182,7 +183,7 @@ final class RepoCacheStore {
         ).projection
     }
 
-    func flushAsync(for workspaceId: UUID) async throws {
+    package func flushAsync(for workspaceId: UUID) async throws {
         activeWorkspaceId = workspaceId
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil

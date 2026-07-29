@@ -1,8 +1,10 @@
+import AgentStudioTestSupport
 import Foundation
 import GRDB
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @MainActor
 @Suite("Workspace SQLite strict read", .serialized)

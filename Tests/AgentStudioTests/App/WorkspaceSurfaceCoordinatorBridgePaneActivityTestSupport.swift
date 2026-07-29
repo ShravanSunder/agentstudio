@@ -3,6 +3,10 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 struct BridgePaneActivityTestHarness {
@@ -101,7 +105,8 @@ func makeBridgePaneActivityTestHarness(
         worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
         filesystemProjectionIndex: filesystemProjectionIndex,
         windowLifecycleStore: windowLifecycleStore,
-        appLifecycleStore: appLifecycleStore
+        appLifecycleStore: appLifecycleStore,
+        bridgePaneAttendance: BridgePaneAttendanceAtom()
     )
     coordinator.bindBridgePaneActivities(toOwningWindowId: owningWindowId)
 

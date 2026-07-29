@@ -1,19 +1,21 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Observation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite(.serialized)
 struct PaneDisplayDerivedTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test
     func worktreeBackedPane_usesRepoBranchAndFolderLabel() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -50,7 +52,7 @@ struct PaneDisplayDerivedTests {
 
     @Test
     func floatingPane_usesCwdFolderFallback() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -70,7 +72,7 @@ struct PaneDisplayDerivedTests {
 
     @Test("pane note appears after location parts in collapsed label parts")
     func paneNoteAppearsAfterLocationPartsInCollapsedLabelParts() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let paneId = PaneId.generateUUIDv7().uuid
             var metadata = PaneMetadata(
                 launchDirectory: URL(fileURLWithPath: "/tmp/project-dev/agent-studio"),
@@ -121,7 +123,7 @@ struct PaneDisplayDerivedTests {
 
     @Test
     func accentColorHex_returnsStablePaletteEntry_forRepoBackedPane() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -151,7 +153,7 @@ struct PaneDisplayDerivedTests {
 
     @Test
     func accentColorHexTracksKeyedRepoEnrichmentChanges() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -191,7 +193,7 @@ struct PaneDisplayDerivedTests {
 
     @Test
     func accentColorHex_returnsNil_forPaneWithoutRepo() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -205,7 +207,7 @@ struct PaneDisplayDerivedTests {
 
     @Test
     func accentColorHex_matchesSidebarFamilyColoring_forGroupedRepos() throws {
-        try withTestAtomRegistry { atoms in
+        try withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,

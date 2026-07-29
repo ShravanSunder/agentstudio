@@ -71,8 +71,9 @@ stay in Core or Features.
 
 Lint rule `agentstudio_atomlib_is_generic` enforces this boundary for
 `Infrastructure/AtomLib`. Product atoms, feature imports, and concrete
-`AtomRegistry` fields belong in the app's Core/Feature state tree or the root
-registry, not in the generic primitive library.
+`AtomRegistry`, `CoreAtoms`, and `CoreAtomScope` references stay out of the
+generic primitive library. Core owns its concrete graph and typed ambient
+access; App owns the internal registry and explicit Feature roots.
 
 Use the primitive that matches the read surface:
 
@@ -80,13 +81,13 @@ Use the primitive that matches the read surface:
 | --- | --- | --- |
 | `AtomValue<Value>` | one scalar or one cohesive content value | writes require an explicit content comparator except for trivial scalar allowlist types |
 | `AtomEntityMap<Key, Value>` | keyed entity families such as repo enrichment, worktree enrichment, and PR counts | hot UI reads use `value(for:)`; dictionary snapshots are bridge surfaces |
-| `DerivedValue<Value>` | registry-owned memoized read models | compute from declared input revisions; do not reach back into `AtomScope` or `atom(\...)` |
+| `DerivedValue<Value>` | generic memoized read models | compute from declared input revisions; do not reach back into `CoreAtomScope` or `atom(\...)` |
 | `AtomMutationContext` | grouped mutations across primitive updates inside one owner | bump the aggregate revision once after accepted changes |
 
 The derived-read contract is enforced by
 `agentstudio_derived_value_declared_inputs`: a `DerivedValue` compute closure
 must be a pure function of declared revisions/inputs, not a hidden atom read
-through `AtomScope`, `AtomReader`, `atom(\...)`, or `@Atom`.
+through `CoreAtomScope`, `CoreAtoms`, or `atom(\...)`.
 
 `AtomEntityMap` is the internal atom-family primitive. It stores a private
 dictionary for snapshots, but each key has its own observable slot. A row that
@@ -116,6 +117,24 @@ Worktree enrichment diffing must use the narrow comparator helpers rather than
 raw `WorktreeEnrichment` equality. Lint rule
 `agentstudio_worktree_enrichment_comparator` protects that performance boundary
 so non-rendering metadata changes do not wake hot rows.
+
+## Module And State Access Boundary
+
+The concrete `AtomRegistry` belongs only to the `AgentStudio` App target. It
+holds one `CoreAtoms` plus explicit Feature roots for composition, but it is not
+ambient and is not a cross-target lookup API. `CoreAtomScope` belongs only to
+`AgentStudioCore` and exposes typed `KeyPath<CoreAtoms, Value>` reads for Core
+state.
+
+Feature mutable state crosses composition boundaries through exact initializer
+or property injection. Cross-Feature facts are consumer-owned read-only
+projections supplied by App. Do not introduce an ambient Feature scope, a
+registry resolver, a service locator, or sibling Feature imports.
+
+Declarations intentionally consumed by another target in this package use
+`package` access. Keep implementation details `internal` or `private`, and do
+not promote atom graphs, mutation owners, or persistence surfaces broadly to
+`public`.
 
 ## Atom And Actor Placement
 

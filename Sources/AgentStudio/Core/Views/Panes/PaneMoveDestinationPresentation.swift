@@ -1,7 +1,7 @@
-enum PaneMoveDestinationPresentation {
-    static let maximumCharacterCount = 48
+package enum PaneMoveDestinationPresentation {
+    package static let maximumCharacterCount = 48
 
-    static func title(
+    package static func title(
         tabOrdinal: Int,
         tabTitle: String
     ) -> String {

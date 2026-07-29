@@ -1,23 +1,25 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 
 @MainActor
 /// Placeholder direction matters:
 /// `.preparing` is a transient waiting-for-geometry state, while
 /// `.failedToStart` is the resting startup-failure state until the user retries or closes.
-enum TerminalStatusPlaceholderMode: Equatable {
+package enum TerminalStatusPlaceholderMode: Equatable {
     case preparing
     case failedToStart
 }
 
 @MainActor
-final class TerminalStatusPlaceholderView: NSView, PaneMountedContent {
+package final class TerminalStatusPlaceholderView: NSView, PaneMountedContent {
     let paneId: UUID
     private let title: String
     private let startupOverlay = SurfaceStartupOverlayView()
     private let errorOverlay = SurfaceErrorOverlayView()
     private let onRetryRequested: ((UUID) -> Void)?
     private let onDismissRequested: ((UUID) -> Void)?
-    private(set) var mode: TerminalStatusPlaceholderMode
+    package private(set) var mode: TerminalStatusPlaceholderMode
 
     init(
         paneId: UUID,
@@ -40,15 +42,15 @@ final class TerminalStatusPlaceholderView: NSView, PaneMountedContent {
         fatalError("init(coder:) not supported")
     }
 
-    var shouldRetryCreationWhenBoundsChange: Bool {
+    package var shouldRetryCreationWhenBoundsChange: Bool {
         mode == .preparing
     }
 
-    func setContentInteractionEnabled(_ enabled: Bool) {
+    package func setContentInteractionEnabled(_ enabled: Bool) {
         _ = enabled
     }
 
-    func configure(mode: TerminalStatusPlaceholderMode) {
+    package func configure(mode: TerminalStatusPlaceholderMode) {
         guard mode != self.mode else { return }
         self.mode = mode
         render(mode: mode)

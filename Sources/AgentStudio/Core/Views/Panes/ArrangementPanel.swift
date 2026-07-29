@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import AppKit
 import SwiftUI
 
@@ -7,9 +9,10 @@ private enum ArrangementPanelTooltipTarget: Hashable {
 
 /// Floating popover panel for managing pane arrangements.
 /// Shows pane visibility toggles, arrangement chips, and save controls.
-struct ArrangementPanel: View {
+package struct ArrangementPanel: View {
     let tabId: UUID
     let workspaceWindowId: UUID?
+    let octiconLoader: OcticonLoader
     let panes: [PaneVisibilityInfo]
     let zoomMode: ArrangementPanelZoomMode?
     let arrangements: [ArrangementInfo]
@@ -25,6 +28,34 @@ struct ArrangementPanel: View {
     @State private var isSaveButtonHovered = false
     @State private var tooltipFrames: [ArrangementPanelTooltipTarget: CGRect] = [:]
     @State private var focusedArrangementId: UUID?
+
+    package init(
+        tabId: UUID,
+        workspaceWindowId: UUID?,
+        octiconLoader: OcticonLoader,
+        panes: [PaneVisibilityInfo],
+        zoomMode: ArrangementPanelZoomMode?,
+        arrangements: [ArrangementInfo],
+        inlineRenameState: ArrangementInlineRenameState,
+        onPaneAction: @escaping (WorkspaceActionCommand) -> Void,
+        onToggleZoom: @escaping (UUID?) -> Void,
+        onSaveArrangement: @escaping () -> Void,
+        onDismiss: @escaping () -> Void,
+        highlightPaneId: UUID? = nil
+    ) {
+        self.tabId = tabId
+        self.workspaceWindowId = workspaceWindowId
+        self.octiconLoader = octiconLoader
+        self.panes = panes
+        self.zoomMode = zoomMode
+        self.arrangements = arrangements
+        self.inlineRenameState = inlineRenameState
+        self.onPaneAction = onPaneAction
+        self.onToggleZoom = onToggleZoom
+        self.onSaveArrangement = onSaveArrangement
+        self.onDismiss = onDismiss
+        self.highlightPaneId = highlightPaneId
+    }
 
     private static let tooltipCoordinateSpaceName = "arrangementPanelTooltip"
 
@@ -50,7 +81,7 @@ struct ArrangementPanel: View {
         )
     }
 
-    var body: some View {
+    package var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Arrangements")
                 .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
@@ -215,6 +246,7 @@ struct ArrangementPanel: View {
         } label: {
             HStack(spacing: AppStyles.General.Spacing.tight) {
                 AppCommand.zoomPane.definition.icon.swiftUIImage(
+                    loader: octiconLoader,
                     size: AppStyles.General.Typography.textSm
                 )
                 Text(zoomMode.label)
@@ -274,6 +306,7 @@ struct ArrangementPanel: View {
                     onToggleZoom(pane.id)
                 } label: {
                     AppCommand.zoomPane.definition.icon.swiftUIImage(
+                        loader: octiconLoader,
                         size: AppStyles.General.Typography.textSm
                     )
                     .frame(width: 20, height: 20)

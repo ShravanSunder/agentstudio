@@ -1,8 +1,11 @@
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import AppKit
 import SwiftUI
 
-struct CollapsedPaneBar: View {
+package struct CollapsedPaneBar: View {
     let paneId: UUID
+    let octiconLoader: OcticonLoader
     let tabId: UUID
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
@@ -20,11 +23,12 @@ struct CollapsedPaneBar: View {
     @State private var arrangementPopoverToggleGate = PopoverToggleGate()
     @State private var arrangementInlineRenameState = ArrangementInlineRenameState()
 
-    static let barWidth: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
+    package static let barWidth: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
     static let barHeight: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
 
-    init(
+    package init(
         paneId: UUID,
+        octiconLoader: OcticonLoader,
         tabId: UUID,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
@@ -36,6 +40,7 @@ struct CollapsedPaneBar: View {
         workspaceWindowId: UUID? = nil
     ) {
         self.paneId = paneId
+        self.octiconLoader = octiconLoader
         self.tabId = tabId
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
@@ -55,7 +60,7 @@ struct CollapsedPaneBar: View {
         atom(\.workspacePane).pane(paneId)?.isDrawerChild ?? false
     }
 
-    var body: some View {
+    package var body: some View {
         let paneDisplay = atom(\.paneDisplay)
         let displayParts = paneDisplay.displayParts(for: paneId)
         let iconTint =
@@ -201,6 +206,7 @@ struct CollapsedPaneBar: View {
             ArrangementPanel(
                 tabId: tabId,
                 workspaceWindowId: workspaceWindowId,
+                octiconLoader: octiconLoader,
                 panes: panes,
                 zoomMode: zoomMode,
                 arrangements: arrangements,
@@ -300,7 +306,11 @@ struct CollapsedPaneBar: View {
     private func iconView(for icon: CollapsedBarLabelPart.IconKind) -> some View {
         switch icon {
         case .octicon(let name):
-            OcticonImage(name: name, size: AppStyles.General.Typography.textBase)
+            OcticonImage(
+                name: name,
+                size: AppStyles.General.Typography.textBase,
+                loader: octiconLoader
+            )
         case .system(let name):
             Image(systemName: name)
                 .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))

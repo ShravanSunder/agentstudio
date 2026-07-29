@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
 import SwiftUI
 
 // MARK: - Pinned Constants
@@ -100,6 +103,8 @@ private let uvColor = AppStyles.Shell.Sidebar.paletteColor(
 // MARK: - Public View
 
 struct WelcomeSidebarIllustration: View {
+    let octiconLoader: OcticonLoader
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose) {
             ghosttyGroup
@@ -123,6 +128,7 @@ struct WelcomeSidebarIllustration: View {
     private var ghosttyGroup: some View {
         VStack(alignment: .leading, spacing: 0) {
             RepoExplorerResolvedGroupHeaderRow(
+                octiconLoader: octiconLoader,
                 isExpanded: true,
                 repoTitle: "ghostty",
                 organizationName: "ghostty-org"
@@ -130,6 +136,7 @@ struct WelcomeSidebarIllustration: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 RepoExplorerWorktreeRow(
+                    octiconLoader: octiconLoader,
                     worktree: ghosttyMainWorktree,
                     checkoutTitle: "ghostty",
                     branchName: "main",
@@ -146,6 +153,7 @@ struct WelcomeSidebarIllustration: View {
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
                 RepoExplorerWorktreeRow(
+                    octiconLoader: octiconLoader,
                     worktree: ghosttyGpuRendererWorktree,
                     checkoutTitle: "ghostty.gpu-renderer",
                     branchName: "feature/gpu-renderer",
@@ -162,6 +170,7 @@ struct WelcomeSidebarIllustration: View {
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
                 RepoExplorerWorktreeRow(
+                    octiconLoader: octiconLoader,
                     worktree: ghosttyFixKeybindsWorktree,
                     checkoutTitle: "ghostty.fix-keybinds",
                     branchName: "fix/keybind-passthrough",
@@ -185,6 +194,7 @@ struct WelcomeSidebarIllustration: View {
     private var uvGroup: some View {
         VStack(alignment: .leading, spacing: 0) {
             RepoExplorerResolvedGroupHeaderRow(
+                octiconLoader: octiconLoader,
                 isExpanded: true,
                 repoTitle: "uv",
                 organizationName: "astral-sh"
@@ -192,6 +202,7 @@ struct WelcomeSidebarIllustration: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 RepoExplorerWorktreeRow(
+                    octiconLoader: octiconLoader,
                     worktree: uvMainWorktree,
                     checkoutTitle: "uv",
                     branchName: "main",
@@ -208,6 +219,7 @@ struct WelcomeSidebarIllustration: View {
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
                 RepoExplorerWorktreeRow(
+                    octiconLoader: octiconLoader,
                     worktree: uvFixResolverWorktree,
                     checkoutTitle: "uv.fix-resolver",
                     branchName: "fix/resolver-perf",

@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-struct SidebarHeaderLayoutPolicy: Equatable {
+package struct SidebarHeaderLayoutPolicy: Equatable {
     let rowSpacing: CGFloat
     let searchActionSpacing: CGFloat
     let contentPadding: CGFloat
@@ -12,8 +13,8 @@ struct SidebarHeaderLayoutPolicy: Equatable {
     )
 }
 
-struct SidebarHeaderLayout<SearchRow: View, PrimaryAction: View, ToolbarRow: View, StatusRow: View>: View {
-    static var policy: SidebarHeaderLayoutPolicy {
+package struct SidebarHeaderLayout<SearchRow: View, PrimaryAction: View, ToolbarRow: View, StatusRow: View>: View {
+    package static var policy: SidebarHeaderLayoutPolicy {
         .standard
     }
 
@@ -24,7 +25,7 @@ struct SidebarHeaderLayout<SearchRow: View, PrimaryAction: View, ToolbarRow: Vie
     private let showsToolbarRow: Bool
     private let showsStatusRow: Bool
 
-    init(
+    package init(
         @ViewBuilder searchRow: () -> SearchRow,
         @ViewBuilder primaryAction: () -> PrimaryAction,
         @ViewBuilder toolbarRow: () -> ToolbarRow,
@@ -40,7 +41,7 @@ struct SidebarHeaderLayout<SearchRow: View, PrimaryAction: View, ToolbarRow: Vie
         self.showsStatusRow = showsStatusRow
     }
 
-    var body: some View {
+    package var body: some View {
         let policy = Self.policy
         VStack(alignment: .leading, spacing: policy.rowSpacing) {
             HStack(spacing: policy.searchActionSpacing) {
@@ -67,7 +68,7 @@ struct SidebarHeaderLayout<SearchRow: View, PrimaryAction: View, ToolbarRow: Vie
 }
 
 extension SidebarHeaderLayout where PrimaryAction == EmptyView {
-    init(
+    package init(
         @ViewBuilder searchRow: () -> SearchRow,
         @ViewBuilder toolbarRow: () -> ToolbarRow,
         @ViewBuilder statusRow: () -> StatusRow
@@ -82,7 +83,7 @@ extension SidebarHeaderLayout where PrimaryAction == EmptyView {
 }
 
 extension SidebarHeaderLayout where ToolbarRow == EmptyView, StatusRow == EmptyView {
-    init(
+    package init(
         @ViewBuilder searchRow: () -> SearchRow,
         @ViewBuilder primaryAction: () -> PrimaryAction
     ) {
@@ -98,7 +99,7 @@ extension SidebarHeaderLayout where ToolbarRow == EmptyView, StatusRow == EmptyV
 }
 
 extension SidebarHeaderLayout where PrimaryAction == EmptyView, ToolbarRow == EmptyView, StatusRow == EmptyView {
-    init(@ViewBuilder searchRow: () -> SearchRow) {
+    package init(@ViewBuilder searchRow: () -> SearchRow) {
         self.init(
             searchRow: searchRow,
             primaryAction: { EmptyView() },

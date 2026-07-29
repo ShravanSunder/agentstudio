@@ -1,4 +1,6 @@
-struct BridgeTelemetryScopeGate: Equatable, Sendable {
+import AgentStudioInfrastructure
+
+package struct BridgeTelemetryScopeGate: Equatable, Sendable {
     let enabledScopes: Set<BridgeTelemetryScope>
 
     init(enabledScopes: Set<BridgeTelemetryScope>) {

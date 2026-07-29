@@ -1,7 +1,8 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeReviewFoundationContractTests {
     @Test("valid bridge review package fixture decodes and round trips")

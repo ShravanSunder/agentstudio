@@ -1,7 +1,7 @@
 import SwiftUI
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioSharedComponents
 
 @Suite("SidebarSectionHeader")
 struct SidebarSectionHeaderTests {
@@ -54,6 +54,7 @@ struct SidebarSectionHeaderTests {
     func repoGroupHeaderCentralizesRepoSidebarChrome() {
         let header = SidebarRepoGroupHeader(
             isCollapsed: false,
+            octiconLoader: makeSharedComponentsTestOcticonLoader(),
             repoTitle: "agent-studio",
             organizationName: "ShravanSunder",
             onToggle: {},

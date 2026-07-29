@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 
 enum CommandBarRootQueryState: Equatable, Sendable {
@@ -149,7 +150,7 @@ extension CommandBarDataSource {
             guard case .pane(let paneID) = recency.entity else { return nil }
             guard paneID != focusedPaneID else { return nil }
             guard
-                WorkspacePaneRecencyObserver.isEligibleForRecording(
+                WorkspacePaneRecencyEligibility.isEligibleForRecording(
                     pane: store.paneAtom.pane(paneID),
                     workspaceMatches: true,
                     tabs: store.tabLayoutAtom.tabs,

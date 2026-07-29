@@ -5,22 +5,32 @@ import os.log
 private let workspaceTabArrangementLogger = Logger(
     subsystem: "com.agentstudio", category: "WorkspaceTabArrangementAtom")
 
-struct CrossTabPaneMoveResult: Equatable {
-    let sourceTabClosed: Bool
+package struct CrossTabPaneMoveResult: Equatable {
+    package let sourceTabClosed: Bool
 }
 
-struct CrossTabPaneMoveMutation: Equatable {
-    let request: CrossTabPaneMoveRequest
-    let drawerId: UUID?
-    let drawerPaneIds: [UUID]
+package struct CrossTabPaneMoveMutation: Equatable {
+    package let request: CrossTabPaneMoveRequest
+    package let drawerId: UUID?
+    package let drawerPaneIds: [UUID]
+
+    package init(
+        request: CrossTabPaneMoveRequest,
+        drawerId: UUID?,
+        drawerPaneIds: [UUID]
+    ) {
+        self.request = request
+        self.drawerId = drawerId
+        self.drawerPaneIds = drawerPaneIds
+    }
 }
 
-struct PaneDrawerMovePayload: Equatable {
-    let drawerId: UUID
-    let drawerPaneIds: [UUID]
-    let drawerView: DrawerView?
+package struct PaneDrawerMovePayload: Equatable {
+    package let drawerId: UUID
+    package let drawerPaneIds: [UUID]
+    package let drawerView: DrawerView?
 
-    init(drawerId: UUID, drawerPaneIds: [UUID], drawerView: DrawerView? = nil) {
+    package init(drawerId: UUID, drawerPaneIds: [UUID], drawerView: DrawerView? = nil) {
         self.drawerId = drawerId
         self.drawerPaneIds = drawerPaneIds
         self.drawerView = drawerView
@@ -87,7 +97,7 @@ extension WorkspaceTabArrangementAtom {
             )
     }
 
-    func resizeDrawerVisiblePanePair(
+    package func resizeDrawerVisiblePanePair(
         drawerId: UUID,
         tabId: UUID,
         leftPaneId: UUID,
@@ -134,12 +144,12 @@ extension WorkspaceTabArrangementAtom {
 
 @MainActor
 @Observable
-final class WorkspaceTabArrangementAtom {
+package final class WorkspaceTabArrangementAtom {
     let graphAtom: WorkspaceTabGraphAtom
     let cursorAtom: WorkspaceArrangementCursorAtom
-    let presentationAtom: WorkspacePanePresentationAtom
+    package let presentationAtom: WorkspacePanePresentationAtom
 
-    init(
+    package init(
         graphAtom: WorkspaceTabGraphAtom = WorkspaceTabGraphAtom(),
         cursorAtom: WorkspaceArrangementCursorAtom = WorkspaceArrangementCursorAtom(),
         presentationAtom: WorkspacePanePresentationAtom = WorkspacePanePresentationAtom()
@@ -437,7 +447,7 @@ final class WorkspaceTabArrangementAtom {
         arrangementStates[tabIndex] = TabArrangementMutationRules.expandingPane(paneId, in: arrangementStates[tabIndex])
     }
 
-    func addDrawerPaneView(
+    package func addDrawerPaneView(
         drawerId: UUID,
         parentPaneId: UUID,
         drawerPaneId: UUID,
@@ -531,7 +541,7 @@ final class WorkspaceTabArrangementAtom {
         }
     }
 
-    func removeDrawerPaneView(drawerId: UUID, drawerPaneId: UUID, inTab tabId: UUID) {
+    package func removeDrawerPaneView(drawerId: UUID, drawerPaneId: UUID, inTab tabId: UUID) {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("removeDrawerPaneView: tab \(tabId) not found")
             return
@@ -558,7 +568,7 @@ final class WorkspaceTabArrangementAtom {
         arrangementStates[tabIndex].allPaneIds.removeAll { $0 == drawerPaneId }
     }
 
-    func setActiveDrawerPane(_ drawerPaneId: UUID, drawerId: UUID, inTab tabId: UUID) {
+    package func setActiveDrawerPane(_ drawerPaneId: UUID, drawerId: UUID, inTab tabId: UUID) {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("setActiveDrawerPane: tab \(tabId) not found")
             return
@@ -574,7 +584,7 @@ final class WorkspaceTabArrangementAtom {
         arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
     }
 
-    func resizeDrawerPane(drawerId: UUID, tabId: UUID, splitId: UUID, ratio: Double) {
+    package func resizeDrawerPane(drawerId: UUID, tabId: UUID, splitId: UUID, ratio: Double) {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("resizeDrawerPane: tab \(tabId) not found")
             return
@@ -586,7 +596,7 @@ final class WorkspaceTabArrangementAtom {
         arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
     }
 
-    func equalizeDrawerPanes(drawerId: UUID, tabId: UUID) {
+    package func equalizeDrawerPanes(drawerId: UUID, tabId: UUID) {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("equalizeDrawerPanes: tab \(tabId) not found")
             return
@@ -599,7 +609,7 @@ final class WorkspaceTabArrangementAtom {
     }
 
     @discardableResult
-    func minimizeDrawerPane(_ drawerPaneId: UUID, drawerId: UUID, tabId: UUID) -> Bool {
+    package func minimizeDrawerPane(_ drawerPaneId: UUID, drawerId: UUID, tabId: UUID) -> Bool {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("minimizeDrawerPane: tab \(tabId) not found")
             return false
@@ -636,7 +646,7 @@ final class WorkspaceTabArrangementAtom {
         return true
     }
 
-    func expandDrawerPane(_ drawerPaneId: UUID, drawerId: UUID, tabId: UUID) {
+    package func expandDrawerPane(_ drawerPaneId: UUID, drawerId: UUID, tabId: UUID) {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("expandDrawerPane: tab \(tabId) not found")
             return
@@ -649,7 +659,7 @@ final class WorkspaceTabArrangementAtom {
         arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
     }
 
-    func moveDrawerPane(
+    package func moveDrawerPane(
         _ drawerPaneId: UUID,
         drawerId: UUID,
         tabId: UUID,
@@ -733,7 +743,7 @@ final class WorkspaceTabArrangementAtom {
     }
 
     @discardableResult
-    func movePaneAcrossTabs(_ mutation: CrossTabPaneMoveMutation) -> CrossTabPaneMoveResult? {
+    package func movePaneAcrossTabs(_ mutation: CrossTabPaneMoveMutation) -> CrossTabPaneMoveResult? {
         let request = mutation.request
         let paneId = request.paneId
         let sourceTabId = request.sourceTabId

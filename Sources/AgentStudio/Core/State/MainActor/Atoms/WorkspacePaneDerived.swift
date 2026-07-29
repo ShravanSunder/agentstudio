@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-struct WorkspacePaneDerived {
+package struct WorkspacePaneDerived {
     let graphAtom: WorkspacePaneGraphAtom
     let drawerCursorAtom: WorkspaceDrawerCursorAtom
     let repositoryTopologyAtom: RepositoryTopologyAtom?

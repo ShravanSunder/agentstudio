@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// Primary pane identity.
@@ -18,20 +19,20 @@ import Foundation
 /// - Use `PaneId.generateUUIDv7()` when minting a new pane identity.
 /// - Use `PaneId(existingUUID:)` when preserving an already durable identity.
 ///   Historical UUID versions remain valid identities and are never rewritten.
-struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
+package struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
 
     /// The underlying UUID. Newly minted values are v7; existing values may use any UUID version.
-    let uuid: UUID
+    package let uuid: UUID
 
     // MARK: - Creation
 
     /// Mint a new time-ordered PaneId using UUID v7.
-    static func generateUUIDv7() -> Self {
+    package static func generateUUIDv7() -> Self {
         Self(existingUUID: UUIDv7.generate())
     }
 
     /// Preserve an already durable UUID exactly, regardless of its historical version.
-    init(existingUUID: UUID) {
+    package init(existingUUID: UUID) {
         self.uuid = existingUUID
     }
 
@@ -43,7 +44,7 @@ struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringCon
     /// and temporal ordering checks.
     ///
     /// Derivation: `first16hex(lowercase(removeHyphens(uuid.uuidString)))`
-    var hexPrefix: String {
+    package var hexPrefix: String {
         String(
             uuid.uuidString
                 .replacingOccurrences(of: "-", with: "")
@@ -52,32 +53,32 @@ struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringCon
     }
 
     /// The full 32-character lowercase hex representation (no hyphens).
-    var fullHex: String {
+    package var fullHex: String {
         uuid.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     }
 
     /// Whether this PaneId uses UUID v7 and therefore carries a timestamp.
-    var isV7: Bool {
+    package var isV7: Bool {
         UUIDv7.isV7(uuid)
     }
 
     /// The creation timestamp for UUID v7, otherwise nil.
-    var createdAt: Date? {
+    package var createdAt: Date? {
         UUIDv7.timestamp(from: uuid)
     }
 
     // MARK: - String Representations
 
     /// Standard UUID string (e.g., "0191F5D4-9B2A-7C3D-8E4F-0123456789AB").
-    var uuidString: String {
+    package var uuidString: String {
         uuid.uuidString
     }
 
-    var description: String {
+    package var description: String {
         uuid.uuidString
     }
 
-    var debugDescription: String {
+    package var debugDescription: String {
         "PaneId(\(uuid.uuidString))"
     }
 }
@@ -87,13 +88,13 @@ struct PaneId: Hashable, Sendable, CustomStringConvertible, CustomDebugStringCon
 extension PaneId: Codable {
 
     /// Decode and preserve an existing bare UUID string exactly.
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         uuid = try container.decode(UUID.self)
     }
 
     /// Encode as a bare UUID string.
-    func encode(to encoder: Encoder) throws {
+    package func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(uuid)
     }
@@ -106,7 +107,7 @@ extension PaneId: Comparable {
     /// Lexicographic comparison of UUID strings.
     /// For UUID v7, this approximates temporal ordering at millisecond granularity.
     /// IDs minted within the same millisecond may not preserve exact creation order.
-    static func < (lhs: PaneId, rhs: PaneId) -> Bool {
+    package static func < (lhs: PaneId, rhs: PaneId) -> Bool {
         lhs.uuid.uuidString < rhs.uuid.uuidString
     }
 }

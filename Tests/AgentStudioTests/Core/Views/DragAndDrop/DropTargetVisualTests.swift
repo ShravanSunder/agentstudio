@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 /// Pin the shared visual model main + drawer use to render drag
 /// targets:

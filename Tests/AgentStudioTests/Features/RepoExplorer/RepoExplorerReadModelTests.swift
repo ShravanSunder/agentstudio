@@ -1,7 +1,8 @@
+import AgentStudioCore
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioRepoExplorer
 
 @Suite("RepoExplorer read models")
 struct RepoExplorerReadModelTests {

@@ -1,8 +1,9 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 private final class RepositoryTopologyObservationFlag: @unchecked Sendable {
     var didFire = false
@@ -787,7 +788,7 @@ struct RepositoryTopologyAtomTests {
 
 @MainActor
 private func makeTopologyMutationCoordinator(atom: RepositoryTopologyAtom) -> WorkspaceMutationCoordinator {
-    AtomRegistry(workspaceRepositoryTopology: atom).workspaceMutationCoordinator
+    CoreAtoms(workspaceRepositoryTopology: atom).workspaceMutationCoordinator
 }
 
 @MainActor

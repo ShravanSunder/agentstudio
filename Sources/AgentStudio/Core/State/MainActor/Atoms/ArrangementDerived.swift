@@ -4,8 +4,8 @@ import os.log
 private let arrangementDerivedLogger = Logger(subsystem: "com.agentstudio", category: "ArrangementDerived")
 
 @MainActor
-struct ArrangementDerived {
-    nonisolated static func nextCustomArrangementName(existing: [PaneArrangement]) -> String {
+package struct ArrangementDerived {
+    nonisolated package static func nextCustomArrangementName(existing: [PaneArrangement]) -> String {
         let existingNames = Set(existing.map(\.name))
         var index = 1
         while existingNames.contains("Layout \(index)") {
@@ -14,7 +14,7 @@ struct ArrangementDerived {
         return "Layout \(index)"
     }
 
-    func paneVisibilityItems(for tabId: UUID) -> [PaneVisibilityInfo] {
+    package func paneVisibilityItems(for tabId: UUID) -> [PaneVisibilityInfo] {
         let workspaceTab = atom(\.workspaceTab)
         let workspacePane = atom(\.workspacePane)
         let paneDisplay = atom(\.paneDisplay)
@@ -35,7 +35,7 @@ struct ArrangementDerived {
         }
     }
 
-    func arrangementItems(for tabId: UUID) -> [ArrangementInfo] {
+    package func arrangementItems(for tabId: UUID) -> [ArrangementInfo] {
         let workspaceTab = atom(\.workspaceTab)
         guard let tab = workspaceTab.tab(tabId) else {
             arrangementDerivedLogger.warning("arrangementItems: tab \(tabId) not found")
@@ -52,7 +52,7 @@ struct ArrangementDerived {
         }
     }
 
-    func zoomMode(for tabId: UUID) -> ArrangementPanelZoomMode? {
+    package func zoomMode(for tabId: UUID) -> ArrangementPanelZoomMode? {
         guard
             let presentation = atom(\.workspacePanePresentation)
                 .zoomPresentation(forTab: tabId)

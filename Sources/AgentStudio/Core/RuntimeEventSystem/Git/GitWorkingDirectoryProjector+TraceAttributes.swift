@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// Trace-attribute assembly for git status computes, split from the actor

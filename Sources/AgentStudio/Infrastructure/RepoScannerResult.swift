@@ -1,6 +1,6 @@
 import Foundation
 
-enum RepoScannerResult: Sendable, Equatable {
+package enum RepoScannerResult: Sendable, Equatable {
     case completeAuthoritative(CompleteRepoScan)
     case partial(PartialRepoScan)
     case unavailable(UnavailableRepoScan)
@@ -8,77 +8,158 @@ enum RepoScannerResult: Sendable, Equatable {
     case failed(FailedRepoScan)
 }
 
-struct CompleteRepoScan: Sendable, Equatable {
-    let verifiedEntries: [RepoScanner.ResolvedGitEntry]
-    let counts: RepoScannerEvidenceCounts
-    let serviceMetrics: RepoScannerServiceMetrics
-}
+package struct CompleteRepoScan: Sendable, Equatable {
+    package let verifiedEntries: [RepoScanner.ResolvedGitEntry]
+    package let counts: RepoScannerEvidenceCounts
+    package let serviceMetrics: RepoScannerServiceMetrics
 
-struct PartialRepoScan: Sendable, Equatable {
-    let verifiedEntries: [RepoScanner.ResolvedGitEntry]
-    let failures: NonEmptyScanFailures
-    let counts: RepoScannerEvidenceCounts
-    let serviceMetrics: RepoScannerServiceMetrics
-}
-
-struct NonEmptyScanFailures: Sendable, Equatable {
-    let first: ScanFailureReason
-    let remaining: [ScanFailureReason]
-
-    var all: [ScanFailureReason] {
-        [first] + remaining
+    package init(
+        verifiedEntries: [RepoScanner.ResolvedGitEntry],
+        counts: RepoScannerEvidenceCounts,
+        serviceMetrics: RepoScannerServiceMetrics
+    ) {
+        self.verifiedEntries = verifiedEntries
+        self.counts = counts
+        self.serviceMetrics = serviceMetrics
     }
 }
 
-struct UnavailableRepoScan: Sendable, Equatable {
-    let reason: RepoScanUnavailableReason
-    let counts: RepoScannerEvidenceCounts
-    let serviceMetrics: RepoScannerServiceMetrics
+package struct PartialRepoScan: Sendable, Equatable {
+    package let verifiedEntries: [RepoScanner.ResolvedGitEntry]
+    package let failures: NonEmptyScanFailures
+    package let counts: RepoScannerEvidenceCounts
+    package let serviceMetrics: RepoScannerServiceMetrics
+
+    package init(
+        verifiedEntries: [RepoScanner.ResolvedGitEntry],
+        failures: NonEmptyScanFailures,
+        counts: RepoScannerEvidenceCounts,
+        serviceMetrics: RepoScannerServiceMetrics
+    ) {
+        self.verifiedEntries = verifiedEntries
+        self.failures = failures
+        self.counts = counts
+        self.serviceMetrics = serviceMetrics
+    }
 }
 
-struct CancelledRepoScan: Sendable, Equatable {
-    let verifiedEntries: [RepoScanner.ResolvedGitEntry]
-    let counts: RepoScannerEvidenceCounts
-    let serviceMetrics: RepoScannerServiceMetrics
+package struct NonEmptyScanFailures: Sendable, Equatable {
+    package let first: ScanFailureReason
+    package let remaining: [ScanFailureReason]
+
+    package var all: [ScanFailureReason] {
+        [first] + remaining
+    }
+
+    package init(first: ScanFailureReason, remaining: [ScanFailureReason]) {
+        self.first = first
+        self.remaining = remaining
+    }
 }
 
-struct FailedRepoScan: Sendable, Equatable {
-    let reason: ScanFailureReason
-    let counts: RepoScannerEvidenceCounts
-    let serviceMetrics: RepoScannerServiceMetrics
+package struct UnavailableRepoScan: Sendable, Equatable {
+    package let reason: RepoScanUnavailableReason
+    package let counts: RepoScannerEvidenceCounts
+    package let serviceMetrics: RepoScannerServiceMetrics
+
+    package init(
+        reason: RepoScanUnavailableReason,
+        counts: RepoScannerEvidenceCounts,
+        serviceMetrics: RepoScannerServiceMetrics
+    ) {
+        self.reason = reason
+        self.counts = counts
+        self.serviceMetrics = serviceMetrics
+    }
 }
 
-struct RepoScannerServiceMetrics: Sendable, Equatable {
-    let traversalServiceDuration: Duration
-    let validationServiceDuration: Duration
+package struct CancelledRepoScan: Sendable, Equatable {
+    package let verifiedEntries: [RepoScanner.ResolvedGitEntry]
+    package let counts: RepoScannerEvidenceCounts
+    package let serviceMetrics: RepoScannerServiceMetrics
 
-    static let zero = Self(
+    package init(
+        verifiedEntries: [RepoScanner.ResolvedGitEntry],
+        counts: RepoScannerEvidenceCounts,
+        serviceMetrics: RepoScannerServiceMetrics
+    ) {
+        self.verifiedEntries = verifiedEntries
+        self.counts = counts
+        self.serviceMetrics = serviceMetrics
+    }
+}
+
+package struct FailedRepoScan: Sendable, Equatable {
+    package let reason: ScanFailureReason
+    package let counts: RepoScannerEvidenceCounts
+    package let serviceMetrics: RepoScannerServiceMetrics
+
+    package init(
+        reason: ScanFailureReason,
+        counts: RepoScannerEvidenceCounts,
+        serviceMetrics: RepoScannerServiceMetrics
+    ) {
+        self.reason = reason
+        self.counts = counts
+        self.serviceMetrics = serviceMetrics
+    }
+}
+
+package struct RepoScannerServiceMetrics: Sendable, Equatable {
+    package let traversalServiceDuration: Duration
+    package let validationServiceDuration: Duration
+
+    package static let zero = Self(
         traversalServiceDuration: .zero,
         validationServiceDuration: .zero
     )
 }
 
-struct RepoScannerEvidenceCounts: Sendable, Equatable {
-    let directoryVisitCount: Int
-    let directoryTraversalFailureCount: Int
-    let entryMetadataFailureCount: Int
-    let gitCandidateCount: Int
-    let validationSuccessCount: Int
-    let validationAuthoritativeNegativeCount: Int
-    let validationTimeoutCount: Int
-    let validationCancellationCount: Int
-    let validationFailureCount: Int
-    let scannerServiceInvocationCount: Int
+package struct RepoScannerEvidenceCounts: Sendable, Equatable {
+    package let directoryVisitCount: Int
+    package let directoryTraversalFailureCount: Int
+    package let entryMetadataFailureCount: Int
+    package let gitCandidateCount: Int
+    package let validationSuccessCount: Int
+    package let validationAuthoritativeNegativeCount: Int
+    package let validationTimeoutCount: Int
+    package let validationCancellationCount: Int
+    package let validationFailureCount: Int
+    package let scannerServiceInvocationCount: Int
+
+    package init(
+        directoryVisitCount: Int,
+        directoryTraversalFailureCount: Int,
+        entryMetadataFailureCount: Int,
+        gitCandidateCount: Int,
+        validationSuccessCount: Int,
+        validationAuthoritativeNegativeCount: Int,
+        validationTimeoutCount: Int,
+        validationCancellationCount: Int,
+        validationFailureCount: Int,
+        scannerServiceInvocationCount: Int
+    ) {
+        self.directoryVisitCount = directoryVisitCount
+        self.directoryTraversalFailureCount = directoryTraversalFailureCount
+        self.entryMetadataFailureCount = entryMetadataFailureCount
+        self.gitCandidateCount = gitCandidateCount
+        self.validationSuccessCount = validationSuccessCount
+        self.validationAuthoritativeNegativeCount = validationAuthoritativeNegativeCount
+        self.validationTimeoutCount = validationTimeoutCount
+        self.validationCancellationCount = validationCancellationCount
+        self.validationFailureCount = validationFailureCount
+        self.scannerServiceInvocationCount = scannerServiceInvocationCount
+    }
 }
 
-enum RepoScanUnavailableReason: Sendable, Equatable {
+package enum RepoScanUnavailableReason: Sendable, Equatable {
     case rootDoesNotExist
     case rootIsNotDirectory
     case rootMetadataUnavailable(detail: String)
     case rootTraversalUnavailable(detail: String)
 }
 
-enum GitRepositoryAuthoritativeNegativeReason: Sendable, Equatable {
+package enum GitRepositoryAuthoritativeNegativeReason: Sendable, Equatable {
     case notAValidWorktree
     case exactCandidateIsNotRepository
     case invalidRepository
@@ -89,7 +170,7 @@ enum GitRepositoryAuthoritativeNegativeReason: Sendable, Equatable {
     case mainWorktreeMismatch
 }
 
-enum GitRepositoryDiscoveryOutcome: Sendable, Equatable {
+package enum GitRepositoryDiscoveryOutcome: Sendable, Equatable {
     case validated(RepoScanner.ResolvedGitEntry)
     case authoritativeNegative(GitRepositoryAuthoritativeNegativeReason)
     case timeout
@@ -97,14 +178,14 @@ enum GitRepositoryDiscoveryOutcome: Sendable, Equatable {
     case failure(GitRepositoryDiscoveryFailureReason)
 }
 
-enum GitRepositoryDiscoveryFailureReason: Sendable, Equatable {
+package enum GitRepositoryDiscoveryFailureReason: Sendable, Equatable {
     case validationFailed(detail: String)
     case repositoryIdentityFailed(detail: String)
     case serviceFailed(detail: String)
     case candidateAdmissionRejected(FilesystemDiscoveryCandidateRejection)
 }
 
-enum ScanFailureReason: Sendable, Equatable {
+package enum ScanFailureReason: Sendable, Equatable {
     case invalidMaximumDepth(Int)
     case directoryTraversalFailed(directoryPath: URL, detail: String)
     case entryMetadataReadFailed(entryPath: URL, detail: String)
@@ -119,7 +200,7 @@ enum ScanFailureReason: Sendable, Equatable {
     case sessionCapacityExceeded(RepoScannerSessionCapacityDimension)
 }
 
-enum RepoScannerSessionCapacityDimension: Sendable, Equatable {
+package enum RepoScannerSessionCapacityDimension: Sendable, Equatable {
     case enumeratedItemCount(maximum: Int)
     case enumeratedPathBytes(maximum: Int)
     case retainedVerifiedEntryCount(maximum: Int)
@@ -127,7 +208,7 @@ enum RepoScannerSessionCapacityDimension: Sendable, Equatable {
     case retainedFailureCount(maximum: Int)
 }
 
-enum RepoScannerBudgetConfigurationError: Error, Sendable, Equatable {
+package enum RepoScannerBudgetConfigurationError: Error, Sendable, Equatable {
     case nonPositiveMaximumEnumeratedItems(Int)
     case nonPositiveMaximumPathBytes(Int)
     case nonPositiveMaximumCandidateValidations(Int)
@@ -140,14 +221,14 @@ enum RepoScannerBudgetConfigurationError: Error, Sendable, Equatable {
     case nonPositiveMaximumRetainedFailures(Int)
 }
 
-struct RepoScannerQuantumBudget: Sendable, Equatable {
-    let maximumEnumeratedItems: Int
-    let maximumPathBytes: Int
-    let maximumCandidateValidations: Int
-    let maximumFailures: Int
-    let maximumActiveServiceDuration: Duration
+package struct RepoScannerQuantumBudget: Sendable, Equatable {
+    package let maximumEnumeratedItems: Int
+    package let maximumPathBytes: Int
+    package let maximumCandidateValidations: Int
+    package let maximumFailures: Int
+    package let maximumActiveServiceDuration: Duration
 
-    static let productionDefault = Self(
+    package static let productionDefault = Self(
         validatedMaximumEnumeratedItems: 256,
         maximumPathBytes: 1_048_576,
         maximumCandidateValidations: 8,
@@ -155,7 +236,7 @@ struct RepoScannerQuantumBudget: Sendable, Equatable {
         maximumActiveServiceDuration: .milliseconds(8)
     )
 
-    init(
+    package init(
         maximumEnumeratedItems: Int,
         maximumPathBytes: Int,
         maximumCandidateValidations: Int,
@@ -207,14 +288,14 @@ struct RepoScannerQuantumBudget: Sendable, Equatable {
     }
 }
 
-struct RepoScannerSessionCapacity: Sendable, Equatable {
-    let maximumEnumeratedItems: Int
-    let maximumPathBytes: Int
-    let maximumRetainedVerifiedEntries: Int
-    let maximumRetainedVerifiedEntryBytes: Int
-    let maximumRetainedFailures: Int
+package struct RepoScannerSessionCapacity: Sendable, Equatable {
+    package let maximumEnumeratedItems: Int
+    package let maximumPathBytes: Int
+    package let maximumRetainedVerifiedEntries: Int
+    package let maximumRetainedVerifiedEntryBytes: Int
+    package let maximumRetainedFailures: Int
 
-    static let productionDefault = Self(
+    package static let productionDefault = Self(
         validatedMaximumEnumeratedItems: 1_000_000,
         maximumPathBytes: 1_073_741_824,
         maximumRetainedVerifiedEntries: 100_000,
@@ -222,7 +303,7 @@ struct RepoScannerSessionCapacity: Sendable, Equatable {
         maximumRetainedFailures: 1024
     )
 
-    init(
+    package init(
         maximumEnumeratedItems: Int,
         maximumPathBytes: Int,
         maximumRetainedVerifiedEntries: Int,
@@ -278,46 +359,86 @@ struct RepoScannerSessionCapacity: Sendable, Equatable {
     }
 }
 
-struct RepoScannerQuantumUsage: Sendable, Equatable {
-    let enumeratedItemCount: Int
-    let enumeratedPathByteCount: Int
-    let candidateValidationCount: Int
-    let failureCount: Int
-    let traversalServiceDuration: Duration
+package struct RepoScannerQuantumUsage: Sendable, Equatable {
+    package let enumeratedItemCount: Int
+    package let enumeratedPathByteCount: Int
+    package let candidateValidationCount: Int
+    package let failureCount: Int
+    package let traversalServiceDuration: Duration
+
+    package init(
+        enumeratedItemCount: Int,
+        enumeratedPathByteCount: Int,
+        candidateValidationCount: Int,
+        failureCount: Int,
+        traversalServiceDuration: Duration
+    ) {
+        self.enumeratedItemCount = enumeratedItemCount
+        self.enumeratedPathByteCount = enumeratedPathByteCount
+        self.candidateValidationCount = candidateValidationCount
+        self.failureCount = failureCount
+        self.traversalServiceDuration = traversalServiceDuration
+    }
 }
 
-enum RepoScannerQuantumOutcome: Sendable, Equatable {
+package enum RepoScannerQuantumOutcome: Sendable, Equatable {
     case suspended(usage: RepoScannerQuantumUsage)
     case validationRequired(RepoScannerValidationRequest)
     case finished(RepoScannerResult)
 }
 
-struct RepoScannerSessionID: Hashable, Sendable {
-    let rawValue: UUID
+package struct RepoScannerSessionID: Hashable, Sendable {
+    package let rawValue: UUID
+
+    package init(rawValue: UUID) {
+        self.rawValue = rawValue
+    }
 }
 
-struct RepoScannerValidationRequestID: Hashable, Sendable {
-    let rawValue: UUID
+package struct RepoScannerValidationRequestID: Hashable, Sendable {
+    package let rawValue: UUID
 
-    static func make() -> Self { Self(rawValue: UUIDv7.generate()) }
-    var isUUIDv7: Bool { UUIDv7.isV7(rawValue) }
+    package static func make() -> Self { Self(rawValue: UUIDv7.generate()) }
+    package var isUUIDv7: Bool { UUIDv7.isV7(rawValue) }
 }
 
-struct RepoScannerValidationRequest: Sendable, Equatable {
-    let requestID: RepoScannerValidationRequestID
-    let scannerSessionID: RepoScannerSessionID
+package struct RepoScannerValidationRequest: Sendable, Equatable {
+    package let requestID: RepoScannerValidationRequestID
+    package let scannerSessionID: RepoScannerSessionID
     /// Correlation evidence only. This does not mint watched-root authority.
-    let scanRootURL: URL
-    let candidateURL: URL
+    package let scanRootURL: URL
+    package let candidateURL: URL
+
+    package init(
+        requestID: RepoScannerValidationRequestID,
+        scannerSessionID: RepoScannerSessionID,
+        scanRootURL: URL,
+        candidateURL: URL
+    ) {
+        self.requestID = requestID
+        self.scannerSessionID = scannerSessionID
+        self.scanRootURL = scanRootURL
+        self.candidateURL = candidateURL
+    }
 }
 
-struct RepoScannerValidationCompletion: Sendable, Equatable {
-    let request: RepoScannerValidationRequest
-    let outcome: GitRepositoryDiscoveryOutcome
-    let validationServiceDuration: Duration
+package struct RepoScannerValidationCompletion: Sendable, Equatable {
+    package let request: RepoScannerValidationRequest
+    package let outcome: GitRepositoryDiscoveryOutcome
+    package let validationServiceDuration: Duration
+
+    package init(
+        request: RepoScannerValidationRequest,
+        outcome: GitRepositoryDiscoveryOutcome,
+        validationServiceDuration: Duration
+    ) {
+        self.request = request
+        self.outcome = outcome
+        self.validationServiceDuration = validationServiceDuration
+    }
 }
 
-enum RepoScannerValidationCompletionRejection: Sendable, Equatable {
+package enum RepoScannerValidationCompletionRejection: Sendable, Equatable {
     case foreignSession(RepoScannerSessionID)
     case foreignRequest(RepoScannerValidationRequestID)
     case foreignRoot(URL)
@@ -327,12 +448,12 @@ enum RepoScannerValidationCompletionRejection: Sendable, Equatable {
     case sessionFinished
 }
 
-enum RepoScannerValidationCompletionConsumptionResult: Sendable, Equatable {
+package enum RepoScannerValidationCompletionConsumptionResult: Sendable, Equatable {
     case consumed
     case rejected(RepoScannerValidationCompletionRejection)
 }
 
-enum RepoScannerSessionCancellationResult: Sendable, Equatable {
+package enum RepoScannerSessionCancellationResult: Sendable, Equatable {
     case cancelled
     case cancellationRequested
     case cancelledAwaitingValidation(RepoScannerValidationRequest)

@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 import Observation
 import os.log
@@ -7,7 +10,7 @@ private let inboxNotificationRouterLogger = Logger(
     category: "InboxNotificationRouter"
 )
 @MainActor
-final class InboxNotificationRouter {
+package final class InboxNotificationRouter {
     private struct ObservedPaneClearOutcome: Sendable, Equatable {
         let clearedCount: Int
         let keepCount: Int
@@ -81,7 +84,8 @@ final class InboxNotificationRouter {
     private let tabLayout: WorkspaceTabLayoutAtom
     private let attendedPane: AttendedPaneDerived
     private let focusTracker: PaneFocusTracker
-    private let terminalActivity: TerminalActivityAtom?
+    private let terminalIsPinnedToBottom: @MainActor (UUID) -> Bool
+    private let terminalPinnedStateSnapshot: @MainActor () -> [UUID: Bool]
     private let autoClearPolicy: PaneInboxAutoClearPolicy
     private let traceRuntime: AgentStudioTraceRuntime?
     private let traceQueue: AgentStudioTraceEventQueue?
@@ -108,7 +112,7 @@ final class InboxNotificationRouter {
         traceRuntime: traceRuntime
     )
 
-    init(
+    package init(
         bus: EventBus<RuntimeEnvelope>,
         inboxAtom: InboxNotificationAtom,
         prefsAtom: InboxNotificationPrefsAtom,
@@ -116,7 +120,8 @@ final class InboxNotificationRouter {
         tabLayout: WorkspaceTabLayoutAtom,
         attendedPane: AttendedPaneDerived,
         focusTracker: PaneFocusTracker,
-        terminalActivity: TerminalActivityAtom? = nil,
+        terminalIsPinnedToBottom: @escaping @MainActor (UUID) -> Bool,
+        terminalPinnedStateSnapshot: @escaping @MainActor () -> [UUID: Bool],
         autoClearPolicy: PaneInboxAutoClearPolicy = .init(),
         traceRuntime: AgentStudioTraceRuntime? = nil,
         drawerView: @escaping @MainActor (UUID) -> DrawerView? = {
@@ -131,7 +136,8 @@ final class InboxNotificationRouter {
         self.tabLayout = tabLayout
         self.attendedPane = attendedPane
         self.focusTracker = focusTracker
-        self.terminalActivity = terminalActivity
+        self.terminalIsPinnedToBottom = terminalIsPinnedToBottom
+        self.terminalPinnedStateSnapshot = terminalPinnedStateSnapshot
         self.autoClearPolicy = autoClearPolicy
         self.traceRuntime = traceRuntime
         self.traceQueue = traceRuntime.map(AgentStudioTraceEventQueue.init(traceRuntime:))
@@ -145,7 +151,7 @@ final class InboxNotificationRouter {
         traceQueue?.cancel()
     }
 
-    func stop() async {
+    package func stop() async {
         isStarted = false
         let busTask = busTask
         busTask?.cancel()
@@ -167,7 +173,7 @@ final class InboxNotificationRouter {
         pinnedToBottomByPaneId.removeAll()
     }
 
-    func flushTraceRecords() async {
+    package func flushTraceRecords() async {
         do {
             try await traceQueue?.flush()
         } catch {
@@ -178,7 +184,7 @@ final class InboxNotificationRouter {
         }
     }
 
-    func start() async {
+    package func start() async {
         guard busTask == nil, focusTask == nil else { return }
         isStarted = true
         attendedPaneIdSnapshot = currentAttendedPaneId()
@@ -754,7 +760,7 @@ final class InboxNotificationRouter {
     }
 
     private func isSourcePanePinnedToBottom(_ paneId: UUID) -> Bool {
-        pinnedToBottomByPaneId[paneId] ?? terminalActivity?.snapshot(for: paneId)?.isPinnedToBottom == true
+        pinnedToBottomByPaneId[paneId] ?? terminalIsPinnedToBottom(paneId)
     }
 
     private func shouldInvalidateActivityWindow(_ notification: InboxNotification) -> Bool {
@@ -762,7 +768,7 @@ final class InboxNotificationRouter {
     }
 
     private func currentPolicySnapshot() -> InboxPolicySnapshot {
-        var pinnedByPaneId = terminalActivity?.snapshotsByPaneId.mapValues(\.isPinnedToBottom) ?? [:]
+        var pinnedByPaneId = terminalPinnedStateSnapshot()
         pinnedByPaneId.merge(pinnedToBottomByPaneId) { _, latest in latest }
         return InboxPolicySnapshot(
             attendedPaneId: currentAttendedPaneId(),

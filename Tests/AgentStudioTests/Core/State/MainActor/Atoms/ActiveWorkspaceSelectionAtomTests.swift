@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite("ActiveWorkspaceSelectionAtom")
@@ -33,8 +33,8 @@ struct ActiveWorkspaceSelectionAtomTests {
         #expect(atom.activeWorkspaceId == nil)
     }
 
-    @Test("registry owns active workspace selection separately from workspace metadata")
-    func registryOwnsActiveWorkspaceSelectionSeparatelyFromWorkspaceMetadata() {
+    @Test("Core atoms own active workspace selection separately from workspace metadata")
+    func coreAtomsOwnActiveWorkspaceSelectionSeparatelyFromWorkspaceMetadata() {
         let selectedWorkspaceId = UUID()
         let hydratedWorkspaceId = UUID()
         let identityAtom = WorkspaceIdentityAtom(
@@ -42,14 +42,14 @@ struct ActiveWorkspaceSelectionAtomTests {
             workspaceName: "Hydrated Workspace",
             createdAt: Date()
         )
-        let registry = AtomRegistry(
+        let coreAtoms = CoreAtoms(
             workspaceIdentity: identityAtom
         )
 
-        registry.activeWorkspaceSelection.selectWorkspace(selectedWorkspaceId)
+        coreAtoms.activeWorkspaceSelection.selectWorkspace(selectedWorkspaceId)
 
-        #expect(registry.activeWorkspaceSelection.activeWorkspaceId == selectedWorkspaceId)
-        #expect(registry.workspaceIdentity.workspaceId == hydratedWorkspaceId)
-        #expect(registry.workspaceIdentity.workspaceId != selectedWorkspaceId)
+        #expect(coreAtoms.activeWorkspaceSelection.activeWorkspaceId == selectedWorkspaceId)
+        #expect(coreAtoms.workspaceIdentity.workspaceId == hydratedWorkspaceId)
+        #expect(coreAtoms.workspaceIdentity.workspaceId != selectedWorkspaceId)
     }
 }

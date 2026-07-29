@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 import GRDB
 
@@ -44,7 +47,7 @@ enum InboxNotificationSQLiteCodecs {
             activityContext?.thresholdRows,
             activityContext?.latestRows,
             claimKey?.paneId.uuidString,
-            claimKey.map { SQLiteInboxNotificationClaimStorage.storageValue(for: $0.lane) },
+            claimKey.map(\.lane.sqliteStorageValue),
             claimKey.map { claimSemanticStorageValue(for: $0.semantic) },
             claimKey?.sessionId?.uuidString,
             notification.isRead ? 1 : 0,
@@ -190,7 +193,11 @@ enum InboxNotificationSQLiteCodecs {
         else {
             throw InboxNotificationSQLiteRepositoryError.malformedClaimKey(notificationId)
         }
-        guard let lane = InboxNotificationClaimLane(rawValue: laneRawValue) else {
+        guard
+            let validatedLaneRawValue =
+                SQLiteInboxNotificationClaimStorage.validatedLaneStorageValue(laneRawValue),
+            let lane = InboxNotificationClaimLane(rawValue: validatedLaneRawValue)
+        else {
             throw InboxNotificationSQLiteRepositoryError.unsupportedClaimLane(laneRawValue)
         }
         guard let semantic = InboxNotificationClaimSemantic(rawValue: semanticRawValue) else {

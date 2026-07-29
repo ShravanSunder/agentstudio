@@ -4,12 +4,16 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private struct Harness {
@@ -31,7 +35,8 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
             runtime: runtime,
             surfaceManager: SlotLifecycleSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         return Harness(store: store, viewRegistry: viewRegistry, coordinator: coordinator, tempDir: tempDir)
     }

@@ -1,3 +1,7 @@
+import AgentStudioCore
+import AgentStudioInboxNotification
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -58,6 +62,8 @@ private struct ScrollOverflowDetector: ViewModifier {
 struct CustomTabBar: View {
     @Bindable var adapter: TabBarAdapter
     @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
+    let inboxAtom: InboxNotificationAtom
+    let octiconLoader: OcticonLoader
     var onSelect: (UUID) -> Void
     var onClose: (UUID) -> Void
     var onCommand: ((AppCommand, UUID) -> Void)?
@@ -275,7 +281,7 @@ struct CustomTabBar: View {
     private func leadingChromeControl(_ control: TabBarChromeControl) -> some View {
         switch control {
         case .sidebarSurfaces:
-            SidebarSurfaceTabBarControls()
+            SidebarSurfaceTabBarControls(inboxAtom: inboxAtom)
         case .divider:
             SidebarNavDivider()
         case .watchFolder:
@@ -288,6 +294,7 @@ struct CustomTabBar: View {
             TabBarArrangementButton(
                 adapter: adapter,
                 arrangementInlineRenameState: arrangementInlineRenameState,
+                octiconLoader: octiconLoader,
                 onCommand: onCommand,
                 onToggleZoom: onToggleZoom,
                 onPaneAction: onPaneAction,
@@ -443,6 +450,7 @@ struct CustomTabBar: View {
 private struct TabBarArrangementButton: View {
     @Bindable var adapter: TabBarAdapter
     @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
+    let octiconLoader: OcticonLoader
     let onCommand: ((AppCommand, UUID) -> Void)?
     let onToggleZoom: ((UUID, UUID?) -> Void)?
     let onPaneAction: ((WorkspaceActionCommand) -> Void)?
@@ -533,6 +541,7 @@ private struct TabBarArrangementButton: View {
                 ArrangementPanel(
                     tabId: tab.id,
                     workspaceWindowId: workspaceWindowId,
+                    octiconLoader: octiconLoader,
                     panes: tab.panes,
                     zoomMode: tab.zoomMode,
                     arrangements: tab.arrangements,
@@ -909,12 +918,12 @@ struct TabBarEmptyState: View {
         static var previews: some View {
             let atomRegistry = AtomRegistry()
             let store = WorkspaceStore(
-                identityAtom: atomRegistry.workspaceIdentity,
-                windowMemoryAtom: atomRegistry.workspaceWindowMemory,
-                repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,
-                paneAtom: atomRegistry.workspacePane,
-                tabLayoutAtom: atomRegistry.workspaceTabLayout,
-                mutationCoordinator: atomRegistry.workspaceMutationCoordinator
+                identityAtom: atomRegistry.core.workspaceIdentity,
+                windowMemoryAtom: atomRegistry.core.workspaceWindowMemory,
+                repositoryTopologyAtom: atomRegistry.core.workspaceRepositoryTopology,
+                paneAtom: atomRegistry.core.workspacePane,
+                tabLayoutAtom: atomRegistry.core.workspaceTabLayout,
+                mutationCoordinator: atomRegistry.core.workspaceMutationCoordinator
             )
             let adapter = TabBarAdapter(store: store, repoCache: RepoCacheAtom())
 
@@ -922,6 +931,8 @@ struct TabBarEmptyState: View {
                 CustomTabBar(
                     adapter: adapter,
                     arrangementInlineRenameState: ArrangementInlineRenameState(),
+                    inboxAtom: atomRegistry.inboxNotification,
+                    octiconLoader: OcticonLoader(resourceRootURL: Bundle.appResourceRootURL),
                     onSelect: { _ in },
                     onClose: { _ in },
                     onCommand: { _, _ in },

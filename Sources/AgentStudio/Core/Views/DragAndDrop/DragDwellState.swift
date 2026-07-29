@@ -1,14 +1,14 @@
 import CoreGraphics
 import Foundation
 
-enum DragDwellState: Equatable, Sendable {
+package enum DragDwellState: Equatable, Sendable {
     private static let timeComparisonTolerance = 0.000000001
 
     case idle
     case hovering(tabId: UUID, startTime: TimeInterval, lastCommittedTabId: UUID?)
     case committed(tabId: UUID, startTime: TimeInterval)
 
-    var hoveredTabId: UUID? {
+    package var hoveredTabId: UUID? {
         switch self {
         case .idle:
             return nil
@@ -37,7 +37,7 @@ enum DragDwellState: Equatable, Sendable {
         }
     }
 
-    static func step(
+    package static func step(
         current: Self,
         hoveredTabId: UUID?,
         now: TimeInterval,
@@ -70,10 +70,10 @@ enum DragDwellState: Equatable, Sendable {
     }
 }
 
-enum DragDwellProgress {
+package enum DragDwellProgress {
     private static let progressComparisonTolerance = 0.000000001
 
-    static func progress(
+    package static func progress(
         state: DragDwellState,
         now: TimeInterval,
         dwellDuration: TimeInterval

@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 
 struct BridgeWorktreeFileOpenedSource: Sendable {

@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 /// Pin the drawer new-row band shape:
 ///

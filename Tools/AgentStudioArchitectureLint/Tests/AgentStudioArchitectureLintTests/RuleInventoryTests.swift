@@ -26,6 +26,9 @@ struct ExpectedRule: Comparable, Equatable {
 enum ExpectedRuleInventory {
     static let rules: [ExpectedRule] = [
         ExpectedRule(id: "agentstudio_import_direction", severity: .error),
+        ExpectedRule(id: "agentstudio_retired_worktrunk_cli", severity: .error),
+        ExpectedRule(id: "agentstudio_product_atom_boundary", severity: .error),
+        ExpectedRule(id: "agentstudio_canonical_atom_mutation", severity: .error),
         ExpectedRule(id: "agentstudio_shared_components_are_stateless", severity: .error),
         ExpectedRule(id: "agentstudio_atomlib_is_generic", severity: .error),
         ExpectedRule(id: "agentstudio_derived_value_declared_inputs", severity: .error),
@@ -41,6 +44,7 @@ enum ExpectedRuleInventory {
         ExpectedRule(id: "agentstudio_no_forbidden_architecture_marker", severity: .error),
         ExpectedRule(id: "agentstudio_no_generic_clock_sleep", severity: .error),
         ExpectedRule(id: "agentstudio_no_task_sleep_in_tests", severity: .error),
+        ExpectedRule(id: "agentstudio_test_core_atom_fallback_ownership", severity: .error),
         ExpectedRule(id: "agentstudio_toolbar_tooltip_source", severity: .error),
         ExpectedRule(id: "agentstudio_eventbus_subscriber_policy_required", severity: .error),
         ExpectedRule(id: "agentstudio_terminal_local_disposition_publication", severity: .error),

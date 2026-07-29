@@ -3,13 +3,29 @@ import os.log
 
 private let paneDisplayLogger = Logger(subsystem: "com.agentstudio", category: "PaneDisplayDerived")
 
-struct PaneDisplayParts: Equatable {
-    let primaryLabel: String
-    let note: String?
-    let repoName: String?
-    let branchName: String?
-    let worktreeFolderName: String?
-    let cwdFolderName: String?
+package struct PaneDisplayParts: Equatable {
+    package let primaryLabel: String
+    package let note: String?
+    package let repoName: String?
+    package let branchName: String?
+    package let worktreeFolderName: String?
+    package let cwdFolderName: String?
+
+    package init(
+        primaryLabel: String,
+        note: String?,
+        repoName: String?,
+        branchName: String?,
+        worktreeFolderName: String?,
+        cwdFolderName: String?
+    ) {
+        self.primaryLabel = primaryLabel
+        self.note = note
+        self.repoName = repoName
+        self.branchName = branchName
+        self.worktreeFolderName = worktreeFolderName
+        self.cwdFolderName = cwdFolderName
+    }
 }
 
 struct CollapsedBarLabelPart: Equatable {
@@ -42,8 +58,10 @@ private struct WorkspaceContextParts {
 }
 
 @MainActor
-struct PaneDisplayDerived {
-    func displayParts(for paneId: UUID) -> PaneDisplayParts {
+package struct PaneDisplayDerived {
+    package init() {}
+
+    package func displayParts(for paneId: UUID) -> PaneDisplayParts {
         let workspacePane = atom(\.workspacePane)
         guard let pane = workspacePane.pane(paneId) else {
             paneDisplayLogger.warning("displayParts: pane \(paneId.uuidString, privacy: .public) not found")
@@ -60,7 +78,7 @@ struct PaneDisplayDerived {
         return displayParts(for: pane)
     }
 
-    func displayParts(for pane: Pane) -> PaneDisplayParts {
+    package func displayParts(for pane: Pane) -> PaneDisplayParts {
         let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let defaultLabel = rawTitle.isEmpty ? "Terminal" : rawTitle
         let cwdFolderName: String? = {
@@ -110,11 +128,11 @@ struct PaneDisplayDerived {
         )
     }
 
-    func displayLabel(for paneId: UUID) -> String {
+    package func displayLabel(for paneId: UUID) -> String {
         displayParts(for: paneId).primaryLabel
     }
 
-    func tabDisplayLabel(for tab: Tab) -> String {
+    package func tabDisplayLabel(for tab: Tab) -> String {
         let paneLabels = tab.activePaneIds.map { displayLabel(for: $0) }
         if paneLabels.count > 1 {
             return paneLabels.joined(separator: " | ")
@@ -122,7 +140,7 @@ struct PaneDisplayDerived {
         return paneLabels.first ?? "Terminal"
     }
 
-    func paneKeywords(for pane: Pane) -> [String] {
+    package func paneKeywords(for pane: Pane) -> [String] {
         let parts = displayParts(for: pane)
         return [
             parts.note, parts.primaryLabel, parts.repoName, parts.branchName, parts.worktreeFolderName,
@@ -132,7 +150,7 @@ struct PaneDisplayDerived {
         .filter { !$0.isEmpty }
     }
 
-    func resolvedBranchName(
+    package func resolvedBranchName(
         worktree _: Worktree,
         enrichment: WorktreeEnrichment?
     ) -> String {

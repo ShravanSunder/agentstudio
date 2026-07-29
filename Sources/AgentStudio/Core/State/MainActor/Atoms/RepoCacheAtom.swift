@@ -1,9 +1,10 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 
 @MainActor
 @Observable
-final class RepoEnrichmentCacheAtom {
+package final class RepoEnrichmentCacheAtom {
     struct HydrationState {
         let repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         let worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
@@ -63,11 +64,11 @@ final class RepoEnrichmentCacheAtom {
         pullRequestCountMap.storageSlotCount
     }
 
-    func repoEnrichment(for repoId: UUID) -> RepoEnrichment? {
+    package func repoEnrichment(for repoId: UUID) -> RepoEnrichment? {
         repoEnrichmentMap.value(for: repoId)
     }
 
-    func worktreeEnrichment(for worktreeId: UUID) -> WorktreeEnrichment? {
+    package func worktreeEnrichment(for worktreeId: UUID) -> WorktreeEnrichment? {
         worktreeEnrichmentMap.value(for: worktreeId)
     }
 
@@ -91,7 +92,7 @@ final class RepoEnrichmentCacheAtom {
         repoEnrichmentMap.snapshot()
     }
 
-    func worktreeFactsSnapshot() -> [UUID: RepoWorktreeCacheFacts] {
+    package func worktreeFactsSnapshot() -> [UUID: RepoWorktreeCacheFacts] {
         let worktreeEnrichmentsByWorktreeId = worktreeEnrichmentSnapshot()
         let pullRequestCountsByWorktreeId = pullRequestCountSnapshot()
         let worktreeIds = Set(worktreeEnrichmentsByWorktreeId.keys).union(pullRequestCountsByWorktreeId.keys)
@@ -192,7 +193,7 @@ final class RepoEnrichmentCacheAtom {
     }
 
     @discardableResult
-    func pruneNilSlots(validRepoIds: Set<UUID>, validWorktreeIds: Set<UUID>) -> Bool {
+    package func pruneNilSlots(validRepoIds: Set<UUID>, validWorktreeIds: Set<UUID>) -> Bool {
         let prunedRepoSlots = repoEnrichmentMap.pruneNilSlots(excluding: validRepoIds)
         let prunedWorktreeSlots = worktreeEnrichmentMap.pruneNilSlots(excluding: validWorktreeIds)
         let prunedPullRequestSlots = pullRequestCountMap.pruneNilSlots(excluding: validWorktreeIds)
@@ -294,7 +295,7 @@ final class RepoEnrichmentCacheAtom {
 }
 
 @MainActor
-final class RepoCacheAtom {
+package final class RepoCacheAtom {
     struct HydrationState {
         let repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         let worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
@@ -303,9 +304,11 @@ final class RepoCacheAtom {
         let lastRebuiltAt: Date?
     }
 
-    let enrichmentCacheAtom: RepoEnrichmentCacheAtom
+    package let enrichmentCacheAtom: RepoEnrichmentCacheAtom
 
-    init(enrichmentCacheAtom: RepoEnrichmentCacheAtom = .init()) {
+    package init(
+        enrichmentCacheAtom: RepoEnrichmentCacheAtom = .init()
+    ) {
         self.enrichmentCacheAtom = enrichmentCacheAtom
     }
 
@@ -337,27 +340,27 @@ final class RepoCacheAtom {
         enrichmentCacheAtom.worktreeEnrichmentRevision
     }
 
-    func repoEnrichment(for repoId: UUID) -> RepoEnrichment? {
+    package func repoEnrichment(for repoId: UUID) -> RepoEnrichment? {
         enrichmentCacheAtom.repoEnrichment(for: repoId)
     }
 
-    func worktreeEnrichment(for worktreeId: UUID) -> WorktreeEnrichment? {
+    package func worktreeEnrichment(for worktreeId: UUID) -> WorktreeEnrichment? {
         enrichmentCacheAtom.worktreeEnrichment(for: worktreeId)
     }
 
-    func pullRequestCount(for worktreeId: UUID) -> Int? {
+    package func pullRequestCount(for worktreeId: UUID) -> Int? {
         enrichmentCacheAtom.pullRequestCount(for: worktreeId)
     }
 
-    func worktreeFacts(for worktreeId: UUID) -> RepoWorktreeCacheFacts? {
+    package func worktreeFacts(for worktreeId: UUID) -> RepoWorktreeCacheFacts? {
         enrichmentCacheAtom.worktreeFacts(for: worktreeId)
     }
 
-    func repoEnrichmentSnapshot() -> [UUID: RepoEnrichment] {
+    package func repoEnrichmentSnapshot() -> [UUID: RepoEnrichment] {
         enrichmentCacheAtom.repoEnrichmentSnapshot()
     }
 
-    func worktreeEnrichmentSnapshot() -> [UUID: WorktreeEnrichment] {
+    package func worktreeEnrichmentSnapshot() -> [UUID: WorktreeEnrichment] {
         enrichmentCacheAtom.worktreeEnrichmentSnapshot()
     }
 
@@ -365,27 +368,27 @@ final class RepoCacheAtom {
         enrichmentCacheAtom.pullRequestCountSnapshot()
     }
 
-    func worktreeFactsSnapshot() -> [UUID: RepoWorktreeCacheFacts] {
+    package func worktreeFactsSnapshot() -> [UUID: RepoWorktreeCacheFacts] {
         enrichmentCacheAtom.worktreeFactsSnapshot()
     }
 
-    func setRepoEnrichment(_ enrichment: RepoEnrichment) {
+    package func setRepoEnrichment(_ enrichment: RepoEnrichment) {
         enrichmentCacheAtom.setRepoEnrichment(enrichment)
     }
 
-    func setWorktreeEnrichment(_ enrichment: WorktreeEnrichment) {
+    package func setWorktreeEnrichment(_ enrichment: WorktreeEnrichment) {
         enrichmentCacheAtom.setWorktreeEnrichment(enrichment)
     }
 
-    func setPullRequestCount(_ count: Int, for worktreeId: UUID) {
+    package func setPullRequestCount(_ count: Int, for worktreeId: UUID) {
         enrichmentCacheAtom.setPullRequestCount(count, for: worktreeId)
     }
 
-    func removeWorktree(_ worktreeId: UUID) {
+    package func removeWorktree(_ worktreeId: UUID) {
         enrichmentCacheAtom.removeWorktree(worktreeId)
     }
 
-    func removeRepo(_ repoId: UUID) {
+    package func removeRepo(_ repoId: UUID) {
         enrichmentCacheAtom.removeRepo(repoId)
     }
 

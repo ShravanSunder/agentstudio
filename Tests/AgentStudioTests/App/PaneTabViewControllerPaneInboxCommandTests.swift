@@ -2,11 +2,13 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 struct PaneTabViewControllerPaneInboxCommandTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("showPaneInboxNotifications opens for parent pane plus drawer children")

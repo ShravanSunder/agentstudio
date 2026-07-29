@@ -1,6 +1,6 @@
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @Suite
 struct PaneMoveDestinationPresentationTests {
@@ -34,11 +34,5 @@ struct PaneMoveDestinationPresentationTests {
             AppCommand.movePaneToTab.definition.icon
                 == .system(.arrowLeftArrowRight)
         )
-    }
-
-    @Test("main panes use Move to Tab while drawer panes retain Detach")
-    func paneManagementTrailingControlMatchesPaneResidency() {
-        #expect(PaneManagementTrailingControl.resolve(isDrawerChild: false) == .movePaneToTab)
-        #expect(PaneManagementTrailingControl.resolve(isDrawerChild: true) == .detachDrawerPane)
     }
 }

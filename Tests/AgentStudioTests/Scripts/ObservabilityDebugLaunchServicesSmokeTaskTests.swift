@@ -2,6 +2,8 @@ import Darwin
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("Observability debug LaunchServices smoke task")
 struct ObservabilityDebugLaunchServicesSmokeTaskTests {
     @Test("debug verifier strict LaunchServices mode rejects direct executable fallback before logs")

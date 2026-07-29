@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 
-struct EditorChooserPopover: View {
+package struct EditorChooserPopover: View {
     let items: [EditorChoiceItem]
     let bookmarkedEditorId: EditorTargetId?
     let directLaunchHintText: String?
@@ -14,7 +15,33 @@ struct EditorChooserPopover: View {
     @Binding var selectedEditorId: EditorTargetId?
     @Binding var hoveredRowId: EditorTargetId?
 
-    var body: some View {
+    package init(
+        items: [EditorChoiceItem],
+        bookmarkedEditorId: EditorTargetId?,
+        directLaunchHintText: String?,
+        directLaunchShortcutText: String?,
+        style: EditorChooserMenuStyle,
+        onSelect: @escaping (EditorTargetId) -> Void,
+        onToggleBookmark: @escaping (EditorTargetId) -> Void,
+        onDismiss: @escaping () -> Void,
+        matchesAdditionalDismissShortcut: @escaping (NSEvent) -> Bool,
+        selectedEditorId: Binding<EditorTargetId?>,
+        hoveredRowId: Binding<EditorTargetId?>
+    ) {
+        self.items = items
+        self.bookmarkedEditorId = bookmarkedEditorId
+        self.directLaunchHintText = directLaunchHintText
+        self.directLaunchShortcutText = directLaunchShortcutText
+        self.style = style
+        self.onSelect = onSelect
+        self.onToggleBookmark = onToggleBookmark
+        self.onDismiss = onDismiss
+        self.matchesAdditionalDismissShortcut = matchesAdditionalDismissShortcut
+        self._selectedEditorId = selectedEditorId
+        self._hoveredRowId = hoveredRowId
+    }
+
+    package var body: some View {
         EditorChooserMenuContent(
             items: items,
             bookmarkedEditorId: bookmarkedEditorId,

@@ -2,37 +2,37 @@ import Darwin
 import Dispatch
 import Foundation
 
-enum AgentStudioTCCDiagnosticPhase: String, Sendable {
+package enum AgentStudioTCCDiagnosticPhase: String, Sendable {
     case startupDiagnostic = "startup_diagnostic"
 }
 
-enum AgentStudioTCCBundleKind: String, Sendable {
+package enum AgentStudioTCCBundleKind: String, Sendable {
     case stable
     case beta
     case debug
     case unknown
 }
 
-enum AgentStudioTCCCodeIdentityKind: String, Sendable {
+package enum AgentStudioTCCCodeIdentityKind: String, Sendable {
     case sameDiskIdentity = "same_disk_identity"
     case differentDiskIdentity = "different_disk_identity"
     case missing
     case unknown
 }
 
-enum AgentStudioTCCSubject: String, Sendable {
+package enum AgentStudioTCCSubject: String, Sendable {
     case appProcess = "app_process"
     case zmxProcess = "zmx_process"
     case shellChild = "shell_child"
 }
 
-enum AgentStudioTCCAccessTarget: String, Sendable {
+package enum AgentStudioTCCAccessTarget: String, Sendable {
     case documents
     case messagesData = "messages_data"
     case selectedWorkspace = "selected_workspace"
 }
 
-enum AgentStudioTCCAccessProbeResult: String, Sendable {
+package enum AgentStudioTCCAccessProbeResult: String, Sendable {
     case granted
     case deniedEACCES = "denied_eacces"
     case deniedEPERM = "denied_eperm"
@@ -54,7 +54,7 @@ enum AgentStudioTCCAccessProbeResult: String, Sendable {
     }
 }
 
-enum AgentStudioTCCResponsibleKind: String, Sendable {
+package enum AgentStudioTCCResponsibleKind: String, Sendable {
     case agentStudioApp = "agentstudio_app"
     case agentStudioBeta = "agentstudio_beta"
     case agentStudioDebug = "agentstudio_debug"
@@ -62,7 +62,7 @@ enum AgentStudioTCCResponsibleKind: String, Sendable {
     case unknown
 }
 
-enum AgentStudioTCCCommandExitClass: String, Sendable {
+package enum AgentStudioTCCCommandExitClass: String, Sendable {
     case ok
     case permissionDenied = "permission_denied"
     case timedOut = "timed_out"
@@ -70,13 +70,13 @@ enum AgentStudioTCCCommandExitClass: String, Sendable {
     case unknownError = "unknown_error"
 }
 
-struct AgentStudioTCCAccessProbeOutcome: Equatable, Sendable {
-    let result: AgentStudioTCCAccessProbeResult
-    let commandExitClass: AgentStudioTCCCommandExitClass
-    let rawPath: String
+package struct AgentStudioTCCAccessProbeOutcome: Equatable, Sendable {
+    package let result: AgentStudioTCCAccessProbeResult
+    package let commandExitClass: AgentStudioTCCCommandExitClass
+    package let rawPath: String
 }
 
-struct AgentStudioTCCAccessProbeRecord: Equatable, Sendable {
+package struct AgentStudioTCCAccessProbeRecord: Equatable, Sendable {
     let phase: AgentStudioTCCDiagnosticPhase
     let subject: AgentStudioTCCSubject
     let target: AgentStudioTCCAccessTarget
@@ -87,7 +87,7 @@ struct AgentStudioTCCAccessProbeRecord: Equatable, Sendable {
     let probeSequence: Int?
     let rawProbePath: String?
 
-    init(
+    package init(
         phase: AgentStudioTCCDiagnosticPhase,
         subject: AgentStudioTCCSubject,
         target: AgentStudioTCCAccessTarget,
@@ -110,13 +110,13 @@ struct AgentStudioTCCAccessProbeRecord: Equatable, Sendable {
     }
 }
 
-struct AgentStudioTCCBundleDiskSnapshot: Equatable, Sendable {
-    let isReachable: Bool
+package struct AgentStudioTCCBundleDiskSnapshot: Equatable, Sendable {
+    package let isReachable: Bool
     let identityToken: String?
-    let rawBundlePath: String?
-    let rawExecutablePath: String?
+    package let rawBundlePath: String?
+    package let rawExecutablePath: String?
 
-    static func current(bundle: Bundle = .main) -> Self {
+    package static func current(bundle: Bundle = .main) -> Self {
         let bundlePath = bundle.bundleURL.path
         guard let executableURL = bundle.executableURL else {
             return Self(
@@ -151,23 +151,23 @@ struct AgentStudioTCCBundleDiskSnapshot: Equatable, Sendable {
         )
     }
 
-    func codeIdentityKind(comparedTo baseline: Self) -> AgentStudioTCCCodeIdentityKind {
+    package func codeIdentityKind(comparedTo baseline: Self) -> AgentStudioTCCCodeIdentityKind {
         guard isReachable else { return .missing }
         guard let identityToken, let baselineIdentityToken = baseline.identityToken else { return .unknown }
         return identityToken == baselineIdentityToken ? .sameDiskIdentity : .differentDiskIdentity
     }
 }
 
-struct AgentStudioTCCUpgradeProbeMonitorConfiguration: Equatable, Sendable {
+package struct AgentStudioTCCUpgradeProbeMonitorConfiguration: Equatable, Sendable {
     static let repeatCountEnvironmentKey = "AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT"
     static let intervalSecondsEnvironmentKey = "AGENTSTUDIO_TCC_UPGRADE_PROBE_INTERVAL_SECONDS"
     static let maximumRepeatCount = 720
     static let maximumIntervalSeconds = 3600
 
-    let repeatCount: Int
-    let intervalNanoseconds: UInt64
+    package let repeatCount: Int
+    package let intervalNanoseconds: UInt64
 
-    static func from(
+    package static func from(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Self {
         let repeatCount = clampedInteger(
@@ -202,11 +202,11 @@ struct AgentStudioTCCUpgradeProbeMonitorConfiguration: Equatable, Sendable {
     }
 }
 
-final class AgentStudioTCCDiagnosticRecorder: @unchecked Sendable {
+package final class AgentStudioTCCDiagnosticRecorder: @unchecked Sendable {
     private let traceRuntime: AgentStudioTraceRuntime?
     private let eventQueue: AgentStudioTraceEventQueue?
 
-    init(traceRuntime: AgentStudioTraceRuntime?) {
+    package init(traceRuntime: AgentStudioTraceRuntime?) {
         self.traceRuntime = traceRuntime
         if let traceRuntime, traceRuntime.isEnabled {
             self.eventQueue = AgentStudioTraceEventQueue(traceRuntime: traceRuntime)
@@ -215,7 +215,7 @@ final class AgentStudioTCCDiagnosticRecorder: @unchecked Sendable {
         }
     }
 
-    func recordAppIdentitySnapshot(
+    package func recordAppIdentitySnapshot(
         phase: AgentStudioTCCDiagnosticPhase,
         bundleKind: AgentStudioTCCBundleKind,
         codeIdentityKind: AgentStudioTCCCodeIdentityKind,
@@ -248,7 +248,7 @@ final class AgentStudioTCCDiagnosticRecorder: @unchecked Sendable {
         record(body: "terminal.tcc.app_identity_snapshot", attributes: attributes)
     }
 
-    func recordAccessProbe(_ accessProbeRecord: AgentStudioTCCAccessProbeRecord) {
+    package func recordAccessProbe(_ accessProbeRecord: AgentStudioTCCAccessProbeRecord) {
         var attributes: [String: AgentStudioTraceValue] = [
             "agentstudio.tcc.phase": .string(accessProbeRecord.phase.rawValue),
             "agentstudio.tcc.subject": .string(accessProbeRecord.subject.rawValue),
@@ -269,7 +269,7 @@ final class AgentStudioTCCDiagnosticRecorder: @unchecked Sendable {
         record(body: "terminal.tcc.access_probe", attributes: attributes)
     }
 
-    func drain() async throws {
+    package func drain() async throws {
         try await eventQueue?.drain()
         if eventQueue == nil {
             try await traceRuntime?.flush()
@@ -284,7 +284,7 @@ final class AgentStudioTCCDiagnosticRecorder: @unchecked Sendable {
         return directoryProbe(url)
     }
 
-    static func shellChildDocumentsDirectoryProbe() -> AgentStudioTCCAccessProbeOutcome {
+    package static func shellChildDocumentsDirectoryProbe() -> AgentStudioTCCAccessProbeOutcome {
         let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
             "Documents",
             isDirectory: true
@@ -292,7 +292,7 @@ final class AgentStudioTCCDiagnosticRecorder: @unchecked Sendable {
         return shellChildDirectoryProbe(url)
     }
 
-    static func shellChildMessagesDataDirectoryProbe() -> AgentStudioTCCAccessProbeOutcome {
+    package static func shellChildMessagesDataDirectoryProbe() -> AgentStudioTCCAccessProbeOutcome {
         let url = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Messages", isDirectory: true)
@@ -373,7 +373,7 @@ final class AgentStudioTCCDiagnosticRecorder: @unchecked Sendable {
         )
     }
 
-    static func bundleKind(
+    package static func bundleKind(
         releaseChannel: AppDataPaths.ReleaseChannel = .current,
         isDebugBuild: Bool = AppDataPaths.isDebugBuild
     ) -> AgentStudioTCCBundleKind {
@@ -388,7 +388,9 @@ final class AgentStudioTCCDiagnosticRecorder: @unchecked Sendable {
         }
     }
 
-    static func responsibleKind(for bundleKind: AgentStudioTCCBundleKind) -> AgentStudioTCCResponsibleKind {
+    package static func responsibleKind(
+        for bundleKind: AgentStudioTCCBundleKind
+    ) -> AgentStudioTCCResponsibleKind {
         switch bundleKind {
         case .stable:
             .agentStudioApp

@@ -2,13 +2,20 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCodeViewer
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
+@testable import AgentStudioWebview
 
 extension WebKitSerializedTests {
     @MainActor
     @Suite(.serialized)
     struct WorkspaceSurfaceCoordinatorViewFactoryTests {
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("createViewForContent registers a host whose mounted content is a webview mount")
@@ -155,6 +162,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: pane.id,
                 state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "quick-restore")),
+                appRootURL: testBridgeAppRootURL(),
                 metadata: pane.metadata,
                 initialPaneActivity: .foreground,
                 productSessionDependencies: BridgePaneProductSessionDependencies(
@@ -289,6 +297,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(
                 paneId: paneId,
                 state: BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "rotation")),
+                appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
                 productSessionDependencies: BridgePaneProductSessionDependencies(
                     installation: initialInstallation,

@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 struct WorkspaceSQLiteSnapshotDiagnostics: Sendable {

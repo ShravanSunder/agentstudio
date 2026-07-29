@@ -1,5 +1,7 @@
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("Test push clock")
 struct TestPushClockTests {
     @Test("sleep entered after task cancellation terminates immediately")

@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// Dead-path quarantine: a registered worktree whose root directory has vanished
@@ -12,7 +13,7 @@ extension GitWorkingDirectoryProjector {
     /// Live filesystem probe wired at the production composition root and reused by
     /// quarantine tests against real temp directories. The projector's own default
     /// is permissive so unit tests that register synthetic paths stay unaffected.
-    static let liveRootPathProbe: @Sendable (URL) -> Bool = { rootPath in
+    package static let liveRootPathProbe: @Sendable (URL) -> Bool = { rootPath in
         FileManager.default.fileExists(atPath: rootPath.path)
     }
 

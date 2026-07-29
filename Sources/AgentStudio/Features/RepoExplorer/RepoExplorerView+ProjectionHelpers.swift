@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 
 extension RepoExplorerView {
@@ -37,12 +40,12 @@ extension RepoExplorerView {
         let panesByPaneId = store.paneAtom.panes
         let activeTabId = store.tabLayoutAtom.activeTabId
         let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
-        let attendanceAtom = atom(\.bridgePaneAttendance)
+        let attendanceOrdinalByPaneId = bridgeAttendanceSnapshot()
         var candidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]] = [:]
         candidatesByWorktreeId.reserveCapacity(paneLocationsByWorktreeId.count)
 
         for (worktreeId, paneLocations) in paneLocationsByWorktreeId {
-            candidatesByWorktreeId[worktreeId] = paneLocations.compactMap { location in
+            candidatesByWorktreeId[worktreeId] = paneLocations.compactMap { location -> BridgePaneCommandCandidate? in
                 guard let pane = panesByPaneId[location.paneId] else { return nil }
                 let isBridgePane: Bool
                 if case .bridgePanel = pane.content {
@@ -56,7 +59,7 @@ extension RepoExplorerView {
                     isBridgePane: isBridgePane,
                     isPaneActive: pane.residency == .active,
                     isCurrentActivePane: activeTabId == location.tabId && activePaneId == pane.id,
-                    attendanceOrdinal: attendanceAtom.ordinal(for: pane.id),
+                    attendanceOrdinal: attendanceOrdinalByPaneId[pane.id],
                     tabIndex: location.tabIndex,
                     paneIndexInTab: location.paneIndexInTab
                 )
@@ -222,7 +225,7 @@ extension RepoExplorerView {
         )
     }
 
-    static func resolvedRepos(
+    package static func resolvedRepos(
         _ repos: [RepoPresentationItem],
         enrichmentByRepoId: [UUID: RepoEnrichment]
     ) -> [RepoPresentationItem] {
@@ -250,7 +253,7 @@ extension RepoExplorerView {
         )
     }
 
-    static func branchStatus(
+    package static func branchStatus(
         enrichment: WorktreeEnrichment?,
         pullRequestCount: Int?
     ) -> GitBranchStatus {

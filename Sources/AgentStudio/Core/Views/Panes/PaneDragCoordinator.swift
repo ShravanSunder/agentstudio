@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-struct PaneDropTarget: Equatable, Hashable {
+package struct PaneDropTarget: Equatable, Hashable {
     let paneId: UUID
     let zone: DropZoneSide
     let sizingTarget: DropTarget
@@ -35,7 +35,7 @@ struct PaneDropTarget: Equatable, Hashable {
 /// R1 + R2 simply don't apply — there's no adjacency to enforce.
 /// Cross-CONTAINER rejection (main ↔ drawer) is enforced upstream by
 /// the dispatcher's `shouldHandleSplitDragPayload`, never here.
-struct PaneDragCoordinator {
+package struct PaneDragCoordinator {
     static let edgeCorridorWidth: CGFloat = 24
 
     static func resolveTarget(
@@ -160,7 +160,7 @@ struct PaneDragCoordinator {
     /// target. Self/adjacent entries are omitted when `sourcePaneId`
     /// is set; the overlay can render the entire dict without gating
     /// (R4 — visuals mirror resolver decisions).
-    static func targetVisuals(
+    package static func targetVisuals(
         paneFrames: [UUID: CGRect],
         containerBounds: CGRect,
         minimizedPaneIds: Set<UUID>,
@@ -195,7 +195,7 @@ struct PaneDragCoordinator {
     /// between zones with shared paneId+zone like slot↔split). The
     /// visuals dict is keyed by the discriminated `sizingTarget` so
     /// every distinct target maps to its own painted region.
-    static func visual(
+    package static func visual(
         for target: PaneDropTarget,
         paneFrames: [UUID: CGRect],
         containerBounds: CGRect,

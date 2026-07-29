@@ -1,8 +1,12 @@
+import AgentStudioCore
 import Foundation
 
 @MainActor
 extension CommandBarDataSource {
-    static func quickOpenItems(store: WorkspaceStore) -> [CommandBarItem] {
+    static func quickOpenItems(
+        store: WorkspaceStore,
+        dispatcher: any AppCommandDispatching
+    ) -> [CommandBarItem] {
         let presenceByWorktreeID = buildWorktreePresenceByWorktreeId(store: store)
         return store.repositoryTopologyAtom.repos
             .filter { !store.repositoryTopologyAtom.isRepoUnavailable($0.id) }
@@ -17,7 +21,8 @@ extension CommandBarDataSource {
                     store: store,
                     presenceByWorktreeId: presenceByWorktreeID,
                     group: Group.repositoriesAndWorktrees,
-                    groupPriority: Priority.repositoriesAndWorktrees
+                    groupPriority: Priority.repositoriesAndWorktrees,
+                    dispatcher: dispatcher
                 )
                 .projected(
                     group: Group.repositoriesAndWorktrees,

@@ -1,8 +1,8 @@
 import Foundation
 
-typealias WorktreeId = UUID
+package typealias WorktreeId = UUID
 
-enum PaneContentType: Hashable, Codable, Sendable {
+package enum PaneContentType: Hashable, Codable, Sendable {
     case terminal
     case browser
     case diff
@@ -13,7 +13,7 @@ enum PaneContentType: Hashable, Codable, Sendable {
     case plugin(String)
 }
 
-enum PaneCapability: Hashable, Sendable {
+package enum PaneCapability: Hashable, Sendable {
     case input
     case resize
     case search
@@ -23,25 +23,25 @@ enum PaneCapability: Hashable, Sendable {
     case plugin(String)
 }
 
-enum PaneRuntimeLifecycle: Sendable, Equatable {
+package enum PaneRuntimeLifecycle: Sendable, Equatable {
     case created
     case ready
     case draining
     case terminated
 }
 
-enum ActionPolicy: Sendable, Equatable {
+package enum ActionPolicy: Sendable, Equatable {
     case critical
     case lossy(consolidationKey: String)
 }
 
-enum ActionResult: Sendable, Equatable {
+package enum ActionResult: Sendable, Equatable {
     case success(commandId: UUID)
     case queued(commandId: UUID, position: Int)
     case failure(ActionError)
 }
 
-enum ActionError: Error, Sendable, Equatable {
+package enum ActionError: Error, Sendable, Equatable {
     case runtimeNotReady(lifecycle: PaneRuntimeLifecycle)
     case unsupportedCommand(command: String, required: PaneCapability)
     case invalidPayload(description: String)
@@ -49,11 +49,27 @@ enum ActionError: Error, Sendable, Equatable {
     case timeout(commandId: UUID)
 }
 
-struct PaneRuntimeSnapshot: Sendable, Equatable {
-    let paneId: PaneId
-    let metadata: PaneMetadata
-    let lifecycle: PaneRuntimeLifecycle
-    let capabilities: Set<PaneCapability>
-    let lastSeq: UInt64
-    let timestamp: Date
+package struct PaneRuntimeSnapshot: Sendable, Equatable {
+    package let paneId: PaneId
+    package let metadata: PaneMetadata
+    package let lifecycle: PaneRuntimeLifecycle
+    package let capabilities: Set<PaneCapability>
+    package let lastSeq: UInt64
+    package let timestamp: Date
+
+    package init(
+        paneId: PaneId,
+        metadata: PaneMetadata,
+        lifecycle: PaneRuntimeLifecycle,
+        capabilities: Set<PaneCapability>,
+        lastSeq: UInt64,
+        timestamp: Date
+    ) {
+        self.paneId = paneId
+        self.metadata = metadata
+        self.lifecycle = lifecycle
+        self.capabilities = capabilities
+        self.lastSeq = lastSeq
+        self.timestamp = timestamp
+    }
 }

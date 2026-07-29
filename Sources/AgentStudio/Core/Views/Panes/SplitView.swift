@@ -1,10 +1,11 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
 /// A split view shows a left and right (or top and bottom) view with a divider in the middle for resizing.
 /// The terminology "left" and "right" is always used but for vertical splits "left" is "top" and "right" is "bottom".
 ///
 /// Adapted from Ghostty's SplitView implementation.
-struct SplitView<L: View, R: View>: View {
+package struct SplitView<L: View, R: View>: View {
     /// Direction of the split
     let direction: SplitViewDirection
 
@@ -41,7 +42,7 @@ struct SplitView<L: View, R: View>: View {
     /// Total hit area for resize dragging (extends beyond the visible gap)
     private let splitterHitSize: CGFloat = 6
 
-    var body: some View {
+    package var body: some View {
         GeometryReader { geo in
             let leftRect = self.leftRect(for: geo.size)
             let rightRect = self.rightRect(for: geo.size, leftRect: leftRect)
@@ -80,7 +81,7 @@ struct SplitView<L: View, R: View>: View {
     }
 
     /// Initialize a split view that can be resized by manually dragging the divider.
-    init(
+    package init(
         _ direction: SplitViewDirection,
         _ split: Binding<CGFloat>,
         resizeIncrements: NSSize = .init(width: 1, height: 1),

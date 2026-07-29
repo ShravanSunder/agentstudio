@@ -1,18 +1,19 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite(.serialized)
 struct TabDisplayDerivedTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test
     func placeholderTabName_fallsBackToDerivedWorktreeTitle() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -55,7 +56,7 @@ struct TabDisplayDerivedTests {
 
     @Test
     func paneTitle_usesFolderOnlyWhenDetachedHead() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,

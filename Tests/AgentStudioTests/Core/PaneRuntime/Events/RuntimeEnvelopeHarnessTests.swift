@@ -1,7 +1,8 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @Suite("RuntimeEnvelopeHarness")
 struct RuntimeEnvelopeHarnessTests {

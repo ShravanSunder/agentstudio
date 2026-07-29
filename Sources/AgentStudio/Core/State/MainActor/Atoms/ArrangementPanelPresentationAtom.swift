@@ -1,18 +1,18 @@
 import Foundation
 import Observation
 
-enum ArrangementPanelPresentationPlacement: Equatable, Sendable {
+package enum ArrangementPanelPresentationPlacement: Equatable, Sendable {
     case tabBar
     case collapsedBar(paneId: UUID)
 }
 
-struct ArrangementPanelPresentationRequest: Equatable, Identifiable, Sendable {
-    let id: UUID
-    let tabId: UUID
-    let workspaceWindowId: UUID
-    let placement: ArrangementPanelPresentationPlacement
+package struct ArrangementPanelPresentationRequest: Equatable, Identifiable, Sendable {
+    package let id: UUID
+    package let tabId: UUID
+    package let workspaceWindowId: UUID
+    package let placement: ArrangementPanelPresentationPlacement
 
-    init(
+    package init(
         id: UUID = UUID(),
         tabId: UUID,
         workspaceWindowId: UUID,
@@ -24,7 +24,7 @@ struct ArrangementPanelPresentationRequest: Equatable, Identifiable, Sendable {
         self.placement = placement
     }
 
-    func matches(
+    package func matches(
         tabId: UUID,
         workspaceWindowId: UUID,
         placement: ArrangementPanelPresentationPlacement
@@ -37,11 +37,11 @@ struct ArrangementPanelPresentationRequest: Equatable, Identifiable, Sendable {
 
 @MainActor
 @Observable
-final class ArrangementPanelPresentationAtom {
-    private(set) var pendingRequest: ArrangementPanelPresentationRequest?
+package final class ArrangementPanelPresentationAtom {
+    package private(set) var pendingRequest: ArrangementPanelPresentationRequest?
 
     @discardableResult
-    func present(
+    package func present(
         tabId: UUID,
         workspaceWindowId: UUID,
         placement: ArrangementPanelPresentationPlacement = .tabBar
@@ -55,7 +55,7 @@ final class ArrangementPanelPresentationAtom {
         return request
     }
 
-    func consume(_ request: ArrangementPanelPresentationRequest) {
+    package func consume(_ request: ArrangementPanelPresentationRequest) {
         guard pendingRequest?.id == request.id else { return }
         pendingRequest = nil
     }

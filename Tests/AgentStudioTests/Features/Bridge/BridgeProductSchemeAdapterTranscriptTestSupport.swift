@@ -1,7 +1,8 @@
+import AgentStudioTestSupport
 import CryptoKit
 import Foundation
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeProductSchemeTranscriptFixture {
     static let expectedSHA256 =

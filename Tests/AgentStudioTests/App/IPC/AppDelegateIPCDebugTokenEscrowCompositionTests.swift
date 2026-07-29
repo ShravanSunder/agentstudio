@@ -12,10 +12,15 @@ struct AppDelegateIPCDebugTokenEscrowCompositionTests {
     func composesExactlyTheAcceptedExistingPrivilegeScopes() {
         let workspaceId = UUID()
 
-        let scopes = AppDelegate.appIPCDebugTokenEscrowPermissionScopes(workspaceId: workspaceId)
+        let scopes = AppDelegate.debugAutomationIPCPermissionScopes(workspaceId: workspaceId)
 
         #expect(
             Set(scopes) == [
+                IPCPermissionScope(
+                    privilege: .workspaceRead,
+                    target: .app,
+                    dataScope: .unspecified
+                ),
                 IPCPermissionScope(
                     privilege: .appCommandExecute,
                     target: .app,

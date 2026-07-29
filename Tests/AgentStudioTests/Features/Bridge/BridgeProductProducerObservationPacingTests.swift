@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge product producer observation pacing")
 struct BridgeProductProducerObservationPacingTests {

@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-enum WorkspaceCompositionPreparationRejection: Error, Equatable, Sendable {
+package enum WorkspaceCompositionPreparationRejection: Error, Equatable, Sendable {
     case activeTabMissing
     case activeTabNotFound(UUID)
     case activeArrangementNotFound(tabID: UUID, arrangementID: UUID)

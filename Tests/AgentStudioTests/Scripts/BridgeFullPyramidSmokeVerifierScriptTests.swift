@@ -2,6 +2,8 @@ import Darwin
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("Bridge full-pyramid smoke verifier scripts")
 struct BridgeFullPyramidSmokeVerifierScriptTests {
     @Test("review-journey verifier is wired through mise and asserts selection telemetry budgets")

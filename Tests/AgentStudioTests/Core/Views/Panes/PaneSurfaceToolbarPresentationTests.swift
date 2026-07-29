@@ -1,9 +1,11 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import AppKit
 import Foundation
 import SwiftUI
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite(.serialized)
@@ -263,6 +265,7 @@ struct PaneSurfaceToolbarPresentationTests {
         }
         let hostingView = NSHostingView(
             rootView: DrawerIconBar(
+                octiconLoader: makeCoreTestOcticonLoader(),
                 isExpanded: false,
                 onAdd: {},
                 onToggleExpand: {},
@@ -293,7 +296,7 @@ struct PaneSurfaceToolbarPresentationTests {
         pressPaneToolbarAccessibleElement(zoomElement)
         pressPaneToolbarAccessibleElement(viewerElement)
 
-        await eventually("resolved pane toolbar actions should remain source anchored") {
+        await assertEventuallyMain("resolved pane toolbar actions should remain source anchored") {
             recorder.viewerSourcePaneIds == [recorder.sourcePaneId]
                 && recorder.zoomSourcePaneIds == [recorder.sourcePaneId]
         }

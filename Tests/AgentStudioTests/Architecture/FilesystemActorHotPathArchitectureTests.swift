@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("FilesystemActorHotPathArchitectureTests")
 struct FilesystemActorHotPathArchitectureTests {
     @Test("path filter loading runs through a concurrent async boundary")
@@ -43,7 +45,7 @@ struct FilesystemActorHotPathArchitectureTests {
             encoding: .utf8
         )
 
-        #expect(pathFilterSource.contains("@concurrent nonisolated static func loadOffExecutor"))
+        #expect(pathFilterSource.contains("@concurrent nonisolated package static func loadOffExecutor"))
         #expect(filesystemActorSource.contains("await FilesystemPathFilter.loadOffExecutor(forRootPath:"))
         #expect(!filesystemActorSource.contains("FilesystemPathFilter.load(forRootPath:"))
         #expect(!gitProviderSource.contains("ShellGitWorkingTreeStatusProvider"))
@@ -141,9 +143,6 @@ private func assertNoUnexpectedProductionGitShellSignatures(projectRoot: URL) th
     let fileManager = FileManager.default
     let enumerator = try #require(
         fileManager.enumerator(at: sourcesRoot, includingPropertiesForKeys: [.isRegularFileKey]))
-    let allowedShellGitFiles = Set([
-        "Sources/AgentStudio/Infrastructure/WorktrunkService.swift"
-    ])
     let forbiddenSignatures = [
         "command: \"git\"",
         "arguments = [\"git\"",
@@ -156,7 +155,6 @@ private func assertNoUnexpectedProductionGitShellSignatures(projectRoot: URL) th
     for case let fileURL as URL in enumerator {
         guard fileURL.pathExtension == "swift" else { continue }
         let relativePath = fileURL.path.replacingOccurrences(of: "\(projectRoot.path)/", with: "")
-        guard !allowedShellGitFiles.contains(relativePath) else { continue }
         let source = try String(contentsOf: fileURL, encoding: .utf8)
         for signature in forbiddenSignatures {
             #expect(!source.contains(signature), "Unexpected Git shell signature \(signature) in \(relativePath)")

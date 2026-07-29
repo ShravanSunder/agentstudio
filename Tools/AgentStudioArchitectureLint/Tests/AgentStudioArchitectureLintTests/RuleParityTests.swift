@@ -22,6 +22,123 @@ struct RuleParityTests {
         #expect(diagnostics.isEmpty)
     }
 
+    @Test("product atom boundary covers every forbidden ownership edge")
+    func productAtomBoundaryCoversEveryForbiddenOwnershipEdge() throws {
+        let diagnostics = try lintFixtureCorpus("Bad")
+            .filter { $0.ruleID == "agentstudio_product_atom_boundary" }
+
+        #expect(diagnostics.contains { $0.message.contains("Infrastructure must not name product atom state") })
+        #expect(diagnostics.contains { $0.message.contains("Core must not name Feature-owned atom state") })
+        #expect(diagnostics.contains { $0.message.contains("must not name sibling Feature atom state") })
+        #expect(diagnostics.contains { $0.message.contains("KeyPath<AtomRegistry") })
+        #expect(diagnostics.contains { $0.message.contains("static or global AtomRegistry") })
+        #expect(diagnostics.contains { $0.message.contains("second App atom scope") })
+        #expect(diagnostics.contains { $0.message.contains("runtime atom resolver") })
+        #expect(diagnostics.contains { $0.message.contains("runtime atom registration") })
+        #expect(diagnostics.contains { $0.message.contains("atom compatibility API") })
+        #expect(diagnostics.contains { $0.message.contains("old AtomScope compatibility API") })
+        #expect(diagnostics.contains { $0.message.contains("uniform Feature state root") })
+        #expect(diagnostics.contains { $0.message.contains("Feature registry or ambient scope") })
+        #expect(diagnostics.contains { $0.message.contains("concrete AppCommandDispatcher") })
+    }
+
+    @Test("test Core atom fallback installation has one centralized owner")
+    func testCoreAtomFallbackInstallationHasOneCentralizedOwner() throws {
+        let diagnostics = try lintFixtureCorpus("Bad")
+            .filter { $0.ruleID == "agentstudio_test_core_atom_fallback_ownership" }
+
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics.first?.message.contains("TestAtomRegistry.swift") == true)
+    }
+
+    @Test("import direction covers realized product and paired-test module boundaries")
+    func importDirectionCoversRealizedProductAndPairedTestModuleBoundaries() throws {
+        let diagnostics = try lintFixtureCorpus("Bad")
+            .filter { $0.ruleID == "agentstudio_import_direction" }
+
+        #expect(diagnostics.contains { $0.message.contains("Infrastructure cannot import AgentStudioCore") })
+        #expect(diagnostics.contains { $0.message.contains("Core cannot import AgentStudioTerminal") })
+        #expect(diagnostics.contains { $0.message.contains("Feature Terminal cannot import AgentStudioBridge") })
+        #expect(diagnostics.contains { $0.message.contains("Product targets must not import AgentStudioTestSupport") })
+        #expect(
+            diagnostics.contains {
+                $0.message.contains("Infrastructure tests must not import AgentStudioTestSupport")
+            })
+        #expect(
+            diagnostics.contains {
+                $0.message.contains("SharedComponents tests must not import AgentStudioTestSupport")
+            })
+        #expect(diagnostics.contains { $0.message.contains("Core tests cannot import AgentStudio") })
+        #expect(diagnostics.contains { $0.message.contains("Feature Terminal tests cannot import AgentStudioBridge") })
+        #expect(diagnostics.contains { $0.message.contains("TestSupport cannot import AgentStudioBridge") })
+        for featureModule in [
+            "AgentStudioBridge",
+            "AgentStudioCodeViewer",
+            "AgentStudioCommandBar",
+            "AgentStudioEditorChooser",
+            "AgentStudioInboxNotification",
+            "AgentStudioRepoExplorer",
+            "AgentStudioTerminal",
+            "AgentStudioWebview",
+        ] {
+            #expect(
+                diagnostics.contains {
+                    $0.message.contains("Core cannot import \(featureModule)")
+                })
+        }
+    }
+
+    @Test("retired Worktrunk rule rejects service, startup phase, and production CLI fallbacks")
+    func retiredWorktrunkRuleRejectsServiceStartupPhaseAndProductionCLIFallbacks() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent(
+                "Bad/Sources/AgentStudio/App/BadRetiredWorktrunkIntegration.swift"
+            )
+            .path
+
+        let diagnostics = try lint(files: [fixture])
+            .filter { $0.ruleID == "agentstudio_retired_worktrunk_cli" }
+
+        #expect(diagnostics.contains { $0.message.contains("Worktrunk integration") })
+        #expect(diagnostics.contains { $0.message.contains("production wt CLI fallback") })
+        #expect(diagnostics.contains { $0.message.contains("production git CLI fallback") })
+        #expect(diagnostics.contains { $0.message.contains("startup dependency phase") })
+    }
+
+    @Test("canonical atom mutation rejects writable owner storage and bindings")
+    func canonicalAtomMutationRejectsWritableOwnerStorageAndBindings() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent(
+                "Bad/Sources/AgentStudio/Core/State/MainActor/Atoms/BadCanonicalAtomMutation.swift"
+            )
+            .path
+
+        let diagnostics = try lint(files: [fixture])
+            .filter { $0.ruleID == "agentstudio_canonical_atom_mutation" }
+
+        #expect(diagnostics.map(\.line) == [2, 3, 4, 5])
+        #expect(
+            diagnostics.filter { $0.message.contains("private or private(set)") }.count == 3)
+        #expect(diagnostics.filter { $0.message.contains("writable binding") }.count == 1)
+    }
+
+    @Test("canonical atom mutation ignores test helpers in mirrored owner folders")
+    func canonicalAtomMutationIgnoresTestHelpersInMirroredOwnerFolders() {
+        let diagnostics = CanonicalAtomMutationRule().validate(
+            context: context(
+                path:
+                    "/tmp/Tests/AgentStudioTests/Core/State/MainActor/Atoms/RepositoryTopologyAtomTests.swift",
+                source: """
+                    private final class RepositoryTopologyObservationFlag {
+                        var didFire = false
+                    }
+                    """
+            )
+        )
+
+        #expect(diagnostics.isEmpty)
+    }
+
     @Test("shared components reject Core-owned command icon references")
     func sharedComponentsRejectCoreOwnedCommandIconReferences() throws {
         let fixture = fixtureRoot()

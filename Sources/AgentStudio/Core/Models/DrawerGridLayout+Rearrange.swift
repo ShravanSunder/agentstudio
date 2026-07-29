@@ -1,6 +1,6 @@
 import Foundation
 
-enum DrawerProjectedMoveFailure: Error, Equatable, Hashable, Sendable, CustomStringConvertible {
+package enum DrawerProjectedMoveFailure: Error, Equatable, Hashable, Sendable, CustomStringConvertible {
     case missingSourcePane(UUID)
     case missingTargetPane(UUID)
     case sourceRemovalRejected(UUID)
@@ -9,7 +9,7 @@ enum DrawerProjectedMoveFailure: Error, Equatable, Hashable, Sendable, CustomStr
     case invalidInsertionIndex(row: DrawerRowPlacement, insertionIndex: Int, paneCount: Int)
     case invalidSizingTarget(paneIndex: Int, paneCount: Int)
 
-    var description: String {
+    package var description: String {
         switch self {
         case .missingSourcePane(let paneId):
             return "missingSourcePane(\(paneId))"

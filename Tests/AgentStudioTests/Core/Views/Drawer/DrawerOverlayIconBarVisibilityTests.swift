@@ -1,8 +1,9 @@
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite("DrawerOverlay icon bar visibility")
@@ -116,8 +117,8 @@ struct DrawerOverlayIconBarVisibilityTests {
         let mount = mountDrawerOverlay(
             isIconBarVisible: true,
             trailingActions: makeTrailingActions(),
-            paneSurfaceActions: [zoomAction],
-            paneContextActions: [viewerAction],
+            paneSurfaceActions: [],
+            paneContextActions: [zoomAction, viewerAction],
             width: 720
         )
         defer {
@@ -126,9 +127,9 @@ struct DrawerOverlayIconBarVisibilityTests {
         }
 
         let orderedIdentifiers = [
-            "paneSurfaceToolbar.zoom",
             "paneSurfaceToolbar.drawerToggle",
             "paneSurfaceToolbar.drawerAdd",
+            "paneSurfaceToolbar.zoom",
             "paneSurfaceToolbar.viewer",
             "paneSurfaceToolbar.editor",
             "paneSurfaceToolbar.finder",
@@ -227,6 +228,7 @@ struct DrawerOverlayIconBarVisibilityTests {
             rootView: AnyView(
                 DrawerOverlay(
                     paneId: UUID(),
+                    octiconLoader: makeCoreTestOcticonLoader(),
                     drawer: nil,
                     isIconBarVisible: isIconBarVisible,
                     trailingActions: trailingActions,

@@ -1,21 +1,21 @@
 import Foundation
 
 /// Metadata carried by every pane for runtime routing and dynamic grouping.
-struct PaneMetadata: Codable, Hashable, Sendable {
+package struct PaneMetadata: Codable, Hashable, Sendable {
     // Fixed-at-creation identity
-    let paneId: PaneId
-    let contentType: PaneContentType
-    let launchDirectory: URL?
-    let executionBackend: ExecutionBackend
-    let createdAt: Date
+    package let paneId: PaneId
+    package let contentType: PaneContentType
+    package let launchDirectory: URL?
+    package let executionBackend: ExecutionBackend
+    package let createdAt: Date
 
     // Live fields
-    private(set) var title: String
-    private(set) var facets: PaneContextFacets
-    private(set) var checkoutRef: String?
-    private(set) var note: String?
+    package private(set) var title: String
+    package private(set) var facets: PaneContextFacets
+    package private(set) var checkoutRef: String?
+    package private(set) var note: String?
 
-    init(
+    package init(
         paneId: PaneId = PaneId.generateUUIDv7(),
         contentType: PaneContentType = .terminal,
         launchDirectory: URL? = nil,
@@ -39,27 +39,27 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         self.note = note
     }
 
-    mutating func updateTitle(_ newTitle: String) {
+    package mutating func updateTitle(_ newTitle: String) {
         title = newTitle
     }
 
-    mutating func updateFacets(_ newFacets: PaneContextFacets) {
+    package mutating func updateFacets(_ newFacets: PaneContextFacets) {
         facets = newFacets
     }
 
-    mutating func updateCWD(_ newCWD: URL?) {
+    package mutating func updateCWD(_ newCWD: URL?) {
         facets.cwd = newCWD
     }
 
-    mutating func updateCheckoutRef(_ newCheckoutRef: String?) {
+    package mutating func updateCheckoutRef(_ newCheckoutRef: String?) {
         checkoutRef = newCheckoutRef
     }
 
-    mutating func updateNote(_ newNote: String?) {
+    package mutating func updateNote(_ newNote: String?) {
         note = Self.normalizedNote(newNote)
     }
 
-    func canonicalizedIdentity(
+    package func canonicalizedIdentity(
         paneId: PaneId,
         contentType: PaneContentType,
         fillNilLaunchDirectoryFacet: Bool = true
@@ -80,23 +80,23 @@ struct PaneMetadata: Codable, Hashable, Sendable {
 
     // MARK: - Facet Convenience Accessors
 
-    var cwd: URL? { facets.cwd }
+    package var cwd: URL? { facets.cwd }
 
-    var repoId: UUID? { facets.repoId }
+    package var repoId: UUID? { facets.repoId }
 
-    var repoName: String? { facets.repoName }
+    package var repoName: String? { facets.repoName }
 
-    var worktreeId: UUID? { facets.worktreeId }
+    package var worktreeId: UUID? { facets.worktreeId }
 
-    var worktreeName: String? { facets.worktreeName }
+    package var worktreeName: String? { facets.worktreeName }
 
-    var parentFolder: String? { facets.parentFolder }
+    package var parentFolder: String? { facets.parentFolder }
 
-    var organizationName: String? { facets.organizationName }
+    package var organizationName: String? { facets.organizationName }
 
-    var origin: String? { facets.origin }
+    package var origin: String? { facets.origin }
 
-    var upstream: String? { facets.upstream }
+    package var upstream: String? { facets.upstream }
 
     private enum CodingKeys: String, CodingKey {
         case paneId
@@ -150,7 +150,7 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         }
     }
 
-    init(from decoder: Decoder) throws {
+    package init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
         let legacySource = try legacyContainer.decodeIfPresent(LegacySource.self, forKey: .source)

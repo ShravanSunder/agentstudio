@@ -1,8 +1,9 @@
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioSharedComponents
 
 @Suite("SidebarMetadataLine")
 struct SidebarMetadataLineTests {

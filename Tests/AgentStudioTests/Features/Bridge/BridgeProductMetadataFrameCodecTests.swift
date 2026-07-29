@@ -1,7 +1,8 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeProductMetadataFrameCodecTests {
     @Test("metadata codec writes u32-prefixed strict JSON and decodes concatenated frames")

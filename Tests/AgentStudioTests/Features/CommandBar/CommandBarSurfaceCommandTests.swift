@@ -1,12 +1,14 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite("Command bar surface commands")
 struct CommandBarSurfaceCommandTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("commands scope includes sidebar and drawer commands with shortcut labels")
@@ -21,7 +23,7 @@ struct CommandBarSurfaceCommandTests {
             scope: .commands,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: AppCommandDispatcher.shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         let sidebarInbox = items.first { $0.command == .showInboxNotifications }

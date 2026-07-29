@@ -1,13 +1,15 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import Foundation
 import GhosttyKit
 import os
 
 /// Logger for Ghostty-related operations
-let ghosttyLogger = Logger(subsystem: "com.agentstudio", category: "Ghostty")
+package let ghosttyLogger = Logger(subsystem: "com.agentstudio", category: "Ghostty")
 
 /// Namespace for all Ghostty-related types
-enum Ghostty {
+package enum Ghostty {
     /// The shared Ghostty app instance
     @MainActor private static var sharedApp: App?
 
@@ -29,7 +31,7 @@ enum Ghostty {
     /// Initialize the shared Ghostty app. @MainActor-isolated.
     @MainActor
     @discardableResult
-    static func initialize() -> Bool {
+    package static func initialize() -> Bool {
         if let sharedApp {
             return sharedApp.app != nil
         }
@@ -40,14 +42,14 @@ enum Ghostty {
     }
 
     @MainActor
-    static func bindApplicationLifecycleStore(_ appLifecycleStore: AppLifecycleAtom) {
+    package static func bindApplicationLifecycleStore(_ appLifecycleStore: AppLifecycleAtom) {
         sharedApp?.bindApplicationLifecycleStore(appLifecycleStore)
     }
 }
 
 extension Ghostty {
     /// Thin composition root for the embedded Ghostty host subsystem.
-    final class App: @unchecked Sendable {
+    package final class App: @unchecked Sendable {
         /// The raw Ghostty app lifetime owner.
         private var appHandle: AppHandle?
         private let focusSynchronizer: AppFocusSynchronizer
@@ -103,7 +105,7 @@ extension Ghostty {
         }
 
         @MainActor
-        static func setRuntimeRegistry(_ runtimeRegistry: RuntimeRegistry) {
+        package static func setRuntimeRegistry(_ runtimeRegistry: RuntimeRegistry) {
             ActionRouter.setRuntimeRegistry(runtimeRegistry)
         }
 

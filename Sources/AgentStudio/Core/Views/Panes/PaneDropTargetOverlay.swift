@@ -5,10 +5,14 @@ import SwiftUI
 /// Every visual has a soft-fill `region`. Slot/edge targets also
 /// have an `insertionMarker` bar painted on top of the region —
 /// see `DropTargetVisual` for the per-target-type breakdown.
-struct PaneDropTargetOverlay: View {
+package struct PaneDropTargetOverlay: View {
     let visual: DropTargetVisual?
 
-    var body: some View {
+    package init(visual: DropTargetVisual?) {
+        self.visual = visual
+    }
+
+    package var body: some View {
         ZStack(alignment: .topLeading) {
             if let visual {
                 RoundedRectangle(cornerRadius: 4)

@@ -1,7 +1,10 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 @MainActor
 extension InboxNotificationRouterObservedPaneTests {
@@ -18,10 +21,9 @@ extension InboxNotificationRouterObservedPaneTests {
         fixture.inboxAtom.append(
             makeNotification(kind: .agentDesktopNotification, paneId: zoomSourcePaneId.uuid)
         )
-        applyScrollbarState(
-            ScrollbarState(top: 80, bottom: 100, total: 100),
-            paneId: zoomSourcePaneId,
-            to: fixture.terminalActivity
+        fixture.terminalPinnedState.setPinnedToBottom(
+            true,
+            paneId: zoomSourcePaneId.uuid
         )
         await fixture.router.start()
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [zoomSourcePaneId.uuid]) == 1)
@@ -55,10 +57,9 @@ extension InboxNotificationRouterObservedPaneTests {
         fixture.inboxAtom.append(
             makeNotification(kind: .agentDesktopNotification, paneId: visibleSiblingPaneId.uuid)
         )
-        applyScrollbarState(
-            ScrollbarState(top: 80, bottom: 100, total: 100),
-            paneId: visibleSiblingPaneId,
-            to: fixture.terminalActivity
+        fixture.terminalPinnedState.setPinnedToBottom(
+            true,
+            paneId: visibleSiblingPaneId.uuid
         )
         await fixture.router.start()
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [visibleSiblingPaneId.uuid]) == 1)

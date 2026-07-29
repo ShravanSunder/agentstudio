@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import WebKit
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge product scheme adapter")
 struct BridgeProductSchemeAdapterTests {

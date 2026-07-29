@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 // swiftlint:disable cyclomatic_complexity function_body_length
 import Foundation
 
@@ -10,11 +11,11 @@ import Foundation
 /// with lightweight mocks (pure UUIDs, no NSViews).
 ///
 /// Returns nil if the intent cannot be meaningfully resolved.
-enum WorkspaceCommandResolver {
+package enum WorkspaceCommandResolver {
 
     // MARK: - From AppCommand
 
-    static func resolve<T: ResolvableTab>(
+    package static func resolve<T: ResolvableTab>(
         command: AppCommand,
         tabs: [T],
         activeTabId: UUID?,
@@ -259,7 +260,7 @@ enum WorkspaceCommandResolver {
     // MARK: - Snapshot Factory
 
     /// Build a validation snapshot from live tab state.
-    static func snapshot<T: ResolvableTab>(
+    package static func snapshot<T: ResolvableTab>(
         from tabs: [T],
         activeTabId: UUID?,
         isManagementLayerActive: Bool,

@@ -18,22 +18,22 @@ import Security
 ///
 /// This lives in Infrastructure/ because it's a domain-agnostic utility
 /// that imports nothing internal.
-enum UUIDv7 {
+package enum UUIDv7 {
 
     /// Generate the preferred identity for a newly created durable AgentStudio entity.
     /// Existing persisted identifiers are restored verbatim and never rewritten through this API.
-    static func generate() -> UUID {
+    package static func generate() -> UUID {
         generate(timestamp: Date())
     }
 
     /// Generate a UUID v7 with an explicit timestamp (for testing).
-    static func generate(timestamp: Date) -> UUID {
+    package static func generate(timestamp: Date) -> UUID {
         let milliseconds = UInt64(timestamp.timeIntervalSince1970 * 1000)
         return generate(milliseconds: milliseconds)
     }
 
     /// Generate a UUID v7 from raw milliseconds since Unix epoch.
-    static func generate(milliseconds: UInt64) -> UUID {
+    package static func generate(milliseconds: UInt64) -> UUID {
         var bytes = [UInt8](repeating: 0, count: 16)
 
         // Bytes 0-5: 48-bit timestamp (big-endian, most significant first)
@@ -65,7 +65,7 @@ enum UUIDv7 {
 
     /// Extract the 48-bit millisecond timestamp from a UUID v7.
     /// Returns nil if the UUID is not version 7.
-    static func timestamp(from uuid: UUID) -> Date? {
+    package static func timestamp(from uuid: UUID) -> Date? {
         let bytes = uuidBytes(uuid)
         // Check version: byte 6 high nibble must be 0x7
         guard (bytes[6] >> 4) == 0x07 else { return nil }
@@ -82,7 +82,7 @@ enum UUIDv7 {
     }
 
     /// Check whether a UUID is version 7.
-    static func isV7(_ uuid: UUID) -> Bool {
+    package static func isV7(_ uuid: UUID) -> Bool {
         let bytes = uuidBytes(uuid)
         return (bytes[6] >> 4) == 0x07
     }

@@ -1,21 +1,21 @@
 import Foundation
 
-enum ZoomCommandEffect: Equatable, Sendable {
+package enum ZoomCommandEffect: Equatable, Sendable {
     case enter
     case cancel
     case retarget
     case resume
 }
 
-struct ZoomCommandCapability: Equatable, Sendable {
-    let tabId: UUID
-    let sourcePaneId: UUID
-    let effect: ZoomCommandEffect
-    let requiresTabActivation: Bool
+package struct ZoomCommandCapability: Equatable, Sendable {
+    package let tabId: UUID
+    package let sourcePaneId: UUID
+    package let effect: ZoomCommandEffect
+    package let requiresTabActivation: Bool
 }
 
-enum ZoomCommandCapabilityPolicy {
-    static func isPaneContentEligible(_ content: PaneContent) -> Bool {
+package enum ZoomCommandCapabilityPolicy {
+    package static func isPaneContentEligible(_ content: PaneContent) -> Bool {
         switch content {
         case .terminal:
             return true
@@ -24,7 +24,7 @@ enum ZoomCommandCapabilityPolicy {
         }
     }
 
-    static func resolve(
+    package static func resolve(
         activeTabId: UUID?,
         activePaneId: UUID?,
         explicitPaneId: UUID?,

@@ -1,7 +1,8 @@
+import AgentStudioCore
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 extension BridgePaneProductFileMetadataSourceTests {
     @Test("pane close during descriptor materialization cannot cache or emit the descriptor")

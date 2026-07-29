@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 
-struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
+package struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
     let paneFrames: [UUID: CGRect]
     let layout: DrawerGridLayout
     let minimizedPaneIds: Set<UUID>
@@ -14,7 +15,29 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
     let shouldAcceptDrop: (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Bool
     let handleDrop: (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Void
 
-    func makeCoordinator() -> Coordinator {
+    package init(
+        paneFrames: [UUID: CGRect],
+        layout: DrawerGridLayout,
+        minimizedPaneIds: Set<UUID>,
+        containerBounds: CGRect,
+        target: Binding<DrawerRearrangeTarget?>,
+        sourcePaneId: Binding<UUID?>,
+        isManagementLayerActive: Bool,
+        shouldAcceptDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Bool,
+        handleDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Void
+    ) {
+        self.paneFrames = paneFrames
+        self.layout = layout
+        self.minimizedPaneIds = minimizedPaneIds
+        self.containerBounds = containerBounds
+        _target = target
+        _sourcePaneId = sourcePaneId
+        self.isManagementLayerActive = isManagementLayerActive
+        self.shouldAcceptDrop = shouldAcceptDrop
+        self.handleDrop = handleDrop
+    }
+
+    package func makeCoordinator() -> Coordinator {
         Coordinator(
             targetBinding: $target,
             sourcePaneIdBinding: $sourcePaneId,
@@ -23,7 +46,7 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
         )
     }
 
-    func makeNSView(context: Context) -> DrawerSplitContainerDropCaptureView {
+    package func makeNSView(context: Context) -> DrawerSplitContainerDropCaptureView {
         let view = DrawerSplitContainerDropCaptureView()
         view.coordinator = context.coordinator
         context.coordinator.updateHandlers(
@@ -43,7 +66,7 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: DrawerSplitContainerDropCaptureView, context: Context) {
+    package func updateNSView(_ nsView: DrawerSplitContainerDropCaptureView, context: Context) {
         nsView.coordinator = context.coordinator
         context.coordinator.updateHandlers(
             targetBinding: $target,
@@ -65,7 +88,7 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator {
+    package final class Coordinator {
         private var targetBinding: Binding<DrawerRearrangeTarget?>
         private var sourcePaneIdBinding: Binding<UUID?>
         private var shouldAcceptDropClosure: (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Bool
@@ -241,13 +264,13 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
 }
 
 @MainActor
-final class DrawerSplitContainerDropCaptureView: NSView {
+package final class DrawerSplitContainerDropCaptureView: NSView {
     weak var coordinator: DrawerSplitContainerDropCaptureOverlay.Coordinator?
 
     private var isRegisteredForManagementLayer = false
     private var isManagementLayerActiveRequest = false
 
-    override var isFlipped: Bool { true }
+    package override var isFlipped: Bool { true }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -258,11 +281,11 @@ final class DrawerSplitContainerDropCaptureView: NSView {
         fatalError("init(coder:) not supported")
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
+    package override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 
-    override func viewDidMoveToSuperview() {
+    package override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         RestoreTrace.log(
             "DrawerSplit.viewDidMoveToSuperview super=\(superview.map { "\(type(of: $0))" } ?? "nil") bounds=\(NSStringFromRect(bounds))"
@@ -270,7 +293,7 @@ final class DrawerSplitContainerDropCaptureView: NSView {
         applyDropRegistration()
     }
 
-    override func viewDidMoveToWindow() {
+    package override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         RestoreTrace.log(
             "DrawerSplit.viewDidMoveToWindow window=\(window != nil) bounds=\(NSStringFromRect(bounds))"
@@ -332,39 +355,39 @@ final class DrawerSplitContainerDropCaptureView: NSView {
         return registeredDraggedTypes.contains { supportedTypes.contains($0) }
     }
 
-    override func setFrameSize(_ newSize: NSSize) {
+    package override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         applyDropRegistration()
     }
 
-    override func layout() {
+    package override func layout() {
         super.layout()
         applyDropRegistration()
     }
 
-    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+    package override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         RestoreTrace.log(
             "DrawerSplit.draggingEntered session=\(DragSession.current) raw=\(NSStringFromPoint(sender.draggingLocation))"
         )
         return routeDragUpdate(sender)
     }
 
-    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+    package override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
         RestoreTrace.log(
             "DrawerSplit.draggingUpdated session=\(DragSession.current) raw=\(NSStringFromPoint(sender.draggingLocation))"
         )
         return routeDragUpdate(sender)
     }
 
-    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+    package override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         coordinator?.finalizeDragSession()
     }
 
-    override func draggingEnded(_ sender: any NSDraggingInfo) {
+    package override func draggingEnded(_ sender: any NSDraggingInfo) {
         coordinator?.finalizeDragSession()
     }
 
-    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+    package override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         guard let coordinator else { return false }
         defer { coordinator.finalizeDragSession() }
         let location = convert(sender.draggingLocation, from: nil)

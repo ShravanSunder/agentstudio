@@ -1,13 +1,15 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite(.serialized)
 struct CommandBarTerminalCommandTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test
@@ -28,7 +30,7 @@ struct CommandBarTerminalCommandTests {
             scope: .commands,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: AppCommandDispatcher.shared,
+            dispatcher: FakeAppCommandDispatcher(),
             focus: focus
         )
 

@@ -1,9 +1,11 @@
+import AgentStudioCore
 import AgentStudioGit
+import AgentStudioInfrastructure
 import CryptoKit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge pane Review shared construction")
 struct BridgePaneReviewSharedConstructionTests {

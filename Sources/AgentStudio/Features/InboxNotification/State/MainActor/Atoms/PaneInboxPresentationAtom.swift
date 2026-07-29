@@ -1,12 +1,17 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 import Observation
 
 @MainActor
 @Observable
-final class PaneInboxPresentationAtom {
+package final class PaneInboxPresentationAtom {
     private var filterModesByParentPaneId: [UUID: PaneInboxNotificationFilterMode] = [:]
     private var temporaryOverride: InboxNotificationDisplayOverride?
-    private(set) var temporaryOverrideGeneration = 0
+    package private(set) var temporaryOverrideGeneration = 0
+
+    package init() {}
 
     func filterMode(for parentPaneId: UUID) -> PaneInboxNotificationFilterMode {
         filterModesByParentPaneId[parentPaneId] ?? .unread
@@ -26,13 +31,13 @@ final class PaneInboxPresentationAtom {
         return updatedMode
     }
 
-    func prune(retainingParentPaneIds retainedParentPaneIds: Set<UUID>) {
+    package func prune(retainingParentPaneIds retainedParentPaneIds: Set<UUID>) {
         filterModesByParentPaneId = filterModesByParentPaneId.filter { parentPaneId, _ in
             retainedParentPaneIds.contains(parentPaneId)
         }
     }
 
-    func requestTemporaryOverride(
+    package func requestTemporaryOverride(
         contentMode: InboxNotificationContentMode,
         rowStateFilter: InboxNotificationRowStateFilter
     ) {

@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import WebKit
 import os.log
@@ -7,7 +9,7 @@ private let bridgeProductBootstrapLogger = Logger(
     category: "BridgeProductBootstrap"
 )
 
-typealias BridgeProductSessionBootstrapSink =
+package typealias BridgeProductSessionBootstrapSink =
     @MainActor (
         _ page: WebPage,
         _ requestId: String,
@@ -16,7 +18,7 @@ typealias BridgeProductSessionBootstrapSink =
         _ productAdmission: BridgeProductAdmissionContext
     ) async throws -> Void
 
-typealias BridgeTelemetrySessionBootstrapSink =
+package typealias BridgeTelemetrySessionBootstrapSink =
     @MainActor (
         _ page: WebPage,
         _ requestId: String,
@@ -51,16 +53,17 @@ struct BridgeProductSessionDependencyInput {
 
 struct BridgeSchemeHandlerRegistrationInput {
     let paneId: UUID
+    let appRootURL: URL
     let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
     let productSessionRouter: BridgeProductSchemeSessionRouter
 }
 
-struct BridgePaneTelemetrySessionDependencies: Sendable {
+package struct BridgePaneTelemetrySessionDependencies: Sendable {
     let installation: BridgeTelemetrySessionInstallation
     let owner: BridgePaneTelemetrySessionOwner
 }
 
-struct BridgePaneProductSessionDependencies {
+package struct BridgePaneProductSessionDependencies {
     let installation: BridgeProductSessionInstallation
     let owner: BridgePaneProductSessionOwner
     let committedCallTarget: BridgePaneProductCommittedCallTarget?
@@ -614,6 +617,7 @@ extension BridgePaneController {
         guard let scheme = URLScheme("agentstudio") else { return }
         config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(
             paneId: input.paneId,
+            appRootURL: input.appRootURL,
             telemetrySessionOwner: input.telemetrySessionOwner,
             productSessionRouter: input.productSessionRouter
         )

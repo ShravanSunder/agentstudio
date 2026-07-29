@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 @Suite("InboxNotificationListSection visible notification ids")
 struct InboxNotificationVisibleNotificationIdsTests {

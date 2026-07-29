@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import SwiftUI
 
 // MARK: - CommandBarBreadcrumbRow
@@ -6,6 +8,7 @@ import SwiftUI
 /// level is presented as non-interactive context.
 struct CommandBarBreadcrumbRow: View {
     let items: [CommandBarBreadcrumbItem]
+    let octiconLoader: OcticonLoader
     let onNavigate: @MainActor @Sendable (Int) -> Void
 
     var body: some View {
@@ -54,8 +57,11 @@ struct CommandBarBreadcrumbRow: View {
     ) -> some View {
         HStack(spacing: 4) {
             if let icon = item.icon {
-                icon.swiftUIImage(size: AppStyles.General.Typography.textSm)
-                    .accessibilityHidden(true)
+                icon.swiftUIImage(
+                    loader: octiconLoader,
+                    size: AppStyles.General.Typography.textSm
+                )
+                .accessibilityHidden(true)
             }
 
             if isCurrent {

@@ -167,10 +167,10 @@ struct WorkspaceSQLiteStoreBackend {
 
 struct BackendUninitializedError: Error {}
 
-struct WorkspaceLocalSQLiteStoreBackend: Sendable {
+package struct WorkspaceLocalSQLiteStoreBackend: Sendable {
     private let makeLocalRepository: @Sendable (UUID) throws -> WorkspaceLocalRepository
     private let makeLocalRestoreRepository: @Sendable (UUID) throws -> WorkspaceLocalRepository
-    init(
+    package init(
         makeLocalRepository: @escaping @Sendable (UUID) throws -> WorkspaceLocalRepository,
         makeLocalRestoreRepository: (@Sendable (UUID) throws -> WorkspaceLocalRepository)? = nil
     ) {
@@ -184,11 +184,11 @@ struct WorkspaceLocalSQLiteStoreBackend: Sendable {
         }
     }
 
-    func repository(for workspaceId: UUID) throws -> WorkspaceLocalRepository {
+    package func repository(for workspaceId: UUID) throws -> WorkspaceLocalRepository {
         try makeLocalRepository(workspaceId)
     }
 
-    func restoreRepository(for workspaceId: UUID) throws -> WorkspaceLocalRepository {
+    package func restoreRepository(for workspaceId: UUID) throws -> WorkspaceLocalRepository {
         try makeLocalRestoreRepository(workspaceId)
     }
 

@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 extension WebKitSerializedTests {
     @MainActor
@@ -43,7 +45,7 @@ extension WebKitSerializedTests {
         }
 
         init() {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
         }
 
         @Test("prepared initial mount leaves hidden Bridge panes dormant until steady-state selection")

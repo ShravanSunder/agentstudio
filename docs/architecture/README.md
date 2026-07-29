@@ -12,7 +12,7 @@ and tests.
 
 | Question | Start here | Then verify in code |
 | --- | --- | --- |
-| Where should a file live? | [Directory Structure](directory_structure.md) | Owning slice under `Sources/AgentStudio/` |
+| Where should a file or module test live? | [Directory Structure](directory_structure.md) | `Package.swift` target and source lists |
 | Which command path, shortcut display, or dense-control tooltip source should I use? | [Commands and Shortcuts](commands_and_shortcuts.md) | `App/Commands/`, `Core/Actions/`, command specs, local action presentation |
 | Which shared UI primitive or dense-control visual pattern should I use? | [Style Guide](../guides/style_guide.md) | `SharedComponents/`, `AppStyles`, `AppPolicies` |
 | Is this app state, runtime state, or persisted state? | [Atom Persistence Boundaries](atom_persistence_boundaries.md) | `Core/State/MainActor/Atoms/`, persistence wrappers |
@@ -25,6 +25,33 @@ and tests.
 For testing and debugging, follow the proof ladder in `AGENTS.md`: focused
 tests first, lint next, shared Victoria proof for telemetry/runtime evidence,
 and Peekaboo only for the native UI layer that genuinely needs visual evidence.
+
+## Compiled Module Graph
+
+```text
+AgentStudio executable (App composition + resources)
+  ├── eight Feature modules: Bridge, CodeViewer, CommandBar, EditorChooser,
+  │   InboxNotification, RepoExplorer, Terminal, Webview
+  ├── AgentStudioCore
+  ├── AgentStudioSharedComponents
+  └── AgentStudioInfrastructure
+
+Features ──► Core / SharedComponents / Infrastructure
+Core     ──► SharedComponents / Infrastructure
+SharedComponents ──► Infrastructure
+```
+
+There are no sibling Feature imports. App owns cross-Feature composition and
+the concrete `AtomRegistry`; Core owns the sole `CoreAtomScope`; Feature state
+is explicitly injected. SharedComponents is stateless and depends only on
+Infrastructure. One coarse Core is intentional for this graph, and further
+decomposition is deferred. Cross-target product APIs use `package` visibility
+instead of broad `public` promotion.
+
+Paired test targets own module tests. `AgentStudioTestSupport` depends only on
+Core, while executable-level `AgentStudioTests` owns App, cross-Feature,
+resource, WebKit, zmx, and packaged integration. Test lane filters and
+serialization remain execution policy rather than module ownership.
 
 ## System Overview
 
@@ -202,7 +229,7 @@ Each document owns a specific concern. No two documents are authoritative for th
 | [Commands and Shortcuts](commands_and_shortcuts.md) | Command + shortcut system | Four-file model (AppCommand / AppShortcut / AppCommandSpec / LocalActionSpec), decision tree for adding bindings, contexts, alternateTriggers, dense-control tooltip source contract, where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) | App-level programmatic control | SwiftPM target split, socket/JSON-RPC foundation, auth, permission grants, protocol ports, CLI/smoke client, and the boundary between app IPC and internal zmx IPC |
 | [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Remote zmx daemons and fork strategy | SSH tunnel architecture (Option C), security model, connection lifecycle, case for forking zmx |
-| [Directory Structure](directory_structure.md) | Module boundaries and file placement | Core vs Features decision process, import rule, component → slice map, placement rationale |
+| [Directory Structure](directory_structure.md) | Module, test, and file-placement boundaries | Compiled SwiftPM graph, package visibility, Core vs Features decision process, import rule, paired tests, executable integration ownership |
 | [Architecture Lint Inventory](architecture_lint_inventory.md) | Architecture lint enforcement map | SwiftLint rule IDs, former shell-script coverage, blocking/report-only/test/review classifications |
 | [AgentStudio IPC Architecture](agentstudio_ipc_architecture.md) | App-level programmatic-control boundaries | Public contract, AppIPC port, app composition, zmx separation, and lint-rule ownership boundaries |
 | [Bridge Viewer Architecture](bridge_viewer_architecture.md) | End-to-end Bridge Viewer ownership | Product boundaries, native/web split, source-to-paint lifecycle, viewer modes, freshness, and proof routing |

@@ -8,7 +8,7 @@ import Observation
 /// or width here.
 @MainActor
 @Observable
-final class SidebarExpandedGroupAtom {
+package final class SidebarExpandedGroupAtom {
     private(set) var expandedGroups: Set<SidebarGroupKey> = []
 
     func setGroupExpanded(_ key: SidebarGroupKey, isExpanded: Bool) {
@@ -33,7 +33,7 @@ final class SidebarExpandedGroupAtom {
 }
 
 @MainActor
-final class SidebarCacheState {
+package final class SidebarCacheState {
     private let expandedGroupAtom: SidebarExpandedGroupAtom
 
     // Keep this as a pass-through composition surface. Observation is registered
@@ -45,11 +45,11 @@ final class SidebarCacheState {
         self.expandedGroupAtom = expandedGroupAtom
     }
 
-    var expandedGroups: Set<SidebarGroupKey> {
+    package var expandedGroups: Set<SidebarGroupKey> {
         expandedGroupAtom.expandedGroups
     }
 
-    func setGroupExpanded(_ key: SidebarGroupKey, isExpanded: Bool) {
+    package func setGroupExpanded(_ key: SidebarGroupKey, isExpanded: Bool) {
         expandedGroupAtom.setGroupExpanded(key, isExpanded: isExpanded)
     }
 

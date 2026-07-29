@@ -18,6 +18,8 @@ SwiftLint through `mise run lint` and CI.
 | Contract | Rule ID | Severity | Source |
 | --- | --- | --- | --- |
 | Source layers follow the documented import direction. | `agentstudio_import_direction` | error | `docs/architecture/directory_structure.md` |
+| Product atom state follows the Core, Feature, and App composition boundaries; removed compatibility, resolver, registration, and secondary-scope APIs stay absent. | `agentstudio_product_atom_boundary` | error | `docs/architecture/directory_structure.md` |
+| Canonical atom-owner classes expose mutable stored state only as `private` or `private(set)` and reject writable bindings. | `agentstudio_canonical_atom_mutation` | error | `AGENTS.md#architecture-at-a-glance` |
 | `SharedComponents/` render from explicit inputs and do not access atoms or global stores. | `agentstudio_shared_components_are_stateless` | error | `docs/architecture/directory_structure.md` |
 | `Infrastructure/AtomLib` stays generic and does not reference product atoms or feature state. | `agentstudio_atomlib_is_generic` | error | `docs/architecture/atom_persistence_boundaries.md` |
 | `DerivedValue` compute closures use declared inputs and do not hide atom reads through direct or same-file helper/wrapper calls. | `agentstudio_derived_value_declared_inputs` | error | `docs/architecture/atom_persistence_boundaries.md` |
@@ -61,7 +63,7 @@ typed ignore reasons.
 | Fail SharedComponents importing Core, Features, or App. | Blocking | `agentstudio_import_direction` |
 | Fail SharedComponents reading atoms, resolving global stores, or owning atom/store objects. | Blocking | `agentstudio_shared_components_are_stateless` |
 | Fail AtomLib importing product layers or referencing product atoms. | Blocking | `agentstudio_atomlib_is_generic` |
-| Fail `DerivedValue` direct `atom(...)`, `AtomScope`, `AtomReader`, or test-registry reads. | Blocking | `agentstudio_derived_value_declared_inputs` |
+| Fail `DerivedValue` direct `atom(...)`, `CoreAtomScope`, or `CoreAtoms` reads. | Blocking | `agentstudio_derived_value_declared_inputs` |
 | Fail same-file helper/wrapper calls from `DerivedValue` compute closures when the helper hides an atom read. | Blocking | `agentstudio_derived_value_declared_inputs` |
 | Fail raw `WorktreeEnrichment` equality as an atom comparator. | Blocking | `agentstudio_worktree_enrichment_comparator` |
 | Fail hot `repoEnrichmentByRepoId`, `worktreeEnrichmentByWorktreeId`, and `pullRequestCountByWorktreeId` dictionary reads outside named cold surfaces. | Blocking | `agentstudio_repo_cache_keyed_reads` |

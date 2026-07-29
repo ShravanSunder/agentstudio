@@ -1,7 +1,9 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeReviewVocabularyBoundaryTests {
     @Test("Bridge diff runtime vocabulary stays read-only")

@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import SwiftUI
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioSharedComponents
 
 @Suite("SidebarSurfaceChrome")
 struct SidebarSurfaceChromeTests {

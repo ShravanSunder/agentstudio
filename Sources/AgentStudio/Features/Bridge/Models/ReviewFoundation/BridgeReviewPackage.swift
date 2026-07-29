@@ -1,6 +1,6 @@
 import Foundation
 
-struct BridgeReviewPackage: Codable, Equatable, Sendable {
+package struct BridgeReviewPackage: Codable, Equatable, Sendable {
     let packageId: String
     let schemaVersion: Int
     let reviewGeneration: BridgeReviewGeneration
@@ -8,7 +8,7 @@ struct BridgeReviewPackage: Codable, Equatable, Sendable {
     let query: BridgeReviewQuery
     let baseEndpoint: BridgeSourceEndpoint
     let headEndpoint: BridgeSourceEndpoint
-    let orderedItemIds: [String]
+    package let orderedItemIds: [String]
     let itemsById: [String: BridgeReviewItemDescriptor]
     let groups: [BridgeReviewGroup]
     let summary: BridgeReviewPackageSummary

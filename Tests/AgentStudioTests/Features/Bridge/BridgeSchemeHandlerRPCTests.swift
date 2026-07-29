@@ -1,7 +1,8 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite(.serialized)
 final class BridgeSchemeHandlerRPCTests {
@@ -79,6 +80,7 @@ final class BridgeSchemeHandlerRPCTests {
         )
         let handler = BridgeSchemeHandler(
             paneId: UUID(),
+            appRootURL: testBridgeAppRootURL(),
             productSessionRouter: router
         )
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
@@ -156,6 +158,7 @@ final class BridgeSchemeHandlerRPCTests {
         )
         let handler = BridgeSchemeHandler(
             paneId: UUID(),
+            appRootURL: testBridgeAppRootURL(),
             productSessionRouter: router
         )
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
@@ -252,6 +255,7 @@ final class BridgeSchemeHandlerRPCTests {
         )
         let handler = BridgeSchemeHandler(
             paneId: UUID(),
+            appRootURL: testBridgeAppRootURL(),
             productSessionRouter: router
         )
         var request = URLRequest(

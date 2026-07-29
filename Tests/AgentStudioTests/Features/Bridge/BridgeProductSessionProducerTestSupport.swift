@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 actor BridgeProductProducerRegistryTestHarness {
     private var registry: BridgeProductProducerRegistry

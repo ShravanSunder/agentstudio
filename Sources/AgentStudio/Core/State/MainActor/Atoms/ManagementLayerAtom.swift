@@ -2,18 +2,20 @@ import Observation
 
 @MainActor
 @Observable
-final class ManagementLayerAtom {
-    private(set) var isActive = false
+package final class ManagementLayerAtom {
+    package private(set) var isActive = false
+
+    package init() {}
 
     func activate() {
         isActive = true
     }
 
-    func deactivate() {
+    package func deactivate() {
         isActive = false
     }
 
-    func toggle() {
+    package func toggle() {
         isActive.toggle()
     }
 }

@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 import Observation
 
@@ -7,40 +10,42 @@ import Observation
 /// legacy preference fields only.
 @MainActor
 @Observable
-final class InboxNotificationPrefsAtom {
-    private(set) var grouping: InboxNotificationGrouping = .byTab
-    private(set) var sort: InboxNotificationSort = .newestFirst
-    private(set) var bellEnabled: Bool = false
-    private(set) var globalInboxContentMode: InboxNotificationContentMode = .rollUpAlerts
-    private(set) var globalInboxRowStateFilter: InboxNotificationRowStateFilter = .unreadOnly
-    private(set) var paneInboxContentMode: InboxNotificationContentMode = .rollUpAlerts
-    private(set) var paneInboxRowStateFilter: InboxNotificationRowStateFilter = .unreadOnly
+package final class InboxNotificationPrefsAtom {
+    package private(set) var grouping: InboxNotificationGrouping = .byTab
+    package private(set) var sort: InboxNotificationSort = .newestFirst
+    package private(set) var bellEnabled: Bool = false
+    package private(set) var globalInboxContentMode: InboxNotificationContentMode = .rollUpAlerts
+    package private(set) var globalInboxRowStateFilter: InboxNotificationRowStateFilter = .unreadOnly
+    package private(set) var paneInboxContentMode: InboxNotificationContentMode = .rollUpAlerts
+    package private(set) var paneInboxRowStateFilter: InboxNotificationRowStateFilter = .unreadOnly
 
-    func setGrouping(_ grouping: InboxNotificationGrouping) {
+    package init() {}
+
+    package func setGrouping(_ grouping: InboxNotificationGrouping) {
         self.grouping = grouping
     }
 
-    func setSort(_ sort: InboxNotificationSort) {
+    package func setSort(_ sort: InboxNotificationSort) {
         self.sort = sort
     }
 
-    func setBellEnabled(_ enabled: Bool) {
+    package func setBellEnabled(_ enabled: Bool) {
         self.bellEnabled = enabled
     }
 
-    func setGlobalInboxContentMode(_ contentMode: InboxNotificationContentMode) {
+    package func setGlobalInboxContentMode(_ contentMode: InboxNotificationContentMode) {
         globalInboxContentMode = contentMode
     }
 
-    func setGlobalInboxRowStateFilter(_ rowStateFilter: InboxNotificationRowStateFilter) {
+    package func setGlobalInboxRowStateFilter(_ rowStateFilter: InboxNotificationRowStateFilter) {
         globalInboxRowStateFilter = rowStateFilter
     }
 
-    func setPaneInboxContentMode(_ contentMode: InboxNotificationContentMode) {
+    package func setPaneInboxContentMode(_ contentMode: InboxNotificationContentMode) {
         paneInboxContentMode = contentMode
     }
 
-    func setPaneInboxRowStateFilter(_ rowStateFilter: InboxNotificationRowStateFilter) {
+    package func setPaneInboxRowStateFilter(_ rowStateFilter: InboxNotificationRowStateFilter) {
         paneInboxRowStateFilter = rowStateFilter
     }
 }

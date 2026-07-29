@@ -1,4 +1,6 @@
 import AgentStudioAppIPC
+import AgentStudioCommandBar
+import AgentStudioCore
 import AgentStudioProgrammaticControl
 import AppKit
 
@@ -40,7 +42,7 @@ extension AppDelegate: AgentStudioIPCUIPresenting {
 
         let owner = KeyboardOwner.current(
             windowLifecycle: windowLifecycleStore,
-            managementLayer: atomStore.managementLayer,
+            managementLayer: atomStore.core.managementLayer,
             uiState: uiState
         )
         if let prefix {

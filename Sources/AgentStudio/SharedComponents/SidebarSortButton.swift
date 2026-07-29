@@ -1,6 +1,7 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
-enum SidebarToolbarNoTooltipTarget: Hashable {}
+package enum SidebarToolbarNoTooltipTarget: Hashable {}
 
 @MainActor
 struct SidebarToolbarIcon<Icon: View>: View {
@@ -115,12 +116,22 @@ struct SidebarToolbarMenuLabel<Icon: View>: View {
 }
 
 @MainActor
-struct SidebarToolbarMenuButton<Icon: View, MenuContent: View>: View {
+package struct SidebarToolbarMenuButton<Icon: View, MenuContent: View>: View {
     let label: String
     @ViewBuilder let icon: () -> Icon
     @ViewBuilder let menuContent: () -> MenuContent
 
-    var body: some View {
+    package init(
+        label: String,
+        @ViewBuilder icon: @escaping () -> Icon,
+        @ViewBuilder menuContent: @escaping () -> MenuContent
+    ) {
+        self.label = label
+        self.icon = icon
+        self.menuContent = menuContent
+    }
+
+    package var body: some View {
         Menu {
             menuContent()
         } label: {
@@ -134,8 +145,10 @@ struct SidebarToolbarMenuButton<Icon: View, MenuContent: View>: View {
 }
 
 @MainActor
-struct SidebarToolbarDivider: View {
-    var body: some View {
+package struct SidebarToolbarDivider: View {
+    package init() {}
+
+    package var body: some View {
         Divider()
             .frame(height: AppStyles.Shell.Sidebar.ToolbarControl.dividerHeight)
     }
@@ -163,7 +176,7 @@ struct SidebarSortButton<SortValue: Equatable, Icon: View>: View {
 }
 
 @MainActor
-struct SidebarToolbarSortButton<SortValue: Equatable, TooltipTarget: Hashable, Icon: View>: View {
+package struct SidebarToolbarSortButton<SortValue: Equatable, TooltipTarget: Hashable, Icon: View>: View {
     let sortValue: SortValue
     let isReversed: Bool
     let label: String
@@ -176,7 +189,7 @@ struct SidebarToolbarSortButton<SortValue: Equatable, TooltipTarget: Hashable, I
     let onHover: ((Bool) -> Void)?
     let onToggle: () -> Void
 
-    init(
+    package init(
         sortValue: SortValue,
         isReversed: Bool,
         label: String,
@@ -228,7 +241,7 @@ struct SidebarToolbarSortButton<SortValue: Equatable, TooltipTarget: Hashable, I
         self.onToggle = onToggle
     }
 
-    var body: some View {
+    package var body: some View {
         SidebarSortButton(
             sortValue: sortValue,
             isReversed: isReversed,
@@ -252,7 +265,7 @@ struct SidebarToolbarSortButton<SortValue: Equatable, TooltipTarget: Hashable, I
 }
 
 extension SidebarToolbarSortButton where TooltipTarget == SidebarToolbarNoTooltipTarget {
-    init(
+    package init(
         sortValue: SortValue,
         isReversed: Bool,
         label: String,
@@ -278,7 +291,7 @@ extension SidebarToolbarSortButton where TooltipTarget == SidebarToolbarNoToolti
 }
 
 @MainActor
-struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: View {
+package struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: View {
     let label: String
     let accessibilityIdentifier: String
     let tooltipValue: ControlTooltipRenderValue
@@ -290,7 +303,7 @@ struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: View {
     let onHover: ((Bool) -> Void)?
     let action: () -> Void
 
-    init(
+    package init(
         label: String,
         accessibilityIdentifier: String,
         tooltipValue: ControlTooltipRenderValue,
@@ -338,7 +351,7 @@ struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: View {
         self.action = action
     }
 
-    var body: some View {
+    package var body: some View {
         Button(action: action) {
             SidebarToolbarIcon(icon: icon, isActive: isActive)
         }
@@ -359,7 +372,7 @@ struct SidebarToolbarActionButton<TooltipTarget: Hashable, Icon: View>: View {
 }
 
 @MainActor
-struct SidebarToolbarGroupingButton<TooltipTarget: Hashable>: View {
+package struct SidebarToolbarGroupingButton<TooltipTarget: Hashable>: View {
     let label: String
     let selectionLabel: String
     let accessibilityIdentifier: String
@@ -371,7 +384,31 @@ struct SidebarToolbarGroupingButton<TooltipTarget: Hashable>: View {
     let onHover: ((Bool) -> Void)?
     let action: () -> Void
 
-    var body: some View {
+    package init(
+        label: String,
+        selectionLabel: String,
+        accessibilityIdentifier: String,
+        tooltipValue: ControlTooltipRenderValue,
+        isOpen: Bool,
+        tooltipTarget: TooltipTarget,
+        tooltipCoordinateSpaceName: String,
+        frameAccessibilityIdentifier: String? = nil,
+        onHover: ((Bool) -> Void)? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.label = label
+        self.selectionLabel = selectionLabel
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.tooltipValue = tooltipValue
+        self.isOpen = isOpen
+        self.tooltipTarget = tooltipTarget
+        self.tooltipCoordinateSpaceName = tooltipCoordinateSpaceName
+        self.frameAccessibilityIdentifier = frameAccessibilityIdentifier
+        self.onHover = onHover
+        self.action = action
+    }
+
+    package var body: some View {
         Button(action: action) {
             HStack(spacing: AppStyles.Shell.Sidebar.ToolbarControl.groupingContentSpacing) {
                 Image(systemName: "rectangle.grid.1x3")
@@ -408,7 +445,7 @@ struct SidebarToolbarGroupingButton<TooltipTarget: Hashable>: View {
 }
 
 extension SidebarToolbarActionButton where TooltipTarget == SidebarToolbarNoTooltipTarget {
-    init(
+    package init(
         label: String,
         accessibilityIdentifier: String,
         tooltipValue: ControlTooltipRenderValue,

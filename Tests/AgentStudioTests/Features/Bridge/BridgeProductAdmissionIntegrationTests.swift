@@ -1,8 +1,9 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 import WebKit
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge product admission integration")
 struct BridgeProductAdmissionIntegrationTests {
@@ -315,6 +316,7 @@ private struct BridgeProductAdmissionIntegrationHarness {
             capabilityHeader: capabilityHeader,
             handler: BridgeSchemeHandler(
                 paneId: UUID(),
+                appRootURL: testBridgeAppRootURL(),
                 productSessionRouter: router
             ),
             installation: installation,

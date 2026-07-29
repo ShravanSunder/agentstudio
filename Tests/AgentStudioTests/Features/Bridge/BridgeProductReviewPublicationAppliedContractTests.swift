@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge product Review publication application contract")
 struct BridgeProductReviewPublicationAppliedContractTests {

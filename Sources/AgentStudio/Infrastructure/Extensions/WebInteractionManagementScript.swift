@@ -9,12 +9,12 @@ import WebKit
 /// - `pointer-events: none` on document root to suppress hover/cursor interaction
 /// - capture-phase drag listener suppression to block in-page drop affordances
 @MainActor
-enum WebInteractionManagementScript {
+package enum WebInteractionManagementScript {
     private static let stateVariable = "__agentStudioManagementInteraction"
 
     /// Persistent script injected at document start for each new page load.
     /// - Parameter blockInteraction: `true` to start a new document in blocked mode.
-    static func makeUserScript(blockInteraction: Bool) -> WKUserScript {
+    package static func makeUserScript(blockInteraction: Bool) -> WKUserScript {
         WKUserScript(
             source: makeBootstrapSource(blockInteraction: blockInteraction),
             injectionTime: .atDocumentStart,
@@ -23,7 +23,7 @@ enum WebInteractionManagementScript {
     }
 
     /// Runtime command applied to the currently loaded document.
-    static func makeRuntimeToggleSource(blockInteraction: Bool) -> String {
+    package static func makeRuntimeToggleSource(blockInteraction: Bool) -> String {
         """
         (function() {
             var state = window.\(stateVariable);

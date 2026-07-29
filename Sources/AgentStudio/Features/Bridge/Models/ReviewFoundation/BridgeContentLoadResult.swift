@@ -1,6 +1,6 @@
 import Foundation
 
-struct BridgeContentLoadResult: Codable, Equatable, Sendable {
+package struct BridgeContentLoadResult: Codable, Equatable, Sendable {
     let handle: BridgeContentHandle
     let data: Data
     let mimeType: String
@@ -8,9 +8,9 @@ struct BridgeContentLoadResult: Codable, Equatable, Sendable {
     let contentHashAlgorithm: String
 }
 
-typealias BridgeContentStreamEmitter = @Sendable (Data) async throws -> Void
+package typealias BridgeContentStreamEmitter = @Sendable (Data) async throws -> Void
 
-struct BridgeContentStreamResult: Equatable, Sendable {
+package struct BridgeContentStreamResult: Equatable, Sendable {
     let handle: BridgeContentHandle
     let byteCount: Int
     let mimeType: String

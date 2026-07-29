@@ -1,13 +1,15 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite("CommandBar source removal", .serialized)
 struct CommandBarDataSourceSourceRemovalTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test
@@ -29,7 +31,7 @@ struct CommandBarDataSourceSourceRemovalTests {
             scope: .everything,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: AppCommandDispatcher.shared
+            dispatcher: FakeAppCommandDispatcher()
         )
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 

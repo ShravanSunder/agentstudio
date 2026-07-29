@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioTestSupport
 
 @Suite(.serialized)
 @MainActor
@@ -25,7 +26,6 @@ struct AppBootSequenceTests {
                 .triggerInitialTopologySync,
                 .armPersistenceObservation,
                 .readyForReactiveSidebar,
-                .checkWorktrunkDependency,
             ])
     }
 
@@ -39,7 +39,6 @@ struct AppBootSequenceTests {
         #expect(!recorded.contains(.loadCacheStore))
         #expect(!recorded.contains(.loadUIStore))
         #expect(!recorded.contains(.triggerInitialTopologySync))
-        #expect(!recorded.contains(.checkWorktrunkDependency))
     }
 
     @Test("every boot step explains why it exists")
@@ -94,7 +93,11 @@ struct AppBootSequenceTests {
             encoding: .utf8
         )
 
-        #expect(appDelegateSource.contains("workspaceSettingsStore = WorkspaceSettingsStore("))
+        #expect(
+            appDelegateSource.contains(
+                "workspaceSettingsStore = makeWorkspaceSettingsStore(sqliteDatastore: sqliteDatastore)"
+            )
+        )
         #expect(
             appDelegateSource.contains("await workspaceSettingsStore.restoreAsync(for: store.identityAtom.workspaceId)")
         )

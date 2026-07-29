@@ -1,5 +1,8 @@
 import AgentStudioAppIPC
+import AgentStudioCore
+import AgentStudioInboxNotification
 import AgentStudioProgrammaticControl
+import AgentStudioRepoExplorer
 import Foundation
 
 @MainActor

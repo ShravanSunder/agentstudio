@@ -2,7 +2,7 @@ import AgentStudioGit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeGitReviewDirectFileIdNormalizationTests {
     @Test("direct Git diff file IDs are deterministic wire-safe and bounded")

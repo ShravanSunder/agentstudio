@@ -1,14 +1,14 @@
 import Foundation
 
-enum VisibilityTier: Int, Comparable, Sendable {
+package enum VisibilityTier: Int, Comparable, Sendable {
     case p0Visible = 0
     case p1Hidden = 1
 
-    static func < (lhs: Self, rhs: Self) -> Bool {
+    package static func < (lhs: Self, rhs: Self) -> Bool {
         lhs.rawValue < rhs.rawValue
     }
 }
 
-protocol VisibilityTierResolver: Sendable {
+package protocol VisibilityTierResolver: Sendable {
     @MainActor func tier(for paneId: PaneId) -> VisibilityTier
 }

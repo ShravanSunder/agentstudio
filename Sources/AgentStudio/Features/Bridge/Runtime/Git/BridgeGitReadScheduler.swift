@@ -1,6 +1,6 @@
 import Foundation
 
-actor BridgeGitReadScheduler {
+package actor BridgeGitReadScheduler {
     private enum OperationPhase {
         case queued
         case running(BridgeGitReadSlotID)
@@ -66,7 +66,7 @@ actor BridgeGitReadScheduler {
         [:]
     private var shutdownWaiters: [CheckedContinuation<Void, Never>] = []
 
-    init(
+    package init(
         topology: BridgeGitReadSchedulerTopology,
         deadlineScheduler: any BridgeGitReadDeadlineScheduling = DispatchBridgeGitReadDeadlineScheduler(),
         eventSink: BridgeGitReadSchedulerEventSink? = nil
@@ -76,7 +76,7 @@ actor BridgeGitReadScheduler {
         self.eventSink = eventSink
     }
 
-    func updatePaneActivity(
+    package func updatePaneActivity(
         paneKey: BridgeGitReadPaneKey,
         worktreeKey: BridgeGitReadWorktreeKey,
         rank: BridgeGitReadActivityRank
@@ -86,7 +86,7 @@ actor BridgeGitReadScheduler {
         drainQueuedOperations()
     }
 
-    func removePaneActivity(paneKey: BridgeGitReadPaneKey) {
+    package func removePaneActivity(paneKey: BridgeGitReadPaneKey) {
         paneActivityByPaneKey.removeValue(forKey: paneKey)
         drainQueuedOperations()
     }
@@ -178,7 +178,7 @@ actor BridgeGitReadScheduler {
         )
     }
 
-    func shutdown() async {
+    package func shutdown() async {
         guard lifecycle != .closed else { return }
         if lifecycle == .active {
             lifecycle = .closing

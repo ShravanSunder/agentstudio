@@ -1,6 +1,6 @@
 import Foundation
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 actor ProductFileMetadataEventCollector {
     private(set) var events: [BridgeProductFileMetadataEvent] = []

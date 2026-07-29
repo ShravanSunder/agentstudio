@@ -4,12 +4,16 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
@@ -36,7 +40,8 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
             runtime: runtime,
             surfaceManager: UndoRestoreSurfaceManager(createSurfaceResult: createSurfaceResult),
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         return Harness(
             store: store,
@@ -214,7 +219,8 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
                 createSurfaceResult: .failure(.ghosttyNotInitialized)
             ),
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleAtom()
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
         let (repo, worktree) = makeRepoAndWorktree(store, root: tempDir)
         let topologyStore = RepositoryTopologyStore(

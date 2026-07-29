@@ -2,13 +2,17 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioRepoExplorer
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct FilesystemToPrimarySidebarIntegrationTests {
     @Test("filesystem-to-primary-sidebar pipeline converges project-dev-shaped grouping and PR enrichment")
     func filesystemToPrimarySidebarPipelineConverges() async throws {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
 
         let fixtureRoot = try makeProjectDevShapeFixture()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }

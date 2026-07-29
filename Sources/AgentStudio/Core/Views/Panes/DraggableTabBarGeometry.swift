@@ -1,8 +1,8 @@
 import CoreGraphics
 import Foundation
 
-enum DraggableTabBarGeometry {
-    static func tabId(at point: CGPoint, tabFrames: [UUID: CGRect]) -> UUID? {
+package enum DraggableTabBarGeometry {
+    package static func tabId(at point: CGPoint, tabFrames: [UUID: CGRect]) -> UUID? {
         let containingTabs =
             tabFrames
             .filter { _, frame in frame.contains(point) }
@@ -19,7 +19,11 @@ enum DraggableTabBarGeometry {
         return containingTabs.first?.key
     }
 
-    static func nsViewRect(for tabId: UUID, boundsHeight: CGFloat, tabFrames: [UUID: CGRect]) -> CGRect? {
+    package static func nsViewRect(
+        for tabId: UUID,
+        boundsHeight: CGFloat,
+        tabFrames: [UUID: CGRect]
+    ) -> CGRect? {
         guard let frame = tabFrames[tabId] else { return nil }
         return CGRect(
             x: frame.minX,

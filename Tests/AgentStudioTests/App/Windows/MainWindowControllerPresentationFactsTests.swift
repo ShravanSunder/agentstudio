@@ -4,12 +4,16 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct MainWindowControllerPresentationFactsTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("real window delegate ingress publishes presentation facts under the supplied UUID")
@@ -88,37 +92,39 @@ private struct PresentationFactsWindowHarness {
 private func withPresentationFactsWindowHarness<T>(
     body: @MainActor (PresentationFactsWindowHarness) async throws -> T
 ) async rethrows -> T {
-    let atoms = AtomRegistry()
+    let atoms = makeTestAtomRegistry()
     let store = WorkspaceStore(
-        identityAtom: atoms.workspaceIdentity,
-        windowMemoryAtom: atoms.workspaceWindowMemory,
-        repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
-        paneAtom: atoms.workspacePane,
-        tabLayoutAtom: atoms.workspaceTabLayout,
-        mutationCoordinator: atoms.workspaceMutationCoordinator
+        identityAtom: atoms.core.workspaceIdentity,
+        windowMemoryAtom: atoms.core.workspaceWindowMemory,
+        repositoryTopologyAtom: atoms.core.workspaceRepositoryTopology,
+        paneAtom: atoms.core.workspacePane,
+        tabLayoutAtom: atoms.core.workspaceTabLayout,
+        mutationCoordinator: atoms.core.workspaceMutationCoordinator
     )
     let viewRegistry = ViewRegistry()
     let appLifecycleStore = AppLifecycleAtom()
     let coordinator = WorkspaceSurfaceCoordinator(
         store: store,
         viewRegistry: viewRegistry,
-        runtime: SessionRuntime(atom: atoms.sessionRuntime, store: store),
+        runtime: SessionRuntime(atom: atoms.core.sessionRuntime, store: store),
         surfaceManager: PresentationFactsWindowSurfaceManager(),
         runtimeRegistry: RuntimeRegistry(),
-        windowLifecycleStore: atoms.windowLifecycle,
-        appLifecycleStore: appLifecycleStore
+        windowLifecycleStore: atoms.core.windowLifecycle,
+        appLifecycleStore: appLifecycleStore,
+        bridgePaneAttendance: atoms.bridgePaneAttendance
     )
     let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
         appLifecycleStore: appLifecycleStore,
-        windowLifecycleStore: atoms.windowLifecycle
+        windowLifecycleStore: atoms.core.windowLifecycle
     )
     let windowId = UUID()
     var controller: MainWindowController?
 
-    let result = try await AtomScope.$override.withValue(atoms) {
+    let result = try await withAsyncTestCoreAtoms(using: atoms.core) { _ in
         let windowController = MainWindowController(
             workspaceWindowId: windowId,
             store: store,
+            octiconLoader: makeTestOcticonLoader(),
             workspaceActionExecutor: WorkspaceActionExecutor(
                 coordinator: coordinator,
                 store: store
@@ -126,11 +132,18 @@ private func withPresentationFactsWindowHarness<T>(
             runtimeCommandDispatcher: coordinator,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
-            tabBarAdapter: TabBarAdapter(store: store, repoCache: atoms.repoCache),
+            tabBarAdapter: TabBarAdapter(store: store, repoCache: atoms.core.repoCache),
             viewRegistry: viewRegistry,
+            bridgePaneAttendance: atoms.bridgePaneAttendance,
+            editorChooser: atoms.editorChooser,
             inboxAtom: InboxNotificationAtom(),
             inboxPrefsAtom: InboxNotificationPrefsAtom(),
             inboxSidebarState: InboxSidebarState(),
+            paneInboxPresentationState: atoms.paneInboxPresentationState,
+            repoExplorerSidebarPrefs: atoms.repoExplorerSidebarPrefs,
+            bridgeAttendanceSnapshot: {
+                atoms.bridgePaneAttendance.ordinalSnapshot()
+            },
             paneInboxPresenter: PaneInboxNotificationPresenter()
         )
         controller = windowController
@@ -139,7 +152,7 @@ private func withPresentationFactsWindowHarness<T>(
         return try await body(
             PresentationFactsWindowHarness(
                 windowId: windowId,
-                windowLifecycleStore: atoms.windowLifecycle,
+                windowLifecycleStore: atoms.core.windowLifecycle,
                 controller: windowController,
                 window: window
             )

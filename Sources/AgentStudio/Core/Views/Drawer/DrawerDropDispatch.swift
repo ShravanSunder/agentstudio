@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// Validation + dispatch for drawer-child rearrange drops.
@@ -8,13 +9,13 @@ import Foundation
 /// traversal does not reach the original nested capture; the destination must
 /// sit at tab depth.
 @MainActor
-enum DrawerDropDispatch {
-    struct Context {
+package enum DrawerDropDispatch {
+    package struct Context {
         let parentPaneId: UUID
         let state: ActionStateSnapshot
     }
 
-    static func context(parentPaneId: UUID, store: WorkspaceStore) -> Context {
+    package static func context(parentPaneId: UUID, store: WorkspaceStore) -> Context {
         let arrangementView = WorkspaceArrangementViewDerived(
             tabLayoutAtom: store.tabLayoutAtom,
             paneAtom: store.paneAtom,
@@ -51,7 +52,7 @@ enum DrawerDropDispatch {
         )
     }
 
-    static func shouldAcceptDrop(
+    package static func shouldAcceptDrop(
         payload: SplitDropPayload,
         target: DrawerRearrangeTarget,
         sizingMode: DropSizingMode,
@@ -103,7 +104,7 @@ enum DrawerDropDispatch {
         )
     }
 
-    static func handleDrop(
+    package static func handleDrop(
         payload: SplitDropPayload,
         target: DrawerRearrangeTarget,
         sizingMode: DropSizingMode,

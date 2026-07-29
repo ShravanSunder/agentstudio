@@ -1,7 +1,8 @@
+import AgentStudioCore
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInboxNotification
 
 @Suite("Inbox notification persistence recovery")
 struct InboxNotificationPersistenceRecoveryTests {

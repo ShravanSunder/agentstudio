@@ -4,6 +4,9 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 private let schedulerStressIPCWaitTimeout: Duration = .seconds(30)
 
@@ -83,7 +86,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
 
     @Test("terminal send uses runtime dispatcher and preserves correlation id")
     func terminalSendUsesRuntimeDispatcherAndPreservesCorrelationId() async throws {
-        try await withAsyncTestAtomRegistry { _ in
+        try await withAsyncTestCoreAtoms { _ in
             let harness = makeHarness()
             let pane = harness.store.createPane(title: "Terminal")
             let tab = Tab(paneId: pane.id)

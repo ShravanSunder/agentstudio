@@ -1,13 +1,15 @@
+import AgentStudioCore
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCommandBar
 
 @MainActor
 @Suite("CommandBar pane search", .serialized)
 struct CommandBarPaneSearchTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test
@@ -38,7 +40,7 @@ struct CommandBarPaneSearchTests {
             scope: .panes,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: AppCommandDispatcher.shared
+            dispatcher: FakeAppCommandDispatcher()
         )
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 
@@ -74,7 +76,7 @@ struct CommandBarPaneSearchTests {
             scope: .panes,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: AppCommandDispatcher.shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         #expect(
@@ -106,7 +108,7 @@ struct CommandBarPaneSearchTests {
             scope: .panes,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: AppCommandDispatcher.shared
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         #expect(

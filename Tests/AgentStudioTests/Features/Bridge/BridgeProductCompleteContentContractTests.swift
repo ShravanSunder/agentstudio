@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 extension BridgeProductContentFrameCodecTests {
     @Test("empty File content admits an exact zero-byte maximum and terminal")

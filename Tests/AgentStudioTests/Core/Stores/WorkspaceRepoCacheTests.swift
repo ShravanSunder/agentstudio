@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 private final class RepoCacheObservationInvalidationCounter: @unchecked Sendable {
     var didInvalidate = false

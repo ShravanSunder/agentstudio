@@ -1,3 +1,10 @@
+import AgentStudioBridge
+import AgentStudioCommandBar
+import AgentStudioCore
+import AgentStudioEditorChooser
+import AgentStudioInboxNotification
+import AgentStudioInfrastructure
+import AgentStudioTerminal
 import AppKit
 import GhosttyKit
 import Observation
@@ -99,6 +106,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let runtimeCommandDispatcher: any PaneRuntimeCommandDispatching
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
+    private let bridgePaneAttendance: BridgePaneAttendanceAtom
+    private let editorChooser: EditorChooserState
+    private let inboxAtom: InboxNotificationAtom
     private let paneInboxPresentation: PaneInboxPresentation?
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -167,6 +177,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     // MARK: - View State
 
     private var tabBarHostingView: DraggableTabBarHostingView!
+    private let octiconLoader: OcticonLoader
     private var terminalContainer: RestoreAwareTerminalContainerView!
     private var emptyStateView: NSHostingView<WorkspaceEmptyStateView>?
     private var lastEmptyStateModel: WorkspaceEmptyStateModel?
@@ -194,6 +205,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     init(
         store: WorkspaceStore,
+        octiconLoader: OcticonLoader,
         repoCache: RepoCacheAtom,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
@@ -203,6 +215,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         runtimeCommandDispatcher: any PaneRuntimeCommandDispatching,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
+        bridgePaneAttendance: BridgePaneAttendanceAtom,
+        editorChooser: EditorChooserState,
+        inboxAtom: InboxNotificationAtom,
         paneInboxPresentation: PaneInboxPresentation? = nil,
         installedEditorTargetsProvider: @escaping @MainActor () -> [ExternalEditorTarget] = {
             ExternalEditorTarget.refreshInstalledTargets()
@@ -231,6 +246,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         embedsTabBarInView: Bool = true
     ) {
         self.store = store
+        self.octiconLoader = octiconLoader
         self.repoCache = repoCache
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.appLifecycleStore = appLifecycleStore
@@ -240,6 +256,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.runtimeCommandDispatcher = runtimeCommandDispatcher
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
+        self.bridgePaneAttendance = bridgePaneAttendance
+        self.editorChooser = editorChooser
+        self.inboxAtom = inboxAtom
         self.paneInboxPresentation = paneInboxPresentation
         self.installedEditorTargetsProvider = installedEditorTargetsProvider
         self.openEditorHandler = openEditorHandler
@@ -349,6 +368,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         let tabBar = CustomTabBar(
             adapter: tabBarAdapter,
             arrangementInlineRenameState: arrangementInlineRenameState,
+            inboxAtom: inboxAtom,
+            octiconLoader: octiconLoader,
             onSelect: { [weak self] tabId in
                 self?.handlePaneFocusTrigger(.tabClick(PaneTabClickFocusTrigger(targetTabId: tabId)))
             },
@@ -777,7 +798,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             pane.residency == .active,
             case .bridgePanel = pane.content
         {
-            atom(\.bridgePaneAttendance).record(bridgeAttendanceEvent, for: paneId)
+            bridgePaneAttendance.record(bridgeAttendanceEvent, for: paneId)
         }
     }
 
@@ -1057,10 +1078,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     // MARK: - Tab Content Hosts
 
     private func buildTabContentHost(for tabId: UUID) -> PersistentTabHostView {
+        let inboxAtom = inboxAtom
         let contentView = SingleTabContent(
             tabId: tabId,
+            octiconLoader: octiconLoader,
             store: store,
             repoCache: repoCache,
+            editorChooser: editorChooser,
             viewRegistry: viewRegistry,
             appLifecycleStore: appLifecycleStore,
             closeTransitionCoordinator: closeTransitionCoordinator,
@@ -1086,7 +1110,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             notificationCountForWorktree: { worktreeId in
                 WorkspaceNotificationCountProjection.rollUpAlertCount(
                     worktreeId: worktreeId,
-                    inboxAtom: atom(\.inboxNotification)
+                    inboxAtom: inboxAtom
                 )
             },
             workspaceWindowId: workspaceWindowId,
@@ -1497,13 +1521,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private var emptyStateModel: WorkspaceEmptyStateModel {
         WorkspaceLauncherProjector.project(
-            store: store
+            store: store,
+            inboxAtom: inboxAtom
         )
     }
 
     private func createEmptyStateView() -> NSHostingView<WorkspaceEmptyStateView> {
         PaneTabEmptyStateViewFactory.make(
             model: emptyStateModel,
+            octiconLoader: octiconLoader,
 
             onWatchFolder: { [weak self] in self?.watchFolderAction() },
             onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
@@ -1527,6 +1553,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         guard currentModel != lastEmptyStateModel else { return }
         emptyStateView?.rootView = WorkspaceEmptyStateView(
             model: currentModel,
+            octiconLoader: octiconLoader,
 
             onWatchFolder: { [weak self] in self?.watchFolderAction() },
             onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
@@ -3099,10 +3126,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             guard store.tabLayoutAtom.tabContaining(paneId: paneId) != nil else {
                 return false
             }
-            let previousOrdinal = atom(\.bridgePaneAttendance).ordinal(for: paneId)
+            let previousOrdinal = bridgePaneAttendance.ordinal(for: paneId)
             pendingBridgeAttendanceEventForNextFocus = .defaultJump
             focusTargetedPane(paneId)
-            guard atom(\.bridgePaneAttendance).ordinal(for: paneId) != previousOrdinal else {
+            guard bridgePaneAttendance.ordinal(for: paneId) != previousOrdinal else {
                 return false
             }
             return bridgeViewerSurfaceRequestHandler(surface, paneId)
@@ -3116,7 +3143,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 executor.openBridgeFilesInNewTab(worktreeId: worktreeId)
             }
         guard let pane else { return false }
-        atom(\.bridgePaneAttendance).record(.newTabCreation, for: pane.id)
+        bridgePaneAttendance.record(.newTabCreation, for: pane.id)
         _ = bridgeViewerSurfaceRequestHandler(surface, pane.id)
         return true
     }
@@ -3378,7 +3405,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return true
     }
 
-    private func resolveMainPaneOrdinalTarget(for command: AppCommand) -> (tab: Tab, paneId: UUID)? {
+    private func resolveMainPaneOrdinalTarget(for command: AppCommand) -> (tab: AgentStudioCore.Tab, paneId: UUID)? {
         guard
             let ordinal = mainPaneOrdinal(for: command),
             let activeTabId = store.tabLayoutAtom.activeTabId,
@@ -3439,7 +3466,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return .failure(.noActiveWindow)
         }
 
-        let tab: Tab
+        let tab: AgentStudioCore.Tab
         if let contextPaneId {
             guard
                 store.paneAtom.pane(contextPaneId) != nil,
@@ -3955,13 +3982,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             guard let targetPath = selectedPaneManagementContext()?.targetPath else { return false }
             let installedTargets = installedEditorTargetsProvider()
             var resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
-                bookmarkedEditorId: atom(\.editorChooser).bookmarkedEditorId,
+                bookmarkedEditorId: editorChooser.bookmarkedEditorId,
                 installedTargets: installedTargets
             )
             if case .bookmarkedEditorNotInstalled = resolution {
                 // A saved bookmark that is no longer installed should heal back to
                 // the implicit default launch order on the same key press.
-                atom(\.editorChooser).setBookmarkedEditor(nil)
+                editorChooser.setBookmarkedEditor(nil)
                 resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
                     bookmarkedEditorId: nil,
                     installedTargets: installedTargets
@@ -3974,12 +4001,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return openFinderHandler(targetPath)
         case .openPaneLocationInEditorMenu:
             guard let activePaneId = activePaneIdForChooserRequest() else { return false }
-            if atom(\.editorChooser).openForPaneId == activePaneId {
-                atom(\.editorChooser).setOpenEditorPane(nil)
+            if editorChooser.openForPaneId == activePaneId {
+                editorChooser.setOpenEditorPane(nil)
                 return true
             }
-            atom(\.editorChooser).setAvailableTargets(installedEditorTargetsProvider())
-            atom(\.editorChooser).setOpenEditorPane(activePaneId)
+            editorChooser.setAvailableTargets(installedEditorTargetsProvider())
+            editorChooser.setOpenEditorPane(activePaneId)
             return true
         case .editPaneNote:
             guard let paneId = activeMainPaneCommandTarget() else { return false }
@@ -4077,7 +4104,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             notificationCountForWorktree: { worktreeId in
                 WorkspaceNotificationCountProjection.rollUpAlertCount(
                     worktreeId: worktreeId,
-                    inboxAtom: atom(\.inboxNotification)
+                    inboxAtom: inboxAtom
                 )
             }
         )

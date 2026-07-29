@@ -3,7 +3,7 @@ import Foundation
 /// Protocol exposing what WorkspaceCommandResolver needs from a tab.
 /// Decouples resolution logic from concrete tab implementations,
 /// enabling unit testing with lightweight mocks.
-protocol ResolvableTab: Identifiable where ID == UUID {
+package protocol ResolvableTab: Identifiable where ID == UUID {
     var id: UUID { get }
     var activePaneId: UUID? { get }
     var visiblePaneIds: [UUID] { get }
@@ -26,23 +26,23 @@ protocol ResolvableTab: Identifiable where ID == UUID {
 // MARK: - Tab Conformance
 
 extension Tab: ResolvableTab {
-    var visiblePaneIds: [UUID] { activePaneIds }
-    var ownedPaneIds: [UUID] { allPaneIds }
-    var minimizedPaneIdsForValidation: Set<UUID> { activeMinimizedPaneIds }
-    var validationActiveArrangementId: UUID? { activeArrangementId }
-    var arrangementSnapshots: [ArrangementSnapshot] {
+    package var visiblePaneIds: [UUID] { activePaneIds }
+    package var ownedPaneIds: [UUID] { allPaneIds }
+    package var minimizedPaneIdsForValidation: Set<UUID> { activeMinimizedPaneIds }
+    package var validationActiveArrangementId: UUID? { activeArrangementId }
+    package var arrangementSnapshots: [ArrangementSnapshot] {
         arrangements.map { ArrangementSnapshot(id: $0.id, isDefault: $0.isDefault) }
     }
 
-    func neighborPaneId(of paneId: UUID, direction: SplitFocusDirection) -> UUID? {
+    package func neighborPaneId(of paneId: UUID, direction: SplitFocusDirection) -> UUID? {
         layout.neighbor(of: paneId, direction: direction.toFocusDirection)
     }
 
-    func nextPaneId(after paneId: UUID) -> UUID? {
+    package func nextPaneId(after paneId: UUID) -> UUID? {
         layout.next(after: paneId)
     }
 
-    func previousPaneId(before paneId: UUID) -> UUID? {
+    package func previousPaneId(before paneId: UUID) -> UUID? {
         layout.previous(before: paneId)
     }
 }

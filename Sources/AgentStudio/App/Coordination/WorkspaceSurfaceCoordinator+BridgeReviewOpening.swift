@@ -1,3 +1,5 @@
+import AgentStudioBridge
+import AgentStudioCore
 import AppKit
 
 @MainActor
@@ -63,7 +65,7 @@ extension WorkspaceSurfaceCoordinator {
                 isBridgePane: isBridgePane,
                 isPaneActive: pane.residency == .active,
                 isCurrentActivePane: activeTabId == location.tabId && activePaneId == pane.id,
-                attendanceOrdinal: atom(\.bridgePaneAttendance).ordinal(for: pane.id),
+                attendanceOrdinal: bridgePaneAttendance.ordinal(for: pane.id),
                 tabIndex: location.tabIndex,
                 paneIndexInTab: location.paneIndexInTab
             )

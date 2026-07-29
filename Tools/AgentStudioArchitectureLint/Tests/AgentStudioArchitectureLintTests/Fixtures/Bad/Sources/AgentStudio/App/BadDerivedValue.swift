@@ -7,5 +7,5 @@ func badDerivedValue() {
 }
 
 func hiddenRepoCacheRead() -> Int {
-    AtomReader.repoCache.repoEnrichmentByRepoId.count
+    atom(\.repoCache).repoEnrichmentByRepoId.count
 }

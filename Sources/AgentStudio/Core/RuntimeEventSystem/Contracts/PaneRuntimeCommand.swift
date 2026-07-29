@@ -1,16 +1,30 @@
 import Foundation
 
-struct RuntimeCommandEnvelope: Sendable {
-    let commandId: UUID
-    let correlationId: UUID?
-    let targetPaneId: PaneId
-    let command: PaneRuntimeCommand
-    let timestamp: ContinuousClock.Instant
+package struct RuntimeCommandEnvelope: Sendable {
+    package let commandId: UUID
+    package let correlationId: UUID?
+    package let targetPaneId: PaneId
+    package let command: PaneRuntimeCommand
+    package let timestamp: ContinuousClock.Instant
+
+    package init(
+        commandId: UUID,
+        correlationId: UUID?,
+        targetPaneId: PaneId,
+        command: PaneRuntimeCommand,
+        timestamp: ContinuousClock.Instant
+    ) {
+        self.commandId = commandId
+        self.correlationId = correlationId
+        self.targetPaneId = targetPaneId
+        self.command = command
+        self.timestamp = timestamp
+    }
 }
 
-protocol RuntimeKindCommand: Sendable {}
+package protocol RuntimeKindCommand: Sendable {}
 
-enum PaneRuntimeCommand: Sendable {
+package enum PaneRuntimeCommand: Sendable {
     case activate
     case deactivate
     case prepareForClose
@@ -23,7 +37,7 @@ enum PaneRuntimeCommand: Sendable {
 }
 
 extension PaneRuntimeCommand {
-    var requiredCapability: PaneCapability {
+    package var requiredCapability: PaneCapability {
         switch self {
         case .terminal:
             return .input
@@ -41,7 +55,7 @@ extension PaneRuntimeCommand {
     }
 }
 
-enum TerminalCommand: Sendable {
+package enum TerminalCommand: Sendable {
     case sendInput(String)
     case resize(cols: Int, rows: Int)
     case clearScrollback
@@ -50,17 +64,17 @@ enum TerminalCommand: Sendable {
     case jumpToPrompt(delta: Int)
 }
 
-enum BrowserCommand: Sendable {
+package enum BrowserCommand: Sendable {
     case navigate(url: URL)
     case reload(hard: Bool)
     case stop
 }
 
-enum DiffCommand: Sendable {
+package enum DiffCommand: Sendable {
     case loadDiff(DiffArtifact)
 }
 
-enum EditorCommand: Sendable {
+package enum EditorCommand: Sendable {
     case openFile(path: String, line: Int?, column: Int?)
     case save
     case revert

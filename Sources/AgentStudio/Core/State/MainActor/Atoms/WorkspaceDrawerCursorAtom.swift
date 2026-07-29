@@ -3,12 +3,12 @@ import Observation
 
 @MainActor
 @Observable
-final class WorkspaceDrawerCursorAtom {
+package final class WorkspaceDrawerCursorAtom {
     var expandedDrawerId: UUID? { storedExpandedDrawerId }
 
     private var storedExpandedDrawerId: UUID?
 
-    init(expandedDrawerId: UUID? = nil) {
+    package init(expandedDrawerId: UUID? = nil) {
         storedExpandedDrawerId = expandedDrawerId
     }
 

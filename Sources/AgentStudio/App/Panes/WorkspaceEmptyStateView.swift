@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import SwiftUI
 
 enum WorkspaceEmptyStateLayout {
@@ -58,6 +60,7 @@ enum WorkspaceEmptyStateCopy {
 
 struct WorkspaceEmptyStateView: View {
     let model: WorkspaceEmptyStateModel
+    let octiconLoader: OcticonLoader
     let onWatchFolder: () -> Void
     let onOpenRecent: (ApplicationRecentEntity) -> Void
     let onOpenAllRecent: () -> Void
@@ -204,7 +207,7 @@ struct WorkspaceEmptyStateView: View {
         @ViewBuilder actionRegion: () -> Action
     ) -> some View {
         HStack(alignment: .center, spacing: AppStyles.Welcome.intakeColumnSpacing) {
-            WelcomeSidebarIllustration()
+            WelcomeSidebarIllustration(octiconLoader: octiconLoader)
 
             VStack(alignment: .leading, spacing: AppStyles.Welcome.intakeRightColumnSpacing) {
                 AppLogoView(size: AppStyles.Welcome.intakeLogoSize)
@@ -287,7 +290,7 @@ struct WorkspaceEmptyStateView: View {
         let newTabOrWorktreeDefinition = AppCommand.showCommandBarRepos.definition
 
         return HStack(alignment: .top, spacing: AppStyles.Welcome.launcherShortcutsColumnsGap) {
-            LauncherPreviewStack()
+            LauncherPreviewStack(octiconLoader: octiconLoader)
 
             VStack(alignment: .leading, spacing: AppStyles.Welcome.launcherRowGap) {
                 launcherShortcutRow(
@@ -344,6 +347,7 @@ struct WorkspaceEmptyStateView: View {
                     ForEach(visibleRecentCards) { card in
                         WorkspaceRecentCardView(
                             card: card,
+                            octiconLoader: octiconLoader,
                             onOpen: { onOpenRecent(card.target) }
                         )
                     }
@@ -373,6 +377,7 @@ struct WorkspaceEmptyStateView: View {
 
 private struct WorkspaceRecentCardView: View {
     let card: WorkspaceRecentCardModel
+    let octiconLoader: OcticonLoader
     let onOpen: () -> Void
 
     @State private var isHovered = false
@@ -456,6 +461,7 @@ private struct WorkspaceRecentCardView: View {
 
     private var chipsRow: some View {
         WorkspaceStatusChipRow(
+            octiconLoader: octiconLoader,
             model: card.statusChips
                 ?? .init(
                     branchStatus: .init(

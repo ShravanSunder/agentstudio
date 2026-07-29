@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
 struct SidebarBadgeOverlay: ViewModifier {

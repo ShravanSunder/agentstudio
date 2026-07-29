@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import SwiftUI
 import os.log
@@ -10,7 +12,9 @@ private let stateLogger = Logger(subsystem: "com.agentstudio", category: "Comman
 /// Manages visibility, search input with prefix parsing, navigation stack, and selection.
 /// Always accessed on the main thread (SwiftUI views + AppKit panel controller).
 @Observable
-final class CommandBarState {
+package final class CommandBarState {
+    package init() {}
+
     enum OpenMode: Equatable {
         case prefix(String)
         case defaultScope(CommandBarScope)
@@ -23,7 +27,7 @@ final class CommandBarState {
     // MARK: - Search Input
 
     /// Full raw text including any visible prefix characters (e.g., "> close", "$ main").
-    var rawInput: String = "" {
+    package var rawInput: String = "" {
         didSet {
             if let normalizedPrefix = Self.normalizedLeadingPrefix(for: rawInput, previousInput: oldValue),
                 rawInput != normalizedPrefix
@@ -262,7 +266,7 @@ final class CommandBarState {
 
     /// Root-scope mapping is shared by the production AppDelegate open path and
     /// the test fixture entry point above so new owner→scope rows stay in sync.
-    static func defaultScope(for owner: KeyboardOwner) -> CommandBarScope {
+    package static func defaultScope(for owner: KeyboardOwner) -> CommandBarScope {
         owner == .sidebar(.inbox) ? .inbox : .everything
     }
 

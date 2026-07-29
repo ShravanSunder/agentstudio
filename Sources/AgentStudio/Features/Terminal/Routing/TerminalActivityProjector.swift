@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 
 struct TerminalActivityProjectionContext: Sendable, Equatable {
@@ -54,7 +56,7 @@ enum TerminalActivitySourceInput: Sendable, Equatable {
 /// Admission is bounded by the upstream per-surface accumulator: its drain awaits
 /// each ingestion, so a live surface can have at most one actor call plus one
 /// coalesced follow-up batch.
-actor TerminalActivityProjector {
+package actor TerminalActivityProjector {
     typealias OutcomeSink = @MainActor @Sendable ([TerminalActivityProjectionOutcome]) -> Void
 
     private struct ActivityWindow: Sendable {

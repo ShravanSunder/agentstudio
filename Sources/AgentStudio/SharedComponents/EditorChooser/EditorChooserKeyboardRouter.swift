@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AppKit
 
 enum EditorChooserKeyboardAction: Equatable {

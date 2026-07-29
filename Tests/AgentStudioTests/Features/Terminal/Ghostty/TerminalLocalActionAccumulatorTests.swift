@@ -1,7 +1,9 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @Suite("Terminal local action accumulator")
 struct TerminalLocalActionAccumulatorTests {
@@ -202,10 +204,21 @@ struct TerminalLocalActionAccumulatorTests {
         #expect(barrier.metrics.scheduledDrainCount == 0)
         #expect(barrier.metrics.followUpDrainCount == 0)
         let performanceSnapshot = Ghostty.ActionRouter.terminalAccumulatorDrainPerformanceSnapshot(for: barrier)
-        #expect(performanceSnapshot.drainClass == .exactBarrier)
-        #expect(performanceSnapshot.mainActorTaskCount == 0)
-        #expect(performanceSnapshot.activityAggregateCount == 0)
-        #expect(performanceSnapshot.retainedEntryCount == 2)
+        #expect(
+            performanceSnapshot
+                == TerminalAccumulatorDrainPerformanceSnapshot(
+                    drainClass: .exactBarrier,
+                    offeredCount: 3,
+                    replacedCount: 1,
+                    equalSuppressedCount: 1,
+                    scheduledDrainCount: 0,
+                    followUpDrainCount: 0,
+                    mainActorTaskCount: 0,
+                    activityAggregateCount: 0,
+                    retainedEntryCount: 2,
+                    retainedSizeBytes: 128
+                )
+        )
         #expect(
             Ghostty.ActionRouter.terminalAccumulatorQueueAge(
                 firstOfferedAtNanoseconds: barrier.firstOfferedAtNanoseconds,

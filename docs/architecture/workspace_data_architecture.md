@@ -535,7 +535,6 @@ WorkspaceBootStep (in order):
  10. triggerInitialTopologySync → replay persisted topology through ordinary events
  11. armPersistenceObservation → observe only after every local owner finishes hydration
  12. readyForReactiveSidebar  → mark secondary-state hydration scheduled
- 13. checkWorktrunkDependency → offer installation after the shell is visible
 ```
 
 Database preparation is cached for the launch. Local recovery is exactly

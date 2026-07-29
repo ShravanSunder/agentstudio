@@ -2,6 +2,9 @@ import Darwin
 import Foundation
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 /// Isolated zmx environment for integration tests.
 /// Each test run uses a unique ZMX_DIR (temp directory) to prevent cross-test interference.

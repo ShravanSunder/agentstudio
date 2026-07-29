@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import Foundation
 
 enum RepoExplorerEmptyState: Equatable, Sendable {
@@ -340,7 +343,7 @@ enum RepoExplorerProjection {
         metadataByRepoId: [UUID: RepoIdentityMetadata],
         sortOrder: RepoExplorerSortOrder
     ) -> [RepoPresentationGroup] {
-        repos.compactMap { repo in
+        repos.compactMap { repo -> RepoPresentationGroup? in
             guard !repo.worktrees.isEmpty else { return nil }
             let metadata = metadataByRepoId[repo.id]
             var projectedRepo = repo

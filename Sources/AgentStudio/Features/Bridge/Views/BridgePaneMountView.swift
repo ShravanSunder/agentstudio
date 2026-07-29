@@ -1,3 +1,4 @@
+import AgentStudioCore
 import AppKit
 import SwiftUI
 
@@ -9,13 +10,13 @@ import SwiftUI
 /// Controller lifetime is tied to this NSView's lifetime in the AppKit layout hierarchy.
 ///
 /// Follows the same pattern as `WebviewPaneMountView`.
-final class BridgePaneMountView: NSView, PaneMountedContent {
-    let paneId: UUID
-    let controller: BridgePaneController
-    let runtime: BridgeRuntime
+package final class BridgePaneMountView: NSView, PaneMountedContent {
+    package let paneId: UUID
+    package let controller: BridgePaneController
+    package let runtime: BridgeRuntime
     private var hostingView: NSHostingView<BridgePaneContentView>?
 
-    init(paneId: UUID, controller: BridgePaneController) {
+    package init(paneId: UUID, controller: BridgePaneController) {
         self.paneId = paneId
         self.controller = controller
         self.runtime = controller.runtime
@@ -27,13 +28,13 @@ final class BridgePaneMountView: NSView, PaneMountedContent {
         fatalError("init(coder:) not supported")
     }
 
-    override var acceptsFirstResponder: Bool { true }
+    package override var acceptsFirstResponder: Bool { true }
 
     // MARK: - Content Interaction
 
     /// Delegates management layer interaction suppression to the controller's
     /// persistent user-script pipeline (current document + future navigations).
-    func setContentInteractionEnabled(_ enabled: Bool) {
+    package func setContentInteractionEnabled(_ enabled: Bool) {
         controller.setWebContentInteractionEnabled(enabled)
     }
 

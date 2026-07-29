@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("WebKitTestIsolationArchitectureTests")
 struct WebKitTestIsolationArchitectureTests {
     private static let webKitRuntimeConstructors: [String] = [

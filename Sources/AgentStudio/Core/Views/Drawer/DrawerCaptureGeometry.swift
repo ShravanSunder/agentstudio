@@ -1,11 +1,11 @@
 import CoreGraphics
 import Foundation
 
-struct DrawerCaptureGeometry: Equatable {
-    let panelFrameInTab: CGRect
-    let paneFramesInDrawer: [UUID: CGRect]
+package struct DrawerCaptureGeometry: Equatable {
+    package let panelFrameInTab: CGRect
+    package let paneFramesInDrawer: [UUID: CGRect]
 
-    var containerBounds: CGRect {
+    package var containerBounds: CGRect {
         CGRect(origin: .zero, size: panelFrameInTab.size)
     }
 
@@ -16,7 +16,7 @@ struct DrawerCaptureGeometry: Equatable {
     /// Refusing to mount on coordinate drift would silence drag entirely with
     /// no recovery path — the AppKit destination must exist for the session
     /// to dispatch into.
-    static func make(
+    package static func make(
         panelFrameInTab: CGRect,
         paneFramesInDrawer: [UUID: CGRect]
     ) -> Self? {
@@ -28,7 +28,7 @@ struct DrawerCaptureGeometry: Equatable {
         )
     }
 
-    func locationInDrawer(fromTabLocation location: CGPoint) -> CGPoint {
+    package func locationInDrawer(fromTabLocation location: CGPoint) -> CGPoint {
         CGPoint(
             x: location.x - panelFrameInTab.minX,
             y: location.y - panelFrameInTab.minY

@@ -6,11 +6,11 @@ import Foundation
     import Glibc
 #endif
 
-struct AgentStudioTraceWriterDiagnostics: Equatable, Sendable {
-    static let empty = Self(failedFlushCount: 0, lastFlushErrorDescription: nil)
+package struct AgentStudioTraceWriterDiagnostics: Equatable, Sendable {
+    package static let empty = Self(failedFlushCount: 0, lastFlushErrorDescription: nil)
 
-    let failedFlushCount: Int
-    let lastFlushErrorDescription: String?
+    package let failedFlushCount: Int
+    package let lastFlushErrorDescription: String?
 }
 
 actor AgentStudioJSONLTraceWriter {

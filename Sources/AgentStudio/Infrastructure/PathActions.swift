@@ -3,7 +3,7 @@ import Foundation
 import os
 
 @MainActor
-protocol PathActionsExecuting: Sendable {
+package protocol PathActionsExecuting: Sendable {
     @discardableResult
     func copyPath(_ path: URL) -> Bool
 
@@ -11,24 +11,26 @@ protocol PathActionsExecuting: Sendable {
     func revealInFinder(_ path: URL) -> Bool
 }
 
-struct LivePathActionsExecutor: PathActionsExecuting {
+package struct LivePathActionsExecutor: PathActionsExecuting {
+    package init() {}
+
     @MainActor
-    func copyPath(_ path: URL) -> Bool {
+    package func copyPath(_ path: URL) -> Bool {
         PathActions.copyPath(path)
     }
 
     @MainActor
-    func revealInFinder(_ path: URL) -> Bool {
+    package func revealInFinder(_ path: URL) -> Bool {
         PathActions.revealInFinder(path)
     }
 }
 
-enum PathActions {
+package enum PathActions {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "PathActions")
 
     @MainActor
     @discardableResult
-    static func copyPath(_ path: URL) -> Bool {
+    package static func copyPath(_ path: URL) -> Bool {
         NSPasteboard.general.clearContents()
         let success = NSPasteboard.general.setString(path.path, forType: .string)
         if !success {
@@ -39,7 +41,7 @@ enum PathActions {
 
     @MainActor
     @discardableResult
-    static func revealInFinder(_ path: URL) -> Bool {
+    package static func revealInFinder(_ path: URL) -> Bool {
         ExternalWorkspaceOpener.openInFinder(path)
     }
 }

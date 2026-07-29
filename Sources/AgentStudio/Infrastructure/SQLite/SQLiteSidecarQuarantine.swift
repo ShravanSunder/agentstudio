@@ -1,34 +1,34 @@
 import Foundation
 
-enum SQLiteSidecarQuarantine {
-    struct Result: Sendable, Equatable {
-        enum Status: Sendable, Equatable {
+package enum SQLiteSidecarQuarantine {
+    package struct Result: Sendable, Equatable {
+        package enum Status: Sendable, Equatable {
             case moved
             case nothingToMove
             case failed
         }
 
-        let quarantinedFilenames: [String]
-        let failedFilenames: [String]
+        package let quarantinedFilenames: [String]
+        package let failedFilenames: [String]
 
-        var status: Status {
+        package var status: Status {
             if !failedFilenames.isEmpty {
                 return .failed
             }
             return quarantinedFilenames.isEmpty ? .nothingToMove : .moved
         }
 
-        var succeeded: Bool {
+        package var succeeded: Bool {
             status != .failed
         }
 
-        var recoveryFilename: String? {
+        package var recoveryFilename: String? {
             guard !quarantinedFilenames.isEmpty else { return nil }
             return quarantinedFilenames.joined(separator: ", ")
         }
     }
 
-    static func quarantine(databaseURL: URL, date: Date = Date()) -> Result {
+    package static func quarantine(databaseURL: URL, date: Date = Date()) -> Result {
         let timestamp = ISO8601DateFormatter().string(from: date)
             .replacingOccurrences(of: ":", with: "-")
         var quarantinedFilenames: [String] = []

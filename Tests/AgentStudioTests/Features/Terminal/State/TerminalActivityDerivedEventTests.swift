@@ -1,7 +1,10 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioTerminal
 
 @MainActor
 @Suite("TerminalActivityRouter derived activity events", .serialized)

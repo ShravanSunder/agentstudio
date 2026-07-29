@@ -1,6 +1,6 @@
 import Foundation
 
-struct TransientKeyboardSurfaceToken: Equatable, Hashable, Sendable {
+package struct TransientKeyboardSurfaceToken: Equatable, Hashable, Sendable {
     let id: UUID
 
     init(id: UUID = UUID()) {
@@ -8,7 +8,7 @@ struct TransientKeyboardSurfaceToken: Equatable, Hashable, Sendable {
     }
 }
 
-enum TransientKeyboardSurfaceKind: Equatable, Sendable {
+package enum TransientKeyboardSurfaceKind: Equatable, Sendable {
     case tabRename(tabId: UUID)
     case arrangementPanel(tabId: UUID)
     case arrangementRename(tabId: UUID, arrangementId: UUID)
@@ -16,7 +16,7 @@ enum TransientKeyboardSurfaceKind: Equatable, Sendable {
     case editorChooser(paneId: UUID)
     case paneNote(paneId: UUID)
 
-    var defaultPolicy: TransientKeyboardSurfacePolicy {
+    package var defaultPolicy: TransientKeyboardSurfacePolicy {
         switch self {
         case .arrangementPanel:
             return .dismissable(dismissTriggers: [AppShortcut.showArrangementPanel.trigger])
@@ -39,7 +39,7 @@ enum TransientKeyboardSurfaceKind: Equatable, Sendable {
     }
 }
 
-struct TransientKeyboardSurfacePolicy: Equatable, Sendable {
+package struct TransientKeyboardSurfacePolicy: Equatable, Sendable {
     let dismissTriggers: Set<ShortcutTrigger>
     let consumesEscape: Bool
 
@@ -65,8 +65,8 @@ struct TransientKeyboardSurfacePolicy: Equatable, Sendable {
 
 }
 
-enum TransientKeyboardSurfaceDismissRouter {
-    static func shouldDismiss(
+package enum TransientKeyboardSurfaceDismissRouter {
+    package static func shouldDismiss(
         trigger: ShortcutTrigger,
         policy: TransientKeyboardSurfacePolicy
     ) -> Bool {

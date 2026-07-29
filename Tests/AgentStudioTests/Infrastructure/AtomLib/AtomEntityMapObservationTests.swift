@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioInfrastructure
 
 private final class AtomEntityMapObservationCounter: @unchecked Sendable {
     private(set) var count = 0

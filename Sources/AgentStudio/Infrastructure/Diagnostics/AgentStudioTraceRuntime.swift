@@ -8,7 +8,7 @@ import Tracing
     import Glibc
 #endif
 
-struct AgentStudioTraceRuntime: Sendable {
+package struct AgentStudioTraceRuntime: Sendable {
     private let configuration: AgentStudioTraceConfiguration
     private let sinks: [any AgentStudioTraceSink]
     private let baseResource: [String: String]
@@ -16,10 +16,54 @@ struct AgentStudioTraceRuntime: Sendable {
     private let scopeVersion: String
     private let timeUnixNano: @Sendable () -> UInt64
 
-    let outputFileURL: URL?
+    package let outputFileURL: URL?
 
-    var isEnabled: Bool {
+    package var isEnabled: Bool {
         configuration.isEnabled && !sinks.isEmpty
+    }
+
+    package init(
+        configuration: AgentStudioTraceConfiguration,
+        processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier,
+        serviceName: String = "AgentStudio",
+        serviceVersion: String? = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+        sessionID: String = UUID().uuidString,
+        scopeVersion: String = "0.1.0",
+        writerRetainedLineLimit: Int = 2048,
+        timeUnixNano: @escaping @Sendable () -> UInt64
+    ) {
+        self.init(
+            configuration: configuration,
+            processIdentifier: processIdentifier,
+            serviceName: serviceName,
+            serviceVersion: serviceVersion,
+            sessionID: sessionID,
+            scopeVersion: scopeVersion,
+            writerRetainedLineLimit: writerRetainedLineLimit,
+            sinkFactory: .live,
+            timeUnixNano: timeUnixNano
+        )
+    }
+
+    package init(
+        configuration: AgentStudioTraceConfiguration,
+        processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier,
+        serviceName: String = "AgentStudio",
+        serviceVersion: String? = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+        sessionID: String = UUID().uuidString,
+        scopeVersion: String = "0.1.0",
+        writerRetainedLineLimit: Int = 2048
+    ) {
+        self.init(
+            configuration: configuration,
+            processIdentifier: processIdentifier,
+            serviceName: serviceName,
+            serviceVersion: serviceVersion,
+            sessionID: sessionID,
+            scopeVersion: scopeVersion,
+            writerRetainedLineLimit: writerRetainedLineLimit,
+            sinkFactory: .live
+        )
     }
 
     init(
@@ -30,7 +74,7 @@ struct AgentStudioTraceRuntime: Sendable {
         sessionID: String = UUID().uuidString,
         scopeVersion: String = "0.1.0",
         writerRetainedLineLimit: Int = 2048,
-        sinkFactory: AgentStudioTraceSinkFactory = .live,
+        sinkFactory: AgentStudioTraceSinkFactory,
         identityStore: AgentStudioTraceIdentityStore = .init(),
         timeUnixNano: @escaping @Sendable () -> UInt64 = Self.currentTimeUnixNano
     ) {
@@ -95,7 +139,7 @@ struct AgentStudioTraceRuntime: Sendable {
         }
     }
 
-    static func fromEnvironment(
+    package static func fromEnvironment(
         _ environment: [String: String] = ProcessInfo.processInfo.environment,
         preferenceLayer: AgentStudioTracePreferenceLayer? = nil,
         processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier
@@ -109,21 +153,21 @@ struct AgentStudioTraceRuntime: Sendable {
         )
     }
 
-    func isEnabled(_ tag: AgentStudioTraceTag) -> Bool {
+    package func isEnabled(_ tag: AgentStudioTraceTag) -> Bool {
         configuration.isEnabled(tag)
     }
 
-    func timestampUnixNano() -> UInt64 {
+    package func timestampUnixNano() -> UInt64 {
         timeUnixNano()
     }
 
-    func updateIdentitySnapshot(
+    package func updateIdentitySnapshot(
         _ snapshot: AgentStudioTraceIdentitySnapshot
     ) async -> AgentStudioTraceIdentityUpdateOutcome {
         await identityStore.update(snapshot)
     }
 
-    func record(
+    package func record(
         tag: AgentStudioTraceTag,
         body: String,
         severity: AgentStudioTraceSeverity = .info,
@@ -162,7 +206,7 @@ struct AgentStudioTraceRuntime: Sendable {
         await flushFromRecord()
     }
 
-    func flush() async throws {
+    package func flush() async throws {
         var firstError: Error?
         for sink in sinks {
             do {
@@ -180,7 +224,7 @@ struct AgentStudioTraceRuntime: Sendable {
         }
     }
 
-    func shutdown() async throws {
+    package func shutdown() async throws {
         var firstError: Error?
         for sink in sinks {
             do {
@@ -198,7 +242,7 @@ struct AgentStudioTraceRuntime: Sendable {
         }
     }
 
-    func diagnostics() async -> AgentStudioTraceWriterDiagnostics {
+    package func diagnostics() async -> AgentStudioTraceWriterDiagnostics {
         var failedFlushCount = 0
         var lastFlushErrorDescription: String?
         for sink in sinks {

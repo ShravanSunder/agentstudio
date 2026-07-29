@@ -2,6 +2,8 @@ import AppKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("PaneTabViewController global shortcut routing")
@@ -68,7 +70,7 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
     @Test("production global key path consults keyboard owner policy")
     func productionGlobalKeyPathConsultsKeyboardOwnerPolicy() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             let handler = MockCommandHandler()
             configureMainWindowKeyboardOwner(atoms)
@@ -102,7 +104,7 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
     @Test("production global key path uses injected window lifecycle")
     func productionGlobalKeyPathUsesInjectedWindowLifecycle() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let injectedWindowLifecycle = WindowLifecycleAtom()
             let harness = makeHarness(windowLifecycleStore: injectedWindowLifecycle)
             let handler = MockCommandHandler()
@@ -137,7 +139,7 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
     @Test("scope-aware pane shortcuts are blocked while sidebar owns keyboard")
     func scopeAwarePaneShortcutsAreBlockedBySidebarOwnership() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)
@@ -176,7 +178,7 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
     @Test("scope-aware pane shortcuts consume impossible pane movement")
     func scopeAwarePaneShortcutsConsumeImpossiblePaneMovement() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)
@@ -213,7 +215,7 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
     @Test("scope-aware pane shortcuts do not steal text input")
     func scopeAwarePaneShortcutsDoNotStealTextInput() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)
@@ -435,7 +437,7 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
     @Test("production global key path consults transient surface policy")
     func productionGlobalKeyPathConsultsTransientSurfacePolicy() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             let handler = MockCommandHandler()
             configureMainWindowKeyboardOwner(atoms)
@@ -471,7 +473,7 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
     @Test("production global key path dispatches arrangement navigation through arrangement panel")
     func productionGlobalKeyPathDispatchesArrangementNavigationThroughArrangementPanel() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             let handler = MockCommandHandler()
             configureMainWindowKeyboardOwner(atoms)
@@ -505,7 +507,7 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
     @Test("arrangement panel maps command digit shortcuts to tab selection")
     func arrangementPanelMapsCommandDigitShortcutsToTabSelection() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             let handler = MockCommandHandler()
             configureMainWindowKeyboardOwner(atoms)
@@ -539,7 +541,7 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
     @Test("arrangement panel consumes unavailable tab ordinal shortcuts")
     func arrangementPanelConsumesUnavailableTabOrdinalShortcuts() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             let handler = MockCommandHandler()
             handler.canExecuteResult = false
@@ -574,7 +576,7 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
     @Test("transient surface blocks scope-aware pane shortcuts")
     func transientSurfaceBlocksScopeAwarePaneShortcuts() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestCoreAtoms { atoms in
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)

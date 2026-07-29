@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import WebKit
@@ -8,7 +10,7 @@ import os
 /// for SwiftUI views.
 @Observable
 @MainActor
-final class WebviewPaneController {
+package final class WebviewPaneController {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "WebviewPaneController")
 
     // MARK: - State
@@ -25,7 +27,7 @@ final class WebviewPaneController {
 
     /// Called when a page finishes loading with the new display title.
     /// Wired by the coordinator to sync pane metadata in the store.
-    var onTitleChange: ((String) -> Void)?
+    package var onTitleChange: ((String) -> Void)?
 
     // MARK: - Shared Configuration
 

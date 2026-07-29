@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import os.log
@@ -5,7 +6,7 @@ import os.log
 private let repositoryTopologyStoreLogger = Logger(subsystem: "com.agentstudio", category: "RepositoryTopologyStore")
 
 @MainActor
-final class RepositoryTopologyStore {
+package final class RepositoryTopologyStore {
     private let atom: RepositoryTopologyAtom
     private let sqliteDatastore: WorkspaceSQLiteDatastore?
     private let persistDebounceDuration: Duration
@@ -14,11 +15,11 @@ final class RepositoryTopologyStore {
     private var isObservingTopology = false
     private(set) var isDirty = false
 
-    var isAutosaveObservationActive: Bool {
+    package var isAutosaveObservationActive: Bool {
         isObservingTopology
     }
 
-    init(
+    package init(
         atom: RepositoryTopologyAtom,
         sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
@@ -30,11 +31,11 @@ final class RepositoryTopologyStore {
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
     }
 
-    func startObserving() {
+    package func startObserving() {
         observeTopology()
     }
 
-    func flushAsync() async throws {
+    package func flushAsync() async throws {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         try await persistNow()

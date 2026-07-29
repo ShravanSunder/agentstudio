@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("PaneRecency Observer", .serialized)
@@ -21,7 +23,8 @@ struct WorkspacePaneRecencyObserverTests {
 
     @Test("retains pane identity across nil and records only a different pane")
     func nilRoundTrip_recordsOnlyDifferentPane() async throws {
-        try await withAsyncTestAtomRegistry { atoms in
+        try await withAsyncTestAtomRegistry { atomRegistry in
+            let atoms = atomRegistry.core
             let store = WorkspaceStore(
                 identityAtom: atoms.workspaceIdentity,
                 windowMemoryAtom: atoms.workspaceWindowMemory,
@@ -88,7 +91,8 @@ struct WorkspacePaneRecencyObserverTests {
 
     @Test("records every attended pane when transitions occur in one MainActor turn")
     func rapidTransitions_recordEveryAttendedPane() async throws {
-        await withAsyncTestAtomRegistry { atoms in
+        await withAsyncTestAtomRegistry { atomRegistry in
+            let atoms = atomRegistry.core
             let store = WorkspaceStore(
                 identityAtom: atoms.workspaceIdentity,
                 windowMemoryAtom: atoms.workspaceWindowMemory,
@@ -160,7 +164,8 @@ struct WorkspacePaneRecencyObserverTests {
 
     @Test("stop records the pending attended-pane transition before cancelling delivery")
     func stop_recordsPendingAttendedPaneTransition() async {
-        await withAsyncTestAtomRegistry { atoms in
+        await withAsyncTestAtomRegistry { atomRegistry in
+            let atoms = atomRegistry.core
             let store = WorkspaceStore(
                 identityAtom: atoms.workspaceIdentity,
                 windowMemoryAtom: atoms.workspaceWindowMemory,
@@ -210,7 +215,8 @@ struct WorkspacePaneRecencyObserverTests {
 
     @Test("records an attended pane after its eligibility settles")
     func provisionalIneligibleTransition_recordsAfterEligibilitySettles() async {
-        await withAsyncTestAtomRegistry { atoms in
+        await withAsyncTestAtomRegistry { atomRegistry in
+            let atoms = atomRegistry.core
             let store = WorkspaceStore(
                 identityAtom: atoms.workspaceIdentity,
                 windowMemoryAtom: atoms.workspaceWindowMemory,
@@ -283,7 +289,7 @@ struct WorkspacePaneRecencyObserverTests {
         let unrelatedTab = Tab(paneId: UUID())
 
         #expect(
-            !WorkspacePaneRecencyObserver.isEligibleForRecording(
+            !WorkspacePaneRecencyEligibility.isEligibleForRecording(
                 pane: pane,
                 workspaceMatches: true,
                 tabs: [firstTab, duplicateTab],
@@ -291,7 +297,7 @@ struct WorkspacePaneRecencyObserverTests {
             )
         )
         #expect(
-            !WorkspacePaneRecencyObserver.isEligibleForRecording(
+            !WorkspacePaneRecencyEligibility.isEligibleForRecording(
                 pane: pane,
                 workspaceMatches: true,
                 tabs: [unrelatedTab],
@@ -299,7 +305,7 @@ struct WorkspacePaneRecencyObserverTests {
             )
         )
         #expect(
-            !WorkspacePaneRecencyObserver.isEligibleForRecording(
+            !WorkspacePaneRecencyEligibility.isEligibleForRecording(
                 pane: pane,
                 workspaceMatches: true,
                 tabs: [firstTab],
@@ -310,7 +316,8 @@ struct WorkspacePaneRecencyObserverTests {
 
     @Test("AppDelegate composition starts and stops pane recency observation")
     func appDelegateComposition_startsAndStopsObservation() async {
-        await withAsyncTestAtomRegistry { atoms in
+        await withAsyncTestAtomRegistry { atomRegistry in
+            let atoms = atomRegistry.core
             let store = WorkspaceStore(
                 identityAtom: atoms.workspaceIdentity,
                 windowMemoryAtom: atoms.workspaceWindowMemory,
@@ -340,7 +347,7 @@ struct WorkspacePaneRecencyObserverTests {
             atoms.windowLifecycle.recordWindowRegistered(windowID)
             atoms.windowLifecycle.recordWindowBecameKey(windowID)
             let delegate = AppDelegate()
-            delegate.atomStore = atoms
+            delegate.atomStore = atomRegistry
             delegate.store = store
 
             delegate.startWorkspacePaneRecencyObservation()
@@ -363,7 +370,8 @@ struct WorkspacePaneRecencyObserverTests {
     private func assertScenarioDoesNotRecord(
         _ scenario: IneligiblePaneScenario
     ) async {
-        await withAsyncTestAtomRegistry { atoms in
+        await withAsyncTestAtomRegistry { atomRegistry in
+            let atoms = atomRegistry.core
             let store = WorkspaceStore(
                 identityAtom: atoms.workspaceIdentity,
                 windowMemoryAtom: atoms.workspaceWindowMemory,

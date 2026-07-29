@@ -1,18 +1,19 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
 
 @MainActor
 @Suite(.serialized)
 struct WorkspacePaneFocusDerivedTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test
     func emptyWorkspaceHasNoActiveContext() {
-        withTestAtomRegistry { _ in
+        withTestCoreAtoms { _ in
             let focus = atom(\.workspacePaneFocus).currentFocus(
                 workspaceTab: atom(\.workspaceTab),
                 workspacePane: atom(\.workspacePane),
@@ -26,7 +27,7 @@ struct WorkspacePaneFocusDerivedTests {
 
     @Test
     func activeTerminalTabReportsFocusRequirements() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -57,7 +58,7 @@ struct WorkspacePaneFocusDerivedTests {
 
     @Test
     func drawerAndArrangementRequirementsAreReported() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -99,7 +100,7 @@ struct WorkspacePaneFocusDerivedTests {
 
     @Test
     func worktreeBackedPane_populatesActiveRepoAndWorktreeIds() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -134,7 +135,7 @@ struct WorkspacePaneFocusDerivedTests {
 
     @Test
     func staleEmptyDrawerScope_isIgnoredWhenDrawerIsCollapsed() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -159,7 +160,7 @@ struct WorkspacePaneFocusDerivedTests {
 
     @Test
     func staleDrawerPaneOwner_fallsBackToRealActiveDrawerPane() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -198,7 +199,7 @@ struct WorkspacePaneFocusDerivedTests {
 
     @Test
     func focusedDrawerPane_reportsDrawerPaneIdentityAndMetadataNotParent() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -260,7 +261,7 @@ struct WorkspacePaneFocusDerivedTests {
 
     @Test
     func terminalMainPaneSupportsZoomWhileWebviewDrawerHasKeyboardFocus() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -296,7 +297,7 @@ struct WorkspacePaneFocusDerivedTests {
 
     @Test
     func terminalDrawerDoesNotEnableZoomForWebviewMainPane() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -341,7 +342,7 @@ struct WorkspacePaneFocusDerivedTests {
 
     @Test
     func activeTerminalZoomRequirementDoesNotDependOnFocusedDrawerChild() {
-        withTestAtomRegistry { atoms in
+        withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,

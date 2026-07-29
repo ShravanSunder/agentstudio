@@ -1,8 +1,10 @@
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 import WebKit
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite(.serialized)
 struct BridgeSchemeHandlerTelemetryTests {
@@ -45,6 +47,7 @@ struct BridgeSchemeHandlerTelemetryTests {
         let owner = BridgePaneTelemetrySessionOwner(initialInstallation: installation)
         let handler = BridgeSchemeHandler(
             paneId: UUID(),
+            appRootURL: testBridgeAppRootURL(),
             telemetrySessionOwner: owner
         )
         let sample = sampleWithWebAttributes(
@@ -229,6 +232,7 @@ struct BridgeSchemeHandlerTelemetryTests {
             owner: owner,
             handler: BridgeSchemeHandler(
                 paneId: UUID(),
+                appRootURL: testBridgeAppRootURL(),
                 telemetrySessionOwner: owner
             )
         )

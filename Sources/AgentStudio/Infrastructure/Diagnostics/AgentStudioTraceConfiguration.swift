@@ -94,7 +94,7 @@ enum AgentStudioOTLPProtocol: String, Equatable, Sendable {
     }
 }
 
-struct AgentStudioTraceConfiguration: Equatable, Sendable {
+package struct AgentStudioTraceConfiguration: Equatable, Sendable {
     static let defaultDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
     static let defaultOTLPEndpoint = URL(string: "http://127.0.0.1:4318")!
     static let safeDefaultTags: Set<AgentStudioTraceTag> = [
@@ -124,7 +124,7 @@ struct AgentStudioTraceConfiguration: Equatable, Sendable {
         !enabledTags.isEmpty
     }
 
-    static func from(
+    package static func from(
         environment: [String: String],
         preferenceLayer: AgentStudioTracePreferenceLayer? = nil,
         releaseChannel: AppDataPaths.ReleaseChannel = .current,

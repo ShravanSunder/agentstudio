@@ -6,7 +6,7 @@ import Foundation
 /// checkpoints, content handles, review generations, package identity, and
 /// deltas are Bridge concepts. A backend may be called directly only when its
 /// public DTOs exactly match these contracts; otherwise use one thin mapper.
-protocol BridgeReviewSourceProvider: Sendable {
+package protocol BridgeReviewSourceProvider: Sendable {
     func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint
     func compareEndpoints(_ request: BridgeEndpointComparisonRequest) async throws -> BridgeEndpointComparison
     func readTree(_ request: BridgeTreeReadRequest) async throws -> BridgeTreeReadResult
@@ -53,7 +53,7 @@ protocol BridgeSharedReviewConstructionSourceProvider: BridgeReviewSourceProvide
 {}
 
 extension BridgeReviewSourceProvider {
-    func streamContent(
+    package func streamContent(
         _ request: BridgeContentStreamRequest,
         chunkByteCount: Int,
         emitChunk: BridgeContentStreamEmitter

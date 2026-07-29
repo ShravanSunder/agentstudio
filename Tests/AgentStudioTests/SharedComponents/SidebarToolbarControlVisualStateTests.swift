@@ -1,6 +1,6 @@
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioSharedComponents
 
 @Suite("Sidebar toolbar control visual state")
 struct SidebarToolbarControlVisualStateTests {

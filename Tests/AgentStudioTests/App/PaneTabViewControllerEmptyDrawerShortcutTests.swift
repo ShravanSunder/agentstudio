@@ -3,12 +3,14 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
 struct PaneTabViewControllerEmptyDrawerShortcutTests {
     init() {
-        installTestAtomRegistryIfNeeded()
+        installTestCoreAtomsIfNeeded()
     }
 
     @Test("p creates first drawer pane while empty drawer has focus")
@@ -16,7 +18,7 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
         try await withIsolatedCommandDispatcher(
             configure: {},
             body: {
-                try withTestAtomRegistry { _ in
+                try withTestCoreAtoms { _ in
                     let harness = makeHarness()
                     defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -48,7 +50,7 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
         try await withIsolatedCommandDispatcher(
             configure: {},
             body: {
-                try withTestAtomRegistry { _ in
+                try withTestCoreAtoms { _ in
                     let harness = makeHarness()
                     let handler = MockCommandHandler()
                     defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -85,7 +87,7 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
         try await withIsolatedCommandDispatcher(
             configure: {},
             body: {
-                try withTestAtomRegistry { atoms in
+                try withTestCoreAtoms { atoms in
                     let harness = makeHarness()
                     let handler = MockCommandHandler()
                     defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -124,7 +126,7 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
 
     @Test("p does not create first drawer pane while text input owns focus")
     func rawP_openEmptyDrawerWithTextInputFocus_fallsThrough() throws {
-        try withTestAtomRegistry { _ in
+        try withTestCoreAtoms { _ in
             let harness = makeHarness()
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -153,7 +155,7 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
 
     @Test("performKeyEquivalent does not let raw p steal text input focus")
     func performKeyEquivalent_rawPWithTextInputFocus_fallsThrough() throws {
-        try withTestAtomRegistry { _ in
+        try withTestCoreAtoms { _ in
             let harness = makeHarness()
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -183,7 +185,7 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
         try await withIsolatedCommandDispatcher(
             configure: {},
             body: {
-                try withTestAtomRegistry { _ in
+                try withTestCoreAtoms { _ in
                     let harness = makeHarness()
                     defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -229,7 +231,7 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
         try await withIsolatedCommandDispatcher(
             configure: {},
             body: {
-                try withTestAtomRegistry { _ in
+                try withTestCoreAtoms { _ in
                     let harness = makeHarness()
                     defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 

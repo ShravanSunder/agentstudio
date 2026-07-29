@@ -5,7 +5,7 @@ import Foundation
 /// The context carries the original epoch through suspension. Mutation owners
 /// validate it synchronously at the mutation boundary; no downstream owner may
 /// reacquire admission after work has started.
-struct BridgeProductAdmissionContext: Sendable {
+package struct BridgeProductAdmissionContext: Sendable {
     fileprivate let gate: BridgeProductAdmissionGate
     fileprivate let token: BridgeProductAdmissionGate.Token
 

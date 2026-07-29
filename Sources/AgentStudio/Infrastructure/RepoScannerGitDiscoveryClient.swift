@@ -3,7 +3,7 @@ import Foundation
 
 /// Capability adapter from the package's discovery-only read contract into scanner evidence.
 /// It intentionally cannot retain status, remote, writer-registry, or mutation capabilities.
-struct RepoScannerGitDiscoveryClient: RepoScanner.GitRepositoryDiscoveryProvider,
+package struct RepoScannerGitDiscoveryClient: RepoScanner.GitRepositoryDiscoveryProvider,
     RepoDiscoveryReadClient
 {
     /// Retained only as the operation-class policy source; this adapter owns no deadline.
@@ -11,14 +11,14 @@ struct RepoScannerGitDiscoveryClient: RepoScanner.GitRepositoryDiscoveryProvider
 
     private let discoveryReadClient: any AgentStudioGitDiscoveryReadClient
 
-    init(
+    package init(
         discoveryReadClient: any AgentStudioGitDiscoveryReadClient =
             LibGit2AgentStudioGitDiscoveryReadClient()
     ) {
         self.discoveryReadClient = discoveryReadClient
     }
 
-    func discoveryOutcome(for url: URL) async -> GitRepositoryDiscoveryOutcome {
+    package func discoveryOutcome(for url: URL) async -> GitRepositoryDiscoveryOutcome {
         let outcome = await discoveryReadClient.readDiscoveryCandidate(
             GitDiscoveryReadRequest(candidatePath: url)
         )
@@ -43,7 +43,7 @@ struct RepoScannerGitDiscoveryClient: RepoScanner.GitRepositoryDiscoveryProvider
         }
     }
 
-    func validateDiscoveryCandidate(at candidateURL: URL) async -> GitRepositoryDiscoveryOutcome {
+    package func validateDiscoveryCandidate(at candidateURL: URL) async -> GitRepositoryDiscoveryOutcome {
         await discoveryOutcome(for: candidateURL)
     }
 }

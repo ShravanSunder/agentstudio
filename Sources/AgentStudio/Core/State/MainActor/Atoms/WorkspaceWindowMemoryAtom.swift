@@ -3,14 +3,14 @@ import Observation
 
 @MainActor
 @Observable
-final class WorkspaceWindowMemoryAtom {
-    var sidebarWidth: CGFloat { storedSidebarWidth }
-    var windowFrame: CGRect? { storedWindowFrame }
+package final class WorkspaceWindowMemoryAtom {
+    package var sidebarWidth: CGFloat { storedSidebarWidth }
+    package var windowFrame: CGRect? { storedWindowFrame }
 
     private var storedSidebarWidth: CGFloat
     private var storedWindowFrame: CGRect?
 
-    init(sidebarWidth: CGFloat = 250, windowFrame: CGRect? = nil) {
+    package init(sidebarWidth: CGFloat = 250, windowFrame: CGRect? = nil) {
         storedSidebarWidth = sidebarWidth
         storedWindowFrame = windowFrame
     }
@@ -23,12 +23,12 @@ final class WorkspaceWindowMemoryAtom {
         storedWindowFrame = windowFrame
     }
 
-    func setSidebarWidth(_ sidebarWidth: CGFloat) {
+    package func setSidebarWidth(_ sidebarWidth: CGFloat) {
         guard storedSidebarWidth != sidebarWidth else { return }
         storedSidebarWidth = sidebarWidth
     }
 
-    func setWindowFrame(_ windowFrame: CGRect?) {
+    package func setWindowFrame(_ windowFrame: CGRect?) {
         guard storedWindowFrame != windowFrame else { return }
         storedWindowFrame = windowFrame
     }

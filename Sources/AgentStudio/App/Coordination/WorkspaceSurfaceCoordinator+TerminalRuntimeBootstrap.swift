@@ -1,3 +1,6 @@
+import AgentStudioCore
+import AgentStudioTerminal
+
 extension WorkspaceSurfaceCoordinator {
     func registerTerminalRuntimeIfNeeded(for pane: Pane) {
         guard let preparedRuntime = prepareTerminalRuntimeIfNeeded(for: pane) else { return }

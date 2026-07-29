@@ -3,6 +3,11 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 extension E2ESerializedTests {
     @MainActor
@@ -10,7 +15,7 @@ extension E2ESerializedTests {
     struct FilesystemSourceE2ETests {
         @Test("filesystem actor events flow through coordinator into workspace stores")
         func filesystemEventsFlowThroughCoordinatorIntoStores() async throws {
-            installTestAtomRegistryIfNeeded()
+            installTestCoreAtomsIfNeeded()
             let repoURL = try FilesystemTestGitRepo.create(named: "filesystem-e2e")
             defer { FilesystemTestGitRepo.destroy(repoURL) }
             try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repoURL)
@@ -67,7 +72,8 @@ extension E2ESerializedTests {
                 runtimeRegistry: RuntimeRegistry(),
                 paneEventBus: paneEventBus,
                 filesystemSource: filesystemSource,
-                windowLifecycleStore: WindowLifecycleAtom()
+                windowLifecycleStore: WindowLifecycleAtom(),
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
             )
             coordinator.syncFilesystemRootsAndActivity()
 

@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import AgentStudioTestSupport
+
 @Suite("Bridge packaged product journey scripts")
 struct BridgePackagedProductJourneyScriptTests {
     @Test("runner dry-run declares strict LaunchServices fixture and preservation contract")

@@ -1,13 +1,14 @@
+import AgentStudioInfrastructure
 import Foundation
 import SwiftUI
 
-struct PaneVisibilityInfo: Identifiable, Equatable {
-    let id: UUID
-    let title: String
-    let isMinimized: Bool
-    let supportsZoom: Bool
+package struct PaneVisibilityInfo: Identifiable, Equatable {
+    package let id: UUID
+    package let title: String
+    package let isMinimized: Bool
+    package let supportsZoom: Bool
 
-    init(
+    package init(
         id: UUID,
         title: String,
         isMinimized: Bool,
@@ -19,38 +20,56 @@ struct PaneVisibilityInfo: Identifiable, Equatable {
         self.supportsZoom = supportsZoom
     }
 
-    var statusSystemImageName: String? {
+    package var statusSystemImageName: String? {
         isMinimized ? "eye.slash.fill" : nil
     }
 }
 
-enum ArrangementPanelRole: Equatable, Sendable {
+package enum ArrangementPanelRole: Equatable, Sendable {
     case defaultArrangement
     case userLayout
 }
 
-struct ArrangementInfo: Identifiable, Equatable {
-    let id: UUID
-    let name: String
-    let role: ArrangementPanelRole
-    let isActive: Bool
+package struct ArrangementInfo: Identifiable, Equatable {
+    package let id: UUID
+    package let name: String
+    package let role: ArrangementPanelRole
+    package let isActive: Bool
 
-    var isDefault: Bool {
+    package init(
+        id: UUID,
+        name: String,
+        role: ArrangementPanelRole,
+        isActive: Bool
+    ) {
+        self.id = id
+        self.name = name
+        self.role = role
+        self.isActive = isActive
+    }
+
+    package var isDefault: Bool {
         role == .defaultArrangement
     }
 }
 
-struct ArrangementPanelZoomSourceIdentity: Equatable, Sendable {
-    let title: String
-    let detail: String?
-    let fullPath: String?
+package struct ArrangementPanelZoomSourceIdentity: Equatable, Sendable {
+    package let title: String
+    package let detail: String?
+    package let fullPath: String?
+
+    package init(title: String, detail: String?, fullPath: String?) {
+        self.title = title
+        self.detail = detail
+        self.fullPath = fullPath
+    }
 }
 
-struct ArrangementPanelZoomMode: Equatable, Sendable {
-    let label: String
-    let sourceIdentity: ArrangementPanelZoomSourceIdentity?
+package struct ArrangementPanelZoomMode: Equatable, Sendable {
+    package let label: String
+    package let sourceIdentity: ArrangementPanelZoomSourceIdentity?
 
-    init(
+    package init(
         label: String,
         sourceIdentity: ArrangementPanelZoomSourceIdentity? = nil
     ) {
@@ -85,7 +104,7 @@ struct ArrangementPanelDisplayState: Equatable {
     }
 }
 
-enum ArrangementPanelPopoverPlacement {
+package enum ArrangementPanelPopoverPlacement {
     case tabBar
     case minimizedBar
 
@@ -93,11 +112,11 @@ enum ArrangementPanelPopoverPlacement {
         .center
     }
 
-    var attachmentAnchor: PopoverAttachmentAnchor {
+    package var attachmentAnchor: PopoverAttachmentAnchor {
         .point(sourceAttachmentPoint)
     }
 
-    var arrowEdge: Edge {
+    package var arrowEdge: Edge {
         .leading
     }
 }
@@ -106,8 +125,8 @@ enum ArrangementPanelPopoverPlacement {
 /// starts from outside the popover (e.g. via the command palette). Targets
 /// only renames whose arrangement belongs to the currently active tab,
 /// and only when the popover is not already presented.
-enum ArrangementPopoverAutoOpen {
-    static func shouldOpen(
+package enum ArrangementPopoverAutoOpen {
+    package static func shouldOpen(
         editingArrangementId: UUID?,
         activeTabArrangements: [ArrangementInfo]?,
         isPresented: Bool

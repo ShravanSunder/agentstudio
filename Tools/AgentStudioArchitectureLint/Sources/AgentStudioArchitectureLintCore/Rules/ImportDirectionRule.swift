@@ -1,11 +1,11 @@
 struct ImportDirectionRule: ArchitectureRule {
     let id = "agentstudio_import_direction"
     let severity = ArchitectureSeverity.error
-    let message = "AgentStudio source layers must follow the documented import direction"
+    let message = "AgentStudio modules must follow the documented product and test dependency graph"
 
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {
         let classifier = AgentStudioPathClassifier(path: context.normalizedPath)
-        guard let layer = classifier.layer else {
+        guard let currentModule = classifier.sourceModuleOwner ?? classifier.testModuleOwner else {
             return []
         }
 
@@ -13,52 +13,83 @@ struct ImportDirectionRule: ArchitectureRule {
         visitor.walk(context.sourceFile)
 
         return visitor.imports.compactMap { importRecord in
-            guard let importedLayer = AgentStudioPathClassifier.importedLayer(importRecord.path),
-                isViolation(
-                    layer: layer,
-                    currentFeature: classifier.featureName,
-                    importPath: importRecord.path,
-                    importedLayer: importedLayer
+            guard let importedModule = AgentStudioPathClassifier.importedModuleOwner(importRecord.path),
+                !isAllowed(
+                    currentModule: currentModule,
+                    importedModule: importedModule,
+                    isProductSource: classifier.sourceModuleOwner != nil
                 )
             else {
                 return nil
             }
-            let importedPath = importRecord.path.joined(separator: ".")
             return diagnostic(
                 context: context,
                 position: importRecord.position,
-                message: "Move this dependency to an allowed layer; \(layer) cannot import \(importedPath)"
+                message: violationMessage(
+                    currentModule: currentModule,
+                    importedModule: importedModule,
+                    importedPath: importRecord.path.joined(separator: "."),
+                    isProductSource: classifier.sourceModuleOwner != nil
+                )
             )
         }
     }
 
-    private func isViolation(
-        layer: String,
-        currentFeature: String?,
-        importPath: [String],
-        importedLayer: String
+    private func isAllowed(
+        currentModule: AgentStudioModuleOwner,
+        importedModule: AgentStudioModuleOwner,
+        isProductSource: Bool
     ) -> Bool {
-        switch layer {
-        case "App":
-            return false
-        case "Core":
-            return importedLayer != "Infrastructure" && importedLayer != "SharedComponents"
-        case "Infrastructure":
-            return AgentStudioPathClassifier.internalLayers.contains(importedLayer)
-        case "SharedComponents":
-            return importedLayer != "Infrastructure"
-        case "Features":
-            if ["Core", "Infrastructure", "SharedComponents"].contains(importedLayer) {
-                return false
-            }
-            if importedLayer == "Features",
-                let importedFeature = importPath.drop(while: { $0 != "Features" }).dropFirst().first.map({ String($0) })
-            {
-                return importedFeature != currentFeature
-            }
-            return true
-        default:
+        if isProductSource, importedModule == .testSupport {
             return false
         }
+
+        switch currentModule {
+        case .app:
+            return importedModule != .testSupport || !isProductSource
+        case .infrastructure:
+            return importedModule == .infrastructure
+        case .sharedComponents:
+            return [.infrastructure, .sharedComponents].contains(importedModule)
+        case .core:
+            return [.core, .infrastructure, .sharedComponents, .testSupport].contains(importedModule)
+        case .feature(let currentFeature):
+            return [.core, .infrastructure, .sharedComponents, .testSupport].contains(importedModule)
+                || importedModule == .feature(currentFeature)
+        case .testSupport:
+            return importedModule == .core || importedModule == .testSupport
+        }
+    }
+
+    private func violationMessage(
+        currentModule: AgentStudioModuleOwner,
+        importedModule: AgentStudioModuleOwner,
+        importedPath: String,
+        isProductSource: Bool
+    ) -> String {
+        if isProductSource, importedModule == .testSupport {
+            return "Product targets must not import AgentStudioTestSupport"
+        }
+        if !isProductSource, importedModule == .testSupport {
+            switch currentModule {
+            case .infrastructure:
+                return "Infrastructure tests must not import AgentStudioTestSupport"
+            case .sharedComponents:
+                return "SharedComponents tests must not import AgentStudioTestSupport"
+            default:
+                break
+            }
+        }
+
+        let ownerDescription: String
+        switch currentModule {
+        case .feature(let featureName):
+            ownerDescription = "Feature \(featureName)\(isProductSource ? "" : " tests")"
+        case .testSupport:
+            ownerDescription = "TestSupport"
+        default:
+            ownerDescription = "\(currentModule.layerName)\(isProductSource ? "" : " tests")"
+        }
+        return "\(ownerDescription) cannot import \(importedPath)"
     }
 }

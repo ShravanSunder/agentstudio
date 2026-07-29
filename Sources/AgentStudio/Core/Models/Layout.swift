@@ -1,24 +1,30 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// Flat pane strip layout shared by pane containers.
 /// Every pane is a direct sibling in left-to-right order with a preserved width ratio.
-struct Layout: Codable, Hashable, Sendable {
-    struct PaneEntry: Codable, Hashable, Sendable {
+package struct Layout: Codable, Hashable, Sendable {
+    package struct PaneEntry: Codable, Hashable, Sendable {
         let paneId: UUID
         let ratio: Double
+
+        package init(paneId: UUID, ratio: Double) {
+            self.paneId = paneId
+            self.ratio = ratio
+        }
     }
 
-    enum SplitDirection: String, Codable, Hashable, Sendable {
+    package enum SplitDirection: String, Codable, Hashable, Sendable {
         case horizontal
         case vertical
     }
 
-    enum Position: Sendable {
+    package enum Position: Sendable {
         case before
         case after
     }
 
-    let panes: [PaneEntry]
+    package let panes: [PaneEntry]
     let dividerIds: [UUID]
 
     init() {
@@ -26,12 +32,12 @@ struct Layout: Codable, Hashable, Sendable {
         self.dividerIds = []
     }
 
-    init(paneId: UUID) {
+    package init(paneId: UUID) {
         self.panes = [.init(paneId: paneId, ratio: 1.0)]
         self.dividerIds = []
     }
 
-    init(panes: [PaneEntry], dividerIds: [UUID]) {
+    package init(panes: [PaneEntry], dividerIds: [UUID]) {
         precondition(
             dividerIds.count == max(panes.count - 1, 0),
             "Layout divider count must equal pane count minus one"
@@ -45,7 +51,7 @@ struct Layout: Codable, Hashable, Sendable {
         self.dividerIds = dividerIds
     }
 
-    static func autoTiled(_ paneIds: [UUID]) -> Self {
+    package static func autoTiled(_ paneIds: [UUID]) -> Self {
         guard !paneIds.isEmpty else { return Self() }
         let equalRatio = 1.0 / Double(paneIds.count)
         return Self(
@@ -54,19 +60,19 @@ struct Layout: Codable, Hashable, Sendable {
         )
     }
 
-    var isEmpty: Bool { panes.isEmpty }
+    package var isEmpty: Bool { panes.isEmpty }
 
-    var isSplit: Bool { panes.count > 1 }
+    package var isSplit: Bool { panes.count > 1 }
 
-    var paneIds: [UUID] { panes.map(\.paneId) }
+    package var paneIds: [UUID] { panes.map(\.paneId) }
 
     var ratios: [Double] { panes.map(\.ratio) }
 
-    func contains(_ paneId: UUID) -> Bool {
+    package func contains(_ paneId: UUID) -> Bool {
         panes.contains { $0.paneId == paneId }
     }
 
-    func inserting(
+    package func inserting(
         paneId: UUID,
         at targetPaneId: UUID,
         direction _: SplitDirection,
@@ -312,6 +318,6 @@ struct Layout: Codable, Hashable, Sendable {
     }
 }
 
-enum FocusDirection: Equatable, Hashable, Sendable {
+package enum FocusDirection: Equatable, Hashable, Sendable {
     case left, right, up, down
 }

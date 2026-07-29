@@ -1,6 +1,6 @@
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 struct BridgeReviewPackageBuilderTests {
     @Test("package builder creates descriptors, handles, hidden summary, and filter state")

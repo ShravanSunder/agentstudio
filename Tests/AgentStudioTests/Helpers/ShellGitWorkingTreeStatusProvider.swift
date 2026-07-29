@@ -2,6 +2,9 @@ import Foundation
 import os
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTerminal
 
 struct ShellGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     private static let logger = Logger(

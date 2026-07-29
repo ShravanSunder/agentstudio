@@ -1,8 +1,9 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 
 @MainActor
-final class EntityRecencyStore {
+package final class EntityRecencyStore {
     private let applicationAtom: ApplicationEntityRecencyAtom
     private let workspaceAtom: WorkspaceEntityRecencyAtom
     private let sqliteDatastore: WorkspaceSQLiteDatastore
@@ -17,18 +18,18 @@ final class EntityRecencyStore {
     private var isRestoringApplication = false
     private var isRestoringWorkspace = false
 
-    private(set) var isApplicationHydrated = false
-    private(set) var hydratedWorkspaceID: UUID?
+    package private(set) var isApplicationHydrated = false
+    package private(set) var hydratedWorkspaceID: UUID?
 
-    var isApplicationObservationActive: Bool {
+    package var isApplicationObservationActive: Bool {
         isObservingApplication
     }
 
-    var isWorkspaceObservationActive: Bool {
+    package var isWorkspaceObservationActive: Bool {
         isObservingWorkspace
     }
 
-    init(
+    package init(
         applicationAtom: ApplicationEntityRecencyAtom,
         workspaceAtom: WorkspaceEntityRecencyAtom,
         sqliteDatastore: WorkspaceSQLiteDatastore,
@@ -42,7 +43,7 @@ final class EntityRecencyStore {
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
     }
 
-    func restoreApplicationAsync() async {
+    package func restoreApplicationAsync() async {
         guard !isApplicationHydrated else { return }
         applicationSaveTask?.cancel()
         applicationSaveTask = nil
@@ -58,7 +59,7 @@ final class EntityRecencyStore {
         observeApplicationIfReady()
     }
 
-    func restoreWorkspaceAsync(for workspaceID: UUID) async {
+    package func restoreWorkspaceAsync(for workspaceID: UUID) async {
         workspaceSaveTask?.cancel()
         workspaceSaveTask = nil
 
@@ -79,20 +80,20 @@ final class EntityRecencyStore {
         observeWorkspaceIfReady()
     }
 
-    func startObserving() {
+    package func startObserving() {
         isObservationArmed = true
         observeApplicationIfReady()
         observeWorkspaceIfReady()
     }
 
-    func flushApplicationAsync() async throws {
+    package func flushApplicationAsync() async throws {
         guard isApplicationHydrated else { return }
         applicationSaveTask?.cancel()
         applicationSaveTask = nil
         try await sqliteDatastore.saveApplicationEntityRecency(applicationAtom.recentEntities)
     }
 
-    func flushWorkspaceAsync(for workspaceID: UUID) async throws {
+    package func flushWorkspaceAsync(for workspaceID: UUID) async throws {
         guard hydratedWorkspaceID == workspaceID, workspaceAtom.workspaceID == workspaceID else {
             return
         }
@@ -104,7 +105,7 @@ final class EntityRecencyStore {
         )
     }
 
-    func flushAllAsync() async throws {
+    package func flushAllAsync() async throws {
         var applicationFlushError: (any Error)?
         var workspaceFlushError: (any Error)?
         do {

@@ -1,9 +1,12 @@
-// swiftlint:disable file_length type_body_length
-
+import AgentStudioGit
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+
+// swiftlint:disable file_length type_body_length
 
 @Suite("GitWorkingDirectoryProjector")
 struct GitWorkingDirectoryProjectorTests {
@@ -95,10 +98,14 @@ struct GitWorkingDirectoryProjectorTests {
         let bus = EventBus<RuntimeEnvelope>()
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
+        let gitLocalClient = AgentStudioGit.LibGit2AgentStudioGitLocalClient()
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: AgentStudioGitWorkingTreeStatusProvider(
-                timeoutScheduler: PassiveAgentStudioGitStatusTimeoutScheduler()
+                timeoutScheduler: PassiveAgentStudioGitStatusTimeoutScheduler(),
+                statusReader: { worktreePath, options in
+                    try await gitLocalClient.status(for: worktreePath, options: options)
+                }
             ),
             coalescingWindow: .zero
         )

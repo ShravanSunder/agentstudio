@@ -3,6 +3,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCommandBar
+@testable import AgentStudioCore
 
 @MainActor
 @Suite(.serialized)
@@ -57,7 +59,7 @@ struct PaneTabViewControllerQuickOpenDirectoryTests {
             harness.store.tab(tab.id)?.paneIds.first { $0 != targetPane.id }
         )
         let insertedPane = try #require(harness.store.pane(insertedPaneId))
-        #expect(insertedPane.metadata.cwd == quickOpenDirectory)
+        #expect(insertedPane.metadata.facets.cwd == quickOpenDirectory)
         #expect(insertedPane.repoId == nil)
         #expect(insertedPane.worktreeId == nil)
         #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == quickOpenDirectory)
@@ -81,7 +83,7 @@ struct PaneTabViewControllerQuickOpenDirectoryTests {
 
         let activeTabId = try #require(harness.store.activeTabId)
         let activePaneId = try #require(harness.store.tab(activeTabId)?.activePaneId)
-        #expect(harness.store.pane(activePaneId)?.metadata.cwd == quickOpenDirectory)
+        #expect(harness.store.pane(activePaneId)?.metadata.facets.cwd == quickOpenDirectory)
         #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == quickOpenDirectory)
     }
 

@@ -1,3 +1,5 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import GhosttyKit
 import Observation
@@ -33,7 +35,7 @@ enum GhosttyMouseVisibilityCoordinator {
 extension Ghostty.SurfaceView {
     // MARK: - Input Handling
 
-    override func keyDown(with event: NSEvent) {
+    package override func keyDown(with event: NSEvent) {
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
 
         keyTextAccumulator = []
@@ -50,11 +52,11 @@ extension Ghostty.SurfaceView {
         }
     }
 
-    override func keyUp(with event: NSEvent) {
+    package override func keyUp(with event: NSEvent) {
         sendKeyEvent(event, action: GHOSTTY_ACTION_RELEASE)
     }
 
-    override func flagsChanged(with event: NSEvent) {
+    package override func flagsChanged(with event: NSEvent) {
         sendKeyEvent(event, action: GHOSTTY_ACTION_PRESS)
     }
 
@@ -103,7 +105,7 @@ extension Ghostty.SurfaceView {
         return .dispatched(shortcut.command)
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    package override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
         guard focused else { return false }
 
@@ -132,16 +134,16 @@ extension Ghostty.SurfaceView {
                 sourcePaneId: sourcePaneId,
                 canDispatch: { command, targetPaneId in
                     if let targetPaneId {
-                        return AppCommandDispatcher.shared.canDispatch(command, target: targetPaneId, targetType: .pane)
+                        return appCommandDispatcher.canDispatch(command, target: targetPaneId, targetType: .pane)
                     }
-                    return AppCommandDispatcher.shared.canDispatch(command)
+                    return appCommandDispatcher.canDispatch(command)
                 },
                 dispatch: { command, targetPaneId in
                     if let targetPaneId {
-                        AppCommandDispatcher.shared.dispatch(command, target: targetPaneId, targetType: .pane)
+                        appCommandDispatcher.dispatch(command, target: targetPaneId, targetType: .pane)
                         return
                     }
-                    AppCommandDispatcher.shared.dispatch(command)
+                    appCommandDispatcher.dispatch(command)
                 }
             ) {
             case .notHandled:
@@ -217,7 +219,7 @@ extension Ghostty.SurfaceView {
         return false
     }
 
-    override func doCommand(by selector: Selector) {}
+    package override func doCommand(by selector: Selector) {}
 
     private func sendKeyEvent(_ event: NSEvent, action: ghostty_input_action_e, text: String? = nil) {
         guard let surface else { return }
@@ -292,50 +294,50 @@ extension Ghostty.SurfaceView {
 
     // MARK: - Mouse Input
 
-    override func mouseDown(with event: NSEvent) {
+    package override func mouseDown(with event: NSEvent) {
         sendMouseButton(event, action: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT)
     }
 
-    override func mouseUp(with event: NSEvent) {
+    package override func mouseUp(with event: NSEvent) {
         sendMouseButton(event, action: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT)
     }
 
-    override func rightMouseDown(with event: NSEvent) {
+    package override func rightMouseDown(with event: NSEvent) {
         sendMouseButton(event, action: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_RIGHT)
     }
 
-    override func rightMouseUp(with event: NSEvent) {
+    package override func rightMouseUp(with event: NSEvent) {
         sendMouseButton(event, action: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_RIGHT)
     }
 
-    override func otherMouseDown(with event: NSEvent) {
+    package override func otherMouseDown(with event: NSEvent) {
         let button = ghosttyMouseButton(from: event.buttonNumber)
         sendMouseButton(event, action: GHOSTTY_MOUSE_PRESS, button: button)
     }
 
-    override func otherMouseUp(with event: NSEvent) {
+    package override func otherMouseUp(with event: NSEvent) {
         let button = ghosttyMouseButton(from: event.buttonNumber)
         sendMouseButton(event, action: GHOSTTY_MOUSE_RELEASE, button: button)
     }
 
-    override func mouseMoved(with event: NSEvent) {
+    package override func mouseMoved(with event: NSEvent) {
         guard !atom(\.managementLayer).isActive else { return }
         sendMousePos(event)
     }
 
-    override func mouseDragged(with event: NSEvent) {
+    package override func mouseDragged(with event: NSEvent) {
         sendMousePos(event)
     }
 
-    override func rightMouseDragged(with event: NSEvent) {
+    package override func rightMouseDragged(with event: NSEvent) {
         sendMousePos(event)
     }
 
-    override func otherMouseDragged(with event: NSEvent) {
+    package override func otherMouseDragged(with event: NSEvent) {
         sendMousePos(event)
     }
 
-    override func scrollWheel(with event: NSEvent) {
+    package override func scrollWheel(with event: NSEvent) {
         guard let surface else { return }
         let translatedScroll = GhosttyScrollTranslation.translate(event: event)
         ghostty_surface_mouse_scroll(
@@ -388,7 +390,7 @@ extension Ghostty.SurfaceView {
         _ = performBindingAction(.pasteFromClipboard)
     }
 
-    @objc override func selectAll(_ sender: Any?) {
+    @objc package override func selectAll(_ sender: Any?) {
         _ = performBindingAction(.selectAll)
     }
 
@@ -463,7 +465,7 @@ extension Ghostty.SurfaceView {
 }
 
 extension Ghostty.SurfaceView: @preconcurrency NSTextInputClient {
-    func insertText(_ string: Any, replacementRange: NSRange) {
+    package func insertText(_ string: Any, replacementRange: NSRange) {
         guard NSApp.currentEvent != nil else { return }
         guard let surface else { return }
 
@@ -489,7 +491,7 @@ extension Ghostty.SurfaceView: @preconcurrency NSTextInputClient {
         }
     }
 
-    func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+    package func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         if let string = string as? String {
             markedText = NSMutableAttributedString(string: string)
         } else if let attributedString = string as? NSAttributedString {
@@ -497,40 +499,42 @@ extension Ghostty.SurfaceView: @preconcurrency NSTextInputClient {
         }
     }
 
-    func unmarkText() {
+    package func unmarkText() {
         markedText = NSMutableAttributedString()
     }
 
-    func selectedRange() -> NSRange {
+    package func selectedRange() -> NSRange {
         NSRange(location: NSNotFound, length: 0)
     }
 
-    func markedRange() -> NSRange {
+    package func markedRange() -> NSRange {
         if markedText.length > 0 {
             return NSRange(location: 0, length: markedText.length)
         }
         return NSRange(location: NSNotFound, length: 0)
     }
 
-    func hasMarkedText() -> Bool {
+    package func hasMarkedText() -> Bool {
         markedText.length > 0
     }
 
-    func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
+    package func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?)
+        -> NSAttributedString?
+    {
         nil
     }
 
-    func validAttributesForMarkedText() -> [NSAttributedString.Key] {
+    package func validAttributesForMarkedText() -> [NSAttributedString.Key] {
         []
     }
 
-    func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
+    package func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
         guard let window else { return .zero }
         let viewFrame = convert(bounds, to: nil)
         return window.convertToScreen(viewFrame)
     }
 
-    func characterIndex(for point: NSPoint) -> Int {
+    package func characterIndex(for point: NSPoint) -> Int {
         0
     }
 }

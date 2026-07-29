@@ -1,7 +1,8 @@
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @Suite("Bridge product Review metadata availability lifecycle")
 struct BridgeProductReviewAvailabilityTests {
@@ -983,7 +984,6 @@ private func availabilityReviewPackageFixture() throws -> BridgeReviewPackage {
         from: Data(contentsOf: fixtureURL)
     )
 }
-
 private func availabilityMetadataStreamRequest() throws -> BridgeProductMetadataStreamRequest {
     let data = try JSONSerialization.data(
         withJSONObject: [

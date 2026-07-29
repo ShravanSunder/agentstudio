@@ -1,7 +1,10 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
-@testable import AgentStudio
+@testable import AgentStudioBridge
 
 @MainActor
 struct RefreshRevisionFixture {
@@ -48,6 +51,7 @@ func makeRefreshRevisionFixture() -> RefreshRevisionFixture {
             panelKind: .diffViewer,
             source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
         ),
+        appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
             contentType: .diff,
             title: "Refresh revision",
@@ -295,6 +299,7 @@ func makeRefreshAdmissionIntegrationFixture(
             panelKind: .diffViewer,
             source: .workspace(rootPath: "/tmp/bridge-refresh-admission", baseline: .headMinusOne)
         ),
+        appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
             contentType: .diff,
             title: "Refresh admission",
