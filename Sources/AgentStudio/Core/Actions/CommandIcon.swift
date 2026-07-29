@@ -4,7 +4,6 @@ import SwiftUI
 
 package enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case arrowDown = "arrow.down"
-    case arrowDownLeftAndArrowUpRightRectangle = "arrow.down.left.and.arrow.up.right.rectangle"
     case arrowDownToLine = "arrow.down.to.line"
     case arrowClockwise = "arrow.clockwise"
     case arrowLeft = "arrow.left"
@@ -76,6 +75,7 @@ package enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case rectangleStack = "rectangle.stack"
     case scope = "scope"
     case sidebarLeft = "sidebar.left"
+    case squareArrowTriangle4Outward = "square.arrowtriangle.4.outward"
     case squareStack3dUp = "square.stack.3d.up"
     case star = "star"
     case starFill = "star.fill"

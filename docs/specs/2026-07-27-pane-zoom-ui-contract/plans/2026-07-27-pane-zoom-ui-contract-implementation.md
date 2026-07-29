@@ -94,7 +94,7 @@ Likely files:
 Work:
 
 - Change the existing `zoomPane` command spec icon to
-  `arrow.down.left.and.arrow.up.right.rectangle`.
+  `square.arrowtriangle.4.outward`.
 - Rename the command to `Pane Zoom`; keep tooltip, visibility, capability, and
   IPC exposure command-owned.
 - Keep the bottom toolbar control icon-only.

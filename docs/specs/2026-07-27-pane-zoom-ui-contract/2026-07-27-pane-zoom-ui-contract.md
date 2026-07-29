@@ -17,7 +17,7 @@ Pane Zoom uses one name and one icon everywhere.
   omit the label. `Focus`, `Zoom Focus`, and `Zoom Pane` are not Zoom
   vocabulary.
 - Every Zoom control uses the SF Symbol
-  `arrow.down.left.and.arrow.up.right.rectangle`.
+  `square.arrowtriangle.4.outward`.
 - The inactive control enters Zoom.
 - Compact management controls use the same control selected while Zoom is
   active; activating it exits Zoom.
