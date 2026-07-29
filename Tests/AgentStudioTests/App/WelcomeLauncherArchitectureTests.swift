@@ -65,11 +65,14 @@ struct WelcomeLauncherArchitectureTests {
         )
 
         #expect(source.contains("struct WatchFolderTabBarMenu: View"))
-        #expect(source.contains("AppCommandDispatcher.shared.definition(for: .watchFolder)"))
-        #expect(source.contains("AppCommandDispatcher.shared.dispatch(.watchFolder)"))
+        #expect(source.contains("ShellTabBarCommandPresentation("))
+        #expect(source.contains("command: .watchFolder"))
+        #expect(source.contains("commandContext: ShellTabBarCommandContext.current()"))
+        #expect(source.contains("AppCommandDispatcher.shared.dispatch(presentation.command)"))
+        #expect(source.contains("AppCommandDispatcher.shared.canDispatch(presentation.command)"))
         #expect(source.contains("ChromeToolbarButtonLabel("))
         #expect(source.contains("symbolName: \"folder.badge.plus\""))
-        #expect(source.contains(".help(commandDefinition.controlToolTip)"))
+        #expect(source.contains(".help(presentation.controlToolTip)"))
         #expect(!source.contains("\"Watch Folder\""))
     }
 }

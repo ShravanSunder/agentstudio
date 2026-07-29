@@ -172,6 +172,34 @@ struct PaneSurfaceToolbarPresentationTests {
         }
     }
 
+    @Test("normal pane and terminal Zoom omit denied actions independently")
+    func paneAndTerminalZoomActionsAreIndependentlyOptional() {
+        let recorder = ToolbarActionRecorder()
+        let viewerAction = makeAction(label: "Viewer", sourcePaneId: recorder.sourcePaneId) {
+            recorder.recordViewer(sourcePaneId: $0)
+        }
+        let zoomAction = makeAction(label: "Pane Zoom", sourcePaneId: recorder.sourcePaneId) {
+            recorder.recordZoom(sourcePaneId: $0)
+        }
+
+        let normalPanePresentation = PaneSurfaceToolbarResolver.resolve(
+            content: paneContentFixtures[0],
+            placement: .normalMainPane,
+            terminalModeActions: TerminalModeToolbarActions(
+                zoomAction: nil,
+                viewerAction: viewerAction
+            )
+        )
+        let terminalZoomPresentation = PaneSurfaceToolbarResolver.resolveZoom(
+            viewerPresentation: .retryable,
+            viewerAction: nil,
+            zoomAction: zoomAction
+        )
+
+        #expect(normalPanePresentation.actions.map(\.state.label) == ["Viewer"])
+        #expect(terminalZoomPresentation.actions.map(\.state.label) == ["Pane Zoom"])
+    }
+
     @Test(
         "Zoom parent owns the only toolbar and derives Viewer selection from presentation state",
         arguments: [
@@ -266,9 +294,7 @@ struct PaneSurfaceToolbarPresentationTests {
         let hostingView = NSHostingView(
             rootView: DrawerIconBar(
                 octiconLoader: makeCoreTestOcticonLoader(),
-                isExpanded: false,
-                onAdd: {},
-                onToggleExpand: {},
+                leadingControls: .hidden,
                 trailingActions: nil,
                 paneSurfaceActions: [zoomAction, viewerAction]
             )

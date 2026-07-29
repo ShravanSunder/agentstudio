@@ -303,15 +303,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        let focus = atom(\.workspacePaneFocus).currentFocus(
+        let focusedPane = atom(\.workspaceFocusedPane).resolve(
             workspaceTab: workspaceTab,
             workspacePane: store.paneAtom,
-            workspaceFocusOwner: atom(\.workspaceFocusOwner),
+            requestedOwner: atom(\.workspaceFocusOwner).owner
+        )
+        let commandContext = atom(\.commandContext).currentContext(
+            workspaceTab: workspaceTab,
+            workspacePane: store.paneAtom,
+            focusedPane: focusedPane,
             workspacePanePresentation: store.panePresentationAtom
         )
-        let isVisible = definition.isVisible(in: focus)
-        menuItem.isHidden = !isVisible
-        guard isVisible else { return false }
+        let shouldPresent = definition.shouldPresent(
+            AppCommandPresentationQuery(
+                surface: .mainMenu,
+                subject: .contextual(commandContext)
+            )
+        )
+        menuItem.isHidden = !shouldPresent
+        guard shouldPresent else { return false }
         return AppCommandDispatcher.shared.canDispatch(command)
     }
 

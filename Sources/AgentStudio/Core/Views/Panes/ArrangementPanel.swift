@@ -7,6 +7,138 @@ private enum ArrangementPanelTooltipTarget: Hashable {
     case saveArrangement
 }
 
+@MainActor
+package struct TargetedCommandControlAction {
+    package let commandSpec: AppCommandSpec
+    package let isEnabled: Bool
+    package let perform: @MainActor () -> Void
+
+    package init(
+        commandSpec: AppCommandSpec,
+        isEnabled: Bool,
+        perform: @escaping @MainActor () -> Void
+    ) {
+        self.commandSpec = commandSpec
+        self.isEnabled = isEnabled
+        self.perform = perform
+    }
+
+    package static func resolve(
+        command: AppCommand,
+        surface: AppCommandSurface,
+        target: UUID,
+        targetType: SearchItemType,
+        dispatcher: any AppCommandDispatching
+    ) -> Self? {
+        let commandSpec = command.definition
+        guard
+            commandSpec.shouldPresent(
+                AppCommandPresentationQuery(
+                    surface: surface,
+                    subject: .targeted(targetType)
+                )
+            )
+        else {
+            return nil
+        }
+
+        return Self(
+            commandSpec: commandSpec,
+            isEnabled: dispatcher.canDispatch(
+                command,
+                target: target,
+                targetType: targetType
+            ),
+            perform: {
+                guard
+                    dispatcher.canDispatch(
+                        command,
+                        target: target,
+                        targetType: targetType
+                    )
+                else {
+                    return
+                }
+                dispatcher.dispatch(
+                    command,
+                    target: target,
+                    targetType: targetType
+                )
+            }
+        )
+    }
+}
+
+package typealias TargetedCommandControlActionResolver =
+    @MainActor (
+        _ command: AppCommand,
+        _ surface: AppCommandSurface,
+        _ target: UUID,
+        _ targetType: SearchItemType
+    ) -> TargetedCommandControlAction?
+
+@MainActor
+package struct ArrangementPanelCommandPresentation {
+    package let switchArrangement: TargetedCommandControlAction?
+    package let inlineRenameArrangement: TargetedCommandControlAction?
+    package let contextMenuRenameArrangement: TargetedCommandControlAction?
+    package let contextMenuDeleteArrangement: TargetedCommandControlAction?
+
+    package static func resolve(
+        arrangement: ArrangementInfo,
+        actionResolver: TargetedCommandControlActionResolver
+    ) -> Self {
+        let switchArrangement = actionResolver(
+            .switchArrangement,
+            .inlineControl,
+            arrangement.id,
+            .tab
+        )
+        guard !arrangement.isDefault else {
+            return Self(
+                switchArrangement: switchArrangement,
+                inlineRenameArrangement: nil,
+                contextMenuRenameArrangement: nil,
+                contextMenuDeleteArrangement: nil
+            )
+        }
+
+        return Self(
+            switchArrangement: switchArrangement,
+            inlineRenameArrangement: actionResolver(
+                .renameArrangement,
+                .inlineControl,
+                arrangement.id,
+                .tab
+            ),
+            contextMenuRenameArrangement: actionResolver(
+                .renameArrangement,
+                .contextMenu,
+                arrangement.id,
+                .tab
+            ),
+            contextMenuDeleteArrangement: actionResolver(
+                .deleteArrangement,
+                .contextMenu,
+                arrangement.id,
+                .tab
+            )
+        )
+    }
+
+    package static func resolveSaveArrangement(
+        tabId: UUID,
+        actionResolver: TargetedCommandControlActionResolver
+    ) -> TargetedCommandControlAction? {
+        actionResolver(
+            .saveArrangement,
+            .inlineControl,
+            tabId,
+            .tab
+        )
+    }
+}
+
 /// Floating popover panel for managing pane arrangements.
 /// Shows pane visibility toggles, arrangement chips, and save controls.
 package struct ArrangementPanel: View {
@@ -17,9 +149,8 @@ package struct ArrangementPanel: View {
     let zoomMode: ArrangementPanelZoomMode?
     let arrangements: [ArrangementInfo]
     @Bindable var inlineRenameState: ArrangementInlineRenameState
+    let commandActionResolver: TargetedCommandControlActionResolver
     let onPaneAction: (WorkspaceActionCommand) -> Void
-    let onToggleZoom: (UUID?) -> Void
-    let onSaveArrangement: () -> Void
     let onDismiss: () -> Void
     var highlightPaneId: UUID?
 
@@ -37,9 +168,8 @@ package struct ArrangementPanel: View {
         zoomMode: ArrangementPanelZoomMode?,
         arrangements: [ArrangementInfo],
         inlineRenameState: ArrangementInlineRenameState,
+        commandActionResolver: @escaping TargetedCommandControlActionResolver,
         onPaneAction: @escaping (WorkspaceActionCommand) -> Void,
-        onToggleZoom: @escaping (UUID?) -> Void,
-        onSaveArrangement: @escaping () -> Void,
         onDismiss: @escaping () -> Void,
         highlightPaneId: UUID? = nil
     ) {
@@ -50,9 +180,8 @@ package struct ArrangementPanel: View {
         self.zoomMode = zoomMode
         self.arrangements = arrangements
         self.inlineRenameState = inlineRenameState
+        self.commandActionResolver = commandActionResolver
         self.onPaneAction = onPaneAction
-        self.onToggleZoom = onToggleZoom
-        self.onSaveArrangement = onSaveArrangement
         self.onDismiss = onDismiss
         self.highlightPaneId = highlightPaneId
     }
@@ -75,10 +204,7 @@ package struct ArrangementPanel: View {
     }
 
     private var saveArrangementTooltip: ControlTooltipRenderValue {
-        let actionSpec = LocalActionSpec.saveCurrentLayoutAsArrangement.actionSpec
-        return actionSpec.controlTooltipRenderValue(
-            provenance: .localAction(rawValue: actionSpec.label)
-        )
+        AppCommand.saveArrangement.definition.controlTooltipRenderValue()
     }
 
     package var body: some View {
@@ -93,8 +219,14 @@ package struct ArrangementPanel: View {
                     arrangementChip(arrangement)
                 }
 
-                if displayState.showsSaveArrangementButton {
-                    Button(action: onSaveArrangement) {
+                if displayState.showsSaveArrangementButton,
+                    let saveArrangementAction =
+                        ArrangementPanelCommandPresentation.resolveSaveArrangement(
+                            tabId: tabId,
+                            actionResolver: commandActionResolver
+                        )
+                {
+                    Button(action: saveArrangementAction.perform) {
                         Image(systemName: "plus")
                             .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
                             .frame(width: 14, height: 14)
@@ -113,7 +245,10 @@ package struct ArrangementPanel: View {
                         in: Self.tooltipCoordinateSpaceName
                     )
                     .controlHelp(saveArrangementTooltip)
-                    .disabled(!displayState.allowsArrangementCreation)
+                    .disabled(
+                        !displayState.allowsArrangementCreation
+                            || !saveArrangementAction.isEnabled
+                    )
                 }
             }
 
@@ -240,42 +375,65 @@ package struct ArrangementPanel: View {
         }
     }
 
+    @ViewBuilder
     private func zoomModeButton(_ zoomMode: ArrangementPanelZoomMode) -> some View {
-        Button {
-            onToggleZoom(nil)
-        } label: {
-            HStack(spacing: AppStyles.General.Spacing.tight) {
-                AppCommand.zoomPane.definition.icon.swiftUIImage(
-                    loader: octiconLoader,
-                    size: AppStyles.General.Typography.textSm
-                )
-                Text(zoomMode.label)
-                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
+        if let zoomAction = commandActionResolver(
+            .zoomPane,
+            .inlineControl,
+            zoomMode.sourcePaneId,
+            .pane
+        ) {
+            Button(action: zoomAction.perform) {
+                HStack(spacing: AppStyles.General.Spacing.tight) {
+                    zoomAction.commandSpec.icon.swiftUIImage(
+                        loader: octiconLoader,
+                        size: AppStyles.General.Typography.textSm
+                    )
+                    Text(zoomMode.label)
+                        .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
+                }
+                .padding(.horizontal, AppStyles.General.Spacing.standard)
+                .frame(height: AppStyles.General.Button.compact)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, AppStyles.General.Spacing.standard)
-            .frame(height: AppStyles.General.Button.compact)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.primary)
-        .background(
-            RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.button)
-                .fill(Color.white.opacity(AppStyles.General.Fill.active))
-        )
-        .controlHelp(AppCommand.zoomPane.definition.controlTooltipRenderValue())
-        .accessibilityHidden(true)
-        .background {
-            AccessibilityPressBridge(
-                identifier: "arrangement-panel-zoom-pane",
-                label: zoomMode.label
-            ) {
-                onToggleZoom(nil)
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
+            .background(
+                RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.button)
+                    .fill(Color.white.opacity(AppStyles.General.Fill.active))
+            )
+            .controlHelp(zoomAction.commandSpec.controlTooltipRenderValue())
+            .disabled(!zoomAction.isEnabled)
+            .accessibilityHidden(true)
+            .background {
+                AccessibilityPressBridge(
+                    identifier: "arrangement-panel-zoom-pane",
+                    label: zoomMode.label,
+                    isEnabled: zoomAction.isEnabled,
+                    action: zoomAction.perform
+                )
             }
         }
     }
 
     private func paneRow(_ pane: PaneVisibilityInfo) -> some View {
-        HStack(spacing: AppStyles.General.Spacing.standard) {
+        let zoomAction =
+            pane.supportsZoom
+            ? commandActionResolver(
+                .zoomPane,
+                .inlineControl,
+                pane.id,
+                .pane
+            )
+            : nil
+        let visibilityAction = commandActionResolver(
+            pane.isMinimized ? .expandPane : .minimizePane,
+            .inlineControl,
+            pane.id,
+            .pane
+        )
+
+        return HStack(spacing: AppStyles.General.Spacing.standard) {
             Group {
                 if let statusSystemImageName = pane.statusSystemImageName {
                     Image(systemName: statusSystemImageName)
@@ -301,11 +459,9 @@ package struct ArrangementPanel: View {
 
             Spacer()
 
-            if pane.supportsZoom {
-                Button {
-                    onToggleZoom(pane.id)
-                } label: {
-                    AppCommand.zoomPane.definition.icon.swiftUIImage(
+            if let zoomAction {
+                Button(action: zoomAction.perform) {
+                    zoomAction.commandSpec.icon.swiftUIImage(
                         loader: octiconLoader,
                         size: AppStyles.General.Typography.textSm
                     )
@@ -314,51 +470,41 @@ package struct ArrangementPanel: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .controlHelp(AppCommand.zoomPane.definition.controlTooltipRenderValue())
+                .controlHelp(zoomAction.commandSpec.controlTooltipRenderValue())
+                .disabled(!zoomAction.isEnabled)
                 .accessibilityHidden(true)
                 .background {
                     AccessibilityPressBridge(
                         identifier: "arrangement-panel-pane-\(pane.id.uuidString)-zoom",
-                        label: AppCommand.zoomPane.definition.label
-                    ) {
-                        onToggleZoom(pane.id)
-                    }
+                        label: zoomAction.commandSpec.label,
+                        isEnabled: zoomAction.isEnabled,
+                        action: zoomAction.perform
+                    )
                 }
             }
 
-            Button {
-                if pane.isMinimized {
-                    onPaneAction(.expandPane(tabId: tabId, paneId: pane.id))
-                } else {
-                    onPaneAction(.minimizePane(tabId: tabId, paneId: pane.id))
+            if let visibilityAction {
+                Button(action: visibilityAction.perform) {
+                    Image(systemName: pane.isMinimized ? "eye" : "eye.slash")
+                        .font(.system(size: AppStyles.General.Typography.textSm))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20, height: 20)
                 }
-            } label: {
-                Image(systemName: pane.isMinimized ? "eye" : "eye.slash")
-                    .font(.system(size: AppStyles.General.Typography.textSm))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20, height: 20)
-            }
-            .buttonStyle(.plain)
-            .accessibilityHidden(true)
-            .background {
-                AccessibilityPressBridge(
-                    identifier: "arrangement-panel-pane-\(pane.id.uuidString)-visibility",
-                    label: pane.isMinimized
-                        ? LocalActionSpec.showPane.actionSpec.label
-                        : LocalActionSpec.hidePane.actionSpec.label
-                ) {
-                    if pane.isMinimized {
-                        onPaneAction(.expandPane(tabId: tabId, paneId: pane.id))
-                    } else {
-                        onPaneAction(.minimizePane(tabId: tabId, paneId: pane.id))
-                    }
+                .buttonStyle(.plain)
+                .disabled(!visibilityAction.isEnabled)
+                .accessibilityHidden(true)
+                .background {
+                    AccessibilityPressBridge(
+                        identifier: "arrangement-panel-pane-\(pane.id.uuidString)-visibility",
+                        label: visibilityAction.commandSpec.label,
+                        isEnabled: visibilityAction.isEnabled,
+                        action: visibilityAction.perform
+                    )
                 }
+                .help(
+                    visibilityAction.commandSpec.helpText
+                )
             }
-            .help(
-                pane.isMinimized
-                    ? LocalActionSpec.showPane.actionSpec.helpText
-                    : LocalActionSpec.hidePane.actionSpec.helpText
-            )
         }
         .padding(.horizontal, AppStyles.General.Spacing.standard)
         .padding(.vertical, 3)
@@ -372,62 +518,84 @@ package struct ArrangementPanel: View {
         )
     }
 
+    @ViewBuilder
     private func arrangementChip(_ arrangement: ArrangementInfo) -> some View {
-        Group {
-            if inlineRenameState.editingArrangementId == arrangement.id {
-                ArrangementRenameTextField(
-                    text: Binding(
-                        get: { inlineRenameState.draftName },
-                        set: { inlineRenameState.setDraftName($0) }
-                    ),
-                    isFocused: Binding(
-                        get: { focusedArrangementId == arrangement.id },
-                        set: { isFocused in
-                            if isFocused {
-                                focusedArrangementId = arrangement.id
-                            } else if focusedArrangementId == arrangement.id {
-                                focusedArrangementId = nil
+        let commandPresentation = ArrangementPanelCommandPresentation.resolve(
+            arrangement: arrangement,
+            actionResolver: commandActionResolver
+        )
+        if let switchArrangementAction = commandPresentation.switchArrangement {
+            Group {
+                if inlineRenameState.editingArrangementId == arrangement.id {
+                    ArrangementRenameTextField(
+                        text: Binding(
+                            get: { inlineRenameState.draftName },
+                            set: { inlineRenameState.setDraftName($0) }
+                        ),
+                        isFocused: Binding(
+                            get: { focusedArrangementId == arrangement.id },
+                            set: { isFocused in
+                                if isFocused {
+                                    focusedArrangementId = arrangement.id
+                                } else if focusedArrangementId == arrangement.id {
+                                    focusedArrangementId = nil
+                                }
                             }
-                        }
-                    ),
-                    font: .systemFont(
-                        ofSize: AppStyles.General.Typography.textXs,
-                        weight: .semibold
-                    ),
-                    onCommit: commitInlineRename,
-                    onCancel: cancelInlineRename
-                )
-                .foregroundStyle(.primary)
-                .frame(minWidth: 72)
-                .onAppear {
-                    focusedArrangementId = arrangement.id
-                }
-            } else {
-                arrangementChipBody(arrangement)
-            }
-        }
-        .contentShape(Rectangle())
-        .onHover { isHovering in
-            hoveredArrangementId = isHovering ? arrangement.id : nil
-        }
-        .simultaneousGesture(doubleClickRenameGesture(arrangement))
-        .contextMenu {
-            if !arrangement.isDefault {
-                Button(LocalActionSpec.renameArrangement.actionSpec.label) {
-                    inlineRenameState.beginEditing(
-                        arrangementId: arrangement.id,
-                        currentName: arrangement.name,
-                        isDefault: arrangement.isDefault
+                        ),
+                        font: .systemFont(
+                            ofSize: AppStyles.General.Typography.textXs,
+                            weight: .semibold
+                        ),
+                        onCommit: commitInlineRename,
+                        onCancel: cancelInlineRename
+                    )
+                    .foregroundStyle(.primary)
+                    .frame(minWidth: 72)
+                    .onAppear {
+                        focusedArrangementId = arrangement.id
+                    }
+                } else {
+                    arrangementChipBody(
+                        arrangement,
+                        switchArrangementAction: switchArrangementAction,
+                        renameArrangementAction: commandPresentation.inlineRenameArrangement
                     )
                 }
-                Button(LocalActionSpec.deleteArrangement.actionSpec.label, role: .destructive) {
-                    onPaneAction(.removeArrangement(tabId: tabId, arrangementId: arrangement.id))
+            }
+            .contentShape(Rectangle())
+            .onHover { isHovering in
+                hoveredArrangementId = isHovering ? arrangement.id : nil
+            }
+            .simultaneousGesture(
+                doubleClickRenameGesture(
+                    action: commandPresentation.inlineRenameArrangement
+                )
+            )
+            .contextMenu {
+                if let renameArrangementAction = commandPresentation.contextMenuRenameArrangement {
+                    Button(renameArrangementAction.commandSpec.label) {
+                        renameArrangementAction.perform()
+                    }
+                    .disabled(!renameArrangementAction.isEnabled)
+                }
+                if let deleteArrangementAction = commandPresentation.contextMenuDeleteArrangement {
+                    Button(
+                        deleteArrangementAction.commandSpec.label,
+                        role: .destructive
+                    ) {
+                        deleteArrangementAction.perform()
+                    }
+                    .disabled(!deleteArrangementAction.isEnabled)
                 }
             }
         }
     }
 
-    private func arrangementChipBody(_ arrangement: ArrangementInfo) -> some View {
+    private func arrangementChipBody(
+        _ arrangement: ArrangementInfo,
+        switchArrangementAction: TargetedCommandControlAction,
+        renameArrangementAction: TargetedCommandControlAction?
+    ) -> some View {
         let chipStyle = ArrangementChipVisualStyle(
             isActive: arrangement.isActive,
             isHovered: hoveredArrangementId == arrangement.id,
@@ -436,7 +604,7 @@ package struct ArrangementPanel: View {
 
         return HStack(spacing: 4) {
             Button {
-                onPaneAction(.switchArrangement(tabId: tabId, arrangementId: arrangement.id))
+                switchArrangementAction.perform()
             } label: {
                 Text(arrangement.name)
                     .font(
@@ -448,21 +616,21 @@ package struct ArrangementPanel: View {
                     .foregroundStyle(chipStyle.foregroundIsPrimary ? .primary : .secondary)
             }
             .buttonStyle(.plain)
+            .disabled(!switchArrangementAction.isEnabled)
 
-            if ArrangementChipAffordance.showsRenamePencil(role: arrangement.role) {
+            if ArrangementChipAffordance.showsRenamePencil(role: arrangement.role),
+                let renameArrangementAction
+            {
                 Button {
-                    inlineRenameState.beginEditing(
-                        arrangementId: arrangement.id,
-                        currentName: arrangement.name,
-                        isDefault: arrangement.isDefault
-                    )
+                    renameArrangementAction.perform()
                 } label: {
                     Image(systemName: "pencil")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
-                .help(LocalActionSpec.renameArrangement.actionSpec.helpText)
+                .controlHelp(renameArrangementAction.commandSpec.controlTooltipRenderValue())
+                .disabled(!renameArrangementAction.isEnabled)
             }
         }
         .padding(.horizontal, AppStyles.General.Spacing.loose)
@@ -473,14 +641,13 @@ package struct ArrangementPanel: View {
         )
     }
 
-    private func doubleClickRenameGesture(_ arrangement: ArrangementInfo) -> some Gesture {
+    private func doubleClickRenameGesture(
+        action: TargetedCommandControlAction?
+    ) -> some Gesture {
         TapGesture(count: 2)
             .onEnded {
-                inlineRenameState.beginEditing(
-                    arrangementId: arrangement.id,
-                    currentName: arrangement.name,
-                    isDefault: arrangement.isDefault
-                )
+                guard action?.isEnabled == true else { return }
+                action?.perform()
             }
     }
 

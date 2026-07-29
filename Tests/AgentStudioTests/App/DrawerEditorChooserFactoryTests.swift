@@ -68,12 +68,11 @@ struct DrawerEditorChooserFactoryTests {
         let actions = DrawerEditorChooserFactory.makeTrailingActions(
             editorChooser: editorChooser,
             paneId: paneId,
-            canOpenTarget: true,
+            commandPresentation: makeCommandPresentation(),
             refreshInstalledTargets: {
                 refreshCallCount += 1
                 return [.cursor]
             },
-            onOpenFinder: {},
             onOpenEditor: { _ in }
         )
 
@@ -96,12 +95,11 @@ struct DrawerEditorChooserFactoryTests {
         let actions = DrawerEditorChooserFactory.makeTrailingActions(
             editorChooser: editorChooser,
             paneId: paneId,
-            canOpenTarget: true,
+            commandPresentation: makeCommandPresentation(),
             refreshInstalledTargets: {
                 refreshCallCount += 1
                 return [.cursor]
             },
-            onOpenFinder: {},
             onOpenEditor: { _ in }
         )
 
@@ -110,5 +108,26 @@ struct DrawerEditorChooserFactoryTests {
 
         #expect(refreshCallCount == 1)
         #expect(editorChooser.openForPaneId == nil)
+    }
+
+    private func makeCommandAction(
+        _ command: AppCommand
+    ) -> TargetedCommandControlAction {
+        TargetedCommandControlAction(
+            commandSpec: command.definition,
+            isEnabled: true,
+            perform: {}
+        )
+    }
+
+    private func makeCommandPresentation() -> DrawerToolbarCommandPresentation {
+        DrawerToolbarCommandPresentation(
+            toggleDrawer: nil,
+            addDrawerPane: nil,
+            openEditorMenu: makeCommandAction(.openPaneLocationInEditorMenu),
+            openFinder: makeCommandAction(.openPaneLocationInFinder),
+            copyPath: makeCommandAction(.copyCurrentPanePath),
+            showPaneInbox: nil
+        )
     }
 }

@@ -98,7 +98,8 @@ struct RepoExplorerHotPathArchitectureTests {
             encoding: .utf8
         )
 
-        #expect(repoExplorerViewSource.contains("isFavorite: currentRepoFavoriteState("))
+        #expect(repoExplorerViewSource.contains("let isFavorite = currentRepoFavoriteState("))
+        #expect(repoExplorerViewSource.contains("isFavorite: isFavorite"))
         #expect(
             repoExplorerViewSource.contains(
                 "store.repositoryTopologyAtom.repo(repoId)?.isFavorite ?? projectedFallback"
@@ -138,7 +139,9 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!featureSource.contains("repoExplorerPrefs.setGroupingMode(candidate)"))
         #expect(featureSource.contains("onSetVisibilityMode(isFavoritesOnly ? .all : .favoritesOnly)"))
         #expect(featureSource.contains("onSetSortOrder(repoExplorerPrefs.sortOrder.toggled)"))
-        #expect(featureSource.contains("commandDispatcher.dispatch(groupingCommand(for: candidate))"))
+        #expect(featureSource.contains("let command = groupingCommand(for: candidate)"))
+        #expect(featureSource.contains("commandPresentation.command(command)?.isEnabled == true"))
+        #expect(featureSource.contains("commandDispatcher.dispatch(command)"))
         #expect(!featureSource.contains("AppCommandDispatcher.shared"))
         #expect(appCompositionSource.contains("command: .setRepoSidebarVisibilityMode"))
         #expect(appCompositionSource.contains("arguments: .repoSidebarVisibilityMode(mode)"))

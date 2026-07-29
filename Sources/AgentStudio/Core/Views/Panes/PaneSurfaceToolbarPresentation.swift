@@ -109,12 +109,12 @@ package struct PaneSurfaceToolbarAction {
 
 @MainActor
 package struct TerminalModeToolbarActions {
-    package let zoomAction: PaneSurfaceToolbarAction
-    package let viewerAction: PaneSurfaceToolbarAction
+    package let zoomAction: PaneSurfaceToolbarAction?
+    package let viewerAction: PaneSurfaceToolbarAction?
 
     package init(
-        zoomAction: PaneSurfaceToolbarAction,
-        viewerAction: PaneSurfaceToolbarAction
+        zoomAction: PaneSurfaceToolbarAction?,
+        viewerAction: PaneSurfaceToolbarAction?
     ) {
         self.zoomAction = zoomAction
         self.viewerAction = viewerAction
@@ -173,13 +173,13 @@ package struct ViewerToolbarModel {
 
 @MainActor
 package struct ZoomToolbarModel {
-    package let viewerAction: PaneSurfaceToolbarAction
-    package let zoomAction: PaneSurfaceToolbarAction
+    package let viewerAction: PaneSurfaceToolbarAction?
+    package let zoomAction: PaneSurfaceToolbarAction?
     package let showArrangementsAction: PaneSurfaceToolbarAction?
 
     package init(
-        viewerAction: PaneSurfaceToolbarAction,
-        zoomAction: PaneSurfaceToolbarAction,
+        viewerAction: PaneSurfaceToolbarAction?,
+        zoomAction: PaneSurfaceToolbarAction?,
         showArrangementsAction: PaneSurfaceToolbarAction? = nil
     ) {
         self.viewerAction = viewerAction
@@ -228,9 +228,9 @@ package enum PaneSurfaceToolbarPresentation {
         switch self {
         case .terminal(let model):
             guard let modeActions = model.modeActions else { return [] }
-            return [modeActions.zoomAction, modeActions.viewerAction]
+            return [modeActions.zoomAction, modeActions.viewerAction].compactMap(\.self)
         case .zoom(let model):
-            return [model.zoomAction, model.viewerAction]
+            return [model.zoomAction, model.viewerAction].compactMap(\.self)
         case .webview, .codeViewer, .unsupported, .viewer, .hidden:
             return []
         }
@@ -293,18 +293,22 @@ package enum PaneSurfaceToolbarResolver {
             placement == .normalMainPane
             ? terminalModeActions.map { actions in
                 TerminalModeToolbarActions(
-                    zoomAction: actions.zoomAction.projectingPresentation(
-                        label: actions.zoomAction.state.label,
-                        icon: actions.zoomAction.state.icon,
-                        tooltip: actions.zoomAction.state.tooltip,
-                        isEnabled: actions.zoomAction.state.isEnabled,
-                        isSelected: false,
-                        visibleLabel: nil
-                    ),
-                    viewerAction: actions.viewerAction.resolving(
-                        isEnabled: actions.viewerAction.state.isEnabled,
-                        isSelected: false
-                    )
+                    zoomAction: actions.zoomAction.map { zoomAction in
+                        zoomAction.projectingPresentation(
+                            label: zoomAction.state.label,
+                            icon: zoomAction.state.icon,
+                            tooltip: zoomAction.state.tooltip,
+                            isEnabled: zoomAction.state.isEnabled,
+                            isSelected: false,
+                            visibleLabel: nil
+                        )
+                    },
+                    viewerAction: actions.viewerAction.map { viewerAction in
+                        viewerAction.resolving(
+                            isEnabled: viewerAction.state.isEnabled,
+                            isSelected: false
+                        )
+                    }
                 )
             }
             : nil
@@ -346,8 +350,8 @@ package enum PaneSurfaceToolbarResolver {
 
     package static func resolveZoom(
         viewerPresentation: ZoomViewerPresentation,
-        viewerAction: PaneSurfaceToolbarAction,
-        zoomAction: PaneSurfaceToolbarAction,
+        viewerAction: PaneSurfaceToolbarAction?,
+        zoomAction: PaneSurfaceToolbarAction?,
         showArrangementsAction: PaneSurfaceToolbarAction? = nil
     ) -> PaneSurfaceToolbarPresentation {
         let viewerState: (isEnabled: Bool, isSelected: Bool) =
@@ -362,23 +366,27 @@ package enum PaneSurfaceToolbarResolver {
 
         return .zoom(
             ZoomToolbarModel(
-                viewerAction: viewerAction.resolving(
-                    isEnabled: viewerState.isEnabled,
-                    isSelected: viewerState.isSelected
-                ),
-                zoomAction: zoomAction.resolving(
-                    isEnabled: true,
-                    isSelected: true
-                )
-                .projectingPresentation(
-                    label: zoomAction.state.label,
-                    icon: zoomAction.state.icon,
-                    tooltip: zoomAction.state.tooltip,
-                    isEnabled: true,
-                    isSelected: true,
-                    visibleLabel: "Zoomed",
-                    selectionEmphasis: .accent
-                ),
+                viewerAction: viewerAction.map { viewerAction in
+                    viewerAction.resolving(
+                        isEnabled: viewerState.isEnabled,
+                        isSelected: viewerState.isSelected
+                    )
+                },
+                zoomAction: zoomAction.map { zoomAction in
+                    zoomAction.resolving(
+                        isEnabled: true,
+                        isSelected: true
+                    )
+                    .projectingPresentation(
+                        label: zoomAction.state.label,
+                        icon: zoomAction.state.icon,
+                        tooltip: zoomAction.state.tooltip,
+                        isEnabled: true,
+                        isSelected: true,
+                        visibleLabel: "Zoomed",
+                        selectionEmphasis: .accent
+                    )
+                },
                 showArrangementsAction: showArrangementsAction
             )
         )

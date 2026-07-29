@@ -43,12 +43,19 @@ struct BridgeAppCommandContractTests {
         // Assert
         #expect(definition.label == "Pane Zoom")
         #expect(definition.icon == canonicalZoomSymbol.map(CommandIcon.system))
-        #expect(definition.appliesTo == [.pane])
+        #expect(
+            definition.surfacePolicy
+                == .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom), .inlineControl])
+        )
+        #expect(
+            definition.targeting
+                == .contextualAndTargeted([.pane], preferredInvocation: .contextual)
+        )
         #expect(definition.visibleWhen == [.supportsTerminalZoom])
         #expect(definition.shortcut?.rawValue == "zoomPane")
         #expect(definition.shortcut?.trigger.displayString == "⌘⇧↵")
         #expect(definition.ipcExposure.executionModes == [.headless])
-        #expect(definition.ipcExposure.targetKinds == [.pane])
+        #expect(definition.ipcCommandListEntry.targetKinds == [.pane])
         #expect(definition.ipcExposure.requiredPrivileges == [.layoutMutate])
     }
 
@@ -67,12 +74,35 @@ struct BridgeAppCommandContractTests {
         #expect(definition.label == "Worktree Viewer")
         #expect(definition.icon == canonicalViewerSymbol.map(CommandIcon.system))
         #expect(definition.helpText == "Show or hide the Worktree Viewer in Pane Zoom")
-        #expect(definition.appliesTo.isEmpty)
+        #expect(
+            definition.surfacePolicy
+                == .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)])
+        )
+        #expect(
+            definition.targeting
+                == .contextualAndTargeted([.pane], preferredInvocation: .contextual)
+        )
         #expect(definition.visibleWhen == [.supportsTerminalZoom])
         #expect(definition.shortcut?.rawValue == "showViewer")
         #expect(definition.shortcut?.trigger.displayString == "⌘O")
         #expect(definition.ipcExposure.executionModes.isEmpty)
-        #expect(definition.ipcExposure.targetKinds.isEmpty)
+        #expect(definition.ipcCommandListEntry.targetKinds.isEmpty)
         #expect(definition.ipcExposure.requiredPrivileges.isEmpty)
+    }
+
+    @Test("Review is available contextually and for worktree targets")
+    func reviewCommandCatalogContract() throws {
+        // Arrange
+        let showReview = try #require(AppCommand(rawValue: "showBridgeReview"))
+
+        // Act
+        let definition = AppCommandDispatcher.shared.definition(for: showReview)
+
+        // Assert
+        #expect(definition.surfacePolicy == .exposed([.commandBar, .contextMenu]))
+        #expect(
+            definition.targeting
+                == .contextualAndTargeted([.worktree], preferredInvocation: .contextual)
+        )
     }
 }

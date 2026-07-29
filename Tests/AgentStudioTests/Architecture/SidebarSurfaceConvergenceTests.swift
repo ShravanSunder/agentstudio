@@ -114,10 +114,15 @@ struct SidebarSurfaceConvergenceTests {
         #expect(repoSource.contains("repoSidebarSortButton"))
         #expect(repoSource.contains("repoSidebarGroupingButton"))
         #expect(repoSource.contains("RepoExplorerGroupingMode.allCases"))
-        #expect(repoSource.contains("AppCommand.setRepoSidebarSortOrder.definition"))
         #expect(repoSource.contains("LocalActionSpec.groupRepoExplorerWorktrees.actionSpec"))
+        #expect(repoSource.contains("RepoExplorerToolbarCommandPresentation.resolve("))
+        #expect(repoSource.contains("commandPresentation: visibilityCommand"))
+        #expect(repoSource.contains("commandPresentation.command(.setRepoSidebarSortOrder)"))
+        #expect(repoSource.contains("label: sortCommand.commandSpec.label"))
         #expect(visibilityButtonSource.contains("repoSidebarVisibilityButton"))
-        #expect(visibilityButtonSource.contains("AppCommand.setRepoSidebarVisibilityMode.definition"))
+        #expect(visibilityButtonSource.contains("let commandPresentation: RepoExplorerPresentedCommand"))
+        #expect(visibilityButtonSource.contains("commandPresentation.commandSpec"))
+        #expect(!visibilityButtonSource.contains("AppCommand.setRepoSidebarVisibilityMode.definition"))
         #expect(!repoSource.contains("InboxSidebarToolbarTooltipTarget"))
     }
 

@@ -33,6 +33,8 @@ struct InboxSidebarRootContainer: View {
     let focusedField: FocusState<InboxFocus?>.Binding
     let sections: [InboxNotificationListSection]
     let flashingRowIds: Set<UUID>
+    let commandPresentation: InboxSidebarCommandPresentation
+    let commandCapability: InboxSidebarCommandCapability
     let actions: InboxSidebarActions
     static let surfaceBackground = SidebarSurfaceBackground.shellChrome
 
@@ -90,6 +92,8 @@ struct InboxSidebarRootContainer: View {
                 groupingMenuOpen: $groupingMenuOpen,
                 grouping: grouping,
                 focusedField: focusedField,
+                commandPresentation: commandPresentation,
+                commandCapability: commandCapability,
                 actions: actions
             )
 
@@ -125,6 +129,8 @@ struct InboxSidebarHeader: View {
     @Binding var groupingMenuOpen: Bool
     let grouping: InboxNotificationGrouping
     let focusedField: FocusState<InboxFocus?>.Binding
+    let commandPresentation: InboxSidebarCommandPresentation
+    let commandCapability: InboxSidebarCommandCapability
     let actions: InboxSidebarActions
     static let groupIconName = "square.stack.3d.up"
     static let rowStateIconName = "envelope.badge"
@@ -135,15 +141,8 @@ struct InboxSidebarHeader: View {
     @State private var hoveredTooltipTarget: InboxSidebarToolbarTooltipTarget?
     @State private var tooltipFrames: [InboxSidebarToolbarTooltipTarget: CGRect] = [:]
     @State private var suppressDeleteTooltipUntilHoverExit = false
-    private let toggleSortSpec = AppCommand.toggleInboxNotificationSort.definition
     private var isAttentionOnly: Bool { contentMode == .rollUpAlerts }
     private var isUnreadOnly: Bool { rowStateFilter == .unreadOnly }
-    private var rowStateAction: AppCommandSpec {
-        AppCommand.setInboxRowStateFilter.definition
-    }
-    private var contentModeAction: AppCommandSpec {
-        AppCommand.setInboxContentMode.definition
-    }
     private var rowStateLabel: String {
         Self.rowStateButtonLabel(rowStateFilter: rowStateFilter)
     }
@@ -200,110 +199,123 @@ struct InboxSidebarHeader: View {
             HStack(spacing: AppStyles.General.Spacing.standard) {
                 Spacer(minLength: 0)
 
-                SidebarToolbarActionButton(
-                    label: rowStateLabel,
-                    accessibilityIdentifier: "inboxSidebarRowStateFilterButton",
-                    tooltipValue: Self.toolbarTooltipValue(
-                        for: .rowState,
-                        rowStateFilter: rowStateFilter,
-                        contentMode: contentMode
-                    ),
-                    icon: {
-                        rowStateAction.icon.swiftUIImage(
-                            loader: octiconLoader,
-                            size: AppStyles.General.Icon.compact
-                        )
-                    },
-                    isActive: isUnreadOnly,
-                    tooltipTarget: InboxSidebarToolbarTooltipTarget.rowState,
-                    tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
-                    onHover: { updateTooltipTarget(.rowState, isHovered: $0) },
-                    action: actions.onToggleRowStateFilter
-                )
-
-                SidebarToolbarActionButton(
-                    label: contentModeLabel,
-                    accessibilityIdentifier: "inboxSidebarContentModeButton",
-                    tooltipValue: Self.toolbarTooltipValue(
-                        for: .contentMode,
-                        rowStateFilter: rowStateFilter,
-                        contentMode: contentMode
-                    ),
-                    icon: {
-                        contentModeAction.icon.swiftUIImage(
-                            loader: octiconLoader,
-                            size: AppStyles.General.Icon.compact
-                        )
-                    },
-                    isActive: isAttentionOnly,
-                    tooltipTarget: InboxSidebarToolbarTooltipTarget.contentMode,
-                    tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
-                    onHover: { updateTooltipTarget(.contentMode, isHovered: $0) },
-                    action: actions.onCycleContentMode
-                )
-
-                deleteMenu
-
-                SidebarToolbarSortButton(
-                    sortValue: sort,
-                    isReversed: sort == .oldestFirst,
-                    label: toggleSortSpec.label,
-                    accessibilityIdentifier: "inboxSidebarSortButton",
-                    tooltipValue: Self.toolbarTooltipValue(
-                        for: .sort,
-                        rowStateFilter: rowStateFilter,
-                        contentMode: contentMode
-                    ),
-                    icon: {
-                        toggleSortSpec.icon.swiftUIImage(
-                            loader: octiconLoader,
-                            size: AppStyles.General.Icon.compact
-                        )
-                    },
-                    tooltipTarget: InboxSidebarToolbarTooltipTarget.sort,
-                    tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
-                    frameAccessibilityIdentifier: "inboxSidebarSortButtonFrame",
-                    onHover: { updateTooltipTarget(.sort, isHovered: $0) },
-                    onToggle: actions.onToggleSort
-                )
-
-                SidebarToolbarDivider()
-
-                SidebarToolbarGroupingButton(
-                    label: groupingAction.label,
-                    selectionLabel: grouping.commandLabel,
-                    accessibilityIdentifier: "inboxSidebarGroupingButton",
-                    tooltipValue: Self.toolbarTooltipValue(
-                        for: .grouping,
-                        rowStateFilter: rowStateFilter,
-                        contentMode: contentMode
-                    ),
-                    isOpen: groupingMenuOpen,
-                    tooltipTarget: InboxSidebarToolbarTooltipTarget.grouping,
-                    tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
-                    frameAccessibilityIdentifier: "inboxSidebarGroupingButtonFrame",
-                    onHover: { updateTooltipTarget(.grouping, isHovered: $0) },
-                    action: {
-                        groupingMenuOpen.toggle()
-                    }
-                )
-                .popover(isPresented: $groupingMenuOpen) {
-                    SidebarGroupingPopover(
-                        items: InboxNotificationGrouping.allCases,
-                        selectedItem: grouping,
-                        icon: { grouping in
-                            grouping.icon.swiftUIImage(
+                if let rowStateAction = commandPresentation.rowStateFilter {
+                    SidebarToolbarActionButton(
+                        label: rowStateLabel,
+                        accessibilityIdentifier: "inboxSidebarRowStateFilterButton",
+                        tooltipValue: Self.toolbarTooltipValue(
+                            for: .rowState,
+                            rowStateFilter: rowStateFilter,
+                            contentMode: contentMode
+                        ),
+                        icon: {
+                            rowStateAction.icon.swiftUIImage(
                                 loader: octiconLoader,
                                 size: AppStyles.General.Icon.compact
                             )
                         },
-                        label: \.commandLabel,
-                        onSelect: { candidate in
-                            actions.onSelectGrouping(candidate)
-                            groupingMenuOpen = false
-                        },
-                        onDismiss: { groupingMenuOpen = false }
+                        isActive: isUnreadOnly,
+                        tooltipTarget: InboxSidebarToolbarTooltipTarget.rowState,
+                        tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                        onHover: { updateTooltipTarget(.rowState, isHovered: $0) },
+                        action: actions.onToggleRowStateFilter
                     )
+                    .disabled(!commandCapability.canDispatch(rowStateAction.command))
+                }
+
+                if let contentModeAction = commandPresentation.contentMode {
+                    SidebarToolbarActionButton(
+                        label: contentModeLabel,
+                        accessibilityIdentifier: "inboxSidebarContentModeButton",
+                        tooltipValue: Self.toolbarTooltipValue(
+                            for: .contentMode,
+                            rowStateFilter: rowStateFilter,
+                            contentMode: contentMode
+                        ),
+                        icon: {
+                            contentModeAction.icon.swiftUIImage(
+                                loader: octiconLoader,
+                                size: AppStyles.General.Icon.compact
+                            )
+                        },
+                        isActive: isAttentionOnly,
+                        tooltipTarget: InboxSidebarToolbarTooltipTarget.contentMode,
+                        tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                        onHover: { updateTooltipTarget(.contentMode, isHovered: $0) },
+                        action: actions.onCycleContentMode
+                    )
+                    .disabled(!commandCapability.canDispatch(contentModeAction.command))
+                }
+
+                deleteMenu
+
+                if let toggleSortSpec = commandPresentation.sort {
+                    SidebarToolbarSortButton(
+                        sortValue: sort,
+                        isReversed: sort == .oldestFirst,
+                        label: toggleSortSpec.label,
+                        accessibilityIdentifier: "inboxSidebarSortButton",
+                        tooltipValue: Self.toolbarTooltipValue(
+                            for: .sort,
+                            rowStateFilter: rowStateFilter,
+                            contentMode: contentMode
+                        ),
+                        icon: {
+                            toggleSortSpec.icon.swiftUIImage(
+                                loader: octiconLoader,
+                                size: AppStyles.General.Icon.compact
+                            )
+                        },
+                        tooltipTarget: InboxSidebarToolbarTooltipTarget.sort,
+                        tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                        frameAccessibilityIdentifier: "inboxSidebarSortButtonFrame",
+                        onHover: { updateTooltipTarget(.sort, isHovered: $0) },
+                        onToggle: actions.onToggleSort
+                    )
+                    .disabled(!commandCapability.canDispatch(toggleSortSpec.command))
+                }
+
+                SidebarToolbarDivider()
+
+                if !commandPresentation.groupingOptions.isEmpty {
+                    SidebarToolbarGroupingButton(
+                        label: groupingAction.label,
+                        selectionLabel: grouping.commandLabel,
+                        accessibilityIdentifier: "inboxSidebarGroupingButton",
+                        tooltipValue: Self.toolbarTooltipValue(
+                            for: .grouping,
+                            rowStateFilter: rowStateFilter,
+                            contentMode: contentMode
+                        ),
+                        isOpen: groupingMenuOpen,
+                        tooltipTarget: InboxSidebarToolbarTooltipTarget.grouping,
+                        tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                        frameAccessibilityIdentifier: "inboxSidebarGroupingButtonFrame",
+                        onHover: { updateTooltipTarget(.grouping, isHovered: $0) },
+                        action: {
+                            groupingMenuOpen.toggle()
+                        }
+                    )
+                    .popover(isPresented: $groupingMenuOpen) {
+                        SidebarGroupingPopover(
+                            items: commandPresentation.groupingOptions.map(\.grouping),
+                            selectedItem: grouping,
+                            icon: { grouping in
+                                groupingCommandSpec(for: grouping).icon.swiftUIImage(
+                                    loader: octiconLoader,
+                                    size: AppStyles.General.Icon.compact
+                                )
+                            },
+                            label: { groupingCommandSpec(for: $0).label },
+                            onSelect: { candidate in
+                                let command = groupingCommandSpec(for: candidate).command
+                                guard commandCapability.canDispatch(command) else { return }
+                                actions.onSelectGrouping(candidate)
+                                groupingMenuOpen = false
+                            },
+                            onDismiss: { groupingMenuOpen = false }
+                        )
+                    }
                 }
             }
             .background(
@@ -354,44 +366,92 @@ struct InboxSidebarHeader: View {
     }
 
     private var deleteMenu: some View {
-        SidebarToolbarMenuButton(
-            label: deleteInboxAction.label,
-            icon: {
-                deleteInboxAction.icon.swiftUIImage(
-                    loader: octiconLoader,
-                    size: AppStyles.General.Icon.compact
+        Group {
+            if commandPresentation.clearRead != nil || commandPresentation.clearAll != nil {
+                SidebarToolbarMenuButton(
+                    label: deleteInboxAction.label,
+                    icon: {
+                        deleteInboxAction.icon.swiftUIImage(
+                            loader: octiconLoader,
+                            size: AppStyles.General.Icon.compact
+                        )
+                    },
+                    menuContent: {
+                        if let clearReadSpec = commandPresentation.clearRead {
+                            Button(action: actions.onClearReadHistory) {
+                                Label {
+                                    Text(clearReadSpec.label)
+                                } icon: {
+                                    clearReadSpec.icon.swiftUIImage(
+                                        loader: octiconLoader,
+                                        size: AppStyles.General.Icon.compact
+                                    )
+                                }
+                            }
+                            .disabled(!commandCapability.canDispatch(clearReadSpec.command))
+                            .controlHelp(clearReadSpec.controlTooltipRenderValue())
+                        }
+                        if commandPresentation.clearRead != nil, commandPresentation.clearAll != nil {
+                            Divider()
+                        }
+                        if let clearAllSpec = commandPresentation.clearAll {
+                            Button(role: .destructive, action: actions.onClearAllHistory) {
+                                Label {
+                                    Text(clearAllSpec.label)
+                                } icon: {
+                                    clearAllSpec.icon.swiftUIImage(
+                                        loader: octiconLoader,
+                                        size: AppStyles.General.Icon.compact
+                                    )
+                                }
+                            }
+                            .disabled(!commandCapability.canDispatch(clearAllSpec.command))
+                            .controlHelp(clearAllSpec.controlTooltipRenderValue())
+                        }
+                    }
                 )
-            },
-            menuContent: {
-                Button("Delete Read", action: actions.onClearReadHistory)
-                Divider()
-                Button("Delete All", role: .destructive, action: actions.onClearAllHistory)
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("inboxSidebarDeleteMenu")
+                .controlHelp(
+                    Self.toolbarTooltipValue(
+                        for: .delete,
+                        rowStateFilter: rowStateFilter,
+                        contentMode: contentMode
+                    )
+                )
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        suppressDeleteTooltipUntilHoverExit = true
+                        hoveredTooltipTarget = nil
+                    }
+                )
+                .onHover { updateDeleteTooltipTarget(isHovered: $0) }
+                .hoverTooltipAnchor(
+                    InboxSidebarToolbarTooltipTarget.delete,
+                    in: Self.tooltipCoordinateSpaceName
+                )
+                .fixedSize()
+                .background(
+                    AccessibilityLabelBridge(
+                        identifier: "inboxSidebarDeleteMenu",
+                        label: deleteInboxAction.label
+                    )
+                )
             }
-        )
-        .accessibilityElement(children: .ignore)
-        .accessibilityIdentifier("inboxSidebarDeleteMenu")
-        .controlHelp(
-            Self.toolbarTooltipValue(
-                for: .delete,
-                rowStateFilter: rowStateFilter,
-                contentMode: contentMode
-            )
-        )
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                suppressDeleteTooltipUntilHoverExit = true
-                hoveredTooltipTarget = nil
-            }
-        )
-        .onHover { updateDeleteTooltipTarget(isHovered: $0) }
-        .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.delete, in: Self.tooltipCoordinateSpaceName)
-        .fixedSize()
-        .background(
-            AccessibilityLabelBridge(
-                identifier: "inboxSidebarDeleteMenu",
-                label: deleteInboxAction.label
-            )
-        )
+        }
+    }
+
+    private func groupingCommandSpec(
+        for grouping: InboxNotificationGrouping
+    ) -> AppCommandSpec {
+        guard
+            let spec = commandPresentation.groupingOptions.first(where: {
+                $0.grouping == grouping
+            })?.spec
+        else {
+            preconditionFailure("Grouping presentation requested for an omitted command")
+        }
+        return spec
     }
 
     private var activeTooltipTarget: InboxSidebarToolbarTooltipTarget? {

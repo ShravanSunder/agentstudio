@@ -204,7 +204,7 @@ private func makePaneTabViewControllerCommandPaneInboxPresentation(
         clearRequest: { request in
             paneInboxPresenter.clearRequest(request)
         },
-        popoverContent: { _, _, _, _ in AnyView(EmptyView()) },
+        popoverContent: { _, _, _ in AnyView(EmptyView()) },
         pruneFilterModes: { _ in }
     )
 }

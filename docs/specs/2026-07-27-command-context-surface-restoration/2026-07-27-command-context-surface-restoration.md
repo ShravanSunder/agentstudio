@@ -2,7 +2,7 @@
 
 Date: 2026-07-27
 
-Status: Draft for spec review
+Status: Accepted; implementation in progress
 
 Dependency: the Pane Zoom change lands first. This contract preserves the
 resulting Zoom behavior; it does not redesign or block that work.
@@ -534,6 +534,100 @@ The change does not alter:
   scheduling policy;
 - Pane Zoom lifecycle or Viewer lifecycle.
 
+### R23 — Keep IPC synchronized by command identity, not UI policy
+
+`AppCommand` remains the exhaustive identity shared by the interactive and IPC
+planes. Every command identity must have:
+
+- one `AppCommandSpec` definition;
+- one exhaustive IPC privilege classification;
+- one exhaustive IPC durable-target-kind classification;
+- an IPC execution-mode and argument-schema projection.
+
+`AgentStudioIPCCommandAdapter.listCommands()` enumerates
+`AppCommand.allCases`, resolves each command's `AppCommandSpec`, and projects
+that definition into `IPCCommandListEntry`. IPC command identifiers and titles
+therefore remain synchronized with command identity and canonical presentation
+copy.
+
+Synchronization does not mean deriving IPC authority from interactive policy.
+`surfacePolicy`, `targeting`, `preferredInvocation`, `visibleWhen`, and
+`CommandContext` must never derive, widen, or narrow IPC execution modes,
+durable handle kinds, privileges, or argument schemas. Those values remain
+owned by the exhaustive `AppCommand.ipcSpec` companion projection and are
+exposed through `AppCommandSpec.ipcExposure` and
+`AppCommandSpec.argumentSchema`.
+
+Internal IPC optionality and execution modes use discriminated unions rather
+than empty arrays, booleans, or optional field combinations:
+
+```swift
+enum AppCommandIPCExposure {
+    case notExposed
+    case interactive(
+        target: AppCommandIPCDurableTargetContract,
+        requiredPrivilege: IPCPrivilegeClass
+    )
+    case uiPresentation
+    case headless(
+        target: AppCommandIPCDurableTargetContract,
+        requiredPrivilege: IPCPrivilegeClass
+    )
+    case headlessAndInteractive(
+        target: AppCommandIPCDurableTargetContract,
+        requiredPrivilege: IPCPrivilegeClass
+    )
+}
+
+enum AppCommandIPCDurableTargetContract {
+    case targetless
+    case required(
+        primary: IPCHandleKind,
+        additional: [IPCHandleKind]
+    )
+}
+
+enum AppCommandIPCArgumentContract {
+    case noArguments
+    case repoSidebarVisibilityMode
+    case repoSidebarSortOrder
+    case inboxRowStateFilter
+    case inboxContentMode
+}
+
+enum AppCommandExecutionArguments {
+    case noArguments
+    case repoSidebarVisibilityMode(RepoExplorerVisibilityMode)
+    case repoSidebarSortOrder(RepoExplorerSortOrder)
+    case inboxRowStateFilter(InboxNotificationRowStateFilter)
+    case inboxContentMode(InboxNotificationContentMode)
+}
+```
+
+The adapter switches exhaustively on `AppCommandIPCDurableTargetContract` to
+decide whether a durable target is absent or required. Empty target-kind arrays
+exist only in the unchanged public IPC DTO projection; they are not an internal
+optionality discriminator. `AppCommandExecutionRequest.arguments` is
+non-optional and defaults to `.noArguments`; the IPC argument contract decodes
+exhaustively into the matching typed execution payload. Filter and argument
+variants therefore remain finite states with exhaustive projections and no
+`default` branches.
+
+These internal enums project to the existing public arrays and argument-schema
+DTOs. They do not change public encoding. The `AppCommand.ipcSpec` exposure and
+argument-contract switches are exhaustive and contain no `default`; adding an
+`AppCommand` must produce compiler errors until its IPC behavior and argument
+shape are classified explicitly.
+
+Adding or changing a command is incomplete until both exhaustive planes compile
+and the catalog/IPC contract tests prove:
+
+- command-list cardinality matches `AppCommand.allCases`;
+- each public entry's id and title match its `AppCommandSpec`;
+- its execution modes, target kinds, required privileges, and argument schema
+  match the accepted IPC contract;
+- encoded public DTO keys contain no interactive presentation policy.
+
 ## Technical contract
 
 ### Focus resolution
@@ -610,6 +704,98 @@ AppCommandPresentationQuery
 ```
 
 Enablement is evaluated afterward through `canDispatch`.
+
+### Command catalog and IPC synchronization
+
+The command identity is shared. Interactive presentation and IPC authority are
+separate typed projections from that identity:
+
+```text
+                               AppCommand
+                     exhaustive command identity
+                                   │
+                 ┌─────────────────┴─────────────────┐
+                 │                                   │
+                 ▼                                   ▼
+       AppCommand.definition                 AppCommand.ipcSpec
+            AppCommandSpec                    AppCommandIPCSpec
+       ┌────────────────────┐          ┌────────────────────────┐
+       │ label / icon / help│          │ execution modes        │
+       │ shortcut           │          │ durable target kinds   │
+       │ surfacePolicy      │          │ required privileges    │
+       │ targeting          │          │ argument contract      │
+       │ visibleWhen        │          └────────────┬───────────┘
+       └─────────┬──────────┘                       │
+                 │                                  │
+                 └──────────────┬───────────────────┘
+                                ▼
+                 AppCommandSpec.ipcCommandListEntry
+                 id from AppCommand
+                 title from AppCommandSpec
+                 authority/schema from ipcSpec
+                                │
+                                ▼
+              AgentStudioIPCCommandAdapter.listCommands()
+                 enumerate all AppCommand.allCases
+                 project exactly one entry per identity
+                 sort by public command identifier
+```
+
+The composition point synchronizes identity and canonical title. It does not
+collapse the two policy planes:
+
+```text
+interactive request
+  surface + subject
+      │
+      ▼
+AppCommandSpec.shouldPresent          presence only
+      │
+      ▼
+matching canDispatch / dispatch
+      │
+      ▼
+execution owner + validator
+
+authenticated IPC request
+  command id + arguments + optional durable handle
+      │
+      ▼
+AppCommandSpec.ipcExposure            execution mode + privileges
+      │
+      ▼
+argument-schema validation
+      │
+      ├─ no handle ─► headless shell execution context
+      │
+      └─ handle
+          ▼
+        declared IPC handle kind
+          ▼
+        durable target membership
+          ▼
+        targeted canDispatch / dispatch
+          ▼
+        execution owner + validator
+```
+
+The authenticated IPC service enforces the required privilege scopes before
+the adapter's execution path. The adapter then enforces execution mode,
+argument shape, target requirements, durable-handle kind and membership, live
+capability, and owner validation. Interactive surface exposure and command
+context participate in none of those authority decisions.
+
+Invalid drift states and their required correction:
+
+| Invalid state | Failure | Required correction |
+| --- | --- | --- |
+| IPC target kinds are derived from `AppCommandTargeting` | A UI target addition silently widens remote authority. | Restore the independently reviewed `AppCommand.ipcSpec` target-kind classification. |
+| `command.list` uses a hand-maintained command allowlist | New commands disappear from discovery or stale commands survive. | Enumerate `AppCommand.allCases` and project each canonical definition. |
+| IPC duplicates command labels | Interactive and programmatic discovery disagree. | Project the public title from `AppCommandSpec.label`. |
+| IPC DTOs encode surface or command-context fields | Presentation vocabulary becomes an accidental public/security contract. | Keep the public DTO limited to id, title, execution modes, target kinds, privileges, and argument schema. |
+| A target handle passes kind checks but not durable membership | A stale or cross-workspace UUID reaches execution. | Reject before targeted `canDispatch`; never treat presentation targeting as membership proof. |
+| Interactive policy changes alter accepted IPC bytes without an explicit IPC decision | The restoration changes the public contract accidentally. | Restore the accepted IPC projection and byte/value characterization fixtures. |
+| An IPC switch uses `default` or empty arrays as an internal state discriminator | A new command silently inherits accidental exposure, privileges, or arguments. | Use exhaustive `AppCommand` switches and the internal exposure/argument discriminated unions. |
 
 ### Spec boundary / separability map
 
@@ -742,6 +928,43 @@ Context menus:
 - use `AppCommandTargeting` instead of local copies of supported target kinds;
 - use targeted `canDispatch` for enabled state;
 - retain explicit host-owned ordering and conditional sections.
+
+The tab context menu targets the clicked tab, not whichever tab happens to be
+active. It requests `.targeted(.tab)` presentation rather than
+`.contextualTarget`: `CommandContext` contains active-tab and focused-pane
+facts, so it must not filter an inactive clicked tab. Clicked-tab conditions
+such as whether the tab is split remain host-owned conditional sections, and
+targeted `canDispatch` validates the clicked tab immediately before execution.
+
+Every command-backed row in that menu has a real `.tab` targeting declaration,
+targeted capability check, and targeted execution path. Split, equalize,
+save-arrangement, and floating-terminal actions resolve their inputs from the
+clicked tab inside the execution owner. A floating terminal uses the clicked
+tab's active pane CWD facet and falls back to a nil launch directory when that
+facet is absent.
+
+Rows that only open the arrangement panel are local presentation actions and
+use `LocalActionSpec`. The tab context menu does not retain command-labelled
+rows whose callback has no effect. A submenu title that groups split commands
+is likewise a `LocalActionSpec`, not a borrowed command label.
+
+Arrangement actions query the exact physical host surface for each placement:
+
+- switching from an arrangement chip and saving from the panel use
+  `.inlineControl`;
+- the rename pencil and double-click gesture use `.inlineControl`;
+- the arrangement-chip right-click Rename and Delete rows use `.contextMenu`;
+- the tab context menu's Save Arrangement row uses `.contextMenu`.
+
+The same command may therefore be resolved independently for its inline and
+right-click placements. Each resolution converges on the same targeted
+capability and dispatch path. The historical `.tab` target kind carries an
+arrangement identity for switch, rename, and delete; this restoration does not
+rename the target-kind taxonomy.
+
+Removing the prior no-op tab-menu rows and making the floating-terminal row
+functional are accepted behavior corrections for this surface, not behavior
+that R22 requires preserving.
 
 ### Toolbars
 
@@ -945,6 +1168,13 @@ Focused tests prove:
 
 - command bar and main menu agree on contextual visibility;
 - context menus reject undeclared target kinds;
+- arrangement inline and right-click placements request their exact declared
+  surfaces and preserve Rename/Delete capability rechecks;
+- the tab context menu targets the clicked tab, including when it is inactive;
+- split-only tab rows follow the clicked tab rather than the active tab;
+- no command-labelled tab-menu row lacks a targeted execution path;
+- a clicked-tab floating terminal uses that tab's active-pane CWD and falls
+  back to no launch directory when the CWD is absent;
 - normal pane and terminal-Zoom toolbars use distinct surface identities;
 - the Zoom-local Viewer is absent outside terminal Zoom and available in
   terminal Zoom according to its capability state;
@@ -966,6 +1196,15 @@ Characterization tests prove:
   windows, and insufficient privileges remain rejected;
 - ephemeral Zoom companion identities are not accepted as durable pane
   handles.
+
+Catalog/IPC synchronization proof additionally covers every command identity:
+
+- `command.list` count equals `AppCommand.allCases.count`;
+- each command id and title are projected from its canonical definition;
+- interactive surface/targeting changes cannot change IPC execution modes,
+  durable target kinds, privileges, argument schemas, or encoded DTO keys;
+- exhaustive privilege and durable-target-kind switches continue to force a
+  classification for new `AppCommand` identities.
 
 ### Quality and manual proof
 

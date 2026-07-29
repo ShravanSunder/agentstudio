@@ -114,6 +114,9 @@ package struct InboxNotificationSidebarView: View {
     }
 
     package var body: some View {
+        let commandContext = InboxCommandContextProjection.current(
+            workspacePane: workspacePaneAtom
+        )
         InboxSidebarRootContainer(
             octiconLoader: octiconLoader,
             uiState: uiState,
@@ -128,6 +131,12 @@ package struct InboxNotificationSidebarView: View {
             focusedField: $focusedField,
             sections: listModel.sections,
             flashingRowIds: flashingRowIds,
+            commandPresentation: InboxSidebarCommandPresentation(
+                commandContext: commandContext
+            ),
+            commandCapability: InboxSidebarCommandCapability(
+                dispatcher: dispatcher
+            ),
             actions: .init(
                 onEscape: handleEscape,
                 onToggleSort: toggleSort,

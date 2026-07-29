@@ -57,25 +57,33 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
             throw AppIPCCommandError(reason: .unsupportedCommand)
         }
         let definition = command.definition
-        guard definition.ipcExposure.commandListEntryIsHeadlessExecutable else {
-            if definition.ipcExposure.executionModes.contains(.uiPresentation) {
-                throw AppIPCCommandError(reason: .requiresPresentation)
-            }
+        let exposure = definition.ipcExposure
+        switch exposure {
+        case .headless, .headlessAndInteractive:
+            break
+        case .uiPresentation:
+            throw AppIPCCommandError(reason: .requiresPresentation)
+        case .notExposed, .interactive:
             throw AppIPCCommandError(reason: .requiresParameters)
         }
-        let executionArguments: AppCommandExecutionArguments?
+        let executionArguments: AppCommandExecutionArguments
         do {
             executionArguments = try AppCommandExecutionArguments.commandOwnedArguments(
-                command: command,
+                contract: command.ipcSpec.argumentContract,
                 rawArguments: params.arguments,
-                argumentsContainOnlyStrings: params.argumentsContainOnlyStrings,
-                argumentSchema: definition.argumentSchema
+                argumentsContainOnlyStrings: params.argumentsContainOnlyStrings
             )
         } catch AppCommandArgumentDecodingError.validationRejected {
             throw AppIPCCommandError(reason: .validationRejected)
         }
-        guard params.targetHandle != nil || definition.ipcExposure.targetKinds.isEmpty else {
-            throw AppIPCCommandError(reason: .requiresTarget)
+        let durableTarget = exposure.durableTarget
+        switch durableTarget {
+        case .targetless:
+            break
+        case .required:
+            guard params.targetHandle != nil else {
+                throw AppIPCCommandError(reason: .requiresTarget)
+            }
         }
 
         let lifecycle = windowLifecycleReader.snapshot()
@@ -85,10 +93,19 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
         else {
             throw AppIPCCommandError(reason: .noActiveWindow)
         }
-        if let targetHandle = params.targetHandle {
+        switch durableTarget {
+        case .targetless:
+            guard params.targetHandle == nil else {
+                throw AppIPCCommandError(reason: .targetNotFound)
+            }
+        case .required(let primary, let additional):
+            guard let targetHandle = params.targetHandle else {
+                throw AppIPCCommandError(reason: .requiresTarget)
+            }
             let target = try targetedCommandTarget(
                 rawHandle: targetHandle,
-                allowedKinds: definition.ipcExposure.targetKinds
+                primaryKind: primary,
+                additionalKinds: additional
             )
             guard
                 AppCommandDispatcher.shared.canDispatch(
@@ -138,7 +155,8 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
 
     private func targetedCommandTarget(
         rawHandle: String,
-        allowedKinds: [IPCHandleKind]
+        primaryKind: IPCHandleKind,
+        additionalKinds: [IPCHandleKind]
     ) throws -> (id: UUID, type: SearchItemType) {
         let handle: IPCHandle
         do {
@@ -146,7 +164,10 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
         } catch {
             throw AppIPCCommandError(reason: .targetNotFound)
         }
-        guard allowedKinds.contains(handle.kind), case .canonicalUUID(let targetId) = handle.reference else {
+        guard
+            handle.kind == primaryKind || additionalKinds.contains(handle.kind),
+            case .canonicalUUID(let targetId) = handle.reference
+        else {
             throw AppIPCCommandError(reason: .targetNotFound)
         }
         switch handle.kind {
@@ -174,7 +195,12 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
         switch privilege {
         case .sidebarStateMutate:
             .workspace(workspaceId)
-        default:
+        case .systemRead, .workspaceRead, .paneContextRead, .layoutMutate,
+            .bridgeRead, .bridgeContentRead, .bridgeControl, .bridgeTelemetryRead,
+            .bridgeTelemetryFlush, .terminalRead, .terminalWrite, .terminalStatusRead,
+            .terminalSnapshotRead, .terminalInputWrite, .terminalWait, .eventsRead,
+            .uiPresent, .permissionRequest, .permissionRead, .grantApprove,
+            .appCommandExecute, .debugUnsafe:
             .app
         }
     }

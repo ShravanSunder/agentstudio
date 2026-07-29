@@ -80,6 +80,7 @@ class MainSplitViewController: NSSplitViewController {
     private var uiState: WorkspaceSidebarState { atom(\.workspaceSidebarState) }
     private let workspaceActionExecutor: WorkspaceActionExecutor
     private let runtimeCommandDispatcher: any PaneRuntimeCommandDispatching
+    private let commandDispatcher: any AppCommandDispatching
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     private let appLifecycleStore: AppLifecycleAtom
     private let windowLifecycleStore: WindowLifecycleAtom
@@ -120,6 +121,7 @@ class MainSplitViewController: NSSplitViewController {
         workspaceWindowId: UUID? = nil,
         workspaceActionExecutor: WorkspaceActionExecutor,
         runtimeCommandDispatcher: any PaneRuntimeCommandDispatching,
+        commandDispatcher: any AppCommandDispatching = AppCommandDispatcher.shared,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
         windowLifecycleStore: WindowLifecycleAtom = atom(\.windowLifecycle),
@@ -146,6 +148,7 @@ class MainSplitViewController: NSSplitViewController {
         self.workspaceWindowId = workspaceWindowId
         self.workspaceActionExecutor = workspaceActionExecutor
         self.runtimeCommandDispatcher = runtimeCommandDispatcher
+        self.commandDispatcher = commandDispatcher
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.appLifecycleStore = appLifecycleStore
         self.windowLifecycleStore = windowLifecycleStore
@@ -426,7 +429,7 @@ class MainSplitViewController: NSSplitViewController {
             clearRequest: { request in
                 presenter.clearRequest(request)
             },
-            popoverContent: { [weak self] parentPaneId, paneIds, onClear, onClose in
+            popoverContent: { [weak self] parentPaneId, paneIds, onClose in
                 guard let self else {
                     return AnyView(EmptyView())
                 }
@@ -439,13 +442,13 @@ class MainSplitViewController: NSSplitViewController {
                         inboxAtom: inbox,
                         prefsAtom: prefsAtom,
                         presentationAtom: paneInboxState,
+                        commandDispatcher: self.commandDispatcher,
                         onActivate: { notification in
                             presenter.recordRowActivation(notification: notification, paneIds: paneIds)
                         },
                         onFocusPane: { [weak self] paneId in
                             self?.paneTabViewController?.execute(.focusPane, target: paneId, targetType: .pane)
                         },
-                        onClear: onClear,
                         onClose: onClose
                     )
                 )

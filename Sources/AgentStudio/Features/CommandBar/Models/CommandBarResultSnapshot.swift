@@ -13,7 +13,8 @@ struct CommandBarResultSnapshot {
     let footerHints: [FooterHint]
     let canOpenWorktreeInCurrentTab: Bool
     let currentMode: CommandBarAppMode
-    let currentContext: WorkspacePaneFocus
+    let focusedPane: WorkspaceFocusedPane?
+    let commandContext: CommandContext
 
     var totalItems: Int {
         displayedItems.count

@@ -32,7 +32,7 @@ struct CommandBarQuickOpenProjectionTests {
             let items = quickOpenItems(
                 queryState: .empty,
                 store: fixture.store,
-                focus: fixture.focus
+                focusedPane: fixture.focusedPane
             )
 
             #expect(
@@ -78,10 +78,8 @@ struct CommandBarQuickOpenProjectionTests {
             let items = quickOpenItems(
                 queryState: .empty,
                 store: fixture.store,
-                focus: WorkspacePaneFocus(
-                    activePaneId: pane.id,
-                    paneContentType: .terminal,
-                    satisfiedRequirements: [.hasActiveTab, .hasActivePane]
+                focusedPane: makeFocusedPane(
+                    paneID: pane.id
                 )
             )
 
@@ -117,10 +115,8 @@ struct CommandBarQuickOpenProjectionTests {
             let items = quickOpenItems(
                 queryState: .empty,
                 store: store,
-                focus: WorkspacePaneFocus(
-                    activePaneId: pane.id,
-                    paneContentType: .terminal,
-                    satisfiedRequirements: [.hasActiveTab, .hasActivePane]
+                focusedPane: makeFocusedPane(
+                    paneID: pane.id
                 )
             )
 
@@ -142,7 +138,7 @@ struct CommandBarQuickOpenProjectionTests {
             let items = quickOpenItems(
                 queryState: .meaningful,
                 store: fixture.store,
-                focus: fixture.focus
+                focusedPane: fixture.focusedPane
             )
 
             #expect(CommandBarDataSource.grouped(items).map(\.name) == ["Repositories & Worktrees"])
@@ -160,7 +156,7 @@ struct CommandBarQuickOpenProjectionTests {
     private func quickOpenItems(
         queryState: CommandBarRootQueryState,
         store: WorkspaceStore,
-        focus: WorkspacePaneFocus
+        focusedPane: WorkspaceFocusedPane?
     ) -> [CommandBarItem] {
         CommandBarDataSource.items(
             scope: .quickOpen,
@@ -168,7 +164,23 @@ struct CommandBarQuickOpenProjectionTests {
             store: store,
             repoCache: RepoCacheAtom(),
             dispatcher: FakeAppCommandDispatcher(),
-            focus: focus
+            focusedPane: focusedPane,
+            commandContext: .empty
+        )
+    }
+
+    private func makeFocusedPane(
+        paneID: UUID = UUID(),
+        repoID: UUID? = nil,
+        worktreeID: UUID? = nil
+    ) -> WorkspaceFocusedPane {
+        WorkspaceFocusedPane(
+            owner: .mainPane(paneId: paneID),
+            activeMainPaneId: paneID,
+            paneId: paneID,
+            repoId: repoID,
+            worktreeId: worktreeID,
+            contentType: .terminal
         )
     }
 
@@ -230,11 +242,9 @@ struct CommandBarQuickOpenProjectionTests {
             currentLinkedWorktree: currentLinkedWorktree,
             recentRepository: recentRepository,
             watchedPath: watchedPath,
-            focus: WorkspacePaneFocus(
-                activeRepoId: remainingRepository.id,
-                activeWorktreeId: currentLinkedWorktree.id,
-                paneContentType: .terminal,
-                satisfiedRequirements: [.hasActiveTab, .hasActivePane]
+            focusedPane: makeFocusedPane(
+                repoID: remainingRepository.id,
+                worktreeID: currentLinkedWorktree.id
             )
         )
     }
@@ -246,7 +256,7 @@ struct CommandBarQuickOpenProjectionTests {
         let currentLinkedWorktree: Worktree
         let recentRepository: Repo
         let watchedPath: WatchedPath
-        let focus: WorkspacePaneFocus
+        let focusedPane: WorkspaceFocusedPane
     }
 
     private enum FixtureError: Error {

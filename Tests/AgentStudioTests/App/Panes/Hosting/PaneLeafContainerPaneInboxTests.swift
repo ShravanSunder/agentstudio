@@ -52,7 +52,7 @@ struct PaneLeafContainerPaneInboxTests {
                     pendingRequest = nil
                 }
             },
-            popoverContent: { _, _, _, _ in AnyView(Text("Pane inbox")) },
+            popoverContent: { _, _, _ in AnyView(Text("Pane inbox")) },
             pruneFilterModes: { _ in }
         )
         let editorChooser = EditorChooserState()

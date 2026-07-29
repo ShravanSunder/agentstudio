@@ -6,92 +6,84 @@ import SwiftUI
 /// overlay across all panes without being clipped by the pane's bounds.
 package struct DrawerOverlay: View {
     package struct TrailingActions {
-        let canOpenTarget: Bool
+        let openEditorMenuAction: TargetedCommandControlAction?
+        let openFinderAction: TargetedCommandControlAction?
+        let copyPathAction: TargetedCommandControlAction?
+        let showPaneInboxAction: TargetedCommandControlAction?
         let editorMenuContent: AnyView
         let editorMenuPresented: Binding<Bool>
         let buttonTitle: String?
-        let onOpenFinder: () -> Void
-        let onCopyPath: () -> Void
-        let onOpenInbox: (() -> Void)?
         let inboxPopoverPresented: Binding<Bool>
         let inboxPopoverContent: AnyView?
         let inboxUnreadBadge: PaneInboxUnreadBadge?
 
         package init(
-            canOpenTarget: Bool,
+            openEditorMenuAction: TargetedCommandControlAction?,
+            openFinderAction: TargetedCommandControlAction?,
+            copyPathAction: TargetedCommandControlAction?,
+            showPaneInboxAction: TargetedCommandControlAction? = nil,
             editorMenuContent: AnyView,
             editorMenuPresented: Binding<Bool>,
             buttonTitle: String?,
-            onOpenFinder: @escaping () -> Void,
-            onCopyPath: @escaping () -> Void = {},
-            onOpenInbox: (() -> Void)? = nil,
             inboxPopoverPresented: Binding<Bool> = .constant(false),
             inboxPopoverContent: AnyView? = nil,
             inboxUnreadBadge: PaneInboxUnreadBadge? = nil
         ) {
-            self.canOpenTarget = canOpenTarget
+            self.openEditorMenuAction = openEditorMenuAction
+            self.openFinderAction = openFinderAction
+            self.copyPathAction = copyPathAction
+            self.showPaneInboxAction = showPaneInboxAction
             self.editorMenuContent = editorMenuContent
             self.editorMenuPresented = editorMenuPresented
             self.buttonTitle = buttonTitle
-            self.onOpenFinder = onOpenFinder
-            self.onCopyPath = onCopyPath
-            self.onOpenInbox = onOpenInbox
             self.inboxPopoverPresented = inboxPopoverPresented
             self.inboxPopoverContent = inboxPopoverContent
             self.inboxUnreadBadge = inboxUnreadBadge
         }
     }
 
-    let paneId: UUID
     let octiconLoader: OcticonLoader
     let drawer: Drawer?
     let isIconBarVisible: Bool
+    let toggleDrawerAction: TargetedCommandControlAction?
+    let addDrawerPaneAction: TargetedCommandControlAction?
     let trailingActions: TrailingActions?
     let paneSurfaceActions: [PaneSurfaceToolbarAction]
     let paneContextActions: [PaneSurfaceToolbarAction]
-    let action: (WorkspaceActionCommand) -> Void
-    let onPaneFocusTrigger: PaneFocusTriggerHandler
 
     package init(
-        paneId: UUID,
         octiconLoader: OcticonLoader,
         drawer: Drawer?,
         isIconBarVisible: Bool,
+        toggleDrawerAction: TargetedCommandControlAction?,
+        addDrawerPaneAction: TargetedCommandControlAction?,
         trailingActions: TrailingActions?,
         paneSurfaceActions: [PaneSurfaceToolbarAction] = [],
-        paneContextActions: [PaneSurfaceToolbarAction] = [],
-        action: @escaping (WorkspaceActionCommand) -> Void,
-        onPaneFocusTrigger: @escaping PaneFocusTriggerHandler
+        paneContextActions: [PaneSurfaceToolbarAction] = []
     ) {
-        self.paneId = paneId
         self.octiconLoader = octiconLoader
         self.drawer = drawer
         self.isIconBarVisible = isIconBarVisible
+        self.toggleDrawerAction = toggleDrawerAction
+        self.addDrawerPaneAction = addDrawerPaneAction
         self.trailingActions = trailingActions
         self.paneSurfaceActions = paneSurfaceActions
         self.paneContextActions = paneContextActions
-        self.action = action
-        self.onPaneFocusTrigger = onPaneFocusTrigger
     }
 
     package var body: some View {
         if isIconBarVisible {
             DrawerIconBar(
                 octiconLoader: octiconLoader,
-                isExpanded: drawer?.isExpanded ?? false,
-                onAdd: { addDrawerPane() },
-                onToggleExpand: {
-                    action(.toggleDrawer(paneId: paneId))
-                    onPaneFocusTrigger(.drawer(.toggle(parentPaneId: paneId)))
-                },
+                leadingControls: .drawer(
+                    isExpanded: drawer?.isExpanded ?? false,
+                    addDrawerPaneAction: addDrawerPaneAction,
+                    toggleDrawerAction: toggleDrawerAction
+                ),
                 trailingActions: trailingActions,
                 paneSurfaceActions: paneSurfaceActions,
                 paneContextActions: paneContextActions
             )
         }
-    }
-
-    private func addDrawerPane() {
-        action(.addDrawerPane(parentPaneId: paneId))
     }
 }

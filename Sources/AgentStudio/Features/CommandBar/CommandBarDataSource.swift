@@ -69,10 +69,15 @@ enum CommandBarDataSource {
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        let focus = atom(\.workspacePaneFocus).currentFocus(
+        let focusedPane = atom(\.workspaceFocusedPane).resolve(
             workspaceTab: workspaceTab,
             workspacePane: store.paneAtom,
-            workspaceFocusOwner: atom(\.workspaceFocusOwner),
+            requestedOwner: atom(\.workspaceFocusOwner).owner
+        )
+        let commandContext = atom(\.commandContext).currentContext(
+            workspaceTab: workspaceTab,
+            workspacePane: store.paneAtom,
+            focusedPane: focusedPane,
             workspacePanePresentation: store.panePresentationAtom
         )
         return items(
@@ -82,7 +87,8 @@ enum CommandBarDataSource {
             store: store,
             repoCache: repoCache,
             dispatcher: dispatcher,
-            focus: focus,
+            focusedPane: focusedPane,
+            commandContext: commandContext,
             notificationInboxCommands: notificationInboxCommands,
             performanceTraceRecorder: performanceTraceRecorder
         )
@@ -95,7 +101,8 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: any AppCommandDispatching,
-        focus: WorkspacePaneFocus,
+        focusedPane: WorkspaceFocusedPane?,
+        commandContext: CommandContext,
         notificationInboxCommands: InboxNotificationCommands? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) -> [CommandBarItem] {
@@ -104,11 +111,21 @@ enum CommandBarDataSource {
         let canonicalItems: [CommandBarItem] =
             switch scope {
             case .everything:
-                everythingItems(store: store, repoCache: repoCache, dispatcher: dispatcher, focus: focus)
+                everythingItems(
+                    store: store,
+                    repoCache: repoCache,
+                    dispatcher: dispatcher,
+                    commandContext: commandContext
+                )
             case .quickOpen:
                 quickOpenItems(store: store, dispatcher: dispatcher)
             case .commands:
-                commandItems(dispatcher: dispatcher, store: store, repoCache: repoCache, focus: focus)
+                commandItems(
+                    dispatcher: dispatcher,
+                    store: store,
+                    repoCache: repoCache,
+                    commandContext: commandContext
+                )
             case .panes:
                 paneAndTabItems(store: store, repoCache: repoCache)
             case .repos:
@@ -123,7 +140,7 @@ enum CommandBarDataSource {
                 canonicalItems: canonicalItems,
                 recentCommands: recentCommands,
                 store: store,
-                focus: focus
+                focusedPane: focusedPane
             )
             : canonicalItems
         performanceTraceRecorder?.recordDuration(
@@ -177,7 +194,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: any AppCommandDispatching,
-        focus: WorkspacePaneFocus
+        commandContext: CommandContext
     ) -> [CommandBarItem] {
         var items: [CommandBarItem] = []
         items.append(contentsOf: paneItems(store: store, repoCache: repoCache))
@@ -187,7 +204,7 @@ enum CommandBarDataSource {
                 dispatcher: dispatcher,
                 store: store,
                 repoCache: repoCache,
-                focus: focus,
+                commandContext: commandContext,
                 groupName: Group.commands,
                 priority: Priority.commands))
         items.append(
@@ -351,11 +368,15 @@ enum CommandBarDataSource {
 
     /// Visible command definitions, filtered once.
     private static func visibleCommands(
-        dispatcher _: any AppCommandDispatching,
-        focus: WorkspacePaneFocus
+        commandContext: CommandContext
     ) -> [AppCommandSpec] {
         AppCommand.allCases.map(\.definition).filter {
-            !$0.isHiddenInCommandBar && $0.isVisible(in: focus)
+            $0.shouldPresent(
+                AppCommandPresentationQuery(
+                    surface: .commandBar,
+                    subject: .contextual(commandContext)
+                )
+            )
         }
     }
 
@@ -364,9 +385,9 @@ enum CommandBarDataSource {
         dispatcher: any AppCommandDispatching,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        focus: WorkspacePaneFocus
+        commandContext: CommandContext
     ) -> [CommandBarItem] {
-        visibleCommands(dispatcher: dispatcher, focus: focus)
+        visibleCommands(commandContext: commandContext)
             .sorted { $0.command.rawValue < $1.command.rawValue }
             .map { def in
                 commandItem(
@@ -385,11 +406,11 @@ enum CommandBarDataSource {
         dispatcher: any AppCommandDispatching,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        focus: WorkspacePaneFocus,
+        commandContext: CommandContext,
         groupName: String,
         priority: Int
     ) -> [CommandBarItem] {
-        visibleCommands(dispatcher: dispatcher, focus: focus)
+        visibleCommands(commandContext: commandContext)
             .sorted { $0.label < $1.label }
             .map {
                 commandItem(
@@ -407,38 +428,13 @@ enum CommandBarDataSource {
         from def: AppCommandSpec,
         groupName: String,
         groupPriority: Int,
-        store: WorkspaceStore? = nil,
+        store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: any AppCommandDispatching
     ) -> CommandBarItem {
         let commandIconColor: Color? = def.command == .managementLayerExit ? .accentColor : nil
 
-        if def.command == .movePaneToTab, let store {
-            let level = buildMovePaneSourceLevel(
-                for: def,
-                store: store,
-                repoCache: repoCache,
-                dispatcher: dispatcher
-            )
-            return CommandBarItem(
-                id: "cmd-\(def.command.rawValue)",
-                title: def.label,
-                icon: def.icon,
-                iconColor: commandIconColor,
-                shortcutTrigger: def.commandBarShortcutTrigger,
-                group: groupName,
-                groupPriority: groupPriority,
-                keywords: commandKeywords(for: def),
-                hasChildren: true,
-                action: .navigate(level),
-                command: def.command
-            )
-        }
-
-        // Commands with appliesTo targets and a live store → drill-in to pick target
-        let hasDrillIn = store != nil && !def.appliesTo.isEmpty && isTargetableCommand(def.command)
-
-        if hasDrillIn, let store {
+        if def.targeting.preferredInvocation == .targetSelection {
             let level = buildTargetLevel(
                 for: def,
                 store: store,
@@ -474,20 +470,6 @@ enum CommandBarDataSource {
         )
     }
 
-    /// Whether a command should show as a drill-in item with target selection.
-    private static func isTargetableCommand(_ command: AppCommand) -> Bool {
-        switch command {
-        case .closeTab, .renameTab, .closePane, .extractPaneToTab, .movePaneToTab, .focusPaneLeft, .focusPaneRight,
-            .focusPaneUp, .focusPaneDown, .focusNextPane, .focusPrevPane,
-            .switchArrangement, .deleteArrangement, .renameArrangement,
-            .navigateDrawerPane, .openWorktree, .openWorktreeInPane, .openNewTerminalInTab,
-            .newTerminalInTab, .removeRepo:
-            return true
-        default:
-            return false
-        }
-    }
-
     /// Build a CommandBarLevel listing available targets for a command.
     private static func buildTargetLevel(
         for def: AppCommandSpec,
@@ -499,7 +481,9 @@ enum CommandBarDataSource {
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        if def.command == .movePaneToTab {
+        let targetTypes = def.targeting.targetTypes
+
+        if def.command == .movePaneToTab, targetTypes.contains(.pane) {
             return buildMovePaneSourceLevel(
                 for: def,
                 store: store,
@@ -509,22 +493,20 @@ enum CommandBarDataSource {
         }
 
         // Arrangement commands show arrangement targets, not generic tab/pane targets
-        if def.command == .switchArrangement || def.command == .deleteArrangement || def.command == .renameArrangement {
+        if targetTypes.contains(.tab),
+            def.command == .switchArrangement || def.command == .deleteArrangement || def.command == .renameArrangement
+        {
             return buildArrangementTargetLevel(for: def, store: store)
         }
 
         // Drawer pane navigation shows drawer pane targets
-        if def.command == .navigateDrawerPane {
+        if def.command == .navigateDrawerPane, targetTypes.contains(.pane) {
             return buildDrawerPaneTargetLevel(for: def, store: store, repoCache: repoCache)
         }
 
         var items: [CommandBarItem] = []
 
-        let appliesToTab = def.appliesTo.contains(.tab)
-        let appliesToPane = def.appliesTo.contains(.pane) || def.appliesTo.contains(.floatingTerminal)
-        let appliesToWorktree = def.appliesTo.contains(.worktree)
-
-        if appliesToTab {
+        if targetTypes.contains(.tab) {
             items.append(
                 contentsOf: workspaceTab.tabs.enumerated().map { index, tab in
                     let title = tabDisplayTitle(tab: tab, store: store, repoCache: repoCache)
@@ -540,12 +522,13 @@ enum CommandBarDataSource {
                 })
         }
 
-        if appliesToPane {
+        if targetTypes.contains(.pane) || targetTypes.contains(.floatingTerminal) {
             let workspacePane = store.paneAtom
             for (tabIndex, tab) in workspaceTab.tabs.enumerated() {
                 for paneId in tab.activePaneIds {
                     guard let pane = workspacePane.pane(paneId) else { continue }
                     let targetType = targetTypeForPane(pane)
+                    guard targetTypes.contains(targetType) else { continue }
                     items.append(
                         CommandBarItem(
                             id: "target-pane-\(pane.id.uuidString)",
@@ -561,7 +544,23 @@ enum CommandBarDataSource {
             }
         }
 
-        if appliesToWorktree {
+        if targetTypes.contains(.repo) {
+            items.append(
+                contentsOf: store.repositoryTopologyAtom.repos.map { repo in
+                    CommandBarItem(
+                        id: "target-repo-\(repo.id.uuidString)",
+                        title: repo.name,
+                        subtitle: repo.repoPath.path,
+                        icon: .system(.folder),
+                        group: "Repositories",
+                        groupPriority: 2,
+                        action: .dispatchTargeted(def.command, target: repo.id, targetType: .repo)
+                    )
+                }
+            )
+        }
+
+        if targetTypes.contains(.worktree) {
             for (repoIndex, repo) in store.repositoryTopologyAtom.repos.enumerated() {
                 for worktree in repo.worktrees {
                     items.append(

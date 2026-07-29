@@ -61,6 +61,7 @@ struct DrawerPanel: View {
     let editorChooser: EditorChooserState
     let viewRegistry: ViewRegistry
     let action: (WorkspaceActionCommand) -> Void
+    let arrangementInlineRenameState: ArrangementInlineRenameState
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
     let onPaneFocusTrigger: PaneFocusTriggerHandler
@@ -79,6 +80,18 @@ struct DrawerPanel: View {
     @State private var drawerActionDispatcher: PaneTabActionDispatcher
     private var managementLayer: ManagementLayerAtom {
         atom(\.managementLayer)
+    }
+
+    private var commandActionResolver: TargetedCommandControlActionResolver {
+        { command, surface, target, targetType in
+            TargetedCommandControlAction.resolve(
+                command: command,
+                surface: surface,
+                target: target,
+                targetType: targetType,
+                dispatcher: AppCommandDispatcher.shared
+            )
+        }
     }
 
     private var drawerSurfaceId: String {
@@ -107,6 +120,7 @@ struct DrawerPanel: View {
         editorChooser: EditorChooserState,
         viewRegistry: ViewRegistry,
         action: @escaping (WorkspaceActionCommand) -> Void,
+        arrangementInlineRenameState: ArrangementInlineRenameState,
         onResize: @escaping (CGFloat) -> Void,
         onDismiss: @escaping () -> Void,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
@@ -132,6 +146,7 @@ struct DrawerPanel: View {
         self.editorChooser = editorChooser
         self.viewRegistry = viewRegistry
         self.action = action
+        self.arrangementInlineRenameState = arrangementInlineRenameState
         self.onResize = onResize
         self.onDismiss = onDismiss
         self.onPaneFocusTrigger = onPaneFocusTrigger
@@ -206,7 +221,8 @@ struct DrawerPanel: View {
             minimizedPaneIds: minimizedPaneIds,
             ordinalMap: PaneOrdinalMap(orderedPaneIds: layout.paneIds),
             collapsedPaneWidth: managementLayer.isActive ? CollapsedPaneBar.barWidth : 0,
-            onSaveArrangement: nil,
+            arrangementInlineRenameState: arrangementInlineRenameState,
+            commandActionResolver: commandActionResolver,
             closeTransitionCoordinator: closeTransitionCoordinator,
             actionDispatcher: drawerActionDispatcher,
             onPaneFocusTrigger: onPaneFocusTrigger,
@@ -402,6 +418,7 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                     editorChooser: atomRegistry.editorChooser,
                     viewRegistry: ViewRegistry(),
                     action: { _ in },
+                    arrangementInlineRenameState: ArrangementInlineRenameState(),
                     onResize: { _ in },
                     onDismiss: {},
                     onPaneFocusTrigger: { _ in },

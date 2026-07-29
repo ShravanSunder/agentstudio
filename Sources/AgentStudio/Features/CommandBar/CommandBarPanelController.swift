@@ -334,14 +334,8 @@ package final class CommandBarPanelController {
             dismiss()
             dispatcher.dispatch(command, target: target, targetType: targetType)
         case .navigate(let level), .navigateRepo(let level):
-            if let command = item.command, !dispatcher.canDispatch(command) {
-                return
-            }
             state.pushLevel(level)
         case .custom(let closure):
-            if let command = item.command, !dispatcher.canDispatch(command) {
-                return
-            }
             state.recordRecent(itemId: item.id)
             dismiss()
             closure()

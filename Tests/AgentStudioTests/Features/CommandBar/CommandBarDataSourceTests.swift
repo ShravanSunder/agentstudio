@@ -193,6 +193,10 @@ struct CommandBarDataSourceTests {
         #expect(viewerItems.count == 1)
         #expect(viewerItems["cmd-showViewer"]?.title == "Worktree Viewer")
         #expect(viewerItems.values.allSatisfy { !$0.hasChildren })
+        guard case .dispatch(.showViewer) = viewerItems["cmd-showViewer"]?.action else {
+            Issue.record("Expected contextual-preferred Viewer command to dispatch directly")
+            return
+        }
     }
 
     @Test

@@ -65,13 +65,12 @@ struct CustomTabBar: View {
     let inboxAtom: InboxNotificationAtom
     let octiconLoader: OcticonLoader
     var onSelect: (UUID) -> Void
-    var onClose: (UUID) -> Void
+    var canDispatchCommand: ((AppCommand, UUID) -> Bool)?
     var onCommand: ((AppCommand, UUID) -> Void)?
-    var onToggleZoom: ((UUID, UUID?) -> Void)?
+    var onShowArrangements: ((UUID) -> Void)?
     var onTabFramesChanged: (([UUID: CGRect]) -> Void)?
     var onAdd: (() -> Void)?
     var onPaneAction: ((WorkspaceActionCommand) -> Void)?
-    var onSaveArrangement: ((UUID) -> Void)?
     var onOpenRepoInTab: (() -> Void)?
     var workspaceWindowId: UUID?
 
@@ -163,8 +162,18 @@ struct CustomTabBar: View {
                                         showInsertAfter: index == adapter.tabs.count - 1
                                             && adapter.dropTargetIndex == adapter.tabs.count,
                                         onSelect: { onSelect(tab.id) },
-                                        onClose: { onClose(tab.id) },
-                                        onCommand: { command in onCommand?(command, tab.id) }
+                                        inlineCloseAction: TabPillView.inlineCommandAction(
+                                            command: .closeTab,
+                                            canDispatchCommand: {
+                                                canDispatchCommand?($0, tab.id) ?? false
+                                            },
+                                            onCommand: { command in
+                                                onCommand?(command, tab.id)
+                                            }
+                                        ),
+                                        canDispatchCommand: { canDispatchCommand?($0, tab.id) ?? false },
+                                        onCommand: { command in onCommand?(command, tab.id) },
+                                        onShowArrangements: { onShowArrangements?(tab.id) }
                                     )
                                     .id(tab.id)
                                     .background(frameReporter(for: tab.id))
@@ -296,9 +305,7 @@ struct CustomTabBar: View {
                 arrangementInlineRenameState: arrangementInlineRenameState,
                 octiconLoader: octiconLoader,
                 onCommand: onCommand,
-                onToggleZoom: onToggleZoom,
                 onPaneAction: onPaneAction,
-                onSaveArrangement: onSaveArrangement,
                 workspaceWindowId: workspaceWindowId
             )
         case .newTab:
@@ -452,9 +459,7 @@ private struct TabBarArrangementButton: View {
     @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
     let octiconLoader: OcticonLoader
     let onCommand: ((AppCommand, UUID) -> Void)?
-    let onToggleZoom: ((UUID, UUID?) -> Void)?
     let onPaneAction: ((WorkspaceActionCommand) -> Void)?
-    let onSaveArrangement: ((UUID) -> Void)?
     let workspaceWindowId: UUID?
 
     @State private var presentationState = ArrangementPanelTabPresentationState()
@@ -537,7 +542,7 @@ private struct TabBarArrangementButton: View {
             attachmentAnchor: ArrangementPanelPopoverPlacement.tabBar.attachmentAnchor,
             arrowEdge: ArrangementPanelPopoverPlacement.tabBar.arrowEdge
         ) {
-            if let tab = activeTab, let onPaneAction, let onSaveArrangement {
+            if let tab = activeTab, let onPaneAction {
                 ArrangementPanel(
                     tabId: tab.id,
                     workspaceWindowId: workspaceWindowId,
@@ -546,11 +551,16 @@ private struct TabBarArrangementButton: View {
                     zoomMode: tab.zoomMode,
                     arrangements: tab.arrangements,
                     inlineRenameState: arrangementInlineRenameState,
-                    onPaneAction: onPaneAction,
-                    onToggleZoom: { sourcePaneId in
-                        onToggleZoom?(tab.id, sourcePaneId)
+                    commandActionResolver: { command, surface, target, targetType in
+                        TargetedCommandControlAction.resolve(
+                            command: command,
+                            surface: surface,
+                            target: target,
+                            targetType: targetType,
+                            dispatcher: AppCommandDispatcher.shared
+                        )
                     },
-                    onSaveArrangement: { onSaveArrangement(tab.id) },
+                    onPaneAction: onPaneAction,
                     onDismiss: dismissArrangementPopover
                 )
             }
@@ -600,61 +610,6 @@ private struct TabBarArrangementButton: View {
     }
 }
 
-/// Management layer toggle in the tab bar. Blue accent when active, standard hover otherwise.
-private struct TabBarManagementLayerButton: View {
-    private var isManagementLayerActive: Bool {
-        atom(\.managementLayer).isActive
-    }
-    @State private var isHovered = false
-
-    var body: some View {
-        Button {
-            atom(\.managementLayer).toggle()
-        } label: {
-            ChromeToolbarButtonLabel(
-                symbolName: "rectangle.split.2x2",
-                selectedSymbolName: "rectangle.split.2x2.fill",
-                isSelected: isManagementLayerActive,
-                isHovered: isHovered
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .help(AppCommandDispatcher.shared.definition(for: .toggleManagementLayer).controlToolTip)
-    }
-}
-
-/// Circular "+" button for creating a new tab.
-/// Click = empty terminal (existing behavior). Right-click = menu with options.
-private struct NewTabButton: View {
-    let onAdd: () -> Void
-    let onOpenRepoInTab: (() -> Void)?
-    @State private var isHovered = false
-
-    var body: some View {
-        Button {
-            onAdd()
-        } label: {
-            ChromeToolbarButtonLabel(
-                symbolName: "plus",
-                isHovered: isHovered
-            )
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button(LocalActionSpec.emptyTerminal.actionSpec.label) { onAdd() }
-            Divider()
-            if let onOpenRepoInTab {
-                Button(LocalActionSpec.openRepoWorktree.actionSpec.label) {
-                    onOpenRepoInTab()
-                }
-            }
-        }
-        .onHover { isHovered = $0 }
-        .help(AppCommandDispatcher.shared.definition(for: .newTab).controlToolTip)
-    }
-}
-
 /// Individual pill-shaped tab
 struct TabPillView: View {
     let tab: TabBarItem
@@ -666,8 +621,10 @@ struct TabPillView: View {
     let showInsertBefore: Bool
     let showInsertAfter: Bool
     let onSelect: () -> Void
-    let onClose: () -> Void
+    let inlineCloseAction: TargetedCommandControlAction?
+    let canDispatchCommand: (AppCommand) -> Bool
     let onCommand: (AppCommand) -> Void
+    let onShowArrangements: () -> Void
     @State private var isHovering = false
 
     /// Clear zone in the mask for the close button (button frame + buffer).
@@ -676,6 +633,8 @@ struct TabPillView: View {
     private static let shortcutLabelClearWidth: CGFloat = 28
 
     var body: some View {
+        let presentedCommands = Set(Self.presentedCommands(clickedTabIsSplit: tab.isSplit))
+
         HStack(spacing: 0) {
             // Insert line BEFORE
             if showInsertBefore {
@@ -687,38 +646,48 @@ struct TabPillView: View {
                 .scaleEffect(isDragging ? 1.05 : 1.0)
                 .opacity(isDragging ? 0.6 : 1.0)
                 .contextMenu {
-                    Button(AppCommand.renameTab.definition.label) { onCommand(.renameTab) }
-
-                    Button(AppCommand.closeTab.definition.label) { onCommand(.closeTab) }
-                        .keyboardShortcut("w", modifiers: .command)
-
-                    if tab.isSplit {
-                        Button(AppCommand.breakUpTab.definition.label) { onCommand(.breakUpTab) }
+                    if presentedCommands.contains(.renameTab) {
+                        commandButton(.renameTab)
+                    }
+                    if presentedCommands.contains(.closeTab) {
+                        commandButton(.closeTab)
+                            .keyboardShortcut("w", modifiers: .command)
+                    }
+                    if presentedCommands.contains(.breakUpTab) {
+                        commandButton(.breakUpTab)
                     }
 
                     Divider()
 
-                    Menu(AppCommand.newTerminalInTab.definition.label) {
-                        Button(AppCommand.splitRight.definition.label) { onCommand(.splitRight) }
-                        Button(AppCommand.splitLeft.definition.label) { onCommand(.splitLeft) }
+                    Menu(LocalActionSpec.addTerminalToTab.actionSpec.label) {
+                        if presentedCommands.contains(.splitRight) {
+                            commandButton(.splitRight)
+                        }
+                        if presentedCommands.contains(.splitLeft) {
+                            commandButton(.splitLeft)
+                        }
                     }
 
-                    Button(AppCommand.newFloatingTerminal.definition.label) { onCommand(.newFloatingTerminal) }
+                    if presentedCommands.contains(.newFloatingTerminal) {
+                        commandButton(.newFloatingTerminal)
+                    }
 
                     Divider()
 
-                    if tab.isSplit {
-                        Button(AppCommand.equalizePanes.definition.label) { onCommand(.equalizePanes) }
+                    if presentedCommands.contains(.equalizePanes) {
+                        commandButton(.equalizePanes)
                     }
 
                     Divider()
 
-                    // Arrangement commands
                     Menu(LocalActionSpec.arrangements.actionSpec.label) {
-                        Button(AppCommand.switchArrangement.definition.label) { onCommand(.switchArrangement) }
-                        Button(AppCommand.saveArrangement.definition.label) { onCommand(.saveArrangement) }
-                        Button(AppCommand.deleteArrangement.definition.label) { onCommand(.deleteArrangement) }
-                        Button(AppCommand.renameArrangement.definition.label) { onCommand(.renameArrangement) }
+                        Button(
+                            LocalActionSpec.showArrangements.actionSpec.label,
+                            action: onShowArrangements
+                        )
+                        if presentedCommands.contains(.saveArrangement) {
+                            commandButton(.saveArrangement)
+                        }
                     }
                 }
 
@@ -730,6 +699,54 @@ struct TabPillView: View {
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isDragging)
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showInsertBefore)
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showInsertAfter)
+    }
+
+    private func commandButton(_ command: AppCommand) -> some View {
+        let definition = command.definition
+        return Button(definition.label) { onCommand(command) }
+            .disabled(!canDispatchCommand(command))
+    }
+
+    static func presentedCommands(clickedTabIsSplit: Bool) -> [AppCommand] {
+        let splitCommands: [AppCommand] = clickedTabIsSplit ? [.breakUpTab, .equalizePanes] : []
+        let candidates: [AppCommand] =
+            [.renameTab, .closeTab] + splitCommands
+            + [.splitRight, .splitLeft, .newFloatingTerminal, .saveArrangement]
+        return candidates.filter {
+            $0.definition.shouldPresent(
+                AppCommandPresentationQuery(
+                    surface: .contextMenu,
+                    subject: .targeted(.tab)
+                )
+            )
+        }
+    }
+
+    static func inlineCommandAction(
+        command: AppCommand,
+        canDispatchCommand: @escaping (AppCommand) -> Bool,
+        onCommand: @escaping (AppCommand) -> Void
+    ) -> TargetedCommandControlAction? {
+        let commandSpec = command.definition
+        guard
+            commandSpec.shouldPresent(
+                AppCommandPresentationQuery(
+                    surface: .inlineControl,
+                    subject: .targeted(.tab)
+                )
+            )
+        else {
+            return nil
+        }
+
+        return TargetedCommandControlAction(
+            commandSpec: commandSpec,
+            isEnabled: canDispatchCommand(command),
+            perform: {
+                guard canDispatchCommand(command) else { return }
+                onCommand(command)
+            }
+        )
     }
 
     private var insertionLine: some View {
@@ -789,8 +806,8 @@ struct TabPillView: View {
 
             // Close (left) and shortcut (right) overlay
             HStack(spacing: 0) {
-                if isHovering {
-                    Button(action: onClose) {
+                if isHovering, let inlineCloseAction {
+                    Button(action: inlineCloseAction.perform) {
                         Image(systemName: "xmark")
                             .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                             .foregroundStyle(.secondary)
@@ -801,6 +818,7 @@ struct TabPillView: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .disabled(!inlineCloseAction.isEnabled)
                     .transition(.opacity)
                 }
 
@@ -934,12 +952,11 @@ struct TabBarEmptyState: View {
                     inboxAtom: atomRegistry.inboxNotification,
                     octiconLoader: OcticonLoader(resourceRootURL: Bundle.appResourceRootURL),
                     onSelect: { _ in },
-                    onClose: { _ in },
+                    canDispatchCommand: { _, _ in true },
                     onCommand: { _, _ in },
-                    onToggleZoom: { _, _ in },
+                    onShowArrangements: { _ in },
                     onAdd: {},
                     onPaneAction: { _ in },
-                    onSaveArrangement: { _ in },
                     workspaceWindowId: nil
                 )
 

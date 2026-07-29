@@ -38,7 +38,11 @@ final class AppCommandDispatcher: AppCommandDispatching {
 
     @discardableResult
     func dispatch(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
-        if request.arguments != nil {
+        switch request.arguments {
+        case .noArguments:
+            break
+        case .repoSidebarVisibilityMode, .repoSidebarSortOrder,
+            .inboxRowStateFilter, .inboxContentMode:
             guard let appCommandRouter else { return .unsupportedCommand }
             return appCommandRouter.execute(request)
         }
@@ -85,7 +89,13 @@ final class AppCommandDispatcher: AppCommandDispatching {
     }
 
     func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
-        guard canDispatch(.movePaneToTab) else { return }
+        guard let definition = definitions[.movePaneToTab],
+            definition.targeting.supports(targetType: .pane),
+            definition.targeting.supports(targetType: .tab),
+            canExecutionOwnersExecute(.movePaneToTab, definition: definition)
+        else {
+            return
+        }
         handler?.executeMovePaneToTab(
             sourcePaneId: sourcePaneId,
             sourceTabId: sourceTabId,
@@ -105,20 +115,21 @@ final class AppCommandDispatcher: AppCommandDispatching {
     }
 
     func canDispatch(_ command: AppCommand) -> Bool {
-        if let definition = definitions[command],
-            definition.requiresManagementLayer,
-            !atom(\.managementLayer).isActive
-        {
+        guard let definition = definitions[command],
+            definition.targeting.supportsContextualInvocation
+        else {
             return false
         }
-        let appCanExecute = appCommandRouter?.canExecute(command) ?? false
-        let handlerCanExecute = handler?.canExecute(command) ?? false
-        return appCanExecute || handlerCanExecute
+        return canExecutionOwnersExecute(command, definition: definition)
     }
 
     func canDispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
-        if let definition = definitions[command],
-            definition.requiresManagementLayer,
+        guard let definition = definitions[command],
+            definition.targeting.supports(targetType: targetType)
+        else {
+            return false
+        }
+        if definition.requiresManagementLayer,
             !atom(\.managementLayer).isActive
         {
             return false
@@ -140,6 +151,20 @@ final class AppCommandDispatcher: AppCommandDispatching {
     }
 
     func commands(for itemType: SearchItemType) -> [AppCommandSpec] {
-        definitions.values.filter { $0.appliesTo.contains(itemType) }
+        definitions.values.filter { $0.targeting.supports(targetType: itemType) }
+    }
+
+    private func canExecutionOwnersExecute(
+        _ command: AppCommand,
+        definition: AppCommandSpec
+    ) -> Bool {
+        if definition.requiresManagementLayer,
+            !atom(\.managementLayer).isActive
+        {
+            return false
+        }
+        let appCanExecute = appCommandRouter?.canExecute(command) ?? false
+        let handlerCanExecute = handler?.canExecute(command) ?? false
+        return appCanExecute || handlerCanExecute
     }
 }

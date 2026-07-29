@@ -18,9 +18,9 @@ package struct PaneInboxNotificationPopover: View {
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let presentationAtom: PaneInboxPresentationAtom
+    let commandDispatcher: any AppCommandDispatching
     let onActivate: @MainActor (InboxNotification) -> Void
     let onFocusPane: @MainActor (UUID) -> Void
-    let onClear: @MainActor @Sendable () -> Void
     let onClose: @MainActor @Sendable () -> Void
     static let rowChromePolicy = PaneInboxNotificationRow.rowChromePolicy
     static let surfaceBackground = SidebarSurfaceBackground.windowBackgroundColor
@@ -40,9 +40,9 @@ package struct PaneInboxNotificationPopover: View {
         inboxAtom: InboxNotificationAtom,
         prefsAtom: InboxNotificationPrefsAtom,
         presentationAtom: PaneInboxPresentationAtom,
+        commandDispatcher: any AppCommandDispatching,
         onActivate: @escaping @MainActor (InboxNotification) -> Void,
         onFocusPane: @escaping @MainActor (UUID) -> Void,
-        onClear: @escaping @MainActor @Sendable () -> Void,
         onClose: @escaping @MainActor @Sendable () -> Void
     ) {
         self.parentPaneId = parentPaneId
@@ -52,16 +52,24 @@ package struct PaneInboxNotificationPopover: View {
         self.inboxAtom = inboxAtom
         self.prefsAtom = prefsAtom
         self.presentationAtom = presentationAtom
+        self.commandDispatcher = commandDispatcher
         self.onActivate = onActivate
         self.onFocusPane = onFocusPane
-        self.onClear = onClear
         self.onClose = onClose
         _displayOverride = State(initialValue: presentationAtom.consumeTemporaryOverride())
     }
 
     package var body: some View {
+        let commandContext = InboxCommandContextProjection.current(
+            workspacePane: atom(\.workspacePane)
+        )
+        let clearCommandPresentation = PaneInboxClearCommandPresentation.resolve(
+            commandContext: commandContext,
+            targetPaneId: parentPaneId,
+            dispatcher: commandDispatcher
+        )
         VStack(spacing: 0) {
-            header
+            header(clearCommandPresentation: clearCommandPresentation)
             Divider()
             list
         }
@@ -150,8 +158,9 @@ package struct PaneInboxNotificationPopover: View {
         }
     }
 
-    private var header: some View {
-        let clearPaneInboxSpec = AppCommand.clearPaneInboxNotifications.definition
+    private func header(
+        clearCommandPresentation: PaneInboxClearCommandPresentation?
+    ) -> some View {
         let markPaneReadTooltip = ControlTooltipResolver.resolve(
             .dynamicData(.stateReadout, text: "Mark pane notifications read")
         )
@@ -174,22 +183,31 @@ package struct PaneInboxNotificationPopover: View {
             .accessibilityIdentifier("paneInboxMarkReadButton")
             .controlHelp(markPaneReadTooltip)
 
-            Button(action: clearPaneInbox) {
-                clearPaneInboxSpec.icon.swiftUIImage(loader: octiconLoader)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(clearPaneInboxSpec.label)
-            .accessibilityIdentifier("paneInboxClearButton")
-            .accessibilityHidden(true)
-            .controlHelp(clearPaneInboxSpec.controlTooltipRenderValue())
-            .background(
-                AccessibilityPressBridge(
-                    identifier: "paneInboxClearButton",
-                    label: clearPaneInboxSpec.label,
-                    action: clearPaneInbox
+            if let clearCommandPresentation {
+                let clearPaneInboxSpec = clearCommandPresentation.spec
+                Button {
+                    clearPaneInbox(clearCommandPresentation)
+                } label: {
+                    clearPaneInboxSpec.icon.swiftUIImage(loader: octiconLoader)
+                }
+                .buttonStyle(.borderless)
+                .disabled(!clearCommandPresentation.isEnabled)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(clearPaneInboxSpec.label)
+                .accessibilityIdentifier("paneInboxClearButton")
+                .accessibilityHidden(true)
+                .controlHelp(clearPaneInboxSpec.controlTooltipRenderValue())
+                .background(
+                    AccessibilityPressBridge(
+                        identifier: "paneInboxClearButton",
+                        label: clearPaneInboxSpec.label,
+                        isEnabled: clearCommandPresentation.isEnabled,
+                        action: {
+                            clearPaneInbox(clearCommandPresentation)
+                        }
+                    )
                 )
-            )
+            }
 
             Button(action: toggleFilterMode) {
                 HStack(spacing: AppStyles.General.Spacing.tight) {
@@ -334,8 +352,10 @@ package struct PaneInboxNotificationPopover: View {
         }
     }
 
-    private func clearPaneInbox() {
-        onClear()
+    private func clearPaneInbox(
+        _ commandPresentation: PaneInboxClearCommandPresentation
+    ) {
+        commandPresentation.perform()
         repairSelection()
     }
 

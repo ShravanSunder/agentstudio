@@ -79,16 +79,16 @@ struct ZoomPresentationContainerTests {
             Issue.record("Zoom container must own exactly one Zoom toolbar")
             return
         }
-        #expect(toolbarModel.viewerAction.state.isEnabled)
-        #expect(toolbarModel.viewerAction.state.isSelected)
-        #expect(toolbarModel.zoomAction.state.isEnabled)
-        #expect(toolbarModel.zoomAction.state.isSelected)
-        #expect(toolbarModel.zoomAction.state.visibleLabel == "Zoomed")
+        #expect(toolbarModel.viewerAction?.state.isEnabled == true)
+        #expect(toolbarModel.viewerAction?.state.isSelected == true)
+        #expect(toolbarModel.zoomAction?.state.isEnabled == true)
+        #expect(toolbarModel.zoomAction?.state.isSelected == true)
+        #expect(toolbarModel.zoomAction?.state.visibleLabel == "Zoomed")
         #expect(fixture.recorder.viewerSourcePaneIds.isEmpty)
         #expect(fixture.recorder.zoomSourcePaneIds.isEmpty)
 
-        toolbarModel.zoomAction.perform()
-        toolbarModel.viewerAction.perform()
+        toolbarModel.zoomAction?.perform()
+        toolbarModel.viewerAction?.perform()
 
         #expect(fixture.recorder.viewerSourcePaneIds == [fixture.sourcePaneId])
         #expect(fixture.recorder.zoomSourcePaneIds == [fixture.sourcePaneId])
@@ -135,10 +135,10 @@ struct ZoomPresentationContainerTests {
             Issue.record("Zoom container must retain its parent Zoom toolbar")
             return
         }
-        #expect(toolbarModel.viewerAction.state.isEnabled)
-        #expect(!toolbarModel.viewerAction.state.isSelected)
-        #expect(toolbarModel.zoomAction.state.isEnabled)
-        #expect(toolbarModel.zoomAction.state.isSelected)
+        #expect(toolbarModel.viewerAction?.state.isEnabled == true)
+        #expect(toolbarModel.viewerAction?.state.isSelected == false)
+        #expect(toolbarModel.zoomAction?.state.isEnabled == true)
+        #expect(toolbarModel.zoomAction?.state.isSelected == true)
     }
 
     @Test("mounted Zoom container renders optional companion under one parent toolbar")
@@ -164,6 +164,23 @@ struct ZoomPresentationContainerTests {
         #expect(!hiddenIdentifiers.contains("zoom-companion-region-probe"))
         #expect(hiddenIdentifiers.filter { $0 == "paneSurfaceToolbar.viewer" }.count == 1)
         #expect(hiddenIdentifiers.filter { $0 == "paneSurfaceToolbar.zoom" }.count == 1)
+    }
+
+    @Test("mounted Zoom toolbar omits each denied command without hiding the other")
+    func mountedZoomToolbarOmitsDeniedCommandsIndependently() {
+        let zoomOnlyIdentifiers = mountedAccessibilityIdentifiers(
+            companionContent: nil,
+            includesViewerAction: false
+        )
+        #expect(!zoomOnlyIdentifiers.contains("paneSurfaceToolbar.viewer"))
+        #expect(zoomOnlyIdentifiers.filter { $0 == "paneSurfaceToolbar.zoom" }.count == 1)
+
+        let viewerOnlyIdentifiers = mountedAccessibilityIdentifiers(
+            companionContent: nil,
+            includesZoomAction: false
+        )
+        #expect(viewerOnlyIdentifiers.filter { $0 == "paneSurfaceToolbar.viewer" }.count == 1)
+        #expect(!viewerOnlyIdentifiers.contains("paneSurfaceToolbar.zoom"))
     }
 
     @Test("active per-tab Zoom replaces ordinary tab content with one parent toolbar")
@@ -283,50 +300,67 @@ struct ZoomPresentationContainerTests {
     }
 
     @Test("Copy Path copies the source terminal's actual CWD")
-    func copyPathCopiesSourceTerminalCWD() throws {
+    func copyPathCopiesSourceTerminalCWD() async throws {
         let sourceCWD = URL(filePath: "/tmp/agentstudio-pane-toolbar/source-cwd")
-        let store = WorkspaceStore()
-        let pane = store.createPane(launchDirectory: sourceCWD)
-        let hostingView = NSHostingView(
-            rootView: PaneSurfaceToolbarHost(
-                anchorPaneId: pane.id,
-                locationTargetPaneId: pane.id,
-                drawer: nil,
-                leadingToolbarActions: [],
-                contextToolbarActions: [],
-                store: store,
-                octiconLoader: makeTestOcticonLoader(),
-                editorChooser: makeTestAtomRegistry().editorChooser,
-                paneInboxPresentation: nil,
-                workspaceWindowId: nil,
-                actionDispatcher: makeNoOpPaneActionDispatcher(),
-                onPaneFocusTrigger: { _ in }
-            )
-            .frame(width: 640, height: 44)
-        )
-        let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 640, height: 44),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.contentView = hostingView
-        window.makeKeyAndOrderFront(nil)
-        defer {
-            window.orderOut(nil)
-            window.close()
-        }
-        hostingView.layoutSubtreeIfNeeded()
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane(launchDirectory: sourceCWD)
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
 
-        let copyPathView = try #require(
-            accessibilityPressBridgeView(
-                in: hostingView,
-                identifier: "paneSurfaceToolbar.copyPath"
-            )
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = harness.controller
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                let hostingView = NSHostingView(
+                    rootView: PaneSurfaceToolbarHost(
+                        anchorPaneId: pane.id,
+                        locationTargetPaneId: pane.id,
+                        drawer: nil,
+                        leadingToolbarActions: [],
+                        contextToolbarActions: [],
+                        store: harness.store,
+                        octiconLoader: makeTestOcticonLoader(),
+                        editorChooser: harness.atomRegistry.editorChooser,
+                        paneInboxPresentation: nil,
+                        workspaceWindowId: nil,
+                        actionDispatcher: makeNoOpPaneActionDispatcher(),
+                        onPaneFocusTrigger: { _ in }
+                    )
+                    .frame(width: 640, height: 44)
+                )
+                let window = NSWindow(
+                    contentRect: CGRect(x: 0, y: 0, width: 640, height: 44),
+                    styleMask: [.borderless],
+                    backing: .buffered,
+                    defer: false
+                )
+                window.isReleasedWhenClosed = false
+                window.contentView = hostingView
+                window.makeKeyAndOrderFront(nil)
+                defer {
+                    window.orderOut(nil)
+                    window.close()
+                }
+                hostingView.layoutSubtreeIfNeeded()
+
+                let copyPathView = try #require(
+                    accessibilityPressBridgeView(
+                        in: hostingView,
+                        identifier: "paneSurfaceToolbar.copyPath"
+                    )
+                )
+                #expect(copyPathView.accessibilityPerformPress())
+                #expect(
+                    harness.launchRecorder.copiedPaths.map(\.standardizedFileURL) == [
+                        sourceCWD.standardizedFileURL
+                    ]
+                )
+            }
         )
-        #expect(copyPathView.accessibilityPerformPress())
-        #expect(NSPasteboard.general.string(forType: .string) == sourceCWD.path)
     }
 
     @Test(
@@ -410,6 +444,9 @@ struct ZoomPresentationContainerTests {
 
         action.perform()
 
+        #expect(action.state.label == "Show Arrangements")
+        #expect(action.state.icon == .system(.rectangle3Group))
+        #expect(action.state.tooltip.text == "Show Arrangements (⌘⌥I)")
         #expect(action.state.isEnabled)
         #expect(presentation.pendingRequest?.tabId == sourceTab.id)
         #expect(presentation.pendingRequest?.workspaceWindowId == windowId)
@@ -435,7 +472,9 @@ struct ZoomPresentationContainerTests {
     }
 
     private func mountedAccessibilityIdentifiers(
-        companionContent: AnyView?
+        companionContent: AnyView?,
+        includesViewerAction: Bool = true,
+        includesZoomAction: Bool = true
     ) -> [String] {
         let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
@@ -455,8 +494,12 @@ struct ZoomPresentationContainerTests {
                 companionContent: companionContent,
                 parentToolbarPresentation: .zoom(
                     ZoomToolbarModel(
-                        viewerAction: makeProbeAction(label: "Viewer"),
-                        zoomAction: makeProbeAction(label: "Pane Zoom")
+                        viewerAction: includesViewerAction
+                            ? makeProbeAction(label: "Viewer")
+                            : nil,
+                        zoomAction: includesZoomAction
+                            ? makeProbeAction(label: "Pane Zoom")
+                            : nil
                     )
                 ),
                 splitRatio: 0.35,
@@ -464,6 +507,7 @@ struct ZoomPresentationContainerTests {
                 octiconLoader: makeTestOcticonLoader(),
                 editorChooser: makeTestAtomRegistry().editorChooser,
                 actionDispatcher: makeNoOpPaneActionDispatcher(),
+                arrangementInlineRenameState: ArrangementInlineRenameState(),
                 onPaneFocusTrigger: { _ in },
                 viewRegistry: viewRegistry,
                 surfaceId: "zoom-container-mount-test",
@@ -555,6 +599,7 @@ struct ZoomPresentationContainerTests {
                 appLifecycleStore: AppLifecycleAtom(),
                 closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                 actionDispatcher: makeNoOpPaneActionDispatcher(),
+                arrangementInlineRenameState: ArrangementInlineRenameState(),
                 onPaneFocusTrigger: { _ in },
                 onFocusPane: { _ in },
                 paneInboxPresentation: paneInboxPresentation,
@@ -634,7 +679,7 @@ struct ZoomPresentationContainerTests {
             setPresented: { _, _, _ in },
             pendingRequest: { nil },
             clearRequest: { _ in },
-            popoverContent: { _, _, _, _ in AnyView(Text("Pane inbox")) },
+            popoverContent: { _, _, _ in AnyView(Text("Pane inbox")) },
             pruneFilterModes: { _ in }
         )
     }

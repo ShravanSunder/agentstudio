@@ -12,7 +12,8 @@ extension AppCommand {
                 label: "Close Tab",
                 icon: .system(.xmark),
                 helpText: "Close the active tab",
-                appliesTo: [.tab],
+                surfacePolicy: .exposed([.commandBar, .mainMenu, .contextMenu, .inlineControl]),
+                targeting: .contextualAndTargeted([.tab], preferredInvocation: .targetSelection),
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
                 commandBarGroupPriority: CommandBarGroupPriority.tab
@@ -23,7 +24,8 @@ extension AppCommand {
                 label: "Split Tab Into Individuals",
                 icon: .system(.rectangleSplit3x1),
                 helpText: "Split each visible pane in the active tab into its own tab",
-                appliesTo: [.tab],
+                surfacePolicy: .exposed([.commandBar, .contextMenu]),
+                targeting: .contextualAndTargeted([.tab], preferredInvocation: .contextual),
                 visibleWhen: [.hasActiveTab, .hasMultiplePanes],
                 commandBarGroupName: "Tab",
                 commandBarGroupPriority: CommandBarGroupPriority.tab
@@ -34,7 +36,8 @@ extension AppCommand {
                 label: "Rename Tab...",
                 icon: .system(.pencil),
                 helpText: "Rename the current tab",
-                appliesTo: [.tab],
+                surfacePolicy: .exposed([.commandBar, .contextMenu]),
+                targeting: .contextualAndTargeted([.tab], preferredInvocation: .targetSelection),
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
                 commandBarGroupPriority: CommandBarGroupPriority.tab
@@ -45,7 +48,8 @@ extension AppCommand {
                 label: "Add Terminal to Tab",
                 icon: .system(.terminal),
                 helpText: "Add a new terminal to the active tab",
-                appliesTo: [.tab],
+                surfacePolicy: .exposed([.commandBar, .contextMenu]),
+                targeting: .contextualAndTargeted([.tab], preferredInvocation: .targetSelection),
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
                 commandBarGroupPriority: CommandBarGroupPriority.tab
@@ -56,6 +60,8 @@ extension AppCommand {
                 label: "New Tab",
                 icon: .system(.plusSquare),
                 helpText: "Create a new terminal tab",
+                surfacePolicy: .exposed([.commandBar, .mainMenu, .contextMenu, .toolbar(.app)]),
+                targeting: .contextual,
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
@@ -66,6 +72,8 @@ extension AppCommand {
                 label: "Undo Close Tab",
                 icon: .system(.arrowUturnBackward),
                 helpText: "Restore the most recently closed tab",
+                surfacePolicy: .exposed([.commandBar, .mainMenu]),
+                targeting: .contextual,
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
@@ -75,11 +83,11 @@ extension AppCommand {
                 label: "Select Tab",
                 icon: .system(.rectangleStack),
                 helpText: "Select a specific tab",
-                appliesTo: [.tab],
+                surfacePolicy: .notPresented,
+                targeting: .targeted([.tab]),
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
                 commandBarGroupPriority: CommandBarGroupPriority.tab,
-                isHiddenInCommandBar: true
             )
         case .nextTab:
             return AppCommandSpec(
@@ -88,6 +96,8 @@ extension AppCommand {
                 label: "Next Tab",
                 icon: .system(.chevronRight),
                 helpText: "Move to the next tab",
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextual,
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
                 commandBarGroupPriority: CommandBarGroupPriority.tab
@@ -99,35 +109,38 @@ extension AppCommand {
                 label: "Previous Tab",
                 icon: .system(.chevronLeft),
                 helpText: "Move to the previous tab",
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextual,
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
                 commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .selectTab1:
-            return hiddenTabSelectionDefinition(index: 1)
+            return menuTabSelectionDefinition(index: 1)
         case .selectTab2:
-            return hiddenTabSelectionDefinition(index: 2)
+            return menuTabSelectionDefinition(index: 2)
         case .selectTab3:
-            return hiddenTabSelectionDefinition(index: 3)
+            return menuTabSelectionDefinition(index: 3)
         case .selectTab4:
-            return hiddenTabSelectionDefinition(index: 4)
+            return menuTabSelectionDefinition(index: 4)
         case .selectTab5:
-            return hiddenTabSelectionDefinition(index: 5)
+            return menuTabSelectionDefinition(index: 5)
         case .selectTab6:
-            return hiddenTabSelectionDefinition(index: 6)
+            return menuTabSelectionDefinition(index: 6)
         case .selectTab7:
-            return hiddenTabSelectionDefinition(index: 7)
+            return menuTabSelectionDefinition(index: 7)
         case .selectTab8:
-            return hiddenTabSelectionDefinition(index: 8)
+            return menuTabSelectionDefinition(index: 8)
         case .selectTab9:
-            return hiddenTabSelectionDefinition(index: 9)
+            return menuTabSelectionDefinition(index: 9)
         case .closePane:
             return AppCommandSpec(
                 command: self,
                 label: "Close Pane",
                 icon: .system(.xmarkSquare),
                 helpText: "Close the active pane",
-                appliesTo: [.pane, .floatingTerminal],
+                surfacePolicy: .exposed([.commandBar, .contextMenu, .inlineControl]),
+                targeting: .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .targetSelection),
                 requiresManagementLayer: true,
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
@@ -139,7 +152,8 @@ extension AppCommand {
                 label: "Move Pane to New Tab",
                 icon: .system(.arrowUpRightSquare),
                 helpText: "Move the active pane into a new tab",
-                appliesTo: [.pane, .floatingTerminal],
+                surfacePolicy: .exposed([.commandBar, .contextMenu]),
+                targeting: .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .targetSelection),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -150,7 +164,8 @@ extension AppCommand {
                 label: "Move Pane to Existing Tab",
                 icon: .system(.arrowLeftArrowRight),
                 helpText: "Move the active pane into another existing tab",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar, .contextMenu, .inlineControl]),
+                targeting: .targeted([.pane, .tab]),
                 requiresManagementLayer: true,
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
@@ -162,11 +177,11 @@ extension AppCommand {
                 label: "Focus Pane",
                 icon: .system(.scope),
                 helpText: "Focus a specific pane",
-                appliesTo: [.pane, .floatingTerminal],
+                surfacePolicy: .notPresented,
+                targeting: .targeted([.pane, .floatingTerminal]),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane,
-                isHiddenInCommandBar: true
             )
         case .scrollToBottom:
             return AppCommandSpec(
@@ -175,7 +190,8 @@ extension AppCommand {
                 label: "Scroll to Bottom",
                 icon: .system(.arrowDownToLine),
                 helpText: "Scroll the active terminal pane to the bottom",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar, .inlineControl]),
+                targeting: .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane, .paneIsTerminal],
                 commandBarGroupName: "Terminal",
                 commandBarGroupPriority: CommandBarGroupPriority.terminal
@@ -187,7 +203,8 @@ extension AppCommand {
                 label: "Page Up",
                 icon: .system(.arrowUp),
                 helpText: "Scroll the active terminal pane up by one page",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane, .paneIsTerminal],
                 commandBarGroupName: "Terminal",
                 commandBarGroupPriority: CommandBarGroupPriority.terminal
@@ -199,7 +216,8 @@ extension AppCommand {
                 label: "Previous Prompt",
                 icon: .system(.arrowUp),
                 helpText: "Jump to the previous shell prompt in terminal scrollback",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane, .paneIsTerminal],
                 commandBarGroupName: "Terminal",
                 commandBarGroupPriority: CommandBarGroupPriority.terminal
@@ -211,7 +229,8 @@ extension AppCommand {
                 label: "Next Prompt",
                 icon: .system(.arrowDown),
                 helpText: "Jump to the next shell prompt in terminal scrollback",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane, .paneIsTerminal],
                 commandBarGroupName: "Terminal",
                 commandBarGroupPriority: CommandBarGroupPriority.terminal
@@ -222,7 +241,11 @@ extension AppCommand {
                 label: "Split Right",
                 icon: .system(.rectangleSplit1x2),
                 helpText: "Split the active pane to the right",
-                appliesTo: [.pane, .tab],
+                surfacePolicy: .exposed([.commandBar, .contextMenu, .inlineControl]),
+                targeting: .contextualAndTargeted(
+                    [.pane, .tab],
+                    preferredInvocation: .contextual
+                ),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -233,7 +256,11 @@ extension AppCommand {
                 label: "Split Left",
                 icon: .system(.rectangleSplit1x2),
                 helpText: "Split the active pane to the left",
-                appliesTo: [.pane, .tab],
+                surfacePolicy: .exposed([.commandBar, .contextMenu]),
+                targeting: .contextualAndTargeted(
+                    [.tab],
+                    preferredInvocation: .contextual
+                ),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -244,7 +271,11 @@ extension AppCommand {
                 label: "Equalize Panes",
                 icon: .system(.equalSquare),
                 helpText: "Reset all pane sizes in the active tab to equal widths",
-                appliesTo: [.tab],
+                surfacePolicy: .exposed([.commandBar, .contextMenu]),
+                targeting: .contextualAndTargeted(
+                    [.tab],
+                    preferredInvocation: .contextual
+                ),
                 visibleWhen: [.hasActiveTab, .hasMultiplePanes],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -286,23 +317,23 @@ extension AppCommand {
                 helpText: "Move focus to the previous pane"
             )
         case .focusPane1:
-            return hiddenFocusPaneDefinition(index: 1)
+            return shortcutFocusPaneDefinition(index: 1)
         case .focusPane2:
-            return hiddenFocusPaneDefinition(index: 2)
+            return shortcutFocusPaneDefinition(index: 2)
         case .focusPane3:
-            return hiddenFocusPaneDefinition(index: 3)
+            return shortcutFocusPaneDefinition(index: 3)
         case .focusPane4:
-            return hiddenFocusPaneDefinition(index: 4)
+            return shortcutFocusPaneDefinition(index: 4)
         case .focusPane5:
-            return hiddenFocusPaneDefinition(index: 5)
+            return shortcutFocusPaneDefinition(index: 5)
         case .focusPane6:
-            return hiddenFocusPaneDefinition(index: 6)
+            return shortcutFocusPaneDefinition(index: 6)
         case .focusPane7:
-            return hiddenFocusPaneDefinition(index: 7)
+            return shortcutFocusPaneDefinition(index: 7)
         case .focusPane8:
-            return hiddenFocusPaneDefinition(index: 8)
+            return shortcutFocusPaneDefinition(index: 8)
         case .focusPane9:
-            return hiddenFocusPaneDefinition(index: 9)
+            return shortcutFocusPaneDefinition(index: 9)
         case .zoomPane:
             return AppCommandSpec(
                 command: self,
@@ -310,7 +341,8 @@ extension AppCommand {
                 label: "Pane Zoom",
                 icon: .system(.arrowDownLeftAndArrowUpRightRectangle),
                 helpText: "Zoom the active pane",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom), .inlineControl]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.supportsTerminalZoom],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -321,7 +353,8 @@ extension AppCommand {
                 label: "Minimize Pane",
                 icon: .system(.minusCircle),
                 helpText: "Minimize the active pane",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar, .inlineControl]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -332,7 +365,8 @@ extension AppCommand {
                 label: "Expand Pane",
                 icon: .system(.arrowUpLeftAndArrowDownRight),
                 helpText: "Expand a minimized pane back into the layout",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar, .contextMenu, .inlineControl]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -342,7 +376,16 @@ extension AppCommand {
                 shortcut: .showArrangementPanel,
                 label: "Show Arrangements",
                 icon: .system(.rectangle3Group),
-                helpText: "Show arrangements for the active tab"
+                helpText: "Show arrangements for the active tab",
+                surfacePolicy: .exposed([
+                    .commandBar,
+                    .toolbar(.app),
+                    .inlineControl,
+                ]),
+                targeting: .contextualAndTargeted(
+                    [.tab],
+                    preferredInvocation: .targetSelection
+                )
             )
         case .previousArrangement:
             return AppCommandSpec(
@@ -351,6 +394,8 @@ extension AppCommand {
                 label: "Previous Arrangement",
                 icon: .system(.chevronLeft),
                 helpText: "Switch the active tab to the previous arrangement",
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextualAndTargeted([.tab], preferredInvocation: .contextual),
                 visibleWhen: [.hasActiveTab, .hasArrangements],
                 commandBarGroupName: "Tab",
                 commandBarGroupPriority: CommandBarGroupPriority.tab
@@ -362,6 +407,8 @@ extension AppCommand {
                 label: "Next Arrangement",
                 icon: .system(.chevronRight),
                 helpText: "Switch the active tab to the next arrangement",
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextualAndTargeted([.tab], preferredInvocation: .contextual),
                 visibleWhen: [.hasActiveTab, .hasArrangements],
                 commandBarGroupName: "Tab",
                 commandBarGroupPriority: CommandBarGroupPriority.tab
@@ -372,10 +419,11 @@ extension AppCommand {
                 label: "Cycle Arrangement",
                 icon: .system(.rectangle3Group),
                 helpText: "Switch to the next arrangement in the active tab",
+                surfacePolicy: .notPresented,
+                targeting: .contextual,
                 visibleWhen: [.hasActiveTab, .hasArrangements],
                 commandBarGroupName: "Tab",
                 commandBarGroupPriority: CommandBarGroupPriority.tab,
-                isHiddenInCommandBar: true
             )
         case .saveArrangement:
             return AppCommandSpec(
@@ -383,7 +431,8 @@ extension AppCommand {
                 label: "Save Arrangement As...",
                 icon: .system(.rectangle3GroupFill),
                 helpText: "Save the current tab layout as a named arrangement",
-                appliesTo: [.tab],
+                surfacePolicy: .exposed([.commandBar, .contextMenu, .inlineControl]),
+                targeting: .contextualAndTargeted([.tab], preferredInvocation: .contextual),
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
                 commandBarGroupPriority: CommandBarGroupPriority.tab
@@ -392,13 +441,17 @@ extension AppCommand {
             return arrangementDefinition(
                 label: "Delete Arrangement",
                 icon: .system(.rectangle3GroupBubble),
-                helpText: "Delete a saved arrangement from the active tab"
+                helpText: "Delete a saved arrangement from the active tab",
+                surfacePolicy: .exposed([.commandBar, .contextMenu]),
+                targeting: .targeted([.tab])
             )
         case .renameArrangement:
             return arrangementDefinition(
                 label: "Rename Arrangement",
                 icon: .system(.pencil),
-                helpText: "Rename a saved arrangement in the active tab"
+                helpText: "Rename a saved arrangement in the active tab",
+                surfacePolicy: .exposed([.commandBar, .contextMenu, .inlineControl]),
+                targeting: .targeted([.tab])
             )
         case .enterDrawer:
             return AppCommandSpec(
@@ -406,7 +459,8 @@ extension AppCommand {
                 label: "Enter Drawer",
                 icon: .system(.rectangleBottomhalfFilled),
                 helpText: "Open the active pane and focus its selected pane",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextual,
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -431,40 +485,41 @@ extension AppCommand {
                 label: "Move Drawer Focus",
                 icon: .system(.arrowUpLeftAndArrowDownRight),
                 helpText: "Move selection within the active pane",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextual,
                 visibleWhen: [.hasActivePane, .hasFocusedDrawerPane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .focusDrawerPane1:
-            return hiddenFocusDrawerPaneDefinition(index: 1)
+            return shortcutFocusDrawerPaneDefinition(index: 1)
         case .focusDrawerPane2:
-            return hiddenFocusDrawerPaneDefinition(index: 2)
+            return shortcutFocusDrawerPaneDefinition(index: 2)
         case .focusDrawerPane3:
-            return hiddenFocusDrawerPaneDefinition(index: 3)
+            return shortcutFocusDrawerPaneDefinition(index: 3)
         case .focusDrawerPane4:
-            return hiddenFocusDrawerPaneDefinition(index: 4)
+            return shortcutFocusDrawerPaneDefinition(index: 4)
         case .focusDrawerPane5:
-            return hiddenFocusDrawerPaneDefinition(index: 5)
+            return shortcutFocusDrawerPaneDefinition(index: 5)
         case .focusDrawerPane6:
-            return hiddenFocusDrawerPaneDefinition(index: 6)
+            return shortcutFocusDrawerPaneDefinition(index: 6)
         case .focusDrawerPane7:
-            return hiddenFocusDrawerPaneDefinition(index: 7)
+            return shortcutFocusDrawerPaneDefinition(index: 7)
         case .focusDrawerPane8:
-            return hiddenFocusDrawerPaneDefinition(index: 8)
+            return shortcutFocusDrawerPaneDefinition(index: 8)
         case .focusDrawerPane9:
-            return hiddenFocusDrawerPaneDefinition(index: 9)
+            return shortcutFocusDrawerPaneDefinition(index: 9)
         case .detachDrawerPane:
             return AppCommandSpec(
                 command: self,
                 label: "Detach Drawer Pane",
                 icon: .system(.rectanglePortraitAndArrowRight),
                 helpText: "Promote the selected drawer pane into the main layout",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.inlineControl]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane, .hasFocusedDrawerPane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane,
-                isHiddenInCommandBar: true
             )
         case .addDrawerPane:
             return AppCommandSpec(
@@ -473,7 +528,8 @@ extension AppCommand {
                 label: "Add Drawer Pane",
                 icon: .system(.rectangleBottomhalfInsetFilled),
                 helpText: "Add a drawer pane to the active pane",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane)]),
+                targeting: .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -485,7 +541,8 @@ extension AppCommand {
                 label: "Toggle Drawer",
                 icon: .system(.rectangleExpandVertical),
                 helpText: "Expand or collapse the active pane drawer",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane)]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -496,7 +553,8 @@ extension AppCommand {
                 label: "Switch Drawer Pane",
                 icon: .system(.arrowDownToLine),
                 helpText: "Switch to a pane inside the active pane",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .targetSelection),
                 visibleWhen: [.hasActivePane, .hasDrawerPanes],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -507,7 +565,8 @@ extension AppCommand {
                 label: "Close Drawer Pane",
                 icon: .system(.xmarkRectanglePortrait),
                 helpText: "Close a pane inside the active pane",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextual,
                 visibleWhen: [.hasActivePane, .hasDrawerPanes],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -518,6 +577,8 @@ extension AppCommand {
                 label: "Watch Folder",
                 icon: .system(.folderFillBadgePlus),
                 helpText: "Watch a folder and scan it for repositories",
+                surfacePolicy: .exposed([.commandBar, .toolbar(.app), .inlineControl]),
+                targeting: .contextual,
                 commandBarGroupName: "Repo",
                 commandBarGroupPriority: CommandBarGroupPriority.repo
             )
@@ -527,7 +588,8 @@ extension AppCommand {
                 label: "Remove Repo",
                 icon: .system(.folderBadgeMinus),
                 helpText: "Remove a repository from the workspace",
-                appliesTo: [.repo],
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .targeted([.repo]),
                 commandBarGroupName: "Repo",
                 commandBarGroupPriority: CommandBarGroupPriority.repo
             )
@@ -547,13 +609,15 @@ extension AppCommand {
             return worktreeDefinition(
                 label: "Open Worktree",
                 icon: .system(.terminal),
-                helpText: "Open a worktree in a tab"
+                helpText: "Open a worktree in a tab",
+                surfacePolicy: .exposed([.commandBar, .contextMenu, .inlineControl])
             )
         case .openWorktreeInPane:
             return worktreeDefinition(
                 label: "Open Worktree in Pane",
                 icon: .system(.rectangleSplit2x1),
-                helpText: "Open a worktree in a split pane"
+                helpText: "Open a worktree in a split pane",
+                surfacePolicy: .exposed([.commandBar, .contextMenu])
             )
         case .openPaneLocationInBookmarkedEditor:
             return AppCommandSpec(
@@ -562,7 +626,8 @@ extension AppCommand {
                 label: "Open Pane Location in Bookmarked Editor",
                 icon: .system(.chevronLeftForwardslashChevronRight),
                 helpText: "Open the selected pane location in the bookmarked editor",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextual,
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -574,7 +639,8 @@ extension AppCommand {
                 label: "Open Pane Location in Finder",
                 icon: .system(.finder),
                 helpText: "Open the selected pane location in Finder",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane)]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -586,7 +652,8 @@ extension AppCommand {
                 label: "Open In Menu",
                 icon: .system(.chevronUpChevronDown),
                 helpText: "Open the editor chooser for the selected pane",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane)]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -598,7 +665,8 @@ extension AppCommand {
                 label: "Edit Pane Note",
                 icon: .system(.pencil),
                 helpText: "Set a note for the current pane",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextual,
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -610,20 +678,20 @@ extension AppCommand {
                 label: "Copy Current Pane Path",
                 icon: LocalActionSpec.copyPath.actionSpec.icon,
                 helpText: "Copy the current pane path",
-                appliesTo: [.pane],
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane)]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .toggleManagementLayer:
-            return AppCommandSpec(
-                command: self,
+            return windowDefinition(
                 shortcut: .toggleManagementLayer,
                 label: "Manage Workspace",
                 icon: .system(.rectangleSplit2x2),
                 helpText: "Toggle workspace management mode",
-                commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                surfacePolicy: .exposed([.commandBar, .toolbar(.app)]),
+                targeting: .contextual
             )
         case .managementLayerFocusLeft:
             return managementDefinition(
@@ -640,14 +708,11 @@ extension AppCommand {
                 helpText: "Move focus right in management mode"
             )
         case .managementLayerEnterDrawer:
-            return AppCommandSpec(
-                command: self,
+            return managementDefinition(
                 shortcut: .managementLayerEnterDrawer,
                 label: "Management Enter Drawer",
                 icon: .system(.arrowDown),
-                helpText: "Enter or expand the current drawer in management mode",
-                requiresManagementLayer: true,
-                isHiddenInCommandBar: true
+                helpText: "Enter or expand the current drawer in management mode"
             )
         case .managementLayerExitDrawer:
             return managementDefinition(
@@ -685,84 +750,64 @@ extension AppCommand {
                 helpText: "Exit management mode"
             )
         case .toggleSidebar:
-            return AppCommandSpec(
-                command: self,
+            return windowDefinition(
                 shortcut: .toggleSidebar,
                 label: "Toggle Sidebar",
                 icon: .system(.sidebarLeft),
                 helpText: "Show or hide the sidebar",
-                commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                surfacePolicy: .exposed([.commandBar]),
+                targeting: .contextual
             )
         case .showInboxNotifications:
-            return AppCommandSpec(
-                command: self,
+            return windowDefinition(
                 shortcut: .showInboxNotifications,
                 label: "Toggle Inbox",
                 icon: .system(.bell),
                 helpText: "Show or hide the notification inbox in the sidebar",
-                commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                surfacePolicy: .exposed([.commandBar, .toolbar(.app)]),
+                targeting: .contextual
             )
         case .toggleInboxNotificationSort:
-            return AppCommandSpec(
-                command: self,
+            return inboxActionDefinition(
                 label: "Toggle Inbox Sort Order",
                 icon: .system(.arrowUpArrowDown),
-                helpText: "Switch the inbox between newest-first and oldest-first order",
-                commandBarGroupName: "Inbox",
-                commandBarGroupPriority: CommandBarGroupPriority.inbox
+                helpText: "Switch the inbox between newest-first and oldest-first order"
             )
         case .clearReadInboxNotifications:
-            return AppCommandSpec(
-                command: self,
+            return inboxActionDefinition(
                 label: "Clear Read Inbox Notifications",
                 icon: .system(.deleteLeft),
-                helpText: "Remove read notifications from the inbox history",
-                commandBarGroupName: "Inbox",
-                commandBarGroupPriority: CommandBarGroupPriority.inbox
+                helpText: "Remove read notifications from the inbox history"
             )
         case .clearAllInboxNotifications:
-            return AppCommandSpec(
-                command: self,
+            return inboxActionDefinition(
                 label: "Clear All Inbox Notifications",
                 icon: .system(.deleteLeft),
-                helpText: "Remove every notification from the inbox history",
-                commandBarGroupName: "Inbox",
-                commandBarGroupPriority: CommandBarGroupPriority.inbox
+                helpText: "Remove every notification from the inbox history"
             )
         case .showPaneInboxNotifications:
-            return AppCommandSpec(
-                command: self,
+            return paneInboxDefinition(
                 shortcut: .showPaneInboxNotifications,
                 label: "Toggle Pane Inbox",
                 icon: .system(.bellBadge),
                 helpText: "Show notifications for the active pane and its drawer children",
-                appliesTo: [.pane],
-                visibleWhen: [.hasActivePane],
-                commandBarGroupName: "Pane",
-                commandBarGroupPriority: CommandBarGroupPriority.pane
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane)])
             )
         case .clearPaneInboxNotifications:
-            return AppCommandSpec(
-                command: self,
+            return paneInboxDefinition(
                 label: "Clear Pane Inbox",
                 icon: .system(.deleteLeft),
                 helpText: "Clear notifications for the active pane and its drawer children",
-                appliesTo: [.pane],
-                visibleWhen: [.hasActivePane],
-                commandBarGroupName: "Pane",
-                commandBarGroupPriority: CommandBarGroupPriority.pane
+                surfacePolicy: .exposed([.commandBar, .inlineControl])
             )
         case .showWorktreeSidebar:
-            return AppCommandSpec(
-                command: self,
+            return windowDefinition(
                 shortcut: .showWorktreeSidebar,
                 label: "Toggle Worktrees",
                 icon: .system(.sidebarLeft),
                 helpText: "Show or hide the repo explorer in the sidebar",
-                commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                surfacePolicy: .exposed([.commandBar, .toolbar(.app)]),
+                targeting: .contextual
             )
         case .setRepoSidebarGroupingRepo:
             return repoSidebarGroupingDefinition(
@@ -815,84 +860,72 @@ extension AppCommand {
         case .setInboxContentMode:
             return inboxContentModeDefinition()
         case .newFloatingTerminal:
-            return AppCommandSpec(
-                command: self,
+            return windowDefinition(
                 label: "New Floating Terminal",
                 icon: .system(.terminalFill),
                 helpText: "Open a new floating terminal",
-                commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                surfacePolicy: .exposed([.commandBar, .contextMenu]),
+                targeting: .contextualAndTargeted(
+                    [.tab],
+                    preferredInvocation: .contextual
+                )
             )
         case .newWindow:
-            return AppCommandSpec(
-                command: self,
+            return windowDefinition(
                 shortcut: .newWindow,
                 label: "New Window",
                 icon: .system(.macwindowBadgePlus),
                 helpText: "Open a new application window",
-                commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window,
-                isHiddenInCommandBar: true
+                surfacePolicy: .exposed([.mainMenu]),
+                targeting: .contextual
             )
         case .closeWindow:
-            return AppCommandSpec(
-                command: self,
+            return windowDefinition(
                 shortcut: .closeWindow,
                 label: "Close Window",
                 icon: .system(.xmarkRectangle),
                 helpText: "Close the current application window",
-                commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window,
-                isHiddenInCommandBar: true
+                surfacePolicy: .exposed([.mainMenu]),
+                targeting: .contextual
             )
         case .showCommandBarEverything:
-            return AppCommandSpec(
-                command: self,
+            return commandBarNavigationDefinition(
                 shortcut: .showCommandBarEverything,
                 label: "Quick Find",
                 icon: .system(.magnifyingglass),
                 helpText: "Open quick find",
-                commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
+                surfacePolicy: .exposed([.commandBar, .mainMenu])
             )
         case .showCommandBarQuickOpen:
-            return AppCommandSpec(
-                command: self,
+            return commandBarNavigationDefinition(
                 shortcut: .newTab,
                 label: "Quick Open",
                 icon: .system(.terminal),
                 helpText: "Open a terminal at a repository or worktree",
-                commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
+                surfacePolicy: .exposed([.commandBar])
             )
         case .showCommandBarCommands:
-            return AppCommandSpec(
-                command: self,
+            return commandBarNavigationDefinition(
                 shortcut: .showCommandBarCommands,
                 label: "Command Palette",
                 icon: .system(.command),
                 helpText: "Open the command palette",
-                commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
+                surfacePolicy: .exposed([.commandBar, .mainMenu])
             )
         case .showCommandBarPanes:
-            return AppCommandSpec(
-                command: self,
+            return commandBarNavigationDefinition(
                 shortcut: .showCommandBarPanes,
                 label: "Go to Pane",
                 icon: .system(.terminal),
                 helpText: "Open the pane picker",
-                commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
+                surfacePolicy: .exposed([.commandBar, .mainMenu])
             )
         case .showCommandBarRepos:
-            return AppCommandSpec(
-                command: self,
+            return commandBarNavigationDefinition(
                 label: "Repositories",
                 icon: .system(.folder),
                 helpText: "Open the repository navigator",
-                commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
+                surfacePolicy: .exposed([.commandBar, .mainMenu, .contextMenu])
             )
         case .openWebview:
             return AppCommandSpec(
@@ -900,6 +933,8 @@ extension AppCommand {
                 label: "Open New Webview Tab",
                 icon: .system(.globe),
                 helpText: "Open a new webview tab",
+                surfacePolicy: .exposed([.commandBar, .mainMenu]),
+                targeting: .contextual,
                 commandBarGroupName: "Webview",
                 commandBarGroupPriority: CommandBarGroupPriority.webview
             )
@@ -910,87 +945,56 @@ extension AppCommand {
                 label: "Worktree Viewer",
                 icon: .system(.textPageBadgeMagnifyingglass),
                 helpText: "Show or hide the Worktree Viewer in Pane Zoom",
+                surfacePolicy: .exposed([.commandBar, .toolbar(.terminalZoom)]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.supportsTerminalZoom],
                 commandBarGroupName: "Worktree Viewer",
                 commandBarGroupPriority: CommandBarGroupPriority.worktreeViewer
             )
         case .showBridgeReview:
-            return AppCommandSpec(
-                command: self,
+            return bridgeDefinition(
                 label: "Review",
                 icon: .system(.rectangleSplit2x1),
-                helpText: "Open the read-only review in a tab",
-                appliesTo: [.worktree],
-                commandBarGroupName: "Bridge",
-                commandBarGroupPriority: CommandBarGroupPriority.bridge
+                helpText: "Open the read-only review in a tab"
             )
         case .showBridgeFiles:
-            return AppCommandSpec(
-                command: self,
+            return bridgeDefinition(
                 label: "Files",
                 icon: .system(.folder),
-                helpText: "Open the worktree file viewer in a tab",
-                appliesTo: [.worktree],
-                commandBarGroupName: "Bridge",
-                commandBarGroupPriority: CommandBarGroupPriority.bridge
+                helpText: "Open the worktree file viewer in a tab"
             )
         case .openBridgeReviewInNewTab:
-            return AppCommandSpec(
-                command: self,
+            return bridgeDefinition(
                 label: "Open Review in New Tab",
                 icon: .system(.rectangleSplit2x1),
-                helpText: "Open an independent read-only review in a new tab",
-                appliesTo: [.worktree],
-                commandBarGroupName: "Bridge",
-                commandBarGroupPriority: CommandBarGroupPriority.bridge
+                helpText: "Open an independent read-only review in a new tab"
             )
         case .openBridgeFilesInNewTab:
-            return AppCommandSpec(
-                command: self,
+            return bridgeDefinition(
                 label: "Open Files in New Tab",
                 icon: .system(.folder),
-                helpText: "Open an independent worktree file viewer in a new tab",
-                appliesTo: [.worktree],
-                commandBarGroupName: "Bridge",
-                commandBarGroupPriority: CommandBarGroupPriority.bridge
+                helpText: "Open an independent worktree file viewer in a new tab"
             )
         case .signInGitHub:
-            return AppCommandSpec(
-                command: self,
-                label: "Sign in to GitHub",
-                icon: .system(.personBadgeKey),
-                helpText: "Start GitHub sign-in",
-                commandBarGroupName: "Auth",
-                commandBarGroupPriority: CommandBarGroupPriority.auth,
-                isHiddenInCommandBar: true
-            )
+            return authenticationDefinition(providerName: "GitHub")
         case .signInGoogle:
-            return AppCommandSpec(
-                command: self,
-                label: "Sign in to Google",
-                icon: .system(.personBadgeKey),
-                helpText: "Start Google sign-in",
-                commandBarGroupName: "Auth",
-                commandBarGroupPriority: CommandBarGroupPriority.auth,
-                isHiddenInCommandBar: true
-            )
+            return authenticationDefinition(providerName: "Google")
         case .filterSidebar:
-            return AppCommandSpec(
-                command: self,
+            return windowDefinition(
                 shortcut: .filterSidebar,
                 label: "Filter Sidebar",
                 icon: .system(.magnifyingglass),
                 helpText: "Filter items in the sidebar",
-                commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                surfacePolicy: .exposed([.commandBar, .mainMenu]),
+                targeting: .contextual
             )
         case .openNewTerminalInTab:
             return worktreeDefinition(
                 label: "Open Terminal in New Tab",
                 icon: .system(.terminalFill),
-                helpText: "Open a worktree in a fresh terminal tab"
+                helpText: "Open a worktree in a fresh terminal tab",
+                surfacePolicy: .exposed([.commandBar, .contextMenu])
             )
         }
     }
-
 }

@@ -370,7 +370,28 @@ Search rule of thumb:
 
 ### Command Specs And Execution Owners
 
-Before adding or changing a command, read [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md). Use `AppCommand` for identity, `AppShortcut` for bindings, `AppCommandSpec` for command-bar/tooltips, and `LocalActionSpec` for UI-only actions. Dense toolbar/titlebar/drawer tooltip work must use the typed tooltip source contract in that doc and [Style Guide](docs/guides/style_guide.md), not parallel `.help`, AppKit `toolTip`, or custom hover strings. App/window/sidebar shell commands may route through `AppDelegate`; pane, drawer, focus, layout, and workspace commands route through `PaneTabViewController` so keyboard shortcuts, command-bar rows, and drawer buttons share the same resolver.
+Before adding or changing a command, read
+[Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md). Use
+`AppCommand` for identity, `AppShortcut` for bindings, and `AppCommandSpec` for
+presentation, typed interactive surfaces, targeting, command-context
+requirements, and command-bar grouping.
+`AppCommand+IPCProjection.swift` independently owns the exhaustive IPC
+exposure, durable-target, privilege, and argument contracts plus public DTO
+projection. Every interactive host requests its exact `AppCommandSurface`; pane
+and terminal-Zoom toolbars are distinct surfaces.
+`shouldPresent` controls presence only. Contextual or targeted `canDispatch`
+plus the execution owner's validators control enablement and execution
+authority, and the dispatcher rejects undeclared invocation modes or target
+kinds before routing. Keyboard routing remains under
+`ActiveKeyboardSurface`/`AppShortcutDispatchPolicy`; IPC remains UI-independent
+with its existing metadata, authorization, privilege, argument, and runtime
+validation gates. Use `LocalActionSpec` only for UI actions without an
+`AppCommand` identity. Dense toolbar/titlebar/drawer tooltip work must use the
+typed tooltip source contract in that doc and
+[Style Guide](docs/guides/style_guide.md), not parallel `.help`, AppKit
+`toolTip`, or custom hover strings. App/window/sidebar shell commands may route
+through `AppDelegate`; pane, drawer, focus, layout, and workspace commands route
+through `PaneTabViewController`.
 
 Command-bar scopes have separate ownership:
 - `>` owns verbs and command execution.
@@ -383,6 +404,9 @@ icons when a sidebar/local action already defines the presentation.
 
 | Component | Owns | Location |
 |-----------|------|----------|
+| `AppCommand` | exhaustive shared command identity plus interactive spec shape and dispatch protocol | `Core/Actions/Commands/AppCommand.swift` |
+| `AppCommand+Catalog` | exhaustive interactive presentation, targeting, shortcut, and command-context catalog | `Core/Actions/Commands/AppCommand+Catalog.swift` |
+| `AppCommand+IPCProjection` | independent exhaustive IPC exposure, durable-target, privilege, and argument contracts plus public DTO projection | `App/Commands/AppCommand+IPCProjection.swift` |
 | `AtomRegistry` | internal App-only root holding one `CoreAtoms` plus explicit concrete Feature roots; never ambient | `Sources/AgentStudio/AtomRegistry.swift` |
 | `CoreAtoms` | concrete Core-only state graph, facades, coordinators, and derived readers | `Core/State/MainActor/Atoms/CoreAtoms.swift` |
 | `CoreAtomScope` | sole ambient product scope, installed from `AtomRegistry.core` and typed only to `CoreAtoms` | `Core/State/MainActor/Atoms/CoreAtomScope.swift` |
@@ -422,8 +446,11 @@ icons when a sidebar/local action already defines the presentation.
 | `SidebarFocusRuntimeAtom` | runtime-only sidebar focus fact for keyboard-owner derivation | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
 | `SidebarVisibleWorktreesRuntimeAtom` | runtime-only sidebar visible worktree ids for git enrichment admission | `Core/State/MainActor/Atoms/SidebarVisibleWorktreesRuntimeAtom.swift` |
 | `WorkspaceSidebarState` | UI-facing composition surface over sidebar memory + runtime focus atoms | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
-| `WorkspaceFocusOwnerAtom` | runtime focus owner for main-pane, empty-drawer, and drawer-pane focus | `Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift` |
-| `WorkspacePaneFocusDerived` | shared app-wide pane focus reader for command visibility and status UI | `Core/State/MainActor/Atoms/WorkspacePaneFocusDerived.swift` |
+| `WorkspaceFocusOwnerAtom` | sole mutable requested-focus owner for main-pane, empty-drawer, and drawer-pane focus | `Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift` |
+| `WorkspaceFocusedPaneResolver` | stateless normalization of requested focus against active tab, pane, and drawer state | `Core/State/MainActor/Atoms/WorkspaceFocusedPaneResolver.swift` |
+| `WorkspaceFocusedPane` | immutable normalized focus identity/content for status presentation and command-context projection | `Core/State/MainActor/Atoms/WorkspaceFocusedPane.swift` |
+| `CommandContextDerived` | stateless command-policy projection from focused-pane plus workspace/presentation facts | `Core/State/MainActor/Atoms/CommandContextDerived.swift` |
+| `CommandContext` | immutable command-policy facts and satisfied `CommandRequirement` values | `Core/State/MainActor/Atoms/CommandContext.swift` |
 | `ManagementLayerAtom` | management layer active/inactive state | `Core/State/MainActor/Atoms/ManagementLayerAtom.swift` |
 | `CommandBarSurfaceAtom` | runtime command-bar keyboard surface scope | `Core/State/MainActor/Atoms/CommandBarSurfaceAtom.swift` |
 | `TransientKeyboardSurfaceAtom` | runtime transient keyboard surface stack | `Core/State/MainActor/Atoms/TransientKeyboardSurfaceAtom.swift` |
@@ -486,7 +513,7 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 | [Surface Architecture](docs/architecture/ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health, crash isolation |
 | [App Architecture](docs/architecture/appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid, controllers, events |
 | [Observability And Traceability](docs/architecture/observability_and_traceability.md) | Trace tags, debug/beta OTLP proof, source-side projection, Victoria proof rules |
-| [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | The four-file system (AppCommand / AppShortcut / AppCommandSpec / LocalActionSpec), execution-owner decision tree (`AppDelegate` shell vs `PaneTabViewController` pane/drawer), contexts, alternateTriggers, and where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
+| [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | Shared command identity, independent exhaustive interactive/IPC projections, focused-pane and command-context projections, dispatcher preflight, shortcut routing, tooltips, and execution owners |
 | [Directory Structure](docs/architecture/directory_structure.md) | Module boundaries, Core vs Features, import rule, component placement |
 | [Architecture Lint Inventory](docs/architecture/architecture_lint_inventory.md) | SwiftLint rule IDs, former shell-script coverage, and blocking/report-only/test/review classifications |
 | [AgentStudio IPC Architecture](docs/architecture/agentstudio_ipc_architecture.md) | App-level programmatic-control contract, AppIPC port, composition, and zmx separation boundaries |
@@ -686,7 +713,8 @@ agent-studio/
 │   │   │       ├── Atoms/            # WorkspaceIdentityAtom, WorkspacePaneGraphAtom,
 │   │   │       │                     #   WorkspaceDrawerCursorAtom, WorkspacePaneAtom facade,
 │   │   │       │                     #   WorkspaceSidebarState, ManagementLayerAtom,
-│   │   │       │                     #   WorkspacePaneFocusDerived, KeyboardOwnerDerived, ...
+│   │   │       │                     #   WorkspaceFocusedPaneResolver, CommandContextDerived,
+│   │   │       │                     #   KeyboardOwnerDerived, ...
 │   │   │       └── Persistence/      # WorkspaceStore, RepoCacheStore, UIStateStore
 │   │   ├── RuntimeEventSystem/       # Runtime actors, event bus, SessionRuntime, ZmxBackend
 │   │   ├── Actions/                  # WorkspaceActionCommand, WorkspaceCommandResolver, WorkspaceCommandValidator
