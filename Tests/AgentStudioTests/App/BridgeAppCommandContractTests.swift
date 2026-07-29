@@ -76,7 +76,7 @@ struct BridgeAppCommandContractTests {
         #expect(definition.helpText == "Show or hide the Worktree Viewer in Pane Zoom")
         #expect(
             definition.surfacePolicy
-                == .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)])
+                == .exposed([.commandBar, .toolbar(.terminalZoom)])
         )
         #expect(
             definition.targeting
