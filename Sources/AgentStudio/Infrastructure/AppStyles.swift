@@ -272,6 +272,7 @@ package enum AppStyles {
             package static let inactivePaneDimmingDepth: CGFloat = 120
             package static let paneSplitIconSize: CGFloat = AppStyles.General.Icon.paneSplit
             package static let paneSplitButtonSize: CGFloat = AppStyles.General.Button.paneSplit
+            package static let paneEdgeButtonHeight: CGFloat = paneSplitButtonSize + 12
             package static let maskFadeWidth: CGFloat = 14
             package static let collapsedBarWidth: CGFloat = 40
             package static let background = Color(nsColor: NSColor(white: 0.09, alpha: 1.0))

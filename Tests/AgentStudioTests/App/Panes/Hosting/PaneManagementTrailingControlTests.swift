@@ -27,7 +27,7 @@ struct PaneManagementTrailingControlTests {
         let detachState = try mountedTrailingControlState(isDrawerChild: true)
         let expectedSize = CGSize(
             width: AppStyles.Shell.PaneChrome.paneSplitButtonSize,
-            height: AppStyles.Shell.PaneChrome.paneSplitButtonSize + 12
+            height: AppStyles.Shell.PaneChrome.paneEdgeButtonHeight
         )
 
         #expect(moveState.controlFrame.size == expectedSize)
@@ -56,15 +56,27 @@ struct PaneManagementTrailingControlTests {
         )
     }
 
+    @Test("main-pane Move accessibility action is disabled without destinations")
+    func moveAccessibilityActionMatchesDestinationAvailability() throws {
+        let state = try mountedTrailingControlState(
+            isDrawerChild: false,
+            hasMoveDestination: false
+        )
+
+        #expect(!state.isAccessibilityEnabled)
+    }
+
     private struct MountedTrailingControlState {
         let controlFrame: CGRect
         let identityFrame: CGRect?
         let hostingBounds: CGRect
+        let isAccessibilityEnabled: Bool
     }
 
     private func mountedTrailingControlState(
         isDrawerChild: Bool,
-        worktreeBacked: Bool = false
+        worktreeBacked: Bool = false,
+        hasMoveDestination: Bool = true
     ) throws -> MountedTrailingControlState {
         let store = WorkspaceStore()
         let parentPane: Pane
@@ -102,8 +114,10 @@ struct PaneManagementTrailingControlTests {
         } else {
             targetPane = parentPane
             accessibilityIdentifier = "paneManagement.movePaneToTab"
-            let destinationPane = store.createPane()
-            store.appendTab(Tab(paneId: destinationPane.id))
+            if hasMoveDestination {
+                let destinationPane = store.createPane()
+                store.appendTab(Tab(paneId: destinationPane.id))
+            }
         }
 
         atom(\.managementLayer).activate()
@@ -156,7 +170,8 @@ struct PaneManagementTrailingControlTests {
         return MountedTrailingControlState(
             controlFrame: controlView.convert(controlView.bounds, to: hostingView),
             identityFrame: identityView?.convert(identityView?.bounds ?? .zero, to: hostingView),
-            hostingBounds: hostingView.bounds
+            hostingBounds: hostingView.bounds,
+            isAccessibilityEnabled: controlView.isAccessibilityEnabled()
         )
     }
 

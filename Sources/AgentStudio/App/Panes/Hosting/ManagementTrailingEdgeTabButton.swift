@@ -6,6 +6,7 @@ import SwiftUI
 struct ManagementTrailingEdgeTabButton: View {
     let systemName: String
     let isHovered: Bool
+    let isEnabled: Bool
     let tooltip: ControlTooltipRenderValue
     let accessibilityIdentifier: String
     let onAnchorViewChanged: ((NSView?) -> Void)?
@@ -20,7 +21,7 @@ struct ManagementTrailingEdgeTabButton: View {
                 )
                 .frame(
                     width: AppStyles.Shell.PaneChrome.paneSplitButtonSize,
-                    height: AppStyles.Shell.PaneChrome.paneSplitButtonSize + 12
+                    height: AppStyles.Shell.PaneChrome.paneEdgeButtonHeight
                 )
                 .background(
                     UnevenRoundedRectangle(
@@ -45,6 +46,7 @@ struct ManagementTrailingEdgeTabButton: View {
                 )
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
         .controlHelp(tooltip)
         .accessibilityHidden(true)
         .background {
@@ -52,6 +54,7 @@ struct ManagementTrailingEdgeTabButton: View {
                 AccessibilityPressBridge(
                     identifier: accessibilityIdentifier,
                     label: tooltip.text,
+                    isEnabled: isEnabled,
                     action: action
                 )
                 if let onAnchorViewChanged {

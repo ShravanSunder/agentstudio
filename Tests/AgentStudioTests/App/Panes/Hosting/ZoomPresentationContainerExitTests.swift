@@ -40,7 +40,10 @@ struct ZoomPresentationContainerExitTests {
         let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let recorder = ZoomExitRecorder()
-        let (cancellationEvents, cancellationContinuation) = AsyncStream.makeStream(of: Void.self)
+        let (cancellationEvents, cancellationContinuation) = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
         defer { cancellationContinuation.finish() }
         if managementActive {
             atom(\.managementLayer).activate()

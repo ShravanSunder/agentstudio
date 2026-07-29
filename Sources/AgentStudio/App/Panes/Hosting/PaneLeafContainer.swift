@@ -496,6 +496,7 @@ struct PaneLeafContainer: View {
                                 ManagementTrailingEdgeTabButton(
                                     systemName: SystemSymbol.rectanglePortraitAndArrowRight.rawValue,
                                     isHovered: isDetachHovered,
+                                    isEnabled: true,
                                     tooltip: AppCommand.detachDrawerPane.definition.controlTooltipRenderValue(),
                                     accessibilityIdentifier: "paneManagement.detachDrawerPane",
                                     onAnchorViewChanged: nil
@@ -537,7 +538,7 @@ struct PaneLeafContainer: View {
                                     - (AppStyles.Shell.PaneChrome.paneSplitButtonSize / 2),
                                 y: cardFrame.minY
                                     - AppStyles.General.Spacing.standard
-                                    - ((AppStyles.Shell.PaneChrome.paneSplitButtonSize + 12) / 2)
+                                    - (AppStyles.Shell.PaneChrome.paneEdgeButtonHeight / 2)
                             )
                     }
                 }
@@ -728,6 +729,7 @@ struct PaneLeafContainer: View {
         ManagementTrailingEdgeTabButton(
             systemName: SystemSymbol.arrowLeftArrowRight.rawValue,
             isHovered: isMovePaneHovered,
+            isEnabled: !movePaneDestinations.isEmpty,
             tooltip: AppCommand.movePaneToTab.definition.controlTooltipRenderValue(),
             accessibilityIdentifier: "paneManagement.movePaneToTab",
             onAnchorViewChanged: { view in
@@ -737,7 +739,6 @@ struct PaneLeafContainer: View {
             },
             action: presentMovePaneDestinationMenu
         )
-        .disabled(movePaneDestinations.isEmpty)
         .onHover { isMovePaneHovered = $0 }
     }
 
@@ -769,7 +770,7 @@ struct PaneLeafContainer: View {
             )
             .frame(
                 width: AppStyles.Shell.PaneChrome.paneSplitButtonSize,
-                height: AppStyles.Shell.PaneChrome.paneSplitButtonSize + 12
+                height: AppStyles.Shell.PaneChrome.paneEdgeButtonHeight
             )
             .background(
                 UnevenRoundedRectangle(
