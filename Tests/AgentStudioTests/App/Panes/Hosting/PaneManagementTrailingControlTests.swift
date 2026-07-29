@@ -34,7 +34,7 @@ struct PaneManagementTrailingControlTests {
         #expect(detachState.controlFrame.size == expectedSize)
     }
 
-    @Test("main-pane Move sits directly above the identity card")
+    @Test("main-pane Move keeps standard spacing above the identity card")
     func moveControlAnchorsAboveIdentityCard() throws {
         let state = try mountedTrailingControlState(
             isDrawerChild: false,
@@ -42,7 +42,12 @@ struct PaneManagementTrailingControlTests {
         )
         let identityFrame = try #require(state.identityFrame)
 
-        #expect(abs(state.controlFrame.maxY - identityFrame.minY) < 0.5)
+        #expect(
+            abs(
+                identityFrame.minY - state.controlFrame.maxY
+                    - AppStyles.General.Spacing.standard
+            ) < 0.5
+        )
         #expect(
             abs(
                 state.controlFrame.maxX

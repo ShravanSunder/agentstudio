@@ -536,6 +536,7 @@ struct PaneLeafContainer: View {
                                 x: overlayGeometry.size.width
                                     - (AppStyles.Shell.PaneChrome.paneSplitButtonSize / 2),
                                 y: cardFrame.minY
+                                    - AppStyles.General.Spacing.standard
                                     - ((AppStyles.Shell.PaneChrome.paneSplitButtonSize + 12) / 2)
                             )
                     }
