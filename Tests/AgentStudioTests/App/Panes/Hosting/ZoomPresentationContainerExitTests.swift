@@ -64,15 +64,17 @@ struct ZoomPresentationContainerExitTests {
                         viewerAction: toolbarAction(
                             label: "Worktree Viewer",
                             accessibilityIdentifier: "paneSurfaceToolbar.viewer",
+                            icon: .system(.rectangleSplit2x1),
                             visibleLabel: nil,
                             perform: {}
                         ),
                         zoomAction: toolbarAction(
                             label: "Pane Zoom",
                             accessibilityIdentifier: "paneSurfaceToolbar.zoom",
+                            icon: .system(.squareArrowTriangle4Outward),
                             visibleLabel: "Zoomed",
                             perform: {
-                                recorder.cancelledSourcePaneIds.append(sourcePaneId)
+                                recorder.recordCancellation(sourcePaneId: sourcePaneId)
                                 cancellationContinuation.yield()
                             }
                         )
@@ -111,13 +113,16 @@ struct ZoomPresentationContainerExitTests {
                 identifier: accessibilityIdentifier
             )
         )
+        recorder.zoomView = zoomView
         #expect(zoomView.accessibilityPerformPress())
         #expect(zoomView.accessibilityPerformPress())
         #expect(recorder.cancelledSourcePaneIds.isEmpty)
 
         #expect(await waitForCancellationEvent(cancellationEvents))
+        await waitForNextMainActorTurn()
 
         #expect(recorder.cancelledSourcePaneIds == [sourcePaneId])
+        #expect(recorder.wasZoomToolbarMountedAtCancellation)
     }
 
     private func waitForCancellationEvent(
@@ -150,6 +155,7 @@ struct ZoomPresentationContainerExitTests {
     private func toolbarAction(
         label: String,
         accessibilityIdentifier: String,
+        icon: CommandIcon,
         visibleLabel: String?,
         perform: @escaping @MainActor @Sendable () -> Void
     ) -> PaneSurfaceToolbarAction {
@@ -157,7 +163,7 @@ struct ZoomPresentationContainerExitTests {
             state: PaneSurfaceToolbarAction.State(
                 label: label,
                 accessibilityIdentifier: accessibilityIdentifier,
-                icon: .system(.rectangleSplit2x1),
+                icon: icon,
                 tooltip: ControlTooltipRenderValue(text: label, shortcutDisplayText: nil),
                 isEnabled: true,
                 isSelected: true,
@@ -165,6 +171,10 @@ struct ZoomPresentationContainerExitTests {
             ),
             perform: perform
         )
+    }
+
+    private func waitForNextMainActorTurn() async {
+        await Task.yield()
     }
 
     private func makeNoOpPaneActionDispatcher() -> PaneTabActionDispatcher {
@@ -179,7 +189,14 @@ struct ZoomPresentationContainerExitTests {
 
 @MainActor
 private final class ZoomExitRecorder {
+    weak var zoomView: AccessibilityPressBridgeView?
     var cancelledSourcePaneIds: [UUID] = []
+    var wasZoomToolbarMountedAtCancellation = false
+
+    func recordCancellation(sourcePaneId: UUID) {
+        cancelledSourcePaneIds.append(sourcePaneId)
+        wasZoomToolbarMountedAtCancellation = zoomView?.window != nil
+    }
 }
 
 @MainActor

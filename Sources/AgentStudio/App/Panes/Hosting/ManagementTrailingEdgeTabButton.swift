@@ -3,6 +3,7 @@ import AgentStudioSharedComponents
 import AppKit
 import SwiftUI
 
+@MainActor
 struct ManagementTrailingEdgeTabButton: View {
     let systemName: String
     let isHovered: Bool
@@ -106,6 +107,7 @@ final class PaneMoveDestinationMenuPresenter: NSObject {
     }
 }
 
+@MainActor
 private struct ManagementEdgeTabAnchorBridge: NSViewRepresentable {
     let onViewChanged: (NSView?) -> Void
 
@@ -124,6 +126,7 @@ private struct ManagementEdgeTabAnchorBridge: NSViewRepresentable {
     }
 }
 
+@MainActor
 private final class ManagementEdgeTabAnchorView: NSView {
     var onViewChanged: (NSView?) -> Void = { _ in }
 
