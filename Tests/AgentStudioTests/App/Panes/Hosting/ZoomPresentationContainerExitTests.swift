@@ -107,15 +107,15 @@ struct ZoomPresentationContainerExitTests {
         }
         hostingView.layoutSubtreeIfNeeded()
 
-        let zoomView = try #require(
+        let zoomControlView = try #require(
             accessibilityPressBridgeView(
                 in: hostingView,
                 identifier: accessibilityIdentifier
             )
         )
-        recorder.zoomView = zoomView
-        #expect(zoomView.accessibilityPerformPress())
-        #expect(zoomView.accessibilityPerformPress())
+        recorder.hostingView = hostingView
+        #expect(zoomControlView.accessibilityPerformPress())
+        #expect(zoomControlView.accessibilityPerformPress())
         #expect(recorder.cancelledSourcePaneIds.isEmpty)
 
         #expect(await waitForCancellationEvent(cancellationEvents))
@@ -189,13 +189,21 @@ struct ZoomPresentationContainerExitTests {
 
 @MainActor
 private final class ZoomExitRecorder {
-    weak var zoomView: AccessibilityPressBridgeView?
+    weak var hostingView: NSView?
     var cancelledSourcePaneIds: [UUID] = []
     var wasZoomToolbarMountedAtCancellation = false
 
     func recordCancellation(sourcePaneId: UUID) {
         cancelledSourcePaneIds.append(sourcePaneId)
-        wasZoomToolbarMountedAtCancellation = zoomView?.window != nil
+        wasZoomToolbarMountedAtCancellation =
+            hostingView
+            .flatMap {
+                accessibilityPressBridgeView(
+                    in: $0,
+                    identifier: "paneSurfaceToolbar.zoom"
+                )
+            }?
+            .window != nil
     }
 }
 

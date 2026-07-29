@@ -29,13 +29,13 @@ lifecycle.
 
 | Requirements | Owning slice | RED proof | GREEN proof | Freshness guard |
 | --- | --- | --- | --- | --- |
-| R1-R4, R17 | Command and toolbar | Command name, canonical icon, icon-only bottom control, exact toolbar-order/geometry, and divider tests fail against the current presentation | Focused command and toolbar presentation/mount tests pass | Run after final toolbar diff |
+| R1-R4, R17 | Command and toolbar | Command name, canonical icon, inactive icon-only control, active `Zoomed` morph, exact toolbar-order/geometry, and divider tests fail against the current presentation | Focused command, toolbar presentation/mount, and morph-order tests pass | Run after final toolbar diff |
 | R5 | Location actions | Toolbar mount test fails because Copy Path is absent | Copy Path presence, order, enabled state, tooltip, and callback tests pass | Run after final trailing-action diff |
 | R6-R9, R16, R21-R23 | Arrangements UI and pane shortcuts | Display/projection/presentation tests fail for the selected-row active state, missing explicit Cancel Zoom action, popover dismissal, unstable rename, hidden minimized bars, stale minimized ordinals, and minimized-pane shortcut restoration | Arrangement model, popover state, rename, mounted-view, badge, and expanded-pane shortcut tests pass | Run after final panel/model/shortcut diff |
 | R10, R15, R20 | Zoom and Viewer chrome | Container/title/File Viewer tests fail for missing or misplaced management Cancel Zoom control, visible transport ID, Viewer ordinal, or missing live `· Zoom` title | Container, File Viewer, and management-title tests pass for Default and named arrangements | Run after final native/BridgeWeb diff |
 | R11-R14 | Arrangement transitions | Existing lifecycle test is inverted to require preservation and fails while switch clears Zoom; creation test fails while disabled or persisted incorrectly | Switch, traversal, creation, persistence-exclusion, and real teardown tests pass | Run after final coordinator/store diff |
 | R18 | Viewer split memory | Runtime-state test fails because Cancel Zoom deletes the only saved ratio | Per-source runtime memory restores the ratio across hide/show and Cancel/re-entry while SQLite exclusion remains green | Run after final presentation-atom diff |
-| R19 | Presentation transitions | Source audit fails while Zoom mutations still install an animation; native proof shows incorrect Viewer motion | Zoom uses identity replacement while Viewer opens/closes from center with host continuity | Capture native recording after final container diff |
+| R19 | Presentation transitions | Exit test fails when cancellation can run before the Zoom control contracts; native proof shows incorrect Viewer motion | Zoom control expands after mount, contracts before identity replacement, and Viewer opens/closes from center with host continuity | Capture native recording after final container diff |
 | R24 | Typed shortcut cutover | Shortcut decoding, tooltip, command catalog, and normal-mode Viewer tests fail against the old O-family bindings and Zoom-local-only Viewer behavior | Accepted bindings decode uniquely, tooltips inherit them, and Viewer enters Zoom visible before becoming a Zoom-local toggle | Run after final shortcut/controller diff |
 | All | Integrated UI | Existing debug app shows stale UI | Fresh PID-targeted screenshots cover all five named states | Capture from a newly built app at final HEAD |
 
@@ -97,7 +97,8 @@ Work:
   `square.arrowtriangle.4.outward`.
 - Rename the command to `Pane Zoom`; keep tooltip, visibility, capability, and
   IPC exposure command-owned.
-- Keep the bottom toolbar control icon-only.
+- Keep the inactive bottom toolbar control icon-only; after Zoom mounts, morph
+  that same selected control into the canonical icon plus `Zoomed`.
 - Remove the separate cancel-Zoom action from the presentation model.
 - Express Viewer as the first trailing Zoom context action, not a leading pane
   mode action.
@@ -174,9 +175,12 @@ Work:
 - Move the split ratio from one active presentation's disposable state to
   per-source retained runtime memory, restoring it across Viewer hide/show and
   Cancel/re-entry without persisting it.
-- Use identity replacement for Zoom entry, cancellation, and retargeting. Keep
-  Viewer show/hide motion separate and preserve the same terminal and Viewer
-  hosts throughout its center-to-side transition.
+- Mount the Zoom presentation and toolbar before expanding the Zoom control
+  using standard timing. On cancellation, contract the control using fast
+  timing before identity-replacing the pane and toolbar. Keep retargeting as
+  identity replacement without animation. Keep Viewer show/hide motion separate
+  and preserve the same terminal and Viewer hosts throughout its center-to-side
+  transition.
 - Save only the underlying durable arrangement and reveal the latest selected
   arrangement when Zoom exits.
 - Preserve existing teardown and invalid-resource cancellation.
