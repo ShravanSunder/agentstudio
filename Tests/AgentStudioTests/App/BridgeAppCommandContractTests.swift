@@ -37,7 +37,7 @@ struct BridgeAppCommandContractTests {
         // Act
         let definition = AppCommandDispatcher.shared.definition(for: zoomPane)
         let canonicalZoomSymbol = SystemSymbol(
-            rawValue: "arrow.down.left.and.arrow.up.right.rectangle"
+            rawValue: "square.arrowtriangle.4.outward"
         )
 
         // Assert

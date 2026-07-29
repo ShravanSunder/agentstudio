@@ -241,7 +241,7 @@ final class AppCommandTests {
         let expandPane = AppCommandDispatcher.shared.definition(for: .expandPane)
         let ipcEntry = zoomPane.ipcCommandListEntry
         let canonicalZoomSymbol = SystemSymbol(
-            rawValue: "arrow.down.left.and.arrow.up.right.rectangle"
+            rawValue: "square.arrowtriangle.4.outward"
         )
 
         #expect(zoomPane.label == "Pane Zoom")

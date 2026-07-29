@@ -64,6 +64,7 @@ struct ZoomPresentationContainer: View {
 
     @State private var splitRatio: CGFloat
     @State private var showsZoomToolbarLabel = false
+    @State private var isZoomExitPending = false
     @State private var zoomHovered = false
     @State private var showArrangementsHovered = false
     @State private var paneFrames: [UUID: CGRect] = [:]
@@ -146,6 +147,15 @@ struct ZoomPresentationContainer: View {
                         }
                     )
 
+                    if atom(\.managementLayer).isActive,
+                        sourceManagementContext.showsIdentityBlock
+                    {
+                        ManagementPaneIdentityStrip(
+                            context: sourceManagementContext,
+                            octiconLoader: octiconLoader
+                        )
+                    }
+
                     parentToolbar
                 }
 
@@ -202,8 +212,10 @@ struct ZoomPresentationContainer: View {
     private var parentToolbar: some View {
         if case .zoom(let toolbarModel) = parentToolbarPresentation {
             let zoomAction = toolbarModel.zoomAction.map { zoomAction in
-                zoomAction.projectingVisibleLabel(
-                    showsZoomToolbarLabel ? zoomAction.state.visibleLabel : nil
+                sequencedZoomExitAction(
+                    zoomAction.projectingVisibleLabel(
+                        showsZoomToolbarLabel ? zoomAction.state.visibleLabel : nil
+                    )
                 )
             }
             PaneSurfaceToolbarHost(
@@ -226,6 +238,34 @@ struct ZoomPresentationContainer: View {
                     showsZoomToolbarLabel = true
                 }
             }
+        }
+    }
+
+    private func sequencedZoomExitAction(
+        _ zoomAction: PaneSurfaceToolbarAction
+    ) -> PaneSurfaceToolbarAction {
+        PaneSurfaceToolbarAction(
+            state: zoomAction.state,
+            perform: {
+                beginZoomToolbarExit(performCancel: zoomAction.perform)
+            }
+        )
+    }
+
+    private func beginZoomToolbarExit(
+        performCancel: @escaping @MainActor @Sendable () -> Void
+    ) {
+        guard !isZoomExitPending else { return }
+        isZoomExitPending = true
+
+        withAnimation(
+            .easeOut(duration: AppStyles.General.Animation.fast),
+            completionCriteria: .logicallyComplete
+        ) {
+            showsZoomToolbarLabel = false
+        } completion: {
+            performCancel()
+            isZoomExitPending = false
         }
     }
 
@@ -255,7 +295,7 @@ struct ZoomPresentationContainer: View {
                     HStack(spacing: AppStyles.General.Spacing.standard) {
                         if let zoomAction = toolbarModel.zoomAction {
                             managementCircleButton(
-                                action: zoomAction,
+                                action: sequencedZoomExitAction(zoomAction),
                                 isHovered: zoomHovered,
                                 accessibilityIdentifier: "paneManagement.zoom"
                             )
@@ -289,6 +329,14 @@ struct ZoomPresentationContainer: View {
         return ZoomManagementTitle.text(
             sourceOrdinal: sourceOrdinal,
             activeArrangementName: activeArrangementName
+        )
+    }
+
+    private var sourceManagementContext: PaneManagementContext {
+        PaneManagementContext.project(
+            paneId: sourcePaneId,
+            store: store,
+            notificationCountForWorktree: notificationCountForWorktree
         )
     }
 

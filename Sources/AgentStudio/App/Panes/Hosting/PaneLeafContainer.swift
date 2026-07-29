@@ -20,17 +20,6 @@ enum PaneManagementTrailingControl: Equatable {
     }
 }
 
-@MainActor
-private func ancestorChainDescription(for view: NSView) -> String {
-    var nodes: [String] = []
-    var current: NSView? = view
-    while let currentView = current {
-        nodes.append("class=\(type(of: currentView)) id=\(ObjectIdentifier(currentView))")
-        current = currentView.superview
-    }
-    return nodes.joined(separator: " -> ")
-}
-
 /// Renders a single pane leaf container.
 /// Handles terminal views (with surface dimming and drag handles) and
 /// non-terminal views (webview, code viewer stubs) uniformly.
@@ -70,6 +59,8 @@ struct PaneLeafContainer: View {
     @State private var isBrowserHovered: Bool = false
     @State private var isMovePaneHovered: Bool = false
     @State private var isDetachHovered: Bool = false
+    @State private var movePaneMenuAnchorView: NSView?
+    @State private var movePaneMenuPresenter = PaneMoveDestinationMenuPresenter()
 
     init(
         paneHost: PaneHostView,
@@ -465,18 +456,23 @@ struct PaneLeafContainer: View {
                             ) {
                             case .detachDrawerPane:
                                 if let detachPresentation {
-                                    paneEdgeCommandButton(
-                                        presentation: detachPresentation,
+                                    ManagementTrailingEdgeTabButton(
+                                        systemName: SystemSymbol.rectanglePortraitAndArrowRight.rawValue,
                                         isHovered: isDetachHovered,
-                                        accessibilityIdentifier: "paneManagement.detachDrawerPane"
+                                        isEnabled: detachPresentation.isEnabled,
+                                        tooltip: detachPresentation.spec.controlTooltipRenderValue(),
+                                        accessibilityIdentifier: "paneManagement.detachDrawerPane",
+                                        onAnchorViewChanged: nil
                                     ) {
                                         detachPresentation.perform()
                                     }
                                     .onHover { isDetachHovered = $0 }
                                 }
                             case .movePaneToTab:
-                                if let inlineMovePresentation {
-                                    movePaneDestinationMenu(inlineMovePresentation)
+                                if !managementContext.showsIdentityBlock,
+                                    let inlineMovePresentation
+                                {
+                                    movePaneTrailingEdgeTabButton(inlineMovePresentation)
                                 }
                             }
                         }
@@ -486,6 +482,29 @@ struct PaneLeafContainer: View {
                     .transition(.opacity)
                 }
 
+            }
+            .overlayPreferenceValue(ManagementPaneIdentityCardBoundsPreferenceKey.self) { identityCardBounds in
+                GeometryReader { overlayGeometry in
+                    if managementLayer.isActive,
+                        managementChromePresentation == .ordinary,
+                        !isDrawerChild,
+                        !isSplitResizing,
+                        !suppressMainPaneManagementInteraction,
+                        managementContext.showsIdentityBlock,
+                        let identityCardBounds,
+                        let inlineMovePresentation
+                    {
+                        let cardFrame = overlayGeometry[identityCardBounds]
+                        movePaneTrailingEdgeTabButton(inlineMovePresentation)
+                            .position(
+                                x: overlayGeometry.size.width
+                                    - (AppStyles.Shell.PaneChrome.paneSplitButtonSize / 2),
+                                y: cardFrame.minY
+                                    - AppStyles.General.Spacing.standard
+                                    - (AppStyles.Shell.PaneChrome.paneEdgeButtonHeight / 2)
+                            )
+                    }
+                }
             }
             .contentShape(Rectangle())
             .onHover { isHovered = suppressMainPaneManagementInteraction ? false : $0 }
@@ -572,7 +591,9 @@ struct PaneLeafContainer: View {
             }
         )
     }
+}
 
+extension PaneLeafContainer {
     func beginCloseTransition() {
         guard
             let closePresentation = commandPresentation(
@@ -752,27 +773,6 @@ struct PaneLeafContainer: View {
         }
     }
 
-    private func movePaneDestinationMenu(
-        _ presentation: PaneLeafCommandPresentation
-    ) -> some View {
-        Menu {
-            movePaneDestinationMenuItems(presentation)
-        } label: {
-            paneEdgeCommandButtonLabel(
-                presentation.spec,
-                isHovered: isMovePaneHovered
-            )
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .disabled(!presentation.isEnabled || movePaneDestinations.isEmpty)
-        .onHover { isMovePaneHovered = $0 }
-        .controlHelp(presentation.spec.controlTooltipRenderValue())
-        .accessibilityLabel(presentation.spec.label)
-        .accessibilityIdentifier("paneManagement.movePaneToTab")
-    }
-
     @ViewBuilder
     private func movePaneDestinationMenuItems(
         _ presentation: PaneLeafCommandPresentation
@@ -782,6 +782,49 @@ struct PaneLeafContainer: View {
                 movePane(to: destination, presentation: presentation)
             }
         }
+    }
+
+    private func presentMovePaneDestinationMenu(
+        _ presentation: PaneLeafCommandPresentation
+    ) {
+        guard
+            presentation.isEnabled,
+            let movePaneMenuAnchorView
+        else {
+            return
+        }
+        movePaneMenuPresenter.present(
+            destinations: movePaneDestinations.map { destination in
+                PaneMoveDestinationMenuPresenter.Destination(
+                    title: destination.title,
+                    perform: {
+                        movePane(to: destination, presentation: presentation)
+                    }
+                )
+            },
+            from: movePaneMenuAnchorView
+        )
+    }
+
+    private func movePaneTrailingEdgeTabButton(
+        _ presentation: PaneLeafCommandPresentation
+    ) -> some View {
+        ManagementTrailingEdgeTabButton(
+            systemName: SystemSymbol.arrowLeftArrowRight.rawValue,
+            isHovered: isMovePaneHovered,
+            isEnabled: presentation.isEnabled && !movePaneDestinations.isEmpty,
+            tooltip: presentation.spec.controlTooltipRenderValue(),
+            accessibilityIdentifier: "paneManagement.movePaneToTab",
+            onAnchorViewChanged: { view in
+                if movePaneMenuAnchorView !== view {
+                    movePaneMenuAnchorView = view
+                }
+            },
+            action: {
+                presentMovePaneDestinationMenu(presentation)
+            }
+        )
+        .onHover { isMovePaneHovered = $0 }
     }
 
     private func movePane(
@@ -817,7 +860,7 @@ struct PaneLeafContainer: View {
         )
         .frame(
             width: AppStyles.Shell.PaneChrome.paneSplitButtonSize,
-            height: AppStyles.Shell.PaneChrome.paneSplitButtonSize + 12
+            height: AppStyles.Shell.PaneChrome.paneEdgeButtonHeight
         )
         .background(
             UnevenRoundedRectangle(
@@ -853,7 +896,7 @@ struct PaneLeafContainer: View {
             )
             .frame(
                 width: AppStyles.Shell.PaneChrome.paneSplitButtonSize,
-                height: AppStyles.Shell.PaneChrome.paneSplitButtonSize + 12
+                height: AppStyles.Shell.PaneChrome.paneEdgeButtonHeight
             )
             .background(
                 UnevenRoundedRectangle(
@@ -941,44 +984,6 @@ struct DragHandleDragPreview: View {
         }
     }
 }
-
-// MARK: - NSViewRepresentable for PaneHostView
-
-/// Bridges any PaneHostView (NSView) into SwiftUI.
-/// Returns the stable swiftUIContainer — same NSView every time, preventing IOSurface reparenting.
-struct PaneViewRepresentable: NSViewRepresentable {
-    let paneHost: PaneHostView
-
-    #if DEBUG
-        static var onDismantleForTesting: (() -> Void)?
-    #endif
-
-    func makeNSView(context: Context) -> NSView {
-        RestoreTrace.log(
-            "PaneViewRepresentable.makeNSView paneId=\(paneHost.paneId) containerId=\(ObjectIdentifier(paneHost.swiftUIContainer)) hostId=\(ObjectIdentifier(paneHost))"
-        )
-        return paneHost.swiftUIContainer
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        // Nothing — container is stable, pane manages itself.
-        // Host replacement is handled by .id(paneHost.hostIdentity) on the
-        // PaneViewRepresentable call site, which forces SwiftUI to dismantle
-        // and recreate when the host instance changes.
-    }
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
-        RestoreTrace.log(
-            "PaneViewRepresentable.dismantleNSView viewId=\(ObjectIdentifier(nsView)) superview=\(nsView.superview != nil) window=\(nsView.window != nil) ancestry=\(ancestorChainDescription(for: nsView))"
-        )
-        #if DEBUG
-            onDismantleForTesting?()
-        #endif
-    }
-}
-
-@available(*, deprecated, renamed: "PaneLeafContainer")
-typealias TerminalPaneLeaf = PaneLeafContainer
 
 /// Payload for dragging the new tab button.
 struct NewTabDragPayload: Codable, Transferable {

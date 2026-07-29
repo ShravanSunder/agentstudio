@@ -339,7 +339,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .zoomPane,
                 label: "Pane Zoom",
-                icon: .system(.arrowDownLeftAndArrowUpRightRectangle),
+                icon: .system(.squareArrowTriangle4Outward),
                 helpText: "Zoom the active pane",
                 surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom), .inlineControl]),
                 targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),

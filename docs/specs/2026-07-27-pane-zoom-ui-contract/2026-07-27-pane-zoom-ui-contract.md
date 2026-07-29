@@ -17,7 +17,7 @@ Pane Zoom uses one name and one icon everywhere.
   omit the label. `Focus`, `Zoom Focus`, and `Zoom Pane` are not Zoom
   vocabulary.
 - Every Zoom control uses the SF Symbol
-  `arrow.down.left.and.arrow.up.right.rectangle`.
+  `square.arrowtriangle.4.outward`.
 - The inactive control enters Zoom.
 - Compact management controls use the same control selected while Zoom is
   active; activating it exits Zoom.
@@ -63,11 +63,12 @@ pane membership.
 
 ```text
 [Drawer Toggle] [Add Drawer]
-         [Zoom selected] [Viewer] [Editor] │ [Finder] [Copy Path] │ [Notification]
+        [Zoomed selected] [Viewer] [Editor] │ [Finder] [Copy Path] │ [Notification]
 ```
 
-`[Zoom]` in these diagrams denotes the canonical icon-only control. The bottom
-toolbar never renders a visible `Zoom` text label.
+The inactive `[Zoom]` control is icon-only. After Zoom mounts, that same control
+morphs into the selected canonical icon plus `Zoomed`; it does not add another
+control or render the command label `Pane Zoom`.
 
 The ordering is contractual:
 
@@ -226,12 +227,18 @@ workspace state and must not be written to SQLite.
 
 ### Presentation transitions
 
-Zoom entry, cancellation, and retargeting use identity replacement with no
-animation. Viewer visibility remains a separate transition: showing Viewer
-opens the split from the center toward the Viewer side, and hiding Viewer
-collapses it from the center toward the Viewer side. Viewer motion uses the
-existing `AppStyles.General.Animation.standard` timing and must not duplicate,
-snapshot, or recreate a terminal or Viewer host.
+Zoom entry mounts the Zoom presentation and its toolbar, then morphs only the
+Zoom control from the canonical icon into selected icon plus `Zoomed` using
+`AppStyles.General.Animation.standard`. Cancellation contracts that control
+back to the icon using `AppStyles.General.Animation.fast`, then cancels Zoom and
+identity-replaces the pane and toolbar. Retargeting remains identity replacement
+without animation.
+
+Viewer visibility remains a separate transition: showing Viewer opens the split
+from the center toward the Viewer side, and hiding Viewer collapses it from the
+center toward the Viewer side. Viewer motion uses the existing
+`AppStyles.General.Animation.standard` timing and must not duplicate, snapshot,
+or recreate a terminal or Viewer host.
 
 ### Arrangement changes during Zoom
 
@@ -319,12 +326,14 @@ the raw companion identity.
   segment when the underlying selection changes.
 - R16: The Arrangements popover remains open across Zoom, arrangement
   selection/creation, and inline rename actions; rename focus is stable.
-- R17: The bottom Pane Zoom toolbar control is icon-only.
+- R17: The bottom Pane Zoom toolbar control is icon-only while inactive and
+  morphs into the selected canonical icon plus `Zoomed` while Zoom is active.
 - R18: The source/Viewer split ratio is remembered per source across transient
   Zoom presentation changes and remains excluded from durable persistence.
-- R19: Zoom entry, cancellation, and retargeting do not animate. Viewer
-  show/hide retains the accepted center-to-side transition without changing
-  host identity.
+- R19: Zoom entry expands only the mounted Zoom control using standard timing;
+  cancellation contracts it using fast timing before identity replacement;
+  retargeting does not animate. Viewer show/hide retains the accepted
+  center-to-side transition without changing host identity.
 - R20: Active management chrome places Cancel Zoom immediately left of
   Arrangements at the top-left.
 - R21: Opening normal Arrangements reveals minimized bars without changing
@@ -362,9 +371,9 @@ the raw companion identity.
   transport `sourceId`.
 - Runtime-state and mounted split tests assert per-source ratio restoration
   across Viewer hide/show and Cancel/re-entry, plus persistence exclusion.
-- Transition-state tests and native recordings assert identity replacement for
-  Zoom, direction and duration bounds for Viewer, terminal/Viewer host
-  continuity, and final geometry.
+- Transition-state tests and native recordings assert Zoom-control morph
+  ordering, identity replacement after contraction, direction and duration
+  bounds for Viewer, terminal/Viewer host continuity, and final geometry.
 - Shortcut tests assert dense expanded-pane ordinals and prove that targeting
   an ordinal does not restore minimized panes.
 - Shortcut and controller tests assert exact O-family decoding, typed tooltip

@@ -348,7 +348,7 @@ struct ZoomPresentationContainerTests {
                 hostingView.layoutSubtreeIfNeeded()
 
                 let copyPathView = try #require(
-                    accessibilityPressBridgeView(
+                    zoomTestAccessibilityPressBridgeView(
                         in: hostingView,
                         identifier: "paneSurfaceToolbar.copyPath"
                     )
@@ -471,6 +471,22 @@ struct ZoomPresentationContainerTests {
         #expect(ordinaryState.accessibilityIdentifiers.contains("paneSurfaceToolbar.normalprobe"))
     }
 
+    @Test("Zoom management keeps the source worktree identity above the toolbar in every Viewer state")
+    func zoomManagementKeepsSourceWorktreeIdentity() {
+        for viewerVisible in [false, true] {
+            let state = mountedSingleTabState(
+                viewerVisible: viewerVisible,
+                managementActive: true,
+                worktreeBacked: true
+            )
+
+            #expect(state.accessibilityIdentifiers.contains("paneManagement.identityStrip"))
+            #expect(!state.accessibilityIdentifiers.contains("paneManagement.movePaneToTab"))
+        }
+    }
+}
+
+extension ZoomPresentationContainerTests {
     private func mountedAccessibilityIdentifiers(
         companionContent: AnyView?,
         includesViewerAction: Bool = true,
@@ -533,7 +549,7 @@ struct ZoomPresentationContainerTests {
 
         hostingView.layoutSubtreeIfNeeded()
 
-        return accessibilityIdentifiers(in: hostingView)
+        return zoomTestAccessibilityIdentifiers(in: hostingView)
     }
 
     private func mountedSingleTabAccessibilityIdentifiers(
@@ -551,10 +567,45 @@ struct ZoomPresentationContainerTests {
     private func mountedSingleTabState(
         viewerVisible: Bool = false,
         managementActive: Bool = false,
+        worktreeBacked: Bool = false,
         paneInboxPresentation: PaneInboxPresentation? = nil
     ) -> MountedToolbarState {
         let store = WorkspaceStore()
-        let sourcePane = store.createPane()
+        let sourcePane: Pane
+        if worktreeBacked {
+            let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio"))
+            let worktree = Worktree(
+                repoId: repo.id,
+                name: "feature-name",
+                path: URL(filePath: "/tmp/agent-studio/feature-name")
+            )
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            let storedWorktree = store.repos[0].worktrees[0]
+            sourcePane = store.createPane(
+                launchDirectory: storedWorktree.path,
+                facets: PaneContextFacets(
+                    repoId: repo.id,
+                    repoName: repo.name,
+                    worktreeId: storedWorktree.id,
+                    worktreeName: storedWorktree.name,
+                    cwd: storedWorktree.path
+                )
+            )
+        } else {
+            sourcePane = store.createPane()
+        }
+        if worktreeBacked {
+            let managementContext = PaneManagementContext.project(
+                paneId: sourcePane.id,
+                store: store
+            )
+            #expect(managementContext.showsIdentityBlock)
+            #expect(
+                managementContext.identityRows.contains {
+                    $0.id == "worktree" && $0.text == "feature-name"
+                }
+            )
+        }
         let tab = Tab(paneId: sourcePane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
@@ -715,8 +766,8 @@ struct ZoomPresentationContainerTests {
         hostingView.layoutSubtreeIfNeeded()
 
         return MountedToolbarState(
-            accessibilityIdentifiers: accessibilityIdentifiers(in: hostingView),
-            toolbarControlFrames: toolbarControlFrames(in: hostingView)
+            accessibilityIdentifiers: zoomTestAccessibilityIdentifiers(in: hostingView),
+            toolbarControlFrames: zoomTestToolbarControlFrames(in: hostingView)
         )
     }
 
@@ -873,106 +924,6 @@ struct ZoomPresentationContainerTests {
             perform: {
                 perform(sourcePaneId)
             }
-        )
-    }
-}
-
-@MainActor
-private func accessibilityIdentifiers(in root: AnyObject) -> [String] {
-    var identifiers: [String] = []
-    var visited: Set<ObjectIdentifier> = []
-    collectAccessibilityIdentifiers(
-        in: root,
-        identifiers: &identifiers,
-        visited: &visited
-    )
-    return identifiers
-}
-
-@MainActor
-private func collectAccessibilityIdentifiers(
-    in element: AnyObject,
-    identifiers: inout [String],
-    visited: inout Set<ObjectIdentifier>
-) {
-    let objectIdentifier = ObjectIdentifier(element)
-    guard visited.insert(objectIdentifier).inserted else { return }
-
-    let identifierSelector = NSSelectorFromString("accessibilityIdentifier")
-    if element.responds(to: identifierSelector),
-        let identifier = element.perform(identifierSelector)?.takeUnretainedValue() as? String
-    {
-        identifiers.append(identifier)
-    }
-
-    let childrenSelector = NSSelectorFromString("accessibilityChildren")
-    if element.responds(to: childrenSelector),
-        let children = element.perform(childrenSelector)?.takeUnretainedValue() as? [AnyObject]
-    {
-        for child in children {
-            collectAccessibilityIdentifiers(
-                in: child,
-                identifiers: &identifiers,
-                visited: &visited
-            )
-        }
-    }
-
-    for subview in (element as? NSView)?.subviews ?? [] {
-        collectAccessibilityIdentifiers(
-            in: subview,
-            identifiers: &identifiers,
-            visited: &visited
-        )
-    }
-}
-
-@MainActor
-private func accessibilityPressBridgeView(
-    in root: NSView,
-    identifier: String
-) -> AccessibilityPressBridgeView? {
-    if let bridgeView = root as? AccessibilityPressBridgeView,
-        bridgeView.accessibilityIdentifier() == identifier
-    {
-        return bridgeView
-    }
-    for subview in root.subviews {
-        if let bridgeView = accessibilityPressBridgeView(
-            in: subview,
-            identifier: identifier
-        ) {
-            return bridgeView
-        }
-    }
-    return nil
-}
-
-@MainActor
-private func toolbarControlFrames(in root: NSView) -> [String: CGRect] {
-    var frames: [String: CGRect] = [:]
-    collectToolbarControlFrames(in: root, relativeTo: root, frames: &frames)
-    return frames
-}
-
-@MainActor
-private func collectToolbarControlFrames(
-    in view: NSView,
-    relativeTo root: NSView,
-    frames: inout [String: CGRect]
-) {
-    if let bridgeView = view as? AccessibilityPressBridgeView {
-        let identifier = bridgeView.accessibilityIdentifier()
-        if identifier.hasPrefix("paneSurfaceToolbar.") {
-            frames[identifier] = bridgeView.convert(bridgeView.bounds, to: root)
-        }
-    }
-
-    for subview in view.subviews {
-        collectToolbarControlFrames(
-            in: subview,
-            relativeTo: root,
-            frames: &frames
         )
     }
 }
