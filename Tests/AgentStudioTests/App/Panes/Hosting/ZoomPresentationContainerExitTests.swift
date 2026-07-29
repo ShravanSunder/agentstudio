@@ -18,12 +18,38 @@ struct ZoomPresentationContainerExitTests {
 
     @Test("Zoom toolbar contracts before cancelling and ignores repeated presses")
     func zoomToolbarContractsBeforeCancelling() async throws {
+        try await expectSequencedZoomExit(
+            accessibilityIdentifier: "paneSurfaceToolbar.zoom",
+            managementActive: false
+        )
+    }
+
+    @Test("Zoom management control contracts before cancelling and ignores repeated presses")
+    func zoomManagementControlContractsBeforeCancelling() async throws {
+        try await expectSequencedZoomExit(
+            accessibilityIdentifier: "paneManagement.zoom",
+            managementActive: true
+        )
+    }
+
+    private func expectSequencedZoomExit(
+        accessibilityIdentifier: String,
+        managementActive: Bool
+    ) async throws {
         let sourcePaneId = UUID()
         let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let recorder = ZoomExitRecorder()
         let (cancellationEvents, cancellationContinuation) = AsyncStream.makeStream(of: Void.self)
         defer { cancellationContinuation.finish() }
+        if managementActive {
+            atom(\.managementLayer).activate()
+        }
+        defer {
+            if managementActive {
+                atom(\.managementLayer).deactivate()
+            }
+        }
         let hostingView = NSHostingView(
             rootView: ZoomPresentationContainer(
                 sourcePaneId: sourcePaneId,
@@ -79,7 +105,7 @@ struct ZoomPresentationContainerExitTests {
         let zoomView = try #require(
             accessibilityPressBridgeView(
                 in: hostingView,
-                identifier: "paneSurfaceToolbar.zoom"
+                identifier: accessibilityIdentifier
             )
         )
         #expect(zoomView.accessibilityPerformPress())

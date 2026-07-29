@@ -434,6 +434,20 @@ struct ZoomPresentationContainerTests {
         #expect(ordinaryState.accessibilityIdentifiers.contains("paneSurfaceToolbar.normalprobe"))
     }
 
+    @Test("Zoom management keeps the source worktree identity above the toolbar in every Viewer state")
+    func zoomManagementKeepsSourceWorktreeIdentity() {
+        for viewerVisible in [false, true] {
+            let state = mountedSingleTabState(
+                viewerVisible: viewerVisible,
+                managementActive: true,
+                worktreeBacked: true
+            )
+
+            #expect(state.accessibilityIdentifiers.contains("paneManagement.identityStrip"))
+            #expect(!state.accessibilityIdentifiers.contains("paneManagement.movePaneToTab"))
+        }
+    }
+
     private func mountedAccessibilityIdentifiers(
         companionContent: AnyView?
     ) -> [String] {
@@ -507,10 +521,45 @@ struct ZoomPresentationContainerTests {
     private func mountedSingleTabState(
         viewerVisible: Bool = false,
         managementActive: Bool = false,
+        worktreeBacked: Bool = false,
         paneInboxPresentation: PaneInboxPresentation? = nil
     ) -> MountedToolbarState {
         let store = WorkspaceStore()
-        let sourcePane = store.createPane()
+        let sourcePane: Pane
+        if worktreeBacked {
+            let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio"))
+            let worktree = Worktree(
+                repoId: repo.id,
+                name: "feature-name",
+                path: URL(filePath: "/tmp/agent-studio/feature-name")
+            )
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            let storedWorktree = store.repos[0].worktrees[0]
+            sourcePane = store.createPane(
+                launchDirectory: storedWorktree.path,
+                facets: PaneContextFacets(
+                    repoId: repo.id,
+                    repoName: repo.name,
+                    worktreeId: storedWorktree.id,
+                    worktreeName: storedWorktree.name,
+                    cwd: storedWorktree.path
+                )
+            )
+        } else {
+            sourcePane = store.createPane()
+        }
+        if worktreeBacked {
+            let managementContext = PaneManagementContext.project(
+                paneId: sourcePane.id,
+                store: store
+            )
+            #expect(managementContext.showsIdentityBlock)
+            #expect(
+                managementContext.identityRows.contains {
+                    $0.id == "worktree" && $0.text == "feature-name"
+                }
+            )
+        }
         let tab = Tab(paneId: sourcePane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)

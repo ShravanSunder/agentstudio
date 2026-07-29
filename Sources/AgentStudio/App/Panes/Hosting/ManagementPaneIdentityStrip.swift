@@ -1,6 +1,15 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import SwiftUI
+
+struct ManagementPaneIdentityCardBoundsPreferenceKey: PreferenceKey {
+    static let defaultValue: Anchor<CGRect>? = nil
+
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = nextValue() ?? value
+    }
+}
 
 struct ManagementPaneIdentityStrip: View {
     let context: PaneManagementContext
@@ -49,6 +58,17 @@ struct ManagementPaneIdentityStrip: View {
                         .stroke(Color.white.opacity(AppStyles.General.Fill.active), lineWidth: 1)
                 )
         )
+        .anchorPreference(
+            key: ManagementPaneIdentityCardBoundsPreferenceKey.self,
+            value: .bounds,
+            transform: { $0 }
+        )
+        .background {
+            AccessibilityLabelBridge(
+                identifier: "paneManagement.identityStrip",
+                label: context.identityRows.map(\.text).joined(separator: ", ")
+            )
+        }
         .padding(.horizontal, AppStyles.General.Spacing.loose)
         .padding(.vertical, AppStyles.General.Spacing.loose)
         .fixedSize(horizontal: false, vertical: true)

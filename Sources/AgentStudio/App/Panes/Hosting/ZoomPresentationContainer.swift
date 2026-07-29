@@ -144,6 +144,15 @@ struct ZoomPresentationContainer: View {
                         }
                     )
 
+                    if atom(\.managementLayer).isActive,
+                        sourceManagementContext.showsIdentityBlock
+                    {
+                        ManagementPaneIdentityStrip(
+                            context: sourceManagementContext,
+                            octiconLoader: octiconLoader
+                        )
+                    }
+
                     parentToolbar
                 }
 
@@ -199,14 +208,10 @@ struct ZoomPresentationContainer: View {
     @ViewBuilder
     private var parentToolbar: some View {
         if case .zoom(let toolbarModel) = parentToolbarPresentation {
-            let projectedZoomAction = toolbarModel.zoomAction.projectingVisibleLabel(
-                showsZoomToolbarLabel ? toolbarModel.zoomAction.state.visibleLabel : nil
-            )
-            let zoomAction = PaneSurfaceToolbarAction(
-                state: projectedZoomAction.state,
-                perform: {
-                    beginZoomToolbarExit(performCancel: toolbarModel.zoomAction.perform)
-                }
+            let zoomAction = sequencedZoomExitAction(
+                toolbarModel.zoomAction.projectingVisibleLabel(
+                    showsZoomToolbarLabel ? toolbarModel.zoomAction.state.visibleLabel : nil
+                )
             )
             PaneSurfaceToolbarHost(
                 anchorPaneId: sourcePaneId,
@@ -229,6 +234,17 @@ struct ZoomPresentationContainer: View {
                 }
             }
         }
+    }
+
+    private func sequencedZoomExitAction(
+        _ zoomAction: PaneSurfaceToolbarAction
+    ) -> PaneSurfaceToolbarAction {
+        PaneSurfaceToolbarAction(
+            state: zoomAction.state,
+            perform: {
+                beginZoomToolbarExit(performCancel: zoomAction.perform)
+            }
+        )
     }
 
     private func beginZoomToolbarExit(
@@ -273,7 +289,7 @@ struct ZoomPresentationContainer: View {
                 VStack {
                     HStack(spacing: AppStyles.General.Spacing.standard) {
                         managementCircleButton(
-                            action: toolbarModel.zoomAction,
+                            action: sequencedZoomExitAction(toolbarModel.zoomAction),
                             isHovered: zoomHovered,
                             accessibilityIdentifier: "paneManagement.zoom"
                         )
@@ -306,6 +322,14 @@ struct ZoomPresentationContainer: View {
         return ZoomManagementTitle.text(
             sourceOrdinal: sourceOrdinal,
             activeArrangementName: activeArrangementName
+        )
+    }
+
+    private var sourceManagementContext: PaneManagementContext {
+        PaneManagementContext.project(
+            paneId: sourcePaneId,
+            store: store,
+            notificationCountForWorktree: notificationCountForWorktree
         )
     }
 
