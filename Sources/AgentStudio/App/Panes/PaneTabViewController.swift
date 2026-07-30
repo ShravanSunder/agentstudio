@@ -1132,14 +1132,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         for paneId: UUID
     ) -> PaneSurfaceToolbarPresentation {
         guard
-            let pane = store.paneAtom.pane(paneId),
-            let tabId = store.tabLayoutAtom.tabs.first(where: { $0.activePaneIds.contains(paneId) })?.id
+            let paneState = store.paneAtom.graphAtom.paneState(paneId),
+            !paneState.isDrawerChild,
+            let tabId = store.tabLayoutAtom.tabContaining(paneId: paneId)?.id
         else {
             return .hidden
         }
 
         return PaneSurfaceToolbarResolver.resolve(
-            content: pane.content,
+            content: paneState.paneContent,
             placement: .normalMainPane,
             terminalModeActions: TerminalModeToolbarActions(
                 zoomAction: paneSurfaceToolbarAction(command: .zoomPane, sourcePaneId: paneId),
@@ -1156,7 +1157,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         for paneId: UUID,
         viewerPresentation: ZoomViewerPresentation
     ) -> PaneSurfaceToolbarPresentation {
-        guard let tabId = store.tabLayoutAtom.tabs.first(where: { $0.activePaneIds.contains(paneId) })?.id else {
+        guard let tabId = store.tabLayoutAtom.tabContaining(paneId: paneId)?.id else {
             return .hidden
         }
         let zoomAction = paneSurfaceToolbarAction(command: .zoomPane, sourcePaneId: paneId)
@@ -2966,40 +2967,34 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func zoomCommandCapability(explicitPaneId: UUID?) -> ZoomCommandCapability? {
-        let mainPaneTabIdByPaneId = mainPaneTabIdByPaneId()
-        let zoomEligiblePaneIds = Set(
-            mainPaneTabIdByPaneId.keys.filter { paneId in
-                guard let content = store.paneAtom.pane(paneId)?.content else {
-                    return false
-                }
-                return ZoomCommandCapabilityPolicy.isPaneContentEligible(content)
+        let activeTabId = store.tabLayoutAtom.activeTabId
+        let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
+        let candidatePaneId = explicitPaneId ?? activePaneId
+        let candidate = candidatePaneId.flatMap { paneId -> ZoomCommandCandidate? in
+            guard
+                let paneState = store.paneAtom.graphAtom.paneState(paneId),
+                !paneState.isDrawerChild,
+                let tabId = store.tabLayoutAtom.tabContaining(paneId: paneId)?.id
+            else {
+                return nil
             }
-        )
+            return ZoomCommandCandidate(
+                paneId: paneId,
+                tabId: tabId,
+                isEligible: ZoomCommandCapabilityPolicy.isPaneContentEligible(
+                    paneState.paneContent
+                )
+            )
+        }
         let zoomSourcePaneIdByTabId = store.panePresentationAtom.zoomPresentationsByTabId.mapValues(
             \.sourcePaneId
         )
-        let activeTabId = store.tabLayoutAtom.activeTabId
-        let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
         return ZoomCommandCapabilityPolicy.resolve(
             activeTabId: activeTabId,
             activePaneId: activePaneId,
             explicitPaneId: explicitPaneId,
-            mainPaneTabIdByPaneId: mainPaneTabIdByPaneId,
-            zoomEligiblePaneIds: zoomEligiblePaneIds,
+            candidate: candidate,
             zoomSourcePaneIdByTabId: zoomSourcePaneIdByTabId
-        )
-    }
-
-    private func mainPaneTabIdByPaneId() -> [UUID: UUID] {
-        Dictionary(
-            uniqueKeysWithValues: store.tabLayoutAtom.tabs.flatMap { tab in
-                tab.allPaneIds.compactMap { paneId in
-                    guard store.paneAtom.pane(paneId)?.parentPaneId == nil else {
-                        return nil
-                    }
-                    return (paneId, tab.id)
-                }
-            }
         )
     }
 
@@ -3083,16 +3078,17 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func resolvedViewerWorktreeId(forPane paneId: UUID) -> UUID? {
-        guard let pane = store.paneAtom.pane(paneId) else {
+        guard let paneState = store.paneAtom.graphAtom.paneState(paneId) else {
             return nil
         }
-        if let worktreeId = pane.worktreeId {
+        let facets = paneState.durableContextFacets
+        if let worktreeId = facets.worktreeId {
             guard store.repositoryTopologyAtom.worktree(worktreeId) != nil else {
                 return nil
             }
             return worktreeId
         }
-        if let resolved = store.repositoryTopologyAtom.repoAndWorktree(containing: pane.metadata.facets.cwd) {
+        if let resolved = store.repositoryTopologyAtom.repoAndWorktree(containing: facets.cwd) {
             return resolved.worktree.id
         }
         let worktreeIds = store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)
@@ -3796,8 +3792,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 let activeTabId = store.tabLayoutAtom.activeTabId,
                 let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: activeTabId),
                 zoomPresentation.sourcePaneId == target,
-                let sourcePane = store.paneAtom.pane(target),
-                case .terminal = sourcePane.content
+                let sourcePaneState = store.paneAtom.graphAtom.paneState(target),
+                case .terminal = sourcePaneState.paneContent
             else {
                 return false
             }
@@ -3860,8 +3856,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: activeTabId)
             {
                 guard
-                    let sourcePane = store.paneAtom.pane(zoomPresentation.sourcePaneId),
-                    case .terminal = sourcePane.content
+                    let sourcePaneState = store.paneAtom.graphAtom.paneState(
+                        zoomPresentation.sourcePaneId
+                    ),
+                    case .terminal = sourcePaneState.paneContent
                 else {
                     return false
                 }
