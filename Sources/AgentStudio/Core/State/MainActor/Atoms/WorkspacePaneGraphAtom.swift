@@ -156,9 +156,17 @@ package struct PaneGraphState: Identifiable, Hashable, Sendable {
         return nil
     }
 
-    var isDrawerChild: Bool {
+    package var isDrawerChild: Bool {
         if case .drawerChild = kind { return true }
         return false
+    }
+
+    package var paneContent: PaneContent {
+        content
+    }
+
+    package var durableContextFacets: PaneContextFacets {
+        metadata.facets.paneContextFacets
     }
 
     var parentPaneId: UUID? {

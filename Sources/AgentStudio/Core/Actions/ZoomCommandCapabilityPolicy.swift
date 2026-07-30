@@ -14,6 +14,22 @@ package struct ZoomCommandCapability: Equatable, Sendable {
     package let requiresTabActivation: Bool
 }
 
+package struct ZoomCommandCandidate: Equatable, Sendable {
+    package let paneId: UUID
+    package let tabId: UUID
+    package let isEligible: Bool
+
+    package init(
+        paneId: UUID,
+        tabId: UUID,
+        isEligible: Bool
+    ) {
+        self.paneId = paneId
+        self.tabId = tabId
+        self.isEligible = isEligible
+    }
+}
+
 package enum ZoomCommandCapabilityPolicy {
     package static func isPaneContentEligible(_ content: PaneContent) -> Bool {
         switch content {
@@ -28,16 +44,18 @@ package enum ZoomCommandCapabilityPolicy {
         activeTabId: UUID?,
         activePaneId: UUID?,
         explicitPaneId: UUID?,
-        mainPaneTabIdByPaneId: [UUID: UUID],
-        zoomEligiblePaneIds: Set<UUID>,
-        zoomSourcePaneIdByTabId: [UUID: UUID]
+        candidate: ZoomCommandCandidate?,
+        zoomSourcePaneId: UUID?
     ) -> ZoomCommandCapability? {
         if let explicitPaneId {
-            guard let targetTabId = mainPaneTabIdByPaneId[explicitPaneId] else {
+            guard
+                let candidate,
+                candidate.paneId == explicitPaneId
+            else {
                 return nil
             }
+            let targetTabId = candidate.tabId
             let requiresTabActivation = activeTabId != targetTabId
-            let zoomSourcePaneId = zoomSourcePaneIdByTabId[targetTabId]
 
             if !requiresTabActivation, zoomSourcePaneId == explicitPaneId {
                 return ZoomCommandCapability(
@@ -48,7 +66,7 @@ package enum ZoomCommandCapabilityPolicy {
                 )
             }
 
-            guard zoomEligiblePaneIds.contains(explicitPaneId) else {
+            guard candidate.isEligible else {
                 return nil
             }
 
@@ -86,7 +104,7 @@ package enum ZoomCommandCapabilityPolicy {
         guard let activeTabId else {
             return nil
         }
-        if let zoomSourcePaneId = zoomSourcePaneIdByTabId[activeTabId] {
+        if let zoomSourcePaneId {
             return ZoomCommandCapability(
                 tabId: activeTabId,
                 sourcePaneId: zoomSourcePaneId,
@@ -96,8 +114,10 @@ package enum ZoomCommandCapabilityPolicy {
         }
         guard
             let activePaneId,
-            mainPaneTabIdByPaneId[activePaneId] == activeTabId,
-            zoomEligiblePaneIds.contains(activePaneId)
+            let candidate,
+            candidate.paneId == activePaneId,
+            candidate.tabId == activeTabId,
+            candidate.isEligible
         else {
             return nil
         }
