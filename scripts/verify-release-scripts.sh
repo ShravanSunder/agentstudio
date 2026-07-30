@@ -112,6 +112,32 @@ fi
 cleanup_beta_repos
 trap - EXIT
 
+daily_beta_workflow_path="$ROOT_DIR/.github/workflows/daily-beta.yml"
+if [[ ! -f "$daily_beta_workflow_path" ]]; then
+  echo "daily beta workflow is missing: $daily_beta_workflow_path" >&2
+  exit 1
+fi
+daily_beta_workflow="$(<"$daily_beta_workflow_path")"
+
+assert_contains "$daily_beta_workflow" "schedule:"
+assert_contains "$daily_beta_workflow" "cron: '0 12 * * *'"
+assert_contains "$daily_beta_workflow" "timezone: 'America/Toronto'"
+assert_contains "$daily_beta_workflow" "workflow_dispatch:"
+assert_contains "$daily_beta_workflow" "contents: write"
+assert_contains "$daily_beta_workflow" "ref: main"
+assert_contains "$daily_beta_workflow" "fetch-depth: 0"
+assert_contains "$daily_beta_workflow" 'token: ${{ secrets.HOMEBREW_TAP_TOKEN }}'
+assert_contains "$daily_beta_workflow" "git fetch origin main --tags"
+assert_contains "$daily_beta_workflow" "scripts/resolve-daily-beta-tag.sh"
+assert_contains "$daily_beta_workflow" 'git tag "$BETA_TAG" "$CANDIDATE_SHA"'
+assert_contains "$daily_beta_workflow" 'git push origin "refs/tags/$BETA_TAG"'
+assert_not_contains "$daily_beta_workflow" "GITHUB_TOKEN"
+assert_not_contains "$daily_beta_workflow" "APPLE_CERTIFICATE_BASE64"
+assert_not_contains "$daily_beta_workflow" "APPLE_NOTARY_PASSWORD"
+assert_not_contains "$daily_beta_workflow" "notarytool"
+assert_not_contains "$daily_beta_workflow" "update-homebrew-tap.sh"
+assert_not_contains "$daily_beta_workflow" "softprops/action-gh-release"
+
 stable_cask="$("$ROOT_DIR/scripts/render-homebrew-cask.sh" stable 0.0.54 "$SHA")"
 beta_cask="$("$ROOT_DIR/scripts/render-homebrew-cask.sh" beta 0.0.54-beta.1 "$SHA")"
 

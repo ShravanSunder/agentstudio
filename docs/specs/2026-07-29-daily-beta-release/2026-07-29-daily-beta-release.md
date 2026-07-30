@@ -52,12 +52,18 @@ It:
 - supports `workflow_dispatch`;
 - always resolves and tags the current `origin/main`, including when manually
   dispatched;
-- has `contents: write` permission and no signing or Homebrew secrets;
+- has `contents: write` permission;
 - checks out full tag history;
 - delegates tag selection to the repository script;
+- authenticates checkout and tag push with the existing
+  `HOMEBREW_TAP_TOKEN` release PAT so GitHub emits the downstream tag-push
+  event;
 - pushes one lightweight tag only when the script says publication is needed.
 
 It does not build, sign, notarize, publish a release, or edit the Homebrew tap.
+It cannot access the Apple signing or notarization secrets. The release PAT is
+not printed, interpolated into shell commands, or persisted outside the
+ephemeral workflow checkout.
 
 ### Tag resolver
 
@@ -84,6 +90,10 @@ a mutable version file, tag scan counter, or repository variable.
 `.github/workflows/release.yml` remains unchanged. Its existing `v*` tag trigger
 and beta metadata path own the complete signed release. The daily workflow
 therefore cannot drift into a second packaging implementation.
+
+The default repository `GITHUB_TOKEN` cannot be used for the tag push because
+GitHub suppresses downstream workflow runs caused by that token. The existing
+release PAT is required specifically to preserve the tag-driven handoff.
 
 ## Ordering Constraint
 
@@ -135,3 +145,5 @@ artifact per merge.
 
 GitHub's timezone-aware schedule syntax is documented at
 https://docs.github.com/actions/using-workflows/events-that-trigger-workflows.
+GitHub's downstream workflow token behavior is documented at
+https://docs.github.com/actions/using-workflows/triggering-a-workflow.

@@ -23,6 +23,9 @@ the only build, signing, notarization, publication, and Homebrew owner.
 - Use `vMAJOR.MINOR.(PATCH+1)-beta.<GITHUB_RUN_NUMBER>`.
 - Never move, delete, or force-push a tag.
 - Do not change `.github/workflows/release.yml`.
+- Authenticate checkout and tag push with
+  `${{ secrets.HOMEBREW_TAP_TOKEN }}`; `GITHUB_TOKEN` must not perform the push
+  because it suppresses the downstream release workflow.
 - Merge this PR after pane-toolbar hotfix PR #226.
 
 ---
@@ -140,12 +143,13 @@ workflow_dispatch:
 fetch-depth: 0
 ref: main
 contents: write
+token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 scripts/resolve-daily-beta-tag.sh
 git push origin
 ```
 
-Also assert the workflow does not contain signing, notarization, Homebrew, or
-`release.yml` duplication.
+Also assert the workflow does not contain Apple signing secrets, notarization
+commands, Homebrew tap mutation, or `release.yml` duplication.
 
 - [ ] **Step 2: Verify the workflow contract fails while the file is absent**
 
@@ -165,11 +169,13 @@ Create a workflow with:
 - `permissions: contents: write`;
 - one Ubuntu job with a short timeout;
 - `actions/checkout@v4`, `ref: main`, and `fetch-depth: 0`;
+- `token: ${{ secrets.HOMEBREW_TAP_TOKEN }}` on checkout so the tag push emits
+  the downstream workflow event;
 - an explicit `git fetch origin main --tags`;
 - a resolver step writing to `$GITHUB_OUTPUT`;
 - a conditional tag/push step guarded by
   `steps.beta.outputs.should_tag == 'true'`;
-- bot commit identity used only for tag attribution.
+- a lightweight tag, matching the repository's existing release tags.
 
 The workflow must tag the resolver's `candidate_sha`, not implicit `HEAD`.
 
@@ -179,6 +185,7 @@ Run:
 
 ```bash
 bash scripts/verify-release-scripts.sh
+actionlint .github/workflows/daily-beta.yml
 mise run lint
 git diff --check
 ```
