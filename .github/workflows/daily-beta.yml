@@ -1,0 +1,56 @@
+name: Daily Beta
+
+on:
+  schedule:
+    - cron: '0 12 * * *'
+      timezone: 'America/Toronto'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-beta-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag newest main for beta release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout main with release credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Resolve daily beta tag
+        id: beta
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags
+          candidate_sha="$(git rev-parse 'origin/main^{commit}')"
+          scripts/resolve-daily-beta-tag.sh \
+            "$candidate_sha" \
+            "$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Push beta tag
+        if: steps.beta.outputs.should_tag == 'true'
+        env:
+          BETA_TAG: ${{ steps.beta.outputs.tag }}
+          CANDIDATE_SHA: ${{ steps.beta.outputs.candidate_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git tag "$BETA_TAG" "$CANDIDATE_SHA"
+          git push origin "refs/tags/$BETA_TAG"
+
+      - name: Report unchanged main
+        if: steps.beta.outputs.should_tag != 'true'
+        env:
+          EXISTING_BETA_TAG: ${{ steps.beta.outputs.tag }}
+        run: echo "main is already beta-tagged as $EXISTING_BETA_TAG"
