@@ -126,6 +126,8 @@ assert_contains "$daily_beta_workflow" "workflow_dispatch:"
 assert_contains "$daily_beta_workflow" "contents: write"
 assert_contains "$daily_beta_workflow" "group: daily-beta-tag"
 assert_contains "$daily_beta_workflow" "cancel-in-progress: false"
+assert_contains "$daily_beta_workflow" \
+  "uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4"
 assert_contains "$daily_beta_workflow" "ref: main"
 assert_contains "$daily_beta_workflow" "fetch-depth: 0"
 assert_contains "$daily_beta_workflow" 'token: ${{ secrets.HOMEBREW_TAP_TOKEN }}'

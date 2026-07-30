@@ -53,7 +53,8 @@ It:
 - always resolves and tags the current `origin/main`, including when manually
   dispatched;
 - has `contents: write` permission;
-- checks out full tag history;
+- checks out full tag history through an immutable full-SHA action pin because
+  the checkout step receives the release PAT;
 - delegates tag selection to the repository script;
 - authenticates checkout and tag push with the existing
   `HOMEBREW_TAP_TOKEN` release PAT so GitHub emits the downstream tag-push

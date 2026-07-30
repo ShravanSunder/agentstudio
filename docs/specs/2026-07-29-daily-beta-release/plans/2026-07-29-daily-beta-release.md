@@ -24,6 +24,7 @@ the only build, signing, notarization, publication, and Homebrew owner.
 - Serialize overlapping runs with `cancel-in-progress: false`.
 - Never move, delete, or force-push a tag.
 - Do not change `.github/workflows/release.yml`.
+- Pin the credential-bearing checkout action to a full commit SHA.
 - Authenticate checkout and tag push with
   `${{ secrets.HOMEBREW_TAP_TOKEN }}`; `GITHUB_TOKEN` must not perform the push
   because it suppresses the downstream release workflow.
@@ -172,7 +173,8 @@ Create a workflow with:
 - `permissions: contents: write`;
 - workflow-level `daily-beta-tag` concurrency with cancellation disabled;
 - one Ubuntu job with a short timeout;
-- `actions/checkout@v4`, `ref: main`, and `fetch-depth: 0`;
+- `actions/checkout` pinned to the current v4 full commit SHA, `ref: main`, and
+  `fetch-depth: 0`;
 - `token: ${{ secrets.HOMEBREW_TAP_TOKEN }}` on checkout so the tag push emits
   the downstream workflow event;
 - an explicit `git fetch origin main --tags`;
