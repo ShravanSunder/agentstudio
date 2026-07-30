@@ -132,7 +132,9 @@ assert_contains "$daily_beta_workflow" "ref: main"
 assert_contains "$daily_beta_workflow" "fetch-depth: 0"
 assert_contains "$daily_beta_workflow" 'token: ${{ secrets.HOMEBREW_TAP_TOKEN }}'
 assert_contains "$daily_beta_workflow" "git fetch origin main --tags"
+assert_contains "$daily_beta_workflow" "git rev-parse 'origin/main^{commit}'"
 assert_contains "$daily_beta_workflow" "scripts/resolve-daily-beta-tag.sh"
+assert_contains "$daily_beta_workflow" "if: steps.beta.outputs.should_tag == 'true'"
 assert_contains "$daily_beta_workflow" 'git tag "$BETA_TAG" "$CANDIDATE_SHA"'
 assert_contains "$daily_beta_workflow" 'git push origin "refs/tags/$BETA_TAG"'
 assert_not_contains "$daily_beta_workflow" "GITHUB_TOKEN"
