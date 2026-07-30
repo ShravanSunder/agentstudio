@@ -1122,14 +1122,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         for paneId: UUID
     ) -> PaneSurfaceToolbarPresentation {
         guard
-            let pane = store.paneAtom.pane(paneId),
-            let tabId = store.tabLayoutAtom.tabs.first(where: { $0.activePaneIds.contains(paneId) })?.id
+            let paneState = store.paneAtom.graphAtom.paneState(paneId),
+            !paneState.isDrawerChild,
+            let tabId = store.tabLayoutAtom.tabID(containingPane: paneId)
         else {
             return .hidden
         }
 
         let terminalModeActions: TerminalModeToolbarActions?
-        if case .terminal = pane.content {
+        if case .terminal = paneState.paneContent {
             terminalModeActions = TerminalModeToolbarActions(
                 zoomAction: paneSurfaceToolbarAction(
                     command: .zoomPane,
@@ -1147,7 +1148,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         return PaneSurfaceToolbarResolver.resolve(
-            content: pane.content,
+            content: paneState.paneContent,
             placement: .normalMainPane,
             terminalModeActions: terminalModeActions,
             showArrangementsAction: paneShowArrangementsAction(
@@ -1161,7 +1162,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         for paneId: UUID,
         viewerPresentation: ZoomViewerPresentation
     ) -> PaneSurfaceToolbarPresentation {
-        guard let tabId = store.tabLayoutAtom.tabs.first(where: { $0.activePaneIds.contains(paneId) })?.id else {
+        guard let tabId = store.tabLayoutAtom.tabID(containingPane: paneId) else {
             return .hidden
         }
         return PaneSurfaceToolbarResolver.resolveZoom(
@@ -1225,14 +1226,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         )
     }
 
-    private func canExecutePaneSurfaceViewerCommand(sourcePaneId: UUID) -> Bool {
-        if let activeTabId = store.tabLayoutAtom.activeTabId,
-            let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: activeTabId),
-            zoomPresentation.sourcePaneId == sourcePaneId,
-            let sourcePane = store.paneAtom.pane(sourcePaneId),
-            case .terminal = sourcePane.content,
-            zoomPresentation.viewerPresentation != .unavailable
-        {
+    package func canExecutePaneSurfaceViewerCommand(sourcePaneId: UUID) -> Bool {
+        if canExecute(.showViewer, target: sourcePaneId, targetType: .pane) {
             return true
         }
         guard let capability = zoomCommandCapability(explicitPaneId: sourcePaneId) else {
@@ -2946,40 +2941,35 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func zoomCommandCapability(explicitPaneId: UUID?) -> ZoomCommandCapability? {
-        let mainPaneTabIdByPaneId = mainPaneTabIdByPaneId()
-        let zoomEligiblePaneIds = Set(
-            mainPaneTabIdByPaneId.keys.filter { paneId in
-                guard let content = store.paneAtom.pane(paneId)?.content else {
-                    return false
-                }
-                return ZoomCommandCapabilityPolicy.isPaneContentEligible(content)
-            }
-        )
-        let zoomSourcePaneIdByTabId = store.panePresentationAtom.zoomPresentationsByTabId.mapValues(
-            \.sourcePaneId
-        )
         let activeTabId = store.tabLayoutAtom.activeTabId
-        let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
+        let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.activePaneID(forTab: $0) }
+        let candidatePaneId = explicitPaneId ?? activePaneId
+        let candidate = candidatePaneId.flatMap { paneId -> ZoomCommandCandidate? in
+            guard
+                let paneState = store.paneAtom.graphAtom.paneState(paneId),
+                !paneState.isDrawerChild,
+                let tabId = store.tabLayoutAtom.tabID(containingPane: paneId)
+            else {
+                return nil
+            }
+            return ZoomCommandCandidate(
+                paneId: paneId,
+                tabId: tabId,
+                isEligible: ZoomCommandCapabilityPolicy.isPaneContentEligible(
+                    paneState.paneContent
+                )
+            )
+        }
+        let capabilityTabId = candidate?.tabId ?? activeTabId
+        let zoomSourcePaneId = capabilityTabId.flatMap {
+            store.panePresentationAtom.zoomPresentation(forTab: $0)?.sourcePaneId
+        }
         return ZoomCommandCapabilityPolicy.resolve(
             activeTabId: activeTabId,
             activePaneId: activePaneId,
             explicitPaneId: explicitPaneId,
-            mainPaneTabIdByPaneId: mainPaneTabIdByPaneId,
-            zoomEligiblePaneIds: zoomEligiblePaneIds,
-            zoomSourcePaneIdByTabId: zoomSourcePaneIdByTabId
-        )
-    }
-
-    private func mainPaneTabIdByPaneId() -> [UUID: UUID] {
-        Dictionary(
-            uniqueKeysWithValues: store.tabLayoutAtom.tabs.flatMap { tab in
-                tab.allPaneIds.compactMap { paneId in
-                    guard store.paneAtom.pane(paneId)?.parentPaneId == nil else {
-                        return nil
-                    }
-                    return (paneId, tab.id)
-                }
-            }
+            candidate: candidate,
+            zoomSourcePaneId: zoomSourcePaneId
         )
     }
 
@@ -3063,17 +3053,21 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func resolvedViewerWorktreeId(forPane paneId: UUID) -> UUID? {
-        guard let pane = store.paneAtom.pane(paneId) else {
+        guard let paneState = store.paneAtom.graphAtom.paneState(paneId) else {
             return nil
         }
-        if let worktreeId = pane.worktreeId {
-            guard store.repositoryTopologyAtom.worktree(worktreeId) != nil else {
-                return nil
-            }
+        let facets = paneState.durableContextFacets
+        let hasExplicitWorktreeId = facets.worktreeId != nil
+        if let worktreeId = facets.worktreeId,
+            store.repositoryTopologyAtom.worktree(worktreeId) != nil
+        {
             return worktreeId
         }
-        if let resolved = store.repositoryTopologyAtom.repoAndWorktree(containing: pane.metadata.facets.cwd) {
+        if let resolved = store.repositoryTopologyAtom.repoAndWorktree(containing: facets.cwd) {
             return resolved.worktree.id
+        }
+        if hasExplicitWorktreeId {
+            return nil
         }
         let worktreeIds = store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)
         return worktreeIds.count == 1 ? worktreeIds[0] : nil
@@ -4003,8 +3997,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 let activeTabId = store.tabLayoutAtom.activeTabId,
                 let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: activeTabId),
                 zoomPresentation.sourcePaneId == target,
-                let sourcePane = store.paneAtom.pane(target),
-                case .terminal = sourcePane.content
+                let sourcePaneState = store.paneAtom.graphAtom.paneState(target),
+                case .terminal = sourcePaneState.paneContent
             else {
                 return false
             }
@@ -4089,8 +4083,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: activeTabId)
             {
                 guard
-                    let sourcePane = store.paneAtom.pane(zoomPresentation.sourcePaneId),
-                    case .terminal = sourcePane.content
+                    let sourcePaneState = store.paneAtom.graphAtom.paneState(
+                        zoomPresentation.sourcePaneId
+                    ),
+                    case .terminal = sourcePaneState.paneContent
                 else {
                     return false
                 }

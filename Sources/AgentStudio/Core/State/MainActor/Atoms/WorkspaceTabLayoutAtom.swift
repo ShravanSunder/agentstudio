@@ -65,6 +65,17 @@ package final class WorkspaceTabLayoutAtom {
         derived.tabContaining(paneId: paneId)
     }
 
+    package func tabID(containingPane paneID: UUID) -> UUID? {
+        arrangementAtom.graphAtom.tabID(containingPane: paneID)
+    }
+
+    package func activePaneID(forTab tabID: UUID) -> UUID? {
+        guard let arrangementID = arrangementAtom.cursorAtom.activeArrangementId(forTab: tabID) else {
+            return nil
+        }
+        return arrangementAtom.cursorAtom.activePaneId(forArrangement: arrangementID)
+    }
+
     package func appendTab(_ tab: Tab) {
         shellAtom.appendTabShell(TabShell(id: tab.id, name: tab.name, colorHex: tab.colorHex))
         arrangementAtom.appendState(Self.arrangementState(from: tab))
