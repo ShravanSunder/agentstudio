@@ -142,6 +142,24 @@ struct CIFastLaneWorkflowTests {
         #expect(!testHelperScript.contains("swift test list ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build"))
     }
 
+    @Test("global preferences benchmark stays out of the parallel fast lane")
+    func globalPreferencesBenchmarkStaysOutOfParallelFastLane() throws {
+        let benchmarkTest = try String(
+            contentsOfFile:
+                "Tests/AgentStudioTests/App/Boot/GlobalPreferencesBootstrapBenchmarkTests.swift",
+            encoding: .utf8
+        )
+        let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
+        let benchmarkTask = try miseTask(named: "test-benchmark", in: miseConfig)
+
+        #expect(benchmarkTest.contains("struct GlobalPreferencesBootstrapBenchmarkTests"))
+        #expect(
+            benchmarkTask.contains(
+                "swift test --build-path \"$BUILD_PATH\" --filter \"GlobalPreferencesBootstrapBenchmarkTests\""
+            )
+        )
+    }
+
     @Test("real zmx lifecycle proof stays in its dedicated E2E lane")
     func realZmxLifecycleProofStaysInDedicatedE2ELane() throws {
         let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
