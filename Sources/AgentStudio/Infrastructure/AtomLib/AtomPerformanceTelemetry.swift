@@ -25,8 +25,14 @@ package final class AtomPerformanceTelemetry {
     }
 
     func drainForTests() async throws {
-        try await eventQueue?.drain()
-        if eventQueue == nil {
+        let eventQueue = self.eventQueue
+        let traceRuntime = self.traceRuntime
+        self.eventQueue = nil
+        self.traceRuntime = nil
+
+        if let eventQueue {
+            try await eventQueue.drain()
+        } else {
             try await traceRuntime?.flush()
         }
     }
